@@ -19,7 +19,13 @@ import {
   type EnterpriseEvidence,
   type PinnedLine,
 } from './compat.js'
-import { finalizeTemplateApp, type FinalizeTemplateResult, type TemplateNextStepsInput } from './finalize.js'
+import {
+  detectTemplateStartup,
+  finalizeTemplateApp,
+  hasDockerComposeFile,
+  type FinalizeTemplateResult,
+  type TemplateNextStepsInput,
+} from './finalize.js'
 import {
   describeTemplateSelection,
   downloadSelectedTemplate,
@@ -137,5 +143,7 @@ export async function scaffoldFromTemplate(
     hasEnvExample: existsSync(join(targetDir, '.env.example')),
     envKeys: manifest.status === 'ok' ? manifest.env : [],
     provenance,
+    startup: detectTemplateStartup(targetDir),
+    hasDockerCompose: hasDockerComposeFile(targetDir),
   }
 }

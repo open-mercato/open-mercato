@@ -147,6 +147,32 @@ function safeLink(link: string | undefined): string | null {
   }
 }
 
+/**
+ * How the created app starts: `infra` has `setup` and `infra:up` (scaffolds since #7865, setup starts the containers),
+ * `setup` has only `setup` (it expects the services to run), `manual` has neither.
+ */
+export type TemplateStartup = 'infra' | 'setup' | 'manual'
+
+const COMPOSE_FILES = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']
+
+/** Reads the created app's `package.json` scripts to pick its startup kind. An unreadable file counts as `manual`. */
+export function detectTemplateStartup(appDir: string): TemplateStartup {
+  let scripts: unknown
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8').replace(/^﻿/, ''))
+    scripts = isRecord(parsed) ? parsed.scripts : undefined
+  } catch {
+    return 'manual'
+  }
+  if (!isRecord(scripts) || typeof scripts.setup !== 'string') return 'manual'
+  return typeof scripts['infra:up'] === 'string' ? 'infra' : 'setup'
+}
+
+/** Whether the created app has a root Docker Compose file that `docker compose up -d` picks up. */
+export function hasDockerComposeFile(appDir: string): boolean {
+  return COMPOSE_FILES.some((file) => existsSync(join(appDir, file)))
+}
+
 export type TemplateNextStepsInput = {
   appName: string
   /** Whether the created app has a root `.env.example`. */
@@ -154,15 +180,25 @@ export type TemplateNextStepsInput = {
   /** Env keys the manifest declares. */
   envKeys: TemplateEnvKey[]
   provenance: TemplateProvenance
+  startup: TemplateStartup
+  /** Whether the created app has a root Docker Compose file. */
+  hasDockerCompose: boolean
 }
 
-/** Next steps for an app created with `--template`: `cp .env.example .env` and the declared env keys when present. */
+/**
+ * Next steps for an app created with `--template`, matched to the scripts the app has: `yarn setup` like a normal
+ * scaffold when it is infra-aware, the services first and then `yarn setup` when its setup expects them running, and
+ * `yarn install`, `yarn initialize`, `yarn dev` otherwise. `cp .env.example .env` is skipped only for an infra-aware
+ * app with no declared keys, because its setup copies the file itself.
+ */
 export function printTemplateImportNextSteps(input: TemplateNextStepsInput, log: (line: string) => void = console.log): void {
+  const hasKeys = input.envKeys.length > 0
+  const copiesEnv = input.hasEnvExample && (input.startup !== 'infra' || hasKeys)
   log('Next steps:')
   log('')
   log(pc.cyan(`  cd ${input.appName}`))
-  if (input.hasEnvExample) log(pc.cyan('  cp .env.example .env'))
-  if (input.envKeys.length > 0) {
+  if (copiesEnv) log(pc.cyan('  cp .env.example .env'))
+  if (hasKeys) {
     const width = Math.max(...input.envKeys.map((key) => key.name.length))
     log(pc.dim(`  # Fill in the keys this template declares${input.hasEnvExample ? '' : ' in .env'}:`))
     for (const key of input.envKeys) {
@@ -170,9 +206,31 @@ export function printTemplateImportNextSteps(input: TemplateNextStepsInput, log:
       log(pc.dim(`  #   ${parts.join('  ').trimEnd()}`))
     }
   }
-  log(pc.cyan('  yarn install'))
-  log(pc.cyan('  yarn initialize'))
-  log(pc.cyan('  yarn dev'))
+  if (input.startup === 'infra') {
+    log(pc.cyan('  yarn setup'))
+    log(pc.dim('  # Checks Docker, starts PostgreSQL, Redis and Meilisearch and waits until they are healthy,'))
+    log(pc.dim('  # then installs dependencies, migrates and initializes the database and starts the dev server.'))
+    log(pc.dim('  # Needs Node 24, Yarn 4 (corepack enable) and a running Docker engine. Safe to re-run: data and .env are kept.'))
+    log('')
+    log('Using your own PostgreSQL, Redis and Meilisearch instead of Docker:')
+    if (input.hasEnvExample && !copiesEnv) log(pc.cyan('  cp .env.example .env'))
+    log(pc.dim('  # Point DATABASE_URL (and Redis/Meilisearch settings) at your services, then:'))
+    log(pc.cyan('  yarn setup --no-infra'))
+    log(pc.dim('  # Makes no Docker calls and keeps your URLs'))
+  } else if (input.startup === 'setup') {
+    if (input.hasDockerCompose) {
+      log(pc.cyan('  docker compose up -d'))
+      log(pc.dim('  # Starts PostgreSQL, Redis and Meilisearch from the app\'s Docker Compose file.'))
+    } else {
+      log(pc.dim('  # Start PostgreSQL, Redis and Meilisearch and point DATABASE_URL (and Redis/Meilisearch settings) in .env at them, then:'))
+    }
+    log(pc.cyan('  yarn setup'))
+    log(pc.dim('  # Installs dependencies, migrates and initializes the database and starts the dev server.'))
+  } else {
+    log(pc.cyan('  yarn install'))
+    log(pc.cyan('  yarn initialize'))
+    log(pc.cyan('  yarn dev'))
+  }
   log('')
   log(pc.dim(`Created from the app template ${input.provenance.repo}@${input.provenance.sha} (recorded in package.json "${PROVENANCE_FIELD}").`))
   log(pc.dim('If you want agentic tooling in the app later, run `yarn mercato agentic:init` inside it.'))
