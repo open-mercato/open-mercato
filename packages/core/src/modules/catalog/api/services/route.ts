@@ -5,6 +5,8 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { E } from '#generated/entities.ids.generated'
 import {
   CatalogProductCategory,
   CatalogService,
@@ -47,25 +49,6 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-const UUID_REGEX =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
-
-function parseIds(raw?: string): string[] {
-  if (!raw) return []
-  return raw
-    .split(',')
-    .map((value) => value.trim())
-    .filter((value) => UUID_REGEX.test(value))
-}
-
-function parseBooleanFlag(raw?: string): boolean | undefined {
-  if (raw === undefined || raw === null) return undefined
-  const normalized = String(raw).trim().toLowerCase()
-  if (['true', '1', 'yes', 'active'].includes(normalized)) return true
-  if (['false', '0', 'no', 'inactive'].includes(normalized)) return false
-  return undefined
-}
-
 async function buildServiceFilters(query: ServicesQuery, ctx: CrudCtx): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
   const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -76,15 +59,11 @@ async function buildServiceFilters(query: ServicesQuery, ctx: CrudCtx): Promise<
   if (query.id) {
     filters.id = { $eq: query.id }
   }
-  const ids = parseIds(query.ids)
-  if (ids.length) {
-    filters.id = { $in: ids }
-  }
   if (query.categoryId) {
     filters.category = { $eq: query.categoryId }
   }
-  const active = parseBooleanFlag(query.isActive)
-  if (active !== undefined) {
+  const active = parseBooleanToken(query.isActive)
+  if (active !== null) {
     filters.is_active = active
   }
   const term = query.search?.trim()
@@ -105,8 +84,11 @@ async function buildServiceFilters(query: ServicesQuery, ctx: CrudCtx): Promise<
       { fields: ['id'] },
       scope,
     )
-    const matchedIds = matches.map((item) => item.id).filter((id): id is string => Boolean(id))
-    filters.id = matchedIds.length ? { $in: matchedIds } : { $eq: '00000000-0000-0000-0000-000000000000' }
+    const matchedIds = matches
+      .map((item) => item.id)
+      .filter((id): id is string => Boolean(id))
+      .filter((id) => !query.id || id === query.id)
+    filters.id = { $in: matchedIds }
   }
   return filters
 }
@@ -232,11 +214,11 @@ const crud = makeCrudRoute({
     softDeleteField: 'deletedAt',
   },
   indexer: {
-    entityType: 'catalog:service',
+    entityType: E.catalog.catalog_service,
   },
   list: {
     schema: listSchema,
-    entityId: 'catalog:catalog_service',
+    entityId: E.catalog.catalog_service,
     fields: [
       'id',
       'organization_id',
@@ -260,6 +242,7 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
     },
     buildFilters: buildServiceFilters,
+    decorateCustomFields: { entityIds: [E.catalog.catalog_service] },
   },
   hooks: {
     afterList: decorateServicesAfterList,

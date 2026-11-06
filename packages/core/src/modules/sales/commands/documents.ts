@@ -150,6 +150,7 @@ import {
   resolveUpsertCalculatedAmounts,
   type SalesPersistedLineSnapshot,
 } from "../lib/lineSnapshots";
+import { assertLineReferencesConsistent } from "../lib/lineReferences";
 import {
   assertAmountsModeUnsupportedOnQuote,
   assertExternalHeaderComplete,
@@ -5313,6 +5314,9 @@ const createQuoteCommand: CommandHandler<
       (line, index) =>
         createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
     );
+    for (const line of lineSnapshots) {
+      await assertLineReferencesConsistent(line, line.lineNumber ?? 1);
+    }
     const adjustmentDrafts: SalesAdjustmentDraft[] = adjustmentInputs
       ? adjustmentInputs.map((adj) => createAdjustmentDraftFromInput(adj))
       : [];
@@ -6700,6 +6704,9 @@ const createOrderCommand: CommandHandler<
       (line, index) =>
         createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
     );
+    for (const line of lineSnapshots) {
+      await assertLineReferencesConsistent(line, line.lineNumber ?? 1);
+    }
     const adjustmentDrafts: SalesAdjustmentDraft[] = adjustmentInputs
       ? adjustmentInputs.map((adj) => createAdjustmentDraftFromInput(adj))
       : [];
@@ -7993,9 +8000,9 @@ async function buildUpsertedOrderLineSnapshot(
     parsed.statusEntryId ?? existingSnapshot?.statusEntryId ?? null;
   const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
   const lineUomInput = {
-    productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+    productId: parsed.productId !== undefined ? parsed.productId : (existingSnapshot?.productId ?? null),
     productVariantId:
-      parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+      parsed.productVariantId !== undefined ? parsed.productVariantId : (existingSnapshot?.productVariantId ?? null),
     quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
     quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
     normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
@@ -8042,10 +8049,10 @@ async function buildUpsertedOrderLineSnapshot(
       existingSnapshot?.lineNumber ??
       fallbackLineNumber,
     kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
-    productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+    productId: parsed.productId !== undefined ? parsed.productId : (existingSnapshot?.productId ?? null),
     productVariantId:
-      parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-    serviceId: parsed.serviceId ?? existingSnapshot?.serviceId ?? null,
+      parsed.productVariantId !== undefined ? parsed.productVariantId : (existingSnapshot?.productVariantId ?? null),
+    serviceId: parsed.serviceId !== undefined ? parsed.serviceId : (existingSnapshot?.serviceId ?? null),
     name: parsed.name ?? existingSnapshot?.name ?? null,
     description: parsed.description ?? existingSnapshot?.description ?? null,
     comment: parsed.comment ?? existingSnapshot?.comment ?? null,
@@ -8100,6 +8107,8 @@ async function buildUpsertedOrderLineSnapshot(
     updatedSnapshot,
     resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
   );
+
+  await assertLineReferencesConsistent(updatedSnapshot, updatedSnapshot.lineNumber ?? 1);
 
   if (isExternalAmountsMode(order.totalsMode ?? "computed")) {
     await assertExternalLineComplete(
@@ -8727,9 +8736,9 @@ const quoteLineUpsertCommand: CommandHandler<
         parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
       const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
       const lineUomInput = {
-        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+        productId: parsed.productId !== undefined ? parsed.productId : (existingSnapshot?.productId ?? null),
         productVariantId:
-          parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+          parsed.productVariantId !== undefined ? parsed.productVariantId : (existingSnapshot?.productVariantId ?? null),
         quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
         quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
         normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
@@ -8781,10 +8790,10 @@ const quoteLineUpsertCommand: CommandHandler<
           existingSnapshot?.lineNumber ??
           lineSnapshots.length + 1,
         kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
-        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+        productId: parsed.productId !== undefined ? parsed.productId : (existingSnapshot?.productId ?? null),
         productVariantId:
-          parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-        serviceId: parsed.serviceId ?? existingSnapshot?.serviceId ?? null,
+          parsed.productVariantId !== undefined ? parsed.productVariantId : (existingSnapshot?.productVariantId ?? null),
+        serviceId: parsed.serviceId !== undefined ? parsed.serviceId : (existingSnapshot?.serviceId ?? null),
         name: parsed.name ?? existingSnapshot?.name ?? null,
         description: parsed.description ?? existingSnapshot?.description ?? null,
         comment: parsed.comment ?? existingSnapshot?.comment ?? null,
@@ -8837,6 +8846,7 @@ const quoteLineUpsertCommand: CommandHandler<
         parsed.promotionSnapshot ??
         (existingSnapshot as any)?.promotionSnapshot ??
         null;
+      await assertLineReferencesConsistent(updatedSnapshot, updatedSnapshot.lineNumber ?? 1);
 
       let nextLines = parsed.id
         ? lineSnapshots.map((line) =>

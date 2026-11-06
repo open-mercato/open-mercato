@@ -299,7 +299,6 @@ type SalesLineDialogProps = {
   documentId?: string;
   currencyCode: string | null | undefined;
   documentUpdatedAt?: string | null;
-  existingLineCount?: number;
   organizationId: string | null;
   tenantId: string | null;
   initialLine?: SalesLineRecord | null;
@@ -537,7 +536,6 @@ export function LineItemDialog({
   documentId,
   currencyCode,
   documentUpdatedAt,
-  existingLineCount,
   organizationId,
   tenantId,
   initialLine,
@@ -1530,55 +1528,6 @@ export function LineItemDialog({
     }
   }, []);
 
-  const isFirstDocumentLine = React.useCallback(async (): Promise<boolean> => {
-    if (typeof existingLineCount === "number" && Number.isFinite(existingLineCount)) {
-      return existingLineCount === 0;
-    }
-    const resolvedDocumentId =
-      typeof documentId === "string" && documentId.trim().length
-        ? documentId.trim()
-        : null;
-    if (!resolvedDocumentId) return false;
-    try {
-      const params = new URLSearchParams({
-        [documentKey]: resolvedDocumentId,
-        page: "1",
-        pageSize: "1",
-      });
-      const response = await apiCall<{ items?: unknown[]; total?: number }>(
-        `/api/${resourcePath}?${params.toString()}`,
-        undefined,
-        { fallback: { items: [], total: 0 } },
-      );
-      const total = normalizeNumber(response.result?.total, Number.NaN);
-      if (Number.isFinite(total)) return total === 0;
-      return Array.isArray(response.result?.items) && response.result.items.length === 0;
-    } catch (err) {
-      logger.error("sales.document.items.lineCount", { err });
-      return false;
-    }
-  }, [documentId, documentKey, existingLineCount, resourcePath]);
-
-  const syncDocumentCurrency = React.useCallback(
-    async (lineCurrency: string) => {
-      const normalizedLineCurrency = normalizeCurrencyCode(lineCurrency);
-      if (!normalizedLineCurrency) return;
-      const documentResourcePath =
-        kind === "order" ? "sales/orders" : "sales/quotes";
-      await updateCrud(
-        documentResourcePath,
-        { id: documentId, currencyCode: normalizedLineCurrency },
-        {
-          errorMessage: t(
-            "sales.documents.items.errorCurrencySync",
-            "Failed to align document currency with the first line.",
-          ),
-        },
-      );
-    },
-    [documentId, kind, t],
-  );
-
   const fetchLineStatusItems = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
       const options =
@@ -1788,10 +1737,6 @@ export function LineItemDialog({
           },
         );
       }
-      const shouldSyncDocumentCurrency =
-        !editingId &&
-        normalizeCurrencyCode(currencyCode) !== resolvedCurrency &&
-        (await isFirstDocumentLine());
 
       const resolvedNameRaw = (values.name ?? "").toString().trim();
       const resolvedName = isCustomLine
@@ -1890,11 +1835,11 @@ export function LineItemDialog({
         kind: isServiceLine ? "service" : "product",
         productId: isProductLine && values.productId
             ? String(values.productId)
-            : undefined,
+            : null,
         productVariantId: isProductLine && values.variantId
             ? String(values.variantId)
-            : undefined,
-        serviceId: isServiceLine && values.serviceId ? String(values.serviceId) : undefined,
+            : null,
+        serviceId: isServiceLine && values.serviceId ? String(values.serviceId) : null,
         quantity: qtyNumber,
         quantityUnit: resolvedQuantityUnit ?? undefined,
         currencyCode: resolvedCurrency,
@@ -1958,9 +1903,6 @@ export function LineItemDialog({
             ),
         ), editingId ? { id: editingId, ...submittedPayload } : submittedPayload);
         if (result.ok) {
-          if (shouldSyncDocumentCurrency) {
-            await syncDocumentCurrency(resolvedCurrency);
-          }
           if (onSaved) await onSaved();
           closeDialog();
         }
@@ -1998,8 +1940,6 @@ export function LineItemDialog({
       closeDialog,
       numberExample,
       parseUserNumber,
-      syncDocumentCurrency,
-      isFirstDocumentLine,
       resolvedOrganizationId,
       resolvedTenantId,
       runDocumentMutation,

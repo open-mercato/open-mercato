@@ -181,7 +181,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
     }
   }, [scopeVersion])
 
-  const rows = Array.isArray(value) ? value : []
+  const rows = React.useMemo(() => (Array.isArray(value) ? value : []), [value])
 
   const updateRow = React.useCallback((index: number, patch: Partial<ServiceWorkRequirementDraft>) => {
     const next = rows.map((row, rowIndex) => {

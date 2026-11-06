@@ -211,7 +211,7 @@ export default function ServicesDataTable() {
       meta: { priority: 3 },
       cell: ({ getValue }) => <BooleanIcon value={Boolean(getValue())} />,
     },
-  ], [t])
+  ], [locale, t])
 
   const handleDelete = React.useCallback(async (service: ServiceRow) => {
     const confirmed = await confirm({

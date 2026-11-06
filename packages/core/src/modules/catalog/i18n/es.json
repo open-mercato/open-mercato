@@ -790,6 +790,7 @@
   "catalog.search.priceKind.promotion": "Promoción",
   "catalog.search.status.inactive": "Inactivo",
   "catalog.search.variant.default": "Predeterminado",
+  "catalog.services.create.mediaTransferIncomplete": "Servicio creado, pero no se pudieron adjuntar {failed} de {total} archivos multimedia.",
   "catalog.services.flash.created": "Servicio creado",
   "catalog.services.flash.deleted": "Servicio archivado",
   "catalog.services.flash.updated": "Servicio actualizado",
