@@ -991,7 +991,6 @@ export class WmsReservationService {
           sourceType: input.sourceType,
           sourceId: input.sourceId,
           catalogVariantId: reservation.catalogVariantId,
-          warehouse: warehouseId,
           status: 'active',
           deletedAt: null,
           id: { $ne: reservation.id },
@@ -999,7 +998,10 @@ export class WmsReservationService {
         { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } },
         scope,
       )
-      const coveredQuantity = covering.reduce((sum, row) => sum + toNumber(row.quantity), 0)
+      const independentCovering = covering.filter(
+        (row) => extractReservationMetadata(row).convertedFromCheckout !== true,
+      )
+      const coveredQuantity = independentCovering.reduce((sum, row) => sum + toNumber(row.quantity), 0)
       const heldQuantity = toNumber(reservation.quantity)
       const touchedBalances: InventoryBalance[] = []
 
@@ -1032,6 +1034,7 @@ export class WmsReservationService {
       reservation.sourceType = input.sourceType
       reservation.sourceId = input.sourceId
       reservation.expiresAt = null
+      reservation.metadata = { ...extractReservationMetadata(reservation), convertedFromCheckout: true }
       reservation.idempotencyKey = keyOwner && keyOwner.id !== reservation.id ? `${baseKey}|converted|${reservation.id}` : baseKey
       await innerTrx.flush()
       return {

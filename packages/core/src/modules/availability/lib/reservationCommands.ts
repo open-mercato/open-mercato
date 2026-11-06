@@ -129,6 +129,12 @@ type ReserveLinesForCheckoutResultLike =
   | { ok: true; lines: GateLineResult[]; sideEffects: WmsSideEffectsLike }
   | { ok: false; lines: GateShortfallLine[] }
 
+class CommitRecoveryRollback extends Error {
+  constructor(readonly outcome: Extract<ReserveLinesForCheckoutResultLike, { ok: false }>) {
+    super('[internal] commit recovery re-gate failed')
+  }
+}
+
 export type WmsConvertResultLike = {
   reservationId: string
   reservationEntity: unknown
@@ -903,7 +909,7 @@ async function commitRecovery(
         expiresAt: null,
         warehouseIds: null,
       })
-      if (!result.ok) return result
+      if (!result.ok) throw new CommitRecoveryRollback(result)
       const affected = await trx.nativeUpdate(
         AvailabilityReservation,
         { id: reservation.id, status: reservation.status },
@@ -925,6 +931,12 @@ async function commitRecovery(
       throw new CrudHttpError(409, { error: 'commit_conflict' })
     }
     return { ok: true, lines: [], sideEffects: {} }
+  }).catch((error: unknown) => {
+    if (error instanceof CommitRecoveryRollback) {
+      recoverySideEffects = {}
+      return error.outcome
+    }
+    throw error
   })
 
   if (wmsService) await wmsService.emitSideEffects(ctx, recoverySideEffects)

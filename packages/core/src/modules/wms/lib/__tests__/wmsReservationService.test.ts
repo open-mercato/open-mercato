@@ -466,6 +466,58 @@ describe('WmsReservationService.convertInTransaction', () => {
       `reservation|order|${ORDER_ID}|${VARIANT_ID}|${WAREHOUSE_ID}|5|converted|${RESERVATION_ID}`,
     )
   })
+
+  it('counts an order row held in another warehouse as covering and queries across warehouses', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    const reservation = makeReservation({ sourceType: 'checkout', sourceId: 'checkout-session-1' })
+    const covering = makeReservation({
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      warehouse: { id: 'ffffffff-ffff-4fff-8fff-ffffffffffff' },
+      sourceType: 'order',
+      sourceId: ORDER_ID,
+      quantity: '3',
+    })
+    const balanceA = makeBalance({ id: BALANCE_ID_A, location: { id: LOCATION_A }, quantityReserved: '5' })
+    const balanceB = makeBalance({ id: BALANCE_ID_B, location: { id: LOCATION_B }, quantityReserved: '3' })
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return where?.idempotencyKey ? null : reservation
+      if (entity === InventoryBalance) return where?.id === BALANCE_ID_A ? balanceA : balanceB
+      return null
+    })
+    findWithDecryption.mockImplementation((_em: unknown, entity: unknown) => (entity === InventoryReservation ? [covering] : []))
+
+    const result = await service.convertInTransaction(em, createCtx(em), convertInput)
+
+    const coveringCall = findWithDecryption.mock.calls.find((call) => call[1] === InventoryReservation)
+    expect(coveringCall?.[2]).not.toHaveProperty('warehouse')
+    expect(result.outcome).toBe('converted')
+    expect(reservation.quantity).toBe('5')
+    expect(Number(balanceB.quantityReserved)).toBe(0)
+  })
+
+  it('does not treat a sibling row already converted from the same checkout as covering', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    const reservation = makeReservation({ sourceType: 'checkout', sourceId: 'checkout-session-1' })
+    const sibling = makeReservation({
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      sourceType: 'order',
+      sourceId: ORDER_ID,
+      quantity: '8',
+      metadata: { allocatedBuckets: [], convertedFromCheckout: true },
+    })
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown) =>
+      entity === InventoryReservation ? reservation : null,
+    )
+    findWithDecryption.mockImplementation((_em: unknown, entity: unknown) => (entity === InventoryReservation ? [sibling] : []))
+
+    const result = await service.convertInTransaction(em, createCtx(em), convertInput)
+
+    expect(result.outcome).toBe('converted')
+    expect(reservation.quantity).toBe('8')
+    expect((reservation.metadata as { convertedFromCheckout?: boolean }).convertedFromCheckout).toBe(true)
+  })
 })
 
 describe('WmsReservationService.reserveLinesForCheckout product-level safety-stock pool', () => {

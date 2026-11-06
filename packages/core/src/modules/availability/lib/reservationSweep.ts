@@ -288,6 +288,7 @@ export async function reconcileAvailabilityReservations(
       })
 
       let convertSideEffects: WmsSideEffectsLike = {}
+      let convertedAny = false
       await em.transactional(async (trx) => {
         for (const id of stillCheckout) {
           const converted = await wmsService.convertInTransaction(trx, ctx, {
@@ -299,6 +300,7 @@ export async function reconcileAvailabilityReservations(
             expectedSourceId: hold.sourceId,
           })
           if (converted.outcome === 'not_convertible') continue
+          convertedAny = true
           convertSideEffects = mergeSideEffects(convertSideEffects, {
             reservations: converted.reservationEntity
               ? [{ entity: converted.reservationEntity, action: 'updated' }]
@@ -308,7 +310,7 @@ export async function reconcileAvailabilityReservations(
         }
       })
       await wmsService.emitSideEffects(ctx, convertSideEffects)
-      result.convertedHolds += 1
+      if (convertedAny) result.convertedHolds += 1
     }
 
     holdCursor = holds[holds.length - 1].id

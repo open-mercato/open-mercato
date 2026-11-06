@@ -157,4 +157,29 @@ describe('commitAvailability row ownership', () => {
     expect(calls.released).toEqual([])
     expect(emittedEvents.some((event) => event.id === 'availability.shortfall.detected')).toBe(true)
   })
+
+  it('keeps intact checkout holds active when the recovery re-gate fails', async () => {
+    const rows: WmsRow[] = [
+      { id: 'w1', tenantId: TENANT, organizationId: ORG, sourceType: 'checkout', sourceId: 'session-1', status: 'active' },
+      { id: 'w2', tenantId: TENANT, organizationId: ORG, sourceType: 'checkout', sourceId: 'session-1', status: 'released' },
+    ]
+    const { container, calls, hold } = buildEnvironment(rows)
+    const wms = container.resolve('wmsReservationService') as { reserveLinesForCheckout: unknown }
+    wms.reserveLinesForCheckout = async (_t: unknown, _c: unknown, input: { lines: Array<{ key: string; quantity: number }> }) => ({
+      ok: false,
+      lines: input.lines.map((line) => ({ key: line.key, requested: line.quantity, sellable: 0 })),
+    })
+
+    const result = await commitAvailability(container as never, {
+      tenantId: TENANT,
+      organizationId: ORG,
+      idempotencyKey: 'key-1',
+      orderId: ORDER_ID,
+    })
+
+    expect(result.status).toBe('stock_lost')
+    expect(calls.released).toEqual(['w1'])
+    expect(rows.find((row) => row.id === 'w1')!.status).toBe('active')
+    expect(hold.status).toBe('active')
+  })
 })

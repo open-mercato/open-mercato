@@ -72,7 +72,7 @@ function createFakeAvailabilityEm(rows: Row[]) {
 
 type WmsRow = { id: string; tenantId: string; organizationId: string; sourceType: string; status: string; createdAt: Date }
 
-function createFakeWmsService(wmsRows: WmsRow[]) {
+function createFakeWmsService(wmsRows: WmsRow[], notConvertibleIds: string[] = []) {
   const releaseCalls: Array<{ reservationId: string }> = []
   const convertCalls: Array<{ reservationId: string; sourceType: string; sourceId: string }> = []
   const service = {
@@ -93,6 +93,9 @@ function createFakeWmsService(wmsRows: WmsRow[]) {
       input: { reservationId: string; sourceType: string; sourceId: string },
     ) {
       convertCalls.push({ reservationId: input.reservationId, sourceType: input.sourceType, sourceId: input.sourceId })
+      if (notConvertibleIds.includes(input.reservationId)) {
+        return { reservationId: input.reservationId, reservationEntity: null, outcome: 'not_convertible', touchedBalances: [] }
+      }
       const row = wmsRows.find((r) => r.id === input.reservationId)
       if (row) {
         row.sourceType = input.sourceType
@@ -312,6 +315,21 @@ describe('reconcileAvailabilityReservations (A12)', () => {
     expect(wmsService.convertCalls).toEqual([{ reservationId: 'wms-c-stale', sourceType: 'order', sourceId: 'order-1' }])
     expect(wmsRows.find((r) => r.id === 'wms-c-stale')!.sourceType).toBe('order')
     expect(reportedErrors.some((e) => e.meta.code === 'availability.reconciliation.hold_committed_wms_still_checkout')).toBe(true)
+  })
+
+  it('drift (c) does not count a hold as converted when every row came back not_convertible', async () => {
+    const hold = buildHold({ id: 'hold-c-nc', status: 'committed', orderId: 'order-3', wmsReservationIds: ['wms-c-nc'] })
+    const wmsRows: WmsRow[] = [
+      { id: 'wms-c-nc', tenantId: TENANT, organizationId: ORG, sourceType: 'checkout', status: 'active', createdAt: now },
+    ]
+    const em = createFakeAvailabilityEm([hold])
+    const wmsService = createFakeWmsService(wmsRows, ['wms-c-nc'])
+    const container = buildContainer(em, wmsService)
+
+    const result = await reconcileAvailabilityReservations(container, { tenantId: TENANT }, now)
+
+    expect(wmsService.convertCalls).toHaveLength(1)
+    expect(result.convertedHolds).toBe(0)
   })
 
   it('drift (c) is status-aware: a committed hold with a released or missing checkout row is reported, never relabeled to order', async () => {
