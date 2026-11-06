@@ -26,6 +26,12 @@ jest.mock('../../logger', () => {
   return { createLogger: () => logger }
 })
 
+const reportErrorMock = jest.fn()
+
+jest.mock('../../telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
+}))
+
 const createBootstrapMock = jest.fn(() => () => {})
 
 jest.mock(
@@ -42,6 +48,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { createLogger } from '../../logger'
+import { BOOTSTRAP_REGISTRATIONS_FAILED_KEY, didBootstrapRegistrationsFail } from '../bootstrapRegistrations'
 import { bootstrapFromAppRoot } from '../dynamicLoader'
 
 const mockedLogger = createLogger('shared') as unknown as {
@@ -166,6 +173,37 @@ describe('bootstrapFromAppRoot — app-level DI reaches worker/CLI processes', (
     mockedLogger.error.mockClear()
     delete (globalThis as Record<string, unknown>)[APP_DI_CALL_COUNTER_KEY]
     delete (globalThis as Record<string, unknown>)[BOOTSTRAP_REGISTRATION_CALL_COUNTER_KEY]
+    delete (globalThis as Record<string, unknown>)[BOOTSTRAP_REGISTRATIONS_FAILED_KEY]
+    reportErrorMock.mockClear()
+  })
+
+  it('flags and reports the failure when the generated registrations cannot load', async () => {
+    const appRoot = createAppRoot(null)
+    const generatedDir = path.join(appRoot, '.mercato', 'generated')
+    writeCompiledPair(
+      appRoot,
+      path.join(generatedDir, 'bootstrap-registrations.generated.ts'),
+      path.join(generatedDir, 'bootstrap-registrations.generated.mjs'),
+      { ts: 'export function runBootstrapRegistrations() {}', compiled: "throw new Error('broken module')" },
+    )
+
+    await expect(bootstrapFromAppRoot(appRoot)).resolves.toBeDefined()
+
+    expect(didBootstrapRegistrationsFail()).toBe(true)
+    expect(reportErrorMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ code: 'shared.bootstrap_registrations_load_failed' }),
+    )
+  })
+
+  it('does not flag a failure when the file has not been generated', async () => {
+    const appRoot = createAppRoot(null)
+    fs.rmSync(path.join(appRoot, '.mercato', 'generated', 'bootstrap-registrations.generated.ts'))
+
+    await bootstrapFromAppRoot(appRoot)
+
+    expect(didBootstrapRegistrationsFail()).toBe(false)
+    expect(mockedLogger.error).not.toHaveBeenCalled()
   })
 
   it('runs generated registrations for worker and CLI processes (#7980)', async () => {

@@ -5,6 +5,7 @@ import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { Message } from '../data/entities'
 import { attachmentIdsPayloadSchema, unlinkAttachmentPayloadSchema } from '../data/validators'
 import { linkAttachmentsToMessage } from '../lib/attachments'
+import { resolveAttachmentLinkAccess } from '../lib/attachmentLinkAccess'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { assertOrganizationAccess, getAttachmentIdsForMessage, type MessageScopeInput } from './shared'
 
@@ -66,6 +67,7 @@ const linkDraftAttachmentsCommand: CommandHandler<unknown, { ok: true }> = {
       input.attachmentIds,
       input.organizationId,
       input.tenantId,
+      resolveAttachmentLinkAccess(ctx),
     )
     return { ok: true }
   },

@@ -640,3 +640,7 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 `POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
 
 **Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
+
+## Attachment owner access on direct readers (2026-11-03, #6282)
+
+STABLE behavior BREAK, protected owners only (e.g. Documents): the `attachments.*` AI tools, chat `attachmentIds`, the pending-action recheck, `catalog.draft_description_from_media` and Messages compose, reply and draft linking deny protected attachments the caller may not access; without it they bypass the #6726 owner policy, and a bridge would keep that bypass. New exports and optional tool context and Messages link fields are additive; the spec lists them. [Migration](UPGRADE_NOTES.md#ai-attachment-tools-ai-chat-attachments-and-messages-linking-enforce-attachment-owner-policies-6282); [spec](.ai/specs/2026-11-03-attachment-direct-reader-owner-access.md). Human maintainer waiver: PENDING.

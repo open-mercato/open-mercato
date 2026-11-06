@@ -26,6 +26,23 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
 }))
 
+const mockDeniedAttachmentIds: string[] = []
+const mockEvaluatedAuth: unknown[] = []
+jest.mock('@open-mercato/core/modules/attachments/lib/access-rows', () => {
+  const actual = jest.requireActual('@open-mercato/core/modules/attachments/lib/access-rows')
+  return {
+    ...actual,
+    evaluateAttachmentRowAccess: async (input: { rows: Array<{ id: string }>; auth: unknown }) => {
+      mockEvaluatedAuth.push(input.auth)
+      if (!mockDeniedAttachmentIds.length) return actual.evaluateAttachmentRowAccess(input)
+      return {
+        allowed: input.rows.filter((row) => !mockDeniedAttachmentIds.includes(row.id)),
+        denied: input.rows.filter((row) => mockDeniedAttachmentIds.includes(row.id)),
+      }
+    },
+  }
+})
+
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: (...args: unknown[]) => loadCustomFieldValuesMock(...args),
   loadCustomFieldDefinitionIndex: (...args: unknown[]) =>
@@ -60,6 +77,7 @@ function makeAuthoringCtx(overrides: {
 } = {}) {
   const em: any = {
     count: jest.fn().mockResolvedValue(0),
+    find: jest.fn().mockResolvedValue([]),
     persist: jest.fn(function (this: any) {
       return em
     }),
@@ -286,6 +304,50 @@ describe('catalog.draft_description_from_media', () => {
     } finally {
       warnSpy.mockClear()
     }
+  })
+
+  it('drops userUploadedAttachmentIds the attachment owner policy denies', async () => {
+    seedProductHit()
+    const deniedAttachmentId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    findWithDecryptionMock.mockImplementation((...args: unknown[]) => {
+      const where = (args[2] ?? {}) as Record<string, unknown>
+      if (where && typeof where === 'object' && 'id' in where && Array.isArray((where.id as any)?.$in)) {
+        return Promise.resolve([
+          { id: deniedAttachmentId, tenantId: 'tenant-1', fileName: 'mail.pdf', mimeType: 'application/pdf', fileSize: 10 },
+        ])
+      }
+      return Promise.resolve([])
+    })
+    mockDeniedAttachmentIds.push(deniedAttachmentId)
+    try {
+      const result = (await tool.handler(
+        { productId: PRODUCT_ID, userUploadedAttachmentIds: [deniedAttachmentId] },
+        makeAuthoringCtx() as any,
+      )) as Record<string, unknown>
+      const userMedia = (result.context as Record<string, unknown>).userMedia as Array<Record<string, unknown>>
+      expect(userMedia).toHaveLength(0)
+    } finally {
+      mockDeniedAttachmentIds.length = 0
+    }
+  })
+
+  it('evaluates userUploadedAttachmentIds for an API key as the key', async () => {
+    seedProductHit()
+    const attachmentId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    findWithDecryptionMock.mockImplementation((...args: unknown[]) => {
+      const where = (args[2] ?? {}) as Record<string, unknown>
+      if (where && typeof where === 'object' && 'id' in where && Array.isArray((where.id as any)?.$in)) {
+        return Promise.resolve([{ id: attachmentId, tenantId: 'tenant-1', fileName: 'a.pdf', mimeType: 'application/pdf', fileSize: 10 }])
+      }
+      return Promise.resolve([])
+    })
+    mockEvaluatedAuth.length = 0
+    await tool.handler(
+      { productId: PRODUCT_ID, userUploadedAttachmentIds: [attachmentId] },
+      { ...makeAuthoringCtx(), apiKeyId: 'key-1' } as any,
+    )
+    expect(mockEvaluatedAuth).toEqual([expect.objectContaining({ sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1' })])
+    expect(mockEvaluatedAuth[0]).not.toHaveProperty('userId')
   })
 
   it('does NOT fetch attachment bytes — only surfaces ids + metadata', async () => {

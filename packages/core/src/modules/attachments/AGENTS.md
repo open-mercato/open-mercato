@@ -56,6 +56,18 @@ write time.
   attachments upload route (`api/route.ts`) already guards its creation site.
 - **MUST gate every attachment read through `checkAttachmentAccess`** (`lib/access.ts`)
   so tenant scoping and partition visibility are enforced consistently.
+- Code that loads attachment rows directly (outside the attachment routes and
+  `attachmentService`), for example an AI tool or a link into another record,
+  **MUST filter them with `evaluateAttachmentRowAccess`** (exported from the module
+  index) for the acting principal, so owner access policies apply. When moving rows to
+  another owner, pass a `destination`, load them with `ATTACHMENT_ROW_WRITE_LOCK`
+  (`lib/access-rows`) and evaluate and write in one transaction; build key-authenticated
+  principals with `buildAttachmentAccessAuth` so the key, not its creator, is evaluated.
+- A module that reads attachment rows by caller-supplied id outside the helper
+  **MUST be listed in `KNOWN_DIRECT_ATTACHMENT_READER_MODULES`** (`lib/access-readers.ts`)
+  until it is fixed; it then exports `enforcesOwnerAccessOnDirectReads = true` from its
+  `data/attachment-access.ts`. A CLI, worker or MCP process that cannot load the generated bootstrap registrations treats the access registry as invalid. Owner modules whose files must never reach such a reader
+  check `listUnguardedAttachmentReaders()` before storing them.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.

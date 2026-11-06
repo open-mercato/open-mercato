@@ -1,6 +1,6 @@
 # Attachment Owner Access on Direct Attachment Readers
 
-**Status**: Draft
+**Status**: In Progress
 **Created**: 2026-11-03
 **Issue**: [#6282](https://github.com/open-mercato/open-mercato/issues/6282) (first consumer: `2026-10-25-inbox-ops-inbound-attachments.md`)
 **Implementation PR**: [#7989](https://github.com/open-mercato/open-mercato/pull/7989)
@@ -66,7 +66,7 @@ A user with `attachments.view` or AI-assistant access can therefore read a Docum
 | D2 | **The real principal is evaluated**: a user session as the user; a call authenticated by an API key as the key (`sub = 'api_key:<keyId>'`, `keyId`, `isApiKey: true`; owner resolvers such as Documents refuse a key principal without a matching `keyId`), never as the key's creator; a session-bound key (the AI chat's MCP credential) as the key together with the user it acts for (`userId`), once that user is verified as API-key authentication verifies it. | #6829 recomputes features from `auth.sub` through `rbacService`; evaluating the creator would let a narrow key read what only its creator may read. A session key already acts for its user everywhere else (shared API-key auth sets `userId`, `rbacService` intersects its grants with that user's), so its user keeps their own files and user-level shares in the chat. |
 | D3 | **Transfers and links evaluate the destination too.** `reassign` is evaluated on the current owner and on the row as it would look after the move (`destination`, with `moveAssignments` rewriting assignments that point at the source record, as #6829's transfer route does). | Moving a file into a protected record must not bypass that record's policy. |
 | D4 | **Fail closed.** A caller without a principal, an invalid registry or unparsable stored requirements deny protected rows; a Messages link with any denied attachment fails as a whole. | Partial links and silent fallbacks would hide which files were refused. |
-| D5 | **Unprotected owners keep today's behavior.** Rows whose owner declares no policy are always allowed without loading a resolver. | The tightening affects protected owners only. |
+| D5 | **Unprotected owners keep today's behavior.** Rows whose owner declares no policy are always allowed without loading a resolver, unless the registry is invalid, which denies every row. | The tightening affects protected owners only. |
 | D6 | **Owner modules can detect unguarded direct readers.** The attachments module keeps a list of module ids known to read attachment rows directly outside this helper; a listed module stops counting as unguarded once it declares that it enforces owner access. | OSS cannot change or inspect enterprise code. An owner module whose files must never reach an unguarded reader (inbound mail) can stay off until the reader is fixed, instead of blocking its own merge on an unowned enterprise change. |
 
 ### Alternatives Considered
@@ -97,11 +97,15 @@ A user with `attachments.view` or AI-assistant access can therefore read a Docum
 - with `destination: { entityId, recordId, moveAssignments? }` for `reassign`, it also evaluates the row as it would look after the move;
 - rows of owners without a policy are always allowed.
 
+**CLI, worker and MCP processes.** `bootstrapFromAppRoot` runs the generated bootstrap registrations, so `mcp:serve`, `mcp:serve-http` and `mcp:dev` evaluate the same resolvers as the app. If the generated file fails to load, the process still starts, logs and reports the error, and treats the access registry as invalid (`didBootstrapRegistrationsFail`), so direct readers deny every row and attachment writes that need the registry refuse.
+
+Callers that move rows (`transfer_record_attachments`, the Messages link functions) load them with `ATTACHMENT_ROW_WRITE_LOCK` and evaluate and write in the same transaction, as the transfer route does. Re-linking a row already on the message is not a move and is not evaluated.
+
 `buildAttachmentAccessAuth(principal)` builds the `AuthContext` for D2 from `{ tenantId, organizationId, userId?, apiKeyId?, apiKeyUserId?, isSuperAdmin? }`, returning `null` when neither a user nor a key is known. A key principal carries `sub = 'api_key:<apiKeyId>'`, `keyId = apiKeyId` and `isApiKey: true`, plus `userId = apiKeyUserId` for a verified session key. A `userId` that is itself an authenticated `api_key:<id>` subject (the AI routes pass `auth.sub`) is read as that key.
 
 ### Callers
 
-- **AI tools** (`attachments-pack.ts`): `list_record_attachments` and `read_attachment` omit, or report as not found, rows the caller may not read; `transfer_record_attachments` leaves rows the caller may not see in place, as if absent, and refuses the request when any visible row may not be reassigned, including into a protected destination.
+- **AI tools** (`attachments-pack.ts`): `list_record_attachments` and `read_attachment` omit, or report as not found, rows the caller may not read. `read_attachment` always evaluates `metadata`, because it returns assignments and tags, and also evaluates `read` when extracted text is requested. `transfer_record_attachments` leaves rows the caller may not see in place, as if absent, and refuses the request when any visible row may not be reassigned, including into a protected destination.
 - **AI chat attachments** (`attachment-parts.ts`, through `ai_assistant/lib/attachment-owner-access.ts` `filterAttachmentRowsByOwnerAccess`): protected rows the caller may not read are dropped before bytes or text reach the model; when the evaluation itself fails, every attachment of the turn is dropped and the error is reported.
 - **Pending-action recheck**: a protected attachment the caller may not read rejects the confirmation with 403 and the recheck code `attachment_access_denied`.
 - **Catalog media tool**: denied `userUploadedAttachmentIds` are dropped.
@@ -111,7 +115,7 @@ A user with `attachments.view` or AI-assistant access can therefore read a Docum
 ### Unguarded-reader declarations (`attachments/lib/access-readers.ts`, Phase 2)
 
 - `KNOWN_DIRECT_ATTACHMENT_READER_MODULES`: module ids known to read attachment rows by caller-supplied id outside this helper. It starts with `agent_orchestrator`. Entries are string ids only; the attachments module imports nothing from them.
-- **Declaration.** A module declares that its direct readers evaluate owner access through `evaluateAttachmentRowAccess` and send no protected row to `OcrService` by exporting `enforcesOwnerAccessOnDirectReads = true` from its `data/attachment-access.ts`. The attachments generator plugin (`attachments/generators.ts`) carries it into the module's registry entry as the optional `AttachmentAccessResolverEntry.enforcesOwnerAccessOnDirectReads`; its entry expression is the same for every module and narrows every field it reads from the namespace import (`Array.isArray(ns.attachmentAccessResolvers) ? ns.attachmentAccessResolvers : []`, likewise `protectedAttachmentTargets`, and `ns.enforcesOwnerAccessOnDirectReads === true`, with `ns = X as Record<string, unknown>`), so a convention file that exports only some of them, such as only the flag, typechecks and registers empty lists or `false`, and `registerAttachmentAccessResolvers` records it, so the declaration is available wherever resolvers are, with no DI or bootstrap ordering involved.
+- **Declaration.** A module declares that its direct readers evaluate owner access through `evaluateAttachmentRowAccess` and send no protected row to `OcrService` by exporting `enforcesOwnerAccessOnDirectReads = true` from its `data/attachment-access.ts`. The attachments generator plugin (`attachments/generators.ts`) carries it into the module's registry entry as the optional `AttachmentAccessResolverEntry.enforcesOwnerAccessOnDirectReads`; its entry expression is the same for every module and reads every field through the namespace import without coercing a malformed value to an empty list, so the registry still rejects it (`(ns.attachmentAccessResolvers ?? []) as readonly unknown[]`, likewise `protectedAttachmentTargets`, and `ns.enforcesOwnerAccessOnDirectReads === true`, with `ns = X as Record<string, unknown>`), so a convention file that exports only some of them, such as only the flag, typechecks and registers empty lists or `false`, and `registerAttachmentAccessResolvers` records it, so the declaration is available wherever resolvers are, with no DI or bootstrap ordering involved.
 - `listUnguardedAttachmentReaders()`: the listed module ids that are enabled (`tryGetModules()` from `@open-mercato/shared/lib/modules/registry`) and have not declared. When modules are not registered (`tryGetModules()` returns `null`) or the access registry is invalid, every listed module counts as unguarded (fail closed). Owner modules call it before they store files that must not reach an unguarded reader; `inbox_ops` does so for inbound mail (`2026-10-25-inbox-ops-inbound-attachments.md`, D19).
 - A module added to the list later is unguarded until it declares; removing an entry needs no declaration.
 
@@ -136,7 +140,7 @@ No schema change.
 
 ## API Contracts
 
-No route, request or response shape changes. Behavior changes:
+No route or request shape changes. The pending-action confirmation gains the recheck code `attachment_access_denied`. Behavior changes:
 - `POST /api/ai_assistant/tools/execute`, the MCP servers and `POST /api/ai_assistant/ai/chat` deny protected attachments as described under Callers.
 - Messages compose, reply, draft update and draft attachment linking answer 403 when any attachment may not be reassigned onto the message.
 
@@ -145,7 +149,7 @@ New exports from `@open-mercato/core/modules/attachments`: `evaluateAttachmentRo
 ## Internationalization (i18n)
 
 - `messages.errors.attachmentAccessDenied` in all `messages` locales (en, pl, de, es, ko).
-- The AI tools reuse "not found" outcomes and need no new key.
+- The AI tools reuse "not found" outcomes; a refused transfer adds `ai_assistant.errors.attachmentTransferDenied` in every locale.
 
 ## UI/UX
 
@@ -157,7 +161,8 @@ No UI change. Messages compose shows the existing error flash with the new messa
 |---------|--------|----------------|
 | Attachments exports | `evaluateAttachmentRowAccess`, `buildAttachmentAccessAuth`, their types; Phase 2 `listUnguardedAttachmentReaders`, `KNOWN_DIRECT_ATTACHMENT_READER_MODULES` | ADDITIVE |
 | `data/attachment-access.ts` convention, `AttachmentAccessResolverEntry`, `attachment-access.generated.ts` | Optional export `enforcesOwnerAccessOnDirectReads`; optional entry field; generated entries carry it | ADDITIVE (auto-discovery convention gains an optional export; existing files unchanged) |
-| Types | Optional `apiKeyId` on `McpToolContext` and `CatalogToolContext` | ADDITIVE |
+| Types | Optional `apiKeyId` and `apiKeyUserId` on `McpToolContext` and `CatalogToolContext` | ADDITIVE |
+| Other exports | `ATTACHMENT_ROW_WRITE_LOCK` (`attachments/lib/access-rows`), `resolveVerifiedSessionKeyUserId` (`api_keys/services/sessionKeyRoles`) | ADDITIVE |
 | Function signatures | `linkAttachmentsToMessage`, `linkLibraryAttachmentsToMessage` gain an optional last `access` parameter | ADDITIVE parameter; callers without it can no longer link protected attachments |
 | AI tool, AI chat, pending-action recheck, catalog media tool and Messages linking behavior | Deny protected attachments the caller may not access | BREAKING tightening of STABLE behavior for protected owners only, under the same Emergency Security Exception as #6829 |
 | Events, routes, response fields, ACL and DI keys, schema, CLI, widget and notification IDs | No change | — |
@@ -198,8 +203,9 @@ Delivered by #7989 (Phases 1 and 2).
 | File | Action | Purpose |
 |------|--------|---------|
 | `packages/core/src/modules/attachments/lib/access-rows.ts`, `lib/access-readers.ts`, `lib/access-types.ts`, `lib/access-registry.ts`, `generators.ts`, `index.ts`, `AGENTS.md` | Create / Modify | Helper, declarations, exports, rule |
-| `packages/ai-assistant/src/modules/ai_assistant/ai-tools/attachments-pack.ts`, `lib/attachment-owner-access.ts`, `lib/attachment-parts.ts`, `lib/pending-action-recheck.ts`, `lib/pending-action-executor.ts`, `lib/prepare-mutation.ts`, `lib/api-key-principal.ts`, `lib/auth.ts`, `lib/in-process-client.ts`, `lib/types.ts`, `lib/http-server.ts`, `lib/mcp-server.ts`, `lib/mcp-dev-server.ts`, `api/tools/execute/route.ts`, `api/ai/chat/route.ts`, `api/ai/run-object/route.ts`, `api/ai/actions/[id]/confirm/route.ts` | Create / Modify | Owner access evaluation; key principal |
+| `packages/ai-assistant/src/modules/ai_assistant/ai-tools/attachments-pack.ts`, `lib/attachment-owner-access.ts`, `lib/attachment-parts.ts`, `lib/pending-action-recheck.ts`, `lib/pending-action-messages.ts`, `lib/pending-action-executor.ts`, `lib/prepare-mutation.ts`, `lib/api-key-principal.ts`, `lib/auth.ts`, `lib/in-process-client.ts`, `lib/types.ts`, `lib/http-server.ts`, `lib/mcp-server.ts`, `lib/mcp-dev-server.ts`, `api/tools/execute/route.ts`, `api/ai/chat/route.ts`, `api/ai/run-object/route.ts`, `api/ai/actions/[id]/confirm/route.ts` | Create / Modify | Owner access evaluation; key principal |
 | `packages/core/src/modules/api_keys/services/sessionKeyRoles.ts` | Modify | Verified session-key user |
+| `packages/shared/src/lib/bootstrap/dynamicLoader.ts`, `lib/bootstrap/bootstrapRegistrations.ts` | Create / Modify | Fail closed when bootstrap registrations cannot load |
 | `packages/core/src/modules/warranty_claims/ai-tools.ts`, `api/ai/assess/route.ts` | Modify | Key principal for the claim attachment check and chat attachments |
 | `packages/core/src/modules/catalog/ai-tools/authoring-pack.ts`, `ai-tools/types.ts` | Modify | Owner access evaluation; key principal |
 | `packages/core/src/modules/messages/lib/attachments.ts`, `lib/attachmentLinkAccess.ts`, `commands/messages.ts`, `commands/attachments.ts`, `i18n/*.json` | Create / Modify | Link checks and error message |
@@ -223,7 +229,7 @@ Unit tests cover the helper, every caller and the declarations. Integration test
 - **Severity**: Low
 - **Affected area**: Custom modules linking attachments
 - **Mitigation**: Unprotected attachments still link; protected ones fail closed with 403; upgrade note explains the parameter.
-- **Residual risk**: None beyond the documented tightening.
+- **Residual risk**: Messages linking and the pending-action recheck answer 403 for a protected id and ignore an unknown one, so a caller who already holds a UUID in their own organization can tell that it is a protected attachment. Hiding this would mean refusing unknown ids, which changes behavior for unprotected attachments.
 
 #### Enterprise staging still bypasses owner access
 - **Scenario**: An enterprise build enables `agent_orchestrator`, whose stager reads protected rows by id.
@@ -276,6 +282,11 @@ Unit tests cover the helper, every caller and the declarations. Integration test
 Ready for implementation, delivered by #7989. Merge requires the `security` label and the named maintainer acknowledgment of the tightening.
 
 ## Changelog
+
+### 2026-11-05
+- Recorded the tool context `apiKeyUserId` field in the migration table and the protected-id disclosure as a residual risk.
+- Move paths load rows under a write lock in the transaction that evaluates and writes them.
+- A failed load of the generated bootstrap registrations invalidates the access registry.
 
 ### 2026-11-03
 - Split from `2026-10-25-inbox-ops-inbound-attachments.md` (its former Phase 0) and aligned with #6829 as merged; added unguarded-reader declarations so the enterprise stager fix no longer blocks OSS consumers.

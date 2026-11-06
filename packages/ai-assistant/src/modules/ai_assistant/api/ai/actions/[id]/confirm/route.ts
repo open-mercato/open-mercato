@@ -13,6 +13,7 @@ import { getAgent, loadAgentRegistry } from '../../../../../lib/agent-registry'
 import { toolRegistry } from '../../../../../lib/tool-registry'
 import { loadAllModuleTools } from '../../../../../lib/tool-loader'
 import type { AiToolDefinition } from '../../../../../lib/types'
+import { resolveRequestApiKeyPrincipal } from '../../../../../lib/api-key-principal'
 import {
   runPendingActionRechecks,
   type PendingActionRecheckResult,
@@ -176,6 +177,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
     const mutationPolicyOverride: AiAgentMutationPolicy | null =
       rawOverridePolicy && isKnownMutationPolicy(rawOverridePolicy) ? rawOverridePolicy : null
 
+    const apiKeyPrincipal = await resolveRequestApiKeyPrincipal(container, auth)
     const recheckResult = await runPendingActionRechecks({
       action: row,
       agent,
@@ -184,6 +186,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
         tenantId: auth.tenantId,
         organizationId: auth.orgId ?? null,
         userId: auth.sub,
+        ...apiKeyPrincipal,
         userFeatures: acl.features,
         isSuperAdmin: acl.isSuperAdmin,
         container,
@@ -199,6 +202,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       tenantId: auth.tenantId,
       organizationId: auth.orgId ?? null,
       userId: auth.sub,
+      ...apiKeyPrincipal,
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
       container,
