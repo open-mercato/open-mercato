@@ -130,7 +130,7 @@ function TenantAwareOrganizationSelectInput({
 function aclDataEqual(a: AclData | null, b: AclData): boolean {
   if (!a) return false
   if (a.isSuperAdmin !== b.isSuperAdmin) return false
-  const sorted = (list: string[] | null | undefined) => [...(list ?? [])].sort()
+  const sorted = (list: string[] | null | undefined) => [...(list ?? [])].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   const aFeatures = sorted(a.features)
   const bFeatures = sorted(b.features)
   if (aFeatures.length !== bFeatures.length || aFeatures.some((feature, i) => feature !== bFeatures[i])) return false
