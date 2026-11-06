@@ -3869,7 +3869,7 @@ function DataTableImpl<T extends RowData>({
                 {hasInjectedBulkActions ? (
                   <TableHead className={cn(selectionCellClass, stickySelectionColumn && `md:sticky md:left-0 md:z-10 ${stickyHeaderSurfaceClass}`)}>
                     <Checkbox
-                      checked={table.getIsAllPageRowsSelected()}
+                      checked={table.getIsAllPageRowsSelected() ? true : table.getIsSomePageRowsSelected() ? 'indeterminate' : false}
                       onCheckedChange={(checked) => {
                         table.toggleAllPageRowsSelected(Boolean(checked))
                       }}
