@@ -179,3 +179,66 @@ describe('DataTable sticky columns are viewport-gated', () => {
     }
   })
 })
+
+// With bulk actions the row-selection checkbox column renders before the first
+// data column. Pinning only the first data column at `left-0` slid it over the
+// scrolling checkboxes, hiding them; the checkbox column must pin at the edge
+// and the first data column must pin just past it.
+describe('DataTable sticky first column with row selection', () => {
+  function renderSelectableTable({ stickyFirstColumn }: { stickyFirstColumn: boolean }) {
+    const columns: ColumnDef<Row>[] = [
+      { accessorKey: 'title', header: 'Title' },
+      { accessorKey: 'status', header: 'Status' },
+    ]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    const result = render(
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider locale="en" dict={{}}>
+          <DataTable
+            columns={columns}
+            data={[{ id: '1', title: 'Solar rollout', status: 'open' }]}
+            stickyFirstColumn={stickyFirstColumn}
+            bulkActions={[{ id: 'delete', label: 'Delete', onExecute: () => {} }]}
+          />
+        </I18nProvider>
+      </QueryClientProvider>,
+    )
+    return { ...result, queryClient }
+  }
+
+  it('pins the selection column at the edge and offsets the first data column past it', () => {
+    const { container, queryClient } = renderSelectableTable({ stickyFirstColumn: true })
+    try {
+      const headerCells = container.querySelectorAll('thead th')
+      const bodyCells = container.querySelectorAll('tbody tr td')
+
+      for (const cell of [headerCells[0], bodyCells[0]]) {
+        const tokens = tokensOf(cell)
+        expect(tokens).toEqual(expect.arrayContaining(['w-12', 'md:sticky', 'md:left-0', 'md:bg-card']))
+        expect(tokens).not.toContain('md:after:absolute')
+      }
+
+      for (const cell of [headerCells[1], bodyCells[1]]) {
+        const tokens = tokensOf(cell)
+        expect(tokens).toEqual(expect.arrayContaining(['md:sticky', 'md:left-12', 'md:after:absolute']))
+        expect(tokens).not.toContain('md:left-0')
+      }
+    } finally {
+      queryClient.clear()
+    }
+  })
+
+  it('leaves the selection column unpinned when the first column is not sticky', () => {
+    const { container, queryClient } = renderSelectableTable({ stickyFirstColumn: false })
+    try {
+      const headerCells = container.querySelectorAll('thead th')
+      const bodyCells = container.querySelectorAll('tbody tr td')
+
+      for (const cell of [headerCells[0], bodyCells[0], headerCells[1], bodyCells[1]]) {
+        expect(tokensOf(cell)).not.toContain('md:sticky')
+      }
+    } finally {
+      queryClient.clear()
+    }
+  })
+})
