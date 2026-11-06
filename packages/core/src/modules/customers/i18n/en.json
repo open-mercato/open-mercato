@@ -3020,6 +3020,7 @@
   "customers.timeline.author": "by {{name}}",
   "customers.timeline.date.today": "today",
   "customers.timeline.date.tomorrow": "tomorrow",
+  "customers.timeline.date.unknown": "Unknown date",
   "customers.timeline.date.yesterday": "yesterday",
   "customers.timeline.edit": "Edit",
   "customers.timeline.empty": "No activities match the current filters.",
