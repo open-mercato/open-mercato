@@ -1836,21 +1836,30 @@ export function LineItemDialog({
       };
 
       const initialLineMode = initialValues.lineMode;
-      const writesWholeLine = !editingId || Boolean(onDraftSaved);
       const lineModeChanged = Boolean(editingId) && initialLineMode !== lineMode;
       const switchedToCustomLine =
         Boolean(editingId) && initialLineMode !== "custom";
       const enteringOrLeavingServiceMode =
         lineModeChanged && (isServiceLine || initialLineMode === "service");
-      const kindPayload: Record<string, unknown> = writesWholeLine
+      const isDraftEdit = Boolean(editingId) && Boolean(onDraftSaved);
+      const storedKind =
+        typeof initialLine?.kind === "string" && initialLine.kind.length
+          ? initialLine.kind
+          : null;
+      const modeKind = isServiceLine ? "service" : isProductLine ? "product" : null;
+      const transitionKind = enteringOrLeavingServiceMode
         ? isServiceLine
-          ? { kind: "service" }
-          : isProductLine
-            ? { kind: "product" }
-            : {}
-        : enteringOrLeavingServiceMode
-          ? { kind: isServiceLine ? "service" : "product" }
-          : {};
+          ? "service"
+          : "product"
+        : null;
+      const resolvedKind = !editingId
+        ? modeKind
+        : isDraftEdit
+          ? (transitionKind ?? storedKind ?? modeKind)
+          : transitionKind;
+      const kindPayload: Record<string, unknown> = resolvedKind
+        ? { kind: resolvedKind }
+        : {};
       const lineReferencePayload: Record<string, unknown> = isProductLine
         ? {
             ...kindPayload,
@@ -1872,7 +1881,14 @@ export function LineItemDialog({
                 productVariantId: null,
                 serviceId: null,
               }
-            : kindPayload;
+            : isDraftEdit
+              ? {
+                  ...kindPayload,
+                  productId: initialLine?.productId ?? null,
+                  productVariantId: initialLine?.productVariantId ?? null,
+                  serviceId: initialLine?.serviceId ?? null,
+                }
+              : kindPayload;
 
       const payload: Record<string, unknown> = {
         ...(resolvedDocumentId ? { [documentKey]: resolvedDocumentId } : {}),
@@ -1894,7 +1910,9 @@ export function LineItemDialog({
           ? { catalogSnapshot }
           : lineModeChanged
             ? { catalogSnapshot: null }
-            : {}),
+            : isDraftEdit && initialLine?.catalogSnapshot
+              ? { catalogSnapshot: initialLine.catalogSnapshot }
+              : {}),
         metadata,
         customFieldSetId: values.customFieldSetId ?? undefined,
         ...(typeof values.statusEntryId === "string" &&
@@ -2040,6 +2058,7 @@ export function LineItemDialog({
               setFormValue?.("unitPrice", "");
               setFormValue?.("priceMode", "gross");
             } else {
+              if (deletedCatalogReference) setDeletedCatalogReference(false);
               setFormValue?.("unitPrice", "");
               setFormValue?.("priceMode", "gross");
               setFormValue?.("catalogSnapshot", null);
@@ -3155,7 +3174,7 @@ export function LineItemDialog({
           : undefined;
     nextForm.productId = initialLine.productId;
     nextForm.variantId = initialLine.productVariantId;
-    nextForm.serviceId = initialLine.serviceId;
+    nextForm.serviceId = initialLine.serviceId ?? null;
     nextForm.quantity = initialLine.quantity.toString();
     nextForm.quantityUnit = normalizeUnitCode(initialLine.quantityUnit) ?? null;
     const metaMode = metaRec?.priceMode;

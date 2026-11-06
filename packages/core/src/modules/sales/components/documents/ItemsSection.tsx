@@ -429,6 +429,7 @@ export function SalesDocumentItemsSection({
                   : null,
               serviceId:
                 typeof item.service_id === "string" ? item.service_id : null,
+              kind: typeof item.kind === "string" ? item.kind : null,
               quantity,
               quantityUnit,
               normalizedQuantity,

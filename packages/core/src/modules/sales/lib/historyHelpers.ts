@@ -24,8 +24,10 @@ const DOCUMENT_LINE_UPSERT_COMMANDS = new Set([
 ])
 
 const USER_EDITABLE_LINE_FIELDS = [
+  'kind',
   'productId',
   'productVariantId',
+  'serviceId',
   'name',
   'description',
   'comment',

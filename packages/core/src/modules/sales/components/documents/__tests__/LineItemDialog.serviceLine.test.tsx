@@ -764,4 +764,132 @@ describe('LineItemDialog service lines', () => {
     const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
     expect(definedKeys(payload)).not.toContain('catalogSnapshot')
   })
+
+  it('keeps the kind of an InboxOps-prefilled draft service line that carries a product', async () => {
+    mockApiCall.mockImplementation(catalogProductResponses)
+    const onDraftSaved = jest.fn()
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId=""
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{ ...productLine, id: 'draft-1', kind: 'service', name: 'Installation', metadata: { priceMode: 'gross' } }}
+        onDraftSaved={onDraftSaved}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+    await waitFor(() =>
+      expect(mockApiCall.mock.calls.some(([url]) => String(url).startsWith('/api/catalog/variants?'))).toBe(true),
+    )
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(formValues.lineMode).toBe('product')
+
+    await act(async () => {
+      await capturedSubmit?.(productValues())
+    })
+
+    const [payload] = onDraftSaved.mock.calls[0] as [FormValues]
+    expect(payload).toMatchObject({ kind: 'service', productId: 'product-1', productVariantId: 'variant-1' })
+  })
+
+  it('keeps the kind of an InboxOps-prefilled draft service line without references', async () => {
+    const onDraftSaved = jest.fn()
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId=""
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{
+          ...productLine,
+          id: 'draft-2',
+          kind: 'service',
+          productId: null,
+          productVariantId: null,
+          metadata: { customLine: true, lineMode: 'custom', priceMode: 'gross' },
+        }}
+        onDraftSaved={onDraftSaved}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await act(async () => {
+      await capturedSubmit?.(customValues())
+    })
+
+    const [payload] = onDraftSaved.mock.calls[0] as [FormValues]
+    expect(payload).toMatchObject({ kind: 'service', productId: null, productVariantId: null, serviceId: null })
+  })
+
+  it('keeps the stored product and snapshot of a draft opened as custom because its product was deleted', async () => {
+    const onDraftSaved = jest.fn()
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId=""
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{ ...productLine, id: 'draft-3', kind: 'product', catalogSnapshot: { product: { id: 'product-1' } } }}
+        onDraftSaved={onDraftSaved}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() =>
+      expect(capturedFields.some((field) => field.id === 'deletedCatalogReference')).toBe(true),
+    )
+
+    await act(async () => {
+      await capturedSubmit?.(customValues({ name: 'Original name' }))
+    })
+
+    const [payload] = onDraftSaved.mock.calls[0] as [FormValues]
+    expect(payload).toMatchObject({
+      kind: 'product',
+      productId: 'product-1',
+      productVariantId: 'variant-1',
+      catalogSnapshot: { product: { id: 'product-1' } },
+    })
+  })
+
+  it('hides the deleted-product notice after switching the line to Service', async () => {
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId="order-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={productLine}
+        shippedQuantity={0}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() =>
+      expect(capturedFields.some((field) => field.id === 'deletedCatalogReference')).toBe(true),
+    )
+
+    await act(async () => {
+      fireEvent.click(within(screen.getByTestId('field-lineMode')).getByRole('button', { name: 'Service' }))
+    })
+
+    await waitFor(() =>
+      expect(capturedFields.some((field) => field.id === 'deletedCatalogReference')).toBe(false),
+    )
+  })
 })

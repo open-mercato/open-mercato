@@ -143,6 +143,7 @@
   "warranty_claims.detail.createCreditMemoSkipped": "Se omitieron algunas líneas porque no tienen una línea de pedido vinculada, su estado o disposición no es apto, no se recibió ninguna cantidad, la moneda no coincide o la cantidad del pedido de origen es cero. ({count})",
   "warranty_claims.detail.createCreditMemoSuccess": "Nota de crédito por {amount} {currency} creada y vinculada al reclamo.",
   "warranty_claims.detail.createReplacementOrder": "Crear pedido de reemplazo",
+  "warranty_claims.detail.createReplacementOrderServiceUnavailable": "No se reemplazaron la(s) línea(s) {lines} porque su servicio ya no está disponible.",
   "warranty_claims.detail.createReplacementOrderSkipped": "Se omitieron {count} línea(s): no tienen una línea de pedido vinculada, su estado o disposición no es apto, la cantidad es cero o fraccionaria, o no se pudo resolver la línea del pedido de origen.",
   "warranty_claims.detail.createReplacementOrderSuccess": "Pedido de reemplazo creado y vinculado al reclamo.",
   "warranty_claims.detail.createSalesReturn": "Crear devolución de venta",

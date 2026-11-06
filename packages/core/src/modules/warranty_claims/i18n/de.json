@@ -143,6 +143,7 @@
   "warranty_claims.detail.createCreditMemoSkipped": "Einige Positionen wurden übersprungen, weil keine Auftragsposition verknüpft ist, Status oder Disposition ungeeignet sind, nichts eingegangen ist, die Währung abweicht oder die ursprüngliche Auftragsmenge null ist. ({count})",
   "warranty_claims.detail.createCreditMemoSuccess": "Gutschrift über {amount} {currency} erstellt und mit dem Claim verknüpft.",
   "warranty_claims.detail.createReplacementOrder": "Ersatzauftrag erstellen",
+  "warranty_claims.detail.createReplacementOrderServiceUnavailable": "Position(en) {lines} wurden nicht ersetzt, da die zugehörige Dienstleistung nicht mehr verfügbar ist.",
   "warranty_claims.detail.createReplacementOrderSkipped": "{count} Position(en) wurden übersprungen — es fehlt eine verknüpfte Auftragsposition, Status oder Disposition sind ungeeignet, die Menge ist null oder gebrochen, oder die ursprüngliche Auftragsposition konnte nicht aufgelöst werden.",
   "warranty_claims.detail.createReplacementOrderSuccess": "Ersatzauftrag erstellt und mit dem Claim verknüpft.",
   "warranty_claims.detail.createSalesReturn": "Warenrücksendung erstellen",

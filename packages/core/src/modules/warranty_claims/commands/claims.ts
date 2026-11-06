@@ -974,6 +974,39 @@ async function querySalesOrderLineReferences(
   }
 }
 
+type CatalogReferenceDb = {
+  catalog_services: {
+    id: string
+    tenant_id: string | null
+    organization_id: string | null
+    deleted_at: Date | null
+  }
+}
+
+async function queryLiveCatalogServiceIds(
+  ctx: CommandRuntimeContext,
+  scope: WarrantyClaimScope,
+  ids: string[],
+): Promise<Set<string>> {
+  if (ids.length === 0) return new Set()
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const db = em.getKysely<CatalogReferenceDb>()
+  try {
+    const rows = await db
+      .selectFrom('catalog_services')
+      .select(['id'])
+      .where('id', 'in', ids)
+      .where('tenant_id', '=', scope.tenantId)
+      .where('organization_id', '=', scope.organizationId)
+      .where('deleted_at', 'is', null)
+      .execute()
+    return new Set(rows.map((row) => row.id))
+  } catch (err) {
+    if (isMissingReferenceTableError(err)) return new Set()
+    throw err
+  }
+}
+
 const CLAIMED_QUANTITY_SCALE = 10_000n
 const TAX_RATE_FORMULA_SCALE = 1_000_000n
 
@@ -3070,6 +3103,7 @@ type ClaimCreateReplacementOrderResult = {
   replacementOrderId: string
   replacementOrderUpdatedAt: string | null
   skippedLineIds: string[]
+  unavailableServiceLines: Array<{ id: string; lineNo: number }>
   pricing: 'zero' | 'original'
 }
 
@@ -3176,8 +3210,17 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
       ],
     )
     const sourceLinesById = new Map((sourceLineRows ?? []).map((row) => [readString(row, 'id'), row]))
+    const liveServiceIds = await queryLiveCatalogServiceIds(
+      ctx,
+      scope,
+      Array.from(new Set((sourceLineRows ?? []).flatMap((row) => {
+        const referencedServiceId = readString(row, 'service_id')
+        return referencedServiceId ? [referencedServiceId] : []
+      }))),
+    )
     const replacementLines: ReplacementOrderLineInput[] = []
     const skippedLineIds: string[] = []
+    const unavailableServiceLines: Array<{ id: string; lineNo: number }> = []
     for (const line of lines) {
       const effectiveQty = line.qtyApproved ?? line.qtyClaimed
       const quantityUnits = claimedQuantityUnits(effectiveQty) ?? 0n
@@ -3212,6 +3255,11 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
         || originalPricingIncomplete
       ) {
         skippedLineIds.push(line.id)
+        continue
+      }
+      if (serviceId && !liveServiceIds.has(serviceId)) {
+        skippedLineIds.push(line.id)
+        unavailableServiceLines.push({ id: line.id, lineNo: line.lineNo })
         continue
       }
 
@@ -3330,6 +3378,7 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
       replacementOrderId,
       replacementOrderUpdatedAt,
       skippedLineIds,
+      unavailableServiceLines,
       pricing: input.pricing,
     }
   },

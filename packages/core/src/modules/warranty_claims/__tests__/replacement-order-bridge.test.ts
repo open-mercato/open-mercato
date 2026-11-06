@@ -19,6 +19,7 @@ const CUSTOMER_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const CONTACT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const CHANNEL_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const SERVICE_ID = 'abababab-abab-4bab-8bab-abababababab'
+const SECOND_SERVICE_ID = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd'
 const REPLACEMENT_UPDATED_AT = '2026-07-17T09:30:00.000Z'
 const APPROVAL_UPDATED_AT = '2026-07-17T09:30:00.500Z'
 const CLAIM_UPDATED_AT = '2026-07-17T08:00:00.000Z'
@@ -30,6 +31,8 @@ let mockSourceOrderRow: Record<string, unknown> | null = null
 let mockReplacementOrderRow: Record<string, unknown> | null = null
 let mockReplacementOrderLookupError: Error | null = null
 let mockSourceLineRows = new Map<string, Record<string, unknown>>()
+let mockCatalogServiceRows: Array<Record<string, unknown>> = []
+let catalogServiceQueries: Array<Array<[string, string, unknown]>> = []
 let mockSalesAvailable = true
 let mockTransactionError: Error | null = null
 
@@ -161,11 +164,19 @@ function makeKysely() {
           return builder
         },
         limit: () => builder,
-        execute: async () => table === 'sales_order_lines'
-          ? Array.from(mockSourceLineRows.values())
-            .filter((row) => rowSatisfiesWheres(row, wheres))
-            .map((row) => projectColumns(row, selectedColumns))
-          : [],
+        execute: async () => {
+          if (table === 'catalog_services') {
+            catalogServiceQueries.push([...wheres])
+            return mockCatalogServiceRows
+              .filter((row) => rowSatisfiesWheres(row, wheres))
+              .map((row) => projectColumns(row, selectedColumns))
+          }
+          return table === 'sales_order_lines'
+            ? Array.from(mockSourceLineRows.values())
+              .filter((row) => rowSatisfiesWheres(row, wheres))
+              .map((row) => projectColumns(row, selectedColumns))
+            : []
+        },
         executeTakeFirst: async () => {
           const id = findIdWhere(wheres)
           if (table === 'sales_order_lines') return id ? mockSourceLineRows.get(id) : undefined
@@ -287,6 +298,26 @@ function seedSourceLine(id = ORDER_LINE_ID, overrides: Record<string, unknown> =
   return row
 }
 
+function seedCatalogService(id: string, overrides: Record<string, unknown> = {}): void {
+  mockCatalogServiceRows.push({
+    id,
+    tenant_id: TENANT_ID,
+    organization_id: ORG_ID,
+    deleted_at: null,
+    ...overrides,
+  })
+}
+
+function serviceSourceLine(serviceId: string): Record<string, unknown> {
+  return {
+    kind: 'service',
+    product_id: null,
+    product_variant_id: null,
+    service_id: serviceId,
+    name: 'On-site repair',
+  }
+}
+
 function executeInput(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID, ...overrides }
 }
@@ -353,6 +384,8 @@ beforeEach(() => {
   mockReplacementOrderRow = { id: CREATED_ORDER_ID, updated_at: REPLACEMENT_UPDATED_AT }
   mockReplacementOrderLookupError = null
   mockSourceLineRows = new Map()
+  mockCatalogServiceRows = []
+  catalogServiceQueries = []
   mockSalesAvailable = true
   mockTransactionError = null
   enforceWithGuardsMock.mockReset()
@@ -538,20 +571,17 @@ describe('warranty_claims.claim.create_replacement_order', () => {
     })
   })
 
-  it('copies the catalog service reference and service kind from a service source line', async () => {
+  it('copies the catalog service reference and service kind from a live service source line', async () => {
     seedClaim()
     seedLine()
-    seedSourceLine(ORDER_LINE_ID, {
-      kind: 'service',
-      product_id: null,
-      product_variant_id: null,
-      service_id: SERVICE_ID,
-      name: 'On-site repair',
-    })
+    seedSourceLine(ORDER_LINE_ID, serviceSourceLine(SERVICE_ID))
+    seedCatalogService(SERVICE_ID)
 
-    await createReplacementOrderCommand.execute(executeInput(), makeCtx())
+    const result = await createReplacementOrderCommand.execute(executeInput(), makeCtx())
     const lines = createDispatch().input.lines as Array<Record<string, unknown>>
 
+    expect(result.skippedLineIds).toEqual([])
+    expect(result.unavailableServiceLines).toEqual([])
     expect(lines).toEqual([expect.objectContaining({
       kind: 'service',
       serviceId: SERVICE_ID,
@@ -560,6 +590,82 @@ describe('warranty_claims.claim.create_replacement_order', () => {
     })])
     expect(lines[0]).not.toHaveProperty('productId')
     expect(lines[0]).not.toHaveProperty('productVariantId')
+  })
+
+  it('skips a line whose catalog service was archived and still creates the order from the remaining lines', async () => {
+    seedClaim()
+    const productClaimLineId = '10000000-0000-4000-8000-000000000011'
+    const serviceClaimLineId = '10000000-0000-4000-8000-000000000012'
+    const serviceOrderLineId = '20000000-0000-4000-8000-000000000012'
+    seedLine({ id: productClaimLineId, lineNo: 1 })
+    seedLine({ id: serviceClaimLineId, lineNo: 2, orderLineId: serviceOrderLineId })
+    seedSourceLine()
+    seedSourceLine(serviceOrderLineId, serviceSourceLine(SERVICE_ID))
+    seedCatalogService(SERVICE_ID, { deleted_at: new Date('2026-07-01T00:00:00.000Z') })
+
+    const result = await createReplacementOrderCommand.execute(executeInput(), makeCtx())
+    const lines = createDispatch().input.lines as Array<Record<string, unknown>>
+
+    expect(result.skippedLineIds).toEqual([serviceClaimLineId])
+    expect(result.unavailableServiceLines).toEqual([{ id: serviceClaimLineId, lineNo: 2 }])
+    expect(result.replacementOrderId).toBe(CREATED_ORDER_ID)
+    expect(lines).toEqual([expect.objectContaining({ kind: 'product', productId: PRODUCT_ID })])
+    expect(lines.some((line) => 'serviceId' in line)).toBe(false)
+  })
+
+  it('skips a line whose catalog service belongs to another organization', async () => {
+    seedClaim()
+    const productClaimLineId = '10000000-0000-4000-8000-000000000021'
+    const serviceClaimLineId = '10000000-0000-4000-8000-000000000022'
+    const serviceOrderLineId = '20000000-0000-4000-8000-000000000022'
+    seedLine({ id: productClaimLineId, lineNo: 1 })
+    seedLine({ id: serviceClaimLineId, lineNo: 3, orderLineId: serviceOrderLineId })
+    seedSourceLine()
+    seedSourceLine(serviceOrderLineId, serviceSourceLine(SERVICE_ID))
+    seedCatalogService(SERVICE_ID, { organization_id: FOREIGN_ORDER_ID })
+
+    const result = await createReplacementOrderCommand.execute(executeInput(), makeCtx())
+
+    expect(result.skippedLineIds).toEqual([serviceClaimLineId])
+    expect(result.unavailableServiceLines).toEqual([{ id: serviceClaimLineId, lineNo: 3 }])
+    expect(createDispatch().input.lines).toEqual([expect.objectContaining({ productId: PRODUCT_ID })])
+  })
+
+  it('rejects with no eligible lines when the only line references a missing catalog service', async () => {
+    seedClaim()
+    seedLine()
+    seedSourceLine(ORDER_LINE_ID, serviceSourceLine(SERVICE_ID))
+
+    await expect(createReplacementOrderCommand.execute(executeInput(), makeCtx()))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.replacementNoEligibleLines' } })
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('reads catalog service availability with one tenant and organization scoped query', async () => {
+    seedClaim()
+    const firstOrderLineId = '20000000-0000-4000-8000-000000000031'
+    const secondOrderLineId = '20000000-0000-4000-8000-000000000032'
+    const thirdOrderLineId = '20000000-0000-4000-8000-000000000033'
+    seedLine({ id: '10000000-0000-4000-8000-000000000031', lineNo: 1, orderLineId: firstOrderLineId })
+    seedLine({ id: '10000000-0000-4000-8000-000000000032', lineNo: 2, orderLineId: secondOrderLineId })
+    seedLine({ id: '10000000-0000-4000-8000-000000000033', lineNo: 3, orderLineId: thirdOrderLineId })
+    seedSourceLine(firstOrderLineId, serviceSourceLine(SERVICE_ID))
+    seedSourceLine(secondOrderLineId, serviceSourceLine(SECOND_SERVICE_ID))
+    seedSourceLine(thirdOrderLineId, serviceSourceLine(SERVICE_ID))
+    seedCatalogService(SERVICE_ID)
+    seedCatalogService(SECOND_SERVICE_ID)
+
+    await createReplacementOrderCommand.execute(executeInput(), makeCtx())
+
+    expect(catalogServiceQueries).toHaveLength(1)
+    expect(catalogServiceQueries[0]).toEqual(expect.arrayContaining([
+      ['id', 'in', [SERVICE_ID, SECOND_SERVICE_ID]],
+      ['tenant_id', '=', TENANT_ID],
+      ['organization_id', '=', ORG_ID],
+      ['deleted_at', 'is', null],
+    ]))
+    expect((createDispatch().input.lines as Array<Record<string, unknown>>).map((line) => line.serviceId))
+      .toEqual([SERVICE_ID, SECOND_SERVICE_ID, SERVICE_ID])
   })
 
   it('leaves a plain product replacement line without a service reference', async () => {

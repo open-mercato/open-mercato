@@ -226,4 +226,49 @@ describe('shipment commands reject catalog service lines', () => {
     expect(tx.create).not.toHaveBeenCalled()
     expect(tx.flush).not.toHaveBeenCalled()
   })
+
+  describe('sales.shipments.delete undo', () => {
+    const snapshot = {
+      id: SHIPMENT_ID,
+      orderId: ORDER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      shipmentNumber: 'SH-1',
+      items: [{ id: 'item-1', orderLineId: LINE_ID, orderLineName: 'Line', orderLineNumber: 3, quantity: 1, metadata: null }],
+    }
+    const logEntry = { commandPayload: { undo: { before: snapshot } } }
+
+    it('refuses to restore a shipment whose line now references a catalog service', async () => {
+      const tx = buildMockEm()
+      findMock.mockResolvedValueOnce([serviceLine]).mockResolvedValue([])
+
+      await expect(
+        commandRegistry.get('sales.shipments.delete')!.undo!({ logEntry, ctx: buildCtx(tx) } as never),
+      ).rejects.toMatchObject({
+        status: 409,
+        body: { error: 'sales.shipments.undo_service_line' },
+      })
+
+      expect(findMock).toHaveBeenCalledWith(
+        tx,
+        expect.anything(),
+        expect.objectContaining({ id: { $in: [LINE_ID] }, tenantId: TENANT_ID, organizationId: ORG_ID }),
+        {},
+        { tenantId: TENANT_ID, organizationId: ORG_ID },
+      )
+      expect(tx.create).not.toHaveBeenCalled()
+      expect(tx.persist).not.toHaveBeenCalled()
+      expect(tx.flush).not.toHaveBeenCalled()
+    })
+
+    it('looks the restored lines up before restoring a product-line shipment', async () => {
+      const tx = buildMockEm()
+      findMock.mockResolvedValueOnce([productLine]).mockResolvedValue([])
+
+      await commandRegistry.get('sales.shipments.delete')!.undo!({ logEntry, ctx: buildCtx(tx) } as never).catch(() => undefined)
+
+      expect(findMock.mock.calls[0][2]).toEqual(expect.objectContaining({ id: { $in: [LINE_ID] } }))
+      expect(tx.flush).toHaveBeenCalled()
+    })
+  })
 })

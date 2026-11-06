@@ -143,6 +143,7 @@
   "warranty_claims.detail.createCreditMemoSkipped": "일부 라인은 연결된 주문 라인이 없거나, 상태 또는 처리 방식이 부적합하거나, 입고된 수량이 없거나, 통화가 다르거나, 원본 주문 수량이 0이어서 건너뛰었습니다. ({count})",
   "warranty_claims.detail.createCreditMemoSuccess": "{amount} {currency} 크레딧 메모가 생성되어 클레임에 연결되었습니다.",
   "warranty_claims.detail.createReplacementOrder": "교체 주문 생성",
+  "warranty_claims.detail.createReplacementOrderServiceUnavailable": "라인 {lines}은(는) 해당 서비스를 더 이상 사용할 수 없어 교체되지 않았습니다.",
   "warranty_claims.detail.createReplacementOrderSkipped": "라인 {count}건을 건너뛰었습니다 — 연결된 주문 라인이 없거나, 처리 방식 또는 상태가 부적합하거나, 수량이 0이거나 소수이거나, 원본 주문 라인을 확인할 수 없습니다.",
   "warranty_claims.detail.createReplacementOrderSuccess": "교체 주문이 생성되어 클레임에 연결되었습니다.",
   "warranty_claims.detail.createSalesReturn": "판매 반품 생성",

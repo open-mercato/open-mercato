@@ -143,6 +143,7 @@
   "warranty_claims.detail.createCreditMemoSkipped": "Pominięto część pozycji, ponieważ nie mają powiązanej pozycji zamówienia, mają niekwalifikujący status lub dyspozycję, niczego nie przyjęto, waluta jest inna albo źródłowa ilość zamówienia wynosi zero. ({count})",
   "warranty_claims.detail.createCreditMemoSuccess": "Utworzono notę kredytową na {amount} {currency} i powiązano ją z reklamacją.",
   "warranty_claims.detail.createReplacementOrder": "Utwórz zamówienie wymiany",
+  "warranty_claims.detail.createReplacementOrderServiceUnavailable": "Pozycje {lines} nie zostały zastąpione, ponieważ ich usługa nie jest już dostępna.",
   "warranty_claims.detail.createReplacementOrderSkipped": "Pominięto {count} pozycji — nie mają powiązanej pozycji zamówienia, mają niekwalifikujący status lub dyspozycję, zerową albo ułamkową ilość lub nie udało się odnaleźć źródłowej pozycji zamówienia.",
   "warranty_claims.detail.createReplacementOrderSuccess": "Zamówienie wymiany zostało utworzone i powiązane z reklamacją.",
   "warranty_claims.detail.createSalesReturn": "Utwórz zwrot sprzedaży",

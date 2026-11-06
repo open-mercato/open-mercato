@@ -143,6 +143,7 @@
   "warranty_claims.detail.createCreditMemoSkipped": "Some lines were skipped because they have no linked order line, have an ineligible status or disposition, have nothing received, use a different currency, or have a zero source-order quantity. ({count})",
   "warranty_claims.detail.createCreditMemoSuccess": "Credit memo for {amount} {currency} created and linked to the claim.",
   "warranty_claims.detail.createReplacementOrder": "Create replacement order",
+  "warranty_claims.detail.createReplacementOrderServiceUnavailable": "Line(s) {lines} were not replaced because their service is no longer available.",
   "warranty_claims.detail.createReplacementOrderSkipped": "{count} line(s) were skipped — they have no linked order line, have an ineligible status or disposition, have a zero or fractional quantity, or their source order line could not be resolved.",
   "warranty_claims.detail.createReplacementOrderSuccess": "Replacement order created and linked to the claim.",
   "warranty_claims.detail.createSalesReturn": "Create sales return",

@@ -154,6 +154,26 @@ describe('normalizeActionLogToHistoryEntry', () => {
     expect(entry.metadata?.changedFields).toEqual(['quantity', 'unitPriceNet'])
   })
 
+  it('reports a swapped catalog service and a changed line type', () => {
+    const log = makeLog({
+      commandId: 'sales.orders.lines.upsert',
+      actionLabel: 'Update order line',
+      snapshotBefore: {
+        order: { status: 'draft' },
+        lines: [{ id: 'line-1', kind: 'product', name: 'Workshop', productId: 'product-1', serviceId: null }],
+      },
+      snapshotAfter: {
+        order: { status: 'draft' },
+        lines: [{ id: 'line-1', kind: 'service', name: 'Workshop', productId: null, serviceId: 'service-1' }],
+      },
+      changedFields: ['lines'],
+    })
+
+    const entry = normalizeActionLogToHistoryEntry(log, 'order')
+
+    expect(entry.metadata?.changedFields).toEqual(['kind', 'productId', 'serviceId'])
+  })
+
   it('exposes persisted changed fields for action logs that already provide them', () => {
     const log = makeLog({
       snapshotBefore: { order: { status: 'draft', comment: 'Before' } },

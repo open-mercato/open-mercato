@@ -69,6 +69,8 @@ const KIND_BG_COLORS = {
 export const CHANGED_FIELD_LABELS: Record<string, { key: string; fallback: string }> = {
   productId: { key: 'sales.documents.history.fields.product', fallback: 'Product' },
   productVariantId: { key: 'sales.documents.history.fields.variant', fallback: 'Variant' },
+  serviceId: { key: 'sales.documents.history.fields.service', fallback: 'Service' },
+  kind: { key: 'sales.documents.history.fields.lineType', fallback: 'Line type' },
   name: { key: 'sales.documents.history.fields.name', fallback: 'Name' },
   description: { key: 'sales.documents.history.fields.description', fallback: 'Description' },
   comment: { key: 'sales.documents.history.fields.comment', fallback: 'Comment' },
