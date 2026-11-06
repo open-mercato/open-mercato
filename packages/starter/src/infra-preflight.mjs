@@ -245,7 +245,7 @@ export async function requestExistingServicesConsent(problem, {
   for (const entry of problem.ports ?? problem.services ?? []) {
     const identity = colors.service(entry.containerName || entry.service)
     const state = diagnosticText(entry.state || 'unknown')
-    log(`   ⚠️  ${identity}${entry.port ? ` on port ${colors.port(entry.port)}` : ''}: ${state}${entry.health ? ` (${diagnosticText(entry.health)})` : ''}`)
+    log(`   ❗ ${identity}${entry.port ? ` on port ${colors.port(entry.port)}` : ''}: ${state}${entry.health ? ` (${diagnosticText(entry.health)})` : ''}`)
     log(`       ${listenerSummary(entry, colors)}`)
     if (entry.containerName && (state === 'restarting' || entry.health === 'unhealthy')) log(`       Inspect the restart/health failure: ${colors.command(`docker logs ${diagnosticText(entry.containerName)}`)}`)
   }
@@ -267,7 +267,7 @@ export async function requestExistingServicesConsent(problem, {
     const answer = await (question ? question(prompt) : new Promise((resolve) => reader.question(prompt, resolve)))
     if (!/^(y|yes)$/i.test(String(answer).trim())) return false
     log('')
-    log('   ⚠️  Continuing with the services configured in .env.')
+    log('   ❗ Continuing with the services configured in .env.')
     if (configuredServices) {
       log('       Configured services will not be started, stopped or reconfigured.')
     } else {

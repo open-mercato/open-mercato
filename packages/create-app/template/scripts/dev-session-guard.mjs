@@ -337,6 +337,13 @@ export function withDevSessionRecovery(snapshot, operation) {
       for (const pid of pids) registerMember(snapshot.lockDirectory, snapshot.owner.token, pid, 'orphan-descendant')
       return readRecoveryState(snapshot.workspaceRoot, snapshot.lockDirectory)
     }
-    return operation(current, retainProcesses)
+    const discardLock = () => {
+      try {
+        removeStaleLock(snapshot.lockDirectory)
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+      }
+    }
+    return operation(current, retainProcesses, discardLock)
   })
 }

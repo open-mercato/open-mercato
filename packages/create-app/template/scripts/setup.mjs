@@ -8,7 +8,7 @@ import { ensureInfra, resolveInfraServices } from './infra.mjs'
 import { chooseServiceMode, configureServiceMode, printManualSetup } from './dev-service-modes.mjs'
 import { verifyServiceConnections } from './dev-service-connections.mjs'
 import { assertDatabaseWriteAllowed } from './dev-database-write-guard.mjs'
-import { acquireDevSession } from './dev-session-guard.mjs'
+import { acquireDevSessionWithRecovery } from './dev-session-recovery.mjs'
 
 const argv = process.argv.slice(2)
 const verbose = argv.includes('--verbose')
@@ -56,7 +56,7 @@ function selectConfiguredServices() {
 }
 
 try {
-  session = acquireDevSession({ workspaceRoot: process.cwd(), mode: 'setup', role: 'setup' })
+  session = await acquireDevSessionWithRecovery({ workspaceRoot: process.cwd(), mode: 'setup', role: 'setup' })
 } catch (error) {
   console.error(`\n❌ ${error.message}`)
   console.error('[setup] No service configuration, .env file or container was changed.')
