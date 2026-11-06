@@ -11,6 +11,7 @@
   "gateway_tpay.feature.configure": "Configurar ajustes de Tpay",
   "gateway_tpay.feature.view": "Ver configuración de Tpay",
   "gateway_tpay.health.healthy": "La conexión con Tpay funciona correctamente.",
+  "gateway_tpay.health.notificationsDisabled": "La conexión con Tpay funciona, pero las notificaciones de pago se rechazan hasta que se configure el código de seguridad de notificaciones.",
   "gateway_tpay.health.unhealthy": "Error de conexión con Tpay. Compruebe las credenciales.",
   "gateway_tpay.title": "Tpay"
 }

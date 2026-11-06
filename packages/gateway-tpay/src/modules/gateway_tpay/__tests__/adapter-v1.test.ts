@@ -308,9 +308,9 @@ describe('tpayAdapterV1', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('rejects webhook verification as unsupported', async () => {
+  it('delegates webhook verification to the Tpay notification handler', async () => {
     await expect(
       tpayAdapterV1.verifyWebhook({ rawBody: '{}', headers: {}, credentials: {} }),
-    ).rejects.toThrow('[internal] Tpay notifications are not supported yet')
+    ).rejects.toMatchObject({ name: 'TpayNotificationError', reason: 'unsupportedBody' })
   })
 })

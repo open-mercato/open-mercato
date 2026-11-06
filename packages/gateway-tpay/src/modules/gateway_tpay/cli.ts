@@ -5,6 +5,7 @@ import type { IntegrationLogService } from '@open-mercato/core/modules/integrati
 import type { IntegrationStateService } from '@open-mercato/core/modules/integrations/lib/state-service'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { applyTpayEnvPreset, readTpayEnvPreset } from './lib/preset'
+import { syncTpayReconciliationSchedule } from './lib/reconciliation-schedule'
 
 function parseArgs(args: string[]): Record<string, string | boolean> {
   const result: Record<string, string | boolean> = {}
@@ -100,6 +101,22 @@ const configureFromEnvCommand: ModuleCli = {
       console.log(
         `[gateway_tpay] Tpay credentials were configured from env. enabled=${String(result.enabled)} apiVersion=${result.appliedApiVersion ?? 'default'}`,
       )
+
+      try {
+        await syncTpayReconciliationSchedule({
+          container,
+          scope: { tenantId, organizationId },
+          enabled: result.enabled,
+        })
+      } catch (error) {
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'gateway_tpay',
+          code: 'gateway_tpay.reconciliation_schedule_failed',
+        })
+        const message = error instanceof Error ? error.message : 'Unknown Tpay reconciliation schedule error'
+        console.error(`[gateway_tpay] Failed to sync the Tpay reconciliation schedule: ${message}`)
+        process.exitCode = 1
+      }
     } catch (error) {
       getTelemetryRuntime()?.reportError(error, { module: 'gateway_tpay', code: 'gateway_tpay.preset_failed' })
       const message = error instanceof Error ? error.message : 'Unknown Tpay preset error'

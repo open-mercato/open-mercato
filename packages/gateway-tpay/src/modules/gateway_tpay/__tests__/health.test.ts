@@ -32,13 +32,42 @@ describe('tpayHealthCheck', () => {
       clientSecret: SECRET,
       environment: 'sandbox',
       notificationUrl: 'https://shop.example.com/notify',
+      notificationSecurityCode: 'notification-code',
     })
     expect(result.status).toBe('healthy')
-    expect(result.details).toEqual({ environment: 'sandbox', notificationUrlConfigured: true })
+    expect(result.details).toEqual({
+      environment: 'sandbox',
+      notificationUrlConfigured: true,
+      notificationsReady: true,
+    })
     expect(JSON.stringify(result)).not.toContain(SECRET)
+    expect(JSON.stringify(result)).not.toContain('notification-code')
     expect(JSON.stringify(result)).not.toContain('token-value')
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it.each([[undefined], ['   ']])(
+    'is degraded when the credentials work but the notification security code is missing (%j)',
+    async (notificationSecurityCode) => {
+      fetchMock.mockResolvedValue(jsonResponse({ access_token: 'token-value' }))
+      const result = await tpayHealthCheck.check({
+        clientId: 'id',
+        clientSecret: SECRET,
+        environment: 'sandbox',
+        notificationSecurityCode,
+      })
+      expect(result.status).toBe('degraded')
+      expect(result.message).toBe(
+        'Tpay connection works, but payment notifications are rejected until the notification security code is set.',
+      )
+      expect(result.details).toEqual({
+        environment: 'sandbox',
+        notificationUrlConfigured: false,
+        notificationsReady: false,
+      })
+      expect(JSON.stringify(result)).not.toContain(SECRET)
+    },
+  )
 
   it.each([
     [{ clientSecret: SECRET }],
