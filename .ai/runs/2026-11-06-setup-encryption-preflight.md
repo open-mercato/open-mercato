@@ -1,6 +1,6 @@
 # Setup encryption compatibility preflight
 
-Status: in-progress
+Status: complete
 Source doc: .ai/specs/2026-07-19-unified-starter-package.md
 
 ## Goal
@@ -52,8 +52,8 @@ PR: #8913 (supersedes #8908)
 
 ### Phase 3: Verification and publication
 
-- [ ] 3.1 Run focused tests, then configured validation in order; document concrete blockers.
-- [ ] 3.2 Review compatibility/security and publish evidence and resumable handoff on the new PR.
+- [x] 3.1 Run focused tests, then configured validation in order; document concrete blockers. — b8935fad9
+- [x] 3.2 Review compatibility/security and publish evidence and resumable handoff on the new PR. — b8935fad9
 
 
 ## Prior branch validation evidence (superseded by refreshed verification)
@@ -72,3 +72,10 @@ Static review has no remaining findings. Initial review findings were fixed: ver
 ## Independent review follow-up
 
 External review/QA at 3587b60ffc identified five actionable findings. Revised proof uses five server-filtered candidate rows per store/scope, excludes known Documents CRDT columns, recognises canonical IV-shaped envelopes, preserves best-effort optional dev migration behavior while leaving remote-target guards intact, and creates unique fallback configuration only for a fresh unconfigured environment. Live reported cases (Documents, 150k plaintext and encrypted rows, URNs) now pass; revised full gate and review remain pending.
+
+
+## Revised final verification after independent review
+
+All eight configured commands pass after the fixes: build:packages, generate, build:packages, i18n:check-sync, i18n:check-usage, typecheck, full test (51/51 tasks), build:app. Cached package/app outputs are reused where inputs are unchanged. Script suite: 1,579 pass / 5 standard skips; expanded real PostgreSQL integration: 1 pass / no skips; standalone setup: 37 pass. No known code blockers remain in static re-review. All five independent review findings and the QA S4–S6 regressions are addressed; the optional copy-generation nit is deferred because byte-parity tests retain the established mirror pattern without changing generator contracts. Full settings remain frozen for guarded child execution and are never logged.
+
+The proof now samples at most five server-filtered candidate rows per store/key scope. It is not a full historical decryption audit. Unknown stores/formats, external encrypted files, unselected mixed historical keys, query/time/sample limits and concurrent key/data changes remain stated limits; normal per-record guards are preserved. Existing root keys outrank company defaults; provided configuration uses the established dotenv renderer and unsupported values reject before file creation without exposing secrets. The original setup branch and superseded #8908 history remain intact. Independent re-review/QA and final-head CI remain external merge gates; no merge is performed.

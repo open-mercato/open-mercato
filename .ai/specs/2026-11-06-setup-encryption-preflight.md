@@ -41,7 +41,7 @@ Real existing encryption/KMS helpers with correct/wrong fallback keys; missing/u
 
 ## Final Compliance Report
 
-External review/QA at the earlier head identified false-positive binary/URN handling, whole-database transfer limits, best-effort dev behavior and fresh-install key configuration. These are fixed with known CRDT exclusions, canonical-IV detection, server-filtered per-scope samples, typed compatibility refusals for optional migrations, and fresh-only unique key generation. Live regressions pass for saved documents, 150k plaintext rows and 150k encrypted rows in one scope. Full verification is being repeated for the revised implementation; no completion claim until it passes. Tracking plan: .ai/runs/2026-11-06-setup-encryption-preflight.md.
+Implementation and revised local verification complete for #8913. All eight configured gate commands pass, including the 51-task full test suite and optimized app build. Additional script suite: 1,579 passed / 5 standard skips; standalone setup fixture suite: 37 passed; expanded real PostgreSQL smoke: passed with no skips, including Documents CRDT mixed with ciphertext, 150k plaintext and 150k encrypted rows in one scope, URNs, real KMS/Forms positives and negatives, source-mounted/installed container helpers, and rejected writes preserving stored bytes. Independent review findings at the earlier head are addressed and static re-review has no remaining blockers. Supplied-key root/company precedence, exact dotenv round trips and pre-write redacted rejection are covered. No schema migration, production dependency, base merge or history rewrite is introduced. This remains sampled current-key compatibility evidence, not a complete historical ciphertext audit. Independent PR re-review, QA and CI remain external merge gates. Tracking plan: .ai/runs/2026-11-06-setup-encryption-preflight.md.
 
 ## Changelog
 
@@ -52,3 +52,5 @@ External review/QA at the earlier head identified false-positive binary/URN hand
 - 2026-11-06: Completed host/container coverage, positive/negative live verification and the full local gate; published ready follow-up #8913, superseding #8908.
 
 - 2026-11-06: Addressed independent review/QA findings with bounded per-scope proof, Documents CRDT handling, canonical envelope detection, preserved optional dev behavior and secure fresh-only encryption defaults.
+
+- 2026-11-06: Completed revised full gate and expanded review/QA regressions; preserved exact supplied configuration and explicit database targeting.
