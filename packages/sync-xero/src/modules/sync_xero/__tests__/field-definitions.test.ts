@@ -68,7 +68,7 @@ describe('XERO_COMPANY_FIELD_DEFINITIONS', () => {
     const byKey = new Map(XERO_COMPANY_FIELD_DEFINITIONS.map((field) => [field.key, field]))
     expect([...byKey.keys()]).toEqual(['xero_contact_id', 'xero_tax_number', 'xero_merged_into'])
     expect(byKey.get('xero_contact_id')).toMatchObject({ kind: 'text', formEditable: false, filterable: false, listVisible: false })
-    expect(byKey.get('xero_tax_number')).toMatchObject({ kind: 'text', encrypted: true, formEditable: true, filterable: false })
+    expect(byKey.get('xero_tax_number')).toMatchObject({ kind: 'text', encrypted: true, formEditable: true, filterable: false, listVisible: false })
     expect(byKey.get('xero_merged_into')).toMatchObject({ kind: 'text', filterable: true, formEditable: false })
     expect(XERO_COMPANY_FIELDS_ENTITY_ID).toBe('customers:customer_company_profile')
   })

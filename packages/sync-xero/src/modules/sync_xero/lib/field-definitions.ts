@@ -35,6 +35,7 @@ export const XERO_COMPANY_FIELD_DEFINITIONS: CustomFieldDefinition[] = [
     encrypted: true,
     formEditable: true,
     filterable: false,
+    listVisible: false,
   },
   {
     key: XERO_MERGED_INTO_FIELD,

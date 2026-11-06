@@ -11,7 +11,7 @@
   "sync_xero.disconnect.description": "Open Mercato가 Xero 접근 권한을 삭제하고 Xero에 해지를 요청합니다. 동기화가 중지되며 지금까지 가져온 회사는 그대로 유지됩니다.",
   "sync_xero.disconnect.disableSkipped": "Xero 연결은 해제되었지만 통합은 계속 활성화되어 있습니다. 비활성화하려면 integrations.manage 권한이 필요하므로 관리자에게 비활성화를 요청하세요.",
   "sync_xero.disconnect.done": "Xero 연결을 해제했습니다.",
-  "sync_xero.disconnect.doneWithoutRevoke": "연결을 해제했습니다. Open Mercato는 더 이상 Xero 접근 권한이 없습니다.",
+  "sync_xero.disconnect.doneWithoutRevoke": "연결을 해제했습니다. Open Mercato는 더 이상 Xero 접근 권한이 없으며, Xero에서 철회를 시도하지 않았습니다.",
   "sync_xero.disconnect.failed": "Xero 연결을 해제하지 못했습니다.",
   "sync_xero.disconnect.notConnected": "해제할 Xero 연결이 없었습니다.",
   "sync_xero.disconnect.open": "연결 해제",

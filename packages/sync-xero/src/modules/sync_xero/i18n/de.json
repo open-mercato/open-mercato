@@ -11,7 +11,7 @@
   "sync_xero.disconnect.description": "Open Mercato löscht seinen Xero-Zugriff und bittet Xero, ihn zu widerrufen. Die Synchronisierung stoppt; bereits importierte Unternehmen bleiben erhalten.",
   "sync_xero.disconnect.disableSkipped": "Xero ist getrennt, aber die Integration bleibt aktiviert: Zum Deaktivieren ist die Berechtigung integrations.manage nötig. Bitten Sie eine Administratorin oder einen Administrator, sie zu deaktivieren.",
   "sync_xero.disconnect.done": "Von Xero getrennt.",
-  "sync_xero.disconnect.doneWithoutRevoke": "Getrennt. Open Mercato hat keinen Xero-Zugriff mehr.",
+  "sync_xero.disconnect.doneWithoutRevoke": "Getrennt. Open Mercato hat keinen Xero-Zugriff mehr, und bei Xero wurde kein Widerruf versucht.",
   "sync_xero.disconnect.failed": "Xero konnte nicht getrennt werden.",
   "sync_xero.disconnect.notConnected": "Es gab keine Xero-Verbindung zum Trennen.",
   "sync_xero.disconnect.open": "Trennen",

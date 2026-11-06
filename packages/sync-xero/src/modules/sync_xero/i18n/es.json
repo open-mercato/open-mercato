@@ -11,7 +11,7 @@
   "sync_xero.disconnect.description": "Open Mercato borra su acceso a Xero y pide a Xero que lo revoque. La sincronización se detiene y las empresas importadas hasta ahora se conservan.",
   "sync_xero.disconnect.disableSkipped": "Xero está desconectado, pero la integración sigue activada: desactivarla requiere el permiso integrations.manage. Pide a un administrador que la desactive.",
   "sync_xero.disconnect.done": "Desconectado de Xero.",
-  "sync_xero.disconnect.doneWithoutRevoke": "Desconectado. Open Mercato ya no tiene acceso a Xero.",
+  "sync_xero.disconnect.doneWithoutRevoke": "Desconectado. Open Mercato ya no tiene acceso a Xero y no se intentó ninguna revocación en Xero.",
   "sync_xero.disconnect.failed": "No se pudo desconectar Xero.",
   "sync_xero.disconnect.notConnected": "No había ninguna conexión con Xero que desconectar.",
   "sync_xero.disconnect.open": "Desconectar",
