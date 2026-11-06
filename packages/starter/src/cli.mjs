@@ -21,7 +21,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
 
-import { detectDocker, resolveRepoRoot, runCompose, runStreamingSync, spawnStreaming } from './compose.mjs'
+import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runStreaming, spawnStreaming } from './compose.mjs'
 import { readEnvValue } from './env-file.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
 import { loadCompanyConfig } from './company.mjs'
@@ -30,6 +30,7 @@ import { describeInfraProblem, devRuntimeArgs, infraDown, ensureMcpSharedDir, re
 import { buildUpSteps, clearConvergenceState, createStepContext, ensureOpencodeImage, runSteps, yarnInvocation } from './steps.mjs'
 import { collectStatus, printStatus, readRunState, isPidAlive, startDetached, stopDetached, tailLogs } from './supervise.mjs'
 import { ensureWindowsUtf8Console } from './spawn.mjs'
+import { createSetupLogs } from './setup-logs.mjs'
 import { color, guideBox, printBanner, statusLine } from './ui.mjs'
 import { waitForHealthyServices, waitForHttp } from './waits.mjs'
 
@@ -51,6 +52,7 @@ function parseArgs(argv) {
     detach: false,
     follow: false,
     nonInteractive: false,
+    verbose: false,
     skipLlmPrompt: false,
     skipDb: false,
     noInfra: false,
@@ -80,6 +82,9 @@ function parseArgs(argv) {
       case '--follow':
       case '-f':
         flags.follow = true
+        break
+      case '--verbose':
+        flags.verbose = true
         break
       case '--non-interactive':
         flags.nonInteractive = true
@@ -218,36 +223,53 @@ async function commandUpDocker(ctx, flags) {
   if (!outcome.ok) process.exit(2)
 
   ensureMcpSharedDir(repoRoot)
-  ensureOpencodeImage(ctx)
   const composeFile = FULLAPP_DEV_COMPOSE_FILE
   const upArgs = ['up', '-d']
   if (flags.rebuild) upArgs.push('--build')
   console.log('')
   console.log('── Starting the containerized stack (this builds the app image on the first run) ──')
-  const up = runCompose(repoRoot, upArgs, { composeFile })
-  if ((up.status ?? 1) !== 0) {
-    console.error('❌ docker compose up failed — see above. TLS errors inside builds usually mean the corporate CA changed: re-run with --rebuild.')
-    process.exit(up.status ?? 1)
+  const logs = ctx.logs
+  const log = (...args) => { console.log(...args); logs.record(...args) }
+  let up
+  logs.start()
+  ctx.log = (...args) => logs.log(...args)
+  try {
+    await ensureOpencodeImage(ctx)
+    up = await runStreaming('docker', composeArgs(repoRoot, upArgs, composeFile), { cwd: repoRoot, env: ctx.env, logs })
+    if (up !== 0) logs.show('Containerized stack failed')
+  } catch (error) {
+    logs.show('Containerized stack failed')
+    logs.record(error instanceof Error ? error.message : String(error))
+    throw error
+  } finally {
+    ctx.log = console.log
+    logs.stop()
+  }
+  if (up !== 0) {
+    log('❌ docker compose up failed — see above. TLS errors inside builds usually mean the corporate CA changed: re-run with --rebuild.')
+    process.exit(up)
   }
 
   const ports = resolveStackPorts(repoRoot)
   const urls = stackUrls(ports)
-  console.log(color.dim('  Startup order: infra healthy -> app serving -> MCP -> OpenCode -> end-to-end wiring check.'))
-  const infraOk = await waitForHealthyServices(repoRoot, composeFile, ['postgres', 'redis', 'meilisearch'], { log: console.log })
+  log(color.dim('  Startup order: infra healthy -> app serving -> MCP -> OpenCode -> end-to-end wiring check.'))
+  const infraOk = await waitForHealthyServices(repoRoot, composeFile, ['postgres', 'redis', 'meilisearch'], { log })
+  logs.record(`Infrastructure health: ${infraOk.ok ? 'ready' : infraOk.failed}`)
   if (!infraOk.ok) process.exit(1)
-  console.log(color.dim('  First boot runs migrations + seed inside the app container — expect several minutes.'))
-  if (!(await waitForHttp(urls.app, { label: `app ${urls.app}`, timeoutMs: 30 * 60 * 1000 }))) process.exit(1)
-  const mcpOk = await waitForHttp(urls.mcpHealth, { label: 'MCP /health' })
-  const opencodeOk = await waitForHttp(urls.opencodeHealth, { label: 'OpenCode /global/health' })
+  log(color.dim('  First boot runs migrations + seed inside the app container — expect several minutes.'))
+  if (!(await waitForHttp(urls.app, { label: `app ${urls.app}`, timeoutMs: 30 * 60 * 1000, log }))) process.exit(1)
+  const mcpOk = await waitForHttp(urls.mcpHealth, { label: 'MCP /health', log })
+  const opencodeOk = await waitForHttp(urls.opencodeHealth, { label: 'OpenCode /global/health', log })
   if (mcpOk && opencodeOk) {
     await waitForHttp(urls.opencodeMcpStatus, {
       label: 'OpenCode <-> MCP wiring',
+      log,
       timeoutMs: 2 * 60 * 1000,
       validate: (body) => body.includes('connected'),
     })
   }
   console.log('')
-  console.log(color.bold(color.green('Stack is up.')))
+  log(color.bold(color.green('Stack is up.')))
   const superEmail = readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_EMAIL')?.trim() || 'superadmin@acme.com'
   const superPassword = readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')?.trim() || 'secret'
   console.log(`  App:      ${color.cyan(urls.app)}  ${color.dim(`(sign in: ${superEmail} / ${superPassword})`)}`)
@@ -331,38 +353,62 @@ async function commandReset(flags) {
 }
 
 async function commandInfra(flags) {
-  const docker = detectDocker()
-  if (!docker.ok) {
-    printInfraProblem({ code: docker.code, detail: docker.reason })
-    console.error('   Full environment audit: yarn om doctor')
-    process.exit(2)
-  }
-  if (flags.infraAction === 'down') {
-    if (flags.volumes && !flags.yes) {
-      console.error('❌ --volumes DELETES all database/search data. Re-run with --yes to confirm.')
-      process.exit(1)
+  const logs = createSetupLogs({ repoRoot, name: 'infra', ...flags })
+  const log = (...args) => { console.log(...args); logs.record(...args) }
+  logs.start()
+  try {
+    const docker = detectDocker()
+    if (!docker.ok) {
+      printInfraProblem({ code: docker.code, detail: docker.reason }, log)
+      log('   Full environment audit: yarn om doctor')
+      process.exitCode = 2
+      return
     }
-    process.exit(infraDown(repoRoot, { volumes: flags.volumes }))
+    if (flags.infraAction === 'down') {
+      if (flags.volumes && !flags.yes) {
+        log('❌ --volumes DELETES all database/search data. Re-run with --yes to confirm.')
+        process.exitCode = 1
+        return
+      }
+      statusLine('info', 'Stopping infrastructure containers', { log })
+      const status = await runStreaming('docker', composeArgs(repoRoot, ['down', ...(flags.volumes ? ['--volumes'] : [])]), { cwd: repoRoot, logs })
+      if (status !== 0) {
+        logs.show('Infrastructure shutdown failed')
+        statusLine('fail', `Infrastructure shutdown failed (exit ${status})`, { log })
+      } else statusLine('ok', flags.volumes ? 'Infra containers stopped and volumes deleted.' : 'Infra containers stopped (data preserved).', { log })
+      process.exitCode = status
+      return
+    }
+    statusLine('info', 'Starting infrastructure containers (first run may pull and build images)', { log })
+    const outcome = await startInfra(repoRoot, {
+      profiles: flags.profiles,
+      logs,
+      log: (...args) => logs.log(...args),
+      beforeUp: () => ensureOpencodeImage({ repoRoot, env: process.env, flags, logs, log: (...args) => logs.log(...args) }),
+    })
+    if (!outcome.ok) {
+      logs.show('Infrastructure startup failed')
+      printInfraProblem(outcome.problem, log)
+      process.exitCode = 2
+      return
+    }
+    const ports = resolveStackPorts(repoRoot)
+    log('')
+    log(`✅ Infra containers are up (opencode :${ports.opencode}, postgres :${ports.postgres}, redis :${ports.redis}, meilisearch :${ports.meilisearch}).`)
+    log('   Next: yarn dev (starts the app and the MCP server on this machine)')
+  } catch (error) {
+    logs.show('Infrastructure failed')
+    statusLine('fail', error instanceof Error ? error.message : String(error), { log })
+    process.exitCode = 1
+  } finally {
+    logs.stop()
   }
-  const outcome = await startInfra(repoRoot, {
-    profiles: flags.profiles,
-    beforeUp: () => ensureOpencodeImage({ repoRoot, env: process.env, flags: { rebuild: flags.rebuild }, log: console.log }),
-  })
-  if (!outcome.ok) {
-    printInfraProblem(outcome.problem)
-    process.exit(2)
-  }
-  const ports = resolveStackPorts(repoRoot)
-  console.log('')
-  console.log(`✅ Infra containers are up (opencode :${ports.opencode}, postgres :${ports.postgres}, redis :${ports.redis}, meilisearch :${ports.meilisearch}).`)
-  console.log('   Next: yarn dev (starts the app and the MCP server on this machine)')
-  process.exit(0)
 }
 
-function printInfraProblem(problem) {
+function printInfraProblem(problem, log = console.error) {
   const [title, ...rest] = describeInfraProblem(problem)
-  console.error(`❌ ${title}`)
-  for (const line of rest) console.error(` ${line}`)
+  log(`❌ ${title}`)
+  for (const line of rest) log(` ${line}`)
 }
 
 async function main() {
@@ -388,4 +434,7 @@ async function main() {
   }
 }
 
-await main()
+await main().catch((error) => {
+  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  process.exitCode = 1
+})

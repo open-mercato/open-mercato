@@ -116,24 +116,25 @@ export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, no
   if (skipPrompt || nonInteractive || !process.stdin.isTTY) return skipProvider()
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-  const ask = (question) => new Promise((resolve) => rl.question(question, resolve))
+  const ask = (question) => new Promise((resolve) => rl.question(`   ${question}`, resolve))
 
+  const print = (line) => console.log(line ? `   ${line}` : '')
   try {
-    console.log('')
-    console.log('The AI assistant (OpenCode + MCP) needs one LLM provider to power the Cmd+K agent.')
-    console.log('AI setup is optional. Press Enter or choose 0 to continue without AI; you can configure it in .env later.')
+    print('')
+    print('The AI assistant (OpenCode + MCP) needs one LLM provider to power the Cmd+K agent.')
+    print('AI setup is optional. Press Enter or choose 0 to continue without AI; you can configure it in .env later.')
 
     while (true) {
-      console.log('')
-      console.log('  [ 0] Skip for now (default)')
+      print('')
+      print('[ 0] Skip for now (default)')
       LLM_PROVIDERS.forEach((entry, index) => {
-        console.log(`  [${String(index + 1).padStart(2)}] ${entry.label}`)
+        print(`[${String(index + 1).padStart(2)}] ${entry.label}`)
       })
       const choice = (await ask(`Choose a provider [0-${LLM_PROVIDERS.length}] (default 0): `)).trim()
       if (!choice || choice === '0') return skipProvider()
       const index = Number.parseInt(choice, 10)
       if (!Number.isInteger(index) || index < 1 || index > LLM_PROVIDERS.length) {
-        console.log(`Please enter a number between 0 and ${LLM_PROVIDERS.length}.`)
+        print(`Please enter a number between 0 and ${LLM_PROVIDERS.length}.`)
         continue
       }
       const selected = LLM_PROVIDERS[index - 1]
@@ -154,7 +155,7 @@ export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, no
         const entered = (await ask(promptText)).trim()
         baseUrl = entered || selected.baseUrl
         if (selected.baseUrlRequired && !baseUrl) {
-          console.log('This provider requires a base URL. Try again.')
+          print('This provider requires a base URL. Try again.')
           continue
         }
       }
@@ -164,7 +165,7 @@ export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, no
         : `${selected.label} model (${selected.modelHint}) (optional — press Enter for the default): `
       const model = (await ask(modelPrompt)).trim()
       if (selected.modelRequired && !model) {
-        console.log('This provider needs a model/deployment id. Try again.')
+        print('This provider needs a model/deployment id. Try again.')
         continue
       }
 

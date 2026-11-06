@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runCaptureSync } from './compose.mjs'
+import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runCaptureSync, runStreaming } from './compose.mjs'
 import { resolveStackPorts } from './constants.mjs'
 import { readEnvValue } from './env-file.mjs'
 import { formatInfraProblem, startInfraServices } from './infra-preflight.mjs'
@@ -62,7 +62,7 @@ export function externalDatabaseHost(repoRoot, env = process.env) {
 // infraUp plus the shared preflight: distinguishes missing CLI / compose,
 // stopped daemon, port conflicts, and failed healthchecks instead of a bare
 // non-zero compose exit. Returns { ok, problem? }; never touches volumes.
-export async function startInfra(repoRoot, { profiles = [], env = process.env, log = console.log, beforeUp, protectExistingServices = false, startImpl = startInfraServices } = {}) {
+export async function startInfra(repoRoot, { profiles = [], env = process.env, log = console.log, logs, beforeUp, protectExistingServices = false, startImpl = startInfraServices } = {}) {
   ensureMcpSharedDir(repoRoot)
   const externalHost = externalDatabaseHost(repoRoot, env)
   if (externalHost) {
@@ -75,6 +75,7 @@ export async function startInfra(repoRoot, { profiles = [], env = process.env, l
     cwd: repoRoot,
     beforeUp,
     protectExistingServices,
+    ...(logs ? { runStreamingImpl: async (command, args, options) => ({ status: await runStreaming(command, args, { ...options, env, logs }) }) } : {}),
     log,
   })
 }

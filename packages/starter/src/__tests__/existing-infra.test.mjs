@@ -1,10 +1,45 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { test } from 'node:test'
 
 import { findContainerPortOwners, formatInfraProblem, requestExistingServicesConsent, startInfraServices, suggestFreePorts } from '../infra-preflight.mjs'
 import { devRuntimeArgs } from '../infra.mjs'
 import { infraUpStep, runSteps } from '../steps.mjs'
 import { ensureInfra } from '../../../create-app/template/scripts/infra.mjs'
+import { createSetupLogs } from '../setup-logs.mjs'
+
+test('existing-service consent suspends compact input and displays guidance on every outcome', async () => {
+  for (const answer of [true, false, 'error']) {
+    const input = new EventEmitter()
+    Object.assign(input, { isTTY: true, isRaw: false, readableFlowing: false,
+      setRawMode(value) { this.isRaw = value }, resume() { this.readableFlowing = true }, pause() { this.readableFlowing = false } })
+    const terminal = []
+    const logs = createSetupLogs({ input, env: {}, output: { isTTY: true, write(line) { terminal.push(String(line)) } } })
+    const visible = []
+    const ctx = {
+      logs, mode: 'hybrid', flags: { noInfra: false, profiles: [] }, log: (line) => visible.push(String(line)),
+      runComposeImpl: () => ({ status: 0, stdout: '' }),
+      startInfraImpl: async () => ({ ok: false, problem: conflict() }),
+      confirmExistingServicesImpl: async (_problem, options) => {
+        assert.equal(input.isRaw, false)
+        assert.equal(input.listenerCount('data'), 0)
+        options.log('Review the existing services before consenting')
+        input.emit('data', 'd')
+        assert.ok(!terminal.join('').includes('Raw logs shown'))
+        if (answer === 'error') throw new Error('consent input failed')
+        return answer
+      },
+    }
+    const outcome = await runSteps([infraUpStep], ctx)
+    assert.equal(outcome.ok, answer === true)
+    assert.ok(visible.includes('Review the existing services before consenting'))
+    assert.equal(input.isRaw, false)
+    assert.equal(input.listenerCount('data'), 0)
+    assert.equal(input.readableFlowing, false)
+    assert.equal(ctx.promptLog, undefined)
+    if (answer === true) assert.equal(ctx.flags.noInfra, true)
+  }
+})
 
 const SERVICES = [
   { service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' },

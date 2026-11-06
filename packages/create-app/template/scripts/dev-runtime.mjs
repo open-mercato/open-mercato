@@ -166,8 +166,6 @@ const maxBufferedLogLines = 2000
 const failureLogTailLines = 20
 const RESET = '\u001B[0m'
 const BRIGHT_CYAN = '\u001B[96m'
-const CYAN_BORDER = '\u001B[46m\u001B[30m'
-const ERROR_BANNER = '\u001B[41m\u001B[97m'
 const warmupRequestTimeoutsMs = [45000, 120000]
 const maxWarmupRetryAttempts = 3
 const backgroundWorkerMode = resolveAutoSpawnMode(process.env, 'AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS_LAZY')
@@ -1426,55 +1424,33 @@ function rememberRawLog(line) {
   bufferRawLog(line)
 
   if (logsVisible) {
-    process.stdout.write(`${line}\n`)
+    process.stdout.write(`   ${line}\n`)
   }
-}
-
-function printTerminalBanner(style, lines) {
-  if (!Array.isArray(lines) || lines.length === 0) return
-  const contentWidth = Math.max(...lines.map((line) => line.length), 36)
-  const terminalWidth = Number.isFinite(process.stdout.columns) ? process.stdout.columns : 0
-  const width = terminalWidth > 8
-    ? Math.max(contentWidth, terminalWidth - 4)
-    : contentWidth
-  const border = `${style}${'━'.repeat(width + 4)}${RESET}`
-  console.log(border)
-  for (const line of lines) {
-    console.log(`${style} ${line.padEnd(width + 2)}${RESET}`)
-  }
-  console.log(border)
 }
 
 function printLogToggleHint() {
   if (!interactiveLogToggle) return
-  printTerminalBanner(CYAN_BORDER, [
-    ' DEBUG LOGS',
-    ' Press [d] to show or hide raw logs',
-  ])
+  console.log('   📋 Press [d] to show or hide raw logs')
 }
 
 function showBufferedLogs(reason) {
   if (!interactiveLogToggle || logsVisible) return
   logsVisible = true
-  printTerminalBanner(ERROR_BANNER, [
-    ' RAW DEBUG LOGS',
-    ` ${reason}`,
-    ' Press [d] again to hide logs',
-  ])
+  console.log(`   📖 ${reason} · press [d] to hide`)
   if (rawLogBuffer.length === 0) {
-    console.log('📭 No buffered logs yet')
+    console.log('   📭 No buffered logs yet')
     return
   }
 
   for (const line of rawLogBuffer.slice(-200)) {
-    process.stdout.write(`${line}\n`)
+    process.stdout.write(`   ${line}\n`)
   }
 }
 
 function hideBufferedLogs() {
   if (!interactiveLogToggle || !logsVisible) return
   logsVisible = false
-  console.log(`${BRIGHT_CYAN}📕 Raw logs hidden. Press [d] to show them again.${RESET}`)
+  console.log(`${BRIGHT_CYAN}   📕 Raw logs hidden. Press [d] to show them again.${RESET}`)
 }
 
 function installLogToggle() {
@@ -1499,7 +1475,7 @@ function installLogToggle() {
       if (logsVisible) {
         hideBufferedLogs()
       } else {
-        showBufferedLogs('📖 Raw logs shown')
+        showBufferedLogs('Raw logs shown')
       }
     }
   })
@@ -1688,12 +1664,9 @@ function createFilteredReporter(label, classifyLine) {
       return
     }
 
-    printTerminalBanner(ERROR_BANNER, [
-      ' RAW DEBUG LOGS',
-      ` ❌ ${label} emitted raw output`,
-    ])
+    console.error(`   ❌ ${label} emitted raw output`)
     for (const bufferedLine of rawLogBuffer.slice(-200)) {
-      console.error(bufferedLine)
+      console.error(`   ${bufferedLine}`)
     }
   }
 }
