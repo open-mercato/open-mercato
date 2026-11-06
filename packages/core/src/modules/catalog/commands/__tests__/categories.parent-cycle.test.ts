@@ -122,6 +122,7 @@ function buildCtx(rows: CategoryRow[]) {
     organizationScope: null,
     selectedOrganizationId: ORG,
     organizationIds: [ORG],
+    em,
   }
 }
 
@@ -200,7 +201,7 @@ describe('catalog.categories.update — parent cycles', () => {
     await expect(command.execute({ id: CAT_A, name: 'Renamed', parentId: CAT_B }, ctx)).resolves.toEqual({ categoryId: CAT_A })
     await expect(command.execute({ id: CAT_C, parentId: null }, ctx)).resolves.toEqual({ categoryId: CAT_C })
     expect(rows[2].parentId).toBeNull()
-    expect(ctx.container.resolve('em').find).not.toHaveBeenCalled()
+    expect(ctx.em.find).not.toHaveBeenCalled()
     expect(rebuildCategoryHierarchyForOrganization).toHaveBeenCalledTimes(2)
   })
 
@@ -212,7 +213,7 @@ describe('catalog.categories.update — parent cycles', () => {
     await command.undo({ logEntry: updateLogEntry(CAT_A, CAT_B, CAT_B), ctx })
 
     expect(rows[0].parentId).toBe(CAT_B)
-    expect(ctx.container.resolve('em').find).not.toHaveBeenCalled()
+    expect(ctx.em.find).not.toHaveBeenCalled()
     expect(rebuildCategoryHierarchyForOrganization).toHaveBeenCalledTimes(1)
   })
 
