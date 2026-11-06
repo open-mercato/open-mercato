@@ -293,3 +293,9 @@ trust. Drop the CA as a PEM file into `docker/certs/` — both the app and
 opencode image builds pick it up. See `docker/certs/README.md`; the Windows
 launcher (`starters/docker/windows/start-windows.bat`) detects and repairs this
 automatically.
+
+## Production storage privilege smoke test
+
+Run `node docker/tests/storage-init-smoke.mjs` with Docker available. The test builds an isolated runtime fixture using the production Dockerfile's package installation and user/sudo configuration plus the real storage and Railway scripts. Yarn is stubbed, so no database is migrated and no application dependencies are installed.
+
+The only runtime sudo command is the root-owned `/usr/local/sbin/om-init-storage`, with no arguments. It changes ownership of the storage mount directory alone. Existing data must already be provisioned for UID/GID `1001:1001`; see the Railway deployment documentation for backup migration. Deployment maintainer review is required before releasing this startup change.
