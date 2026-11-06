@@ -181,6 +181,7 @@
   "communication_channels.push.connect.title.fcm": "Firebase Cloud Messaging verbinden",
   "communication_channels.push.flash.registerFailed": "Push-Registrierung fehlgeschlagen",
   "communication_channels.push.status.active": "Push aktiv",
+  "communication_channels.push.status.expired": "Push abgelaufen — neu registrieren, um die Zustellung fortzusetzen",
   "communication_channels.push.status.failed": "Push fehlgeschlagen — nutze Polling",
   "communication_channels.push.status.inactive": "Nur Polling",
   "communication_channels.push.status.notRegistered": "Push nicht registriert",
