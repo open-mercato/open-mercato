@@ -675,6 +675,9 @@ None.
 
 ## Changelog
 
+### 2026-10-09
+- Balance buckets without a serial number had no unique index, and `upsertBalanceBucket` read the bucket `FOR UPDATE` (locking nothing when no row exists) before inserting it, so concurrent receipts, adjustments, cycle counts or moves into an empty bucket each inserted their own row. Cycle counts and moves then read one of those rows, and `verify-balances --repair` set every row to the bucket total. Creating a bucket now takes a transaction-scoped advisory lock on the bucket identity (warehouse, location, variant, lot, serial) and re-reads it before inserting; writes to existing buckets are unchanged. `move` no longer creates an empty source bucket before answering `409 insufficient_stock`. Existing duplicate rows are not merged. Coverage: `inventory-actions.balanceBucket.test.ts`, `TC-WMS-030`.
+
 ### 2026-09-29
 - Cycle count now applies the same non-negative availability bound as `adjust` and `move`: a negative variance that would drop on-hand below the bucket's reserved + allocated quantity is rejected with `409 insufficient_stock` instead of committing and leaving availability negative with the reservation still active. Roadmap invariant 4 defines availability and invariant 7 forbids negative availability until an explicit over-commit policy exists, so the count is rejected rather than silently shorting reservations; operators release the affected reservations, then recount. The cycle-count wizard shows a translated message naming the committed quantity. Coverage: `inventory-actions.cycleCount.test.ts`, `TC-WMS-029`.
 

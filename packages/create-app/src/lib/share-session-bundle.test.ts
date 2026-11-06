@@ -7,26 +7,14 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-const preparer = fileURLToPath(
-  new URL('../../../../.ai/skills/om-share-this-session/scripts/prepare-share-bundle.mjs', import.meta.url),
-)
-const codexExporter = fileURLToPath(
-  new URL('../../../../.ai/skills/om-share-this-session/scripts/export-codex-session.mjs', import.meta.url),
-)
-const monorepoSkillDirectory = fileURLToPath(
-  new URL('../../../../.ai/skills/om-share-this-session/', import.meta.url),
-)
 const standaloneSkillDirectory = fileURLToPath(
   new URL('../../agentic/shared/ai/skills/om-share-this-session/', import.meta.url),
 )
-
-function relativeFiles(root: string, current = root): string[] {
-  return fs.readdirSync(current, { withFileTypes: true }).flatMap((entry) => {
-    const absolutePath = path.join(current, entry.name)
-    if (entry.isDirectory()) return relativeFiles(root, absolutePath)
-    return [path.relative(root, absolutePath).split(path.sep).join('/')]
-  }).sort()
-}
+const monorepoOverrideDirectory = fileURLToPath(
+  new URL('../../../../.ai/skills/om-share-this-session/', import.meta.url),
+)
+const preparer = path.join(standaloneSkillDirectory, 'scripts', 'prepare-share-bundle.mjs')
+const codexExporter = path.join(standaloneSkillDirectory, 'scripts', 'export-codex-session.mjs')
 
 function createFixture(): {
   root: string
@@ -545,33 +533,32 @@ test('session-share preparer fails closed for incomplete sessions and unsafe fil
   })
 })
 
-test('monorepo and standalone session-share skills stay byte-identical and default-installed', () => {
-  const monorepoFiles = relativeFiles(monorepoSkillDirectory)
-  const standaloneFiles = relativeFiles(standaloneSkillDirectory)
-  assert.deepEqual(standaloneFiles, monorepoFiles)
-  for (const relativePath of monorepoFiles) {
-    assert.deepEqual(
-      fs.readFileSync(path.join(standaloneSkillDirectory, relativePath)),
-      fs.readFileSync(path.join(monorepoSkillDirectory, relativePath)),
-      `${relativePath} must not drift between the monorepo and create-app bundle`,
-    )
-  }
+test('the monorepo consumes the shared session-share skill and the standalone copy stays default-installed', () => {
+  const monorepoManifest = JSON.parse(
+    fs.readFileSync(new URL('../../../../.ai/skills/tiers.json', import.meta.url), 'utf8'),
+  ) as { external?: { skills?: string[] } }
+  assert.equal(
+    monorepoManifest.external?.skills?.includes('om-share-this-session'),
+    true,
+    'the monorepo installs om-share-this-session from the shared open-mercato/skills collection',
+  )
+  assert.equal(
+    fs.existsSync(path.join(monorepoOverrideDirectory, 'scripts')),
+    false,
+    'the monorepo override must not carry its own copy of the session-share scripts',
+  )
 
-  for (const manifestPath of [
-    new URL('../../../../.ai/skills/tiers.json', import.meta.url),
-    new URL('../../agentic/shared/ai/skills/tiers.json', import.meta.url),
-  ]) {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
-      default?: string[]
-      tiers?: Record<string, { skills?: string[] }>
-    }
-    const defaultSkills = new Set((manifest.default ?? []).flatMap((tier) => manifest.tiers?.[tier]?.skills ?? []))
-    assert.equal(defaultSkills.has('om-share-this-session'), true, `${manifestPath.pathname} must install the skill by default`)
-  }
+  const standaloneManifest = JSON.parse(
+    fs.readFileSync(new URL('../../agentic/shared/ai/skills/tiers.json', import.meta.url), 'utf8'),
+  ) as { default?: string[]; tiers?: Record<string, { skills?: string[] }> }
+  const defaultSkills = new Set(
+    (standaloneManifest.default ?? []).flatMap((tier) => standaloneManifest.tiers?.[tier]?.skills ?? []),
+  )
+  assert.equal(defaultSkills.has('om-share-this-session'), true, 'the standalone harness must install the skill by default')
 
-  const skill = fs.readFileSync(path.join(monorepoSkillDirectory, 'SKILL.md'), 'utf8')
-  const consent = fs.readFileSync(path.join(monorepoSkillDirectory, 'references', 'consent-and-review.md'), 'utf8')
-  const preparation = fs.readFileSync(path.join(monorepoSkillDirectory, 'references', 'bundle-preparation.md'), 'utf8')
+  const skill = fs.readFileSync(path.join(standaloneSkillDirectory, 'SKILL.md'), 'utf8')
+  const consent = fs.readFileSync(path.join(standaloneSkillDirectory, 'references', 'consent-and-review.md'), 'utf8')
+  const preparation = fs.readFileSync(path.join(standaloneSkillDirectory, 'references', 'bundle-preparation.md'), 'utf8')
   assert.match(skill, /Invocation, earlier consent, or a generic “yes” never satisfies this gate/)
   assert.match(consent, /I AGREE TO PUBLICLY SHARE "<share-name>" WITH OPEN-MERCATO/)
   assert.match(consent, /Deleting the temporary branch later cannot guarantee erasure/)

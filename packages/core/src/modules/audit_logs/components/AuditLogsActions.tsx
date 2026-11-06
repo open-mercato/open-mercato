@@ -164,7 +164,7 @@ export function AuditLogsActions({
     {
       accessorKey: 'actorUserId',
       header: t('audit_logs.actions.columns.user'),
-      cell: (info) => info.row.original.actorUserName || info.getValue() || noneLabel,
+      cell: (info) => info.row.original.actorUserName || noneLabel,
       meta: { priority: 3 },
     },
     {

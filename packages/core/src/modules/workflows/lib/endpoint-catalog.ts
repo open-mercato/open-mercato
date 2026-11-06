@@ -14,7 +14,7 @@
  * Server-only: assembling the catalog loads every route module through the
  * manifests (exactly what the docs route pays), so the result is cached per
  * process. Paths are exposed with the `/api` prefix to match what CALL_API
- * `endpoint` config values look like (`buildApiUrl` only accepts `/api/*`).
+ * `endpoint` config values look like (`resolveCallApiUrl` only accepts `/api/*`).
  */
 
 import { ZodType } from 'zod'

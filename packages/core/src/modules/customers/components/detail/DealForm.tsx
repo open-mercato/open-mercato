@@ -1,5 +1,6 @@
 "use client"
 
+import { extractResponseEnricherNamespaces } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
 import * as React from 'react'
 import { z } from 'zod'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -1229,6 +1230,7 @@ export function DealForm({
     }
 
     return {
+      ...extractResponseEnricherNamespaces(initialValues ?? {}),
       id: typeof initialValues?.id === 'string' ? initialValues.id : undefined,
       title: initialValues?.title ?? '',
       status: initialValues?.status ?? '',
@@ -1329,6 +1331,9 @@ export function DealForm({
       schema={schema}
       fields={baseFields}
       groups={groups}
+      entityId="customers.deal"
+      resourceKind="customers.deal"
+      resourceId={typeof initialValues?.id === 'string' ? initialValues.id : undefined}
       entityIds={DEAL_ENTITY_IDS}
       initialValues={embeddedInitialValues}
       onSubmit={handleSubmit}

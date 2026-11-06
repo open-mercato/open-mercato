@@ -97,6 +97,86 @@ describe('ResendChannelAdapter', () => {
     expect(sendMock).not.toHaveBeenCalled()
   })
 
+  it('strips CR/LF from subject, from and replyTo before calling Resend', async () => {
+    const adapter = getResendChannelAdapter()
+
+    const result = await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'key', fromAddress: 'fallback@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: {
+        to: 'user@example.com',
+        subject: 'Hello\r\nBcc: attacker@example.test',
+        from: 'from@example.com\r\nBcc: attacker@example.test',
+        replyTo: 'reply@example.com\nX-Injected: yes',
+      },
+    })
+
+    expect(result).toEqual(expect.objectContaining({ status: 'sent' }))
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      subject: 'Hello Bcc: attacker@example.test',
+      from: 'from@example.com Bcc: attacker@example.test',
+      replyTo: 'reply@example.com X-Injected: yes',
+    }))
+  })
+
+  it('returns CR/LF-free subject, from and replyTo from convertOutbound', async () => {
+    const adapter = getResendChannelAdapter()
+
+    const converted = await adapter.convertOutbound({
+      body: 'Hello',
+      bodyFormat: 'text',
+      channelMetadata: {
+        to: 'user@example.com',
+        subject: 'Hello\r\nBcc: attacker@example.test',
+        from: 'from@example.com\r\nBcc: attacker@example.test',
+        replyTo: 'reply@example.com\r\nX-Injected: yes',
+      },
+    })
+
+    expect(converted.metadata).toEqual(expect.objectContaining({
+      subject: 'Hello Bcc: attacker@example.test',
+      from: 'from@example.com Bcc: attacker@example.test',
+      replyTo: 'reply@example.com X-Injected: yes',
+    }))
+  })
+
+  it('strips CR/LF from attachment filename and contentType', async () => {
+    const adapter = getResendChannelAdapter()
+
+    await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: {
+        to: 'user@example.com',
+        subject: 'Hello',
+        attachments: [{ filename: 'a.txt\r\nX-Injected: yes', content: 'dGVzdA==', contentType: 'text/plain\r\nX-Injected: yes' }],
+      },
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [{ filename: 'a.txt X-Injected: yes', content: 'dGVzdA==', contentType: 'text/plain X-Injected: yes' }],
+    }))
+  })
+
+  it('still rejects a subject made only of CR/LF without calling Resend', async () => {
+    const adapter = getResendChannelAdapter()
+
+    const result = await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: { to: 'user@example.com', subject: '\r\n' },
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'failed',
+      error: '[internal] Email send requires a subject',
+    }))
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
   it('returns a failed result when Resend reports an error', async () => {
     sendMock.mockResolvedValueOnce({ error: { message: 'bad domain' } })
     const adapter = getResendChannelAdapter()

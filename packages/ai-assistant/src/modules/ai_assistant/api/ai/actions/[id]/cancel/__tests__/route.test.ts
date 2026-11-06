@@ -250,14 +250,14 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
     expect(repoGetByIdMock).not.toHaveBeenCalled()
   })
 
-  it('whitespace-only reason becomes empty → default "Cancelled by user" message', async () => {
+  it('whitespace-only reason becomes empty (no hardcoded English copy)', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow())
 
     const response = await POST(buildRequest({ reason: '   \t\n  ' }) as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.pendingAction.executionResult).toEqual({
-      error: { code: 'cancelled_by_user', message: 'Cancelled by user' },
+      error: { code: 'cancelled_by_user', message: '' },
     })
   })
 
@@ -288,7 +288,7 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
     const body = await response.json()
     expect(body.ok).toBe(true)
     expect(body.pendingAction.executionResult).toEqual({
-      error: { code: 'cancelled_by_user', message: 'Cancelled by user' },
+      error: { code: 'cancelled_by_user', message: '' },
     })
   })
 
