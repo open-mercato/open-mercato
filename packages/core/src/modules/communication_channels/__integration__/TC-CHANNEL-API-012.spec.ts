@@ -45,7 +45,9 @@ async function deleteScheduleIfExists(
 
 test.describe('TC-CHANNEL-API-012: me/channels reports automatic sync per organization', () => {
   test('reports the organization poll tick and flips when the tick is disabled', async ({ request }) => {
-    test.slow()
+    // onOrganizationCreated runs in a persistent subscriber; on a cold app the events
+    // worker starts lazily, so the new organization's tick can take a while to appear.
+    test.setTimeout(180_000)
     const stamp = Date.now()
     let adminToken: string | null = null
     let organizationId: string | null = null
@@ -80,7 +82,7 @@ test.describe('TC-CHANNEL-API-012: me/channels reports automatic sync per organi
       await expect
         .poll(() => readAutomaticSyncEnabled(request, userToken), {
           message: 'the new organization receives its poll tick from onOrganizationCreated',
-          timeout: 60_000,
+          timeout: 120_000,
         })
         .toBe(true)
 
