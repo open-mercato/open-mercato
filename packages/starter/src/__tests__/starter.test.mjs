@@ -1004,3 +1004,11 @@ test('credential verification runs after infrastructure and blocks database setu
   assert.equal(outcome.failedStep, 'service-connections')
   assert.equal(databaseRan, false)
 })
+
+test('infrastructure starting detail is separated from its step heading by a blank line', async () => {
+  const messages = []
+  await runSteps([{ id: 'infra-up', title: 'Infrastructure', check: async () => ({ ok: false, detail: 'starting: postgres' }), apply: async () => {} }], quietCtx({ log: (line) => messages.push(line) }))
+  const detail = messages.findIndex((line) => line.includes('starting: postgres'))
+  assert.ok(detail > 0)
+  assert.equal(messages[detail - 1], '')
+})

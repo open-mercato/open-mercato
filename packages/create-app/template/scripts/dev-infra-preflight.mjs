@@ -241,6 +241,7 @@ export async function requestExistingServicesConsent(problem, {
   env = process.env,
 } = {}) {
   const colors = diagnosticColors({ output, env })
+  const configuredServices = problem.configuredServices === true
   for (const entry of problem.ports ?? problem.services ?? []) {
     const identity = colors.service(entry.containerName || entry.service)
     const state = diagnosticText(entry.state || 'unknown')
@@ -249,13 +250,17 @@ export async function requestExistingServicesConsent(problem, {
     if (entry.containerName && (state === 'restarting' || entry.health === 'unhealthy')) log(`       Inspect the restart/health failure: ${colors.command(`docker logs ${diagnosticText(entry.containerName)}`)}`)
   }
   log('')
-  log(`   Otherwise run ${colors.command('`yarn om stop`')} in the checkout that started the infrastructure, then retry setup.`)
+  if (configuredServices) {
+    log('   The reachable services are configured in .env and may contain data from another environment.')
+  } else {
+    log(`   Otherwise run ${colors.command('`yarn om stop`')} in the checkout that started the infrastructure, then retry setup.`)
+  }
   if (nonInteractive || (!question && !input.isTTY)) {
     log(`   Existing services need interactive confirmation. Use ${colors.command('--no-infra')} explicitly to use the services configured in .env.`)
     return false
   }
   log('')
-  log('These ports may belong to an earlier Open Mercato run.')
+  log(configuredServices ? 'Setup will use these configured services without Docker.' : 'These ports may belong to an earlier Open Mercato run.')
   const prompt = 'Continue using these pre-existing services? [y/N] '
   const reader = question ? null : readline.createInterface({ input, output })
   try {
@@ -263,8 +268,12 @@ export async function requestExistingServicesConsent(problem, {
     if (!/^(y|yes)$/i.test(String(answer).trim())) return false
     log('')
     log('   ⚠️  Continuing with the services configured in .env.')
-    log('       Existing containers will not be stopped, restarted or recreated.')
-    log('       Restarting or unhealthy services may still fail when used.')
+    if (configuredServices) {
+      log('       Configured services will not be started, stopped or reconfigured.')
+    } else {
+      log('       Existing containers will not be stopped, restarted or recreated.')
+      log('       Restarting or unhealthy services may still fail when used.')
+    }
     return true
   } finally {
     reader?.close()
@@ -426,6 +435,7 @@ export async function startInfraServices({
   beforeUp,
   detect = detectDockerRuntime,
   spawnSyncImpl = spawnSync,
+  runStreamingImpl,
   portProbe = probeTcpPort,
   containerProbe = findContainerPortOwners,
   processProbe = findPortProcessOwners,
@@ -486,9 +496,9 @@ export async function startInfraServices({
 
   const reused = required.filter((service) => running.has(service))
   if (reused.length > 0) log(`   reusing running containers: ${reused.join(', ')} (data preserved)`)
-  if (beforeUp) beforeUp()
+  if (beforeUp) await beforeUp()
 
-  const up = spawnSyncImpl('docker', composeArgs([...upArgs, 'up', '-d', '--wait']), { cwd, stdio: 'inherit', windowsHide: true })
+  const up = await (runStreamingImpl ?? spawnSyncImpl)('docker', composeArgs([...upArgs, 'up', '-d', '--wait']), { cwd, stdio: 'inherit', windowsHide: true })
   if (up?.error) return { ok: false, problem: { code: 'compose-failed', detail: up.error.message } }
   if ((up?.status ?? 1) === 0) return { ok: true, reused }
 

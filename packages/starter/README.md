@@ -34,9 +34,19 @@ No Node yet? The package ships pre-Node bootstraps that install a **portable, ch
 | `reset` | Destructive cleanup (containers, volumes, starter state) — asks first. |
 | `infra up\|down` | Just the infra containers. |
 
-Useful flags: `--reuse-services`, `--ephemeral` (foreground only), `--random-ports`, `--infra`, `--non-interactive`, `--skip-llm-prompt`, `--skip-db`, `--no-infra` (no Docker calls at all, also passed on to `yarn dev`), `--rebuild`, `--clean`, `--profile <name>`, `-- <args for yarn dev>`.
+AI provider configuration is optional: press Enter or choose `0` at the provider prompt to continue without AI. Non-interactive setup also continues without a key. Configure a provider in `.env` later to enable AI chat.
+
+Useful flags: `--verbose`, `--reuse-services`, `--ephemeral` (foreground only), `--random-ports`, `--infra`, `--non-interactive`, `--skip-llm-prompt`, `--skip-db`, `--no-infra` (no Docker calls at all, also passed on to `yarn dev`), `--rebuild`, `--clean`, `--profile <name>`, `-- <args for yarn dev>`.
 
 `up --clean` forces a full re-converge: it clears the completed-step markers (install, build, migrations) and rebuilds the OpenCode service image, without touching any data — the one-time database seed stays done, and `reset` remains the destructive variant. Conversely, a plain `up` now also skips the database step entirely when the database is initialized and no `Migration*.ts` file changed since the last run (new migrations are detected by fingerprint and applied automatically).
+
+## Setup logs
+
+Like `yarn dev` and `yarn dev:greenfield`, interactive `yarn setup` and `yarn infra:up` keep routine logs folded behind a dim emoji `[d]` hint without a frame or background. Stage headers, progress, banner text and raw output share a consistent left margin. Original `── Step n/N` headers stay visible; only the `Expected:` label is bold yellow. An animated `⚙️ working…` row shows elapsed time until the completion status replaces it. The spinner pauses while raw logs are shown and never overlaps provider prompts. ✅ / ℹ️ / ❌ summaries stay visible. Press **d** to show newly buffered output and stream new logs; press **d** again to hide them without an extra notice. Already displayed output is not replayed on subsequent toggles or failures. Failures reveal the buffered diagnostics automatically. AI-provider prompts remain interactive, and setup restores the terminal before starting the dev runtime.
+
+Complete setup and infrastructure output is saved to `.mercato/logs/<run>-setup-raw.log` or `<run>-infra-raw.log`; the command prints the path when it starts. The file includes step summaries and full child-process stdout/stderr even while folded; only the last 200 hidden lines are retained for on-screen replay. Provider answers are never captured. These are local diagnostic files and can contain initialization details, so review them before sharing.
+
+Use `yarn setup --verbose` or `yarn infra:up --verbose` for live raw output. CI, redirected output, `--non-interactive`, and `TERM=dumb` also stream directly. The existing dev logging settings apply: `MERCATO_DEV_OUTPUT=verbose`, `OM_DEV_LOG_DIR`, `OM_DEV_RUN_ID`, and `OM_DEV_LOG_TEE=0` (disable log files). `NO_COLOR` disables banner colors.
 
 ## Design rules
 
