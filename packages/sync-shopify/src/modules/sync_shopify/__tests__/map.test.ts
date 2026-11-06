@@ -1,3 +1,4 @@
+import { calculateDocumentTotals, calculateLine } from '@open-mercato/core/modules/sales/lib/calculations'
 import { orderCreateSchema } from '@open-mercato/core/modules/sales/data/validators'
 import {
   buildOrderCommandInput,
@@ -174,6 +175,70 @@ describe('buildOrderCommandInput', () => {
     })
     expect(input.paymentStatusEntryId).toBe('66666666-6666-4666-8666-666666666666')
     expect(orderCreateSchema.parse(input).lines?.[0]).toMatchObject({ taxRate: 23 })
+  })
+
+  it.each([
+    { quantity: 1, discount: '12.30', gross: '110.70', tax: '20.70', net: 90 },
+    { quantity: 2, discount: '24.60', gross: '221.40', tax: '41.40', net: 180 },
+  ])('calculates discounted VAT-inclusive net for quantity $quantity (#7395)', async ({ quantity, discount, gross, tax, net }) => {
+    const input = buildOrderCommandInput({
+      scope: { organizationId, tenantId },
+      order: {
+        ...order,
+        totalDiscounts: { amount: discount, currencyCode: 'EUR' },
+        lines: [baseLine({
+          quantity,
+          discountTotal: { amount: discount, currencyCode: 'EUR' },
+          totalPrice: { amount: gross, currencyCode: 'EUR' },
+          taxTotal: { amount: tax, currencyCode: 'EUR' },
+        })],
+      },
+      customerEntityId: null,
+      catalogByVariantId: new Map(),
+    })
+    const parsed = orderCreateSchema.parse(input)
+    const line = parsed.lines![0]
+    const result = await calculateLine({
+      documentKind: 'order',
+      line,
+      context: { organizationId, tenantId, currencyCode: 'EUR' },
+    })
+    expect(result.netAmount).toBeCloseTo(net, 4)
+    expect(result.taxAmount).toBeCloseTo(Number(tax), 4)
+    expect(result.grossAmount).toBeCloseTo(Number(gross), 4)
+    expect(result.netAmount + result.taxAmount).toBeCloseTo(result.grossAmount, 4)
+    expect(parsed.adjustments).toBeUndefined()
+  })
+
+  it.each([
+    { current: '61.50', currentTax: '11.50', refunded: '61.50', net: 50 },
+    { current: '0.00', currentTax: '0.00', refunded: '123.00', net: 0 },
+  ])('preserves current totals and refund balance for current total $current', async ({ current, currentTax, refunded, net }) => {
+    const input = orderCreateSchema.parse(buildOrderCommandInput({
+      scope: { organizationId, tenantId },
+      order: {
+        ...order,
+        total: { amount: '123.00', currencyCode: 'EUR' },
+        totalTax: { amount: '23.00', currencyCode: 'EUR' },
+        currentTotal: { amount: current, currencyCode: 'EUR' },
+        currentTotalTax: { amount: currentTax, currencyCode: 'EUR' },
+        totalRefunded: { amount: refunded, currencyCode: 'EUR' },
+        lines: [baseLine()],
+      },
+      customerEntityId: null,
+      catalogByVariantId: new Map(),
+    }))
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines: input.lines!,
+      adjustments: input.adjustments,
+      context: { organizationId, tenantId, currencyCode: 'EUR' },
+      existingTotals: { paidTotalAmount: 123, refundedTotalAmount: Number(refunded) },
+    })
+    expect(result.totals.grandTotalNetAmount).toBeCloseTo(net, 4)
+    expect(result.totals.taxTotalAmount).toBeCloseTo(Number(currentTax), 4)
+    expect(result.totals.grandTotalGrossAmount).toBeCloseTo(Number(current), 4)
+    expect(result.totals.outstandingAmount).toBe(0)
   })
 
   it('maps line discounts, shipping, and tax-exclusive prices', () => {

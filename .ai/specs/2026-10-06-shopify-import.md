@@ -66,7 +66,9 @@ No new tables. External ids are stored on the existing sync mapping:
 | Customer | `customer_person` (customer entity id) |
 | Order | `sales_order` |
 
-Shopify variant prices are written through `catalog.prices.create/update` with `unitPriceGross` so the catalog tax calculation service derives net/gross. Order lines use gross pricing when Shopify `taxesIncluded` is true and net pricing otherwise, with line discounts and shipping/tax adjustments mapped into `sales.orders.create`.
+Shopify variant prices are written through `catalog.prices.create/update` with `unitPriceGross` so the catalog tax calculation service derives net/gross. Order lines use gross pricing when Shopify `taxesIncluded` is true and net pricing otherwise. Tax-inclusive line discounts are converted to net amounts for the sales command contract; source gross discounts remain the basis for detecting unallocated order discounts. Multiple tax lines on an item contribute their combined rate. Shipping and tax adjustments use `sales.orders.create`.
+
+Initial order imports read `totalReceivedSet`, `totalRefundedSet`, `totalOutstandingSet`, `currentTotalPriceSet`, and `currentTotalTaxSet`. Captured and refunded amounts are recorded through `sales.payments.create`, including partially paid and refunded orders. A negative custom adjustment carries the reduction from original to current order totals, including tax, so refunded orders retain the source balance. Later changes to an already imported order remain outside this slice.
 
 ## API Contracts
 
@@ -110,7 +112,8 @@ Executable Playwright coverage lives in `packages/sync-shopify/src/modules/sync_
 | Customer persistence | yes |
 | Order persistence with discounts/shipping and line counts >50 | yes |
 | Tax-inclusive order nets (`taxRate` / #7395) and taxed shipping (#7396) | yes |
-| PAID Shopify orders recorded as paid (outstanding 0 / #7399) | yes |
+| PAID, PARTIALLY_PAID, PARTIALLY_REFUNDED, and REFUNDED initial imports: captured/refunded amounts and current balance (#7399) | yes |
+| Discounted VAT-inclusive net/gross/tax (#7395) | yes |
 | Recreate after local delete of person/order (#7397) | yes |
 | Customer backfill on re-run when orders imported first (#7398) | yes |
 | Repeat order run / idempotent skip | yes |
@@ -137,3 +140,11 @@ Unit tests cover nested pagination fixtures, order financial mapping (tax-inclus
 - 2026-10-06 — Follow-ups recorded for inventory, metafields, webhooks, export, and OAuth. A Shopify App Store listing stays a later product decision, not the next slice.
 - 2026-10-08 — Nested pagination, catalog command writes, order discounts/shipping/tax mapping, i18n credential keys, preset error reporting, and fake-API integration coverage.
 - 2026-10-20 — Tax-inclusive `taxRate` mapping (#7395), shipping tax (#7396), recreate after local delete (#7397), customer backfill (#7398), PAID → payment record (#7399). Polish health label `Nieprawidłowy`.
+
+- 2026-11-06 — Correct gross-to-net line discounts and combined item tax rates; import initial partial payments/refunds and current order totals; extend calculator, importer, and fake-API integration regressions; complete Spanish, German, and Korean locales.
+
+## Validation — 2026-11-06
+
+Runner: local Node 24, managed ephemeral Docker database and app. `TC-SS-001` passed (47.9 seconds) with `AUTO_SPAWN_WORKERS=false`, using the shared queue-drain helper as its only consumer. This verifies persisted discounted VAT-inclusive totals, partial payments, partial/full refunds, repeated imports, recreation after deletion, customer backfill, and the existing scoping checks. The test waits for app workers when automatic workers are enabled. A development worker using the same queue directory must be stopped during this run; otherwise it can acknowledge test jobs against its own database.
+
+All 34 provider unit tests, provider typecheck/build, translation sync across five locales, generation, and the managed app production build passed.

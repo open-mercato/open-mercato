@@ -232,6 +232,47 @@ const taxedShippingLineItems = [{
   }],
 }]
 
+const financialOrders = [
+  {
+    ...taxInclusiveOrder,
+    id: 'gid://shopify/Order/9005',
+    name: '#QA9005',
+    totalPriceSet: money('110.70', 'EUR'),
+    subtotalPriceSet: money('110.70', 'EUR'),
+    totalDiscountsSet: money('12.30', 'EUR'),
+    totalTaxSet: money('20.70', 'EUR'),
+    lineItems: {
+      pageInfo: { hasNextPage: false, endCursor: null },
+      nodes: [{
+        ...taxInclusiveLineItems[0],
+        discountedUnitPriceSet: money('110.70', 'EUR'),
+        discountedTotalSet: money('110.70', 'EUR'),
+        discountAllocations: [{ allocatedAmountSet: money('12.30', 'EUR') }],
+        taxLines: [{ rate: 0.23, ratePercentage: 23, priceSet: money('20.70', 'EUR') }],
+      }],
+    },
+  },
+  ...[
+    { id: '9006', status: 'PARTIALLY_PAID', received: '40.00', refunded: '0.00', current: '123.00', tax: '23.00', outstanding: '83.00' },
+    { id: '9007', status: 'PARTIALLY_REFUNDED', received: '123.00', refunded: '61.50', current: '61.50', tax: '11.50', outstanding: '0.00' },
+    { id: '9008', status: 'REFUNDED', received: '123.00', refunded: '123.00', current: '0.00', tax: '0.00', outstanding: '0.00' },
+  ].map((fixture) => ({
+    ...taxInclusiveOrder,
+    id: `gid://shopify/Order/${fixture.id}`,
+    name: `#QA${fixture.id}`,
+    displayFinancialStatus: fixture.status,
+    totalReceivedSet: money(fixture.received, 'EUR'),
+    totalRefundedSet: money(fixture.refunded, 'EUR'),
+    totalOutstandingSet: money(fixture.outstanding, 'EUR'),
+    currentTotalPriceSet: money(fixture.current, 'EUR'),
+    currentTotalTaxSet: money(fixture.tax, 'EUR'),
+    lineItems: {
+      pageInfo: { hasNextPage: false, endCursor: null },
+      nodes: taxInclusiveLineItems,
+    },
+  })),
+]
+
 function operationName(query: string): string {
   const match = query.match(/\b(?:query|mutation)\s+([A-Za-z0-9_]+)/)
   return match?.[1] ?? ''
@@ -287,6 +328,7 @@ function handleGraphql(query: string, variables: Record<string, unknown>): unkno
       orders: {
         pageInfo: { hasNextPage: false, endCursor: null },
         nodes: [
+          ...financialOrders,
           {
             ...simpleOrder,
             lineItems: firstOrderLines,

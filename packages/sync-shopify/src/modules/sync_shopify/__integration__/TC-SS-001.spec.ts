@@ -21,6 +21,7 @@ const APP_ROOT = TEST_APP_ROOT
 const APP_QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue')
 const INTEGRATION_ID = 'sync_shopify'
 const EVENTS_QUEUE = 'events'
+const DATA_SYNC_IMPORT_QUEUE = 'data-sync-import'
 
 if (!TEST_APP_ROOT) {
   loadEnv({ path: path.resolve(APP_ROOT, '.env') })
@@ -68,9 +69,9 @@ async function waitForCompletedRun(
     if (status === 'failed' || status === 'cancelled') {
       throw new Error(`Sync run ${runId} finished with ${status}: ${JSON.stringify(lastRunBody)}`)
     }
-    // Let the app's armed background workers process data-sync-import jobs.
-    // Draining that queue from the Playwright process can resolve encrypted
-    // credentials without shopDomain and fail the run.
+    if (process.env.AUTO_SPAWN_WORKERS !== 'true') {
+      await drainIntegrationQueue(DATA_SYNC_IMPORT_QUEUE, { appRoot: APP_ROOT })
+    }
     await new Promise((resolve) => setTimeout(resolve, 750))
   }
   throw new Error(`Timed out waiting for sync run ${runId}. Last response: ${JSON.stringify(lastRunBody)}`)
@@ -217,6 +218,10 @@ test.describe('TC-SS-001: Shopify import via fake Admin API', () => {
         await findMappedLocalId('sales_order', 'gid://shopify/Order/9002', scope),
         await findMappedLocalId('sales_order', 'gid://shopify/Order/9003', scope),
         await findMappedLocalId('sales_order', 'gid://shopify/Order/9004', scope),
+        await findMappedLocalId('sales_order', 'gid://shopify/Order/9005', scope),
+        await findMappedLocalId('sales_order', 'gid://shopify/Order/9006', scope),
+        await findMappedLocalId('sales_order', 'gid://shopify/Order/9007', scope),
+        await findMappedLocalId('sales_order', 'gid://shopify/Order/9008', scope),
       ]
       for (const orderId of staleOrderIds) {
         if (orderId) await deleteEntityIfExists(request, token, '/api/sales/orders', orderId)
@@ -339,6 +344,23 @@ test.describe('TC-SS-001: Shopify import via fake Admin API', () => {
       expect(taxedShippingOrder).not.toBeNull()
       expect(Number(taxedShippingOrder?.grandTotalGrossAmount ?? 0)).toBeCloseTo(118.8, 1)
       expect(Number(taxedShippingOrder?.taxTotalAmount ?? 0)).toBeCloseTo(8.8, 1)
+
+      for (const fixture of [
+        { id: '9005', net: 90, tax: 20.7, gross: 110.7, outstanding: 0 },
+        { id: '9006', net: 100, tax: 23, gross: 123, outstanding: 83 },
+        { id: '9007', net: 50, tax: 11.5, gross: 61.5, outstanding: 0 },
+        { id: '9008', net: 0, tax: 0, gross: 0, outstanding: 0 },
+      ]) {
+        const financialOrderId = await findMappedLocalId('sales_order', `gid://shopify/Order/${fixture.id}`, scope)
+        expect(financialOrderId).toMatch(/^[0-9a-f-]{36}$/i)
+        createdOrderIds.push(financialOrderId!)
+        const financialOrder = await fetchListItem(request, token, '/api/sales/orders', financialOrderId!)
+        expect(financialOrder).not.toBeNull()
+        expect(Number(financialOrder?.grandTotalNetAmount ?? financialOrder?.subtotalNetAmount)).toBeCloseTo(fixture.net, 2)
+        expect(Number(financialOrder?.taxTotalAmount)).toBeCloseTo(fixture.tax, 2)
+        expect(Number(financialOrder?.grandTotalGrossAmount)).toBeCloseTo(fixture.gross, 2)
+        expect(Number(financialOrder?.outstandingAmount)).toBeCloseTo(fixture.outstanding, 2)
+      }
 
       // Delete person + one order, then re-import — must recreate instead of fail/skip (#7397).
       await deleteEntityIfExists(request, token, '/api/sales/orders', discountedOrderId!)

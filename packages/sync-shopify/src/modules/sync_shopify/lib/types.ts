@@ -83,6 +83,11 @@ export type ShopifyOrderNode = {
   displayFulfillmentStatus: string | null
   customerId: string | null
   total: ShopifyMoney | null
+  totalReceived?: ShopifyMoney | null
+  totalRefunded?: ShopifyMoney | null
+  totalOutstanding?: ShopifyMoney | null
+  currentTotal?: ShopifyMoney | null
+  currentTotalTax?: ShopifyMoney | null
   subtotal: ShopifyMoney | null
   totalDiscounts: ShopifyMoney | null
   totalShipping: ShopifyMoney | null

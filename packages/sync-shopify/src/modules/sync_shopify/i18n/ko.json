@@ -1,0 +1,18 @@
+{
+  "sync_shopify.credentials.apiVersion.defaultOption": "{version} (기본값)",
+  "sync_shopify.credentials.apiVersion.help": "GraphQL에 사용할 Shopify Admin API 버전입니다. 기본값은 2026-07입니다.",
+  "sync_shopify.credentials.apiVersion.label": "API 버전",
+  "sync_shopify.credentials.clientId.help": "Dev Dashboard 앱 설정의 클라이언트 ID입니다. read_products, read_customers 및 read_orders 권한을 게시한 다음 이 스토어에 앱을 설치하세요.",
+  "sync_shopify.credentials.clientId.label": "클라이언트 ID",
+  "sync_shopify.credentials.clientSecret.help": "같은 설정 페이지의 클라이언트 비밀 키입니다. Open Mercato는 이를 유효 기간이 짧은 Admin API 토큰으로 교환합니다.",
+  "sync_shopify.credentials.clientSecret.label": "클라이언트 비밀 키",
+  "sync_shopify.credentials.shopDomain.help": "https://를 제외한 *.myshopify.com 호스트 이름입니다.",
+  "sync_shopify.credentials.shopDomain.label": "스토어 도메인",
+  "sync_shopify.credentials.shopDomain.placeholder": "your-store.myshopify.com",
+  "sync_shopify.health.connected": "{shopName}에 연결됨",
+  "sync_shopify.health.failed": "Shopify 연결 실패: {message}",
+  "sync_shopify.health.unknownError": "알 수 없는 Shopify 오류",
+  "sync_shopify.integration.description": "Shopify의 제품, 고객 및 주문을 Open Mercato로 가져옵니다.",
+  "sync_shopify.integration.title": "Shopify",
+  "sync_shopify.validation.failed": "Shopify 유효성 검사 실패"
+}

@@ -146,7 +146,7 @@ function buildOrderLineInput(
     ? {
         priceMode: 'gross' as const,
         unitPriceGross: originalUnit,
-        discountAmount,
+        discountAmount: taxRate !== null ? discountAmount / (1 + taxRate / 100) : discountAmount,
         discountAmountBasis: 'line' as const,
         ...(taxRate !== null ? { taxRate } : {}),
         ...(taxAmount > 0 ? { taxAmount } : {}),
@@ -304,10 +304,10 @@ export function buildOrderCommandInput(input: {
     throw new Error(`Shopify order ${input.order.name} has no importable lines.`)
   }
 
-  const lineDiscountTotalAmount = lines.reduce((sum, line) => {
-    const amount = typeof line.discountAmount === 'number' ? line.discountAmount : 0
-    return sum + amount
-  }, 0)
+  const lineDiscountTotalAmount = input.order.lines.reduce(
+    (sum, line) => sum + (line.quantity > 0 ? lineDiscountTotal(line) : 0),
+    0,
+  )
   const shippingDiscountTotal = input.order.shippingLines.reduce(
     (sum, shipping) => sum + shippingDiscountAmount(shipping),
     0,
@@ -343,6 +343,29 @@ export function buildOrderCommandInput(input: {
       amountNet: remainingOrderDiscount,
       amountGross: remainingOrderDiscount,
       metadata: { shopifyTotalDiscounts: input.order.totalDiscounts },
+    })
+  }
+
+  const originalTotal = moneyAmount(input.order.total)
+  const currentTotal = moneyAmount(input.order.currentTotal)
+  if (originalTotal !== null && currentTotal !== null && currentTotal < originalTotal) {
+    const grossReduction = roundMoney(originalTotal - currentTotal)
+    const originalTax = moneyAmount(input.order.totalTax) ?? 0
+    const currentTax = moneyAmount(input.order.currentTotalTax) ?? originalTax
+    const taxReduction = Math.max(originalTax - currentTax, 0)
+    adjustments.push({
+      scope: 'order',
+      kind: 'custom',
+      label: clip(input.order.name, 255),
+      position: position++,
+      currencyCode,
+      amountNet: -roundMoney(grossReduction - taxReduction),
+      amountGross: -grossReduction,
+      metadata: {
+        shopifyOrderId: input.order.id,
+        shopifyTotalRefunded: input.order.totalRefunded,
+        taxRate: grossReduction > taxReduction ? taxReduction / (grossReduction - taxReduction) * 100 : 0,
+      },
     })
   }
 

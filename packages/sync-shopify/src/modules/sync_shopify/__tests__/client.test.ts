@@ -59,6 +59,43 @@ describe('createShopifyClient', () => {
     expect(String(fetchImpl.mock.calls[0]?.[0])).toBe('https://demo-store.myshopify.com/admin/api/2026-07/graphql.json')
   })
 
+  it('sums tax rates on one line and reads order settlement amounts', async () => {
+    const money = (amount: string) => ({ shopMoney: { amount, currencyCode: 'EUR' } })
+    const fetchImpl = jest.fn(async () => jsonResponse({ data: { orders: {
+      pageInfo: { hasNextPage: false, endCursor: null },
+      nodes: [{
+        id: 'gid://shopify/Order/1',
+        name: '#1',
+        currencyCode: 'EUR',
+        totalReceivedSet: money('112.00'),
+        totalRefundedSet: money('56.00'),
+        totalOutstandingSet: money('0.00'),
+        currentTotalPriceSet: money('56.00'),
+        currentTotalTaxSet: money('6.00'),
+        lineItems: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [{
+          id: 'gid://shopify/LineItem/1',
+          title: 'Two taxes',
+          quantity: 1,
+          originalUnitPriceSet: money('100.00'),
+          discountedTotalSet: money('100.00'),
+          taxLines: [
+            { rate: 0.05, ratePercentage: null, priceSet: money('5.00') },
+            { rate: 0.07, ratePercentage: 7, priceSet: money('7.00') },
+          ],
+        }] },
+      }],
+    } } }))
+    const page = await createShopifyClient(credentials, { fetchImpl: fetchImpl as typeof fetch }).listOrders(null, 25)
+    expect(page.nodes[0]).toMatchObject({
+      totalReceived: { amount: '112.00' },
+      totalRefunded: { amount: '56.00' },
+      totalOutstanding: { amount: '0.00' },
+      currentTotal: { amount: '56.00' },
+      currentTotalTax: { amount: '6.00' },
+      lines: [expect.objectContaining({ taxRate: 12, taxTotal: { amount: '12.00', currencyCode: 'EUR' } })],
+    })
+  })
+
   it('drains nested product variants and order line items past the first page', async () => {
     const variantNodes = Array.from({ length: 3 }, (_, index) => ({
       id: `gid://shopify/ProductVariant/${index + 1}`,

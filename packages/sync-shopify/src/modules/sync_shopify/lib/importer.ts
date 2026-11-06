@@ -163,12 +163,20 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
     })
   }
 
-  async function recordPaidPayment(orderId: string, order: ShopifyOrderNode): Promise<void> {
-    const amount = order.total ? Number(order.total.amount) : NaN
+  async function recordOrderPayment(orderId: string, order: ShopifyOrderNode): Promise<void> {
+    const received = order.totalReceived
+      ?? (shopifyOrderIsFullyPaid(order.displayFinancialStatus) ? order.total : null)
+    const amount = received ? Number(received.amount) : 0
     if (!Number.isFinite(amount) || amount <= 0) return
+    const refundedAmount = order.totalRefunded ? Number(order.totalRefunded.amount) : 0
+    if (!Number.isFinite(refundedAmount) || refundedAmount < 0 || refundedAmount > amount) {
+      throw new Error('[internal] Invalid Shopify refunded payment amount.')
+    }
     const currencyCode = order.currencyCode.trim().toUpperCase()
     if (!/^[A-Z]{3}$/.test(currencyCode)) return
-    const statusEntryId = await resolvePaymentStatusEntryId('received')
+    const statusEntryId = await resolvePaymentStatusEntryId(
+      mapShopifyPaymentStatusValue(order.displayFinancialStatus) ?? 'received',
+    )
     const placedAt = order.createdAt ? new Date(order.createdAt) : new Date()
     await commandBus.execute('sales.payments.create', {
       input: {
@@ -177,6 +185,7 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
         orderId,
         amount,
         capturedAmount: amount,
+        refundedAmount,
         currencyCode,
         ...(statusEntryId ? { statusEntryId } : {}),
         receivedAt: placedAt,
@@ -465,22 +474,20 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
         if (!orderId) throw new Error('Order command did not return an id.')
         await mapping.storeExternalIdMapping(SHOPIFY_INTEGRATION_ID, ORDER_ENTITY, orderId, order.id, scope)
 
-        if (shopifyOrderIsFullyPaid(order.displayFinancialStatus)) {
-          try {
-            await recordPaidPayment(orderId, order)
-          } catch (paymentError) {
-            // Order is already mapped; surface payment failure without failing the import item.
-            return {
-              externalId: order.id,
-              action: 'create',
-              data: {
-                localId: orderId,
-                name: order.name,
-                lineCount: order.lines.length,
-                shopifyTotal: order.total,
-                paymentWarning: paymentError instanceof Error ? paymentError.message : 'payment_failed',
-              },
-            }
+        try {
+          await recordOrderPayment(orderId, order)
+        } catch (paymentError) {
+          // Order is already mapped; surface payment failure without failing the import item.
+          return {
+            externalId: order.id,
+            action: 'create',
+            data: {
+              localId: orderId,
+              name: order.name,
+              lineCount: order.lines.length,
+              shopifyTotal: order.total,
+              paymentWarning: paymentError instanceof Error ? paymentError.message : 'payment_failed',
+            },
           }
         }
 

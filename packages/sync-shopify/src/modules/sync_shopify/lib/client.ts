@@ -250,33 +250,21 @@ function sumMoney(values: Array<ShopifyMoney | null>): ShopifyMoney | null {
 
 /** Prefer ratePercentage (23); fall back to rate (0.23 → 23). */
 function taxRatePercent(taxLines: unknown[]): number | null {
-  let weightedAmount = 0
-  let weightedRateSum = 0
+  let totalRate = 0
+  let hasRate = false
   for (const raw of taxLines) {
     const taxLine = asRecord(raw)
     if (!taxLine) continue
-    const money = asMoney(taxLine.priceSet)
-    const amount = money ? Number(money.amount) : NaN
-    const ratePercentage = typeof taxLine.ratePercentage === 'number'
-      ? taxLine.ratePercentage
-      : Number(taxLine.ratePercentage)
-    const rate = typeof taxLine.rate === 'number' ? taxLine.rate : Number(taxLine.rate)
-    let percent: number | null = null
-    if (Number.isFinite(ratePercentage) && ratePercentage >= 0) {
-      percent = ratePercentage
-    } else if (Number.isFinite(rate) && rate >= 0) {
-      percent = rate <= 1 ? rate * 100 : rate
-    }
+    const ratePercentage = taxLine.ratePercentage == null ? NaN : Number(taxLine.ratePercentage)
+    const rate = taxLine.rate == null ? NaN : Number(taxLine.rate)
+    const percent = Number.isFinite(ratePercentage) && ratePercentage >= 0
+      ? ratePercentage
+      : Number.isFinite(rate) && rate >= 0 ? rate * 100 : null
     if (percent === null) continue
-    if (Number.isFinite(amount) && amount > 0) {
-      weightedAmount += amount
-      weightedRateSum += amount * percent
-    } else if (weightedAmount === 0) {
-      return percent
-    }
+    totalRate += percent
+    hasRate = true
   }
-  if (weightedAmount > 0) return weightedRateSum / weightedAmount
-  return null
+  return hasRate ? totalRate : null
 }
 
 function mapOrderLine(value: unknown): ShopifyOrderLineNode | null {
@@ -344,6 +332,11 @@ function mapOrderShell(value: unknown): {
       displayFulfillmentStatus: asString(record.displayFulfillmentStatus),
       customerId: asString(asRecord(record.customer)?.id),
       total: asMoney(record.totalPriceSet),
+      totalReceived: asMoney(record.totalReceivedSet),
+      totalRefunded: asMoney(record.totalRefundedSet),
+      totalOutstanding: asMoney(record.totalOutstandingSet),
+      currentTotal: asMoney(record.currentTotalPriceSet),
+      currentTotalTax: asMoney(record.currentTotalTaxSet),
       subtotal: asMoney(record.subtotalPriceSet),
       totalDiscounts: asMoney(record.totalDiscountsSet),
       totalShipping: asMoney(record.totalShippingPriceSet),
@@ -441,6 +434,11 @@ const ORDERS_QUERY = `
         displayFulfillmentStatus
         customer { id }
         totalPriceSet { shopMoney { amount currencyCode } }
+        totalReceivedSet { shopMoney { amount currencyCode } }
+        totalRefundedSet { shopMoney { amount currencyCode } }
+        totalOutstandingSet { shopMoney { amount currencyCode } }
+        currentTotalPriceSet { shopMoney { amount currencyCode } }
+        currentTotalTaxSet { shopMoney { amount currencyCode } }
         subtotalPriceSet { shopMoney { amount currencyCode } }
         totalDiscountsSet { shopMoney { amount currencyCode } }
         totalShippingPriceSet { shopMoney { amount currencyCode } }
