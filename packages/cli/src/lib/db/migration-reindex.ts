@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
   formatQueryIndexRebuildCommands,
@@ -58,7 +59,7 @@ export async function collectQueryIndexReindexEntityTypes(
     if (!filePath) continue
     let moduleExports: unknown
     try {
-      moduleExports = await deps.importModule(filePath)
+      moduleExports = await deps.importModule(pathToFileURL(path.resolve(filePath)).href)
     } catch (error) {
       deps.onWarn?.(
         `[query_index] Could not read reindex declarations from ${migration.moduleId}/${migration.name}: ${

@@ -207,7 +207,7 @@ test.describe('TC-EXAMPLE-003: the todo bulk-complete operation is durable, scop
       await selectAll.check()
       await expect(page.locator('tbody').getByRole('checkbox', { checked: true })).toHaveCount(2)
 
-      const markDone = page.getByRole('button', { name: /Mark selected todos done/i })
+      const markDone = page.getByRole('button', { name: /Mark selected todos done/i }).first()
       await expect(markDone).toBeVisible()
 
       const [bulkRequest, bulkResponse] = await Promise.all([

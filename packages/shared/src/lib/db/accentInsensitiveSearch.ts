@@ -46,5 +46,25 @@ export const buildAccentInsensitiveSearchExpression = (columns: readonly string[
   return `${IMMUTABLE_UNACCENT_FUNCTION}(${concatenated})`
 }
 
-/** Right-hand side of the comparison: the bound pattern, unaccented the same way. */
+/**
+ * Right-hand side of the comparison: the bound pattern, unaccented the same way.
+ *
+ * @deprecated `unaccent` folds look-alikes such as fullwidth `％ ＿ ＼` into the
+ * ASCII LIKE metacharacters, so a pattern escaped before this call comes out of
+ * it with live wildcards (#6465). Use `buildAccentInsensitiveContainsPatternSql`,
+ * which binds the raw term and escapes it after folding.
+ */
 export const buildAccentInsensitivePatternSql = (): string => `${IMMUTABLE_UNACCENT_FUNCTION}(?)`
+
+const escapeLikeMetacharactersSql = (expression: string): string =>
+  `replace(replace(replace(${expression}, chr(92), chr(92) || chr(92)), '%', chr(92) || '%'), '_', chr(92) || '_')`
+
+/**
+ * Right-hand side of a "contains" comparison for a RAW (unescaped) search term
+ * bound as the single `?`: the term is unaccented first and only then
+ * LIKE-escaped, so characters that `unaccent` folds into `%`, `_` or `\` are
+ * matched literally. `chr(92)` spells the backslash independently of
+ * `standard_conforming_strings`.
+ */
+export const buildAccentInsensitiveContainsPatternSql = (): string =>
+  `'%' || ${escapeLikeMetacharactersSql(`${IMMUTABLE_UNACCENT_FUNCTION}(?)`)} || '%'`

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { DevRuntimeDiagnosticsBanner } from '../dev/DevRuntimeDiagnosticsBanner'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../primitives/dialog'
 import {
   DEV_RUNTIME_BANNER_META_NAME,
   DEV_RUNTIME_LOGS_URL_META_NAME,
@@ -376,6 +377,122 @@ describe('DevRuntimeDiagnosticsBanner', () => {
     expect(actionRow?.contains(dismiss)).toBe(false)
   })
 
+  describe('above an open modal dialog', () => {
+    function renderBannerOverDialog(onOpenChange: jest.Mock, { modal = true }: { modal?: boolean } = {}) {
+      return render(
+        <I18nProvider locale="en" dict={{}}>
+          <Dialog open modal={modal} onOpenChange={onOpenChange}>
+            <DialogContent>
+              <DialogTitle>Add line item</DialogTitle>
+              <DialogDescription>Line item form</DialogDescription>
+            </DialogContent>
+          </Dialog>
+          <button type="button" data-testid="page-content">page</button>
+          <DevRuntimeDiagnosticsBanner />
+        </I18nProvider>,
+      )
+    }
+
+    // Radix registers its outside-press listener on the next tick after mount.
+    async function waitForOutsideDismissListener() {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+
+    function pressAndClick(element: Element) {
+      fireEvent.pointerDown(element)
+      fireEvent.mouseDown(element)
+      fireEvent.focusIn(element)
+      fireEvent.pointerUp(element)
+      fireEvent.mouseUp(element)
+      fireEvent.click(element)
+    }
+
+    it('closes the dialog on a genuine outside press (control)', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      const onOpenChange = jest.fn()
+      renderBannerOverDialog(onOpenChange)
+      await screen.findByTestId('dev-runtime-diagnostics-banner')
+      await waitForOutsideDismissListener()
+
+      pressAndClick(screen.getByTestId('page-content'))
+
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+    })
+
+    it('dismisses only the banner when its close button is pressed', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      const onOpenChange = jest.fn()
+      renderBannerOverDialog(onOpenChange)
+      await screen.findByTestId('dev-runtime-diagnostics-banner')
+      await waitForOutsideDismissListener()
+
+      pressAndClick(screen.getByRole('button', { name: 'Dismiss', hidden: true }))
+
+      expect(screen.queryByTestId('dev-runtime-diagnostics-banner')).toBeNull()
+      expect(onOpenChange).not.toHaveBeenCalled()
+      expect(screen.getByRole('dialog')).toBeTruthy()
+    })
+
+    it('keeps the dialog open when the banner actions are used', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      const onOpenChange = jest.fn()
+      renderBannerOverDialog(onOpenChange)
+      await screen.findByTestId('dev-runtime-diagnostics-banner')
+      await waitForOutsideDismissListener()
+
+      pressAndClick(screen.getByRole('button', { name: 'Show details', hidden: true }))
+
+      expect(screen.getByText('Error code')).toBeTruthy()
+      expect(onOpenChange).not.toHaveBeenCalled()
+    })
+
+    it('keeps the dialog open through the portaled migrate confirmation', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      const onOpenChange = jest.fn()
+      renderBannerOverDialog(onOpenChange)
+      await screen.findByTestId('dev-runtime-diagnostics-banner')
+      await waitForOutsideDismissListener()
+
+      pressAndClick(screen.getByRole('button', { name: /Run migrations/, hidden: true }))
+      const confirmDialog = (await screen.findByText(/not automatically reversible/i)).closest('dialog')
+      expect(confirmDialog?.hasAttribute('open')).toBe(true)
+      pressAndClick(screen.getByRole('button', { name: /^Cancel$/, hidden: true }))
+
+      await waitFor(() => expect(confirmDialog?.hasAttribute('open')).toBe(false))
+      expect(onOpenChange).not.toHaveBeenCalled()
+      expect(actionCalls()).toHaveLength(0)
+    })
+
+    it('keeps a non-modal layer open when focus moves into the banner', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      const onOpenChange = jest.fn()
+      renderBannerOverDialog(onOpenChange, { modal: false })
+      await screen.findByTestId('dev-runtime-diagnostics-banner')
+      await waitForOutsideDismissListener()
+
+      pressAndClick(screen.getByRole('button', { name: 'Show details' }))
+
+      expect(screen.getByText('Error code')).toBeTruthy()
+      expect(onOpenChange).not.toHaveBeenCalled()
+    })
+
+    it('stays clickable while the modal disables pointer events on the body', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      renderBannerOverDialog(jest.fn())
+
+      const banner = await screen.findByTestId('dev-runtime-diagnostics-banner')
+      expect(banner.className).toContain('pointer-events-auto')
+    })
+  })
+
   // The app shell's sidebar toggle and the toast stack own fixed slots at the
   // top of the viewport, so a top-anchored banner is overlapped by them.
   it('floats at the bottom above app chrome instead of sitting in page flow', async () => {
@@ -430,6 +547,42 @@ describe('DevRuntimeDiagnosticsBanner', () => {
     const [url, init] = actionCalls()[0]
     expect(url).toBe('/api/dev-runtime/actions/restart')
     expect(init.headers).toMatchObject({ [DEV_RUNTIME_TOKEN_HEADER]: TOKEN })
+  })
+
+  it('retries a stale runtime incident through supervisor recovery instead of only reloading the page', async () => {
+    enableBanner()
+    const issue = createIssue({ code: 'runtime_error', title: 'Runtime error detected', detail: 'The destination stream errored while writing data.', recovery: undefined })
+    mockStatusResponses(
+      createStatus({ issueSummary: issue }),
+      createStatus({ generation: 2, health: 'starting', ready: false, issueSummary: null, incidents: [] }),
+      createStatus({ generation: 2, health: 'ready', issueSummary: null, incidents: [] }),
+    )
+    renderBanner()
+
+    await screen.findByTestId('dev-runtime-diagnostics-banner')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    await waitFor(() => expect(actionCalls()).toHaveLength(1))
+    expect(actionCalls()[0][0]).toBe('/api/dev-runtime/actions/restart')
+    expect(actionCalls()[0][1].headers).toMatchObject({ [DEV_RUNTIME_TOKEN_HEADER]: TOKEN })
+    expect(screen.getByText('The destination stream errored while writing data.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTestId('dev-runtime-diagnostics-banner')).toBeNull(), { timeout: 5500 })
+  })
+
+  it('retains the runtime incident and explains when Retry is rejected', async () => {
+    enableBanner()
+    mockStatusResponses(createStatus())
+    actionResponse = () => new Response(
+      JSON.stringify({ error: { code: 'action_busy', message: 'Runtime restart is already running.' } }),
+      { status: 409, headers: { 'content-type': 'application/json' } },
+    )
+    renderBanner()
+
+    await screen.findByTestId('dev-runtime-diagnostics-banner')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByText('Runtime restart is already running.')).toBeInTheDocument()
+    expect(screen.getByText('Relation `sandboxs` is missing')).toBeInTheDocument()
   })
 
   it('requires confirmation before running migrations and can be cancelled', async () => {

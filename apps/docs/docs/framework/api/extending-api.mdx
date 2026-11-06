@@ -56,4 +56,26 @@ export const metadata = {
 - **Emit events deliberately** when downstream modules should react; otherwise keep handlers idempotent.
 - **Document metadata** (`requireFeatures`, `requireRoles`) to integrate with admin navigation and ACLs.
 
+## API interceptor route identity
+
+The catch-all API dispatcher binds the matched manifest route to the request before
+calling a handler. API interceptor selection consumes that identity: static segments
+use the route's authored spelling, and dynamic/catch-all segments keep their matched
+parameter values. Mixed-case and percent-encoded spellings that dispatch to the same
+route therefore run the same exact and wildcard interceptors. Malformed path encoding
+is rejected before handler execution.
+
+Custom interceptor wrappers must use the dispatcher-bound request identity (the shared
+CRUD factory does this automatically), or pass an authored route constant to the
+interceptor runner. Do not derive a policy key independently from `request.url`; doing
+so can make dispatch and policy matching disagree. This identity does not alter the
+request URL, query string, or `ctx.params` received by the handler.
+
+The identity survives `request.clone()` and `new Request(request.url, request)`.
+Wrappers that reconstruct a request with an explicit `RequestInit` must retain the
+original headers or pass an authored route constant to the interceptor runner. The
+framework overwrites caller-supplied identity metadata at dispatch, bounds its
+process-local continuity state, and rejects unknown or expired metadata rather than
+falling back to the raw URL.
+
 Mixing CRUD factories and bespoke endpoints gives you the flexibility to move fast while keeping the platform predictable.

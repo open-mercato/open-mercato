@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { executeUpgradeAction, getCurrentVersion, isUpgradeActionsEnabled, listPendingUpgradeActions } from '../../services/upgradeActionsService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -40,7 +41,7 @@ async function resolveScope(
   const container = await createRequestContainer()
   const featureContext = await resolveFeatureCheckContext({ container, auth, request: req })
   const tenantId = featureContext.scope.tenantId ?? auth.tenantId ?? null
-  const organizationId = featureContext.organizationId ?? featureContext.scope.selectedId ?? auth.orgId ?? null
+  const organizationId = featureContext.organizationId ?? resolveSingleOrganizationIdOrDeny(featureContext.scope, auth) ?? null
   if (!tenantId || !organizationId) {
     const message = translate(
       'upgrades.scopeRequired',

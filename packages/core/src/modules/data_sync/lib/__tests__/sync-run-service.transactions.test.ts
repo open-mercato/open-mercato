@@ -284,4 +284,49 @@ describe('SyncRunService.markStatus — stalled-job recovery', () => {
     expect(em.refresh).toHaveBeenCalledWith(run)
     expect(result).toBe(run)
   })
+
+  it('atomically claims a terminal status only from a non-terminal or identical status', async () => {
+    const em = buildFakeEm()
+    const run = buildRun({ status: 'running' })
+    mockLookups(run, null)
+
+    const service = createSyncRunService(em as any)
+    const result = await service.markStatus('run-1', 'cancelled', SCOPE)
+
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      SyncRun,
+      expect.objectContaining({
+        id: 'run-1',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        status: { $in: ['pending', 'running', 'paused', 'cancelled'] },
+      }),
+      expect.objectContaining({ status: 'cancelled' }),
+    )
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.refresh).toHaveBeenCalledWith(run)
+    expect(result).toBe(run)
+  })
+
+  it('returns the terminal winner when a concurrent transition wins the compare-and-swap', async () => {
+    const em = buildFakeEm()
+    em.nativeUpdate.mockResolvedValueOnce(0)
+    const run = buildRun({ status: 'failed', lastError: 'adapter rejected credentials' })
+    mockLookups(run, null)
+
+    const service = createSyncRunService(em as any)
+    const result = await service.markStatus('run-1', 'cancelled', SCOPE)
+
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      SyncRun,
+      expect.objectContaining({
+        status: { $in: ['pending', 'running', 'paused', 'cancelled'] },
+      }),
+      expect.objectContaining({ status: 'cancelled' }),
+    )
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.refresh).toHaveBeenCalledWith(run)
+    expect(result).toBe(run)
+    expect(result?.status).toBe('failed')
+  })
 })

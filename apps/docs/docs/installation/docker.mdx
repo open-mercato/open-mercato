@@ -33,7 +33,6 @@ This setup works on any OS. On **Windows**, it is slower than the [native monore
 ```bash
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
-git checkout develop
 
 # Optional: customise environment before first run
 cp apps/mercato/.env.example apps/mercato/.env
@@ -122,7 +121,7 @@ yarn docker:test
 yarn docker:install-skills # optional — only if you use an AI coding agent
 ```
 
-`yarn docker:install-skills` is the container equivalent of `yarn install-skills`: nothing in the Docker setup installs agent skills for you, so run it once per clone if you plan to use Codex, Claude Code, Cursor, or another supported coding agent. It fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it otherwise; see [Develop setup steps](./setup#develop-setup-steps-recommended) for the full explanation.
+`yarn docker:install-skills` is the container equivalent of `yarn install-skills`: nothing in the Docker setup installs agent skills for you, so run it once per clone if you plan to use Codex, Claude Code, Cursor, or another supported coding agent. It fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it otherwise; see [Setup steps](./setup#setup-steps-recommended) for the full explanation.
 
 Restart the app service and tail logs:
 
@@ -145,7 +144,7 @@ Most variables are pre-configured with sensible defaults in the compose file. Ov
 | `OM_DEV_SPLASH_PORT` | `4000` | Host port for the startup splash page |
 | `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to disable browser auto-open |
 | `POSTGRES_PASSWORD` | `postgres` | Database password |
-| `JWT_SECRET` | **required, no default** | Auth token secret. The full-app stacks refuse to start without it — generate one with `openssl rand -hex 32`. In production the app also rejects placeholder values and secrets shorter than 32 characters |
+| `JWT_SECRET` | `JWT` in this dev stack; **required** in `compose.fullapp.yml` | Auth token secret. The dev stack (`compose.fullapp.dev.yml`) falls back to the insecure placeholder `JWT` so it starts out of the box; the production-style `compose.fullapp.yml` refuses to start without it. Generate one with `openssl rand -hex 32`. In production the app also rejects placeholder values and secrets shorter than 32 characters |
 | `OPENAI_API_KEY` | — | Enables OpenAI-backed AI features; combine it with `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` to turn vector auto-indexing on |
 | `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` | `true` in the shipped example env | Set to `false` or remove it to enable automatic vector indexing |
 | `DEMO_MODE` | `true` | Demo-deployment behaviour: shows the backend contact/feedback widget, locks attachment partition settings, and keeps the demo superadmin during `mercato init`. The demo notice bar is dropped only by the literal value `false`. To hide just the contact widget while leaving the rest on, use the [`ff_om_hide_contact` browser flag](../architecture/configuration-decision-guide.mdx#ff-om-hide-contact) |
