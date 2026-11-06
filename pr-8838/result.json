@@ -1,0 +1,13 @@
+{
+  "result": "pass",
+  "checks": [
+    "folded output hides compiler details",
+    "d replays details during live child",
+    "second d folds logs",
+    "provider readline receives input",
+    "failure auto-reveals diagnostics",
+    "raw mode and input listeners restored",
+    "full log file includes hidden stdout and diagnostics",
+    "provider answer absent from file"
+  ]
+}
