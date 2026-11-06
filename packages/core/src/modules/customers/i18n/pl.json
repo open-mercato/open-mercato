@@ -3014,6 +3014,7 @@
   "customers.timeline.author": "przez {{name}}",
   "customers.timeline.date.today": "dziś",
   "customers.timeline.date.tomorrow": "jutro",
+  "customers.timeline.date.unknown": "Nieznana data",
   "customers.timeline.date.yesterday": "wczoraj",
   "customers.timeline.edit": "Edytuj",
   "customers.timeline.empty": "Brak aktywności pasujących do filtrów.",

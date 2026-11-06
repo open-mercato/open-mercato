@@ -49,6 +49,9 @@ This creates a `my-store/` directory with the full application template, includi
 | `--preset <id>` | Select `classic`, `empty`, `crm`, or `wms` without the preset prompt. |
 | `--agents <list>` | Install the standalone AI harness non-interactively for `claude-code`, `codex`, `cursor`, a comma-separated subset, `all`, or `none`. |
 | `--skip-agentic-setup` | Skip the AI setup wizard; equivalent to `--agents none`. |
+| `--modules <list>` | Plan modules from the [Open Mercato Modules](https://modules.openmercato.com/) catalog that are verified on this Open Mercato line. Prints their `yarn mercato module add` commands; installs nothing. |
+| `--module-picker` | Pick catalog modules from a numbered list. In a terminal it is offered by default when neither `--preset` nor `--modules` is given; Enter adds none. |
+| `--no-module-picker` | Do not offer the catalog module picker. |
 | `--registry <url>` | Use a custom npm registry for `@open-mercato` packages. |
 | `--verdaccio` | Shorthand for `--registry http://localhost:4873` (local Verdaccio). |
 | `--help`, `-h` | Show usage information. |

@@ -38,7 +38,7 @@ cp apps/mercato/.env.example apps/mercato/.env # the defaults work with yarn inf
 yarn dev:greenfield                           # builds, generates, initializes and starts the app
 ```
 
-`yarn dev:greenfield` reinstalls the database: it drops all tables in the configured database before seeding it again. Open `http://localhost:3000/backend`; the credentials are printed in the terminal. Windows users: see [Developing on Windows](#developing-on-windows).
+In the monorepo, `yarn dev:greenfield` keeps its established reset behavior: it drops all tables in the configured database and seeds it again before starting development. Standalone `yarn setup` preserves initialized data; `yarn setup --reinstall` explicitly resets it. Open `http://localhost:3000/backend`; the credentials are printed in the terminal. Windows users: see [Developing on Windows](#developing-on-windows).
 
 ### Seed data
 
@@ -98,6 +98,12 @@ This ensures design decisions are documented and the codebase remains well-under
 - Ensure the branch merges cleanly and CI is green before requesting review.
 - Reference related issues or discussions; add screenshots or recordings for UI tweaks.
 - Tag maintainers early if you need design or architectural guidance.
+
+### Stabilization CI
+
+Use a same-repository branch under `stabilize/` (for example `stabilize/main-2026-11-05`) for a stabilization PR. CI automatically runs full typechecking, the full unit suite, and all 15 integration shards when that PR opens, reopens, or receives a new commit. Ordinary PRs retain affected scope; shared-code and workflow edits can still require broader validation. Existing pushes to `main` and release lines retain full validation.
+
+Label changes do not start or cancel CI. The legacy `ci-full` label no longer controls scheduling or scope, including on ordinary PRs. Use the stabilization branch convention for new stabilization work instead of relying on label timing or historical `fix/stabilize-*` branch names. A fork branch with the same prefix retains normal PR scope.
 
 ### Enterprise Module Contributions
 

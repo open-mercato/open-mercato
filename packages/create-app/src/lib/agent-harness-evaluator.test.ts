@@ -129,6 +129,11 @@ function stageApp(): string {
     path.join(root, 'src', 'app', 'globals.css'),
   )
   for (const [packageName, relativePaths] of Object.entries({
+    cli: [
+      'src/lib/module-install.ts',
+      'src/lib/module-identity.ts',
+      'src/lib/eject.ts',
+    ],
     core: [
       'src/modules/design_system/gallery/entries/buttons.tsx',
       'src/modules/customers/backend/customers/people-v2/[id]/page.tsx',
@@ -184,6 +189,7 @@ function runEvaluator(root: string, args: string[] = [], env: NodeJS.ProcessEnv 
 function installFakeRunner(root: string, name: 'codex' | 'claude', source: string): string {
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin, { recursive: true })
+  fs.writeFileSync(path.join(bin, 'package.json'), '{"type":"commonjs"}\n')
   const fake = path.join(bin, name)
   fs.writeFileSync(fake, `#!/usr/bin/env node\n${source}`)
   fs.chmodSync(fake, 0o755)
@@ -204,6 +210,46 @@ function storedReviewResults(root: string): StoredReviewResult[] {
     .sort()
     .map((file) => JSON.parse(fs.readFileSync(path.join(directory, file), 'utf8')))
 }
+
+test('fake runner starts in its admitted directory while controller reads and writes stay denied', { skip: !targetSandboxAvailable }, async () => {
+  const controller = stageApp()
+  const target = stageWritableTarget(controller)
+  const secretPath = path.join(controller, 'controller-secret.txt')
+  const deniedWritePath = path.join(controller, 'controller-write.txt')
+  try {
+    fs.writeFileSync(secretPath, 'controller secret')
+    const bin = installFakeRunner(controller, 'codex', `
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+for (const readPath of ${JSON.stringify([path.join(controller, 'package.json'), secretPath])}) {
+  assert.throws(() => fs.readFileSync(readPath), { code: /^(EPERM|EACCES|ENOENT)$/ })
+}
+assert.throws(() => fs.writeFileSync(${JSON.stringify(deniedWritePath)}, 'escaped'), { code: /^(EPERM|EACCES|ENOENT|EROFS)$/ })
+fs.writeFileSync('target-edit.txt', 'contained')
+console.log('fixture boundary verified')
+`)
+    const executionSandbox = await import(pathToFileURL(sourceExecutionSandbox).href) as {
+      sandboxedInvocation: (input: Record<string, unknown>) => { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }
+    }
+    const invocation = executionSandbox.sandboxedInvocation({
+      command: path.join(bin, 'codex'),
+      cwd: target,
+      writableRoots: [target],
+      readOnlyRoots: [],
+      env: { PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ''}` },
+    })
+    const result = spawnSync(invocation.command, invocation.args, {
+      cwd: invocation.cwd, env: invocation.env, encoding: 'utf8', timeout: 10_000,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.stdout.trim(), 'fixture boundary verified')
+    assert.equal(fs.readFileSync(path.join(target, 'target-edit.txt'), 'utf8'), 'contained')
+    assert.equal(fs.existsSync(deniedWritePath), false)
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
 
 function installFakeCodeReviewSkill(root: string): void {
   const skillRoot = path.join(root, '.agents', 'skills', 'om-code-review')
