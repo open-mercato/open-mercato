@@ -124,6 +124,10 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/__tests__/documented-queue-subcommands.test.ts',
+        scans: 'apps/docs/docs/**/*.mdx — documented queue subcommands resolve through the real CLI dispatcher (#8511)',
+      },
+      {
         path: 'src/lib/generators/__tests__/attachment-access.test.ts',
         scans: 'packages/core attachments generator plugin — installed-package and monorepo owner-policy discovery/bootstrap (#6726)',
       },

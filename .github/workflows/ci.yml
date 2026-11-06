@@ -4,6 +4,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  FORCE_FULL_SUITE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'stabilize/') || contains(github.event.pull_request.labels.*.name, 'ci-full')) }}
   # Required by the OSS optimistic-locking integration tests (#1981 /
   # TC-LOCK-OSS-001..004). Set workflow-wide so both `prepare`
   # (`yarn build:app`) and `ephemeral-integration` see the same value —
@@ -84,6 +85,7 @@ on:
       - 'release/v*'
       - feat/wms
   pull_request:
+    types: [opened, synchronize, reopened]
     branches:
       - main
       - 'release/v*'
@@ -135,7 +137,7 @@ jobs:
           FULL_SHARDS='["1/15","2/15","3/15","4/15","5/15","6/15","7/15","8/15","9/15","10/15","11/15","12/15","13/15","14/15","15/15"]'
           SINGLE_SHARD='["none"]'
 
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
             echo "shard_matrix=${FULL_SHARDS}" >> "$GITHUB_OUTPUT"
@@ -762,10 +764,10 @@ jobs:
         run: yarn agents:check-budget
 
       - name: Checking types
-        # Workflow edits and protected branch pushes run the full gate.
+        # Stabilization PRs, workflow edits and protected branch pushes run the full gate.
         # Other PRs scope to packages/app that changed since the base branch.
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn typecheck
           else
             yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
@@ -777,7 +779,7 @@ jobs:
       - name: Test
         # Same scoping as typecheck, including full gates for workflow edits.
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn test
           else
             yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
