@@ -106,7 +106,7 @@ describe('normalizeWithCarriedUnitFallback', () => {
     expect(normalize).toHaveBeenCalledTimes(1)
   })
 
-  it.each(['uom.conversion_not_found', 'uom.unit_not_found'])(
+  it.each(['uom.conversion_not_found', 'uom.unit_not_found', 'uom.default_unit_missing'])(
     'falls back to the product default unit when the new product rejects the carried unit (%s)',
     async (code) => {
       const normalize = jest.fn(async (input: { quantityUnit: string | null }) => {

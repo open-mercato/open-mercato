@@ -18,10 +18,15 @@ behave as before, including when edited in the line dialog. A new or changed `se
 a service in the caller's organization (quotes/orders: not archived; invoices/credit memos may keep a
 service archived since the order). Shipments reject order lines that reference a catalog service, and a line with
 shipped quantity can no longer change its kind or catalog references. Products navigation and
-page titles now read "Products" instead of "Products & services". Line upserts accept `quantityUnit: null` to clear a line's unit.
+page titles now read "Products" instead of "Products & services". Line upserts accept `quantityUnit: null` to clear a line's unit, so the `quantityUnit` field of the
+exported `OrderLineCreateInput`/`QuoteLineCreateInput` types is now `string | null | undefined`; code
+that reads it as `string | undefined` needs a type update. Editing a line without a product recomputes
+its normalized quantity, unit and unit snapshot from the quantity and unit, replacing any values an API
+caller supplied when creating the line.
 When an update changes a line's product without naming a unit, the stored unit is kept if the new
-product can resolve it and otherwise falls back to the new product's default unit (previously this
-returned `uom.conversion_not_found`). Warranty replacement orders skip claim lines
+product can resolve it and otherwise falls back to the new product's default unit, or to no unit when
+the new product has none (previously this returned `uom.conversion_not_found` or
+`uom.default_unit_missing`). Warranty replacement orders skip claim lines
 whose catalog service has been archived and list them in the new additive `unavailableServiceLines`
 field of the replacement-order response.
 

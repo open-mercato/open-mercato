@@ -28,7 +28,7 @@ export type LineUomInput = {
   uomSnapshot: SalesLineSnapshot['uomSnapshot'] | null
 }
 
-const CARRIED_UNIT_REJECTION_CODES = new Set(['uom.conversion_not_found', 'uom.unit_not_found'])
+const CARRIED_UNIT_REJECTION_CODES = new Set(['uom.conversion_not_found', 'uom.unit_not_found', 'uom.default_unit_missing'])
 
 function resolveLineProduct(parsed: LineUomSource, existingSnapshot: StoredLineUom | null | undefined) {
   const productId =
