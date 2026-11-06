@@ -30,24 +30,31 @@ export function isAutomaticSyncAvailable(container: unknown): boolean {
   return typeof cradle?.hasRegistration === 'function' && cradle.hasRegistration('schedulerService')
 }
 
-type ScheduleLookup = { exists?: (scheduleId: string) => Promise<boolean> }
+type ScheduleLookup = {
+  isActive?: (scheduleId: string) => Promise<boolean>
+  exists?: (scheduleId: string) => Promise<boolean>
+}
 
 /**
- * Whether the organization's poll tick is actually registered, not merely
- * whether the scheduler module is enabled — an app that enables `scheduler`
- * after its organizations were created has no tick until `seed:defaults`
- * re-runs, and must not look healthy in the meantime (#8804).
+ * Whether the organization's poll tick will actually run, not merely whether the
+ * scheduler module is enabled — an app that enables `scheduler` after its
+ * organizations were created has no tick until `seed:defaults` re-runs, and an
+ * operator can disable or delete the tick in the scheduler UI; neither may look
+ * healthy (#8804). Poll ticks are per organization, so without an organization in
+ * scope only module availability can be reported.
  */
 export async function isAutomaticSyncEnabledForOrganization(
   container: unknown,
   organizationId: string | null,
 ): Promise<boolean> {
-  if (!isAutomaticSyncAvailable(container)) return false
-  if (!organizationId) return true
+  const available = isAutomaticSyncAvailable(container)
+  if (!available || !organizationId) return available
   try {
     const schedulerService = (container as { resolve: (name: string) => unknown }).resolve('schedulerService') as ScheduleLookup
-    if (typeof schedulerService?.exists !== 'function') return true
-    return await schedulerService.exists(pollTickScheduleId(organizationId))
+    const scheduleId = pollTickScheduleId(organizationId)
+    if (typeof schedulerService?.isActive === 'function') return await schedulerService.isActive(scheduleId)
+    if (typeof schedulerService?.exists === 'function') return await schedulerService.exists(scheduleId)
+    return true
   } catch (error) {
     getTelemetryRuntime()?.reportError(error, {
       module: 'communication_channels',

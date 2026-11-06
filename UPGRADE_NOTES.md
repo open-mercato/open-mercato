@@ -30,7 +30,7 @@ scheduler's default role features (`scheduler.*` for admins,
 `scheduler.jobs.view` for employees) to existing tenants, which `seed:defaults`
 does not do for the built-in roles. The profile page "My communication channels"
 now warns when a connected channel relies on polling but no scheduler is enabled
-or the organization's poll schedule was never seeded, and
+or the organization's poll schedule is missing or disabled, and
 `GET /api/communication_channels/me/channels` returns an additive
 `automaticSyncEnabled` boolean that drives that warning.
 

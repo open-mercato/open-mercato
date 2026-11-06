@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { resolvePreset, generateModulesTs, applyStarterPreset } from './apply-starter-preset.js'
-import type { ModuleEntry } from './starter-presets.js'
+import { STARTER_PRESETS, type ModuleEntry } from './starter-presets.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -538,7 +538,7 @@ test('any preset enabling communication_channels also enables scheduler', () => 
     'expected communication_channels setup to register its polling schedules through schedulerService',
   )
 
-  for (const presetId of ['empty', 'crm', 'wms']) {
+  for (const presetId of Object.keys(STARTER_PRESETS)) {
     const ids = new Set(resolvePreset(presetId).modules.map((m) => m.id))
     if (!ids.has('communication_channels')) continue
     assert.ok(

@@ -12,6 +12,7 @@ const userId = '33333333-3333-4333-8333-333333333333'
 const findWithDecryptionMock = jest.fn()
 const getAuthFromRequestMock = jest.fn()
 const adapterGetMock = jest.fn()
+const scheduleActiveMock = jest.fn()
 const scheduleExistsMock = jest.fn()
 const reportErrorMock = jest.fn()
 
@@ -20,7 +21,7 @@ const em = { fork: () => em }
 function defaultResolve(name: string) {
   if (name === 'em') return em
   if (name === 'channelAdapterRegistry') return { get: adapterGetMock }
-  if (name === 'schedulerService') return { exists: scheduleExistsMock }
+  if (name === 'schedulerService') return { isActive: scheduleActiveMock, exists: scheduleExistsMock }
   throw new Error(`Unexpected container resolve: ${name}`)
 }
 
@@ -84,6 +85,7 @@ describe('communication_channels me/channels route', () => {
     jest.clearAllMocks()
     container.resolve.mockImplementation(defaultResolve)
     hasRegistrationMock.mockImplementation((name: string) => name === 'schedulerService')
+    scheduleActiveMock.mockResolvedValue(true)
     scheduleExistsMock.mockResolvedValue(true)
     getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
     // Gmail is the one provider implementing `registerPush`; a gateway provider
@@ -149,11 +151,12 @@ describe('communication_channels me/channels route', () => {
     return body.automaticSyncEnabled
   }
 
-  it("reports automatic sync as enabled when the organization's poll tick is registered", async () => {
+  it("reports automatic sync as enabled when the organization's poll tick is active", async () => {
     findWithDecryptionMock.mockResolvedValue([])
 
     expect(await readAutomaticSyncEnabled()).toBe(true)
-    expect(scheduleExistsMock).toHaveBeenCalledWith(pollTickScheduleId(organizationId))
+    expect(scheduleActiveMock).toHaveBeenCalledWith(pollTickScheduleId(organizationId))
+    expect(scheduleExistsMock).not.toHaveBeenCalled()
   })
 
   it('reports automatic sync as disabled when the scheduler module is not enabled', async () => {
@@ -161,18 +164,37 @@ describe('communication_channels me/channels route', () => {
     findWithDecryptionMock.mockResolvedValue([channel('imap', { realtimePush: false })])
 
     expect(await readAutomaticSyncEnabled()).toBe(false)
-    expect(scheduleExistsMock).not.toHaveBeenCalled()
+    expect(scheduleActiveMock).not.toHaveBeenCalled()
   })
 
-  it("reports automatic sync as disabled when the scheduler is enabled but the organization's poll tick was never seeded", async () => {
-    scheduleExistsMock.mockResolvedValue(false)
+  it("reports automatic sync as disabled when the organization's poll tick is missing, disabled, or deleted", async () => {
+    scheduleActiveMock.mockResolvedValue(false)
     findWithDecryptionMock.mockResolvedValue([channel('imap', { realtimePush: false })])
 
     expect(await readAutomaticSyncEnabled()).toBe(false)
   })
 
+  it('falls back to exists() on a scheduler that predates isActive()', async () => {
+    container.resolve.mockImplementation((name: string) =>
+      name === 'schedulerService' ? { exists: scheduleExistsMock } : defaultResolve(name),
+    )
+    scheduleExistsMock.mockResolvedValue(false)
+    findWithDecryptionMock.mockResolvedValue([])
+
+    expect(await readAutomaticSyncEnabled()).toBe(false)
+    expect(scheduleExistsMock).toHaveBeenCalledWith(pollTickScheduleId(organizationId))
+  })
+
+  it('reports module availability without a schedule lookup when no organization is in scope', async () => {
+    getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: null })
+    findWithDecryptionMock.mockResolvedValue([])
+
+    expect(await readAutomaticSyncEnabled()).toBe(true)
+    expect(scheduleActiveMock).not.toHaveBeenCalled()
+  })
+
   it('keeps the page quiet and reports the error when the schedule lookup fails', async () => {
-    scheduleExistsMock.mockRejectedValue(new Error('db down'))
+    scheduleActiveMock.mockRejectedValue(new Error('db down'))
     findWithDecryptionMock.mockResolvedValue([])
 
     expect(await readAutomaticSyncEnabled()).toBe(true)
