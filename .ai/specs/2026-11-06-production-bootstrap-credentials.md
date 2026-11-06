@@ -9,7 +9,7 @@ The CLI defaults to `secret`; starter and generated-app full-app Compose flows d
 ## Proposed Solution and Architecture
 Resolve credentials in the CLI's existing init-secrets helper. Normalize `NODE_ENV` with trimming and lowercase, consistent with derived-account secrets. Only `production` enables enforcement. Reject missing, blank, and known built-in placeholder passwords and apply `getPasswordPolicy` / `validatePassword`. Production never forwards either password-policy bypass alias; non-production retains existing defaults and explicit flags.
 
-Validate before database work for normal init and reinstall. For `--skip-if-initialized` without reinstall, allow the existing database preflight to return successfully without bootstrap credentials; validate before generators or account creation if initialization is needed. Both full-app Compose distributions retain their development fallback, which the production guard rejects. The root compatibility duplicate stays aligned.
+Validate before database work for normal init and reinstall. For `--skip-if-initialized` without reinstall, allow the existing database preflight to return successfully without bootstrap credentials; validate before generators or account creation if initialization is needed. Operator diagnostics use locale dictionaries selected by LC_ALL, LC_MESSAGES, or LANG, with English fallback; the CLI build ships those dictionaries. Both full-app Compose distributions retain their development fallback, which the production guard rejects. The root compatibility duplicate stays aligned.
 
 ## Data Models and API Contracts
 No schema, API, ACL, event, or direct `mercato auth setup` contract changes. Existing accounts are not modified. No new dependencies or provider configuration.

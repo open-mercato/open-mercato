@@ -4,9 +4,14 @@ import { randomBytes } from 'node:crypto'
 import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { createRequire } from 'node:module'
 
-const english: Record<string, string> = createRequire(import.meta.url)('../i18n/en.json')
+const requireLocale = createRequire(import.meta.url)
 
-const t = createTranslator(english)
+function initTranslator(env: NodeJS.ProcessEnv) {
+  const locale = (env.LC_ALL || env.LC_MESSAGES || env.LANG || 'en').split(/[_.-]/)[0].toLowerCase()
+  const supportedLocale = ['en', 'pl', 'es', 'de', 'ko'].includes(locale) ? locale : 'en'
+  const dictionary: Record<string, string> = requireLocale(`../i18n/${supportedLocale}.json`)
+  return createTranslator(dictionary)
+}
 
 type EnvReader = (key: string) => string | undefined
 
@@ -92,6 +97,7 @@ export function resolveInitSuperadminCredentials(args: string[], env: NodeJS.Pro
     ? parseBooleanToken(skipPolicyArg.split('=')[1] ?? 'true') ?? true
     : true)
   if (isProduction) {
+    const t = initTranslator(env)
     const placeholder = suppliedPassword?.trim().toLowerCase()
     if (!suppliedPassword || !placeholder || ['secret', 'password', 'changeme', 'change-me', 'change_me', 'replace-me', 'replace_me'].includes(placeholder)) {
       throw new Error(t('cli.init.errors.superadminPasswordRequired'))

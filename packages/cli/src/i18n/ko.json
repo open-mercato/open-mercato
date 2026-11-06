@@ -1,4 +1,4 @@
 {
-  "cli.init.errors.superadminPasswordPolicy": "Production superadmin password does not meet the configured password policy. Password-policy bypass flags apply only outside production.",
-  "cli.init.errors.superadminPasswordRequired": "Production initialization requires a unique superadmin password via OM_INIT_SUPERADMIN_PASSWORD or --password; built-in placeholders are not allowed."
+  "cli.init.errors.superadminPasswordPolicy": "프로덕션 슈퍼관리자 비밀번호가 설정된 비밀번호 정책을 충족하지 않습니다. 비밀번호 정책 우회 플래그는 프로덕션 외 환경에서만 적용됩니다.",
+  "cli.init.errors.superadminPasswordRequired": "프로덕션 초기화에는 OM_INIT_SUPERADMIN_PASSWORD 또는 --password로 지정한 고유한 슈퍼관리자 비밀번호가 필요합니다. 기본 예시 비밀번호는 사용할 수 없습니다."
 }

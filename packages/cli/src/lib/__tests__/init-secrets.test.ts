@@ -124,6 +124,13 @@ describe('production bootstrap superadmin credentials', () => {
     })).toEqual({ email: 'owner@example.test', password: 'Unique-Owner-937!', skipPasswordPolicy: false })
   })
 
+  it('uses the CLI locale for operator-facing production diagnostics', () => {
+    expect(() => resolveInitSuperadminCredentials([], { ...production, LC_ALL: 'pl_PL.UTF-8' }))
+      .toThrow('Inicjalizacja produkcyjna wymaga')
+    expect(() => resolveInitSuperadminCredentials([], { ...production, LC_ALL: 'unknown' }))
+      .toThrow('Production initialization requires')
+  })
+
   it('accepts a policy-compliant environment password', () => {
     expect(resolveInitSuperadminCredentials([], {
       ...production, OM_INIT_SUPERADMIN_PASSWORD: 'Unique-Owner-937!',

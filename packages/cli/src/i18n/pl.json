@@ -1,4 +1,4 @@
 {
-  "cli.init.errors.superadminPasswordPolicy": "Production superadmin password does not meet the configured password policy. Password-policy bypass flags apply only outside production.",
-  "cli.init.errors.superadminPasswordRequired": "Production initialization requires a unique superadmin password via OM_INIT_SUPERADMIN_PASSWORD or --password; built-in placeholders are not allowed."
+  "cli.init.errors.superadminPasswordPolicy": "Hasło superadministratora w środowisku produkcyjnym nie spełnia skonfigurowanej polityki haseł. Flagi pomijające politykę haseł działają tylko poza środowiskiem produkcyjnym.",
+  "cli.init.errors.superadminPasswordRequired": "Inicjalizacja produkcyjna wymaga unikalnego hasła superadministratora podanego przez OM_INIT_SUPERADMIN_PASSWORD lub --password; wbudowane hasła przykładowe są niedozwolone."
 }
