@@ -1,0 +1,17 @@
+{
+  "result": "pass",
+  "checks": [
+    "folded output hides compiler details",
+    "d replays details during live child",
+    "second d folds logs",
+    "provider readline receives input",
+    "failure auto-reveals diagnostics",
+    "raw mode and input listeners restored",
+    "full log file includes hidden stdout and diagnostics",
+    "provider answer absent from file",
+    "reference dark gray RGB 51/55/64 observed in ANSI output",
+    "stage headers, expectation labels and child logs use the same margin",
+    "previously displayed compiler detail occurs once",
+    "initial hint has no DEBUG LOGS heading and folding emits no notice"
+  ]
+}
