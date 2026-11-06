@@ -1,4 +1,5 @@
 {
+  "dictionaries.appearance.preview": "Podgląd",
   "dictionaries.config.delete.confirm": "Usunąć słownik \"{{name}}\"?",
   "dictionaries.config.dialog.cancel": "Anuluj",
   "dictionaries.config.dialog.createTitle": "Utwórz słownik",
