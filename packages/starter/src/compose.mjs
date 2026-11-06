@@ -115,6 +115,18 @@ export function runStreamingSync(command, commandArgs, { cwd, env } = {}) {
   return result.status ?? 1
 }
 
+// Windows shell shims spawn a process tree; killing only cmd.exe leaves
+// builds running. POSIX captured children have their own process group.
+export function stopStreamingChild(child, signal, { platform = process.platform, grouped = true, spawnSyncImpl = spawnSync, killImpl = process.kill } = {}) {
+  if (platform === 'win32' && child.pid) {
+    const result = spawnSyncImpl('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+    if (!result.error && result.status === 0) return
+  } else if (grouped && child.pid) {
+    try { killImpl(-child.pid, signal); return } catch { /* child may already have exited */ }
+  }
+  child.kill(signal)
+}
+
 // Async output capture keeps the setup log toggle responsive during long
 // installs/builds. With no sink, preserve inherited stdio (CI / verbose).
 export function runStreaming(command, commandArgs, { cwd, env, logs, spawnImpl = spawn } = {}) {
@@ -123,7 +135,7 @@ export function runStreaming(command, commandArgs, { cwd, env, logs, spawnImpl =
     const child = spawnImpl(resolved.command, resolved.args, {
       cwd: cwd ?? process.cwd(),
       env: env ?? process.env,
-      stdio: logs ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+      stdio: logs ? [logs.interactive ? 'ignore' : 'inherit', 'pipe', 'pipe'] : 'inherit',
       // Give piped children their own group so Ctrl+C reaches yarn's workers
       // as well as yarn itself. Windows does not support POSIX group signals.
       detached: Boolean(logs) && process.platform !== 'win32',
@@ -131,9 +143,7 @@ export function runStreaming(command, commandArgs, { cwd, env, logs, spawnImpl =
     })
     const interrupt = (signal) => {
       logs?.stop()
-      if (process.platform !== 'win32' && logs && child.pid) {
-        try { process.kill(-child.pid, signal) } catch { /* child already exited */ }
-      } else child.kill(signal)
+      stopStreamingChild(child, signal, { grouped: Boolean(logs) })
       process.exit(signal === 'SIGINT' ? 130 : 143)
     }
     const onSigint = () => interrupt('SIGINT')
@@ -144,6 +154,8 @@ export function runStreaming(command, commandArgs, { cwd, env, logs, spawnImpl =
       process.removeListener('SIGINT', onSigint)
       process.removeListener('SIGTERM', onSigterm)
     }
+    child.stdout?.setEncoding('utf8')
+    child.stderr?.setEncoding('utf8')
     child.stdout?.on('data', (chunk) => logs?.raw(chunk))
     child.stderr?.on('data', (chunk) => logs?.raw(chunk))
     child.once('error', (error) => { cleanup(); reject(new Error(`${command} could not be executed: ${error.message}`)) })

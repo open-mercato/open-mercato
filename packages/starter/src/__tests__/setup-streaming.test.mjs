@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { runStreaming } from '../compose.mjs'
+import { runStreaming, stopStreamingChild } from '../compose.mjs'
 import { STARTER_STATE_DIR } from '../constants.mjs'
 import { startInfraServices } from '../infra-preflight.mjs'
 import { createSetupLogs } from '../setup-logs.mjs'
@@ -254,4 +256,52 @@ test('async infrastructure failure retains unhealthy service guidance', async ()
   assert.equal(outcome.problem.code, 'unhealthy')
   assert.equal(outcome.problem.services[0].service, 'postgres')
   assert.equal(outcome.problem.logsCommand, 'docker compose logs postgres')
+})
+
+
+test('streamed children inherit stdin outside compact mode and release signal listeners', async () => {
+  const before = ['SIGINT', 'SIGTERM'].map((name) => process.listenerCount(name))
+  for (const interactive of [true, false]) {
+    let options
+    const child = new EventEmitter()
+    const running = runStreaming(process.execPath, [], {
+      logs: { interactive, raw() {} },
+      spawnImpl(_command, _args, passed) { options = passed; queueMicrotask(() => child.emit('close', 0)); return child },
+    })
+    assert.equal(options.stdio[0], interactive ? 'ignore' : 'inherit')
+    assert.equal(await running, 0)
+  }
+  assert.deepEqual(['SIGINT', 'SIGTERM'].map((name) => process.listenerCount(name)), before)
+})
+
+test('interrupts stop the Windows child tree and POSIX process group, with a child fallback', () => {
+  const calls = []
+  const child = { pid: 12345, kill: (signal) => calls.push(['child', signal]) }
+  stopStreamingChild(child, 'SIGINT', { platform: 'win32', spawnSyncImpl(command, args, options) {
+    calls.push([command, args, options.windowsHide]); return { status: 0 }
+  } })
+  assert.deepEqual(calls, [['taskkill', ['/pid', '12345', '/T', '/F'], true]])
+  calls.length = 0
+  stopStreamingChild(child, 'SIGTERM', { platform: 'linux', killImpl: (pid, signal) => calls.push([pid, signal]) })
+  assert.deepEqual(calls, [[-12345, 'SIGTERM']])
+  calls.length = 0
+  stopStreamingChild(child, 'SIGINT', { platform: 'win32', spawnSyncImpl: () => ({ status: 1 }) })
+  assert.deepEqual(calls, [['child', 'SIGINT']])
+})
+
+
+test('infra CLI saves actionable preflight diagnostics even when no child produces logs', (t) => {
+  const repoRoot = temporaryRepo(t)
+  fs.writeFileSync(path.join(repoRoot, 'package.json'), JSON.stringify({ name: 'open-mercato' }))
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../cli.mjs', import.meta.url)), 'infra', 'up'], {
+    cwd: repoRoot,
+    env: { ...process.env, PATH: repoRoot, OM_DEV_RUN_ID: 'preflight', OM_DEV_LOG_DIR: '.mercato/logs', OM_DEV_LOG_TEE: '1' },
+    encoding: 'utf8', timeout: 10000,
+  })
+  assert.equal(result.status, 2, result.stderr)
+  const file = path.join(repoRoot, '.mercato', 'logs', 'preflight-infra-raw.log')
+  const saved = fs.readFileSync(file, 'utf8')
+  assert.match(result.stdout, /Verbose logs.*preflight-infra-raw.log/)
+  assert.match(saved, /Docker CLI.*not found|docker.*not found/i)
+  assert.match(saved, /yarn om doctor/)
 })
