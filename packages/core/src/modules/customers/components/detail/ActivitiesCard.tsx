@@ -27,7 +27,7 @@ interface ActivitiesCardProps {
    */
   plannedActivities: InteractionSummary[]
   refreshKey?: number
-  onAddNew: (kind: ActivityKind) => void
+  onAddNew: (kind: ActivityKind, selectedDate?: Date) => void
   onEditActivity?: (activity: InteractionSummary) => void
   /**
    * Optional company name for the parent entity. When the planned activity has no `dealTitle`,
@@ -95,6 +95,7 @@ export function ActivitiesCard({
 }: ActivitiesCardProps) {
   const t = useT()
   const [selectedDate, setSelectedDate] = React.useState<Date>(() => startOfDay(new Date()))
+  const [hasSelectedDate, setHasSelectedDate] = React.useState(false)
   // Fetch the same broader window as the day strip via the canonical interactions
   // endpoint. This single source of truth aligns the day-strip count with the
   // visible event list (issue #1809 — E1) and surfaces all interaction types
@@ -174,7 +175,7 @@ export function ActivitiesCard({
   }, [effectiveEvents])
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card pt-4 pb-4 px-4">
+    <div className="flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-card pt-4 pb-4 px-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Calendar className="size-4 text-foreground" />
@@ -188,13 +189,16 @@ export function ActivitiesCard({
             </span>
           ) : null}
         </div>
-        <ActivitiesAddNewMenu onSelect={onAddNew} />
+        <ActivitiesAddNewMenu onSelect={(kind) => onAddNew(kind, hasSelectedDate ? selectedDate : undefined)} />
       </div>
 
       <ActivitiesDayStrip
         entityId={entityId}
         selectedDate={selectedDate}
-        onSelectDate={setSelectedDate}
+        onSelectDate={(date) => {
+          setSelectedDate(date)
+          setHasSelectedDate(true)
+        }}
         refreshKey={refreshKey}
         events={fetchedEvents ?? undefined}
       />

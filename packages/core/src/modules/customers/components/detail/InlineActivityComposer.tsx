@@ -47,7 +47,7 @@ interface InlineActivityComposerProps {
   dealId?: string | null
   onActivityCreated?: () => void
   runGuardedMutation?: GuardedMutationRunner
-  onScheduleRequested?: () => void
+  onScheduleRequested?: (selectedDate?: Date) => void
   useCanonicalInteractions?: boolean
 }
 
@@ -62,6 +62,7 @@ export function InlineActivityComposer({
 }: InlineActivityComposerProps) {
   const t = useT()
   const calendarRefreshRef = React.useRef<(() => void) | null>(null)
+  const [selectedDay, setSelectedDay] = React.useState<Date | null>(null)
   const [selectedType, setSelectedType] = React.useState<ActivityType | null>('call')
   const [description, setDescription] = React.useState('')
   const [occurredAt, setOccurredAt] = React.useState(() => new Date().toISOString().slice(0, 16))
@@ -181,14 +182,14 @@ export function InlineActivityComposer({
   return (
     <div className="rounded-2xl border border-border/70 bg-card p-5" onKeyDown={handleKeyDown}>
       {/* Header: title + save button */}
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
           <SquarePen className="size-4" />
           {t('customers.activityComposer.title', 'Log activity')}
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {onScheduleRequested ? (
-            <Button type="button" variant="outline" size="sm" onClick={onScheduleRequested} disabled={saving}>
+            <Button type="button" variant="outline" size="sm" onClick={() => onScheduleRequested(selectedDay ?? undefined)} disabled={saving}>
               <Calendar className="size-4" />
               {t('customers.activityComposer.schedule', 'Schedule')}
             </Button>
@@ -212,7 +213,7 @@ export function InlineActivityComposer({
 
       {/* Description + date row */}
       <div className="mt-4 flex items-start gap-3">
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <label
             htmlFor="inline-activity-composer-description"
             className="mb-1 block text-xs font-medium text-muted-foreground"
@@ -277,6 +278,8 @@ export function InlineActivityComposer({
               entityId={entityId}
               useCanonicalInteractions={useCanonicalInteractions}
               refreshRef={calendarRefreshRef}
+              selectedDay={selectedDay}
+              onSelectedDayChange={setSelectedDay}
             />
           </div>
         ) : null}
