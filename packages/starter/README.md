@@ -37,6 +37,10 @@ No Node yet? The package ships pre-Node bootstraps that install a **portable, ch
 | `reset` | Destructive cleanup (containers, volumes, starter state) — asks first. |
 | `infra up\|down` | Just the infra containers. |
 
+AI provider configuration is optional: press Enter or choose `0` at the provider prompt to continue without AI. Non-interactive setup also continues without a key. Configure a provider in `.env` later to enable AI chat.
+
+If setup finds ports owned by pre-existing services, it shows the container names and states and asks whether to continue using the URLs in `.env`. Accepting leaves those containers under your control and prevents the dev runtime from restarting them. Restarting or unhealthy services produce warnings; their actual connection failures still stop database setup. Declining, or running non-interactively without `--no-infra`, stops setup with `yarn om stop` guidance for the checkout that started the stack.
+
 Useful flags: `--verbose`, `--non-interactive`, `--skip-llm-prompt`, `--skip-db`, `--no-infra` (no Docker calls at all, also passed on to `yarn dev`), `--rebuild`, `--clean`, `--profile <name>`, `-- <args for yarn dev>`.
 
 `up --clean` forces a full re-converge: it clears the completed-step markers (install, build, migrations) and rebuilds the OpenCode service image, without touching any data — the one-time database seed stays done, and `reset` remains the destructive variant. Conversely, a plain `up` now also skips the database step entirely when the database is initialized and no `Migration*.ts` file changed since the last run (new migrations are detected by fingerprint and applied automatically).
@@ -60,3 +64,11 @@ Use `yarn setup --verbose` or `yarn infra:up --verbose` for live raw output. CI,
 ## Company tailoring
 
 Organizations customize behavior (mirrors, CA bundles, extra checks/steps, env defaults) via `starters/company/config.mjs` in the repo — see `starters/company/README.md`. The package stays generic; the repo carries the policy.
+
+## Service connection verification
+
+Before migrations or initialization, setup checks PostgreSQL with `SELECT 1`,
+each configured Redis URL with authenticated `PING`, and Meilisearch through
+the protected indexes API using `MEILISEARCH_API_KEY`. Invalid credentials or
+unreachable services stop setup and name the relevant setting without printing
+passwords or tokens. Existing-service consent never bypasses these checks.
