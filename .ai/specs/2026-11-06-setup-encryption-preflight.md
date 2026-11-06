@@ -41,10 +41,12 @@ Real existing encryption/KMS helpers with correct/wrong fallback keys; missing/u
 
 ## Final Compliance Report
 
-Implementation and prior focused/live verification complete; full verification is being repeated on the refreshed follow-up #8913 after #8613 merged. The original draft #8908 and its history are preserved; the new branch carries only the follow-up delta on current main. Prior CLI failures were environmental (TMP/TEMP paths under the repository); both affected suites now pass with isolated external temp directories. Buildx is available as isolated verified tooling. No full-gate or merge-ready claim until the fresh gate completes. Tracking plan: .ai/runs/2026-11-06-setup-encryption-preflight.md.
+Implementation and local verification complete for #8913. Both package builds, generation, translation sync/usage, typecheck, the full 51-task test gate and optimized app build pass. Additional script suite: 1,575 passed / 5 standard skips; standalone setup: 37 passed; separate disposable PostgreSQL integration: passed, including real host/container rejection and acceptance with unchanged stored ciphertext. Static review has no remaining findings after fixing version-suffixed plaintext, container coverage and fatal ACL-stage refusals. A Linux-only test fixture now stages its admitted executable outside its controller tree; all sandbox denial assertions and runtime policy remain unchanged. Earlier task temporary-path and disk-space failures are resolved without changing application behavior or deleting shared caches. No production dependency, schema migration, key/ciphertext write, base merge or history rewrite was introduced. Independent PR review, configured QA and CI remain external merge gates. Tracking plan: .ai/runs/2026-11-06-setup-encryption-preflight.md.
 
 ## Changelog
 
 - 2026-11-06: Defined read-only fail-closed preflight and operator recovery policy for follow-up #8908.
 
 - 2026-11-06: Refreshed follow-up onto merged setup baseline as #8913 without force-push or base merge; revalidating with corrected temporary-directory environment.
+
+- 2026-11-06: Completed host/container coverage, positive/negative live verification and the full local gate; published ready follow-up #8913, superseding #8908.
