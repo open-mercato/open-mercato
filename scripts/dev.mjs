@@ -78,7 +78,7 @@ import {
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
-import { acquireDevSession } from './dev-session-guard.mjs'
+import { acquireDevSessionWithRecovery as acquireDevSession } from './dev-session-recovery.mjs'
 import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
   DEFAULT_MEMORY_TRACE_OUT_DIR,
@@ -1697,7 +1697,7 @@ function shutdown(exitCode = 0) {
   shuttingDown = true
   announceShutdown()
 
-  const alive = Array.from(children).filter((child) => !child.killed)
+  const alive = Array.from(children).filter((child) => child.exitCode == null && child.signalCode == null)
   if (alive.length === 0) {
     void finalizeDevProcess(exitCode)
     return
@@ -1708,10 +1708,8 @@ function shutdown(exitCode = 0) {
   }
 
   setTimeout(() => {
-    for (const child of children) {
-      if (!child.killed) {
-        killProcessTree(child, 'SIGKILL')
-      }
+    for (const child of alive) {
+      killProcessTree(child, 'SIGKILL')
     }
     void finalizeDevProcess(exitCode)
   }, 3000)
@@ -2945,7 +2943,7 @@ function resolveDevSessionMode() {
 }
 
 try {
-  devSession = acquireDevSession({
+  devSession = await acquireDevSession({
     workspaceRoot: process.env.OM_DEV_SESSION_WORKSPACE_ROOT?.trim() || process.cwd(),
     mode: resolveDevSessionMode(),
     url: resolveExpectedAppBaseUrl(),
