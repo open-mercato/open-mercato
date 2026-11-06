@@ -75,6 +75,8 @@ export type QueuedDispatchResult = {
 
 /** Options for emitting events */
 export type EmitOptions = {
+  /** Optional persistent-queue identity and publication deadline; does not change inline delivery. */
+  enqueue?: { jobId?: string; timeoutMs?: number }
   /** If true, the event will be persisted to a queue for async processing */
   persistent?: boolean
   /**
