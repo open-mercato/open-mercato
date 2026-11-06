@@ -69,6 +69,7 @@ export function createSalesOrderLineDraft(
       name: typeof payload.name === 'string' ? payload.name : null,
       productId: typeof payload.productId === 'string' ? payload.productId : null,
       productVariantId: typeof payload.productVariantId === 'string' ? payload.productVariantId : null,
+      serviceId: typeof payload.serviceId === 'string' ? payload.serviceId : null,
       quantity,
       quantityUnit: typeof payload.quantityUnit === 'string' ? payload.quantityUnit : null,
       normalizedQuantity: normalizeNumber(payload.normalizedQuantity, quantity),

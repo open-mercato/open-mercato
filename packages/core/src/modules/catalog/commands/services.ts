@@ -418,15 +418,17 @@ const updateServiceCommand: CommandHandler<ServiceUpdateInput, { serviceId: stri
     if (!record) throw new CrudHttpError(404, { error: 'Catalog service not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    const nextCategory =
+      parsed.categoryId !== undefined
+        ? await resolveCategory(em, parsed.categoryId, {
+            organizationId: record.organizationId,
+            tenantId: record.tenantId,
+          })
+        : undefined
     if (parsed.title !== undefined) record.title = parsed.title
     if (parsed.description !== undefined) record.description = trimNullable(parsed.description)
     if (parsed.scope !== undefined) record.scope = trimNullable(parsed.scope)
-    if (parsed.categoryId !== undefined) {
-      record.category = await resolveCategory(em, parsed.categoryId, {
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      })
-    }
+    if (nextCategory !== undefined) record.category = nextCategory
     if (parsed.defaultPriceAmount !== undefined) {
       record.defaultPriceAmount =
         parsed.defaultPriceAmount === null ? null : (toNumericString(parsed.defaultPriceAmount) ?? null)

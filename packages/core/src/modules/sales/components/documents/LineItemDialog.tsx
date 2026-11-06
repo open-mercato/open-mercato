@@ -1989,6 +1989,7 @@ export function LineItemDialog({
       productOption,
       quantityFloor,
       resourcePath,
+      serviceOption,
       shipmentStateUnknown,
       shippedQuantity,
       t,

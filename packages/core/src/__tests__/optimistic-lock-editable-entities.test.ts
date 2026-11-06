@@ -42,6 +42,7 @@ const moduleEntities: Record<string, string[]> = {
     'CatalogOffer',
     'CatalogPriceKind',
     'CatalogOptionSchemaTemplate',
+    'CatalogService',
   ],
   customers: [
     'CustomerEntity',
@@ -164,6 +165,7 @@ const makeCrudRouteByEntity: Record<string, string[]> = {
   CatalogOffer: ['catalog/api/offers/route.ts'],
   CatalogPriceKind: ['catalog/api/price-kinds/route.ts'],
   CatalogOptionSchemaTemplate: ['catalog/api/option-schemas/route.ts'],
+  CatalogService: ['catalog/api/services/route.ts'],
   CustomerEntity: ['customers/api/people/route.ts', 'customers/api/companies/route.ts'],
   CustomerDeal: ['customers/api/deals/route.ts'],
   CustomerInteraction: ['customers/api/interactions/route.ts'],

@@ -61,5 +61,6 @@ Catalog currently models service-like examples through products and custom field
 
 ## Changelog
 
+- 2026-11-06: Reapplied the closed PR #3417 onto current `main`: migrations re-timestamped after existing module migrations, service default-price currencies read from the currencies module (catalog must not import customers), service lines use a free-text unit input, and `CatalogService` registered in the optimistic-lock and record-locks coverage guards.
 - 2026-06-19: Added upstream-safe QA findings covering decorated service responses, dictionary-backed currency selection, price display formatting, work-requirement layout, and human-readable service references.
 - 2026-06-16: Initial implementation spec.
