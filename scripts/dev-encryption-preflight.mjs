@@ -224,5 +224,5 @@ export async function runEncryptionGuardedSetupCommand(command, { projectDir = p
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv[2] === '--run-setup-command') {
   try { process.exit(await runEncryptionGuardedSetupCommand(process.argv[3])) }
-  catch { console.error(FAILURE); process.exit(1) }
+  catch { console.error(FAILURE); process.exit(78) }
 }

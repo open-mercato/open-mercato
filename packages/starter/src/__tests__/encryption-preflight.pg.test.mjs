@@ -123,7 +123,11 @@ test('disposable PostgreSQL: actual isolated helpers prove keys and rejected reu
     assert.match(containerRun.stdout, /writes are blocked/)
     assert.equal(fs.existsSync(guardMarker), false)
     assert.equal(fs.existsSync(path.join(projectDir, 'seed-marker')), false)
-    const acceptedContainer = spawnSync('sh', [path.join(repository, 'docker', 'scripts', 'init-or-migrate.sh')], {
+    const imageScripts = path.join(projectDir, 'docker', 'scripts')
+    fs.mkdirSync(imageScripts, { recursive: true })
+    fs.copyFileSync(path.join(repository, 'docker', 'scripts', 'init-or-migrate.sh'), path.join(imageScripts, 'init-or-migrate.sh'))
+    fs.copyFileSync(path.join(repository, 'packages', 'starter', 'src', 'encryption-preflight.mjs'), path.join(imageScripts, 'encryption-preflight.mjs'))
+    const acceptedContainer = spawnSync('sh', [path.join(imageScripts, 'init-or-migrate.sh')], {
       cwd: appDir,
       env: { ...env, ...formsEnv, INIT_MARKER_FILE: path.join(projectDir, 'seed-marker'), INIT_COMMAND: command, MIGRATE_COMMAND: command, SYNC_ROLE_ACLS_COMMAND: command, TEST_GUARD_MARKER: guardMarker },
       encoding: 'utf8', timeout: 30_000,

@@ -50,8 +50,13 @@ sync_role_acls() {
   if run_command_with_cli_recovery "${SYNC_ROLE_ACLS_COMMAND}" "${SYNC_LOG_FILE}"; then
     cat "${SYNC_LOG_FILE}"
   else
-    echo "WARNING: role ACL sync failed; newly enabled modules may be inaccessible until it is run manually."
+    SYNC_STATUS=$?
     cat "${SYNC_LOG_FILE}"
+    if [ "${SYNC_STATUS}" -eq 78 ]; then
+      rm -f "${SYNC_LOG_FILE}"
+      return "${SYNC_STATUS}"
+    fi
+    echo "WARNING: role ACL sync failed; newly enabled modules may be inaccessible until it is run manually."
   fi
 
   rm -f "${SYNC_LOG_FILE}"

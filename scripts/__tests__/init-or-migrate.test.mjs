@@ -13,6 +13,7 @@ const templateScriptPath = path.join(repoRoot, 'packages/create-app/template/doc
 function runScript({
   seeded = false,
   encryptionRejected = false,
+  encryptionRejectedAtSync = false,
   initFails = false,
   initReportsExistingUsers = false,
   syncFails = false,
@@ -26,7 +27,7 @@ function runScript({
   fs.copyFileSync(scriptPath, copiedScript)
   fs.writeFileSync(path.join(tempDir, 'encryption-preflight.mjs'), `
     import { spawnSync } from 'node:child_process'
-    if (process.env.TEST_ENCRYPTION_REJECTED === '1') { console.error('Encryption compatibility rejected'); process.exit(1) }
+    if (process.env.TEST_ENCRYPTION_REJECTED === '1' || (process.env.TEST_ENCRYPTION_REJECTED_AT_SYNC === '1' && process.argv[3].includes('sync'))) { console.error('Encryption compatibility rejected'); process.exit(78) }
     const result = spawnSync('sh', ['-lc', process.argv[3]], { stdio: 'inherit', env: process.env })
     process.exit(result.status ?? 1)
   `)
@@ -51,6 +52,7 @@ function runScript({
       ...process.env,
       INIT_MARKER_FILE: markerFile,
       TEST_ENCRYPTION_REJECTED: encryptionRejected ? '1' : '0',
+      TEST_ENCRYPTION_REJECTED_AT_SYNC: encryptionRejectedAtSync ? '1' : '0',
       INIT_COMMAND: initCommand,
       MIGRATE_COMMAND: migrateCommand,
       SYNC_ROLE_ACLS_COMMAND: syncFails ? `${record('sync')}; exit 1` : record('sync'),
@@ -126,4 +128,12 @@ test('container setup rejects incompatible encryption before initialize, migrate
     assert.equal(markerExists, seeded)
     assert.match(result.stdout, /Encryption compatibility rejected/)
   }
+})
+
+
+test('an encryption refusal before role ACL synchronization aborts startup instead of becoming a nonfatal sync warning', () => {
+  const { result, steps } = runScript({ seeded: true, encryptionRejectedAtSync: true })
+  assert.equal(result.status, 78)
+  assert.deepEqual(steps, ['migrate'])
+  assert.match(result.stdout, /Encryption compatibility rejected/)
 })
