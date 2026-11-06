@@ -1,7 +1,5 @@
-import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader';
 import {
   CART_LINES_PATH,
   CART_MERGE_PATH,
@@ -15,10 +13,6 @@ import {
   type CartProductFixture,
   type CartStorefrontFixture,
 } from './helpers';
-
-const APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
-  ? path.resolve(process.env.OM_TEST_APP_ROOT.trim())
-  : path.resolve(process.cwd(), 'apps/mercato');
 
 const PRODUCTS_PATH = '/api/catalog/products';
 
@@ -47,7 +41,6 @@ test.describe('TC-CART-F15-F13-01: non-active-cart writes 409, warning messages 
   let adminToken: string;
 
   test.beforeAll(async ({ request }) => {
-    await bootstrapFromAppRoot(APP_ROOT);
     adminToken = await getAuthToken(request, 'admin');
 
     const stamp = uniqueStamp();

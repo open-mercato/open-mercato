@@ -23,6 +23,7 @@ import {
   type Counter,
   type Histogram,
   type Gauge,
+  type MetricOptions,
 } from '@opentelemetry/api'
 import { W3CTraceContextPropagator } from '@opentelemetry/core'
 import { logs, SeverityNumber } from '@opentelemetry/api-logs'
@@ -229,6 +230,22 @@ export type OtlpProviderOptions = {
  */
 export const PG_INSTRUMENTATION_OPTIONS = { enhancedDatabaseReporting: false } as const
 
+/**
+ * Bucket boundaries for every histogram recorded in seconds. Without explicit
+ * advice the SDK falls back to millisecond-scaled defaults (0, 5, 10 … 10000),
+ * which puts every realistic latency in the first bucket and leaves percentiles
+ * uncomputable. A superset of the semconv HTTP-duration advice, plus a 1 ms
+ * bucket for sub-millisecond pool acquisitions.
+ */
+export const SECONDS_HISTOGRAM_BUCKETS: readonly number[] = [
+  0.001, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10,
+]
+
+function histogramOptions(unit: string | undefined): MetricOptions | undefined {
+  if (unit !== 's') return unit ? { unit } : undefined
+  return { unit, advice: { explicitBucketBoundaries: [...SECONDS_HISTOGRAM_BUCKETS] } }
+}
+
 export class OtlpProvider implements TelemetryProvider {
   /** The configured backend name (signoz | newrelic | otlp) — all OTLP, vendor differs only by endpoint. */
   readonly name: string
@@ -339,7 +356,7 @@ export class OtlpProvider implements TelemetryProvider {
         point.kind === 'counter'
           ? meter.createCounter(point.name, opts)
           : point.kind === 'histogram'
-            ? meter.createHistogram(point.name, opts)
+            ? meter.createHistogram(point.name, histogramOptions(point.unit))
             : meter.createGauge(point.name, opts)
       this.instruments.set(key, instrument)
     }
