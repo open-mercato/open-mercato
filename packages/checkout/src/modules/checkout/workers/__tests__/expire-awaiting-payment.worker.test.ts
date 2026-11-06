@@ -24,7 +24,13 @@ jest.mock('../../events', () => ({
   emitCheckoutEvent: (...args: unknown[]) => mockEmitCheckoutEvent(...args),
 }))
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
+}))
+
 const mockConfirmOrderAndComplete = jest.fn(async () => ({
+  completedByThisCall: true,
   session: {},
   attempt: 1,
   stockReservationKey: null,
@@ -154,10 +160,45 @@ describe('checkout expire-awaiting-payment worker', () => {
       session.salesOrderId,
       session.salesQuoteId,
       { stockReservationKey: session.stockReservationKey, creditReservationKey: session.creditReservationKey },
-      { amount: '125.00', currencyCode: 'USD', paymentReference: 'checkout-transaction-1' },
+      { amount: '125.00', currencyCode: 'USD', paymentReference: 'checkout-transaction-1', captured: true },
     )
     expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
     expect(mockEmitCheckoutEvent).toHaveBeenCalledWith('checkout.payment.succeeded', expect.objectContaining({ sessionId: session.id, orderId: session.salesOrderId }))
+  })
+
+  it('emits no payment.succeeded event when confirmOrderAndComplete lost the session claim', async () => {
+    const session = makeSession()
+    mockFindWithDecryption.mockResolvedValueOnce([session])
+    mockGetPaymentStatus.mockResolvedValueOnce({ status: 'captured' })
+    mockConfirmOrderAndComplete.mockResolvedValueOnce({ completedByThisCall: false } as never)
+    const { default: handle } = await import('../expire-awaiting-payment.worker')
+
+    await handle(
+      { ...baseJob, payload: { tenantId: TENANT_ID, organizationId: ORG_ID } } as unknown as QueuedJob<ExpireAwaitingPaymentJob>,
+      mockContext,
+    )
+
+    expect(mockConfirmOrderAndComplete).toHaveBeenCalledTimes(1)
+    expect(mockEmitCheckoutEvent).not.toHaveBeenCalledWith('checkout.payment.succeeded', expect.anything())
+  })
+
+  it('reports an error when confirming a captured session that has no transaction row to record a payment from', async () => {
+    const session = makeSession()
+    mockFindWithDecryption.mockResolvedValueOnce([session])
+    mockEmFindOne.mockResolvedValue(null as never)
+    mockGetPaymentStatus.mockResolvedValueOnce({ status: 'captured' })
+    const { default: handle } = await import('../expire-awaiting-payment.worker')
+
+    await handle(
+      { ...baseJob, payload: { tenantId: TENANT_ID, organizationId: ORG_ID } } as unknown as QueuedJob<ExpireAwaitingPaymentJob>,
+      mockContext,
+    )
+
+    expect(mockConfirmOrderAndComplete).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ module: 'checkout', code: 'checkout.gateway_payment_record_failed' }),
+    )
   })
 
   it('a gateway-confirmed failure compensates by cancelling the order and fails with payment_expired', async () => {
@@ -358,7 +399,7 @@ describe('checkout expire-awaiting-payment worker', () => {
       session.salesOrderId,
       session.salesQuoteId,
       { stockReservationKey: session.stockReservationKey, creditReservationKey: session.creditReservationKey },
-      { amount: '125.00', currencyCode: 'USD', paymentReference: 'gw-final' },
+      { amount: '125.00', currencyCode: 'USD', paymentReference: 'gw-final', captured: true },
     )
     expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
   })

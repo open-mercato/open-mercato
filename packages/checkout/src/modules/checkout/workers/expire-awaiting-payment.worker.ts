@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { CheckoutSession, CheckoutTransaction } from '../data/entities'
@@ -128,7 +129,13 @@ export async function expireOneAwaitingPayment(
       // §7.2 step 7 success branch, verbatim: confirm the order, build the C18 lineMap,
       // markConverted, complete the session — then the SAME two events the live path emits
       // alongside `confirmOrderAndComplete`'s own `checkout.session.completed`.
-      await confirmOrderAndComplete(
+      if (!resolvedTransaction) {
+        getTelemetryRuntime()?.reportError(new Error('[internal] expire-awaiting-payment: confirming a session with no transaction row, no payment will be recorded'), {
+          module: 'checkout',
+          code: 'checkout.gateway_payment_record_failed',
+        })
+      }
+      const completion = await confirmOrderAndComplete(
         container,
         em,
         session,
@@ -137,9 +144,10 @@ export async function expireOneAwaitingPayment(
         session.salesQuoteId,
         reservationKeys,
         resolvedTransaction
-          ? { amount: resolvedTransaction.amount, currencyCode: resolvedTransaction.currencyCode, paymentReference: resolvedTransaction.gatewayTransactionId ?? resolvedTransaction.id }
+          ? { amount: resolvedTransaction.amount, currencyCode: resolvedTransaction.currencyCode, paymentReference: resolvedTransaction.gatewayTransactionId ?? resolvedTransaction.id, captured: resolvedTransaction.paymentStatus !== 'authorized' }
           : undefined,
       )
+      if (!completion.completedByThisCall) return
       await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId: session.salesOrderId, outcome: 'succeeded' } })
       await emitCheckoutEvent('checkout.payment.succeeded', {
         sessionId: session.id,

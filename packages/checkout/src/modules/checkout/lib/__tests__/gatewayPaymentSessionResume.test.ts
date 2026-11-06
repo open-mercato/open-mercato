@@ -4,7 +4,7 @@
 // `confirmOrderAndComplete`/`compensateByCancellingOrder` for a session-backed payment, so
 // a paid order stayed unconfirmed until the (much later) expiry sweep.
 
-const mockConfirmOrderAndComplete = jest.fn(async () => undefined)
+const mockConfirmOrderAndComplete = jest.fn(async (..._args: unknown[]) => ({ completedByThisCall: true }))
 const mockCompensateByCancellingOrder = jest.fn(async (..._args: unknown[]) => true)
 jest.mock('../../commands/submit', () => ({
   confirmOrderAndComplete: (...args: unknown[]) => mockConfirmOrderAndComplete(...args),
@@ -88,7 +88,7 @@ describe('createGatewayPaymentSessionResumeHandler', () => {
       'order-1',
       'quote-1',
       { stockReservationKey: 'stock-1', creditReservationKey: null },
-      { amount: '125.00', currencyCode: 'USD', paymentReference: 'txn-1' },
+      { amount: '125.00', currencyCode: 'USD', paymentReference: 'txn-1', captured: true },
     )
     expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
   })
@@ -193,6 +193,24 @@ describe('createGatewayPaymentSessionResumeHandler', () => {
     await handle(PAYLOAD)
     expect(mockConfirmOrderAndComplete).toHaveBeenCalledTimes(2)
     expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
+  })
+
+  it('emits no payment.succeeded event when confirmOrderAndComplete lost the session claim to a concurrent capture', async () => {
+    mockConfirmOrderAndComplete.mockResolvedValueOnce({ completedByThisCall: false })
+    await createGatewayPaymentSessionResumeHandler('completed')(PAYLOAD)
+
+    expect(mockConfirmOrderAndComplete).toHaveBeenCalledTimes(1)
+    expect(mockEmitCheckoutEvent).not.toHaveBeenCalledWith('checkout.payment.succeeded', expect.anything())
+  })
+
+  it('records an authorized-only transaction as not captured', async () => {
+    seededTransaction = makeTransaction({ paymentStatus: 'authorized' })
+    await createGatewayPaymentSessionResumeHandler('completed')(PAYLOAD)
+
+    expect(mockConfirmOrderAndComplete).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.anything(),
+      expect.objectContaining({ captured: false }),
+    )
   })
 
   it('is a no-op when the persisted transaction state differs from the event outcome (captured event, failed transaction)', async () => {

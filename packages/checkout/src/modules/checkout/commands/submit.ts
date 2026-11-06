@@ -8,6 +8,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { SalesLineSnapshot } from '@open-mercato/core/modules/sales/lib/types'
 import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CartService } from '@open-mercato/core/modules/cart/lib/cartService'
 import type { CartSalesSnapshot } from '@open-mercato/core/modules/cart/lib/toSalesSnapshots'
 import type {
@@ -102,6 +103,7 @@ export type CheckoutSessionSubmitStageResult = {
   // Release 5, Step 5.1 (§8.6): `null` for the quote outcome — a `request_quote` submit
   // never converts to an order (C16/C17), so there is no order id to report.
   salesOrderId: string | null
+  completedByThisCall?: boolean
   // Release 5, Step 4.2-fix (§7.2 step 7, C1). Set only on the gateway branch's
   // still-pending return (`awaiting_payment`) — the hand-off the buyer needs to actually
   // pay: a redirect target, or a client secret/presentation for an embedded flow. `null`
@@ -502,6 +504,11 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
       throw new CrudHttpError(422, { error: '[internal] a purchase order number is required', code: 'purchase_order_number_required' })
     }
 
+    const cartService = tryResolve<CartService>(container, 'cartService')
+    if (!cartService) {
+      throw new CrudHttpError(503, { error: '[internal] checkout sessions are unavailable without the cart module', code: 'checkout_sessions_unavailable' })
+    }
+
     // §7.2 step 0: CAS open -> submitting, submit_attempt += 1, fresh keys.
     const attempt = session.submitAttempt + 1
     const stockReservationKey = `checkout:${session.id}:${attempt}:stock`
@@ -560,11 +567,6 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
     // ---------------------------------------------------------------------
     // Step 1 (§7.2 step 1, C1/C2): cart.lock
     // ---------------------------------------------------------------------
-    const cartService = tryResolve<CartService>(container, 'cartService')
-    if (!cartService) {
-      throw new CrudHttpError(503, { error: '[internal] checkout sessions are unavailable without the cart module', code: 'checkout_sessions_unavailable' })
-    }
-
     let lockResult
     try {
       lockResult = await cartService.lock({
@@ -1042,10 +1044,77 @@ async function resolveSalesOrderStatusEntryId(
 // `sales.payment_status` instead — needed so a gateway-captured session can record a
 // `SalesPayment` with a real status (#8423: a gateway-paid order never got a payment row at
 // all, so it showed nothing paid).
+async function findRecordedGatewayPaymentId(
+  em: EntityManager,
+  scope: SubmitScope,
+  orderId: string,
+  paymentReference: string,
+): Promise<string | null> {
+  const row = await em
+    .getKysely<{
+      sales_payments: { id: string; tenant_id: string; organization_id: string; order_id: string; payment_reference: string | null; deleted_at: Date | null }
+    }>()
+    .selectFrom('sales_payments')
+    .select(['id'])
+    .where('tenant_id', '=', scope.tenantId)
+    .where('organization_id', '=', scope.organizationId)
+    .where('order_id', '=', orderId)
+    .where('payment_reference', '=', paymentReference)
+    .where('deleted_at', 'is', null)
+    .executeTakeFirst()
+  return row?.id ?? null
+}
+
+const GATEWAY_PAYMENT_RECORD_ATTEMPTS = 3
+
+async function recordGatewayPayment(
+  container: CommandRuntimeContext['container'],
+  em: EntityManager,
+  session: CheckoutSession,
+  scope: SubmitScope,
+  orderId: string,
+  gatewayPayment: GatewayPaymentRecord,
+): Promise<void> {
+  const trustedCtx = buildTrustedCtx(container, scope, `checkout:submit:complete:${session.id}`)
+  const commandBus = container.resolve('commandBus') as CommandBus
+  let lastError: unknown = null
+  for (let attemptIndex = 0; attemptIndex < GATEWAY_PAYMENT_RECORD_ATTEMPTS; attemptIndex += 1) {
+    try {
+      if (gatewayPayment.paymentReference) {
+        const existing = await findRecordedGatewayPaymentId(em, scope, orderId, gatewayPayment.paymentReference)
+        if (existing) return
+      }
+      const captured = gatewayPayment.captured !== false
+      const statusEntryId = await resolveSalesPaymentStatusEntryId(em, scope, captured ? 'captured' : 'authorized')
+      await commandBus.execute('sales.payments.create', {
+        input: {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          orderId,
+          amount: gatewayPayment.amount,
+          currencyCode: gatewayPayment.currencyCode,
+          ...(captured ? { capturedAmount: gatewayPayment.amount, capturedAt: new Date() } : {}),
+          statusEntryId: statusEntryId ?? undefined,
+          paymentReference: gatewayPayment.paymentReference ?? undefined,
+        },
+        ctx: trustedCtx,
+      })
+      return
+    } catch (err) {
+      lastError = err
+    }
+  }
+  logger.error('[internal] checkout submit: failed to record the gateway payment against the order', { err: lastError, sessionId: session.id, orderId })
+  getTelemetryRuntime()?.reportError(lastError, {
+    module: 'checkout',
+    code: 'checkout.gateway_payment_record_failed',
+  })
+}
+
 async function resolveSalesPaymentStatusEntryId(
   em: EntityManager,
   scope: SubmitScope,
-  value: 'captured',
+  value: 'captured' | 'authorized',
 ): Promise<string | null> {
   const row = await em
     .getKysely<{
@@ -1217,6 +1286,13 @@ export async function compensateByCancellingOrder(
 // as `compensateByCancellingOrder` above — the job that resolves a session left in
 // `awaiting_payment` by a gateway that answered asynchronously resumes through this EXACT
 // function on a gateway-confirmed success, never a duplicate order-confirm/markConverted path.
+export type GatewayPaymentRecord = {
+  amount: string
+  currencyCode: string
+  paymentReference?: string | null
+  captured?: boolean
+}
+
 export async function confirmOrderAndComplete(
   container: CommandRuntimeContext['container'],
   em: EntityManager,
@@ -1231,7 +1307,7 @@ export async function confirmOrderAndComplete(
   // sites (synchronous capture in `continueOrderOutcome`, async capture in
   // `gatewayPaymentSessionResume.ts`) pass this; the on-account call site never does — there
   // is no gateway payment to record, and the order is meant to show its full amount due.
-  gatewayPayment?: { amount: string; currencyCode: string; paymentReference?: string | null },
+  gatewayPayment?: GatewayPaymentRecord,
 ): Promise<CheckoutSessionSubmitStageResult> {
   const trustedCtx = buildTrustedCtx(container, scope, `checkout:submit:complete:${session.id}`)
   const commandBus = container.resolve('commandBus') as CommandBus
@@ -1262,6 +1338,7 @@ export async function confirmOrderAndComplete(
   )
   if (completed === 0) {
     return {
+      completedByThisCall: false,
       session,
       attempt: session.submitAttempt,
       stockReservationKey: reservationKeys.stockReservationKey,
@@ -1278,25 +1355,7 @@ export async function confirmOrderAndComplete(
   }
 
   if (gatewayPayment) {
-    try {
-      const capturedStatusEntryId = await resolveSalesPaymentStatusEntryId(em, scope, 'captured')
-      await commandBus.execute('sales.payments.create', {
-        input: {
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          orderId,
-          amount: gatewayPayment.amount,
-          currencyCode: gatewayPayment.currencyCode,
-          capturedAmount: gatewayPayment.amount,
-          capturedAt: new Date(),
-          statusEntryId: capturedStatusEntryId ?? undefined,
-          paymentReference: gatewayPayment.paymentReference ?? undefined,
-        },
-        ctx: trustedCtx,
-      })
-    } catch (err) {
-      logger.error('[internal] checkout submit: failed to record the captured gateway payment against the order', { err, sessionId: session.id, orderId })
-    }
+    await recordGatewayPayment(container, em, session, scope, orderId, gatewayPayment)
   }
 
   await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId, outcome: 'completed' } })
@@ -1312,6 +1371,7 @@ export async function confirmOrderAndComplete(
   }).catch(() => undefined)
 
   return {
+    completedByThisCall: true,
     session,
     attempt: session.submitAttempt,
     stockReservationKey: reservationKeys.stockReservationKey,
@@ -1708,9 +1768,9 @@ export async function continueOrderOutcome(
     })
   }
 
-  await em.nativeUpdate(
+  const awaitingPaymentAffected = await em.nativeUpdate(
     CheckoutSession,
-    { id: session.id, ...scope },
+    { id: session.id, ...scope, status: 'submitting' },
     {
       status: 'awaiting_payment',
       submitProgress: 'payment_initiated',
@@ -1719,6 +1779,14 @@ export async function continueOrderOutcome(
       updatedAt: new Date(),
     },
   )
+  if (awaitingPaymentAffected === 0) {
+    if (cartService) {
+      await cartService
+        .unlock({ cartId: session.cartId, tenantId: scope.tenantId, organizationId: scope.organizationId, checkoutSessionId: session.id })
+        .catch((err: unknown) => logger.error('[internal] checkout submit: cart unlock failed after a recovered submit', { err, sessionId: session.id }))
+    }
+    throw new CrudHttpError(409, { error: '[internal] the submit attempt was recovered before the gateway answered', code: 'submit_in_progress' })
+  }
   session.status = 'awaiting_payment'
   session.submitProgress = 'payment_initiated'
   session.paymentIntentRef = sessionResult.session.sessionId
@@ -1768,9 +1836,12 @@ export async function continueOrderOutcome(
       amount: transaction.amount,
       currencyCode: transaction.currencyCode,
       paymentReference: transaction.gatewayTransactionId ?? transaction.id,
+      captured: sessionResult.transaction.unifiedStatus !== 'authorized',
     })
-    await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId, outcome: 'succeeded' } })
-    await emitCheckoutEvent('checkout.payment.succeeded', { sessionId: session.id, tenantId: scope.tenantId, organizationId: scope.organizationId, orderId, transactionId: transaction.id }).catch(() => undefined)
+    if (result.completedByThisCall) {
+      await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId, outcome: 'succeeded' } })
+      await emitCheckoutEvent('checkout.payment.succeeded', { sessionId: session.id, tenantId: scope.tenantId, organizationId: scope.organizationId, orderId, transactionId: transaction.id }).catch(() => undefined)
+    }
     return result
   }
   if (mappedStatus === 'failed' || mappedStatus === 'cancelled' || mappedStatus === 'expired') {

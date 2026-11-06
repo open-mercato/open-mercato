@@ -9,6 +9,11 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
   return { createLogger: () => logger }
 })
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
+}))
+
 jest.mock('../../events', () => ({
   emitCheckoutEvent: jest.fn(async () => undefined),
 }))
@@ -159,6 +164,7 @@ type Harness = {
   seededQuotes: FakeRow[]
   seededOrders: FakeRow[]
   seededTransactions: FakeRow[]
+  seededPayments: FakeRow[]
   commandBusExecute: jest.Mock
   emExecute: jest.Mock
   cartService: { lock: jest.Mock; unlock: jest.Mock; getSalesSnapshot: jest.Mock; markConverted: jest.Mock }
@@ -205,12 +211,15 @@ function buildHarness(opts: {
   seededOrderLines?: FakeRow[]
   seededQuoteLines?: FakeRow[]
   customerGroupsServiceAvailable?: boolean
+  cartServiceAvailable?: boolean
+  paymentsCreateError?: Error
   terms?: FakeRow
 } = {}): Harness {
   const seededSessions = [opts.session ?? makeSession()]
   const seededQuotes = opts.seededQuotes ?? []
   const seededOrders = opts.seededOrders ?? []
   const seededTransactions: FakeRow[] = []
+  const seededPayments: FakeRow[] = []
 
   mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
     if (entity === CheckoutSession) return seededSessions.find((row) => matchesWhere(row, where)) ?? null
@@ -288,6 +297,11 @@ function buildHarness(opts: {
       if (order) order.statusEntryId = options.input.statusEntryId
       return { result: { order } }
     }
+    if (id === 'sales.payments.create') {
+      if (opts.paymentsCreateError) throw opts.paymentsCreateError
+      seededPayments.push({ ...options.input, id: `payment-${seededPayments.length + 1}`, order_id: options.input.orderId, payment_reference: options.input.paymentReference ?? null, tenant_id: options.input.tenantId, organization_id: options.input.organizationId, deleted_at: null })
+      return { result: { paymentId: `payment-${seededPayments.length}` } }
+    }
     throw new Error(`Unexpected command id: ${id}`)
   })
 
@@ -321,7 +335,7 @@ function buildHarness(opts: {
   const registrations: Record<string, unknown> = {
     em: null, // set below once `em` is built (needs `registrations` reference first)
     commandBus: { execute: commandBusExecute },
-    cartService,
+    ...(opts.cartServiceAvailable === false ? {} : { cartService }),
     salesCalculationService,
     ...(customerCreditService ? { customerCreditService } : {}),
     ...(opts.policyResolutionServiceAvailable === false ? {} : { policyResolutionService: {} }),
@@ -396,6 +410,7 @@ function buildHarness(opts: {
           async executeTakeFirst() {
             const rows = table === 'sales_quotes' ? seededQuotes
               : table === 'sales_orders' ? seededOrders
+              : table === 'sales_payments' ? seededPayments
               : table === 'dictionary_entries' ? orderStatusEntries
               : []
             return rows.find((row) => builder.matches(row))
@@ -435,6 +450,7 @@ function buildHarness(opts: {
     seededQuotes,
     seededOrders,
     seededTransactions,
+    seededPayments,
     commandBusExecute,
     emExecute,
     cartService,
@@ -822,6 +838,88 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
       paymentStatus: 'captured',
       gatewayTransactionId: 'gateway-txn-1',
     })
+  })
+
+  it('records the sync-captured gateway payment once, with the captured amount', async () => {
+    const h = buildHarness()
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(h.seededPayments).toHaveLength(1)
+    expect(h.seededPayments[0]).toMatchObject({ paymentReference: 'gateway-txn-1', capturedAmount: h.seededPayments[0].amount })
+  })
+
+  it('records an authorize-only gateway payment without booking it as captured', async () => {
+    const h = buildHarness({ createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'authorized', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'authorized' } } })
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(h.seededPayments).toHaveLength(1)
+    expect(h.seededPayments[0].capturedAmount).toBeUndefined()
+    expect(h.seededPayments[0].capturedAt).toBeUndefined()
+  })
+
+  it('does not record the gateway payment a second time when the same transaction reference is replayed', async () => {
+    const h = buildHarness()
+    const result = await getHandler().execute(BASE_INPUT, h.ctx)
+    expect(h.seededPayments).toHaveLength(1)
+
+    const { confirmOrderAndComplete } = await import('../submit')
+    await confirmOrderAndComplete(
+      h.ctx.container,
+      (h.ctx.container.resolve('em') as never),
+      h.seededSessions[0] as never,
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+      result.salesOrderId as string,
+      result.salesQuoteId,
+      { stockReservationKey: null, creditReservationKey: null },
+      { amount: '10.00', currencyCode: 'USD', paymentReference: 'gateway-txn-1' },
+    )
+
+    expect(h.seededPayments).toHaveLength(1)
+  })
+
+  it('retries a failed payment record then reports the error, still completing the session', async () => {
+    const h = buildHarness({ paymentsCreateError: new Error('409 conflict') })
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(h.commandBusExecute.mock.calls.filter(([id]) => id === 'sales.payments.create')).toHaveLength(3)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ module: 'checkout', code: 'checkout.gateway_payment_record_failed' }),
+    )
+    expect(h.seededSessions[0].status).toBe('completed')
+  })
+
+  it('checks for the cart service before moving the session to submitting or reserving the slot', async () => {
+    const h = buildHarness({ cartServiceAvailable: false })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({
+      status: 503,
+      body: expect.objectContaining({ code: 'checkout_sessions_unavailable' }),
+    })
+
+    expect(h.seededSessions[0].status).toBe('open')
+    expect(h.commandBusExecute).not.toHaveBeenCalledWith('availability.reserve', expect.anything())
+  })
+
+  it('stops with 409 when recovery already moved the session out of submitting before the awaiting_payment write', async () => {
+    const h = buildHarness({ createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'pending', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'pending' } } })
+    const paymentGatewayService = h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock }
+    const originalCreatePaymentSession = paymentGatewayService.createPaymentSession.getMockImplementation()!
+    paymentGatewayService.createPaymentSession.mockImplementation(async (...args: unknown[]) => {
+      h.seededSessions[0].status = 'failed'
+      return originalCreatePaymentSession(...args)
+    })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({
+      status: 409,
+      body: expect.objectContaining({ code: 'submit_in_progress' }),
+    })
+
+    expect(h.seededSessions[0].status).toBe('failed')
+    expect(h.cartService.unlock).toHaveBeenCalled()
   })
 
   it('availability.commit (step 6a) is called BEFORE the gateway call (step 7) — ordering assertion', async () => {

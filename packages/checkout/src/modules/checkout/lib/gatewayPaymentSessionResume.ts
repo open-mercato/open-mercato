@@ -70,7 +70,7 @@ export function createGatewayPaymentSessionResumeHandler(outcome: GatewayPayment
 
       try {
         if (outcome === 'completed') {
-          await confirmOrderAndComplete(
+          const completion = await confirmOrderAndComplete(
             runtimeContainer,
             em,
             session,
@@ -82,8 +82,10 @@ export function createGatewayPaymentSessionResumeHandler(outcome: GatewayPayment
               amount: transaction.amount,
               currencyCode: transaction.currencyCode,
               paymentReference: transaction.gatewayTransactionId ?? transaction.id,
+              captured: transaction.paymentStatus !== 'authorized',
             },
           )
+          if (!completion.completedByThisCall) return
           await writeSessionEvent(em, {
             ...scope,
             sessionId: session.id,
