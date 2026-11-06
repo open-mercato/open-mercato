@@ -25,6 +25,7 @@
   "communication_channels.errors.loadList": "채널을 불러오지 못했습니다",
   "communication_channels.errors.messageNotFound": "메시지를 찾을 수 없습니다",
   "communication_channels.errors.missingChannelId": "선택된 채널이 없습니다.",
+  "communication_channels.errors.pollNowAlreadyQueued": "이 채널에 대한 폴링이 이미 대기 중이거나 실행 중입니다. 잠시 후 다시 시도하세요.",
   "communication_channels.errors.pollNowPushDriven": "이 채널은 푸시 기반입니다 — 폴링은 적용되지 않습니다. 수신 메시지는 공급자의 푸시 연결로 전달됩니다.",
   "communication_channels.errors.reactionFailed": "반응 처리에 실패했습니다",
   "communication_channels.errors.reactionNotFound": "반응을 찾을 수 없습니다",

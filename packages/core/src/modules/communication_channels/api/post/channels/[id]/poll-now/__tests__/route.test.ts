@@ -24,10 +24,26 @@ class ChannelAccessDeniedErrorMock extends Error {}
 
 const em = { fork: () => em }
 
+/** In-memory fake matching the `has`/`set` subset of `CacheStrategy` used by the poll lease. */
+let cacheEntries = new Map<string, number>()
+const cacheStore = {
+  async has(key: string) {
+    return cacheEntries.has(key)
+  },
+  async set(key: string, _value: unknown, _options?: { ttl?: number; tags?: string[] }) {
+    cacheEntries.set(key, 1)
+  },
+}
+
+let cacheRegistered = true
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'rbacService') return { loadAcl: loadAclMock }
+    if (name === 'cache') {
+      if (!cacheRegistered) throw new Error('cache not registered')
+      return cacheStore
+    }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -68,6 +84,7 @@ jest.mock('../../../../../../lib/route-mutation-guard', () => ({
 }))
 
 import { POST } from '../route'
+import { pollLeaseCacheKey } from '../../../../../../lib/poll-lease'
 
 function invoke() {
   return POST(
@@ -92,6 +109,8 @@ function channel(capabilities: Record<string, unknown> | null) {
 describe('communication_channels poll-now route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    cacheEntries = new Map()
+    cacheRegistered = true
     getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
     loadAclMock.mockResolvedValue({ isSuperAdmin: true, features: ['*'], organizations: null })
     assertCanManageChannelMock.mockImplementation(() => {})
@@ -142,5 +161,47 @@ describe('communication_channels poll-now route', () => {
 
     expect(response.status).toBe(409)
     expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  // Regression for #8713 — poll-now used to enqueue unconditionally, even
+  // when a poll-channel job was already queued/running for this channel
+  // (e.g. the scheduled tick just enqueued one), causing a wasteful duplicate
+  // provider fetch.
+  describe('enqueue-time dedupe guard (#8713)', () => {
+    it('refuses with 409 when a poll lease is already held for the channel', async () => {
+      findOneWithDecryptionMock.mockResolvedValue(channel({ realtimePush: false }))
+      cacheEntries.set(pollLeaseCacheKey(tenantId, channelId), 1)
+
+      const response = await invoke()
+
+      expect(response.status).toBe(409)
+      expect(enqueueMock).not.toHaveBeenCalled()
+      const body = (await response.json()) as { error: string }
+      expect(body.error).toMatch(/already queued|running/i)
+      expect(translateMock).toHaveBeenCalledWith(
+        'communication_channels.errors.pollNowAlreadyQueued',
+        expect.any(String),
+      )
+    })
+
+    it('acquires the lease and enqueues when none is held', async () => {
+      findOneWithDecryptionMock.mockResolvedValue(channel({ realtimePush: false }))
+
+      const response = await invoke()
+
+      expect(response.status).toBe(202)
+      expect(enqueueMock).toHaveBeenCalledTimes(1)
+      expect(cacheEntries.has(pollLeaseCacheKey(tenantId, channelId))).toBe(true)
+    })
+
+    it('does not block the request when the DI container has no cache registered', async () => {
+      findOneWithDecryptionMock.mockResolvedValue(channel({ realtimePush: false }))
+      cacheRegistered = false
+
+      const response = await invoke()
+
+      expect(response.status).toBe(202)
+      expect(enqueueMock).toHaveBeenCalledTimes(1)
+    })
   })
 })
