@@ -36,7 +36,7 @@ test.describe('TC-ADMIN-003: View and Filter Audit Logs', () => {
     await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
 
     // Verify table columns
-    await expect(page.getByRole('columnheader', { name: 'Action' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /^Action(?:\s|$)/ })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Resource' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'User' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'When' })).toBeVisible();
