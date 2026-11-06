@@ -514,13 +514,13 @@ describe('PersonCompaniesSection', () => {
 
     await waitFor(() => {
       expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
-        '/api/customers/dictionaries/statuses?organizationId=org-person-1',
+        '/api/customers/dictionaries/statuses?locale=en&organizationId=org-person-1',
         undefined,
         expect.any(Object),
       )
     })
     expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
-      '/api/customers/dictionaries/person-company-roles?organizationId=org-person-1',
+      '/api/customers/dictionaries/person-company-roles?locale=en&organizationId=org-person-1',
       undefined,
       expect.any(Object),
     )
