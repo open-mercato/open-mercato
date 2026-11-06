@@ -339,32 +339,35 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     }
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    let user: User
-    try {
-      user = await de.createOrmEntity({
-        entity: User,
-        data: {
-          email: parsed.email,
-          name: parsed.name,
-          emailHash,
-          passwordHash,
-          isConfirmed: true,
-          organizationId: parsed.organizationId,
-          tenantId,
-        },
-      })
-    } catch (error) {
-      if (isUniqueViolation(error)) await throwDuplicateEmailError()
-      throw error
-    }
-
+    let user!: User
     let assignedRoles: string[] = []
-    if (Array.isArray(parsed.roles) && parsed.roles.length) {
-      await withAtomicFlush(em, [
-        async () => syncUserRoles(em, user, parsed.roles ?? [], tenantId),
-      ], { transaction: true, label: 'auth.users.create.roles' })
-      assignedRoles = await loadUserRoleNames(em, String(user.id))
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        try {
+          user = await de.createOrmEntity({
+            entity: User,
+            data: {
+              email: parsed.email,
+              name: parsed.name,
+              emailHash,
+              passwordHash,
+              isConfirmed: true,
+              organizationId: parsed.organizationId,
+              tenantId,
+            },
+          })
+        } catch (error) {
+          if (isUniqueViolation(error)) await throwDuplicateEmailError()
+          throw error
+        }
+      },
+      async () => {
+        if (Array.isArray(parsed.roles) && parsed.roles.length) {
+          await syncUserRoles(em, user, parsed.roles, tenantId)
+          assignedRoles = await loadUserRoleNames(em, String(user.id))
+        }
+      },
+    ], { transaction: true, label: 'auth.users.create' })
 
     await setCustomFieldsIfAny({
       dataEngine: de,
@@ -1687,7 +1690,7 @@ async function syncUserRoles(
   const currentLinks = await findWithDecryption(
     em,
     UserRole,
-    { user },
+    { user, deletedAt: null, role: { deletedAt: null } } as FilterQuery<UserRole>,
     { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
     { tenantId: null, organizationId: null },
   )
@@ -1717,7 +1720,11 @@ async function loadUserRoleNames(em: EntityManager, userId: string): Promise<str
   const links = await findWithDecryption(
     em,
     UserRole,
-    { user: userId as unknown as User },
+    {
+      user: userId as unknown as User,
+      deletedAt: null,
+      role: { deletedAt: null },
+    } as FilterQuery<UserRole>,
     { populate: ['role'] },
     { tenantId: null, organizationId: null },
   )
@@ -1764,7 +1771,7 @@ function captureUserSnapshots(
 }
 
 async function loadUserAclSnapshots(em: EntityManager, userId: string): Promise<UserAclSnapshot[]> {
-  const list = await findWithDecryption(em, UserAcl, { user: userId as unknown as User }, {}, { tenantId: null, organizationId: null })
+  const list = await findWithDecryption(em, UserAcl, { user: userId as unknown as User, deletedAt: null }, {}, { tenantId: null, organizationId: null })
   return list.map((acl) => ({
     tenantId: String(acl.tenantId),
     features: Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : null,
