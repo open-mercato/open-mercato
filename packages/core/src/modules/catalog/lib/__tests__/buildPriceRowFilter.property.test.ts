@@ -42,6 +42,8 @@ const DIMENSIONS: Dimension[] = ['customerId', 'customerGroupId', 'userId', 'use
 // Deliberately overlapping value pools per dimension: real matches happen
 // only when random draws coincide, alongside plenty of mismatches and nulls.
 const VALUE_POOL = ['a', 'b', 'c'] as const
+const PRICE_KIND_POOL = ['pk-regular', 'pk-wholesale', 'pk-sale'] as const
+const PROMOTIONAL_PRICE_KINDS = new Set<string>(['pk-sale'])
 
 function pick<T>(rng: () => number, options: readonly T[]): T {
   return options[Math.floor(rng() * options.length)]
@@ -51,6 +53,14 @@ function maybe<T>(rng: () => number, value: T, probability = 0.5): T | undefined
   return rng() < probability ? value : undefined
 }
 
+function randomPriceKind(rng: () => number): unknown {
+  const shape = rng()
+  const id = pick(rng, PRICE_KIND_POOL)
+  if (shape < 0.45) return { id, code: id.replace('pk-', ''), isPromotion: PROMOTIONAL_PRICE_KINDS.has(id) }
+  if (shape < 0.9) return id
+  return null
+}
+
 function randomRow(rng: () => number, id: string): PriceRow {
   const row: Record<string, unknown> = {
     id,
@@ -58,7 +68,7 @@ function randomRow(rng: () => number, id: string): PriceRow {
     tenantId: 'tenant-1',
     currencyCode: maybe(rng, pick(rng, VALUE_POOL)) ?? 'USD',
     kind: 'regular',
-    priceKind: { id: 'pk-regular', code: 'regular', isPromotion: false },
+    priceKind: randomPriceKind(rng),
     minQuantity: 1,
     unitPriceNet: '10.00',
     unitPriceGross: '12.30',
@@ -75,9 +85,21 @@ function randomRow(rng: () => number, id: string): PriceRow {
 function randomContext(rng: () => number): PricingContext {
   const ctx: Record<string, unknown> = { quantity: 1, date: new Date('2024-02-01T00:00:00Z') }
   for (const dimension of DIMENSIONS) {
-    if (dimension === 'customerGroupId') continue
+    if (dimension === 'customerGroupId' || dimension === 'customerId') continue
     ctx[dimension] = maybe(rng, pick(rng, VALUE_POOL)) ?? null
   }
+  // Customer scope: absent, legacy customerId only, or a customerIds set of
+  // 0, 1, or 2 ids (person first, then company).
+  const customerMode = rng()
+  if (customerMode < 0.25) {
+    ctx.customerId = maybe(rng, pick(rng, VALUE_POOL)) ?? null
+  } else if (customerMode < 0.8) {
+    const count = Math.floor(rng() * 3)
+    ctx.customerIds = Array.from({ length: count }, () => pick(rng, VALUE_POOL))
+  }
+  const kindMode = rng()
+  if (kindMode < 0.4) ctx.priceKindId = pick(rng, PRICE_KIND_POOL)
+  else if (kindMode < 0.7) ctx.priceKindId = null
   // Randomly exercise both the legacy customerGroupId shape and the new
   // customerGroupIds set shape (never both — matches real caller usage).
   const groupMode = rng()
@@ -92,7 +114,11 @@ function randomContext(rng: () => number): PricingContext {
 
 // Minimal interpreter for exactly the filter shapes `buildPriceRowFilter`
 // emits ($and of {field: null} / {field: value} / {$or: [...]} /
-// {field: {$in: [...]}}) — not a general MikroORM query evaluator.
+// {field: {$in: [...]}} / {relation: {property: value}}) — not a general
+// MikroORM query evaluator. A relation clause against an unpopulated id
+// string evaluates as not admitted: the interpreter cannot see the joined
+// row, so this keeps the check conservative (the database would join and
+// may admit more, which only widens the fetch).
 function admits(filter: unknown, row: Record<string, unknown>): boolean {
   const node = filter as Record<string, unknown>
   if (Array.isArray(node.$and)) {
@@ -102,11 +128,19 @@ function admits(filter: unknown, row: Record<string, unknown>): boolean {
     return (node.$or as unknown[]).some((clause) => admits(clause, row))
   }
   return Object.entries(node).every(([field, expected]) => {
-    const actual = row[field] ?? null
+    const raw = row[field] ?? null
+    const actual =
+      raw && typeof raw === 'object' && 'id' in (raw as Record<string, unknown>) ? (raw as { id: unknown }).id : raw
     if (expected === null) return actual === null
     if (expected && typeof expected === 'object' && '$in' in (expected as Record<string, unknown>)) {
       const list = (expected as { $in: unknown[] }).$in
       return actual !== null && list.includes(actual)
+    }
+    if (expected && typeof expected === 'object') {
+      if (!raw || typeof raw !== 'object') return false
+      return Object.entries(expected as Record<string, unknown>).every(
+        ([property, value]) => (raw as Record<string, unknown>)[property] === value,
+      )
     }
     return actual === expected
   })
@@ -116,6 +150,7 @@ describe('buildPriceRowFilter soundness (property-based)', () => {
   it(`admits every row matchesContext would accept, over ${ITERATIONS} generated (row, context) pairs`, () => {
     const rng = mulberry32(SEED)
     let acceptedByMatcher = 0
+    let acceptedPromotionOverlay = 0
 
     for (let i = 0; i < ITERATIONS; i += 1) {
       const row = randomRow(rng, `row-${i}`)
@@ -124,6 +159,8 @@ describe('buildPriceRowFilter soundness (property-based)', () => {
       const matcherAccepted = selectBestPrice([row], ctx) !== null
       if (matcherAccepted) {
         acceptedByMatcher += 1
+        const rowKind = row.priceKind && typeof row.priceKind === 'object' ? row.priceKind : null
+        if (ctx.priceKindId && rowKind?.isPromotion && rowKind.id !== ctx.priceKindId) acceptedPromotionOverlay += 1
         const filterAdmits = admits(buildPriceRowFilter(ctx), row as unknown as Record<string, unknown>)
         if (!filterAdmits) {
           throw new Error(
@@ -137,6 +174,7 @@ describe('buildPriceRowFilter soundness (property-based)', () => {
     // A generation scheme that never produces an accepted pair would make
     // the loop above vacuously true — guard against that regressing silently.
     expect(acceptedByMatcher).toBeGreaterThan(0)
+    expect(acceptedPromotionOverlay).toBeGreaterThan(0)
   })
 
   it('selectBestPrice resolves identically over the full row set and the buildPriceRowFilter-narrowed set', () => {
@@ -190,5 +228,17 @@ describe('buildPriceRowFilter soundness (property-based)', () => {
     const narrowedResultNoContract = selectBestPrice(narrow(buyerWithoutContract), buyerWithoutContract)
     expect(fullResultNoContract?.id).toBe('fallback')
     expect(narrowedResultNoContract?.id).toBe(fullResultNoContract?.id)
+
+    // Buyer resolved as a person and a company, both with contract rows: the
+    // person row wins the equal-score tie-break in both sets.
+    const personAndCompany: PricingContext = {
+      quantity: 1,
+      date: new Date('2024-02-01T00:00:00Z'),
+      customerIds: ['cust-a', 'cust-x'],
+    }
+    const fullResultPersonAndCompany = selectBestPrice(fullSet, personAndCompany)
+    const narrowedResultPersonAndCompany = selectBestPrice(narrow(personAndCompany), personAndCompany)
+    expect(fullResultPersonAndCompany?.id).toBe('contract-cust-a')
+    expect(narrowedResultPersonAndCompany?.id).toBe(fullResultPersonAndCompany?.id)
   })
 })

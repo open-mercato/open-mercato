@@ -102,6 +102,7 @@ type RegisteredCommand = {
 type Loaded = {
   create: RegisteredCommand
   update: RegisteredCommand
+  remove: RegisteredCommand
   entities: Entities
   roundMinutes: (raw: number, settings: { unitMinutes: 0 | 5 | 10 | 15; direction: 'up' | 'nearest' }) => number
 }
@@ -118,6 +119,7 @@ async function loadCommands(): Promise<Loaded> {
   return {
     create: commandRegistry.get('staff.timesheets.time_entries.create') as RegisteredCommand,
     update: commandRegistry.get('staff.timesheets.time_entries.update') as RegisteredCommand,
+    remove: commandRegistry.get('staff.timesheets.time_entries.delete') as RegisteredCommand,
     entities: {
       StaffTimeEntry: entities.StaffTimeEntry,
       StaffTimeProject: entities.StaffTimeProject,
@@ -681,6 +683,114 @@ describe('staff timesheets extended time-entry write path (T4.1)', () => {
 
       await expect(update.execute({ id: ENTRY_ID, durationMinutes: 30 }, ctx)).rejects.toMatchObject({ status: 404 })
       expect(entry.durationMinutes).toBe(60)
+    })
+  })
+
+  describe('entry date against the assignment window (#6988)', () => {
+    const dayIndex = (iso: string) => Date.parse(`${iso}T00:00:00.000Z`) / 86_400_000
+    const ASSIGNED_IN_JULY = {
+      canManageAll: false,
+      projectIds: [PROJECT_ID],
+      staffMemberId: STAFF_MEMBER_ID,
+      assignmentWindows: { [PROJECT_ID]: [{ startIndex: dayIndex('2026-07-01'), endIndex: dayIndex('2026-07-31') }] },
+    }
+    const OUTSIDE_WINDOW = 'This date is outside your assignment to this project.'
+
+    beforeEach(() => {
+      mockResolveProjectAccess.mockResolvedValue(ASSIGNED_IN_JULY)
+    })
+
+    it('creates an entry dated inside the assignment', async () => {
+      const { create, entities } = await loadCommands()
+      const world: World = { projects: [projectRow()], tasks: [], entries: [], created: [] }
+      const { ctx } = makeCtx(makeEm(world, entities), { manageAll: false })
+
+      await create.execute(createInput({ timeProjectId: PROJECT_ID, date: '2026-07-31' }), ctx)
+
+      expect(world.created).toHaveLength(1)
+    })
+
+    it('refuses an entry dated before the assignment starts', async () => {
+      const { create, entities } = await loadCommands()
+      const world: World = { projects: [projectRow()], tasks: [], entries: [], created: [] }
+      const { ctx } = makeCtx(makeEm(world, entities), { manageAll: false })
+
+      await expect(
+        create.execute(createInput({ timeProjectId: PROJECT_ID, date: '2026-06-30' }), ctx),
+      ).rejects.toMatchObject({ status: 403, body: { error: OUTSIDE_WINDOW } })
+      expect(world.created).toHaveLength(0)
+    })
+
+    it('refuses moving an entry to a date the assignment does not cover', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ date: new Date('2026-07-15T00:00:00.000Z') })
+      const world: World = { projects: [projectRow()], tasks: [], entries: [entry], created: [] }
+      const { ctx } = makeCtx(makeEm(world, entities), { manageAll: false })
+
+      await expect(update.execute({ id: ENTRY_ID, date: '2026-08-01' }, ctx)).rejects.toMatchObject({
+        status: 403,
+        body: { error: OUTSIDE_WINDOW },
+      })
+      expect(entry.date).toEqual(new Date('2026-07-15T00:00:00.000Z'))
+    })
+
+    it('refuses editing a stored entry dated outside the assignment', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ date: new Date('2026-06-15T00:00:00.000Z') })
+      const world: World = { projects: [projectRow()], tasks: [], entries: [entry], created: [] }
+      const { ctx } = makeCtx(makeEm(world, entities), { manageAll: false })
+
+      await expect(update.execute({ id: ENTRY_ID, durationMinutes: 30 }, ctx)).rejects.toMatchObject({ status: 403 })
+      expect(entry.durationMinutes).toBe(60)
+    })
+
+    it('refuses moving an entry to an assigned project whose assignment does not cover its date', async () => {
+      const { update, entities } = await loadCommands()
+      mockResolveProjectAccess.mockResolvedValue({
+        ...ASSIGNED_IN_JULY,
+        projectIds: [PROJECT_ID, HIDDEN_PROJECT_ID],
+        assignmentWindows: {
+          ...ASSIGNED_IN_JULY.assignmentWindows,
+          [HIDDEN_PROJECT_ID]: [{ startIndex: dayIndex('2026-08-01'), endIndex: null }],
+        },
+      })
+      const entry = entryRow({ date: new Date('2026-07-15T00:00:00.000Z') })
+      const world: World = {
+        projects: [projectRow(), projectRow({ id: HIDDEN_PROJECT_ID })],
+        tasks: [],
+        entries: [entry],
+        created: [],
+      }
+      const { ctx } = makeCtx(makeEm(world, entities), { manageAll: false })
+
+      await expect(update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID }, ctx)).rejects.toMatchObject({
+        status: 403,
+        body: { error: OUTSIDE_WINDOW },
+      })
+      expect(entry.timeProjectId).toBe(PROJECT_ID)
+    })
+
+    it('refuses deleting a stored entry dated outside the assignment', async () => {
+      const { remove, entities } = await loadCommands()
+      const entry = entryRow({ date: new Date('2026-06-15T00:00:00.000Z') })
+      const world: World = { projects: [projectRow()], tasks: [], entries: [entry], created: [] }
+      const { ctx } = makeCtx(makeEm(world, entities), { manageAll: false })
+
+      await expect(remove.execute({ id: ENTRY_ID }, ctx)).rejects.toMatchObject({
+        status: 403,
+        body: { error: OUTSIDE_WINDOW },
+      })
+      expect(entry.deletedAt).toBeNull()
+    })
+
+    it('lets a timesheet manager write outside the assignment window', async () => {
+      const { create, entities } = await loadCommands()
+      const world: World = { projects: [projectRow()], tasks: [], entries: [], created: [] }
+      const { ctx } = makeCtx(makeEm(world, entities), { manageAll: true })
+
+      await create.execute(createInput({ timeProjectId: PROJECT_ID, date: '2026-06-30' }), ctx)
+
+      expect(world.created).toHaveLength(1)
     })
   })
 })

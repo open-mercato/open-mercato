@@ -8,6 +8,7 @@ import {
   COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID,
   type ReassignConversationInput,
   type ReassignConversationResult,
+  resolveThreadNotFoundMessage,
 } from '../../../../../commands/reassign-conversation'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
@@ -89,8 +90,8 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
     },
   })
 
-  if (result.status === 'no_channel_link') {
-    return NextResponse.json({ error: result.reason }, { status: 404 })
+  if (result.status === 'access_denied' || result.status === 'no_channel_link') {
+    return NextResponse.json({ error: await resolveThreadNotFoundMessage() }, { status: 404 })
   }
   if (result.status === 'invalid_assignee') {
     return NextResponse.json({ error: result.reason }, { status: 422 })
@@ -123,7 +124,7 @@ export const openApi = {
         { status: 200, description: 'Conversation reassigned (or unchanged)' },
         { status: 400, description: 'Invalid threadId' },
         { status: 401, description: 'Unauthorized' },
-        { status: 404, description: 'Conversation not channel-linked' },
+        { status: 404, description: 'Conversation not channel-linked, or its channel is a personal mailbox owned by another user' },
         { status: 422, description: 'Invalid request body' },
       ],
     },

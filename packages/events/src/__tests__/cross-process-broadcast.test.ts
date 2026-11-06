@@ -14,6 +14,8 @@ const testEventsConfig = createModuleEvents({
   events: [
     { id: 'cross_process_test.browser', label: 'Browser', clientBroadcast: true },
     { id: 'cross_process_test.private', label: 'Private', crossProcessBroadcast: true },
+    { id: 'cross_process_test.portal', label: 'Portal', portalBroadcast: true },
+    { id: 'cross_process_test.portal_private', label: 'Portal private', portalBroadcast: true, crossProcessBroadcast: true },
     { id: 'cross_process_test.local', label: 'Local' },
   ] as const,
 })
@@ -166,5 +168,94 @@ describe('cross-process event publication', () => {
     })
 
     expect(publishCrossProcessEventMock).not.toHaveBeenCalled()
+  })
+  describe('portalBroadcast-only events', () => {
+    it('publishes a portal-only event cross-process with trusted options scope', async () => {
+      const bus = createEventBus({ resolve, queueStrategy: 'local' })
+      const trustedScope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+      const payload = { id: 'ticket-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      await bus.emit('cross_process_test.portal', payload, trustedScope)
+
+      expect(publishCrossProcessEventMock).toHaveBeenCalledTimes(1)
+      expect(publishCrossProcessEventMock).toHaveBeenCalledWith('cross_process_test.portal', payload, trustedScope)
+    })
+
+    it('promotes typed payload scope for raw portal-only emits, like legacy clientBroadcast', async () => {
+      const bus = createEventBus({ resolve, queueStrategy: 'local' })
+      const payload = {
+        id: 'ticket-1',
+        tenantId: ' tenant-1 ',
+        organizationId: ' org-1 ',
+        recipientUserId: 'customer-1',
+      }
+
+      await bus.emit('cross_process_test.portal', payload)
+
+      expect(publishCrossProcessEventMock).toHaveBeenCalledWith(
+        'cross_process_test.portal',
+        payload,
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
+      )
+    })
+
+    it('publishes portal-only events emitted through the module emitter (e.g. from a worker subscriber)', async () => {
+      const bus = createEventBus({ resolve, queueStrategy: 'local' })
+      setGlobalEventBus(bus)
+      const payload = { id: 'ticket-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      await testEventsConfig.emit('cross_process_test.portal', payload)
+
+      expect(publishCrossProcessEventMock).toHaveBeenCalledWith(
+        'cross_process_test.portal',
+        payload,
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
+      )
+    })
+
+    it('prefers trusted options over a forged portal payload scope', async () => {
+      const bus = createEventBus({ resolve, queueStrategy: 'local' })
+      const trustedScope = { tenantId: 'workflow-tenant', organizationId: 'workflow-org' }
+      const payload = { id: 'ticket-1', tenantId: 'forged-tenant', organizationId: 'forged-org' }
+
+      await bus.emit('cross_process_test.portal', payload, trustedScope)
+
+      expect(publishCrossProcessEventMock).toHaveBeenCalledWith('cross_process_test.portal', payload, trustedScope)
+    })
+
+    it('does not publish a portal-only event without tenant scope', async () => {
+      const bus = createEventBus({ resolve, queueStrategy: 'local' })
+
+      await bus.emit('cross_process_test.portal', { id: 'ticket-1', organizationId: 'org-1' })
+      await bus.emit('cross_process_test.portal', { id: 'ticket-1', tenantId: '   ' }, { organizationId: 'org-1' })
+
+      expect(publishCrossProcessEventMock).not.toHaveBeenCalled()
+    })
+
+    it('treats a portal + crossProcessBroadcast event as private: no payload-scope promotion, no foreign emitter', async () => {
+      const bus = createEventBus({ resolve, queueStrategy: 'local' })
+
+      await bus.emit('cross_process_test.portal_private', {
+        id: 'ticket-1',
+        tenantId: 'payload-tenant',
+        organizationId: 'payload-org',
+      })
+      await bus.emit('cross_process_test.portal_private', { id: 'ticket-1' }, {
+        tenantId: 'tenant-1',
+        emitterModuleId: 'workflows',
+      })
+
+      expect(publishCrossProcessEventMock).not.toHaveBeenCalled()
+    })
+
+    it('does not publish undeclared or local-only events', async () => {
+      const bus = createEventBus({ resolve, queueStrategy: 'local' })
+      const payload = { id: 'record-1', tenantId: 'tenant-1' }
+
+      await bus.emit('cross_process_test.local', payload, { tenantId: 'tenant-1' })
+      await bus.emit('cross_process_test.undeclared', payload, { tenantId: 'tenant-1' })
+
+      expect(publishCrossProcessEventMock).not.toHaveBeenCalled()
+    })
   })
 })
