@@ -201,7 +201,7 @@ async function commandUp(flags) {
   console.log(color.dim('  Stop: Ctrl+C (infra containers keep running; `stop` shuts everything down)'))
   console.log('')
 
-  const devArgs = devRuntimeArgs(flags.passthrough, { noInfra: flags.noInfra })
+  const devArgs = devRuntimeArgs(flags.passthrough, { noInfra: ctx.flags.noInfra })
   if (flags.detach) {
     startDetached(repoRoot, devArgs, { env: ctx.env })
     console.log('Manage it with the status / logs / stop subcommands.')
