@@ -64,7 +64,7 @@ export async function loadCompanyConfig(repoRoot, { warn = console.warn } = {}) 
       const module = await import(pathToFileURL(filePath).href)
       config = mergeConfig(config, module.default)
     } catch (error) {
-      warn(`⚠️ Ignoring starters/company/${candidate} — it failed to load: ${error instanceof Error ? error.message : String(error)}`)
+      warn(`⚠️  Ignoring starters/company/${candidate} — it failed to load: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
   return config

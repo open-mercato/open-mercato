@@ -57,9 +57,9 @@ export function stepHeader(index, total, title, expectation, { log = console.log
 
 export const icons = {
   ok: color.green('✅'),
-  warn: color.yellow('⚠️'),
+  warn: `${color.yellow('⚠️')} `,
   fail: color.red('❌'),
-  info: color.cyan('ℹ️'),
+  info: `${color.cyan('ℹ️')} `,
 }
 
 export function statusLine(kind, message, { log = console.log } = {}) {
