@@ -213,6 +213,7 @@ export type ListConfig<TList> = {
   // fetching and decrypting blobs the list never renders (#2233).
   entityId?: any
   fields?: any[] | ((query: TList, ctx: CrudCtx) => any[])
+  /** Ordinary requested sort fields must be own keys; dynamic custom-field selectors remain supported. */
   sortFieldMap?: Record<string, any>
   /**
    * Sort used when the request carries no `sortField` / `sort` param. The field is
@@ -1908,13 +1909,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         profiler.mark('query_engine_resolved')
         const sortFieldMap = opts.list.sortFieldMap
         const resolveSortSelector = (field: string) => {
-          const mapped = (sortFieldMap && sortFieldMap[field]) || field
+          const mapped = sortFieldMap && Object.hasOwn(sortFieldMap, field) ? sortFieldMap[field] : field
           return typeof mapped === 'string' ? normalizeSortFieldSelector(mapped) : mapped
         }
-        const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(
+        const requestedSort = resolveSortParams(
           queryParams as Record<string, unknown>,
           opts.list.defaultSort,
         )
+        const requestedField = requestedSort.sortField
+        const hasExplicitSort = [queryParams.sortField, queryParams.sort].some(
+          (value) => typeof value === 'string' && value.trim().length > 0,
+        )
+        const isMappedSort = !sortFieldMap || Object.hasOwn(sortFieldMap, requestedField)
+        const isCustomSort = /^(?:cf_|cf:)[a-zA-Z0-9_]+$/.test(requestedField)
+        const { sortField: sortFieldRaw, sortDir: sortDirRaw } =
+          hasExplicitSort && !isMappedSort && !isCustomSort
+            ? resolveSortParams({}, opts.list.defaultSort)
+            : requestedSort
         const sortField = resolveSortSelector(sortFieldRaw)
         const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
         if (opts.list.tiebreakSortField) {
