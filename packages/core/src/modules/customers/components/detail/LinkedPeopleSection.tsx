@@ -1,11 +1,14 @@
 "use client"
 
 import * as React from 'react'
-import { Users, Link2, Plus, Filter } from 'lucide-react'
+import { Users, Link2, Plus } from 'lucide-react'
+import type { SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Input } from '@open-mercato/ui/primitives/input'
 import {
   readVersionedIdSet,
   writeVersionedIdSet,
@@ -13,7 +16,15 @@ import {
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import type { TabEmptyStateConfig, Translator } from './types'
-import { PersonCard } from './PersonCard'
+import {
+  PersonEmailCell,
+  PersonLifecycleStageCell,
+  PersonLinkedDateCell,
+  PersonNameCell,
+  PersonPhoneCell,
+  PersonSourceCell,
+  buildPersonRowActionItems,
+} from './PersonCard'
 import {
   LinkEntityDialog,
   type LinkEntityAdapter,
@@ -76,6 +87,12 @@ export type LinkedPeopleSectionProps<
   /** Owns messaging for the link write; rejecting keeps the link dialog open. */
   onLinkConfirm: (input: LinkEntityConfirmInput<TLinkSettings>) => Promise<void>
   sectionTitle: string
+  /**
+   * Line rendered under the section title.
+   *
+   * @deprecated The built-in company and deal sections no longer show a subtitle. Move the text out
+   * of the section, for example into `header`. This prop stays for at least one minor release.
+   */
   sectionSubtitle?: string
   searchPlaceholder: string
   linkActionLabel: string
@@ -92,7 +109,7 @@ export type LinkedPeopleSectionProps<
    * would otherwise collapse into an arbitrary label tie-break.
    */
   availableSorts?: LinkedPeopleSortMode[]
-  /** Forwarded to `PersonCard`; a host without a durable `linkedAt` passes `false`. */
+  /** Shows the Linked column; a host without a durable `linkedAt` passes `false`. */
   showLinkedDate?: boolean
   /** Bump to force a reload after the host mutates the links itself. */
   refreshKey?: number
@@ -110,10 +127,102 @@ export type LinkedPeopleSectionProps<
 const LINKED_PEOPLE_PAGE_SIZE = 20
 const STARRED_PEOPLE_STORAGE_VERSION = 1
 
-const SORT_LABELS: Record<LinkedPeopleSortMode, { key: string; fallback: string }> = {
-  'name-asc': { key: 'customers.linkedPeople.sortNameAsc', fallback: 'Sort: Name A-Z' },
-  'name-desc': { key: 'customers.linkedPeople.sortNameDesc', fallback: 'Sort: Name Z-A' },
-  recent: { key: 'customers.linkedPeople.sortRecent', fallback: 'Sort: Recently linked' },
+const CELL_PADDING_PX = 32
+const ACTIONS_COLUMN_WIDTH_PX = 96
+const NAME_COLUMN_MIN_WIDTH_PX = 120
+
+const EMAIL_LINKED_MIN_CONTAINER_PX = 576
+const PHONE_MIN_CONTAINER_PX = 768
+const LIFECYCLE_MIN_CONTAINER_PX = 896
+const SOURCE_MIN_CONTAINER_PX = 1024
+const CONTAINER_BREAKPOINTS_PX = [
+  EMAIL_LINKED_MIN_CONTAINER_PX,
+  PHONE_MIN_CONTAINER_PX,
+  LIFECYCLE_MIN_CONTAINER_PX,
+  SOURCE_MIN_CONTAINER_PX,
+]
+
+const EMAIL_COLUMN_WIDTH_PX = 192
+const EMAIL_COLUMN_WIDE_WIDTH_PX = 224
+const PHONE_COLUMN_WIDTH_PX = 144
+const LIFECYCLE_COLUMN_WIDTH_PX = 128
+const SOURCE_COLUMN_WIDTH_PX = 160
+const LINKED_COLUMN_WIDTH_PX = 112
+
+function toSortMode(sorting: SortingState, fallback: LinkedPeopleSortMode): LinkedPeopleSortMode {
+  const [primary] = sorting
+  if (primary?.id === 'linkedAt') return 'recent'
+  if (primary?.id === 'displayName') return primary.desc ? 'name-desc' : 'name-asc'
+  return fallback
+}
+
+function toAllowedSortMode(
+  requested: LinkedPeopleSortMode,
+  allowed: LinkedPeopleSortMode[],
+  fallback: LinkedPeopleSortMode,
+): LinkedPeopleSortMode {
+  if (allowed.includes(requested)) return requested
+  if (requested === 'name-asc' && allowed.includes('name-desc')) return 'name-desc'
+  if (requested === 'name-desc' && allowed.includes('name-asc')) return 'name-asc'
+  return fallback
+}
+
+function toSortingState(sortMode: LinkedPeopleSortMode): SortingState {
+  if (sortMode === 'recent') return [{ id: 'linkedAt', desc: true }]
+  return [{ id: 'displayName', desc: sortMode === 'name-desc' }]
+}
+
+function resolveContainerBreakpoint(width: number): number | null {
+  if (width <= 0) return null
+  return CONTAINER_BREAKPOINTS_PX.filter((breakpoint) => width >= breakpoint).at(-1) ?? 0
+}
+
+/**
+ * The widest container breakpoint the element reaches, or `null` until it has a measurable width.
+ * `DataTable` takes no per-column classes, so the columns themselves collapse from this value.
+ */
+function useContainerBreakpoint(element: HTMLElement | null): number | null {
+  const [breakpoint, setBreakpoint] = React.useState<number | null>(null)
+  React.useLayoutEffect(() => {
+    if (!element) return
+    setBreakpoint(resolveContainerBreakpoint(element.getBoundingClientRect().width))
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[entries.length - 1]
+      if (entry) setBreakpoint(resolveContainerBreakpoint(entry.contentRect.width))
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [element])
+  return breakpoint
+}
+
+type StarredPeopleContextValue = {
+  starredIds: Set<string>
+  toggleStar: (personId: string) => void
+}
+
+const StarredPeopleContext = React.createContext<StarredPeopleContextValue | null>(null)
+
+/** Reads the stars from context: a column definition that changes with them would remount the cell and drop focus. */
+function StarrablePersonNameCell({ person }: { person: LinkedPersonSummary }) {
+  const starred = React.useContext(StarredPeopleContext)
+  return (
+    <PersonNameCell
+      person={person}
+      isStarred={starred?.starredIds.has(person.id)}
+      onToggleStar={starred?.toggleStar}
+    />
+  )
+}
+
+/** `DataTable` does not expose its header cell, so the sort state reaches `aria-sort` from inside it. */
+function SortableColumnLabel({ label, sorted }: { label: string; sorted: false | 'asc' | 'desc' }) {
+  const labelRef = React.useRef<HTMLSpanElement>(null)
+  React.useEffect(() => {
+    const ariaSort = sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'
+    labelRef.current?.closest('th')?.setAttribute('aria-sort', ariaSort)
+  }, [sorted])
+  return <span ref={labelRef}>{label}</span>
 }
 
 export function LinkedPeopleSection<
@@ -168,12 +277,19 @@ export function LinkedPeopleSection<
     [onLinkDialogOpenChange],
   )
   const [searchQuery, setSearchQuery] = React.useState('')
-  const [sortMode, setSortMode] = React.useState<LinkedPeopleSortMode>(sortOptions[0])
-  const [filtersOpen, setFiltersOpen] = React.useState(true)
+  const defaultSortMode = sortOptions[0]
+  const [sorting, setSorting] = React.useState<SortingState>(() => toSortingState(defaultSortMode))
+  const sortMode = toAllowedSortMode(toSortMode(sorting, defaultSortMode), sortOptions, defaultSortMode)
+  const hasSortChoice = sortOptions.length > 1
+  const nameSortable = hasSortChoice && (sortOptions.includes('name-asc') || sortOptions.includes('name-desc'))
+  const recentSortable = hasSortChoice && sortOptions.includes('recent')
   const [visiblePeople, setVisiblePeople] = React.useState<LinkedPersonSummary[]>([])
   const [listPage, setListPage] = React.useState(1)
   const [listTotalPages, setListTotalPages] = React.useState(1)
   const [listTotalCount, setListTotalCount] = React.useState(knownPeople.length)
+  const [listResultCount, setListResultCount] = React.useState(0)
+  const [tableContainer, setTableContainer] = React.useState<HTMLDivElement | null>(null)
+  const containerBreakpoint = useContainerBreakpoint(tableContainer)
   const [listLoading, setListLoading] = React.useState(true)
   const [starredIds, setStarredIds] = React.useState<Set<string>>(
     () => readVersionedIdSet(`om:starred-people:${scopeId}`, STARRED_PEOPLE_STORAGE_VERSION),
@@ -191,6 +307,8 @@ export function LinkedPeopleSection<
     },
     [scopeId],
   )
+
+  const starredPeople = React.useMemo(() => ({ starredIds, toggleStar }), [starredIds, toggleStar])
 
   const displayedPeople = React.useMemo(
     () => (visiblePeople.length > 0 ? visiblePeople : knownPeople),
@@ -210,12 +328,14 @@ export function LinkedPeopleSection<
       const nextTotalCount = typeof payload.total === 'number' ? payload.total : 0
       setVisiblePeople(Array.isArray(payload.items) ? payload.items : [])
       setListPage(typeof payload.page === 'number' ? payload.page : listPage)
+      setListResultCount(nextTotalCount)
       setListTotalCount((current) =>
         searchQuery.trim().length > 0 ? Math.max(current, nextTotalCount) : nextTotalCount,
       )
       setListTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
     } catch {
       setVisiblePeople([])
+      setListResultCount(0)
       if (searchQuery.trim().length === 0) {
         setListTotalCount(0)
       }
@@ -263,6 +383,94 @@ export function LinkedPeopleSection<
     },
     [loadVisiblePeople, onLoadingChange, onUnlink, removingId],
   )
+
+  const handleSortingChange = React.useCallback(
+    (next: SortingState) => {
+      setSorting(toSortingState(toAllowedSortMode(toSortMode(next, defaultSortMode), sortOptions, defaultSortMode)))
+    },
+    [defaultSortMode, sortOptions],
+  )
+
+  const columns = React.useMemo<ColumnDef<LinkedPersonSummary>[]>(() => {
+    const fits = (minContainerWidth: number) =>
+      containerBreakpoint === null || containerBreakpoint >= minContainerWidth
+    const showEmail = fits(EMAIL_LINKED_MIN_CONTAINER_PX)
+    const showPhone = fits(PHONE_MIN_CONTAINER_PX)
+    const showLifecycle = fits(LIFECYCLE_MIN_CONTAINER_PX)
+    const showSource = fits(SOURCE_MIN_CONTAINER_PX)
+    const showLinked = showLinkedDate && fits(EMAIL_LINKED_MIN_CONTAINER_PX)
+    const emailWidth = fits(PHONE_MIN_CONTAINER_PX) ? EMAIL_COLUMN_WIDE_WIDTH_PX : EMAIL_COLUMN_WIDTH_PX
+    const reservedWidth = ACTIONS_COLUMN_WIDTH_PX + CELL_PADDING_PX
+      + (showEmail ? emailWidth : 0)
+      + (showPhone ? PHONE_COLUMN_WIDTH_PX : 0)
+      + (showLifecycle ? LIFECYCLE_COLUMN_WIDTH_PX : 0)
+      + (showSource ? SOURCE_COLUMN_WIDTH_PX : 0)
+      + (showLinked ? LINKED_COLUMN_WIDTH_PX : 0)
+    const nameLabel = translate('customers.people.list.columns.name', 'Name')
+    const linkedLabel = translate('customers.linkedPeople.columns.linked', 'Linked')
+
+    const nameColumn: ColumnDef<LinkedPersonSummary> = {
+      id: 'displayName',
+      accessorKey: 'displayName',
+      enableSorting: nameSortable,
+      header: nameSortable
+        ? ({ column }) => <SortableColumnLabel label={nameLabel} sorted={column.getIsSorted()} />
+        : nameLabel,
+      meta: { maxWidth: `max(${NAME_COLUMN_MIN_WIDTH_PX}px, 100cqw - ${reservedWidth}px)` },
+      cell: ({ row }) => <StarrablePersonNameCell person={row.original} />,
+    }
+    const emailColumn: ColumnDef<LinkedPersonSummary> = {
+      id: 'primaryEmail',
+      accessorKey: 'primaryEmail',
+      enableSorting: false,
+      header: translate('customers.people.list.columns.email', 'Email'),
+      meta: { maxWidth: `${emailWidth - CELL_PADDING_PX}px` },
+      cell: ({ row }) => <PersonEmailCell person={row.original} />,
+    }
+    const phoneColumn: ColumnDef<LinkedPersonSummary> = {
+      id: 'primaryPhone',
+      accessorKey: 'primaryPhone',
+      enableSorting: false,
+      header: translate('customers.linkedPeople.columns.phone', 'Phone'),
+      meta: { truncate: false },
+      cell: ({ row }) => <PersonPhoneCell person={row.original} />,
+    }
+    const lifecycleColumn: ColumnDef<LinkedPersonSummary> = {
+      id: 'lifecycleStage',
+      accessorKey: 'lifecycleStage',
+      enableSorting: false,
+      header: translate('customers.people.list.columns.lifecycleStage', 'Lifecycle stage'),
+      meta: { maxWidth: `${LIFECYCLE_COLUMN_WIDTH_PX - CELL_PADDING_PX}px` },
+      cell: ({ row }) => <PersonLifecycleStageCell person={row.original} />,
+    }
+    const sourceColumn: ColumnDef<LinkedPersonSummary> = {
+      id: 'source',
+      accessorKey: 'source',
+      enableSorting: false,
+      header: translate('customers.people.list.columns.source', 'Source'),
+      meta: { maxWidth: `${SOURCE_COLUMN_WIDTH_PX - CELL_PADDING_PX}px` },
+      cell: ({ row }) => <PersonSourceCell person={row.original} />,
+    }
+    const linkedColumn: ColumnDef<LinkedPersonSummary> = {
+      id: 'linkedAt',
+      accessorKey: 'linkedAt',
+      enableSorting: recentSortable,
+      header: recentSortable
+        ? ({ column }) => <SortableColumnLabel label={linkedLabel} sorted={column.getIsSorted()} />
+        : linkedLabel,
+      meta: { truncate: false },
+      cell: ({ row }) => <PersonLinkedDateCell person={row.original} />,
+    }
+
+    return [
+      nameColumn,
+      ...(showEmail ? [emailColumn] : []),
+      ...(showPhone ? [phoneColumn] : []),
+      ...(showLifecycle ? [lifecycleColumn] : []),
+      ...(showSource ? [sourceColumn] : []),
+      ...(showLinked ? [linkedColumn] : []),
+    ]
+  }, [containerBreakpoint, nameSortable, recentSortable, showLinkedDate, translate])
 
   const linkAction = (
     <Button
@@ -317,7 +525,7 @@ export function LinkedPeopleSection<
       <div className="space-y-4">
         {header}
 
-        <section className="rounded-lg border bg-card px-4 py-4 sm:px-5">
+        <section>
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
               <div className="space-y-1">
@@ -340,126 +548,41 @@ export function LinkedPeopleSection<
               </div>
             </div>
 
-            {totalLinkedPeople > 0 ? (
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                {filtersOpen ? (
-                  <div className="min-w-0 flex-1">
-                    <Input
-                      type="text"
-                      size="lg"
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder={searchPlaceholder}
-                    />
-                  </div>
-                ) : null}
-                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setFiltersOpen((current) => !current)}
-                    className="h-10"
-                  >
-                    <Filter className="mr-1.5 h-4 w-4" />
-                    {translate('customers.linkedPeople.filter', 'Filters')}
-                  </Button>
-                  {/*
-                    Deliberately a native <select> rather than the DS `Select`. That primitive is
-                    Radix-based (a button + listbox), and this element is the one the extraction
-                    gate runs through: `CompanyPeopleSection.test.tsx` must keep passing
-                    unmodified, and it drives the sort with `getByDisplayValue` + `fireEvent
-                    .change` — native-select APIs. Swapping it would also change the company
-                    tab's keyboard and mobile-picker behaviour, which is the one thing this PR
-                    asserts it does not do. Worth migrating, but as its own change.
-                  */}
-                  {filtersOpen && sortOptions.length > 1 ? (
-                    <select
-                      value={sortMode}
-                      onChange={(event) =>
-                        setSortMode(event.target.value as LinkedPeopleSortMode)
-                      }
-                      className="h-10 min-w-44 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                    >
-                      {sortOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {translate(SORT_LABELS[option].key, SORT_LABELS[option].fallback)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-
-            {listLoading ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                {translate('customers.linkedPeople.loading', 'Loading people…')}
-              </p>
-            ) : visiblePeople.length > 0 ? (
-              <>
-                <div
-                  className="grid items-start gap-4"
-                  style={{
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 19.5rem), 1fr))',
-                  }}
-                >
-                  {visiblePeople.map((person) => (
-                    <PersonCard
-                      key={person.id}
-                      person={person}
-                      isStarred={starredIds.has(person.id)}
-                      onToggleStar={toggleStar}
-                      onUnlink={handleRemove}
-                      showLinkedDate={showLinkedDate}
-                    />
-                  ))}
-                </div>
-                {listTotalPages > 1 ? (
-                  <div className="flex items-center justify-between border-t border-border/60 pt-3 text-sm text-muted-foreground">
-                    <span>
-                      {translate(
-                        'customers.linkedPeople.pageSummary',
-                        'Page {{page}} of {{total}}',
-                        {
+            <div ref={setTableContainer} className="@container -m-1 min-w-0 overflow-x-auto p-1 [&_table]:min-w-0">
+              <StarredPeopleContext.Provider value={starredPeople}>
+                <DataTable<LinkedPersonSummary>
+                  embedded
+                  extensionTableId="customers.linked_people.list"
+                  columns={columns}
+                  data={visiblePeople}
+                  isLoading={listLoading}
+                  sortable
+                  manualSorting
+                  sorting={sorting}
+                  onSortingChange={handleSortingChange}
+                  searchValue={searchQuery}
+                  onSearchChange={totalLinkedPeople > 0 ? setSearchQuery : undefined}
+                  searchPlaceholder={searchPlaceholder}
+                  disableRowClick
+                  showQueryTime={false}
+                  emptyState={emptyLabel}
+                  rowActions={(person) => (
+                    <RowActions items={buildPersonRowActionItems(person, translate, handleRemove)} />
+                  )}
+                  pagination={
+                    listTotalPages > 1
+                      ? {
                           page: listPage,
-                          total: listTotalPages,
-                        },
-                      )}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setListPage((current) => Math.max(1, current - 1))}
-                        disabled={listPage <= 1}
-                      >
-                        {translate('customers.linkedPeople.previous', 'Previous')}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setListPage((current) => Math.min(listTotalPages, current + 1))
+                          pageSize: LINKED_PEOPLE_PAGE_SIZE,
+                          total: listResultCount,
+                          totalPages: listTotalPages,
+                          onPageChange: setListPage,
                         }
-                        disabled={listPage >= listTotalPages}
-                      >
-                        {translate('customers.linkedPeople.next', 'Next')}
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            ) : totalLinkedPeople > 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                {translate(
-                  'customers.linkedPeople.noSearchResults',
-                  'No people match your search.',
-                )}
-              </p>
-            ) : null}
+                      : undefined
+                  }
+                />
+              </StarredPeopleContext.Provider>
+            </div>
           </div>
         </section>
 
