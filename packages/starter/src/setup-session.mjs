@@ -4,7 +4,9 @@
 // (scripts/dev-session-guard.mjs, also used by scripts/dev.mjs). The starter
 // claims it BEFORE it writes .env, configures services or touches Compose, so
 // a second setup in an active checkout stops without disturbing the running
-// session. The token travels to the dev runner through childEnv.
+// session. Interactive runs use the checkout's dev-session recovery, which asks
+// before stopping the conflicting session or discarding its stale lock. The
+// token travels to the dev runner through childEnv.
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -18,11 +20,17 @@ import { verifyServiceConnections } from './service-connections.mjs'
 // Works before the first `yarn install`, unlike `yarn setup --no-infra`.
 export const FRESH_CLONE_NO_INFRA_COMMAND = 'node packages/starter/bin/om-start.mjs up --no-infra'
 
-export async function acquireSetupSession(repoRoot, { mode = 'setup:hybrid', role = 'starter' } = {}) {
+export async function acquireSetupSession(repoRoot, { mode = 'setup:hybrid', role = 'starter', interactive } = {}) {
   const guardPath = path.join(repoRoot, 'scripts', 'dev-session-guard.mjs')
   if (!fs.existsSync(guardPath)) return null
+  const options = { workspaceRoot: repoRoot, mode, role }
+  const recoveryPath = path.join(repoRoot, 'scripts', 'dev-session-recovery.mjs')
+  if (fs.existsSync(recoveryPath)) {
+    const { acquireDevSessionWithRecovery } = await import(pathToFileURL(recoveryPath).href)
+    return acquireDevSessionWithRecovery(options, interactive === undefined ? {} : { interactive })
+  }
   const { acquireDevSession } = await import(pathToFileURL(guardPath).href)
-  return acquireDevSession({ workspaceRoot: repoRoot, mode, role })
+  return acquireDevSession(options)
 }
 
 function readEnvFile(file) {

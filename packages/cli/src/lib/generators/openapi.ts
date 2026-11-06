@@ -7,6 +7,7 @@
  */
 
 import * as fs from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import * as path from 'node:path'
 import type { ModuleEntry, PackageResolver } from '../resolver'
 import { getEnabledModuleIdentities } from '../module-identity'
@@ -340,7 +341,10 @@ async function generateOpenApiViaBundle(
   const cacheDir = path.join(rootDir, 'node_modules', '.cache')
   if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true })
 
-  const bundlePath = path.join(cacheDir, '_openapi-bundle.mjs')
+  // Per-run file: `yarn dev`'s watcher and a CLI `generate` (e.g. after
+  // create-mercato-module init) can bundle concurrently, and a shared path let
+  // one process execute the other's half-written bundle ("Unexpected end of input").
+  const bundlePath = path.join(cacheDir, `_openapi-bundle-${process.pid}-${randomBytes(6).toString('hex')}.mjs`)
   let inputPaths: string[] = []
 
   // Build the entry script that imports all routes and calls buildOpenApiDocument
@@ -607,7 +611,8 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
     // process exit when a plugin request is still in flight.
     try { await esbuild.stop() } catch {}
     // Clean up old files from previous tsx-based approach
-    for (const file of ['_openapi-register.mjs', '_openapi-loader.mjs', '_next-stub.cjs']) {
+    try { fs.unlinkSync(bundlePath) } catch {}
+    for (const file of ['_openapi-bundle.mjs', '_openapi-register.mjs', '_openapi-loader.mjs', '_next-stub.cjs']) {
       try { fs.unlinkSync(path.join(cacheDir, file)) } catch {}
     }
   }
