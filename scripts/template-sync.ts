@@ -189,6 +189,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-infra-preflight.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'service-connections.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-service-connections.mjs'),
+    rel: 'scripts/dev-service-connections.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'docker', 'redis', 'redis.conf'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'docker', 'redis', 'redis.conf'),
     rel: 'docker/redis/redis.conf',
