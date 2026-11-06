@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v4.10 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, and the Release 5 `resolveForBuyer` contract) |
+| **Status** | Specification (v4.11 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, the deleted default sales channel, and the Release 5 `resolveForBuyer` contract) |
 | **Created** | 2026-02-17 |
 | **Rescoped** | 2026-08-14 |
 | **Pre-implementation fixes** | 2026-08-17 — see §21 |
@@ -95,6 +95,7 @@ GET https://firda.pl/products/czerwona-sukienka
   │        EcommerceStoreDomainBinding by domainMappingId (+ longest pathPrefix match)
   │        ⋈ EcommerceStore (status = 'active')
   │        ⋈ EcommerceStoreChannelBinding (isDefault = true)
+  │        ⟕ sales_channels (by id, same tenant/org; missing → no default binding, 503)
   │        → storeId, salesChannelId, priceKindId, assortmentScope, requireAuthentication
   │
   ├─ 6. Buyer identity (optional portal session: cookie customer_auth_token or Bearer)
@@ -387,6 +388,7 @@ A `/om-pre-implement-spec` audit found the original draft resolved `taxMode` ind
 | Store `status = 'draft'` | `403` when `OM_ECOMMERCE_DEV_STORE_SLUG=true`, otherwise `404` — a draft store's existence is not public |
 | Store `status = 'archived'` | `410 Gone` |
 | No default channel binding | `503` plus an admin notification, throttled to once per (store, notification type) per hour — a misconfiguration, not a client error |
+| Default channel binding points at a deleted sales channel | Same as no default channel binding: `503` plus the admin notification, and a distinguishable "sales channel no longer exists" warning in logs. The binding is kept, so undoing the sales channel delete restores the store |
 | Portal token whose `tenantId` or `orgId` differs from the store's | `401` (D4). Covers a bearer token from another tenant and a same-host cookie from another organization's store (path-prefix stores, shared dev host). The storefront answers a `401` by offering logout/re-login, never by redirecting in a loop |
 | Requested locale unsupported | Fall back to `store.defaultLocale`; `requestedLocale` preserved in the response |
 
@@ -461,7 +463,7 @@ Font families are constrained to an allowlist of system stacks plus a curated Go
 | Data | TTL | Invalidation |
 |---|---|---|
 | Host → active mapping (step 2) | 300s | Owned by `customer_accounts`: `domainMappingService` cache, tags `domain_routing` / `domain_routing:{host}`, invalidated by its own `customer_accounts.domain_mapping.*` subscriber. Not duplicated here |
-| Mapping → store + default channel binding (steps 3–5) | 300s | Tags `ecommerce-store:{storeId}` and `ecommerce-domain-mapping:{domainMappingId}`. Events: `ecommerce.store.*`, `ecommerce.store_domain_binding.*`, `ecommerce.store_channel_binding.*` (§9.4); `customer_accounts.domain_mapping.replaced`, `.deleted`, `.activated`, `.dns_failed`, `.tls_failed` (there is no `.updated`); `sales.channel.updated`, `sales.channel.deleted` |
+| Mapping → store + default channel binding (steps 3–5) | 300s | Tags `ecommerce-store:{storeId}`, `ecommerce-domain-mapping:{domainMappingId}` and `ecommerce-sales-channel:{salesChannelId}` of the default channel binding. Events: `ecommerce.store.*`, `ecommerce.store_domain_binding.*`, `ecommerce.store_channel_binding.*` (§9.4); `customer_accounts.domain_mapping.replaced`, `.deleted`, `.activated`, `.dns_failed`, `.tls_failed` (there is no `.updated`); `sales.channel.*` (`.created` included, because undoing a sales channel delete re-creates the row) |
 | Buyer context (step 6) | 60s | Tagged `customer:{id}` for **each** of `customerIds` and `customer-group:{groupId}` for **every** contributing group. Events: `customer_groups.membership.added`, `.removed` (payload carries `customerId`); `customer_groups.terms.updated`, `customer_groups.group.updated`, `.deleted` (payload carries `groupId` only — hence the group tag); `catalog.price.created`, `.updated`, `.deleted` for `customerOverlayId`. **TTL-only, stated on purpose:** `customer_groups.membership.expired` is declared but never emitted, and `catalog` declares no price-kind events, so a lapsed membership or a changed `displayMode` is visible within the 60 s TTL, not immediately. The `ecommerce` subscribers flush these tags with `deleteByTags` inside `runWithCacheTenant(payload.tenantId)` (`lib/cacheInvalidation.ts`), because the cache service scopes tags to the current cache tenant and the event bus does not set it; the module owns its own tag vocabulary, so invalidation does not depend on `ENABLE_CRUD_API_CACHE` |
 | Branding stylesheet | 300s | Tag `ecommerce-store:{storeId}`; event `ecommerce.store.branding_updated` |
 
@@ -471,7 +473,7 @@ Earlier versions resolved steps 2–5 in one SQL join over `domain_mappings`, `e
 
 Now:
 1. **Step 2** is `domainMappingService.resolveByHostname(host)` via DI. On the hot path it is a cache hit.
-2. **Steps 3–5** are **one** `ecommerce` query: bindings by `domain_mapping_id` with longest-prefix match on `path_prefix`, joined to the store (`status = 'active'`) and its default channel binding, all `ecommerce` tables.
+2. **Steps 3–5** are **one** `ecommerce` query: bindings by `domain_mapping_id` with longest-prefix match on `path_prefix`, joined to the store (`status = 'active'`) and its default channel binding. The only non-`ecommerce` table is a `LEFT JOIN` of `sales_channels` by primary key (same tenant and organization), which tells whether the default binding's sales channel still exists. `sales` is a required module and has no channel cache of its own, so this does not duplicate another module's cache the way reading `domain_mappings` did.
 
 A three-round-trip implementation of steps 3–5 is still a defect: this path runs on every uncached request, including static asset routes that carry a Host header. R2's P95 budget is unchanged.
 
@@ -820,6 +822,7 @@ Renumbered from v3's `TC-EC-*`; cases covering moved scope now live in the specs
 - Draft store → 404 by default, 403 with `OM_ECOMMERCE_DEV_STORE_SLUG=true`
 - Archived store → 410
 - Missing default channel binding → 503 plus one admin notification; a burst of requests within the hour produces no second notification (throttling)
+- Deleted default sales channel → 503 right after the delete; the bindings are kept, and undoing the channel delete restores 200 (TC-ECOM-018)
 - Longest-prefix match with two bindings on one host (R6)
 - `?storeSlug=` works with `OM_ECOMMERCE_DEV_STORE_SLUG=true` and is rejected with the flag unset, regardless of `NODE_ENV`
 - Resolution of steps 2–5 issues one `domainMappingService` call (a cache hit when warm) and exactly one `ecommerce` query
@@ -965,12 +968,16 @@ Open:
 
 ## 21) Changelog
 
-### 2026-10-26 — v4.10 (Release 5 spec revision: `resolveForBuyer`)
+### 2026-10-26 — v4.11 (Release 5 spec revision: `resolveForBuyer`)
 
 Records the obligation the assisted-selling Release 5 analysis raised as S1 (`ANALYSIS-2026-10-26-assisted-selling-release-5.md`) and the owner decision D-R5-22 (`ANALYSIS-2026-10-26-ecommerce-release-5-decisions.md`), which widened it from assisted selling to every trusted caller (cross-spec X2, X15).
 - New §6.3 and an additive `resolveForBuyer` on the §6 interface: inputs `tenantId`, `organizationId`, optional `storeId`, `customerUserId` and/or `customerId`; output identity, groups, price kind, `taxMode`, `currencyCode`, `buyerDigest`, and `assortmentScope` only when a store is given. In-process only, fresh reads with no buyer-cache write, refusal of a store or buyer outside the tenant and organization (`store_out_of_scope`, `buyer_out_of_scope`), guest = anonymous scope. S1's mandatory `storeId` became optional (D-R5-22), because checkout links and `api`/`agent` carts have no store.
 - Callers: assisted-selling authoring, the cart trusted path for `pay_link`/`api`/`agent` carts (D-R5-19, D-R5-29), checkout recovery (X15); each resolves it with `tryResolve` and states its fallback.
 - §12 security bullet, §16 coverage through callers (no route), §17 Phase 4 marked as Release 5 work, §18 additive BC entry.
+
+### 2026-10-24 — v4.10 (deleted default sales channel)
+
+- §4.1, §6.2, §8, §8.1, §16 — `sales.channels.delete` hard-deletes the channel row, but resolution kept serving a default channel binding that pointed at it. The resolution query now accepts a default binding only while its sales channel exists in the same tenant and organization, so such a store answers `503 store_misconfigured` like a store with no default binding. The cached candidates carry an `ecommerce-sales-channel:{id}` tag that `sales.channel.*` evicts, which also brings the store back when the delete is undone. The binding rows are left untouched, matching R3's keep-and-diagnose approach for dangling references.
 
 ### 2026-10-13 — v4.9 (review fixes, PR #7142)
 

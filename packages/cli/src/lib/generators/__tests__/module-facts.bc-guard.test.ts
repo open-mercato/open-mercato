@@ -204,11 +204,15 @@ describe('module-facts BC resolve guard (T2)', () => {
     // +15.1% / +16.3% / +16.2%), the same uniform-growth signature as every
     // prior additive-module raise, not the multiplicative blow-up this guard
     // exists to catch. Headroom ratio kept at ~1.15.
+    //
+    // Re-measured once more after merging the ~58 commits #8268 picked up
+    // from `main` (staff totals and other additive module growth):
+    // completeJson 5,777,437 · legacy delta 2,532,352 · markdown 2,192,386 ·
+    // directory markdown 2,387,203 — all four sit comfortably under the
+    // existing caps (~10-11% headroom), the same uniform-growth signature as
+    // every prior raise, so the caps below are left unchanged rather than
+    // raised again.
     expect(Buffer.byteLength(completeJson)).toBeLessThan(6_420_000)
-    // Measured on the merged tree (`yarn jest module-facts.bc-guard`):
-    //   completeJson 5,575,796 · legacy delta 2,429,683 · markdown 2,118,461 ·
-    //   directory markdown 2,308,213.
-    // (Previous, on develop's tree: 4,823,226 · 2,111,784 · 1,820,787 · 1,985,779.)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES

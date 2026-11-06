@@ -36,6 +36,97 @@ type SchedulerServiceLike = {
   }) => Promise<void>
 }
 
+async function ensureTransactionExpirySchedule(ctx: {
+  container: import('awilix').AwilixContainer
+  tenantId: string
+  organizationId: string
+}): Promise<void> {
+  const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
+  if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
+
+  const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
+  await schedulerService.register({
+    id: stableUuidFromString(`checkout:transaction-expiry:${ctx.tenantId}:${ctx.organizationId}`),
+    name: 'Checkout transaction expiry',
+    description: 'Marks stale checkout transactions as expired and runs usage limit updates.',
+    scopeType: 'organization',
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    scheduleType: 'interval',
+    scheduleValue: '10m',
+    timezone: 'UTC',
+    targetType: 'queue',
+    targetQueue: CHECKOUT_EXPIRY_QUEUE,
+    sourceType: 'module',
+    sourceModule: 'checkout',
+    isEnabled: true,
+  })
+
+  // Release 5, Step 4.2 (B.4, §12: "every minute"). Mirrors the schedule above exactly
+  // — same per-(tenant, organization) scope, same re-registration on every
+  // seed pass so an existing tenant, or a later organization, also picks this up.
+  await schedulerService.register({
+    id: stableUuidFromString(`checkout:recover-stuck-submits:${ctx.tenantId}:${ctx.organizationId}`),
+    name: 'Checkout recover stuck submits',
+    description: 'Probes and resumes or compensates checkout sessions stuck mid-submit (C24).',
+    scopeType: 'organization',
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    scheduleType: 'interval',
+    scheduleValue: '1m',
+    timezone: 'UTC',
+    targetType: 'queue',
+    targetQueue: CHECKOUT_RECOVER_STUCK_SUBMITS_QUEUE,
+    targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    sourceType: 'module',
+    sourceModule: 'checkout',
+    isEnabled: true,
+  })
+
+  // Release 5, Step 4.2-fix (C1/§12: "every 5 min"). Mirrors the schedules above
+  // exactly — same per-(tenant, organization) scope, same re-registration on every
+  // seed pass so an existing tenant, or a later organization, also picks this up.
+  await schedulerService.register({
+    id: stableUuidFromString(`checkout:expire-awaiting-payment:${ctx.tenantId}:${ctx.organizationId}`),
+    name: 'Checkout expire awaiting payment',
+    description: 'Resolves checkout sessions left in awaiting_payment past their payment deadline (C1/§12): resumes on a gateway-confirmed success, otherwise compensates by cancelling the order.',
+    scopeType: 'organization',
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    scheduleType: 'interval',
+    scheduleValue: '5m',
+    timezone: 'UTC',
+    targetType: 'queue',
+    targetQueue: CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE,
+    targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    sourceType: 'module',
+    sourceModule: 'checkout',
+    isEnabled: true,
+  })
+
+  // PR 8268 review fix (Finding 5 follow-up, §12's own "expire-checkout-sessions" job,
+  // named but never scheduled since Step 2.12). Mirrors the schedules above exactly —
+  // same per-(tenant, organization) scope, same re-registration on every seed pass so
+  // an existing tenant, or a later organization, also picks this up.
+  await schedulerService.register({
+    id: stableUuidFromString(`checkout:expire-checkout-sessions:${ctx.tenantId}:${ctx.organizationId}`),
+    name: 'Checkout expire sessions',
+    description: 'Expires open/awaiting_approval checkout sessions past their own TTL (§12).',
+    scopeType: 'organization',
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    scheduleType: 'interval',
+    scheduleValue: '5m',
+    timezone: 'UTC',
+    targetType: 'queue',
+    targetQueue: CHECKOUT_EXPIRE_SESSIONS_QUEUE,
+    targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    sourceType: 'module',
+    sourceModule: 'checkout',
+    isEnabled: true,
+  })
+}
+
 export const setup: ModuleSetupConfig = {
   async seedDefaults(ctx) {
     await ensureCheckoutFieldsetsAndDefinitions(ctx.em, {
@@ -43,90 +134,11 @@ export const setup: ModuleSetupConfig = {
       organizationId: ctx.organizationId,
     })
 
-    const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
-    if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
+    await ensureTransactionExpirySchedule(ctx)
+  },
 
-    const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
-    await schedulerService.register({
-      id: stableUuidFromString(`checkout:transaction-expiry:${ctx.tenantId}:${ctx.organizationId}`),
-      name: 'Checkout transaction expiry',
-      description: 'Marks stale checkout transactions as expired and runs usage limit updates.',
-      scopeType: 'organization',
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
-      scheduleType: 'interval',
-      scheduleValue: '10m',
-      timezone: 'UTC',
-      targetType: 'queue',
-      targetQueue: CHECKOUT_EXPIRY_QUEUE,
-      sourceType: 'module',
-      sourceModule: 'checkout',
-      isEnabled: true,
-    })
-
-    // Release 5, Step 4.2 (B.4, §12: "every minute"). Mirrors the schedule above exactly
-    // — same per-(tenant, organization) scope, same re-registration on every
-    // `seedDefaults` pass so an existing tenant also picks this up.
-    await schedulerService.register({
-      id: stableUuidFromString(`checkout:recover-stuck-submits:${ctx.tenantId}:${ctx.organizationId}`),
-      name: 'Checkout recover stuck submits',
-      description: 'Probes and resumes or compensates checkout sessions stuck mid-submit (C24).',
-      scopeType: 'organization',
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
-      scheduleType: 'interval',
-      scheduleValue: '1m',
-      timezone: 'UTC',
-      targetType: 'queue',
-      targetQueue: CHECKOUT_RECOVER_STUCK_SUBMITS_QUEUE,
-      targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-      sourceType: 'module',
-      sourceModule: 'checkout',
-      isEnabled: true,
-    })
-
-    // Release 5, Step 4.2-fix (C1/§12: "every 5 min"). Mirrors the two schedules above
-    // exactly — same per-(tenant, organization) scope, same re-registration on every
-    // `seedDefaults` pass so an existing tenant also picks this up.
-    await schedulerService.register({
-      id: stableUuidFromString(`checkout:expire-awaiting-payment:${ctx.tenantId}:${ctx.organizationId}`),
-      name: 'Checkout expire awaiting payment',
-      description: 'Resolves checkout sessions left in awaiting_payment past their payment deadline (C1/§12): resumes on a gateway-confirmed success, otherwise compensates by cancelling the order.',
-      scopeType: 'organization',
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
-      scheduleType: 'interval',
-      scheduleValue: '5m',
-      timezone: 'UTC',
-      targetType: 'queue',
-      targetQueue: CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE,
-      targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-      sourceType: 'module',
-      sourceModule: 'checkout',
-      isEnabled: true,
-    })
-
-    // PR 8268 review fix (Finding 5 follow-up, §12's own "expire-checkout-sessions" job,
-    // named but never scheduled since Step 2.12). Mirrors the three schedules above
-    // exactly — same per-(tenant, organization) scope, same re-registration on every
-    // `seedDefaults` pass so an existing tenant also picks this up.
-    await schedulerService.register({
-      id: stableUuidFromString(`checkout:expire-checkout-sessions:${ctx.tenantId}:${ctx.organizationId}`),
-      name: 'Checkout expire sessions',
-      description: 'Expires open/awaiting_approval checkout sessions past their own TTL (§12).',
-      scopeType: 'organization',
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
-      scheduleType: 'interval',
-      scheduleValue: '5m',
-      timezone: 'UTC',
-      targetType: 'queue',
-      targetQueue: CHECKOUT_EXPIRE_SESSIONS_QUEUE,
-      targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-      sourceType: 'module',
-      sourceModule: 'checkout',
-      isEnabled: true,
-    })
+  async onOrganizationCreated(ctx) {
+    await ensureTransactionExpirySchedule(ctx)
   },
 
   defaultRoleFeatures: {

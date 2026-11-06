@@ -49,6 +49,12 @@ async function seedDefaults(context: InitSetupContext): Promise<void> {
   await setup.seedDefaults(context)
 }
 
+async function onOrganizationCreated(context: InitSetupContext): Promise<void> {
+  const { setup } = await import('../setup')
+  if (!setup.onOrganizationCreated) throw new Error('[internal] Checkout onOrganizationCreated hook is missing')
+  await setup.onOrganizationCreated(context)
+}
+
 describe('checkout setup schedules', () => {
   it('registers one organization-scoped transaction-expiry schedule', async () => {
     const { context, register } = createSetupContext({})
@@ -76,6 +82,24 @@ describe('checkout setup schedules', () => {
       targetQueue: CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE,
       targetPayload: { tenantId: 'tenant-1', organizationId: 'organization-1' },
     }))
+  })
+
+  it('registers the same four schedules for a later organization without replaying tenant defaults', async () => {
+    const { context, register } = createSetupContext({ organizationId: 'organization-2' })
+    ensureCheckoutFieldsetsAndDefinitions.mockClear()
+
+    await onOrganizationCreated(context)
+
+    expect(register).toHaveBeenCalledTimes(4)
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'organization-2',
+      targetQueue: CHECKOUT_EXPIRY_QUEUE,
+    }))
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'organization-2',
+      targetQueue: CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE,
+    }))
+    expect(ensureCheckoutFieldsetsAndDefinitions).not.toHaveBeenCalled()
   })
 
   it('uses stable IDs that remain distinct across organizations in one tenant', async () => {
