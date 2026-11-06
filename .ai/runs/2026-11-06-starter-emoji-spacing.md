@@ -31,3 +31,7 @@ PR: #8927
 ### Phase 3: Keep init credentials visible (scope extension requested by the user)
 
 - [x] 3.1 Re-print the `mercato init` credentials panel outside the folded setup log (regression from #8838)
+
+### Phase 4: Terminal-independent icons (user decision after the doubled-gap report)
+
+- [x] 4.1 Swap U+FE0F emoji for always-wide emoji with one space, add guard tests, post rendering proof — e1263e2743
