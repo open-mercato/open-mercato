@@ -33,22 +33,22 @@ A preflight snapshot cannot prevent concurrent application writes or later exter
 
 ## Resume notes
 
-Continuation is autonomous. Finish the refreshed branch, publish a new follow-up and supersede old draft #8908 after the replacement exists. Preserve the original setup branch and published draft history. Re-run the full configured gate with TMPDIR/TMP/TEMP all set outside the repository and a usable isolated Docker Buildx plugin. Final review and publication remain required.
+Continuation is autonomous. Refreshed replacement #8913 is published and old draft #8908 is superseded. Implementation, focused/live tests and static re-review are complete; finish the configured gate and final publication. Preserve the original setup branch and published draft history. Re-run the full configured gate with TMPDIR/TMP/TEMP all set outside the repository and a usable isolated Docker Buildx plugin. Final review and publication remain required.
 
 ## Progress
 
-PR: replacement pending (supersedes #8908)
+PR: #8913 (supersedes #8908)
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Design
 
-- [ ] 1.1 Trace setup writes and persisted encryption formats; specify empty/plaintext and unsupported-store policy.
+- [x] 1.1 Trace setup writes and persisted encryption formats; specify empty/plaintext and unsupported-store policy. — 36963e02c
 
 ### Phase 2: Guard
 
-- [ ] 2.1 Implement isolated read-only scanner using existing cryptographic helpers and wire every setup mutation boundary.
-- [ ] 2.2 Add meaningful cryptographic and no-mutation tests for successful/rejected reuse and new databases.
+- [x] 2.1 Implement isolated read-only scanner using existing cryptographic helpers and wire every setup mutation boundary. — 36963e02c
+- [x] 2.2 Add meaningful cryptographic and no-mutation tests for successful/rejected reuse and new databases. — 36963e02c
 
 ### Phase 3: Verification and publication
 
@@ -56,7 +56,7 @@ PR: replacement pending (supersedes #8908)
 - [ ] 3.2 Review compatibility/security and publish evidence and resumable handoff on the new PR.
 
 
-## Validation evidence
+## Prior branch validation evidence (superseded by refreshed verification)
 
 Runner: local (no configured Compose app container running). Independent immutable install completed with native-addon warnings. Both package builds, generation, translation sync/usage, typecheck and optimized app build passed. Full `yarn test` failed: CLI has 119 passing / 2 failing suites and 2,529 passing / 4 failing tests; Turbo stops at 34 successful / 49 tasks. The failing CLI files are untouched by this follow-up.
 
