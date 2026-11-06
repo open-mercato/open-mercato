@@ -887,6 +887,7 @@ test('the database step initializes with --skip-if-initialized so a re-run never
     repoRoot: repo,
     env: {},
     flags: { noInfra: true },
+    logs: { raw() {} },
     runStreamingImpl: (command, args, options) => {
       invocations.push({ command, args, env: options.env })
       return 0
@@ -897,11 +898,14 @@ test('the database step initializes with --skip-if-initialized so a re-run never
   await databaseStep.apply(ctx)
   assert.deepEqual(invocations.map((entry) => entry.args), [['db:migrate'], ['initialize', '--', '--skip-if-initialized']])
   assert.equal(invocations[1].env.OM_INIT_DEV_AUTOSTART, '1')
+  assert.equal(Number(invocations[1].env.OM_INIT_SUMMARY_COLUMNS) + 3, process.stdout.columns || 80)
+  assert.equal(invocations[1].env.OM_INIT_SUMMARY_COLOR, process.stdout.isTTY ? '1' : '0')
 
   invocations.length = 0
-  const emptied = quietCtx({ ...ctx, dbReinitialize: true })
+  const emptied = quietCtx({ ...ctx, dbReinitialize: true, env: { NO_COLOR: '1' } })
   await databaseStep.apply(emptied)
   assert.deepEqual(invocations.map((entry) => entry.args), [['db:migrate'], ['initialize']])
+  assert.equal(invocations[1].env.OM_INIT_SUMMARY_COLOR, '0')
 })
 
 
