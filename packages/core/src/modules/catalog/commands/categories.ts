@@ -397,7 +397,8 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
 
     if (parsed.parentId !== undefined) {
       const requestedParent = parsed.parentId ? String(parsed.parentId) : null
-      const safeParent = requestedParent && requestedParent !== record.id ? requestedParent : null
+      const safeParent =
+        requestedParent && requestedParent.toLowerCase() !== String(record.id).toLowerCase() ? requestedParent : null
       record.parentId = await assertParentScope(em, safeParent, record.organizationId, record.tenantId)
     }
 

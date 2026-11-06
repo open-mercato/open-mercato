@@ -205,6 +205,15 @@ describe('catalog.categories.update — parent cycles', () => {
     expect(rebuildCategoryHierarchyForOrganization).toHaveBeenCalledTimes(2)
   })
 
+  it('clears the parent when the category itself is chosen, whatever the id case', async () => {
+    const rows = [row(CAT_A, CAT_B), row(CAT_B, null)]
+    const command = loadUpdateCommand()
+
+    await expect(command.execute({ id: CAT_A, parentId: CAT_A.toUpperCase() }, buildCtx(rows))).resolves.toEqual({ categoryId: CAT_A })
+    expect(rows[0].parentId).toBeNull()
+    expect(rebuildCategoryHierarchyForOrganization).toHaveBeenCalledTimes(1)
+  })
+
   it('does not run the cycle check on an undo that keeps the current parent', async () => {
     const rows = [row(CAT_A, CAT_B), row(CAT_B, CAT_A)]
     const command = loadUpdateCommand()
