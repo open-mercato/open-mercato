@@ -51,7 +51,7 @@ function matchesWhere(row: FakeRow, where: Record<string, unknown>): boolean {
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CheckoutSession } from '../../data/entities'
+import { CheckoutSession, CheckoutTransaction } from '../../data/entities'
 import type { CheckoutSessionSubmitCommandInput, CheckoutSessionSubmitStageResult } from '../submit'
 import approvalApprovedSubscriber from '../../subscribers/approval-approved'
 
@@ -158,6 +158,7 @@ type Harness = {
   seededSessions: FakeRow[]
   seededQuotes: FakeRow[]
   seededOrders: FakeRow[]
+  seededTransactions: FakeRow[]
   commandBusExecute: jest.Mock
   emExecute: jest.Mock
   cartService: { lock: jest.Mock; unlock: jest.Mock; getSalesSnapshot: jest.Mock; markConverted: jest.Mock }
@@ -209,6 +210,7 @@ function buildHarness(opts: {
   const seededSessions = [opts.session ?? makeSession()]
   const seededQuotes = opts.seededQuotes ?? []
   const seededOrders = opts.seededOrders ?? []
+  const seededTransactions: FakeRow[] = []
 
   mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
     if (entity === CheckoutSession) return seededSessions.find((row) => matchesWhere(row, where)) ?? null
@@ -352,12 +354,27 @@ function buildHarness(opts: {
         for (const row of matched) Object.assign(row, set)
         return matched.length
       }
+      if (entity === CheckoutTransaction) {
+        const matched = seededTransactions.filter((row) => matchesWhere(row, where))
+        for (const row of matched) Object.assign(row, set)
+        return matched.length
+      }
       return 0
     }),
-    create: jest.fn((_entity: unknown, data: FakeRow) => ({ id: 'checkout-txn-1', ...data })),
+    create: jest.fn((entity: unknown, data: FakeRow) => {
+      if (entity === CheckoutTransaction) {
+        const row = { id: 'checkout-txn-1', ...data }
+        seededTransactions.push(row)
+        return row
+      }
+      return { id: 'checkout-txn-1', ...data }
+    }),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
-    findOne: jest.fn(async () => null),
+    findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+      if (entity === CheckoutTransaction) return seededTransactions.find((row) => matchesWhere(row, where)) ?? null
+      return null
+    }),
     getKysely: () => ({
       selectFrom(table: string) {
         const filters: Array<{ col: string; op: string; value: unknown }> = []
@@ -417,6 +434,7 @@ function buildHarness(opts: {
     seededSessions,
     seededQuotes,
     seededOrders,
+    seededTransactions,
     commandBusExecute,
     emExecute,
     cartService,
@@ -787,6 +805,23 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
       orderId: result.salesOrderId,
     })
     expect(h.seededSessions[0]).toMatchObject({ status: 'completed', outcomeKind: 'order' })
+  })
+
+  // #8268 review / #8821: a synchronously captured gateway payment confirmed the order and
+  // completed the session, but left the session's own `CheckoutTransaction` row stuck at
+  // `processing` — the transaction-expiry worker would eventually (incorrectly) expire a
+  // transaction the buyer already paid for.
+  it('gateway sync-captured: advances the CheckoutTransaction to completed, not left at processing', async () => {
+    const h = buildHarness()
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(h.seededTransactions).toHaveLength(1)
+    expect(h.seededTransactions[0]).toMatchObject({
+      status: 'completed',
+      paymentStatus: 'captured',
+      gatewayTransactionId: 'gateway-txn-1',
+    })
   })
 
   it('availability.commit (step 6a) is called BEFORE the gateway call (step 7) — ordering assertion', async () => {

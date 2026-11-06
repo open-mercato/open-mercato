@@ -106,6 +106,23 @@ export async function expireOneAwaitingPayment(
   const claimed = await claimAwaitingPaymentSession(em, session.id, scope)
   if (!claimed) return
 
+  // Re-read past the claim (refresh: true bypasses the MikroORM identity map): a capture
+  // webhook can commit the transaction row to a terminal status between this worker's
+  // earlier read/probe and the moment it wins the claim above, then lose the session-status
+  // CAS race to this worker. Trusting the pre-claim snapshot or gateway probe in that case
+  // would compensate (cancel) an order whose payment the gateway already captured. The
+  // persisted row, read fresh now that the claim is held, is always authoritative.
+  const postClaimTransaction = await em.findOne(
+    CheckoutTransaction,
+    { sessionId: session.id, ...scope },
+    { refresh: true },
+  )
+  const postClaimOutcome = derivePersistedPaymentOutcome(postClaimTransaction?.status)
+  if (postClaimOutcome) {
+    mappedStatus = postClaimOutcome
+  }
+  const resolvedTransaction = postClaimTransaction ?? transaction
+
   try {
     if (mappedStatus === 'completed') {
       // §7.2 step 7 success branch, verbatim: confirm the order, build the C18 lineMap,
@@ -119,8 +136,8 @@ export async function expireOneAwaitingPayment(
         session.salesOrderId,
         session.salesQuoteId,
         reservationKeys,
-        transaction
-          ? { amount: transaction.amount, currencyCode: transaction.currencyCode, paymentReference: transaction.gatewayTransactionId ?? transaction.id }
+        resolvedTransaction
+          ? { amount: resolvedTransaction.amount, currencyCode: resolvedTransaction.currencyCode, paymentReference: resolvedTransaction.gatewayTransactionId ?? resolvedTransaction.id }
           : undefined,
       )
       await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId: session.salesOrderId, outcome: 'succeeded' } })
@@ -129,7 +146,7 @@ export async function expireOneAwaitingPayment(
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         orderId: session.salesOrderId,
-        transactionId: transaction?.id ?? null,
+        transactionId: resolvedTransaction?.id ?? null,
       }).catch(() => undefined)
       return
     }
@@ -144,7 +161,7 @@ export async function expireOneAwaitingPayment(
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       orderId: session.salesOrderId,
-      transactionId: transaction?.id ?? null,
+      transactionId: resolvedTransaction?.id ?? null,
       failureCode: 'payment_expired',
     }).catch(() => undefined)
   } catch (err) {

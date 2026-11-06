@@ -18,6 +18,11 @@ jest.mock('../../services/customerCreditService', () => ({
   }),
 }))
 
+const reportErrorMock = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: reportErrorMock }),
+}))
+
 import handle from '../order-confirmed-credit-reinstate'
 
 const TENANT = 'tenant-1'
@@ -110,6 +115,7 @@ describe('customer_groups order-confirmed-credit-reinstate subscriber', () => {
   beforeEach(() => {
     reserveCreditMock.mockReset()
     linkCreditReservationToOrderMock.mockReset()
+    reportErrorMock.mockReset()
   })
 
   it('reinstates a released reservation under a fresh key when the order leaves cancelled', async () => {
@@ -206,5 +212,67 @@ describe('customer_groups order-confirmed-credit-reinstate subscriber', () => {
     ).resolves.toBeUndefined()
 
     expect(reserveCreditMock).not.toHaveBeenCalled()
+  })
+
+  // #8268 review Major 4(a): a prior pass can have committed `reserveCredit` and then died
+  // (or thrown) before `linkCreditReservationToOrder` ran. The reinstate entry exists
+  // (idempotency key matched) but was never linked — a bare skip-on-replay would leave it
+  // unlinked forever, so the next cancel could never find it to release again.
+  it('links an already-reinstated-but-unlinked entry on replay, instead of skipping it forever', async () => {
+    const { em, tables } = createFakeEm()
+    const { reserveEntry, account } = seedReleasedReservation(tables)
+    const reinstatedButUnlinkedEntry: Row = {
+      id: randomUUID(),
+      tenantId: TENANT,
+      organizationId: ORG,
+      creditAccountId: account.id,
+      entryType: 'reserve',
+      amount: reserveEntry.amount,
+      linkedOrderId: null,
+      idempotencyKey: `reinstate:${reserveEntry.idempotencyKey}`,
+    }
+    tables.set(CustomerCreditLedgerEntry, [...(tables.get(CustomerCreditLedgerEntry) ?? []), reinstatedButUnlinkedEntry])
+
+    await handle(
+      { orderId: ORDER_ID, previousStatus: 'canceled', tenantId: TENANT, organizationId: ORG },
+      buildCtx(em),
+    )
+
+    expect(reserveCreditMock).not.toHaveBeenCalled()
+    expect(linkCreditReservationToOrderMock).toHaveBeenCalledWith({
+      scope: { tenantId: TENANT, organizationId: ORG },
+      idempotencyKey: `reinstate:${reserveEntry.idempotencyKey}`,
+      orderId: ORDER_ID,
+    })
+  })
+
+  // #8268 review Major 4(b): the undo already committed before this subscriber runs, so a
+  // business refusal (limit exceeded, account on hold) leaves the order live with no
+  // credit hold. It must be observable beyond a log line.
+  it('reports a business refusal to telemetry instead of only logging it', async () => {
+    const { em, tables } = createFakeEm()
+    seedReleasedReservation(tables)
+    reserveCreditMock.mockResolvedValue({
+      reserved: false,
+      released: false,
+      entry: null,
+      check: { reason: 'limit_exceeded' },
+    })
+
+    await handle(
+      { orderId: ORDER_ID, previousStatus: 'canceled', tenantId: TENANT, organizationId: ORG },
+      buildCtx(em),
+    )
+
+    expect(linkCreditReservationToOrderMock).not.toHaveBeenCalled()
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
+    expect(reportErrorMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        module: 'customer_groups',
+        code: 'customer_groups.order_confirmed_credit_reinstate_refused',
+        attributes: expect.objectContaining({ orderId: ORDER_ID, reason: 'limit_exceeded' }),
+      }),
+    )
   })
 })

@@ -331,6 +331,38 @@ describe('checkout expire-awaiting-payment worker', () => {
     expect(mockEmitCheckoutEvent).not.toHaveBeenCalled()
   })
 
+  it('re-reads the transaction after winning the claim: a webhook that committed the capture concurrently wins over the stale pre-claim snapshot', async () => {
+    const session = makeSession()
+    mockFindWithDecryption.mockResolvedValueOnce([session])
+    // Pre-claim read: still processing, so the gateway probe runs and answers "pending" too —
+    // no definitive outcome yet from either source.
+    mockEmFindOne
+      .mockResolvedValueOnce({ id: 'checkout-transaction-1', status: 'processing', amount: '125.00', currencyCode: 'USD', gatewayTransactionId: null } as CheckoutTransaction)
+      // Post-claim re-read: a capture webhook committed the transaction between the read
+      // above and this worker winning the claim, but lost the session-status CAS to it.
+      .mockResolvedValueOnce({ id: 'checkout-transaction-1', status: 'completed', amount: '125.00', currencyCode: 'USD', gatewayTransactionId: 'gw-final' } as CheckoutTransaction)
+    mockGetPaymentStatus.mockResolvedValueOnce({ status: 'pending' })
+    const { default: handle } = await import('../expire-awaiting-payment.worker')
+
+    await handle(
+      { ...baseJob, payload: { tenantId: TENANT_ID, organizationId: ORG_ID } } as unknown as QueuedJob<ExpireAwaitingPaymentJob>,
+      mockContext,
+    )
+
+    expect(mockConfirmOrderAndComplete).toHaveBeenCalledTimes(1)
+    expect(mockConfirmOrderAndComplete).toHaveBeenCalledWith(
+      expect.anything(),
+      mockEm,
+      session,
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+      session.salesOrderId,
+      session.salesQuoteId,
+      { stockReservationKey: session.stockReservationKey, creditReservationKey: session.creditReservationKey },
+      { amount: '125.00', currencyCode: 'USD', paymentReference: 'gw-final' },
+    )
+    expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
+  })
+
   it('releases the claim when the finalizer throws so the next tick can retry', async () => {
     const session = makeSession()
     mockFindWithDecryption.mockResolvedValueOnce([session])

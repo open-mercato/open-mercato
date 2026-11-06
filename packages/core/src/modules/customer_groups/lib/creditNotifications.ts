@@ -28,6 +28,14 @@ export type CreditLimitExceededNotificationInput = {
   currencyCode: string
   requestedAmount: string
   creditLimit: string
+  // #8268 review Major 4 correction / #8819: the daily exposure-audit worker finds a
+  // drifted-and-over-limit account with no specific refused transaction to point at, so
+  // these stay optional and absent for that caller. The event-driven subscriber below
+  // always has them — `reserveCredit`'s own refusal always carries `sourceType`/
+  // `sourceId` — and passes them through so staff can jump straight to the order a
+  // reinstatement was refused for, instead of only the company it belongs to.
+  sourceType?: string
+  sourceId?: string
 }
 
 export async function createCreditLimitExceededNotification(
@@ -52,10 +60,14 @@ export async function createCreditLimitExceededNotification(
     },
     sourceEntityType: 'customer_groups:credit_account',
     sourceEntityId: input.creditAccountId,
+    // The refused reservation's own order, when it has one, is the more actionable
+    // destination — the company page cannot tell staff WHICH order is unprotected.
     linkHref:
-      kind === 'person'
-        ? `/backend/customers/people/${input.customerId}`
-        : `/backend/customers/companies/${input.customerId}`,
+      input.sourceType === 'order' && input.sourceId
+        ? `/backend/sales/orders/${input.sourceId}`
+        : kind === 'person'
+          ? `/backend/customers/people/${input.customerId}`
+          : `/backend/customers/companies/${input.customerId}`,
     groupKey: `customer_groups.credit.limit_exceeded:${input.creditAccountId}`,
   }
 

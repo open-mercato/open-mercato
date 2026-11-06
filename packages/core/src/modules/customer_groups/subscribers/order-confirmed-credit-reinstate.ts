@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerCreditAccount, CustomerCreditLedgerEntry } from '../data/entities'
 import { createCustomerCreditService, type CustomerCreditService } from '../services/customerCreditService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customer_groups')
 
@@ -118,7 +119,18 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       tenantId,
       idempotencyKey: reinstateKey,
     })
-    if (alreadyReinstated) continue
+    // A prior pass can have committed the `reserveCredit` write and then died (or thrown)
+    // before `linkCreditReservationToOrder` ran — the reinstate entry exists but was never
+    // linked to this order, so the next cancel would never find it to release again. A
+    // bare `continue` here would skip the link forever on every future replay; link it now
+    // instead, same idempotent CAS `linkCreditReservationToOrder` already performs for a
+    // fresh reservation.
+    if (alreadyReinstated) {
+      if (alreadyReinstated.linkedOrderId == null) {
+        await creditService.linkCreditReservationToOrder({ scope, idempotencyKey: reinstateKey, orderId })
+      }
+      continue
+    }
 
     const account = await em.findOne(CustomerCreditAccount, {
       id: reservation.creditAccountId,
@@ -140,14 +152,28 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       if (result.reserved) {
         await creditService.linkCreditReservationToOrder({ scope, idempotencyKey: reinstateKey, orderId })
       } else {
-        // A business refusal (limit now exceeded, account on hold, terms revoked) — not an
-        // error, and retrying would refuse the same way every time.
+        // A business refusal (limit now exceeded, account on hold, terms revoked) — not a
+        // throwable error (retrying would refuse the same way every time), but the undo
+        // already committed before this subscriber ran, so the order is live with no
+        // credit hold and nothing besides this path will ever surface that. `reportError`
+        // makes it visible to telemetry/on-call; `reserveCredit` itself already emits
+        // `customer_groups.credit.limit_exceeded` (with this order as `sourceId`), which
+        // the notification subscriber now links straight to the order, not just the
+        // company.
         logger.warn('[customer_groups:order-confirmed-credit-reinstate] reinstatement refused', {
           orderId,
           tenantId,
           organizationId,
           reason: result.check.reason,
         })
+        getTelemetryRuntime()?.reportError(
+          new Error(`[internal] credit reinstatement refused on order uncancel: ${result.check.reason}`),
+          {
+            module: 'customer_groups',
+            code: 'customer_groups.order_confirmed_credit_reinstate_refused',
+            attributes: { orderId, tenantId, organizationId, reason: result.check.reason },
+          },
+        )
       }
     } catch (error) {
       logger.error('[customer_groups:order-confirmed-credit-reinstate] reinstate failed', {

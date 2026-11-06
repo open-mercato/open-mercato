@@ -1070,4 +1070,32 @@ describe('accept - re-checks the approval gate for a quote flagged by checkout (
     expect(res.status).toBe(200)
     expect(mockApprovalService.getApproval).not.toHaveBeenCalled()
   })
+
+  // #8818 / review Major 2: the approval is granted on the cart's goods-gross basis
+  // (delivery excluded, since a cart never carries a shipping adjustment), but checkout
+  // only adds the shipping adjustment once it creates the quote at submit. Comparing the
+  // approval against the quote's grand total (which now includes that shipping charge)
+  // therefore compares two different bases and can never be satisfied for a quote with a
+  // non-zero delivery charge.
+  test('accepts an approved over-threshold quote that carries a non-zero shipping adjustment', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval({ amountGross: '615.00' }))
+    const quote = makeFlaggedQuote({
+      grandTotalGrossAmount: '620.00',
+      totalsSnapshot: { shippingGrossAmount: 5 },
+    })
+    mockConvertibleQuote(quote, 'order-d-r5-23-4')
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+
+    expect(res.status).toBe(200)
+    expect(quote.status).toBe('confirmed')
+  })
+
+  test('still refuses when even the goods-only basis exceeds the approved amount', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval({ amountGross: '614.00' }))
+    await expectRefusedWithApproval(makeFlaggedQuote({
+      grandTotalGrossAmount: '620.00',
+      totalsSnapshot: { shippingGrossAmount: 5 },
+    }))
+  })
 })

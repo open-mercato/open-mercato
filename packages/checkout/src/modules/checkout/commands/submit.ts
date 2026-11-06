@@ -1735,6 +1735,32 @@ export async function continueOrderOutcome(
   }).catch(() => undefined)
 
   if (mappedStatus === 'completed') {
+    // #8821: this synchronous branch confirmed the order but never advanced the session's
+    // own `CheckoutTransaction` past the `processing` row `createPaymentSession` just
+    // persisted — the async webhook path's equivalent subscriber (`gateway-payment-
+    // captured.ts`) always does this via `checkout.transaction.updateStatus` before
+    // resuming the session; a transaction a buyer actually paid for stayed `processing`
+    // until the expiry worker eventually flipped it to `expired`. Same CAS shape as that
+    // command (`transactions.ts`'s own `updateTransactionStatusCommand`), but a direct
+    // `nativeUpdate` on THIS call's own `em`/transaction rather than the command's
+    // separately-resolved one, to stay inside the single transaction this function already
+    // commits everything else in.
+    const gatewayTransactionId = sessionResult.transaction.gatewayPaymentId ?? sessionResult.transaction.id
+    const transactionAffected = await em.nativeUpdate(
+      CheckoutTransaction,
+      { id: transaction.id, ...scope, status: 'processing' },
+      {
+        status: 'completed',
+        paymentStatus: sessionResult.transaction.unifiedStatus,
+        gatewayTransactionId,
+        updatedAt: new Date(),
+      },
+    )
+    if (transactionAffected > 0) {
+      transaction.status = 'completed'
+      transaction.paymentStatus = sessionResult.transaction.unifiedStatus
+      transaction.gatewayTransactionId = gatewayTransactionId
+    }
     const result = await confirmOrderAndComplete(container, em, session, scope, orderId, quoteId, {
       stockReservationKey: input.stockReservationKey,
       creditReservationKey: input.creditReservationKey,

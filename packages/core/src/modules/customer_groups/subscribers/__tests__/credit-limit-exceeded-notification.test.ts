@@ -49,6 +49,32 @@ describe('customer_groups credit-limit-exceeded-notification subscriber', () => 
     )
   })
 
+  // #8268 review Major 4 correction / #8819: `sourceType`/`sourceId` (always present on a
+  // `reserveCredit` refusal) must reach the notification builder so it can link straight
+  // to the order, not just the company.
+  it('forwards sourceType/sourceId through to the shared notification builder', async () => {
+    await handle(
+      {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        creditAccountId: 'account-1',
+        customerId: 'customer-1',
+        currencyCode: 'USD',
+        requestedAmount: '150.00',
+        creditLimit: '100.00',
+        sourceType: 'order',
+        sourceId: 'order-1',
+      },
+      ctx,
+    )
+
+    expect(createCreditLimitExceededNotificationMock).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      expect.objectContaining({ sourceType: 'order', sourceId: 'order-1' }),
+    )
+  })
+
   it('skips an incomplete payload without throwing', async () => {
     await expect(handle({ creditAccountId: 'account-1' }, ctx)).resolves.toBeUndefined()
     expect(createCreditLimitExceededNotificationMock).not.toHaveBeenCalled()

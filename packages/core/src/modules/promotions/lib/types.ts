@@ -116,6 +116,13 @@ export interface CodeUseResult { ok: true }
 export interface RevertCodeUseInput { cartId?: string; orderId?: string }
 export interface RevertCodeUseResult { ok: true; revertedCount: number }
 
+// Release 5 review fix (#8268 Major 3 / #8817): the inverse of `revertCodeUse` — restores
+// an order's own already-recorded uses after an undone cancellation. Order-keyed only
+// (never `cartId`): a cart's own reservation lifecycle (`reserveCode`/`releaseCode`) is
+// unrelated to an order's cancel/undo cycle.
+export interface ReinstateCodeUseInput { orderId: string }
+export interface ReinstateCodeUseResult { ok: true; reinstatedCount: number }
+
 // Usage (D-R4-12, D-R4-26)
 export interface RegisterUsageInput {
   orderId: string

@@ -12,6 +12,8 @@ import type {
   CodeReservationResult,
   CodeUseResult,
   CodeValidationResult,
+  ReinstateCodeUseInput,
+  ReinstateCodeUseResult,
   RevertCodeUseInput,
   RevertCodeUseResult,
   ReserveCodeInput,
@@ -661,5 +663,85 @@ export class PromotionCodeService {
     }
 
     return { ok: true, revertedCount }
+  }
+
+  /**
+   * Release 5 review fix (#8268 Major 3 / #8817): the inverse of `revertCodeUse`,
+   * order-keyed only — restores every `CodeUsage` row that order's cancellation
+   * reverted, by re-applying the exact flip `useCode` performed (`code.used`/`active`,
+   * or the specific `GeneratedCode.active`) and clearing `revertedAt`. Never re-runs
+   * `evaluateCodeEligibility`: this restores a use that already happened and already
+   * passed eligibility once — a cancel/undo cycle must not let a per-customer cap this
+   * SAME use counted toward, or a code deactivated in the meantime by an admin, retroactively
+   * refuse reinstating it (`revertCodeUse` is similarly unconditional on the way down).
+   *
+   * Idempotent and race-safe on the same terms as `revertCodeUse`: the initial lookup is
+   * unlocked, each matched row is re-fetched with `PESSIMISTIC_WRITE` and re-checked for a
+   * still-set `revertedAt` inside its own transaction, so a row a concurrent caller
+   * already reinstated (and committed) between the lookup and this re-fetch is simply
+   * skipped.
+   */
+  async reinstateCodeUse(em: EntityManager, input: ReinstateCodeUseInput, scope: PromotionsCodeScope): Promise<ReinstateCodeUseResult> {
+    const usageRows = await em.find(CodeUsage, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      orderId: input.orderId,
+      revertedAt: { $ne: null },
+    })
+    if (usageRows.length === 0) return { ok: true, reinstatedCount: 0 }
+
+    let reinstatedCount = 0
+    for (const seedUsage of usageRows) {
+      let reinstated = false
+      await withAtomicFlush(
+        em,
+        [
+          async () => {
+            const lockedUsage = await em.findOne(
+              CodeUsage,
+              { id: seedUsage.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+              { lockMode: LockMode.PESSIMISTIC_WRITE },
+            )
+            if (!lockedUsage || !lockedUsage.revertedAt) return
+            reinstated = true
+
+            if (lockedUsage.generatedCodeId) {
+              const lockedGeneratedCode = await em.findOne(
+                GeneratedCode,
+                { id: lockedUsage.generatedCodeId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+                { lockMode: LockMode.PESSIMISTIC_WRITE },
+              )
+              if (lockedGeneratedCode) lockedGeneratedCode.active = false
+            } else {
+              const lockedCode = await em.findOne(
+                Code,
+                { id: lockedUsage.codeId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+                { lockMode: LockMode.PESSIMISTIC_WRITE },
+              )
+              if (lockedCode) {
+                lockedCode.used += 1
+                if (!hasRemainingGlobalUses(lockedCode)) lockedCode.active = false
+              }
+            }
+
+            lockedUsage.revertedAt = null
+          },
+        ],
+        { transaction: true, label: 'promotions.code.use.reinstate' },
+      )
+
+      if (!reinstated) continue
+      reinstatedCount += 1
+
+      await invalidateCrudCache(
+        this.container as unknown as AwilixContainer,
+        'promotions.code',
+        { id: seedUsage.codeId, organizationId: scope.organizationId, tenantId: scope.tenantId },
+        scope.tenantId,
+        'promotions.code.use.reinstate',
+      )
+    }
+
+    return { ok: true, reinstatedCount }
   }
 }

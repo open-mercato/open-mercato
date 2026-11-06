@@ -15,7 +15,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { customerCreditAdjustRequestSchema } from '../../../../../data/validators'
 import { organizationIdsFromScope } from '../../../../../lib/customerScope'
-import type { CreditEntryView } from '../../../../../services/customerCreditService'
+import { CustomerCreditServiceError, type CreditEntryView } from '../../../../../services/customerCreditService'
 
 const logger = createLogger('customer_groups')
 
@@ -139,6 +139,15 @@ export async function POST(req: Request, context: RouteContext) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    // #8268 review Minor / #8820: `adjustCredit` throws a typed `CustomerCreditServiceError`
+    // on a reused idempotency key — same account with a different (amount/relatedEntry), or
+    // any OTHER account (the ledger's unique constraint is `(tenant_id, idempotency_key)`
+    // only, G2) — but this route never mapped it, so it fell through to the generic 500
+    // below. A reused key is a caller-input conflict, not a server failure.
+    if (err instanceof CustomerCreditServiceError) {
+      const status = err.code === 'idempotency_key_mismatch' ? 409 : 422
+      return NextResponse.json({ error: err.message, code: err.code }, { status })
+    }
     logger.error('customer_groups.credit.adjust failed', { err })
     getTelemetryRuntime()?.reportError(err, { module: 'customer_groups', code: 'customer_groups.credit_adjust_failed' })
     return NextResponse.json(
@@ -160,7 +169,7 @@ const creditEntrySchema = z.object({
 })
 
 const adjustResponseSchema = z.object({ entry: creditEntrySchema })
-const adjustErrorSchema = z.object({ error: z.string() })
+const adjustErrorSchema = z.object({ error: z.string(), code: z.string().optional() })
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'CustomerGroups',
@@ -176,6 +185,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid body, or tenant context is missing', schema: adjustErrorSchema },
         { status: 401, description: 'Unauthorized', schema: adjustErrorSchema },
         { status: 404, description: 'Credit account not found in the caller scope', schema: adjustErrorSchema },
+        { status: 409, description: 'The idempotency key was already used for a different amount, related entry, or account', schema: adjustErrorSchema },
+        { status: 422, description: 'Invalid amount, buyer, or no credit account for this customer/currency', schema: adjustErrorSchema },
         { status: 500, description: 'Unexpected failure', schema: adjustErrorSchema },
       ],
     },

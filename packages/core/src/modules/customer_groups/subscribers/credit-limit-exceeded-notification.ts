@@ -40,6 +40,8 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
   const currencyCode = readString(record, 'currencyCode') ?? ''
   const requestedAmount = readString(record, 'requestedAmount') ?? ''
   const creditLimit = readString(record, 'creditLimit') ?? ''
+  const sourceType = readString(record, 'sourceType') ?? undefined
+  const sourceId = readString(record, 'sourceId') ?? undefined
   const tenantId = readString(record, 'tenantId') ?? ctx.tenantId ?? null
   const organizationId = readString(record, 'organizationId') ?? ctx.organizationId ?? null
 
@@ -64,6 +66,8 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       currencyCode,
       requestedAmount,
       creditLimit,
+      sourceType,
+      sourceId,
     })
   } catch (err) {
     logger.warn('[customer_groups:credit-limit-exceeded-notification] create failed', { err })

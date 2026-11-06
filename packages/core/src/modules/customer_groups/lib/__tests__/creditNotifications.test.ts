@@ -88,4 +88,31 @@ describe('createCreditLimitExceededNotification', () => {
     )
     expect(createForFeatureMock).toHaveBeenCalledWith(expect.anything(), { tenantId: 'tenant-1', organizationId: 'org-1' })
   })
+
+  // #8268 review Major 4 correction / #8819: a refusal with a known order (the
+  // reinstate-on-uncancel subscriber always has one) must link straight to that order —
+  // the company page alone cannot tell staff WHICH order is unprotected.
+  it('links to the order when the refusal carries an order sourceType/sourceId', async () => {
+    resolveAccountManagerUserIdMock.mockResolvedValue('manager-user-1')
+    resolveCustomerEntityKindMock.mockResolvedValue('company')
+
+    await createCreditLimitExceededNotification(em, container, { ...input, sourceType: 'order', sourceId: 'order-1' })
+
+    expect(buildNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'customer_groups.credit.limit_exceeded' }),
+      expect.objectContaining({ linkHref: '/backend/sales/orders/order-1' }),
+    )
+  })
+
+  it('keeps the company link when the refusal has no order to point at (exposure-audit caller)', async () => {
+    resolveAccountManagerUserIdMock.mockResolvedValue('manager-user-1')
+    resolveCustomerEntityKindMock.mockResolvedValue('company')
+
+    await createCreditLimitExceededNotification(em, container, input)
+
+    expect(buildNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'customer_groups.credit.limit_exceeded' }),
+      expect.objectContaining({ linkHref: '/backend/customers/companies/company-1' }),
+    )
+  })
 })

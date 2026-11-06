@@ -32,6 +32,11 @@ type Row = Record<string, unknown>
 function matchesWhere(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, condition]) => {
     const value = row[key]
+    if (condition && typeof condition === 'object' && !(condition instanceof Date) && '$ne' in (condition as Row)) {
+      const target = (condition as Row).$ne
+      if (target === null) return value !== null && value !== undefined
+      return value !== target
+    }
     if (condition === null) return value === null || value === undefined
     return value === condition
   })
@@ -518,6 +523,96 @@ describe('PromotionUsageService.revertUsage', () => {
     const result = await service.revertUsage(asEm(em), { orderId: 'no-such-order' } as RevertUsageInput, SCOPE)
 
     expect(result).toEqual({ ok: true, revertedCount: 0 })
+  })
+})
+
+// #8268 review Major 3 / #8817: `reinstateUsage` is the inverse of `revertUsage`, for an
+// undone order cancellation.
+describe('PromotionUsageService.reinstateUsage', () => {
+  it('clears reverted_at on every row this order\'s cancellation reverted', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables)
+    const service = new PromotionUsageService()
+    await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-1',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [lineDiscountEffect('-10.00')])],
+      },
+      SCOPE,
+    )
+    await service.revertUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+    emitPromotionsEvent.mockClear()
+
+    const result = await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 1 })
+    const rows = tables.get(PromotionUsage) ?? []
+    expect(rows).toHaveLength(1)
+    expect(rows[0].revertedAt).toBeNull()
+    expect(emitPromotionsEvent).toHaveBeenCalledWith(
+      'promotions.usage.registered',
+      expect.objectContaining({ promotionId: promotion.id, orderId: 'order-1' }),
+      expect.anything(),
+    )
+  })
+
+  it('is idempotent: a second reinstate call for the same order reinstates nothing further', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables)
+    const service = new PromotionUsageService()
+    await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-1',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [lineDiscountEffect('-10.00')])],
+      },
+      SCOPE,
+    )
+    await service.revertUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+
+    await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+    const second = await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+
+    expect(second).toEqual({ ok: true, reinstatedCount: 0 })
+    const rows = tables.get(PromotionUsage) ?? []
+    expect(rows).toHaveLength(1)
+  })
+
+  it('never reinstates a row that was never reverted (still-active usage)', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables)
+    const service = new PromotionUsageService()
+    await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-1',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [lineDiscountEffect('-10.00')])],
+      },
+      SCOPE,
+    )
+
+    const result = await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+  })
+
+  it('is a no-op success when no matching row exists', async () => {
+    const { em } = createFakeEm()
+    const service = new PromotionUsageService()
+
+    const result = await service.reinstateUsage(asEm(em), { orderId: 'no-such-order' } as RevertUsageInput, SCOPE)
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
   })
 })
 

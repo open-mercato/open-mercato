@@ -29,6 +29,30 @@ type QuoteApprovalProofQuote = {
   currencyCode: string
   grandTotalGrossAmount: string | number
   customerEntityId?: string | null
+  totalsSnapshot?: Record<string, unknown> | null
+}
+
+/**
+ * The approval was requested and granted on the cart's goods-gross basis
+ * (`cart/lib/approvalGate.ts#computeGoodsGrossAmount`, `grandTotalGrossAmount`
+ * excluding delivery — a cart never carries a shipping adjustment). Checkout only adds
+ * the `kind: 'shipping'` order-scoped adjustment once it creates the quote at submit
+ * (`checkout/commands/submit.ts`), which folds straight into the quote's own
+ * `grandTotalGrossAmount` (`sales/lib/calculations.ts`'s shipping case adds to
+ * `subtotalGross`). Comparing the approval against the quote's grand total therefore
+ * compares two different bases and can never be satisfied for a quote with a non-zero
+ * delivery charge. Subtracting the persisted `shippingGrossAmount` snapshot (the same
+ * verbatim `SalesDocumentCalculationResult.totals` `applyQuoteTotals` stores) recovers
+ * the goods-only basis the approval was actually granted on.
+ */
+function computeQuoteGoodsGrossAmount(quote: QuoteApprovalProofQuote): number {
+  const shippingGrossAmount = quote.totalsSnapshot && typeof quote.totalsSnapshot === 'object'
+    ? Number((quote.totalsSnapshot as Record<string, unknown>).shippingGrossAmount)
+    : NaN
+  const grandTotalGrossAmount = Number(quote.grandTotalGrossAmount)
+  if (!Number.isFinite(grandTotalGrossAmount)) return 0
+  if (!Number.isFinite(shippingGrossAmount)) return grandTotalGrossAmount
+  return grandTotalGrossAmount - shippingGrossAmount
 }
 
 type ApprovalLookup = (approvalId: string) => Promise<QuoteApprovalProofView | null>
@@ -103,6 +127,6 @@ export async function evaluateQuoteApprovalGate(input: {
     approval.subjectId === requirement.approvalSubjectId &&
     approval.customerId === requirement.approvalCustomerId &&
     approval.currencyCode === input.quote.currencyCode &&
-    Number(approval.amountGross) >= Number(input.quote.grandTotalGrossAmount)
+    Number(approval.amountGross) >= computeQuoteGoodsGrossAmount(input.quote)
   return qualifies ? 'satisfied' : 'unsatisfied'
 }

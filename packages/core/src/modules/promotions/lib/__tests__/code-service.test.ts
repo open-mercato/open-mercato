@@ -1160,3 +1160,127 @@ describe('PromotionCodeService.revertCodeUse', () => {
     expect(code.active).toBe(false)
   })
 })
+
+// #8268 review Major 3 / #8817: `reinstateCodeUse` is the inverse of `revertCodeUse`,
+// order-keyed only, for an undone order cancellation.
+describe('PromotionCodeService.reinstateCodeUse', () => {
+  it('re-increments Code.used, re-exhausts it, and clears revertedAt — the exact inverse of revertCodeUse', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'USEDONCE', usage: 'single', used: 1, active: false })
+    const usage = seedCodeUsage(tables, { codeId: code.id, customerId: 'cust-1', cartId: 'cart-1', orderId: 'order-1' })
+    const service = new PromotionCodeService(fakeContainer())
+    await service.revertCodeUse(em as unknown as import('@mikro-orm/postgresql').EntityManager, { orderId: 'order-1' }, SCOPE)
+    expect(code.used).toBe(0)
+    expect(code.active).toBe(true)
+
+    const result = await service.reinstateCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'order-1' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 1 })
+    expect(code.used).toBe(1)
+    expect(code.active).toBe(false)
+    expect(usage.revertedAt).toBeNull()
+  })
+
+  it('re-deactivates the specific GeneratedCode for a dynamic use, without touching the parent Code.used', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'dynamic', code: null, used: 0 })
+    const generatedCode = seedGeneratedCode(tables, { codeId: code.id, code: 'DYNAMIC-ABC', active: false })
+    const usage = seedCodeUsage(tables, { codeId: code.id, customerId: 'cust-1', cartId: 'cart-1', orderId: 'order-1', generatedCodeId: generatedCode.id })
+    const service = new PromotionCodeService(fakeContainer())
+    await service.revertCodeUse(em as unknown as import('@mikro-orm/postgresql').EntityManager, { orderId: 'order-1' }, SCOPE)
+    expect(generatedCode.active).toBe(true)
+
+    const result = await service.reinstateCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'order-1' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 1 })
+    expect(generatedCode.active).toBe(false)
+    expect(code.used).toBe(0)
+    expect(usage.revertedAt).toBeNull()
+  })
+
+  it('is idempotent on redelivery — a second call for the same order reinstates nothing further', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'USEDONCE', usage: 'single', used: 1, active: false })
+    seedCodeUsage(tables, { codeId: code.id, customerId: 'cust-1', cartId: 'cart-1', orderId: 'order-1' })
+    const service = new PromotionCodeService(fakeContainer())
+    await service.revertCodeUse(em as unknown as import('@mikro-orm/postgresql').EntityManager, { orderId: 'order-1' }, SCOPE)
+
+    const first = await service.reinstateCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'order-1' },
+      SCOPE,
+    )
+    const second = await service.reinstateCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'order-1' },
+      SCOPE,
+    )
+
+    expect(first).toEqual({ ok: true, reinstatedCount: 1 })
+    expect(second).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(code.used).toBe(1)
+  })
+
+  it('never reinstates a usage row that was never reverted (still-active usage)', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'USEDONCE', usage: 'single', used: 1, active: false })
+    seedCodeUsage(tables, { codeId: code.id, customerId: 'cust-1', cartId: 'cart-1', orderId: 'order-1' })
+    const service = new PromotionCodeService(fakeContainer())
+
+    const result = await service.reinstateCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'order-1' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(code.used).toBe(1)
+  })
+
+  it('is a no-op when no matching CodeUsage row exists for the order', async () => {
+    const { em } = createFakeEm()
+    const service = new PromotionCodeService(fakeContainer())
+
+    const result = await service.reinstateCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'no-such-order' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+  })
+
+  it('never reinstates another tenant\'s usage row, even on an id collision', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'USEDONCE', usage: 'single', used: 0, active: true })
+    const otherTenantUsage = seedCodeUsage(tables, {
+      codeId: code.id,
+      customerId: 'cust-x',
+      cartId: 'cart-1',
+      orderId: 'order-1',
+      tenantId: 'tenant-2',
+      organizationId: 'org-2',
+      revertedAt: new Date(),
+    })
+    const service = new PromotionCodeService(fakeContainer())
+
+    const result = await service.reinstateCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'order-1' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(otherTenantUsage.revertedAt).not.toBeNull()
+    expect(code.used).toBe(0)
+    expect(code.active).toBe(true)
+  })
+})
