@@ -12,9 +12,9 @@ Every listed surface is a **public contract**. Changes MUST follow the deprecati
 
 ### Emergency Security Exception
 
-Steps 1-3 — stage the removal, deprecate first, ship a bridge — are waived, and **only** those three, when the contract surface being removed *is itself* the vulnerability: keeping it alongside the replacement would leave the flaw exploitable for the whole deprecation window. A surface that merely makes an insecure usage possible does not qualify; the exception applies only where continued acceptance of the old shape **is** the exploit.
+Only steps 1-3 are waived when accepting the removed contract surface **is** the exploit. A bridge would preserve the vulnerability throughout deprecation; merely enabling insecure usage does not qualify.
 
-This is not author or reviewer discretion. Every one of the following MUST hold, and a change that cannot satisfy all of them follows the ordinary protocol instead:
+All conditions below MUST hold; otherwise use the ordinary protocol. Authors and reviewers cannot waive them:
 
 1. **The qualifying condition is argued, not asserted.** The PR names the surface, the vulnerability, and why a bridge release would keep it reachable.
 2. **The removal is the narrowest one that closes the hole.** No unrelated tightening rides along, and **no partial bridge retains the vulnerable branch** behind a flag, a config toggle, or an opt-in — a retained branch is the bridge the exception exists to refuse.
@@ -22,7 +22,7 @@ This is not author or reviewer discretion. Every one of the following MUST hold,
 4. **A dated entry is added at the end of this document**, recording the surface, its classification, the qualifying argument, and the migration path.
 5. **A maintainer signs off on the exception by name.** The PR carries the `security` label and a human maintainer approval that acknowledges the waiver; an automated review cannot clear it.
 
-Downstream authors get no bridge in this case, so the compensating obligation is disclosure. The `UPGRADE_NOTES.md` entry MUST state plainly what stops working, for whom, and what to do about it — including any stored credential or data state that becomes unusable, or that becomes newly suspect, as a result.
+Without a bridge, `UPGRADE_NOTES.md` MUST disclose what stops working, for whom, the remedy, and any stored credentials or data made unusable or suspect.
 
 ---
 ## Contract Surface Categories
