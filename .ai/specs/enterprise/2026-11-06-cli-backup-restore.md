@@ -2,7 +2,7 @@
 
 ## TLDR
 
-**Proposal, not implementation. Enterprise Edition only.** Give instance operators one CLI lifecycle in the enterprise `backups` module (`mercato backups …`) to create a whole-database PostgreSQL backup, verify it offline, restore it into an empty isolated database, and exercise recovery. Three properties define this revision:
+**Proposal, not implementation. Enterprise Edition only.** Give instance operators one CLI lifecycle in the enterprise `backups` module (bootstrap-free `mercato-backup …`, with `mercato backups …` wrappers in an app checkout) to create a whole-database PostgreSQL backup, verify it offline, restore it into an empty isolated database, and exercise recovery. Three properties define this revision:
 
 1. **Encrypted by default.** The whole backup — schema, every row, the chunk index — is encrypted as an archive, independently of the per-entity field-encryption maps. An unencrypted backup is an explicit, confirmed opt-in that deployment policy can forbid.
 2. **Resumable both ways.** Backup and restore work in per-entity chunks recorded in a checkpoint journal. An interrupted run (crash, `SIGINT`, lost connection, full disk fixed by the operator) continues from the last durable chunk instead of starting over.
@@ -73,6 +73,7 @@ Takeaway: every arrow that moves data ends in a durable journal entry, so a cras
 
 | Path | Responsibility |
 |---|---|
+| `packages/enterprise/bin/mercato-backup.mjs` + `…/backups/lib/engine/cli/main.ts` | Bootstrap-free primary entry point (see *Command entry points*). |
 | `packages/enterprise/src/modules/backups/cli.ts` | `ModuleCli[]`: thin handlers for the commands below, prompts, JSON projection, exit mapping. Shared with the automated spec's `run`/`list`. |
 | `packages/enterprise/src/modules/backups/lib/engine/schemas.ts` | Zod inputs, manifest v1, index v1, journal v1, restore report v1, progress event v1, checks file v1. |
 | `…/lib/engine/{preflight,create,verify,restore,exercise}.ts` | Lifecycle functions and resume logic. |
@@ -84,42 +85,53 @@ Takeaway: every arrow that moves data ends in a durable journal entry, so a cras
 
 No new entities or migrations from this spec (the automated spec owns `backup_run`). The restore journal is a temporary schema in the **target** database, not an application entity. No events, routes or DI keys beyond those the automated spec defines. Encrypted application reads during an exercise use the existing encryption helpers (`findWithDecryption`), never ad-hoc decryption.
 
-### Command bootstrap
+### Command entry points and bootstrap
 
-Commands are registered through the module CLI registry and therefore only exist when the enterprise module is enabled. Handlers **must not** call `createRequestContainer()` for `verify`, `restore` or `exercise`: disaster recovery cannot depend on the lost live database. `create` reads entity labels from ORM metadata (table → module · entity class) without opening an ORM connection; if metadata is unavailable it falls back to table names. Restore takes every label from the backup's index.
+Two entry points share one set of handlers:
+
+- **`mercato-backup` (primary, bootstrap-free)** — a bin shipped by `@open-mercato/enterprise` (`packages/enterprise/bin/mercato-backup.mjs` → `…/backups/lib/engine/cli/main.ts`). It loads no app modules, generated registries, DI container or `.env` scaffolding, so a recovery host needs only Node, the enterprise package, PostgreSQL client tools and the operator's service/identity files. It owns stdout completely, which is what makes the `--json` contract (one object) and the exit-code table hold. It refuses to run unless `OM_ENABLE_ENTERPRISE_MODULES` and `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS` are true, mirroring the module gate.
+- **`mercato backups <command>` (convenience)** — `ModuleCli` entries in the module's `cli.ts`, present only when the module is enabled. They run through the standard dispatcher, which runs the full app bootstrap (`backups` is not in `BOOTSTRAP_FREE_COMMANDS`, `packages/cli/src/lib/cli-bootstrap-mode.ts`) and prints its banner, `🚀 Running …` and `⏱️ Done …` lines to stdout (`packages/cli/src/mercato.ts`). They therefore support human/progress output only: `--json` is rejected with a pointer to `mercato-backup`, and thrown errors surface as the dispatcher's exit 1. No dispatcher or OSS CLI change is proposed.
+
+Neither entry point calls `createRequestContainer()` for `verify`, `restore`, `exercise` or `status`: recovery cannot depend on the lost live database. `create` reads entity labels from the generated ORM metadata when invoked through `mercato backups` (table → module · entity class, no ORM connection); `mercato-backup create` accepts `--labels-file` exported by `mercato backups labels` and otherwise falls back to table names. Restore takes every label from the backup's index.
 
 ### Backup engine (out)
 
 1. **Plan.** Open a read-only `REPEATABLE READ` control session, `pg_export_snapshot()`, record `xmax` of `pg_current_snapshot()` as the epoch horizon. Enumerate user tables (skipping the engine's own journal schema), estimate rows (`reltuples`) and bytes (`pg_relation_size`), and choose a chunk strategy per entity:
    - **keyset** — tables with a primary key or a non-null unique key: `COPY (SELECT * FROM t WHERE (key) > $last ORDER BY key LIMIT n) TO STDOUT (FORMAT binary)`. Chunk boundaries are key values, so they survive a resume.
    - **ctid-range** — tables without a usable key: page ranges, valid only within one snapshot epoch.
-   - **large objects** — OID-ordered batches via server-side `lo_get`, chunked like keyset.
-   Default chunk target: 64 MiB uncompressed or 1,000,000 rows, whichever first (`--chunk-size-bytes`, bounded 8 MiB–1 GiB). `COPY` uses an explicit column list that excludes generated columns (restore regenerates them); binary format is safe because source and target majors must match.
-2. **Schema.** `pg_dump --section=pre-data` and `--section=post-data` with `--snapshot=<id> --format=custom` stream into two schema chunks. Sequence values are read under the same snapshot into the index.
-3. **Data.** `--jobs` workers (1–8, default 2) each open a session, `SET TRANSACTION SNAPSHOT <id>`, and process chunks: `COPY … TO STDOUT` → gzip → age encrypt → SHA-256 tee → `<partial>/data/<entityKey>/<seq>.chunk.partial` → fsync → rename to `.chunk` → append a journal line `{entity, seq, keyFrom, keyTo, rows, plainBytes, cipherBytes, sha256, epoch}` → fsync journal. Only journalled chunks exist for resume.
-4. **Seal.** When every planned chunk is journalled: write `index.age` (encrypted entity list, labels, chunk list, row/byte totals, sequence values, consistency evidence), then `manifest.json` (non-secret: ids, digests, encryption recipients fingerprint, consistency mode, versions), fsync, atomic no-replace rename of the partial directory to the final directory, fsync parent.
+   - **large objects** — OID-ordered; small objects batched per chunk, an object larger than the chunk target split by byte offset (`lo_get(oid, offset, length)`). OIDs and owners come from pre-data (which creates empty large objects), so restore writes content with `lo_open`/`lo_put` into the existing OID, never `lo_from_bytea`; a non-superuser restore role needs ownership of those objects (pre-data runs under the same role) — preflight checks it.
+   Default chunk target: 64 MiB uncompressed or 1,000,000 rows, whichever first (`--chunk-size-bytes`, bounded 8 MiB–1 GiB). `LIMIT n` is adaptive: `n` starts from `chunk target ÷ average row width` (`pg_stats`/relation size) and is re-tuned from the measured bytes of each finished chunk, so chunks stay within 0.5–2× the target without parsing COPY tuples. `COPY` uses an explicit column list that excludes generated columns (restore regenerates them); binary format is safe because source and target majors must match.
+2. **Schema.** `pg_dump --section=pre-data` and `--section=post-data` with `--snapshot=<id> --format=custom` stream into two schema chunks. The index also captures, under the same snapshot, every foreign-key definition (`pg_get_constraintdef`) so restore can create them `NOT VALID` (see restore step 5).
+3. **Data.** `--jobs` workers (1–8, default 2) each open a session, `SET TRANSACTION SNAPSHOT <id>`, and process chunks: `COPY … TO STDOUT` → gzip → age encrypt → SHA-256 tee → `<partial>/data/<entityKey>/<seq>.chunk.partial` → fsync → rename to `.chunk` → append a journal record → fsync journal. Only journalled chunks exist for resume.
+4. **Sequences.** Read `last_value`/`is_called` of every sequence at seal time in the final epoch. For `quiesced` or `multi-snapshot` backups also record, for each sequence owned by a column (`pg_depend`), the column maximum among restored rows; restore sets the sequence to the greater of the two so `nextval` can never collide with a restored key.
+5. **Seal.** When every planned chunk is journalled: write `index.age` (encrypted entity list, labels, chunk list with key boundaries, row/byte totals, sequence values, FK definitions, consistency evidence), then `manifest.json` (non-secret: ids, digests, encryption recipients fingerprint, consistency mode, versions), fsync, atomic no-replace rename of the partial directory to the final directory, fsync parent, delete the run key (below).
+
+**Journal confidentiality.** The backup host holds only public recipients, so it cannot read back anything encrypted to them — yet resume must read entity identities and keyset boundaries, and a keyset boundary can be real data (a unique email, an order number). Therefore each run generates an **ephemeral X25519 run key**: its public half encrypts every journal record's sensitive body (`{schema, table, keyFrom, keyTo, catalog fingerprint}`) as an age payload; only non-sensitive fields stay plaintext in the journal line (`entityKey`, `seq`, sizes, `sha256`, `epoch`, chain hash). The run key's private half is stored 0600 in `--workspace` (local, operator-owned — not on the output volume, which may be shared or synced) and, wrapped to the backup recipients, as `run-key.age` in the partial directory, so an operator holding a backup identity can resume on another host (`--identity-file`). Both copies are deleted when the backup seals. With `--no-encryption` the journal is plaintext like the rest of the backup.
 
 ### Resume semantics (backup)
 
-`mercato backups create --resume <backupId>` (or the partial directory path) reopens a partial artifact:
+`create --resume <backupId>` (or the partial directory path) reopens a partial artifact:
 
 - Acquire the run lock (below), validate the journal (each referenced chunk exists and rehashes), discard any `.partial` file and any chunk without a journal line.
 - **Same epoch** (the snapshot holder is still alive — transient worker or connection failure inside one process): the engine retries failed chunks in-process up to 3 times with backoff before failing; consistency stays `single-snapshot`.
 - **New epoch** (process died, snapshot gone): open a new snapshot. Compare the new `xmax` horizon with the previous epoch's. Unchanged → no write transaction committed in between; consistency becomes or stays `quiesced`. Advanced → `multi-snapshot`. The horizon is cluster-wide (the engine's own sessions are read-only and assign no transaction ids), so writes in another database on the same cluster also advance it: the check can only err towards the weaker label, never claim a false `quiesced`. Finished entities are kept; the interrupted keyset entity continues from its last journalled key **only** when consistency is `quiesced`, otherwise it restarts from its first chunk (old chunks for that entity are tombstoned in the journal) so every entity is internally consistent at one snapshot. ctid-range entities always restart.
 - Schema chunks are retaken in the newest epoch if a DDL change is detected (catalog fingerprint of relations, columns, constraints differs) — and then **all** data entities restart, because chunk layouts may no longer match. A changed catalog is printed as the reason.
-- `--quiesced` asks the engine to fail rather than produce `multi-snapshot`: if the horizon advanced, resume refuses (exit 3) and tells the operator to stop writers or drop the flag.
+- `--quiesced` asks the engine to fail rather than produce `multi-snapshot`: if the horizon advanced, resume refuses (exit 3) and tells the operator to stop writers or drop the flag. In practice `quiesced` needs a real maintenance window: any writer on the cluster — pg_cron jobs, monitoring agents writing stats tables, another application database — advances the horizon. The runbook lists these.
+- Resume needs the run key: from `--workspace` on the same host, or from `run-key.age` with `--identity-file` elsewhere. Without either, resume refuses (exit 3) and the operator starts a new backup.
 - A resume uses the encryption recipients and compression recorded in the partial journal header; passing different ones refuses.
 
 ### Restore engine (in) and resume
 
-1. **Verify first.** Check `--trusted-manifest-sha256`, decrypt and parse `index.age`, rehash every chunk against the index before touching the target (`--verify-mode full`, default) or verify each chunk just before loading it (`--verify-mode streaming`, for disk-constrained hosts; a bad chunk then stops the restore with the target quarantined).
-2. **Journal.** Inside the target create schema `om_backup_restore` with `restore_run(restore_run_id, backup_id, manifest_sha256, target_challenge_digest, phase, started_at)` and `restore_chunks(entity_key, seq, sha256, rows, restored_at)`.
-3. **Pre-data** in one transaction together with the `restore_run` row.
-4. **Data.** `--jobs` workers (1–8, default 2) each load one chunk per transaction: decrypt → gunzip → `COPY t FROM STDIN (FORMAT binary)` → insert the `restore_chunks` row → `COMMIT`. Chunk and journal row commit atomically, so a chunk is loaded exactly once.
-5. **Post-data.** Each TOC entry (index, constraint, trigger, sequence `setval`) runs in its own transaction and is journalled. Foreign keys are created `NOT VALID` then `VALIDATE`d separately, so a `multi-snapshot` backup reports violating constraints per entity instead of aborting the whole restore.
-6. **Finish.** `ANALYZE`, write the report, drop `om_backup_restore`, mark `phase: 'completed'` in the report.
+`pg_restore` is used only as a **SQL renderer**, never as a database client: the engine runs `pg_restore --list` on a schema chunk, then `pg_restore --use-list=<one entry or group> --file=- --no-owner --no-acl --no-tablespaces` to obtain the SQL text, and executes that SQL on its own connection. This is what lets schema statements share the engine's transactions and journal.
 
-`mercato backups restore --resume <restoreRunId> …` requires the same artifact, the same trusted manifest digest and a fresh target confirmation challenge. The target must contain exactly the restore journal for that run plus objects consistent with its phase; anything else refuses (exit 3). Done chunks and post-data entries are skipped. A chunk whose transaction did not commit left no rows, so it is simply reloaded.
+1. **Verify first.** Check `--trusted-manifest-sha256`, decrypt and parse `index.age`, rehash every chunk against the index before touching the target (`--verify-mode full`, default) or verify each chunk just before loading it (`--verify-mode streaming`, for disk-constrained hosts; a bad chunk then stops the restore with the target quarantined). Verified chunk digests are recorded in the journal (`restore_steps`), so a resume re-verifies only chunks not yet loaded.
+2. **Init — one transaction.** Create schema `om_backup_restore` with `restore_run(restore_run_id, backup_id, manifest_sha256, target_challenge_digest, phase, heartbeat_at, started_at)`, `restore_chunks(entity_key, seq, sha256, rows, restored_at)` and `restore_steps(step_key, kind, status, detail, finished_at)`; insert the `restore_run` row; execute the rendered pre-data SQL (pre-data contains tables, types, functions, sequences and empty large objects, but no indexes, primary/unique keys, FKs or triggers). Commit. A crash before commit leaves the target empty; after commit the target is resumable. There is no window in which it is neither.
+3. **Data.** `--jobs` workers (1–8, default 2) each load one chunk per transaction: decrypt → gunzip → `COPY t (columns) FROM STDIN (FORMAT binary)` (large-object chunks: `lo_open`/`lo_put`) → insert the `restore_chunks` row → `COMMIT`. Chunk and journal row commit atomically, so a chunk is loaded exactly once.
+4. **Sequences.** Set every sequence from the index (greater of recorded value and restored column max, per backup step 4); one journalled step.
+5. **Post-data.** Each post-data TOC entry except foreign keys (primary/unique keys, indexes, check constraints, triggers, rules) is rendered and executed in its own transaction together with its `restore_steps` row. Foreign keys are skipped in the rendered list and created from the captured `pg_get_constraintdef` definitions with `NOT VALID`, then each is `VALIDATE`d as its own step; a violation (possible for `multi-snapshot` backups) is recorded per entity in `restore_steps` and the report (exit 6, target quarantined) instead of aborting the remaining steps.
+6. **Finish.** `ANALYZE`; write and atomically finalize the report from the journal; then drop `om_backup_restore` in its own transaction. Finish is idempotent: a crash after the report but before the drop is completed by resume (report already final → drop only).
+
+`restore --resume <restoreRunId> …` requires the same artifact, the same trusted manifest digest and a fresh target confirmation challenge. The target's baseline check accepts exactly the restore journal for that run plus objects consistent with its recorded phase; anything else refuses (exit 3). Done chunks and steps are skipped. A chunk or step whose transaction did not commit left nothing behind, so it is simply re-run.
 
 ### Run lock
 
@@ -183,7 +195,7 @@ Backup 3f2c9a1e → /srv/backups   encrypted (age, 2 recipients)   single-snapsh
 Overall  █████░░░░░  57%   412 / 731 entities   18.3 / ~32.1 GiB   ETA 12:40
 ```
 
-Rules: show running entities, the 3 most recent completions, failures, then a `… 318 queued` summary line, so the display fits the terminal; `--progress verbose` lists every entity. Non-TTY or `--progress plain` prints one line per entity state change plus an overall line every 10 s. `--progress json` writes NDJSON progress events v1 to stderr (`{schemaVersion:1, type:'run.started'|'entity.progress'|'entity.done'|'entity.failed'|'phase.changed'|'run.finished', runId, entity?, rowsDone, rowsTotal, rowsTotalExact, bytesDone, chunksDone, chunksTotal, at}`), throttled to 2 events/s per entity. `--progress none` disables it. Progress never writes to stdout, so `--json` results stay a single object. When the facade runs inside the automated pipeline's worker, the same events update its `ProgressJob` (overall percentage) — the per-entity view is CLI-only in v1. Labels and states are localized through the module's i18n; entity labels are not translated.
+Rules: show running entities, the 3 most recent completions, failures, then a `… 318 queued` summary line, so the display fits the terminal; `--progress verbose` lists every entity. Non-TTY or `--progress plain` prints one line per entity state change plus an overall line every 10 s. `--progress json` writes NDJSON progress events v1 to stderr (`{schemaVersion:1, type:'run.started'|'entity.progress'|'entity.done'|'entity.failed'|'phase.changed'|'run.finished', runId, entity?, rowsDone, rowsTotal, rowsTotalExact, bytesDone, chunksDone, chunksTotal, at}`), throttled to 2 events/s per entity. `--progress none` disables it. Progress never writes to stdout, so `mercato-backup --json` results stay a single object. When the facade runs inside the automated pipeline's worker, the same events update the `backup_run` row's progress fields, and — only for manual runs triggered by a user, which have that user's tenant (`ProgressJob.tenantId` is non-null) — the `ProgressJob` the automated spec creates; scheduled, tenant-less runs have no `ProgressJob`. The per-entity view is CLI-only in v1. Labels and states are localized through the module's i18n; entity labels are not translated.
 
 ## Data Models
 
@@ -198,7 +210,7 @@ Rules: show running entities, the 3 most recent completions, failures, then a `�
   data/<entityKey>/<seq>.chunk
 ```
 
-`entityKey` is a generated short id (`e0001…`), not the table name, so file names do not leak schema. During creation the directory is `<output>/.<backupId>.partial/` (0700) and also holds `journal.jsonl` and `lock`; both are removed at sealing — the index replaces the journal.
+`entityKey` is a generated short id (`e0001…`), not the table name, so file names do not leak schema. During creation the directory is `<output>/.<backupId>.partial/` (0700) and also holds `journal.jsonl`, `lock` and `run-key.age`; all are removed at sealing — the index replaces the journal. The run key's private half lives in `--workspace`, never in the output directory.
 
 **Manifest:** `schemaVersion: 1`, `state: 'complete'`, `backupId`, `startedAt/completedAt` (UTC), `scope: 'whole-database'`, `kind: 'postgresql-logical-chunked'`, `encryption: {mode: 'age-v1'|'none', recipientSetFingerprint?}`, `compression: 'gzip'`, `consistency: {mode: 'single-snapshot'|'quiesced'|'multi-snapshot', epochs}`, tool versions, source PostgreSQL version, non-secret instance/database identity digest, encoding/collation, application release and migration-set digest, `index: {path, sizeBytes, sha256}`, `chunkCount`, `totalCipherBytes`, `exclusions: ['external-files','object-stores','vault','redis','cluster-globals','wal']`.
 
@@ -214,13 +226,14 @@ External to the artifact: restore run id, backup id, trusted manifest digest, ta
 
 ## API Contracts (CLI)
 
-Commands under `mercato backups` (enterprise module CLI). All flags validated by Zod before I/O; unknown or conflicting flags refuse. No generic `--yes`.
+Commands of `mercato-backup` (the same commands exist as `mercato backups <command>` for human output; `--json` only on `mercato-backup`). All flags validated by Zod before I/O; unknown or conflicting flags refuse. No generic `--yes`.
 
 | Command | Inputs and behavior |
 |---|---|
 | `preflight --operation create\|restore\|exercise` | Read-only checks: tools, versions, connection budget, disk/workspace, encryption policy, target emptiness and identity challenge. `--source-service` / `--target-service`, `--artifact`. |
-| `create --source-service <name> --output <abs-dir> [--recipients-file <path> \| --no-encryption --confirm-unencrypted] [--jobs 1-8] [--chunk-size-bytes n] [--quiesced] [--deadline-seconds n] [--max-output-bytes n]` | Chunked encrypted backup; prints `backupId`, path, manifest digest. Interrupted runs print `mercato backups create --resume <backupId> --output <dir>`. |
-| `create --resume <backupId\|partial-dir> --source-service <name> --output <abs-dir> [--jobs] [--quiesced] [--take-over-lock <runId>]` | Continues a partial backup per *Resume semantics*. Encryption/compression come from the journal. |
+| `create --source-service <name> --output <abs-dir> [--recipients-file <path> \| --no-encryption --confirm-unencrypted] [--jobs 1-8] [--chunk-size-bytes n] [--quiesced] [--deadline-seconds n] [--max-output-bytes n] --workspace <abs-dir>` | Chunked encrypted backup; prints `backupId`, path, manifest digest. Interrupted runs print `mercato-backup create --resume <backupId> --output <dir> --workspace <dir>`. |
+| `create --resume <backupId\|partial-dir> --source-service <name> --output <abs-dir> --workspace <abs-dir> [--identity-file <path>] [--jobs] [--quiesced] [--take-over-lock <runId>]` | Continues a partial backup per *Resume semantics*. Encryption/compression come from the journal. |
+| `labels --output <path>` (`mercato backups` only) | Writes table → module · entity labels from generated ORM metadata for `mercato-backup create --labels-file`. No database connection. |
 | `status <artifact-or-partial-dir> [--identity-file <path>]` | Read-only: complete vs partial, entities done/total, consistency mode so far, last heartbeat, resume command. Entity names need the identity for encrypted artifacts; counts do not. |
 | `verify --artifact <dir> --trusted-manifest-sha256 <hex64> [--identity-file <path>] [--workspace <dir> --max-staging-bytes n]` | Offline: manifest, index, every chunk hash and age authentication, schema chunk TOC parse. No database connection. Per-entity progress. |
 | `restore --artifact <dir> --trusted-manifest-sha256 <hex64> [--identity-file <path>] --target-service <name> --confirm-target <challenge> --workspace <dir> --max-staging-bytes n [--jobs 1-8] [--verify-mode full\|streaming]` | Verify, recheck target, journalled restore per *Restore engine*. Prints `restoreRunId` and the resume command on interruption. |
@@ -229,7 +242,20 @@ Commands under `mercato backups` (enterprise module CLI). All flags validated by
 
 Shared flags: `--json`, `--report`, `--progress tty|plain|json|verbose|none` (default `tty` when stderr is a TTY, else `plain`). Stdout under `--json` is exactly one object: `{schemaVersion:1, command, runId, status:'completed'|'refused'|'failed'|'interrupted'|'resumable', backupId?, restoreRunId?, artifactPath?, manifestSha256?, consistency?, encryption?, resumeCommand?, reportPath?, error?:{code,messageKey}, warnings:[…]}`. Bytes are decimal strings.
 
-Exit codes: 0 completed; 2 invalid input / unsupported version; 3 safety refusal (identity, emptiness, trust, encryption policy, `--quiesced` violated, journal binding mismatch); 4 integrity / authentication failure; 5 native tool / connection / I/O / quota / deadline failure **with a resumable state left** (`status: 'resumable'`); 6 recovery checks or FK validation failed; 130 SIGINT, 143 SIGTERM (resumable). Precedence: interruption, then safety, then integrity.
+Exit codes, JSON status and resumability (single source of truth; machine-contract snapshots pin it):
+
+| Exit | `status` | Meaning | Resumable? |
+|---|---|---|---|
+| 0 | `completed` | Command stage finished (never implies promotion). | — |
+| 2 | `refused` | Invalid input, unsupported version or option. | No state written. |
+| 3 | `refused` | Safety refusal: identity, emptiness/baseline, trust, encryption policy, `--quiesced` violated, journal binding mismatch, run key unavailable, live lock. | Existing partial/journal untouched. |
+| 4 | `failed` | Integrity/authentication failure (bad chunk, wrong identity, digest mismatch). | Backup: no. Restore: yes after the artifact is repaired from another copy. |
+| 5 | `resumable` | Native tool, connection, I/O, quota or deadline failure after state was written. | Yes — `resumeCommand` given. |
+| 6 | `failed` | Recovery checks, canary or FK validation failed; restore data is loaded and quarantined. | No — investigate. |
+| 1 | `failed` | Unexpected internal error (bug). | Yes when a journal exists; `resumeCommand` given. |
+| 130 / 143 | `interrupted` | SIGINT / SIGTERM. | Yes — `resumeCommand` given. |
+
+Precedence: interruption, then safety (3), then integrity (4), then runtime (5), then checks (6). `mercato backups` wrappers return the same codes except that errors escaping the handler become the dispatcher's 1.
 
 ### Target confirmation and isolation (retained)
 
@@ -287,10 +313,12 @@ No tests ship with this spec-only PR; this is the implementation acceptance matr
 | B12 | preflight | Unsupported version, missing binary, insufficient connections, non-empty target, alias of source | Stable refusal codes before mutation. |
 | B13 | secrets | Passwords/URIs/row text in native errors; hostile escape sequences in table names | Nothing sensitive in argv, stderr, progress, reports or telemetry. |
 | B14 | exercise isolation | Restored integrations, callbacks, queues | Zero external side effects. |
-| B15 | enterprise gating | Enterprise modules disabled | `mercato backups` unavailable; no OSS command exists. |
+| B15 | enterprise gating | Enterprise flags off | `mercato backups` absent, `mercato-backup` refuses; no OSS command exists. |
+| B17 | status / entry points | `status` on partial and complete artifacts with and without identity; `mercato-backup` on a host without app checkout; `mercato backups --json` | Status shows counts without identity, names only with it; standalone bin runs with no bootstrap or `.env` writes; wrapper rejects `--json`. |
+| B18 | journal confidentiality | Inspect partial directory of an encrypted run mid-backup | No table names or key values in plaintext; resume works from workspace key and, on another host, from `run-key.age` + identity. |
 | B16 | facade | Automated worker path with mock chunk store | Same engine, ProgressJob updated, abort signal honored. |
 
-Performance gate (pinned 4 vCPU / 8 GiB runner, 1 GiB and 20 GiB datasets): Node coordinator RSS ≤ 256 MiB at jobs 1–8; backup and restore elapsed ≤ 1.3× a matched `pg_dump`/`pg_restore` + age baseline plus 30 s; resume overhead (journal validation and re-planning) ≤ 30 s at 20 GiB; progress rendering ≤ 2% CPU; cancellation releases children and connections within 15 s. Proposed targets, not measured results.
+Performance gate (pinned 4 vCPU / 8 GiB runner, 1 GiB and 20 GiB datasets): Node coordinator RSS ≤ 256 MiB at jobs 1–8; backup and restore elapsed ≤ 1.3× a matched `pg_dump`/`pg_restore` + age baseline plus 30 s; resume overhead (journal validation and re-planning; restore resume re-verifies only chunks not yet loaded) ≤ 30 s at 20 GiB; progress rendering ≤ 2% CPU; cancellation releases children and connections within 15 s. Proposed targets, not measured results.
 
 ## Migration & Backward Compatibility
 
@@ -307,14 +335,15 @@ This PR changes specifications only. Later implementation adds enterprise CLI co
 | Atomicity / resume | Chunk-level durability, journal chain hashes, chunk + journal row in one restore transaction, honest consistency labels. |
 | Scale | Bounded streams, chunk caps, connection budgets, jobs 1–8, progress throttling. |
 | Contracts | Versioned schemas; additive enterprise surface; convergence with the automated spec recorded. |
-| Integration coverage | B01–B16 self-contained matrix; QA to confirm harness placement. |
+| Integration coverage | B01–B18 self-contained matrix; QA to confirm harness placement. |
 | i18n | Progress labels, prompts and errors localized; stable codes for scripts. |
 
 Verdict: **design review only; not approved for implementation** until Q2/Q3 security decisions and harness placement are confirmed.
 
 ## Changelog
 
-- 2026-11-06 (rev 2): Per PR author direction — moved to enterprise (`backups` module CLI, `.ai/specs/enterprise/`); whole-backup encryption by default with per-chunk age files and an explicit, policy-lockable unencrypted option; replaced the no-resume design with chunked, journalled, resumable backup and restore with epoch-based consistency labels; added per-entity progress bars for backup and restore (TTY, plain, NDJSON); replaced the B01–B20 matrix with B01–B16 and refreshed phasing.
+- 2026-11-06 (rev 2): Per PR author direction — moved to enterprise (`backups` module CLI, `.ai/specs/enterprise/`); whole-backup encryption by default with per-chunk age files and an explicit, policy-lockable unencrypted option; replaced the no-resume design with chunked, journalled, resumable backup and restore with epoch-based consistency labels; added per-entity progress bars for backup and restore (TTY, plain, NDJSON); replaced the B01–B20 matrix with B01–B18 and refreshed phasing.
+- 2026-11-06 (rev 2.1): Addressed specification review — encrypted journal via an ephemeral run key; `pg_restore` used only as a SQL renderer so schema steps share engine transactions; FKs from captured definitions with `NOT VALID`; atomic restore init and `restore_steps` journal; report finalized before journal drop; sequences reconciled with column max for non-single-snapshot backups; large objects written with `lo_put` and split by offset; bootstrap-free `mercato-backup` bin owning stdout; exit-code/status/resumability table; adaptive chunk sizing; ProgressJob scope; registration and template sync in Phase 0.
 - 2026-11-06: Initial OSS manual backup/restore CLI design (non-resumable, `packages/cli`).
 
 ## Implementation Plan
@@ -322,17 +351,17 @@ Verdict: **design review only; not approved for implementation** until Q2/Q3 sec
 ### Phase 0 — Gates
 
 1. Q2/Q3 security decisions (age library, recipients, escrow), harness placement with QA, and reconciliation notes applied to the automated spec. Spike: snapshot export + keyset `COPY` + per-chunk age on a 20 GiB fixture to confirm the performance targets.
-2. Scaffold the `backups` module if the automated spec has not (module registration, `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS`, stub `cli.ts` discovered by `yarn generate`).
+2. Scaffold the `backups` module if the automated spec has not: register in `enterprisePackage.modules` (`packages/enterprise/src/index.ts`) and in `apps/mercato/src/modules.ts` behind `OM_ENABLE_ENTERPRISE_MODULES` + `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS` (mirrored into the create-app template via `yarn template:sync:fix`), stub `cli.ts` discovered by `yarn generate`, and the `mercato-backup` bin entry in the enterprise `package.json`.
 
 ### Phase 1 — Chunked encrypted backup
 
 3. Schemas, process/resource adapters, preflight, encryption policy (B01, B03, B12, B13, B15).
 4. Snapshot holder, chunk planner, chunk pipeline, journal, sealing; progress model and TTY/plain/JSON renderers for backup (B01, B10).
-5. Backup resume: epochs, horizon check, `--quiesced`, DDL detection, locks (B04, B05, B06, B11).
+5. Backup resume: run key and encrypted journal, epochs, horizon check, `--quiesced`, DDL detection, sequence max reconciliation, locks (B04, B05, B06, B11, B18).
 
 ### Phase 2 — Verify and resumable restore
 
-6. Offline `verify` and `status` (B09).
+6. Offline `verify` and `status`; `mercato-backup` standalone entry point (B09, B17).
 7. Restore with target challenge, journal schema, chunk loading, post-data, FK validation; restore progress (B02, B07, B08, B10).
 8. `exercise` checks and canary drill; sandbox guidance (B14).
 
