@@ -663,4 +663,151 @@ describe('ExchangeRateService', () => {
       expect(usdEur?.error?.message).toContain('future date')
     })
   })
+  describe('getRate - source-aware lookup', () => {
+    const day = new Date('2024-01-15T00:00:00Z')
+    const prevDay = new Date('2024-01-14T00:00:00Z')
+
+    const build = (existingRates: any[]) => {
+      const { em } = createMockEntityManager({ existingRates })
+      const fetching = new RateFetchingService(em)
+      return { em, fetching, svc: new ExchangeRateService(em, fetching) }
+    }
+
+    it('returns only rows of the requested source', async () => {
+      const tableC = createTestExchangeRate({ rate: '4.30', date: day, source: 'NBP' })
+      const tableA = createTestExchangeRate({ rate: '4.28', date: day, source: 'NBP_A' })
+      const { svc } = build([tableC, tableA])
+
+      const result = await svc.getRate({
+        fromCurrencyCode: 'USD',
+        toCurrencyCode: 'EUR',
+        date: day,
+        scope: TEST_SCOPE,
+        source: 'NBP_A',
+      })
+
+      expect(result.rates).toHaveLength(1)
+      expect(result.rates[0].source).toBe('NBP_A')
+      expect(result.actualDate).toEqual(day)
+    })
+
+    it('does not filter by source when it is omitted', async () => {
+      const tableC = createTestExchangeRate({ rate: '4.30', date: day, source: 'NBP' })
+      const tableA = createTestExchangeRate({ rate: '4.28', date: day, source: 'NBP_A' })
+      const { svc } = build([tableC, tableA])
+
+      const result = await svc.getRate({
+        fromCurrencyCode: 'USD',
+        toCurrencyCode: 'EUR',
+        date: day,
+        scope: TEST_SCOPE,
+      })
+
+      expect(result.rates).toHaveLength(2)
+    })
+
+    it('fetches only the requested provider when another source already has a row for the day', async () => {
+      const tableC = createTestExchangeRate({ rate: '4.30', date: day, source: 'NBP' })
+      const tableA = createTestExchangeRate({ rate: '4.28', date: day, source: 'NBP_A' })
+      const stored: any[] = [tableC]
+      const { em, fetching, svc } = build(stored)
+
+      const fetchSpy = jest
+        .spyOn(fetching, 'fetchRatesForDate')
+        .mockImplementation(async () => {
+          stored.push(tableA)
+          return { totalFetched: 1, byProvider: { NBP_A: { count: 1 } }, errors: [] }
+        })
+
+      const result = await svc.getRate({
+        fromCurrencyCode: 'USD',
+        toCurrencyCode: 'EUR',
+        date: day,
+        scope: TEST_SCOPE,
+        source: 'NBP_A',
+      })
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      expect(fetchSpy).toHaveBeenCalledWith(day, TEST_SCOPE, { providers: ['NBP_A'] })
+      expect(result.rates.map((r) => r.source)).toEqual(['NBP_A'])
+      expect(result.actualDate).toEqual(day)
+      expect(em.find).toHaveBeenCalled()
+    })
+
+    it('steps back a day only when the source has no row and its fetch yields nothing', async () => {
+      const tableAPrev = createTestExchangeRate({ rate: '4.27', date: prevDay, source: 'NBP_A' })
+      const tableCDay = createTestExchangeRate({ rate: '4.30', date: day, source: 'NBP' })
+      const { fetching, svc } = build([tableCDay, tableAPrev])
+
+      const fetchSpy = jest.spyOn(fetching, 'fetchRatesForDate').mockResolvedValue({
+        totalFetched: 0,
+        byProvider: {},
+        errors: [],
+      })
+
+      const result = await svc.getRate({
+        fromCurrencyCode: 'USD',
+        toCurrencyCode: 'EUR',
+        date: day,
+        scope: TEST_SCOPE,
+        source: 'NBP_A',
+      })
+
+      // 15 Jan: only a Table C row -> ask NBP_A, nothing -> 14 Jan: NBP_A row found, no fetch
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      expect(fetchSpy).toHaveBeenCalledWith(day, TEST_SCOPE, { providers: ['NBP_A'] })
+      expect(result.rates).toHaveLength(1)
+      expect(result.rates[0].source).toBe('NBP_A')
+      expect(result.actualDate).toEqual(prevDay)
+    })
+
+    it('does not fetch with a source when autoFetch is false and does not fall to another source', async () => {
+      const tableC = createTestExchangeRate({ rate: '4.30', date: day, source: 'NBP' })
+      const { fetching, svc } = build([tableC])
+      const fetchSpy = jest.spyOn(fetching, 'fetchRatesForDate')
+
+      const result = await svc.getRate({
+        fromCurrencyCode: 'USD',
+        toCurrencyCode: 'EUR',
+        date: day,
+        scope: TEST_SCOPE,
+        source: 'NBP_A',
+        options: { autoFetch: false, maxDaysBack: 2 },
+      })
+
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(result.rates).toHaveLength(0)
+      expect(result.actualDate).toBeNull()
+    })
+
+    it('treats a blank source as no source', async () => {
+      const tableC = createTestExchangeRate({ rate: '4.30', date: day, source: 'NBP' })
+      const { svc } = build([tableC])
+
+      const result = await svc.getRate({
+        fromCurrencyCode: 'USD',
+        toCurrencyCode: 'EUR',
+        date: day,
+        scope: TEST_SCOPE,
+        source: '  ',
+      })
+
+      expect(result.rates).toHaveLength(1)
+    })
+
+    it('passes the source through getRates for every pair', async () => {
+      const usdEurA = createTestExchangeRate({ date: day, source: 'NBP_A', rate: '0.9' })
+      const usdEurC = createTestExchangeRate({ date: day, source: 'NBP', rate: '0.91' })
+      const { svc } = build([usdEurA, usdEurC])
+
+      const results = await svc.getRates({
+        pairs: [{ fromCurrencyCode: 'USD', toCurrencyCode: 'EUR' }],
+        date: day,
+        scope: TEST_SCOPE,
+        source: 'NBP_A',
+      })
+
+      expect(results.get('USD/EUR')?.rates.map((r) => r.source)).toEqual(['NBP_A'])
+    })
+  })
 })
