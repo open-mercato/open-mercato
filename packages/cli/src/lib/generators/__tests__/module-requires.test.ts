@@ -223,7 +223,7 @@ describe('module dependency validation during generate', () => {
     await expect(generate({ resolver, quiet: true })).rejects.toThrow('process.exit(1)')
     const printed = errorSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(printed).toContain('Module "workflows" requires: business_rules')
-    expect(printed).toContain("export const enabledModules = [ { id: 'business_rules' } ]")
+    expect(printed).toContain("Fix: Enable module 'business_rules' in src/modules.ts.")
   })
 
   it.each([

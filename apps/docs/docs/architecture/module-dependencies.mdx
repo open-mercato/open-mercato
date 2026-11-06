@@ -40,9 +40,9 @@ The check runs at code-generation time, not at HTTP request time, but the effect
 ```text
 Module dependency check failed:
 - Module "sales" requires: catalog, customers, dictionaries
-
-Fix: Enable required module(s) in src/modules.ts. Example:
-  export const enabledModules = [ { id: 'catalog' }, { id: 'customers' }, { id: 'dictionaries' } ]
+Fix: Enable module 'catalog' in src/modules.ts.
+Fix: Enable module 'customers' in src/modules.ts.
+Fix: Enable module 'dictionaries' in src/modules.ts.
 ```
 
 (See `extractModuleRequiresFromSource` and `findMissingModuleRequires` in `packages/cli/src/lib/generators/module-registry.ts`.) Because the generator emits the registry that the Next.js dispatcher imports, a failed `yarn generate` means the app cannot boot until the dependency is satisfied.

@@ -1,9 +1,12 @@
+import { sourceHasDefaultExport, sourceExportedHttpMethods } from './source-exports'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import ts from 'typescript-js'
 import type { ModuleEntry, PackageResolver } from '../resolver'
+import { getEnabledModuleIdentities } from '../module-identity'
+import { getModuleRequirementHint, resolveModuleRequirement, type ModuleIdentity } from '@open-mercato/shared/modules/module-locators'
 import {
   DEV_SUPERVISOR_MANIFEST_FILE,
   DEV_SUPERVISOR_MANIFEST_VERSION,
@@ -93,6 +96,7 @@ export interface ModuleRegistryOptions {
 interface ModuleRegistryDiscovery {
   enabled: ModuleEntry[]
   modules: ModuleRegistryDiscoveryEntry[]
+  identities: ReturnType<typeof getEnabledModuleIdentities>
   getStructureChecksum: () => string
 }
 
@@ -1297,44 +1301,11 @@ function inferScriptKind(filePath: string): ts.ScriptKind {
 }
 
 function hasDefaultExport(sourceFile: string): boolean {
-  let source = ''
   try {
-    source = fs.readFileSync(sourceFile, 'utf8')
+    return sourceHasDefaultExport(sourceFile, fs.readFileSync(sourceFile, 'utf8'))
   } catch {
     return false
   }
-
-  const parsed = ts.createSourceFile(
-    sourceFile,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    inferScriptKind(sourceFile),
-  )
-
-  for (const statement of parsed.statements) {
-    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
-      return true
-    }
-
-    if (
-      ts.isExportDeclaration(statement)
-      && statement.exportClause
-      && ts.isNamedExports(statement.exportClause)
-      && statement.exportClause.elements.some(
-        (element) => element.name.text === 'default' || element.propertyName?.text === 'default',
-      )
-    ) {
-      return true
-    }
-
-    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined
-    if (modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) {
-      return true
-    }
-  }
-
-  return false
 }
 
 function requiresRuntimePageMetadataFromSourceFile(sourceFile: string): boolean {
@@ -1756,29 +1727,27 @@ function alreadyWarned(sourcePath: string): boolean {
 export type MissingModuleRequires = { moduleId: string; missing: string[] }
 
 export function findMissingModuleRequires(
-  enabled: ReadonlyArray<{ id: string }>,
+  modules: readonly ModuleIdentity[],
   requiresByModule: ReadonlyMap<string, string[]>,
 ): MissingModuleRequires[] {
-  const enabledIds = new Set(enabled.map((entry) => entry.id))
   const problems: MissingModuleRequires[] = []
   for (const [moduleId, requires] of requiresByModule.entries()) {
-    const missing = requires.filter((requiredId) => !enabledIds.has(requiredId))
+    const missing = requires.filter((requirement) => !resolveModuleRequirement(requirement, modules))
     if (missing.length) problems.push({ moduleId, missing })
   }
   return problems
 }
 
 function exitOnMissingModuleRequires(
-  enabled: ReadonlyArray<{ id: string }>,
+  modules: readonly ModuleIdentity[],
   requiresByModule: ReadonlyMap<string, string[]>,
 ): void {
-  const problems = findMissingModuleRequires(enabled, requiresByModule)
+  const problems = findMissingModuleRequires(modules, requiresByModule)
   if (!problems.length) return
   console.error('\nModule dependency check failed:')
   for (const problem of problems) console.error(`- Module "${problem.moduleId}" requires: ${problem.missing.join(', ')}`)
-  const missingIds = Array.from(new Set(problems.flatMap((problem) => problem.missing)))
-  console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
-  console.error(`  export const enabledModules = [ ${missingIds.map((id) => `{ id: '${id}' }`).join(', ')} ]`)
+  const missingRequirements = new Set(problems.flatMap((problem) => problem.missing))
+  for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
   process.exit(1)
 }
 
@@ -1910,66 +1879,11 @@ function resolveApiPathFromMetadata(metadata: unknown, fallbackPath: string): st
 }
 
 function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
-  let source = ''
   try {
-    source = fs.readFileSync(sourceFile, 'utf8')
+    return sourceExportedHttpMethods(fs.readFileSync(sourceFile, 'utf8'))
   } catch {
     return []
   }
-
-  const knownMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as HttpMethod[]
-  const exportedMethods = new Set<HttpMethod>()
-  const collectKnownMethods = (rawSpecifiers: string[], opts?: { useExportedAlias?: boolean; useDestructuredProperty?: boolean }) => {
-    for (const specifier of rawSpecifiers) {
-      const trimmed = specifier.trim()
-      if (!trimmed) continue
-
-      let candidate = trimmed
-      if (opts?.useExportedAlias) {
-        candidate = trimmed.split(/\s+as\s+/i).pop()?.trim() ?? trimmed
-      }
-      if (opts?.useDestructuredProperty) {
-        candidate = trimmed.split(':')[0]?.trim() ?? trimmed
-      }
-
-      if (knownMethods.includes(candidate as HttpMethod)) {
-        exportedMethods.add(candidate as HttpMethod)
-      }
-    }
-  }
-
-  for (const method of knownMethods) {
-    const pattern = new RegExp(`export\\s+(?:async\\s+)?function\\s+${method}\\b|export\\s+(?:const|let|var)\\s+${method}\\b`)
-    if (pattern.test(source)) {
-      exportedMethods.add(method)
-    }
-  }
-
-  const reExportPattern = /export\s*{([^}]+)}/g
-  for (const match of source.matchAll(reExportPattern)) {
-    const exportBlock = match[1] ?? ''
-    collectKnownMethods(
-      exportBlock
-      .split(',')
-      .map((part) => part.trim())
-      .filter((part) => part.length > 0),
-      { useExportedAlias: true },
-    )
-  }
-
-  const destructuredExportPattern = /export\s+(?:const|let|var)\s*{([^}]+)}/g
-  for (const match of source.matchAll(destructuredExportPattern)) {
-    const exportBlock = match[1] ?? ''
-    collectKnownMethods(
-      exportBlock
-        .split(',')
-        .map((part) => part.trim())
-        .filter((part) => part.length > 0),
-      { useDestructuredProperty: true },
-    )
-  }
-
-  return knownMethods.filter((method) => exportedMethods.has(method))
 }
 
 function buildPageRouteProps(metaExpr: string, routePath: string): string {
@@ -2235,12 +2149,22 @@ async function createModuleRegistryDiscovery(
 ): Promise<ModuleRegistryDiscovery> {
   resetConventionWarnings()
   const enabled = resolver.loadEnabledModules()
+  const rootsByEntry = new Map<ModuleEntry, ModuleRoots>()
+  const getModulePaths = (entry: ModuleEntry): ModuleRoots => {
+    let roots = rootsByEntry.get(entry)
+    if (!roots) {
+      roots = resolver.getModulePaths(entry)
+      rootsByEntry.set(entry, roots)
+    }
+    return roots
+  }
+  const identities = getEnabledModuleIdentities({ ...resolver, getModulePaths }, enabled)
   const modules: ModuleRegistryDiscoveryEntry[] = []
   const trackedRoots = new Set<string>()
 
   for (const entry of enabled) {
     const modId = entry.id
-    const roots = resolver.getModulePaths(entry)
+    const roots = getModulePaths(entry)
     verifyThirdPartyModuleShape(entry, roots.pkgBase)
     const rawImps = resolver.getModuleImportBase(entry)
     const appImportBase = entry.from === '@app' ? `../../src/modules/${modId}` : rawImps.appBase
@@ -2283,6 +2207,7 @@ async function createModuleRegistryDiscovery(
   return {
     enabled,
     modules,
+    identities,
     getStructureChecksum: () => structureChecksum ??= calculateStructureChecksum(Array.from(trackedRoots)),
   }
 }
@@ -4410,7 +4335,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       }),
     ]),
   })
-  exitOnMissingModuleRequires(enabled, requiresByModule)
+  exitOnMissingModuleRequires(discovery.identities, requiresByModule)
 
   const structureChecksum = discovery.getStructureChecksum()
 
@@ -4869,7 +4794,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     initializer: identifier('modules'),
   })
 
-  exitOnMissingModuleRequires(enabled, requiresByModule)
+  exitOnMissingModuleRequires(discovery.identities, requiresByModule)
 
   const structureChecksum = discovery.getStructureChecksum()
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
@@ -5236,7 +5161,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     ]),
   })
 
-  exitOnMissingModuleRequires(enabled, requiresByModule)
+  exitOnMissingModuleRequires(discovery.identities, requiresByModule)
 
   const structureChecksum = discovery.getStructureChecksum()
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })

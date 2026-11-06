@@ -1735,6 +1735,11 @@ describe('server dev managed process exits', () => {
     expect(exitCode).toBe(0)
     expect(consoleErrorSpy).not.toHaveBeenCalled()
     expect(consoleLogSpy).toHaveBeenCalledWith('[server] Skipping scheduler auto-start — module not enabled')
+    const { spawn } = await import('child_process')
+    const nextSpawn = (spawn as jest.Mock).mock.calls.find((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next') && call[1]?.includes('dev'),
+    )
+    expect(nextSpawn?.[2]?.env.NODE_ENV).toBe('development')
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -2477,6 +2482,11 @@ describe('server start managed process exits', () => {
     expect(exitCode).toBe(0)
     expect(consoleErrorSpy).not.toHaveBeenCalled()
     expect(consoleLogSpy).toHaveBeenCalledWith('[server] Skipping scheduler auto-start — module not enabled')
+    const { spawn } = await import('child_process')
+    const nextSpawn = (spawn as jest.Mock).mock.calls.find((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next') && call[1]?.includes('start'),
+    )
+    expect(nextSpawn?.[2]?.env.NODE_ENV).toBe('production')
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
