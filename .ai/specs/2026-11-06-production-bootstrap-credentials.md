@@ -17,7 +17,7 @@ No schema, API, ACL, event, or direct `mercato auth setup` contract changes. Exi
 ## Migration & Backward Compatibility
 This intentionally narrows production CLI bootstrap behavior. Operators must set a unique `OM_INIT_SUPERADMIN_PASSWORD` or `--password` satisfying `OM_PASSWORD_*`; bypass flags no longer permit unsafe production initialization. Client scripts should handle a nonzero init result and provide credentials securely. Already-initialized skip checks remain unchanged. Non-production callers keep their defaults.
 
-The emergency security exception in BACKWARD_COMPATIBILITY.md is requested for the production acceptance of built-in privileged credentials and policy bypass: bridging that production behavior would preserve the vulnerability. A named human maintainer must approve the waiver before merge. UPGRADE_NOTES.md documents migration and rotation of existing predictable credentials. No automatic rotation or database migration is performed.
+The emergency security exception in BACKWARD_COMPATIBILITY.md is requested for the production acceptance of built-in privileged credentials and policy bypass: bridging that production behavior would preserve the vulnerability. Maintainer @pkarw (Piotr Karwatka) explicitly approved waiving deprecation-protocol steps 1–3 on 2026-11-06: “Waiver: Approve exception.” The [approval record](https://github.com/open-mercato/open-mercato/pull/8896#issuecomment-6682542960) documents the production-only scope; it does not approve QA, waive validation, or authorize merging. UPGRADE_NOTES.md documents migration and rotation of existing predictable credentials. No automatic rotation or database migration is performed.
 
 ## Risks & Impact Review
 - High: deployments relying on built-in production credentials stop at initialization. Mitigation: actionable error and migration guidance; supply credentials before boot.
@@ -34,7 +34,7 @@ The emergency security exception in BACKWARD_COMPATIBILITY.md is requested for t
 No API or UI path changes; integration coverage exercises `run()` with isolated mocked database/module dependencies. No live migrations are applied.
 
 ## Final Compliance Report
-Uses shared password-policy helpers, modifies no tenant data access, adds no dependencies, and preserves development behavior. Human maintainer security-exception approval and QA remain merge gates.
+Uses shared password-policy helpers, modifies no tenant data access, adds no dependencies, and preserves development behavior. The human maintainer security exception is approved; validation and QA remain merge gates.
 
 ## Changelog
 - 2026-11-06: Production-only fix and regression tests prepared for #7809.

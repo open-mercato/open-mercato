@@ -641,8 +641,6 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 **Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
 
-## Production bootstrap credentials (2026-11-06, #7809)
+## #7809 2026-11-06
 
-STABLE CLI behavior (§12): production `mercato init` no longer accepts missing or built-in placeholder superadmin credentials or password-policy bypass. Emergency security exception requested: preserving those production branches would retain predictable privileged-account creation; development behavior is unchanged. Human maintainer waiver approval is required before merge and has not been obtained by this automated run.
-
-Client scripts must provide an explicit policy-compliant secret and handle a nonzero initialization result. Operators must configure `OM_INIT_SUPERADMIN_PASSWORD` before production bootstrap/reinstall and rotate any existing predictable credentials. Initialized-database skip checks remain supported. See [migration guidance](UPGRADE_NOTES.md#production-bootstrap-superadmin-credentials-7809) and [specification](.ai/specs/2026-11-06-production-bootstrap-credentials.md#migration--backward-compatibility).
+STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
