@@ -30,8 +30,8 @@ Cases:
 
 ### Phase 1: Next steps by startup kind
 
-- [ ] 1.1 Detect the startup kind and pick the matching next steps
-- [ ] 1.2 Tests for the three cases with and without env keys
+- [x] 1.1 Detect the startup kind and pick the matching next steps — 730643ca0
+- [x] 1.2 Tests for the three cases with and without env keys — 730643ca0
 
 ### Phase 2: Docs and verification
 
