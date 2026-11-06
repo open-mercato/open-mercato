@@ -14,7 +14,8 @@ Selected identity: `dependabot:open-mercato/open-mercato:220`, `GHSA-j3f2-48v5-c
 - `timeout 30 yarn why protobufjs`: all eight listed consumer locators resolve 7.6.5: Firestore, three grpc/proto-loader versions, two dockerode versions, google-gax, proto3-json-serializer. Existing parent ranges accept this patch; existing security pin is updated rather than adding a new broad override.
 - Installed `require('protobufjs/package.json').version`: 7.6.5.
 - npm registry bulk advisory endpoint POST with `{"protobufjs":["7.6.4"]}` returns GHSA-j3f2-48v5-ccww (`>=7.5.0 <=7.6.4`); identical request for 7.6.5 returns `{}`. This directly verifies removal of the target vulnerability, independently of baseline-tolerant CI.
-- `timeout 30 node --test scripts/__tests__/protobufjs-security.test.mjs`: 1 passed. The identical test against copies of main's manifest and lock fails (`7.6.4 !== 7.6.5`).
+- `timeout 30 node --test scripts/__tests__/protobufjs-security.test.mjs`: 2 passed, including process-isolated malformed-option parsing with a five-second bound. The lockfile test against copies of main's manifest and lock fails (`7.6.4 !== 7.6.5`).
+- Actual vulnerable-package reproduction from the cached 7.6.4 archive: `timeout 3 node` parsing `syntax = "proto3"; option unfinished` exits 124 (infinite loop). Patched 7.6.5 immediately throws an illegal-end-of-input error for three truncated-option variants.
 - Installed protobufjs parse/create/encode/decode round-trip for a proto3 message containing string and uint32 fields: passed.
 - `timeout 30 yarn check:resolutions`: passed, 30 descriptor-keyed resolutions match; 44 range-less pins.
 - `git diff --check`: passed.
