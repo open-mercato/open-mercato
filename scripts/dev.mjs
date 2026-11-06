@@ -43,6 +43,7 @@ import {
   MCP_MAX_PORT_SELECTION_ATTEMPTS,
   buildManagedMcpAppEnv,
   buildMcpCliArgs,
+  createLazyMcpProxy,
   deriveMcpHealthUrl,
   isFastMcpCrash,
   isManagedMcpReadiness,
@@ -60,8 +61,9 @@ import {
   selectAvailableMcpPort,
   shouldRetryMcpProvisioning,
   shouldStartMcp,
+  shouldStartMcpLazily,
 } from './dev-mcp.mjs'
-import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
+import { resolveMercatoInvocation, resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
 import { assertLocalSplashRequest, resolveSplashBindHost } from './dev-splash-shared.mjs'
@@ -255,9 +257,12 @@ const appOnly = args.includes('--app-only')
 // zero Docker calls, so the OpenCode container refresh is skipped entirely.
 const noInfra = args.includes('--no-infra')
 const withMcp = shouldStartMcp({ args, env: process.env, appOnly })
+const mcpLazy = withMcp && shouldStartMcpLazily(process.env)
 let mcpPort = resolveMcpPort(process.env)
 const preferredMcpPort = mcpPort
 const mcpKeyFilePath = resolveMcpKeyFilePath(process.env, process.cwd())
+let mcpProxy = null
+let mcpChildPort = null
 // Watch-scope CLI flags (e.g. `--watch=auto-optimized`, `--watch-popular`) are
 // translated into env vars and forwarded to the spawned package watcher, which
 // reads `OM_WATCH_SCOPE` / `OM_WATCH_PACKAGES`. CLI flags win over a pre-set env.
@@ -293,6 +298,7 @@ const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime
 const monorepoPackageWatchScript = path.join(process.cwd(), 'scripts', 'watch-packages.mjs')
 const monorepoAppDir = path.join(process.cwd(), 'apps', 'mercato')
 const monorepoAppDevScript = path.join(monorepoAppDir, 'scripts', 'dev.mjs')
+const mcpCliCwd = isMonorepo ? monorepoAppDir : process.cwd()
 const warmupReadyFilePath = path.join(
   process.cwd(),
   isMonorepo ? 'apps/mercato/.mercato/dev-warmup-ready.json' : '.mercato/dev-warmup-ready.json',
@@ -855,15 +861,17 @@ function buildAppDevEnv(options = {}) {
     // the gateway keeps the public one.
     ...(gatewayMode && devUpstreamPort ? { PORT: String(devUpstreamPort) } : {}),
   })
-  if (isMonorepo) {
-    // `yarn workspace ... dev` used to inject the workspace binaries into PATH.
-    // Preserve that contract for the direct Node child so nested `mercato`
-    // generator/server spawns still resolve without retaining a Yarn process.
-    env.PATH = [path.join(process.cwd(), 'node_modules', '.bin'), process.env.PATH]
-      .filter(Boolean)
-      .join(path.delimiter)
-  }
+  if (isMonorepo) env.PATH = buildWorkspaceBinPath()
   return env
+}
+
+// `yarn workspace ... <bin>` used to inject the workspace binaries into PATH.
+// Preserve that contract for direct Node children so nested `mercato`
+// generator/server spawns still resolve without retaining a Yarn process.
+function buildWorkspaceBinPath() {
+  return [path.join(process.cwd(), 'node_modules', '.bin'), process.env.PATH]
+    .filter(Boolean)
+    .join(path.delimiter)
 }
 
 function launchStandaloneDev(options = {}) {
@@ -2373,7 +2381,10 @@ function sleepUnlessShuttingDown(ms) {
 }
 
 function spawnMcpCommand(subcommandArgs, label, onLine) {
-  return spawnCommand(yarnCommand, buildMcpCliArgs(subcommandArgs, { isMonorepo }), {
+  const invocation = resolveMercatoInvocation({ cwd: mcpCliCwd })
+  return spawnCommand(invocation.command, [...invocation.args, ...buildMcpCliArgs(subcommandArgs)], {
+    cwd: mcpCliCwd,
+    env: isMonorepo ? { PATH: buildWorkspaceBinPath() } : undefined,
     label,
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
@@ -2455,7 +2466,7 @@ async function waitForMcpHealthy(child, port, isListening) {
         childExitCode: child.exitCode,
         childSignalCode: child.signalCode,
         attemptedPort: port,
-        currentPort: mcpPort,
+        currentPort: mcpChildPort,
         responseOk: response.ok,
       })) return true
     } catch {
@@ -2578,18 +2589,67 @@ async function checkOpencodeMcpWiring() {
   }
 }
 
+async function refreshOpencodeMcpBinding() {
+  if (opencodeKeyRefreshNeeded || opencodeEndpointRefreshNeeded) {
+    const refreshReason = opencodeKeyRefreshNeeded && opencodeEndpointRefreshNeeded
+      ? 'MCP API key and endpoint changed'
+      : opencodeKeyRefreshNeeded
+        ? 'MCP API key was rotated'
+        : `MCP selected port ${mcpPort}`
+    opencodeKeyRefreshNeeded = false
+    opencodeEndpointRefreshNeeded = false
+    if (restartOpencodeContainer(refreshReason)) {
+      await sleepUnlessShuttingDown(30_000)
+    }
+  }
+  void checkOpencodeMcpWiring()
+}
+
+function readKnownMcpApiKeys() {
+  let provisioned = ''
+  try {
+    provisioned = fs.readFileSync(mcpKeyFilePath, 'utf8').trim()
+  } catch {}
+  return [provisioned, (process.env.MCP_SERVER_API_KEY ?? appDotEnv.MCP_SERVER_API_KEY)?.trim() ?? '']
+}
+
+// The armed proxy is what clients see as the ready endpoint (the key file is
+// final and requests are held until the server is up), so OpenCode is
+// refreshed here rather than when the server first becomes healthy.
+async function armLazyMcpEndpoint() {
+  mcpProxy.arm(readKnownMcpApiKeys())
+  const armedMessage = `MCP armed on http://localhost:${mcpPort}/mcp — the server starts on first request (OM_DEV_MCP_LAZY=0 starts it eagerly)`
+  console.log(`🔌 ${armedMessage}`)
+  updateSplashState({ activity: armedMessage })
+  void refreshOpencodeMcpBinding()
+  await mcpProxy.firstUse
+  if (shuttingDown) return
+  const startMessage = 'MCP first request received — starting the MCP server'
+  console.log(`🔌 ${startMessage}`)
+  updateSplashState({ activity: startMessage })
+}
+
 async function runMcpLifecycle() {
   let fastCrashes = 0
   let bindRaceAttempts = 0
+  let awaitingFirstUse = mcpProxy !== null
   while (!shuttingDown) {
     const provisioned = await provisionMcpApiKey()
     if (!provisioned || shuttingDown) return
 
+    const lazyFirstStart = awaitingFirstUse
+    if (awaitingFirstUse) {
+      awaitingFirstUse = false
+      await armLazyMcpEndpoint()
+      if (shuttingDown) return
+    }
+
     const startedAt = Date.now()
     const capturedLines = []
-    const attemptedPort = mcpPort
+    const attemptedPort = mcpProxy ? await reserveLoopbackPort() : mcpPort
+    mcpChildPort = attemptedPort
     let childListening = false
-    const devMcpHost = resolveDevMcpHost({ env: process.env })
+    const devMcpHost = mcpProxy ? '127.0.0.1' : resolveDevMcpHost({ env: process.env })
     const mcpArgs = ['mcp:serve-http', '--port', String(attemptedPort), ...(devMcpHost ? ['--host', devMcpHost] : [])]
     const child = spawnMcpCommand(mcpArgs, 'MCP server', (line) => {
       capturedLines.push(line)
@@ -2599,26 +2659,16 @@ async function runMcpLifecycle() {
 
     void waitForMcpHealthy(child, attemptedPort, () => childListening).then(async (healthy) => {
       if (!healthy || shuttingDown) return
-      if (child.exitCode !== null || attemptedPort !== mcpPort) return
-      const readyMessage = `MCP server ready on http://localhost:${attemptedPort}/mcp`
+      if (child.exitCode !== null || attemptedPort !== mcpChildPort) return
+      mcpProxy?.setUpstream({ host: '127.0.0.1', port: attemptedPort })
+      const readyMessage = `MCP server ready on http://localhost:${mcpPort}/mcp`
       console.log(`🔌 ${readyMessage}`)
       updateSplashState({ activity: readyMessage })
-      if (opencodeKeyRefreshNeeded || opencodeEndpointRefreshNeeded) {
-        const refreshReason = opencodeKeyRefreshNeeded && opencodeEndpointRefreshNeeded
-          ? 'MCP API key and endpoint changed'
-          : opencodeKeyRefreshNeeded
-            ? 'MCP API key was rotated'
-            : `MCP selected port ${attemptedPort}`
-        opencodeKeyRefreshNeeded = false
-        opencodeEndpointRefreshNeeded = false
-        if (restartOpencodeContainer(refreshReason)) {
-          await sleepUnlessShuttingDown(30_000)
-        }
-      }
-      void checkOpencodeMcpWiring()
+      if (!lazyFirstStart) await refreshOpencodeMcpBinding()
     })
 
     const result = await waitForClose(child)
+    mcpProxy?.setUpstream(null)
     if (shuttingDown || isGracefulShutdownResult(result)) return
 
     const exitCode = resolveChildExitCode(result)
@@ -2628,6 +2678,10 @@ async function runMcpLifecycle() {
         console.error(`❌ MCP could not bind after ${bindRaceAttempts} port-selection attempts.`)
         console.error('   ↳ stop the process racing for local ports, set MCP_PORT to an available port, or restart the dev runner.')
         return
+      }
+      if (mcpProxy) {
+        console.warn(`⚠️ MCP internal port ${attemptedPort} was claimed before startup completed; retrying on another port.`)
+        continue
       }
       const previousPort = attemptedPort
       mcpPort = await selectAvailableMcpPort(0)
@@ -2659,6 +2713,8 @@ function startMcpRuntime() {
   mcpRuntimeStarted = true
   void runMcpLifecycle().catch((error) => {
     console.warn(`⚠️ MCP runtime stopped unexpectedly: ${error instanceof Error ? error.message : String(error)}`)
+  }).finally(() => {
+    void mcpProxy?.close()
   })
 }
 
@@ -2870,10 +2926,41 @@ async function runClassicStandaloneDev() {
   launchStandaloneDev()
 }
 
+// The proxy binds where the eager server would: the dev runner's --host, else
+// MCP_HTTP_HOST from the app's `.env` (what `mcp:serve-http` reads), else
+// loopback. Owning the port from the start means a later bind race can no
+// longer move the endpoint under the app or OpenCode.
+function resolveLazyMcpProxyHost() {
+  const devHost = resolveDevMcpHost({ env: process.env })
+  if (devHost) return devHost
+  try {
+    return parseEnv(fs.readFileSync(path.join(mcpCliCwd, '.env'), 'utf8')).MCP_HTTP_HOST?.trim() || '127.0.0.1'
+  } catch {
+    return '127.0.0.1'
+  }
+}
+
+async function listenLazyMcpProxy() {
+  mcpProxy = createLazyMcpProxy({
+    trustedPeers: ['127.0.0.1', '::1', ...(process.env.OM_DEV_MCP_TRUSTED_PEERS ?? '').split(',')],
+  })
+  const host = resolveLazyMcpProxyHost()
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await mcpProxy.listen(mcpPort, host)
+      return
+    } catch (error) {
+      if (error?.code !== 'EADDRINUSE' || attempt >= MCP_MAX_PORT_SELECTION_ATTEMPTS) throw error
+      mcpPort = await selectAvailableMcpPort(0)
+    }
+  }
+}
+
 async function prepareMcpEndpoint() {
   if (!withMcp) return true
   try {
     mcpPort = await selectAvailableMcpPort(preferredMcpPort)
+    if (mcpLazy) await listenLazyMcpProxy()
   } catch (error) {
     console.error(`❌ Unable to select an MCP port: ${error instanceof Error ? error.message : String(error)}`)
     shutdown(1)
