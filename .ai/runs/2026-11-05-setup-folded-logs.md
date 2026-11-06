@@ -45,3 +45,9 @@ PR: #8838
 - [x] 2.2 Run the configured validation gate, review the PR, and publish the result. — 0b72be2886
 
 Review follow-up: 0b72be2886 persists infrastructure preflight guidance and terminates streamed process trees; final code review has no remaining findings. GitHub blocks author self-approval; independent reviewer approval and manual QA remain required. Rendered real-PTY evidence: https://github.com/open-mercato/open-mercato/tree/qa-evidence-pr-8838/pr-8838.
+
+
+### Phase 3: Approved stage presentation
+
+- [x] 3.1 Restore original stage headings, emphasize only Expected:, and animate lowercase working… until completion.
+- [ ] 3.2 Verify spinner lifecycle, log toggles and prompts; publish the follow-up on PR #8838.

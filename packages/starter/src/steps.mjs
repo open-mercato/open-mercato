@@ -14,7 +14,7 @@ import { describeInfraProblem, startInfra } from './infra.mjs'
 import { findUnhealthyServices } from './infra-preflight.mjs'
 import { ensureLlmProvider } from './providers.mjs'
 import { createSetupLogs } from './setup-logs.mjs'
-import { color, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
+import { color, createSpinner, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
 
 // The idempotent convergence pipeline behind `up`. Every step follows the same
 // contract so re-running is always safe and always cheap when nothing changed:
@@ -775,7 +775,13 @@ export async function runSteps(steps, ctx) {
   const logs = ctx.logs ?? createSetupLogs({ repoRoot: ctx.repoRoot, ...ctx.flags })
   // Step summaries stay visible; routine details and child output share the
   // foldable buffer. Keep mutations to ctx (env, markers) on the real context.
-  const log = (...args) => { originalLog(...args); logs.record(...args) }
+  let spinner = null
+  const log = (...args) => { spinner?.pause(); originalLog(...args); logs.record(...args) }
+  const stopSpinner = () => {
+    spinner?.stop()
+    spinner = null
+    logs.setActivity?.(null)
+  }
   ctx.logs = logs
   logs.start()
   try {
@@ -786,6 +792,10 @@ export async function runSteps(steps, ctx) {
       stepHeader(index, active.length, step.title, step.expectation, { log })
       const startedAt = Date.now()
       if (step.interactive) logs.suspend()
+      else if (logs.interactive) {
+        spinner = (ctx.createSpinnerImpl ?? createSpinner)('working…', { startPaused: true, frames: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] })
+        logs.setActivity?.(spinner)
+      }
       ctx.log = step.interactive ? log : (...args) => logs.log(...args)
       try {
         const checked = step.check ? await step.check(ctx) : { ok: false, detail: '' }
@@ -795,9 +805,11 @@ export async function runSteps(steps, ctx) {
         }
         if (checked.detail) statusLine('info', checked.detail, { log })
         if (!step.apply) continue
+        logs.resumeActivity?.()
         await step.apply(ctx)
         statusLine('ok', `done ${color.dim(`in ${formatDuration(Date.now() - startedAt)}`)}`, { log })
       } catch (error) {
+        stopSpinner()
         logs.show(`Setup stopped at ${step.title}`)
         if (error instanceof StepBlocked) {
           statusLine('fail', 'blocked — this starter proposes, it does not install system components', { log })
@@ -807,12 +819,14 @@ export async function runSteps(steps, ctx) {
         statusLine('fail', error instanceof Error ? error.message : String(error), { log })
         return { ok: false, failedStep: step.id }
       } finally {
+        stopSpinner()
         ctx.log = originalLog
         if (step.interactive) logs.resume()
       }
     }
     return { ok: true }
   } finally {
+    stopSpinner()
     ctx.log = originalLog
     logs.stop()
   }

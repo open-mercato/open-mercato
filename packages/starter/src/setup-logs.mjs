@@ -27,6 +27,7 @@ export function createSetupLogs({
   let fileInitialized = false
   let logFile = null
   let fileFailed = false
+  let activity = null
   let visible = !interactive
   let previousRaw = false
   let previousFlowing = false
@@ -48,7 +49,9 @@ export function createSetupLogs({
   function reportFileFailure() {
     if (fileFailed) return
     fileFailed = true
+    activity?.pause()
     write('⚠️ Could not save setup logs; terminal output is still available.\n')
+    if (active && !visible) activity?.resume()
   }
 
   function initializeFile() {
@@ -74,6 +77,7 @@ export function createSetupLogs({
 
   function show(reason = '📖 Raw logs shown') {
     if (!interactive || visible) return
+    activity?.pause()
     visible = true
     banner([' RAW DEBUG LOGS', ` ${reason}`, ' Press [d] again to hide logs'])
     if (lines.length === 0 && !partial) {
@@ -95,6 +99,7 @@ export function createSetupLogs({
       if (visible) {
         visible = false
         write(`${tint('96', '\n📕 Raw logs hidden. Press [d] to show them again.')}\n`)
+        activity?.resume()
       } else show()
     }
   }
@@ -110,6 +115,7 @@ export function createSetupLogs({
   }
 
   function suspend() {
+    activity?.pause()
     if (!active) return
     input.removeListener('data', onData)
     input.setRawMode?.(previousRaw)
@@ -149,6 +155,13 @@ export function createSetupLogs({
 
   return {
     interactive,
+    setActivity(next) {
+      activity?.stop()
+      activity = next
+      if (visible) activity?.pause()
+      else activity?.resume()
+    },
+    resumeActivity() { if (!visible && active) activity?.resume() },
     get logFile() { return logFile },
     start() {
       if (started) return
@@ -159,7 +172,7 @@ export function createSetupLogs({
       process.once('exit', suspend)
       resume()
     },
-    stop() { suspend(); process.removeListener('exit', suspend); started = false },
+    stop() { activity?.stop(); activity = null; suspend(); process.removeListener('exit', suspend); started = false },
     suspend,
     resume,
     raw,

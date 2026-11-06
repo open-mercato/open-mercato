@@ -40,7 +40,7 @@ Useful flags: `--verbose`, `--non-interactive`, `--skip-llm-prompt`, `--skip-db`
 
 ## Setup logs
 
-Like `yarn dev` and `yarn dev:greenfield`, interactive `yarn setup` and `yarn infra:up` keep routine logs folded behind a cyan **DEBUG LOGS** banner. Step headers, expectations, and ✅ / ℹ️ / ❌ summaries stay visible. Press **d** to show the recent output and stream new logs; press **d** again to hide them. Failures reveal the buffered diagnostics automatically. AI-provider prompts remain interactive, and setup restores the terminal before starting the dev runtime.
+Like `yarn dev` and `yarn dev:greenfield`, interactive `yarn setup` and `yarn infra:up` keep routine logs folded behind a cyan **DEBUG LOGS** banner. Original `── Step n/N` headers stay visible; only the `Expected:` label is bold yellow. A lowercase `working…` spinner shows elapsed time until the completion status replaces it. The spinner pauses while raw logs are shown and never overlaps provider prompts. ✅ / ℹ️ / ❌ summaries stay visible. Press **d** to show the recent output and stream new logs; press **d** again to hide them. Failures reveal the buffered diagnostics automatically. AI-provider prompts remain interactive, and setup restores the terminal before starting the dev runtime.
 
 Complete setup and infrastructure output is saved to `.mercato/logs/<run>-setup-raw.log` or `<run>-infra-raw.log`; the command prints the path when it starts. The file includes step summaries and full child-process stdout/stderr even while folded; only the last 200 lines are retained for on-screen replay. Provider answers are never captured. These are local diagnostic files and can contain initialization details, so review them before sharing.
 
