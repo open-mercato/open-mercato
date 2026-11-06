@@ -16,8 +16,10 @@ Cosmetic only; tests that assert exact strings get updated.
 
 ## Progress
 
+PR: #8927
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Spacing
 
-- [ ] 1.1 Double-space after VS16 emojis in starter output and update tests
+- [x] 1.1 Double-space after VS16 emojis in starter output and update tests — 6caf4552e8
