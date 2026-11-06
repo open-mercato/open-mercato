@@ -53,4 +53,11 @@ PR: #8908
 ### Phase 3: Verification and publication
 
 - [ ] 3.1 Run focused tests, then configured validation in order; document concrete blockers.
-- [ ] 3.2 Review compatibility/security and publish evidence and resumable handoff on the new PR.
+- [x] 3.2 Review compatibility/security and publish evidence and resumable handoff on the new PR. — b42904b5e
+
+
+## Validation evidence
+
+Runner: local (no configured Compose app container running). Independent immutable install completed with native-addon warnings. Both package builds, generation, translation sync/usage, typecheck and optimized app build passed. Full `yarn test` failed: CLI has 119 passing / 2 failing suites and 2,529 passing / 4 failing tests; Turbo stops at 34 successful / 49 tasks. The failing CLI files are untouched by this follow-up.
+
+Focused starter/write-boundary tests: 251 passed, 1 opt-in PostgreSQL skip. Standalone template setup: 37 passed. Separate opt-in PostgreSQL integration: passed, including real correct/wrong/missing tenant and Forms keys, GET-only Vault responses (success/403/404/503/unreachable), nested/system data, empty/missing/migration-only DBs and actual starter no-mutation rejection. Broad script suite: 1,568 pass, 5 skip, 2 Docker Buildx environment failures. Static review identified two initial gaps (fallback generation and plaintext health-only proof); both fixed and re-reviewed without remaining code findings. Final-head CI and independent approval remain pending. This draft is not merge-ready.
