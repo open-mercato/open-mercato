@@ -43,8 +43,8 @@ PR: #8908
 
 ### Phase 2: Guard
 
-- [ ] 2.1 Implement isolated read-only scanner using existing cryptographic helpers and wire every setup mutation boundary.
-- [ ] 2.2 Add meaningful cryptographic and no-mutation tests for successful/rejected reuse and new databases.
+- [x] 2.1 Implement isolated read-only scanner using existing cryptographic helpers and wire every setup mutation boundary. — 457f0f6f9
+- [x] 2.2 Add meaningful cryptographic and no-mutation tests for successful/rejected reuse and new databases. — cb73a18d9
 
 ### Phase 3: Verification and publication
 
