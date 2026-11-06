@@ -16,6 +16,7 @@ import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/ba
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { ActivityCard } from './ActivityCard'
+import { useActivityDelete } from './hooks/useActivityDelete'
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -353,8 +354,15 @@ export function ActivityHistorySection({
     setLoadedPages((current) => current + 1)
   }, [])
 
+  const { deleteActivity, ConfirmDialogElement } = useActivityDelete({
+    runMutation,
+    onAfterDelete: handleActivityChanged,
+    logContext: 'ActivityHistorySection',
+  })
+
   return (
     <div className="rounded-xl border bg-card">
+      {ConfirmDialogElement}
       <div className="flex items-center gap-2 border-b px-5 py-4">
         <Clock3 className="size-4 text-muted-foreground" />
         <div className="min-w-0">
@@ -479,6 +487,7 @@ export function ActivityHistorySection({
                     activity={activity}
                     onOpen={onEditActivity}
                     onChanged={handleActivityChanged}
+                    onDelete={deleteActivity}
                     runMutation={runMutation}
                   />
                 </React.Fragment>
