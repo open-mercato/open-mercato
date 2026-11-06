@@ -14,7 +14,7 @@ At runtime: `om-setup-agent-pipeline` copies this file into the repository at `.
 - Issue and PR identifiers are numbers; in text they are written `#123`.
 - A PR is linked to the issue it resolves with `Fixes #{issueId}` (or `Closes #{issueId}`) in the PR body; GitHub then closes the issue on merge. To reference without auto-closing, use a plain issue link.
 - PRs open as **drafts** when a skill says so; a human (or **mark-pr-ready**) promotes them.
-- Claim/lock signals on an issue or PR are: assignee set to the automation user, the `in-progress` label, and a `🤖`-prefixed claim comment. All three are set on claim; the label is guarded (below). The `ci-monitoring` label is **not** a claim/lock signal: it marks a PR whose work is finished and already reported while an agent watches CI, so a PR carrying `ci-monitoring` without any of the three signals above MUST be treated as unclaimed and is free to claim.
+- GitHub claim ownership uses the create-only `refs/om-locks/{kind}-{number}` ref through **get-lock**, **acquire-lock**, and exact-SHA **release-lock**. Acquire first, retain run/comment ids and lock SHA, then assign when supported and verify guarded `in-progress`. For confirmed unassignable bot accounts, retain the atomic lock, timestamped claim comment and verified label without self-assignment. Foreign assignees and live or uncertain claims remain blockers. The `ci-monitoring` label is **not** a claim/lock signal: it marks a PR whose work is finished and already reported while an agent watches CI, so a PR carrying `ci-monitoring` without any of the three signals above MUST be treated as unclaimed and is free to claim.
 - Long, multi-line comment bodies are posted with `--body-file` (or a heredoc via process substitution) so formatting is preserved.
 - CI status truth comes from **get-pr-checks**; the set of *required* checks comes from **get-required-checks** (branch protection). When branch protection is not readable (404), treat every reported check as required.
 
@@ -234,7 +234,7 @@ gh api repos/{owner}/{repo}/issues/comments/{commentId} --jq '{body,user:.user.l
 #### list-issue-comments
 `{issueId or prNumber}` → conversation comments (PR conversation comments are issue comments on GitHub).
 ```bash
-gh api repos/{owner}/{repo}/issues/{number}/comments --jq '.[] | {id,user:.user.login,body}'
+gh api --paginate repos/{owner}/{repo}/issues/{number}/comments --jq '.[] | {id,user:.user.login,body,createdAt:.created_at,updatedAt:.updated_at}'
 ```
 
 #### update-comment
@@ -690,4 +690,46 @@ gh label create priority-extreme  --color b60205 --description "Outage or securi
 gh label create risk-low          --color 0e8a16 --description "Isolated, low blast radius"
 gh label create risk-medium       --color fbca04 --description "Ordinary change with tests"
 gh label create risk-high         --color b60205 --description "Wide blast radius, review deeply"
+```
+
+#### list-review-comments
+`{prNumber}` → every inline review comment on the diff (the conversation comments come from **list-issue-comments**; these are the ones anchored to a file and line).
+```bash
+gh api --paginate repos/{owner}/{repo}/pulls/{prNumber}/comments \
+  --jq '.[] | {id,user:.user.login,path,line:(.line // .original_line),body,url:.html_url,reply_to:.in_reply_to_id}'
+```
+REST does not expose a thread's resolved state (that lives in GraphQL's review threads), so treat every returned comment as potentially open and judge it against the current diff. `reply_to` is non-null on replies, which is what lets you reconstruct a thread. Consumers treat an unavailable operation as "inline feedback out of reach", not as a failure: they fall back to review bodies plus conversation comments and state the gap in their report.
+
+
+#### approve-pending-runs
+Head SHA → approve every workflow run on that commit that is waiting for maintainer approval (`conclusion` `action_required` — GitHub holds runs from first-time or outside contributors until a maintainer approves them). Prints the approved run ids; an empty result means nothing was waiting. Approving lets the contributor's workflow code run with this repository's CI, so callers approve only on a PR a human has authorized for automation (e.g. an `automerge` label) and read the diff's workflow changes first.
+```bash
+gh api "repos/{owner}/{repo}/actions/runs?head_sha={headSha}&status=action_required&per_page=100" \
+  --jq '.workflow_runs[].id' | while read -r run; do
+  gh api -X POST "repos/{owner}/{repo}/actions/runs/$run/approve" >/dev/null && echo "$run"
+done
+```
+
+
+#### get-pr-author-association
+`{prNumber}` → `{login, association}`, normalized from GitHub's `author_association`. GitHub reports `COLLABORATOR` for anyone with explicit repository access who is not an organization member, so on an organization-owned repository that is an `outside-collaborator`. `FIRST_TIMER` (first PR anywhere on GitHub) folds into `first-time-contributor`, and `MANNEQUIN` folds into `none`.
+```bash
+gh api "repos/{owner}/{repo}/pulls/{prNumber}" --jq '{login: .user.login, association: (
+  .author_association as $a | .base.repo.owner.type as $t |
+  if $a == "OWNER" then "owner"
+  elif $a == "MEMBER" then "member"
+  elif $a == "COLLABORATOR" then (if $t == "Organization" then "outside-collaborator" else "collaborator" end)
+  elif $a == "CONTRIBUTOR" then "contributor"
+  elif $a == "FIRST_TIME_CONTRIBUTOR" or $a == "FIRST_TIMER" then "first-time-contributor"
+  else "none" end)}'
+```
+
+
+#### close-pr
+`{prNumber}` → close without merging; preserve the head branch, linked issues,
+title and body. Post/update the caller's evidence note before calling. A fresh
+**get-pr** must confirm `CLOSED` and no merge before reporting success; an
+already merged PR is never reported as closed-obsolete.
+```bash
+gh api -X PATCH repos/{owner}/{repo}/pulls/{prNumber} -f state=closed
 ```
