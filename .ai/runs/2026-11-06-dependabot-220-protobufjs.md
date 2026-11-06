@@ -17,11 +17,13 @@ No node_modules exists in this worktree. Installation and validation may be bloc
 
 ## Progress
 
+PR: #8857
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Remediation
 
-- [ ] 1.1 Update protobufjs and add regression coverage
+- [x] 1.1 Update protobufjs and add regression coverage — b0b3d1e8b
 
 ### Phase 2: Verification and publication
 
