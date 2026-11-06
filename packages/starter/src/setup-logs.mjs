@@ -1,4 +1,4 @@
-// Compact setup output, using the same keyboard and banner conventions as dev.
+// Compact setup output, using the same keyboard and compact log hints as dev.
 // Keep this build-free: setup runs before the workspace dependencies exist.
 import { StringDecoder } from 'node:string_decoder'
 import { format } from 'node:util'

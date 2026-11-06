@@ -69,3 +69,11 @@ Phase 4 verification: 91 starter tests passed; real PTY confirms the initial hin
 - [x] 5.2 Verify combined behavior and post refreshed screenshots on PR #8838. — 54fe8e82f4
 
 Phase 5 verification: 336 targeted starter/runtime/orchestration/logging tests passed, template parity passed, and both dev runtime scripts passed syntax checks. A real scripted PTY verifies setup animation, toggles, prompt input, gray RGB 51/55/64, consistent padding and nonduplicated replay; runtime formatter fixtures verify dev/greenfield and standalone banners. Full live app provisioning and the workspace build gate were not repeated for this presentation follow-up. Review found no remaining findings after normalizing provider confirmation padding. Refreshed screenshots are attached on PR #8838.
+
+
+### Phase 6: Quieter log hints
+
+- [x] 6.1 Replace setup, dev/greenfield and standalone log boxes/backgrounds with compact emoji hints; retain the animated working row. — 21f927e99e
+- [x] 6.2 Verify behavior and refresh screenshots on PR #8838. — 21f927e99e
+
+Phase 6 verification: 336 related tests passed; runtime syntax and template/translation parity checks passed. Real scripted PTY confirms unboxed emoji hints and the animated working row; formatter fixtures confirm matching dev/greenfield and standalone hints. Review found no remaining findings. Current screenshots: https://github.com/open-mercato/open-mercato/pull/8838#issuecomment-6680712995. Full workspace builds and live service provisioning were not repeated.
