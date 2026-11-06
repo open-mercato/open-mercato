@@ -342,7 +342,7 @@ describe('akeneo catalog importer custom field values', () => {
     const world = createWorld()
     const importer = await createAkeneoImporter(world.client as never, scope)
     const mapping = buildMapping([
-      { attributeCode: 'warranty_notes', fieldKey: 'warranty_notes', target: 'product' },
+      { attributeCode: 'warranty_notes', fieldKey: 'warranty_notes', target: 'variant' },
       { attributeCode: 'batch_code', fieldKey: 'batch_code', target: 'variant' },
     ])
 
@@ -352,8 +352,10 @@ describe('akeneo catalog importer custom field values', () => {
     world.model.available = false
     await secondImporter.upsertProduct(buildVariant({ batch_code: text('B-2026-12') }), mapping)
 
-    expect(world.writesFor(PRODUCT_ENTITY_ID, ['warranty_notes'])).toEqual([{ warranty_notes: 'Lifetime' }])
-    expect(world.writesFor(VARIANT_ENTITY_ID, ['batch_code'])).toEqual([{ batch_code: 'B-2026-11' }, { batch_code: 'B-2026-12' }])
+    expect(world.writesFor(VARIANT_ENTITY_ID, ['warranty_notes', 'batch_code'])).toEqual([
+      { warranty_notes: 'Lifetime', batch_code: 'B-2026-11' },
+      { batch_code: 'B-2026-12' },
+    ])
   })
 
   it('does not write empty Akeneo values for fields that hold no local value', async () => {

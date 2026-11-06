@@ -94,7 +94,6 @@ type ResolvedHierarchy = {
   mergedValues: AkeneoValues
   categories: string[]
   parentChain: string[]
-  parentChainComplete: boolean
   associationSource: AkeneoProduct
   axisCodes: string[]
 }
@@ -1987,7 +1986,6 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         mergedValues: mergeValueLayers(product.values),
         categories: Array.isArray(product.categories) ? product.categories : [],
         parentChain: [],
-        parentChainComplete: true,
         associationSource: product,
         axisCodes: [],
       }
@@ -1995,13 +1993,9 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
 
     const chain: Array<{ code: string; values: AkeneoValues; categories: string[]; family?: string | null; familyVariant?: string | null }> = []
     let nextCode: string | null = product.parent
-    let parentChainComplete = true
     while (nextCode) {
       const model = await client.getProductModel(nextCode)
-      if (!model) {
-        parentChainComplete = false
-        break
-      }
+      if (!model) break
       chain.unshift({
         code: model.code,
         values: mergeValueLayers(model.values),
@@ -2028,7 +2022,6 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         ...(product.categories ?? []),
       ])),
       parentChain: chain.map((model) => model.code),
-      parentChainComplete,
       associationSource: product,
       axisCodes: [],
     }
@@ -2078,9 +2071,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         : [params.product.values ?? {}, params.hierarchy.mergedValues]
       const rawValue = readLayeredAkeneoValue(sourceLayers, fieldMapping.attributeCode, settings.locale, settings.channel ?? null)
       const resolved = resolveCustomFieldValue(rawValue, attribute, kind)
-      const isEmpty = isEmptyCustomFieldValue(resolved)
-      if (isEmpty && !params.hierarchy.parentChainComplete) continue
-      const value = isEmpty ? null : resolved
+      const value = isEmptyCustomFieldValue(resolved) ? null : resolved
       if (fieldMapping.target === 'product') {
         productCustomFields[normalizeFieldKey(fieldMapping.fieldKey)] = value
       } else {
