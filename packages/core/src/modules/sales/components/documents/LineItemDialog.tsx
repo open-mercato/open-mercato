@@ -1855,7 +1855,7 @@ export function LineItemDialog({
       const resolvedKind = !editingId
         ? modeKind
         : isDraftEdit
-          ? (transitionKind ?? storedKind ?? modeKind)
+          ? (transitionKind ?? (lineModeChanged ? modeKind : (storedKind ?? modeKind)))
           : transitionKind;
       const kindPayload: Record<string, unknown> = resolvedKind
         ? { kind: resolvedKind }

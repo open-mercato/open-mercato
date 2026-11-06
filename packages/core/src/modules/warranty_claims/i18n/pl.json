@@ -317,6 +317,7 @@
   "warranty_claims.errors.replacementOrderChangedUndoAborted": "Powiązane zamówienie wymiany zostało zmodyfikowane od momentu utworzenia, więc cofnięcie zostało przerwane.",
   "warranty_claims.errors.replacementOrderRequiresOrder": "Ta reklamacja nie jest powiązana z dostępnym zamówieniem sprzedaży, więc nie można utworzyć zamówienia wymiany.",
   "warranty_claims.errors.replacementSalesUnavailable": "Moduł sprzedaży jest niedostępny, więc nie można utworzyć zamówienia wymiany.",
+  "warranty_claims.errors.replacementServicesUnavailable": "Nie utworzono zamówienia zastępczego, ponieważ usługi kwalifikujących się pozycji reklamacji nie są już dostępne.",
   "warranty_claims.errors.returnLabelInvalidStatus": "Etykiety zwrotne można tworzyć tylko dla zatwierdzonych reklamacji oczekujących na zwrot.",
   "warranty_claims.errors.returnLabelUrlInvalid": "Podaj prawidłowy adres URL http(s).",
   "warranty_claims.errors.salesReturnAlreadyLinked": "To zgłoszenie jest już powiązane ze zwrotem sprzedaży.",

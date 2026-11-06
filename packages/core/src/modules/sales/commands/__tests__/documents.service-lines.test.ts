@@ -294,6 +294,39 @@ describe('sales line writes — service lines', () => {
       expect(lines.get(FIRST_LINE_ID)!.kind).toBe('service')
     })
 
+    it('drops the previous product unit data when a product line becomes a service line', async () => {
+      setWorld([
+        productLine({
+          quantity: '2',
+          quantityUnit: 'box',
+          normalizedQuantity: '24',
+          normalizedUnit: 'pc',
+          uomSnapshot: { productId: PRODUCT_ID, baseUnitCode: 'pc', enteredUnitCode: 'box', toBaseFactor: 12 },
+        }),
+      ])
+
+      const lines = await runCommand(commandId, {
+        ...baseBody,
+        id: FIRST_LINE_ID,
+        [parentKey]: parentId,
+        kind: 'service',
+        productId: null,
+        productVariantId: null,
+        serviceId: SERVICE_ID,
+        quantity: 3,
+      })
+
+      const line = lines.get(FIRST_LINE_ID)!
+      expect(line.quantityUnit ?? null).toBeNull()
+      expect(Number(line.normalizedQuantity)).toBe(3)
+      expect(line.normalizedUnit ?? null).toBeNull()
+      expect(line.uomSnapshot).toEqual(expect.objectContaining({
+        productId: null,
+        enteredUnitCode: null,
+        toBaseFactor: '1',
+      }))
+    })
+
     it('clears the stored catalog snapshot when the caller sends null', async () => {
       setWorld([serviceLine()])
 

@@ -317,6 +317,7 @@
   "warranty_claims.errors.replacementOrderChangedUndoAborted": "Der verknüpfte Ersatzauftrag wurde seit seiner Erstellung geändert, daher wurde das Rückgängigmachen abgebrochen.",
   "warranty_claims.errors.replacementOrderRequiresOrder": "Dieser Claim ist mit keinem verfügbaren Verkaufsauftrag verknüpft, daher kann kein Ersatzauftrag erstellt werden.",
   "warranty_claims.errors.replacementSalesUnavailable": "Das Vertriebsmodul ist nicht verfügbar, daher kann kein Ersatzauftrag erstellt werden.",
+  "warranty_claims.errors.replacementServicesUnavailable": "Es wurde keine Ersatzbestellung erstellt, da die Dienstleistungen der berechtigten Reklamationspositionen nicht mehr verfügbar sind.",
   "warranty_claims.errors.returnLabelInvalidStatus": "Rücksendeetiketten können nur für genehmigte Claims erstellt werden, die auf Rücksendung warten.",
   "warranty_claims.errors.returnLabelUrlInvalid": "Bitte eine gültige http(s)-URL eingeben.",
   "warranty_claims.errors.salesReturnAlreadyLinked": "Diese Reklamation ist bereits mit einer Warenrücksendung verknüpft.",

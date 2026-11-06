@@ -892,4 +892,38 @@ describe('LineItemDialog service lines', () => {
       expect(capturedFields.some((field) => field.id === 'deletedCatalogReference')).toBe(false),
     )
   })
+
+  it('writes the product kind when a custom service draft is switched to Product', async () => {
+    mockApiCall.mockImplementation(catalogProductResponses)
+    const onDraftSaved = jest.fn()
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId=""
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{
+          ...productLine,
+          id: 'draft-4',
+          kind: 'service',
+          productId: null,
+          productVariantId: null,
+          metadata: { customLine: true, lineMode: 'custom', priceMode: 'gross' },
+        }}
+        onDraftSaved={onDraftSaved}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await act(async () => {
+      await capturedSubmit?.(productValues())
+    })
+
+    const [payload] = onDraftSaved.mock.calls[0] as [FormValues]
+    expect(payload).toMatchObject({ kind: 'product', productId: 'product-1', productVariantId: 'variant-1', serviceId: null })
+  })
 })

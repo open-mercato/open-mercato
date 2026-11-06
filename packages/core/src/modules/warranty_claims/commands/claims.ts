@@ -3278,7 +3278,11 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
       replacementLines.push(replacementLine)
     }
     if (replacementLines.length === 0) {
-      throw new CrudHttpError(400, { error: 'warranty_claims.errors.replacementNoEligibleLines' })
+      throw new CrudHttpError(400, {
+        error: unavailableServiceLines.length > 0
+          ? 'warranty_claims.errors.replacementServicesUnavailable'
+          : 'warranty_claims.errors.replacementNoEligibleLines',
+      })
     }
 
     const orderInput: ReplacementOrderCreateInput = {

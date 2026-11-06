@@ -317,6 +317,7 @@
   "warranty_claims.errors.replacementOrderChangedUndoAborted": "El pedido de reemplazo vinculado se ha modificado desde su creación, por lo que se canceló la operación de deshacer.",
   "warranty_claims.errors.replacementOrderRequiresOrder": "Este reclamo no está vinculado a un pedido de venta disponible, por lo que no se puede crear un pedido de reemplazo.",
   "warranty_claims.errors.replacementSalesUnavailable": "El módulo de ventas no está disponible, por lo que no se puede crear un pedido de reemplazo.",
+  "warranty_claims.errors.replacementServicesUnavailable": "No se creó ningún pedido de reemplazo porque los servicios de las líneas de reclamación elegibles ya no están disponibles.",
   "warranty_claims.errors.returnLabelInvalidStatus": "Las etiquetas de devolución solo pueden crearse para reclamos aprobados que esperan devolución.",
   "warranty_claims.errors.returnLabelUrlInvalid": "Introduce una URL http(s) válida.",
   "warranty_claims.errors.salesReturnAlreadyLinked": "Esta reclamación ya está vinculada a una devolución de venta.",

@@ -631,13 +631,13 @@ describe('warranty_claims.claim.create_replacement_order', () => {
     expect(createDispatch().input.lines).toEqual([expect.objectContaining({ productId: PRODUCT_ID })])
   })
 
-  it('rejects with no eligible lines when the only line references a missing catalog service', async () => {
+  it('explains that the service is unavailable when the only eligible line references a missing catalog service', async () => {
     seedClaim()
     seedLine()
     seedSourceLine(ORDER_LINE_ID, serviceSourceLine(SERVICE_ID))
 
     await expect(createReplacementOrderCommand.execute(executeInput(), makeCtx()))
-      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.replacementNoEligibleLines' } })
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.replacementServicesUnavailable' } })
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 

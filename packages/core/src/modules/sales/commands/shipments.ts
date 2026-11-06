@@ -660,6 +660,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (tx) => {
+      await assertShipmentItemsStillShippable(tx, after)
       await restoreShipmentSnapshot(tx, after)
       const order = await findOneWithDecryption(tx, SalesOrder, { id: after.orderId }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
       await tx.flush()
@@ -946,6 +947,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (tx) => {
+      await assertShipmentItemsStillShippable(tx, before)
       await restoreShipmentSnapshot(tx, before)
       const order = await findOneWithDecryption(tx, SalesOrder, { id: before.orderId }, {}, { tenantId: before.tenantId, organizationId: before.organizationId })
       await tx.flush()

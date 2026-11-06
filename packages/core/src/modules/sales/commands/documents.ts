@@ -7999,6 +7999,46 @@ function createTaxCalculationServiceResolver(container: {
  * totals and persistence stay with the callers — this builds a value and
  * touches nothing.
  */
+type LineUomSource = {
+  productId?: string | null;
+  productVariantId?: string | null;
+  quantity?: number | null;
+  quantityUnit?: string | null;
+};
+
+type StoredLineUom = {
+  productId?: string | null;
+  productVariantId?: string | null;
+  quantity?: number | null;
+  quantityUnit?: string | null;
+  normalizedQuantity?: number | null;
+  normalizedUnit?: string | null;
+  uomSnapshot?: SalesLineSnapshot["uomSnapshot"];
+};
+
+function buildLineUomInput(parsed: LineUomSource, existingSnapshot: StoredLineUom | null | undefined) {
+  const productId =
+    parsed.productId !== undefined ? parsed.productId : (existingSnapshot?.productId ?? null);
+  const productVariantId =
+    parsed.productVariantId !== undefined
+      ? parsed.productVariantId
+      : (existingSnapshot?.productVariantId ?? null);
+  const sameProduct =
+    Boolean(existingSnapshot) &&
+    (existingSnapshot?.productId ?? null) === (productId ?? null) &&
+    (existingSnapshot?.productVariantId ?? null) === (productVariantId ?? null);
+  const inherited = sameProduct ? existingSnapshot : null;
+  return {
+    productId: productId ?? null,
+    productVariantId: productVariantId ?? null,
+    quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
+    quantityUnit: parsed.quantityUnit ?? inherited?.quantityUnit ?? null,
+    normalizedQuantity: inherited?.normalizedQuantity ?? null,
+    normalizedUnit: inherited?.normalizedUnit ?? null,
+    uomSnapshot: inherited?.uomSnapshot ?? null,
+  };
+}
+
 async function buildUpsertedOrderLineSnapshot(
   dependencies: OrderLineUpsertDependencies,
   parsed: OrderLineUpsertInput,
@@ -8051,16 +8091,7 @@ async function buildUpsertedOrderLineSnapshot(
   const statusEntryId =
     parsed.statusEntryId ?? existingSnapshot?.statusEntryId ?? null;
   const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-  const lineUomInput = {
-    productId: parsed.productId !== undefined ? parsed.productId : (existingSnapshot?.productId ?? null),
-    productVariantId:
-      parsed.productVariantId !== undefined ? parsed.productVariantId : (existingSnapshot?.productVariantId ?? null),
-    quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
-    quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
-    normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
-    normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
-    uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
-  };
+  const lineUomInput = buildLineUomInput(parsed, existingSnapshot);
   let normalizedUom = await normalizeLineUom({
     em,
     resolver: uomResolver,
@@ -8803,16 +8834,7 @@ const quoteLineUpsertCommand: CommandHandler<
       const statusEntryId =
         parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
       const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-      const lineUomInput = {
-        productId: parsed.productId !== undefined ? parsed.productId : (existingSnapshot?.productId ?? null),
-        productVariantId:
-          parsed.productVariantId !== undefined ? parsed.productVariantId : (existingSnapshot?.productVariantId ?? null),
-        quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
-        quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
-        normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
-        normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
-        uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
-      };
+      const lineUomInput = buildLineUomInput(parsed, existingSnapshot);
       const uomResolver = createUomResolver();
       let normalizedUom = await normalizeLineUom({
         em,

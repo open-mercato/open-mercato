@@ -271,4 +271,49 @@ describe('shipment commands reject catalog service lines', () => {
       expect(tx.flush).toHaveBeenCalled()
     })
   })
+
+  describe('restoring shipment items through redo and update undo', () => {
+    const snapshot = {
+      id: SHIPMENT_ID,
+      orderId: ORDER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      shipmentNumber: 'SH-1',
+      items: [{ id: 'item-1', orderLineId: LINE_ID, orderLineName: 'Line', orderLineNumber: 3, quantity: 1, metadata: null }],
+    }
+
+    it('refuses to redo a shipment create once its line references a catalog service', async () => {
+      const tx = buildMockEm()
+      findMock.mockResolvedValueOnce([serviceLine]).mockResolvedValue([])
+
+      await expect(
+        commandRegistry.get('sales.shipments.create')!.redo!({
+          input: {},
+          ctx: buildCtx(tx),
+          logEntry: { resourceId: SHIPMENT_ID, commandPayload: { undo: { after: snapshot } }, snapshotAfter: snapshot },
+        } as never),
+      ).rejects.toMatchObject({ status: 409, body: { error: 'sales.shipments.undo_service_line' } })
+
+      expect(tx.create).not.toHaveBeenCalled()
+      expect(tx.flush).not.toHaveBeenCalled()
+    })
+
+    it('refuses to undo a shipment update that would put a service line back on the shipment', async () => {
+      const tx = buildMockEm()
+      findMock.mockResolvedValueOnce([serviceLine]).mockResolvedValue([])
+
+      await expect(
+        commandRegistry.get('sales.shipments.update')!.undo!({
+          logEntry: { commandPayload: { undo: { before: snapshot, after: { ...snapshot, items: [] } } } },
+          ctx: buildCtx(tx),
+        } as never),
+      ).rejects.toMatchObject({ status: 409, body: { error: 'sales.shipments.undo_service_line' } })
+
+      expect(findMock.mock.calls[0][2]).toEqual(
+        expect.objectContaining({ id: { $in: [LINE_ID] }, tenantId: TENANT_ID, organizationId: ORG_ID }),
+      )
+      expect(tx.create).not.toHaveBeenCalled()
+      expect(tx.flush).not.toHaveBeenCalled()
+    })
+  })
 })

@@ -317,6 +317,7 @@
   "warranty_claims.errors.replacementOrderChangedUndoAborted": "The linked replacement order has been modified since it was created, so the undo was aborted.",
   "warranty_claims.errors.replacementOrderRequiresOrder": "This claim is not linked to an available sales order, so a replacement order cannot be created.",
   "warranty_claims.errors.replacementSalesUnavailable": "The sales module is not available, so a replacement order cannot be created.",
+  "warranty_claims.errors.replacementServicesUnavailable": "No replacement order was created because the services of the eligible claim lines are no longer available.",
   "warranty_claims.errors.returnLabelInvalidStatus": "Return labels can only be created for approved claims that are awaiting return.",
   "warranty_claims.errors.returnLabelUrlInvalid": "Enter a valid http(s) URL.",
   "warranty_claims.errors.salesReturnAlreadyLinked": "This claim is already linked to a sales return.",
