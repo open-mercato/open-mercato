@@ -641,6 +641,10 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 **Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
 
+## #7809 2026-11-06
+
+STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
 ## #8328 2026-11-01
 
 STABLE translations GET 404s soft-deleted owners; no bridge. [Migrate](https://github.com/open-mercato/open-mercato/pull/8329)
