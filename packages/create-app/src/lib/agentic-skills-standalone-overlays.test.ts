@@ -675,6 +675,6 @@ test('OMH-241 routes module discovery to om-find-module without widening the OMH
   const publication = cases.find(({ id }) => id === 'OMH-239')
   assert.ok(publication)
   assert.deepEqual(publication.requiredSkills, [])
-  assert.equal(publication.maxContextFiles, 3)
+  assert.equal(publication.maxContextFiles, 6)
   assert.ok(!(publication.context.allowedExtra ?? []).some((item) => item.includes('om-find-module')), 'publication must not need the discovery skill')
 })
