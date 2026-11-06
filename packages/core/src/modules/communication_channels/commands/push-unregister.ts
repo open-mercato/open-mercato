@@ -3,6 +3,7 @@ import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CommunicationChannel } from '../data/entities'
+import { withLockedChannel } from '../lib/channel-state-write'
 import { channelOrgScopeWhere } from '../lib/access-control'
 import { getChannelAdapterRegistry } from '../lib/adapter-registry-singleton'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
@@ -154,15 +155,15 @@ export async function pushUnregister(params: {
 
   // Clear push markers from channel state so a subsequent reconnect starts
   // fresh.
-  channel.channelState = {
-    ...channelState,
-    pushStatus: 'inactive',
-    watchExpirationMs: null,
-  }
-  // Restore the polling-only default cadence (matching connect) so the channel
-  // keeps working until disconnect itself flips `isActive: false`.
-  channel.pollIntervalSeconds = POLLING_ONLY_DEFAULT_INTERVAL_SECONDS
-  await em.flush()
+  await withLockedChannel(em, { ...channel, tenantId: scope.tenantId }, async (current, transaction) => {
+    current.channelState = {
+      ...(current.channelState ?? {}),
+      pushStatus: 'inactive',
+      watchExpirationMs: null,
+    }
+    current.pollIntervalSeconds = POLLING_ONLY_DEFAULT_INTERVAL_SECONDS
+    await transaction.flush()
+  })
 
   await emitCommunicationChannelsEvent(
     'communication_channels.push.deactivated',

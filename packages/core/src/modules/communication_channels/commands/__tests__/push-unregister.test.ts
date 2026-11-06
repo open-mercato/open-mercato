@@ -28,7 +28,8 @@ const CHANNEL = '44444444-4444-4444-8444-444444444444'
 
 function buildContainer(opts: { flushSpy?: jest.Mock } = {}) {
   const flushSpy = opts.flushSpy ?? jest.fn().mockResolvedValue(undefined)
-  const em = { fork: jest.fn().mockReturnThis(), flush: flushSpy }
+  const em = { fork: jest.fn().mockReturnThis(), transactional: jest.fn(), flush: flushSpy }
+  em.transactional.mockImplementation((callback: (transaction: typeof em) => Promise<unknown>) => callback(em))
   const integrationCredentialsService = {
     resolve: jest.fn().mockResolvedValue({ accessToken: 'tok' }),
   }
@@ -39,7 +40,7 @@ function buildContainer(opts: { flushSpy?: jest.Mock } = {}) {
       throw new Error(`unexpected resolve: ${token}`)
     }),
   } as unknown as Parameters<typeof pushUnregister>[0]['container']
-  return { container, flushSpy }
+  return { container, em, flushSpy }
 }
 
 function buildActiveGmailChannel(overrides: Record<string, unknown> = {}) {
@@ -201,4 +202,16 @@ describe('pushUnregister', () => {
     expect(result.error?.code).toBe('adapter_unregister_failed')
     expect(emitCommunicationChannelsEvent).not.toHaveBeenCalled()
   })
+})
+
+it('clears only push markers while preserving a cursor committed during provider teardown', async () => {
+  const initial = buildActiveGmailChannel()
+  const current = buildActiveGmailChannel({ channelState: { historyId: '99999', pendingHistoryPageToken: 'next-page', pushStatus: 'active', pubsubTopic: 'new-topic' } })
+  ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(initial).mockResolvedValue(current)
+  ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({ get: () => ({ unregisterPush: jest.fn().mockResolvedValue(undefined) }) })
+  const { container, em } = buildContainer()
+  await pushUnregister({ container, scope: { tenantId: TENANT, organizationId: ORG }, input: { channelId: CHANNEL } })
+  expect(current.channelState).toEqual({ historyId: '99999', pendingHistoryPageToken: 'next-page', pushStatus: 'inactive', pubsubTopic: 'new-topic', watchExpirationMs: null })
+  expect(initial.channelState.pushStatus).toBe('active')
+  expect(em.transactional).toHaveBeenCalledTimes(1)
 })

@@ -7,6 +7,8 @@ import { CommunicationChannel } from '../data/entities'
 import { getChannelAdapterRegistry } from '../lib/adapter-registry-singleton'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { emitCommunicationChannelsEvent } from '../events'
+import { sameSyncState, syncState, withLockedChannel } from '../lib/channel-state-write'
+import { PUSH_STATE_KEYS } from '../lib/push-state'
 import type { PushRegistration } from '../lib/adapter'
 
 /**
@@ -149,6 +151,7 @@ export async function pushRegister(params: {
     notificationUrl = '' // Gmail does not use a per-call URL; Pub/Sub subscription is preconfigured.
   }
 
+  const startingCursor = structuredClone(syncState(channel.channelState))
   let registration: PushRegistration
   try {
     registration = await adapter.registerPush({
@@ -168,12 +171,20 @@ export async function pushRegister(params: {
   }
 
   // Persist results.
-  const previousState = (channel.channelState as Record<string, unknown> | null) ?? {}
-  channel.channelState = { ...previousState, ...registration.channelStatePatch }
-  if (registration.status === 'active' && typeof registration.recommendedPollIntervalSeconds === 'number') {
-    channel.pollIntervalSeconds = registration.recommendedPollIntervalSeconds
-  }
-  await em.flush()
+  const persistedState = await withLockedChannel(em, { ...channel, ...dscope }, async (current, transaction) => {
+    const patch = { ...registration.channelStatePatch }
+    if (!sameSyncState(startingCursor, current.channelState)) {
+      for (const key of Object.keys(patch)) {
+        if (!PUSH_STATE_KEYS.some((pushKey) => pushKey === key)) delete patch[key]
+      }
+    }
+    current.channelState = { ...(current.channelState ?? {}), ...patch }
+    if (registration.status === 'active' && typeof registration.recommendedPollIntervalSeconds === 'number') {
+      current.pollIntervalSeconds = registration.recommendedPollIntervalSeconds
+    }
+    await transaction.flush()
+    return current.channelState
+  })
 
   if (registration.status === 'active') {
     await emitCommunicationChannelsEvent(
@@ -203,7 +214,7 @@ export async function pushRegister(params: {
   return {
     channelId: channel.id,
     pushStatus: registration.status,
-    channelState: (channel.channelState as Record<string, unknown> | null) ?? {},
+    channelState: persistedState ?? {},
     error: registration.error,
   }
 }

@@ -43,7 +43,8 @@ function buildContainer(opts: {
   credResolveSpy?: jest.Mock
 } = {}) {
   const flushSpy = opts.flushSpy ?? jest.fn().mockResolvedValue(undefined)
-  const em = { fork: jest.fn().mockReturnThis(), flush: flushSpy }
+  const em = { fork: jest.fn().mockReturnThis(), transactional: jest.fn(), flush: flushSpy }
+  em.transactional.mockImplementation((callback: (transaction: typeof em) => Promise<unknown>) => callback(em))
   const credResolveSpy =
     opts.credResolveSpy ?? jest.fn().mockResolvedValue({ accessToken: 'tok' })
   const integrationCredentialsService = { resolve: credResolveSpy, save: jest.fn() }
@@ -54,7 +55,7 @@ function buildContainer(opts: {
       throw new Error(`unexpected resolve: ${token}`)
     }),
   } as unknown as Parameters<typeof pushRegister>[0]['container']
-  return { container, flushSpy, credResolveSpy }
+  return { container, em, flushSpy, credResolveSpy }
 }
 
 afterEach(() => {
@@ -222,4 +223,22 @@ describe('pushRegister', () => {
       expect.objectContaining({ persistent: true }),
     )
   })
+})
+
+it('preserves a cursor committed while registration was in flight and merges push keys into the locked row', async () => {
+  const initial = buildChannel({ channelState: { historyId: '100' } })
+  const current = buildChannel({ channelState: { historyId: '300', pendingHistoryPageToken: 'page-2', pushStatus: 'inactive' } })
+  ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(initial).mockResolvedValue(current)
+  ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({ get: () => ({
+    registerPush: jest.fn().mockResolvedValue({ status: 'active', channelStatePatch: {
+      historyId: '200', pushStatus: 'active', watchExpirationMs: 9000,
+    }, recommendedPollIntervalSeconds: 1800 }),
+  }) })
+  ;(refreshCredentialsIfNeeded as jest.Mock).mockResolvedValue({ refreshed: false, credentials: {} })
+  const { container, em } = buildContainer()
+  const result = await pushRegister({ container, scope: { tenantId: TENANT, organizationId: ORG }, input: { channelId: CHANNEL } })
+  expect(result.channelState).toEqual({ historyId: '300', pendingHistoryPageToken: 'page-2', pushStatus: 'active', watchExpirationMs: 9000 })
+  expect(initial.channelState).toEqual({ historyId: '100' })
+  expect(em.transactional).toHaveBeenCalledTimes(1)
+  expect((findOneWithDecryption as jest.Mock).mock.calls[1][3]).toMatchObject({ lockMode: expect.anything(), refresh: true })
 })
