@@ -193,3 +193,9 @@ test('greenfield initialization disables turbo prefixes before the forwarded rei
     assert.equal(source.match(/\['initialize', '--log-prefix=none', '--', '--reinstall'\]/g)?.length, 2)
   }
 })
+
+test('direct monorepo initialization also suppresses task prefixes around the panel', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const manifest = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'))
+  assert.match(manifest.scripts.initialize, /--log-prefix=none(?:\s|$)/)
+})
