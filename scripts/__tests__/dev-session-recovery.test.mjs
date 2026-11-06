@@ -71,13 +71,50 @@ test('orphaned app-runtime processes may have cwd inside the workspace app direc
   assert.equal(fixture.signals.length, 1)
 })
 
-for (const scenario of ['declined', 'noninteractive', 'active owner', 'occupied endpoint', 'reused PID', 'PID reused before heartbeat', 'other workspace']) {
-  test(`recovery never signals ${scenario}`, async (context) => {
+for (const scenario of ['declined', 'noninteractive', 'unverifiable workspace']) {
+  test(`recovery never signals or unlocks when ${scenario}`, async (context) => {
     const fixture = orphanFixture(context)
     if (scenario === 'declined') fixture.dependencies.confirm = async () => false
     if (scenario === 'noninteractive') fixture.dependencies.interactive = false
-    if (scenario === 'active owner') fs.writeFileSync(fixture.ownerPath, JSON.stringify({ ...fixture.owner, role: 'dev-runner', transferredAt: undefined }))
+    if (scenario === 'unverifiable workspace') {
+      fixture.dependencies.processWorkspace = () => null
+      fixture.dependencies.confirm = async () => assert.fail('an unverifiable session must not be offered for cleanup')
+    }
+    await assert.rejects(acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies), DevSessionConflictError)
+    assert.deepEqual(fixture.signals, [])
+    assert.equal(fs.existsSync(fixture.ownerPath), true)
+  })
+}
+
+for (const scenario of ['active owner', 'occupied endpoint', 'setup owner without URL']) {
+  test(`confirmed recovery stops a live ${scenario} session and continues`, async (context) => {
+    const fixture = orphanFixture(context)
+    const activeOwner = { ...fixture.owner, role: 'dev-runner', transferredAt: undefined }
+    if (scenario === 'active owner') fs.writeFileSync(fixture.ownerPath, JSON.stringify(activeOwner))
     if (scenario === 'occupied endpoint') fixture.dependencies.endpointAvailable = async () => false
+    if (scenario === 'setup owner without URL') {
+      fs.writeFileSync(fixture.ownerPath, JSON.stringify({ ...activeOwner, role: 'starter', mode: 'setup:hybrid', url: null }))
+      fixture.dependencies.endpointAvailable = async () => false
+    }
+    let description = ''
+    fixture.dependencies.confirm = async (text) => {
+      description = text
+      return true
+    }
+    const session = await acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies)
+    session.release()
+    assert.match(description, /already owns this workspace/)
+    assert.match(description, /still running in this workspace/)
+    if (scenario === 'occupied endpoint') assert.match(description, /still serving/)
+    if (scenario === 'setup owner without URL') assert.match(description, /mode setup:hybrid, URL unavailable/)
+    assert.equal(fixture.signals.length, 1)
+    assert.equal(fixture.signals[0].signal, 'SIGTERM')
+  })
+}
+
+for (const scenario of ['reused PID', 'PID reused before heartbeat', 'other workspace']) {
+  test(`confirmed recovery discards a stale lock without signaling when ${scenario}`, async (context) => {
+    const fixture = orphanFixture(context)
     if (scenario === 'reused PID') fixture.record.startedAt = new Date(Date.now() + 20_000).toString()
     if (scenario === 'PID reused before heartbeat') {
       const memberPath = path.join(fixture.lockDirectory, 'members', `${process.pid}.json`)
@@ -85,11 +122,51 @@ for (const scenario of ['declined', 'noninteractive', 'active owner', 'occupied 
       fs.writeFileSync(memberPath, JSON.stringify({ ...member, registeredAt: new Date(Date.now() - 20000).toISOString() }))
     }
     if (scenario === 'other workspace') fixture.dependencies.processWorkspace = () => '/another-workspace'
-    await assert.rejects(acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies), DevSessionConflictError)
+    let description = ''
+    fixture.dependencies.confirm = async (text) => {
+      description = text
+      return true
+    }
+    const session = await acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies)
+    assert.match(description, /no longer running/)
+    assert.match(description, /Clean up the stale session lock/)
     assert.deepEqual(fixture.signals, [])
-    assert.equal(fs.existsSync(fixture.ownerPath), true)
+    const owner = JSON.parse(fs.readFileSync(fixture.ownerPath, 'utf8'))
+    assert.equal(owner.token, session.token)
+    assert.notEqual(owner.token, fixture.owner.token)
+    session.release()
+    assert.equal(fs.existsSync(fixture.lockDirectory), false)
   })
 }
+
+test('declining a stale lock cleanup leaves the lock untouched', async (context) => {
+  const fixture = orphanFixture(context)
+  fixture.dependencies.processWorkspace = () => '/another-workspace'
+  fixture.dependencies.confirm = async () => false
+  await assert.rejects(acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies), DevSessionConflictError)
+  assert.equal(JSON.parse(fs.readFileSync(fixture.ownerPath, 'utf8')).token, fixture.owner.token)
+})
+
+test('recovery refuses to stop the parent of the current launch', async (context) => {
+  const fixture = orphanFixture(context)
+  fixture.record.pid = process.ppid
+  fixture.dependencies.inspectTree = () => [fixture.record, { ...fixture.record, pid: process.ppid, parentPid: 1 }].slice(1)
+  fs.writeFileSync(fixture.ownerPath, JSON.stringify({ ...fixture.owner, pid: process.ppid }))
+  fs.writeFileSync(path.join(fixture.lockDirectory, 'members', `${process.ppid}.json`), JSON.stringify({ ...fixture.owner, pid: process.ppid, heartbeatAt: new Date().toISOString() }))
+  fs.rmSync(path.join(fixture.lockDirectory, 'members', `${process.pid}.json`))
+  fixture.dependencies.confirm = async () => assert.fail('the parent launch must not be offered for cleanup')
+  await assert.rejects(acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies), DevSessionConflictError)
+  assert.deepEqual(fixture.signals, [])
+})
+
+test('recovery is idempotent: a second launch after cleanup acquires without prompting', async (context) => {
+  const fixture = orphanFixture(context)
+  const first = await acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies)
+  first.release()
+  fixture.dependencies.confirm = async () => assert.fail('no prompt expected once the workspace is free')
+  const second = await acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies)
+  second.release()
+})
 
 test('a new owner acquired while consent was pending is never signaled', async (context) => {
   const fixture = orphanFixture(context)
