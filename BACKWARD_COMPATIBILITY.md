@@ -635,13 +635,10 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
 
-
 ## Compose encryption (2026-11-01, #7231)
 
-STABLE config: unsafe root/lookup keys or remote HTTP Vault refused; a bridge
-retains disclosure. [Migrate](UPGRADE_NOTES.md). [Spec](.ai/specs/2026-11-01-7231-compose-encryption-key.md).
-Emergency steps 1–3 waiver **pending**: named human maintainer approval on the
-security PR required before merge.
+STABLE: unsafe root/lookup keys or remote HTTP Vault refused; bridges retain exposure. [Migrate](UPGRADE_NOTES.md).
+Named human waiver of steps 1–3 required before merge.
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
