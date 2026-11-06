@@ -100,6 +100,20 @@ test('disposable PostgreSQL: actual isolated helpers prove keys and rejected reu
     fs.writeFileSync(path.join(projectDir, '.env'), envBefore)
     await assert.rejects(run({ TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'wrong-fixture-key' }), /writes are blocked/)
     assert.equal(fs.readFileSync(path.join(projectDir, '.env'), 'utf8'), envBefore)
+    const { databaseStep } = await import('../steps.mjs')
+    const appDir = path.join(projectDir, 'apps', 'mercato')
+    fs.mkdirSync(appDir, { recursive: true })
+    const appEnv = `DATABASE_URL=${url}\nTENANT_DATA_ENCRYPTION_FALLBACK_KEY=wrong-fixture-key\n`
+    fs.writeFileSync(path.join(appDir, '.env'), appEnv)
+    const mutations = []
+    await assert.rejects(databaseStep.apply({
+      repoRoot: projectDir, env: { ...env, TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'wrong-fixture-key' }, flags: {}, log() {},
+      runStreamingImpl(...args) { mutations.push(args); throw new Error('mutation must not launch') },
+    }), /writes are blocked/)
+    assert.deepEqual(mutations, [])
+    assert.equal(fs.readFileSync(path.join(appDir, '.env'), 'utf8'), appEnv)
+    assert.deepEqual((await client.query('SELECT data FROM forms_form_submission_revision')).rows[0].data, encrypted)
+
     assert.equal((await run({ DATABASE_URL: url.replace(/fixture$/, 'missing_fixture') })).status, 'empty')
   } finally {
     process.env = originalEnv

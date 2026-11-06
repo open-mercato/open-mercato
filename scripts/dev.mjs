@@ -999,6 +999,7 @@ async function guardDatabaseMutation(commandArgs, env = {}) {
     projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
     env: { ...process.env, ...env },
   })
+  console.log(`[setup] encryption preflight: ${compatibility.status}`)
   Object.assign(process.env, compatibility.settings)
   Object.assign(env, compatibility.settings)
 }
