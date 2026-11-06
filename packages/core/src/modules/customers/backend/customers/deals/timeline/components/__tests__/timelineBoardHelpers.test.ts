@@ -235,6 +235,12 @@ describe('drawer history bookkeeping', () => {
     expect(nextPushedDrawerDealId(null, 'deal-y', null)).toBeNull()
   })
 
+  it('keeps the pushed deal when the same deal is reopened before its own close lands', () => {
+    expect(nextPushedDrawerDealId('deal-x', 'deal-x', null, true)).toBe('deal-x')
+    expect(nextPushedDrawerDealId('deal-x', null, 'deal-x', false)).toBe('deal-x')
+    expect(nextPushedDrawerDealId('deal-x', 'deal-x', null, false)).toBeNull()
+  })
+
   it('keeps a closing deal hidden while a different deal opens', () => {
     expect(keepDismissedOnOpen('deal-x', 'deal-y')).toBe('deal-x')
     expect(keepDismissedOnOpen('deal-x', 'deal-x')).toBeNull()

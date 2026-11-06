@@ -170,8 +170,10 @@ export function nextPushedDrawerDealId(
   pushedDealId: string | null,
   previousDealId: string | null,
   currentDealId: string | null,
+  pushPending = false,
 ): string | null {
   if (!pushedDealId) return null
+  if (pushPending) return pushedDealId
   return previousDealId === pushedDealId && currentDealId !== pushedDealId ? null : pushedDealId
 }
 
@@ -429,6 +431,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   const [drawerRefreshToken, setDrawerRefreshToken] = React.useState(0)
   const returnFocusRef = React.useRef<HTMLElement | null>(null)
   const drawerPushedDealIdRef = React.useRef<string | null>(null)
+  const pendingPushDealIdRef = React.useRef<string | null>(null)
   const previousDealIdRef = React.useRef<string | null>(state.dealId)
   const showDealRef = React.useRef<HTMLButtonElement | null>(null)
 
@@ -441,10 +444,14 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   }, [])
 
   React.useEffect(() => {
+    if (pendingPushDealIdRef.current && state.dealId === pendingPushDealIdRef.current) {
+      pendingPushDealIdRef.current = null
+    }
     drawerPushedDealIdRef.current = nextPushedDrawerDealId(
       drawerPushedDealIdRef.current,
       previousDealIdRef.current,
       state.dealId,
+      pendingPushDealIdRef.current !== null && pendingPushDealIdRef.current === drawerPushedDealIdRef.current,
     )
     previousDealIdRef.current = state.dealId
   }, [state.dealId])
@@ -551,6 +558,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
       setPopover(null)
       setDismissedDealId((current) => keepDismissedOnOpen(current, item.id))
       drawerPushedDealIdRef.current = item.id
+      pendingPushDealIdRef.current = item.id
       update({ dealId: item.id }, { history: 'push' })
     },
     [popover, update],
@@ -569,6 +577,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     setDismissedDealId(state.dealId)
     const history = state.dealId && drawerPushedDealIdRef.current === state.dealId ? 'back' : 'replace'
     drawerPushedDealIdRef.current = null
+    pendingPushDealIdRef.current = null
     update({ dealId: null }, { history })
   }, [state.dealId, update])
 
