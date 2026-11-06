@@ -741,7 +741,15 @@ export const databaseStep = {
         // has no users, so it seeds either way; the flag is left off there.
         const initArgs = ctx.dbReinitialize ? ['initialize'] : ['initialize', '--', '--skip-if-initialized']
         await authorizeWrites()
-        await runYarn({ ...ctx, env: { ...ctx.env, OM_INIT_DEV_AUTOSTART: '1' } }, initArgs)
+        await runYarn({
+          ...ctx,
+          env: {
+            ...ctx.env,
+            OM_INIT_DEV_AUTOSTART: '1',
+            OM_INIT_SUMMARY_COLUMNS: String(Math.max(8, (process.stdout.columns || 80) - (ctx.logs ? 3 : 0))),
+            OM_INIT_SUMMARY_COLOR: process.stdout.isTTY && ctx.env.NO_COLOR === undefined ? '1' : '0',
+          },
+        }, initArgs)
       }
       writeState(ctx.repoRoot, ctx.dbMarker, new Date().toISOString())
     }
