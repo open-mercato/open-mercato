@@ -10,6 +10,7 @@ import * as fs from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import * as path from 'node:path'
 import type { ModuleEntry, PackageResolver } from '../resolver'
+import { getEnabledModuleIdentities } from '../module-identity'
 import { isModuleRouteFile } from './scanner'
 import {
   calculateChecksum,
@@ -675,6 +676,8 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   const outFile = path.join(outputDir, 'openapi.generated.json')
   const checksumFile = path.join(outputDir, 'openapi.generated.checksum')
   const inputManifestFile = path.join(outputDir, 'openapi.generated.inputs.json')
+
+  getEnabledModuleIdentities(resolver, resolver.loadEnabledModules())
 
   // Ensure output directory exists
   if (!fs.existsSync(outputDir)) {

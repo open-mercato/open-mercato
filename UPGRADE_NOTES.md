@@ -1,5 +1,15 @@
 # Upgrade Notes
 
+## Search writes honor entity strategy pins (#5930)
+
+SearchService direct and bulk writes now honor each registered entity's existing
+`strategies` restriction; an explicit empty list writes to no strategy. Unpinned
+entities, fulltext content, and null-source behavior are unchanged. No client,
+configuration, or database migration is required. After upgrading all workers,
+operators whose entities previously reached an excluded writer should purge those
+entities from that index using the existing cleanup operations. Existing vectors
+and embedding-provider retention are not removed automatically.
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings
@@ -655,6 +665,14 @@ continue to omit the bundled Traefik overlay; their base-file port mappings
 are unchanged. Host-local proxies and diagnostics can use a final loopback-only
 override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
 No application API, database, or module-code migration is required.
+
+### Canonical module origins and duplicate enabled IDs (#8309)
+
+Module generation now rejects duplicate enabled runtime IDs before writing generated artifacts, including duplicate entries from the same package or different dependency aliases. If an existing app fails this check, keep one intended provider for each ID in `src/modules.ts` (including conditional registrations), preserve local overlay files, then rerun `yarn mercato generate`. A single package-backed registration with an app-local overlay remains supported; an explicitly empty enabled-module list does not rediscover disabled local modules.
+
+`locator` and `packageName` are optional provenance fields; existing entries do not need a bulk migration. npm and GitHub sources remain distinct: a package's `repository` field alone does not satisfy a GitHub-qualified requirement. Correct stale retained provenance or restore the intended package binding when it disagrees with the installed source. Before replacing a binding, disable every enabled module that consumes it, then install and enable the new provider explicitly. Disabling discovery preserves source and data and does not remove manual imports; review those before removing the old dependency. See [module installation and recovery](apps/docs/docs/cli/module-add.mdx).
+
+Module descriptors that declare `metadata.requires` must now use a static array of string literals; computed values, spreads, identifiers, and non-string entries fail enablement. npm preflight uses `npm pack` and therefore needs the `npm` executable plus registry access even when Yarn has a cached artifact; offline operators can install with Yarn and then run `yarn mercato module enable <packageName>`. GitHub preflight checks repository layout and export-map coverage but cannot prove that build output exists until Yarn installs the pinned commit, after which the CLI performs the full installed-package validation.
 
 ### `yarn setup` in generated apps starts Docker infrastructure first (#7791)
 
@@ -5132,3 +5150,9 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+## Staff logout redirect status correction (2026-11-05, #7383)
+
+`POST /api/auth/logout` now returns `303 See Other` with the same login Location, so browsers navigate with GET and reloading the login page does not resubmit a form. This supersedes the 307 status in the earlier logout notes, including refresh-cookie-only and cookieless requests.
+
+**Action for integrators:** accept 303 instead of asserting 307 and follow Location with GET. Operators need no configuration or database migration. Session revocation, cookie expiry and events retain their current behavior, and other users of the shared redirect helper still default to 307. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md).

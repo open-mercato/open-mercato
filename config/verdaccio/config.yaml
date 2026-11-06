@@ -42,8 +42,7 @@ packages:
 server:
   keepAliveTimeout: 60
 
-# npm publishes tarballs base64-encoded inside a JSON body (~1.35x the .tgz).
-# @open-mercato/core packs to ~41 MB (~55 MB on the wire), past the old 50mb.
+# npm publishes tarballs base64-encoded inside JSON; allow headroom for core.
 max_body_size: 200mb
 
 middlewares:
