@@ -20,7 +20,7 @@ With [Node.js](https://nodejs.org/en/download) installed, one command does every
 npx @open-mercato/starter
 ```
 
-Already inside a clone? Run `yarn setup` (the same starter as `yarn om up`). It checks Docker first, starts PostgreSQL, Redis, Meilisearch and OpenCode, waits until they are healthy, and only then initializes the database and starts the app. If Docker is missing, stopped or a port is taken, it stops and tells you what to fix. Using your own services instead of Docker? Point `.env` at them and run `yarn setup --no-infra`; it makes no Docker calls.
+Already inside a clone? Run `node packages/starter/bin/om-start.mjs` the first time: Yarn refuses to run a workspace script such as `yarn setup` before the first `yarn install`, and `npx @open-mercato/starter` inside a clone resolves the not-yet-installed local package. Once dependencies are installed, `yarn setup` (the same starter as `yarn om up`) does the same. Without a service flag it reuses configured services that answer and verify, starts Compose on the configured ports when nothing answers, and starts an isolated stack on free ports when those ports belong to something else; without Docker and usable services it stops with the [Without Docker](README.md#without-docker) guide. Interactive terminals show that pick as the default and offer `--ephemeral` (disposable Testcontainers services), `--random-ports` (an isolated persistent Compose stack with free ports), or `--infra` (Compose on configured ports). The isolated options update the corresponding service URLs and ports together. Ephemeral services and temporary settings are cleaned up when the foreground session ends. `--no-infra` remains an explicit reuse alias. If setup fails, it prints manual setup commands.
 
 The starter clones the repo if needed, audits your machine (`doctor`, which expects Node 24), handles corporate proxies and TLS interception, generates `.env` and secrets, starts the infra containers, initializes the database and boots the supervised dev runtime. Re-running it resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` on Windows, `start.sh` on macOS and Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md); the first run needs about 20 GB of free disk.
 
@@ -38,7 +38,7 @@ cp apps/mercato/.env.example apps/mercato/.env # the defaults work with yarn inf
 yarn dev:greenfield                           # builds, generates, initializes and starts the app
 ```
 
-`yarn dev:greenfield` reinstalls the database: it drops all tables in the configured database before seeding it again. Open `http://localhost:3000/backend`; the credentials are printed in the terminal. Windows users: see [Developing on Windows](#developing-on-windows).
+In the monorepo, `yarn dev:greenfield` keeps its established reset behavior: it drops all tables in the configured database and seeds it again before starting development. Standalone `yarn setup` preserves initialized data; `yarn setup --reinstall` explicitly resets it. Open `http://localhost:3000/backend`; the credentials are printed in the terminal. Windows users: see [Developing on Windows](#developing-on-windows).
 
 ### Seed data
 
