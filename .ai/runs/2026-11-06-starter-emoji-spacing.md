@@ -23,3 +23,7 @@ PR: #8927
 ### Phase 1: Spacing
 
 - [x] 1.1 Double-space after VS16 emojis in starter output and update tests — 6caf4552e8
+
+### Phase 2: Dev runtime output (scope extension requested by the user)
+
+- [x] 2.1 Double-space after VS16 emojis in yarn dev / dev:greenfield output, dedent the "Press [d]" hint, sync create-app template — c9c875c355
