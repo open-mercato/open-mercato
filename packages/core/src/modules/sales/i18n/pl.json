@@ -1494,6 +1494,7 @@
   "sales.shipments.not_found": "Nie znaleziono wysyłki",
   "sales.shipments.payment_completed": "Nie można zmodyfikować wysyłki: płatność za zamówienie jest zakończona.",
   "sales.shipments.quantity_exceeded": "Nie można wysłać więcej niż pozostała ilość.",
+  "sales.shipments.service_line_not_shippable": "Pozycja {{line}} jest usługą i nie może zostać wysłana.",
   "sales.stageBar.changeFailed": "Nie udało się zmienić etapu",
   "sales.stageBar.changed": "Zmieniono etap",
   "sales.stageBar.closed.lost": "Przegrana",

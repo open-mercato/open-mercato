@@ -791,6 +791,7 @@
   "catalog.search.status.inactive": "Nieaktywny",
   "catalog.search.variant.default": "Domyślny",
   "catalog.services.create.mediaTransferIncomplete": "Usługa utworzona, ale nie udało się dołączyć {failed} z {total} plików multimedialnych.",
+  "catalog.services.errors.categoryNotFound": "Nie znaleziono kategorii katalogu lub brak do niej dostępu.",
   "catalog.services.flash.created": "Usługa utworzona",
   "catalog.services.flash.deleted": "Usługa zarchiwizowana",
   "catalog.services.flash.updated": "Usługa zaktualizowana",

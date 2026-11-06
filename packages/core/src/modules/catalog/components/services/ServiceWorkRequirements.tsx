@@ -4,8 +4,11 @@ import * as React from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import {
   CATALOG_SERVICE_WORK_ALLOCATION_MODES,
@@ -102,8 +105,22 @@ function readLabel(record: Record<string, unknown>, fallback: string): string {
   return compactReference(fallback)
 }
 
+const NO_REFERENCE_VALUE = '__none__'
+const QUIET_ACCESS_HEADERS = { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' }
+const STAFF_LOOKUP_FEATURE = 'staff.view'
+const RESOURCES_LOOKUP_FEATURE = 'resources.view'
+
+async function loadGrantedLookupFeatures(): Promise<string[]> {
+  const call = await apiCall<{ granted?: string[] }>('/api/auth/feature-check', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...QUIET_ACCESS_HEADERS },
+    body: JSON.stringify({ features: [STAFF_LOOKUP_FEATURE, RESOURCES_LOOKUP_FEATURE] }),
+  })
+  return Array.isArray(call.result?.granted) ? call.result.granted : []
+}
+
 async function loadOptions(path: string): Promise<LookupOption[]> {
-  const call = await apiCall<ApiListResponse>(`${path}?page=1&pageSize=100`)
+  const call = await apiCall<ApiListResponse>(`${path}?page=1&pageSize=100`, { headers: QUIET_ACCESS_HEADERS })
   const items = Array.isArray(call.result?.items) ? call.result.items : []
   return items
     .map((item) => {
@@ -158,12 +175,16 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
   React.useEffect(() => {
     let cancelled = false
     async function load() {
+      const granted = await loadGrantedLookupFeatures().catch(() => [])
+      const canReadStaff = hasFeature(granted, STAFF_LOOKUP_FEATURE)
+      const canReadResources = hasFeature(granted, RESOURCES_LOOKUP_FEATURE)
+      const skip = Promise.resolve<LookupOption[]>([])
       const results = await Promise.allSettled([
-        loadOptions('/api/staff/teams'),
-        loadOptions('/api/staff/team-roles'),
-        loadOptions('/api/staff/team-members'),
-        loadOptions('/api/resources/resources'),
-        loadOptions('/api/resources/resource-types'),
+        canReadStaff ? loadOptions('/api/staff/teams') : skip,
+        canReadStaff ? loadOptions('/api/staff/team-roles') : skip,
+        canReadStaff ? loadOptions('/api/staff/team-members') : skip,
+        canReadResources ? loadOptions('/api/resources/resources') : skip,
+        canReadResources ? loadOptions('/api/resources/resource-types') : skip,
       ])
       if (cancelled) return
       setLookups({
@@ -239,26 +260,30 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-[minmax(7rem,0.8fr)_minmax(12rem,1.2fr)_minmax(14rem,1.5fr)_minmax(7rem,0.8fr)_minmax(5.5rem,0.6fr)_2rem]">
                 <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                   <span>{t('catalog.services.work.field.targetType', 'Target')}</span>
-                  <select
-                    className="h-9 w-full min-w-0 rounded-md border bg-background px-2 text-sm"
+                  <Select
                     value={row.targetType}
-                    onChange={(event) => {
-                      const nextType = event.target.value as CatalogServiceWorkTargetType
+                    onValueChange={(next) => {
+                      const nextType = next as CatalogServiceWorkTargetType
                       if (CATALOG_SERVICE_WORK_TARGET_TYPES.includes(nextType)) {
                         updateRow(index, { targetType: nextType })
                       }
                     }}
                   >
-                    {CATALOG_SERVICE_WORK_TARGET_TYPES.map((type) => (
-                      <option key={type} value={type}>{targetTypeLabel(t, type)}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="h-9 w-full min-w-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATALOG_SERVICE_WORK_TARGET_TYPES.map((type) => (
+                        <SelectItem key={type} value={type}>{targetTypeLabel(t, type)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </label>
 
                 <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                   <span>{t('catalog.services.work.field.label', 'Label')}</span>
-                  <input
-                    className="h-9 w-full min-w-0 rounded-md border bg-background px-2 text-sm"
+                  <Input
+                    className="h-9 w-full min-w-0"
                     value={row.labelSnapshot}
                     onChange={(event) => updateRow(index, { labelSnapshot: event.target.value })}
                   />
@@ -267,41 +292,49 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                 {row.targetType === 'generic' ? null : (
                   <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                     <span>{t('catalog.services.work.field.reference', 'Reference')}</span>
-                    <select
-                      className="h-9 w-full min-w-0 rounded-md border bg-background px-2 text-sm"
-                      value={row.targetId ?? ''}
-                      onChange={(event) => updateRow(index, { targetId: event.target.value || null })}
+                    <Select
+                      value={row.targetId ?? NO_REFERENCE_VALUE}
+                      onValueChange={(next) => updateRow(index, { targetId: next === NO_REFERENCE_VALUE ? null : next })}
                     >
-                      <option value="">{t('catalog.services.work.field.referenceEmpty', 'Select')}</option>
-                      {targetOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="h-9 w-full min-w-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_REFERENCE_VALUE}>{t('catalog.services.work.field.referenceEmpty', 'Select')}</SelectItem>
+                        {targetOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </label>
                 )}
 
                 <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                   <span>{t('catalog.services.work.field.allocationMode', 'Mode')}</span>
-                  <select
-                    className="h-9 w-full min-w-0 rounded-md border bg-background px-2 text-sm"
+                  <Select
                     value={row.allocationMode}
-                    onChange={(event) => {
-                      const nextMode = event.target.value as CatalogServiceWorkAllocationMode
+                    onValueChange={(next) => {
+                      const nextMode = next as CatalogServiceWorkAllocationMode
                       if (CATALOG_SERVICE_WORK_ALLOCATION_MODES.includes(nextMode)) {
                         updateRow(index, { allocationMode: nextMode })
                       }
                     }}
                   >
-                    {CATALOG_SERVICE_WORK_ALLOCATION_MODES.map((mode) => (
-                      <option key={mode} value={mode}>{allocationModeLabel(t, mode)}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="h-9 w-full min-w-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATALOG_SERVICE_WORK_ALLOCATION_MODES.map((mode) => (
+                        <SelectItem key={mode} value={mode}>{allocationModeLabel(t, mode)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </label>
 
                 <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                   <span>{t('catalog.services.work.field.value', 'Value')}</span>
-                  <input
-                    className="h-9 w-full min-w-0 rounded-md border bg-background px-2 text-sm"
+                  <Input
+                    className="h-9 w-full min-w-0"
                     type="text"
                     inputMode="decimal"
                     value={allocationInputValue(row.allocationValue)}

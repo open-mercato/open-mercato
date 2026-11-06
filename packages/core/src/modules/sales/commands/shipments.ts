@@ -417,6 +417,15 @@ async function validateShipmentItems(params: {
     if (!line) {
       throw notFound(translate('sales.shipments.line_missing', 'Order line not found.'))
     }
+    if (line.serviceId) {
+      throw new CrudHttpError(400, {
+        error: translate(
+          'sales.shipments.service_line_not_shippable',
+          'Line {{line}} is a service and cannot be shipped.',
+          { line: String(line.lineNumber) },
+        ),
+      })
+    }
     const lineTotal = toNumber(line.quantity)
     const alreadyShipped = shippedTotals.get(lineId) ?? 0
     const nextTotal = (requestedTotals.get(lineId) ?? 0) + quantity

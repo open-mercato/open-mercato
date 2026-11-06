@@ -48,6 +48,7 @@ type Handler = {
   id: string
   execute: (input: unknown, ctx: unknown) => Promise<{ serviceId: string }>
   undo?: (args: { logEntry: Record<string, unknown>; ctx: unknown }) => Promise<void>
+  redo?: (args: { input: unknown; logEntry: Record<string, unknown>; ctx: unknown }) => Promise<{ serviceId: string }>
 }
 
 function loadCommand(id: string): Handler {
@@ -314,5 +315,83 @@ describe('catalog.services commands', () => {
 
     await expect(command.execute({ id: SERVICE_ID, title: 'Renamed' }, ctx)).rejects.toBeDefined()
     expect(setCustomFieldsIfAny).not.toHaveBeenCalled()
+  })
+
+  it('redoes an undone create by restoring the original service id, children and custom fields', async () => {
+    const command = loadCommand('catalog.services.create')
+    const record = buildRecord({ deletedAt: new Date('2026-01-02T00:00:00.000Z'), isActive: false })
+    const { ctx, em, created } = buildCtx(record)
+    const snapshot = buildSnapshot({ custom: { priority: 'high' } })
+
+    const result = await command.redo!({
+      input: {},
+      logEntry: { resourceId: SERVICE_ID, commandPayload: { undo: { after: snapshot } }, snapshotAfter: snapshot },
+      ctx,
+    })
+
+    expect(result).toEqual({ serviceId: SERVICE_ID })
+    expect(created.filter((entry) => entry.entity === 'CatalogService')).toHaveLength(0)
+    expect(record.deletedAt).toBeNull()
+    expect(record.isActive).toBe(true)
+    expect(em.nativeDelete).toHaveBeenCalledTimes(2)
+    expect(created.filter((entry) => entry.entity === 'CatalogServiceWorkRequirement')).toHaveLength(1)
+    expect(setCustomFieldsIfAny).toHaveBeenCalledWith(
+      expect.objectContaining({ entityId: SERVICE_ENTITY_ID, recordId: SERVICE_ID, values: { priority: 'high' } }),
+    )
+    expect(emitCrudSideEffects).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'created', indexer: expect.objectContaining({ entityType: SERVICE_ENTITY_ID }) }),
+    )
+  })
+
+  it('moves the default media to a surviving item when the media list is replaced', async () => {
+    const command = loadCommand('catalog.services.update')
+    const record = buildRecord({ defaultMediaId: 'old-file', defaultMediaUrl: '/old.png' })
+    const { ctx } = buildCtx(record)
+
+    await command.execute(
+      {
+        id: SERVICE_ID,
+        media: [
+          { fileId: '66666666-6666-4666-8666-666666666666', url: '/new-a.png' },
+          { fileId: '77777777-7777-4777-8777-777777777777', url: '/new-b.png', isDefault: true },
+        ],
+      },
+      ctx,
+    )
+
+    expect(record.defaultMediaId).toBe('77777777-7777-4777-8777-777777777777')
+    expect(record.defaultMediaUrl).toBe('/new-b.png')
+  })
+
+  it('keeps the default media when it is still part of the replaced list', async () => {
+    const command = loadCommand('catalog.services.update')
+    const keptFile = '66666666-6666-4666-8666-666666666666'
+    const record = buildRecord({ defaultMediaId: keptFile, defaultMediaUrl: '/kept.png' })
+    const { ctx } = buildCtx(record)
+
+    await command.execute(
+      {
+        id: SERVICE_ID,
+        media: [
+          { fileId: '77777777-7777-4777-8777-777777777777', url: '/other.png', isDefault: true },
+          { fileId: keptFile, url: '/kept.png' },
+        ],
+      },
+      ctx,
+    )
+
+    expect(record.defaultMediaId).toBe(keptFile)
+    expect(record.defaultMediaUrl).toBe('/kept.png')
+  })
+
+  it('answers a missing service with a translated 404', async () => {
+    const command = loadCommand('catalog.services.update')
+    const { ctx } = buildCtx()
+    findOneWithDecryption.mockResolvedValue(null)
+
+    await expect(command.execute({ id: SERVICE_ID, title: 'Renamed' }, ctx)).rejects.toMatchObject({
+      status: 404,
+      body: { error: 'Service not found' },
+    })
   })
 })

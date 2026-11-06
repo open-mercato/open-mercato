@@ -791,6 +791,7 @@
   "catalog.search.status.inactive": "비활성",
   "catalog.search.variant.default": "기본값",
   "catalog.services.create.mediaTransferIncomplete": "서비스가 생성되었지만 미디어 파일 {total}개 중 {failed}개를 첨부하지 못했습니다.",
+  "catalog.services.errors.categoryNotFound": "카탈로그 카테고리를 찾을 수 없거나 접근할 수 없습니다.",
   "catalog.services.flash.created": "서비스가 생성되었습니다",
   "catalog.services.flash.deleted": "서비스가 보관되었습니다",
   "catalog.services.flash.updated": "서비스가 수정되었습니다",

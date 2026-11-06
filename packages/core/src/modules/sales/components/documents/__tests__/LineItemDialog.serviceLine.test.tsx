@@ -1,11 +1,16 @@
 /**
  * @jest-environment jsdom
  *
- * The line dialog's service mode: switching an existing line between Product
- * and Service sends explicit `null` for the reference it leaves behind (an
- * omitted key would let the server keep the stale product or service), and a
+ * The line dialog's service mode: switching an existing line between Product,
+ * Service and Custom sends explicit `null` for the reference it leaves behind
+ * (an omitted key would let the server keep the stale product or service), and a
  * new first line never issues a second, client-side write to the document
  * currency — the line upsert already aligns it in the same transaction.
+ *
+ * Custom mode never sends `kind`, and only clears references when the user
+ * switched into it: the server keeps stored values for omitted keys, so a
+ * shipping/adjustment line keeps its kind and a line whose catalog product was
+ * deleted keeps its stored product and variant ids.
  */
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -266,6 +271,19 @@ const serviceValues = (overrides: FormValues = {}): FormValues => ({
   ...overrides,
 })
 
+const customValues = (overrides: FormValues = {}): FormValues =>
+  serviceValues({
+    lineMode: 'custom',
+    serviceId: null,
+    quantityUnit: null,
+    name: 'Freeform',
+    catalogSnapshot: null,
+    ...overrides,
+  })
+
+const definedKeys = (payload: FormValues): string[] =>
+  Object.keys(payload).filter((key) => payload[key] !== undefined)
+
 describe('LineItemDialog service lines', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -312,7 +330,7 @@ describe('LineItemDialog service lines', () => {
     })
   })
 
-  it('clears the service when a service line goes back to a product line', async () => {
+  it('clears the service when a service line becomes a custom line', async () => {
     render(
       <LineItemDialog
         open
@@ -321,7 +339,13 @@ describe('LineItemDialog service lines', () => {
         currencyCode="USD"
         organizationId="org-1"
         tenantId="tenant-1"
-        initialLine={{ ...productLine, productId: null, productVariantId: null, serviceId: 'service-1' }}
+        initialLine={{
+          ...productLine,
+          productId: null,
+          productVariantId: null,
+          serviceId: 'service-1',
+          metadata: { lineMode: 'service', priceMode: 'gross' },
+        }}
         onOpenChange={() => {}}
         onSaved={async () => {}}
       />,
@@ -329,13 +353,127 @@ describe('LineItemDialog service lines', () => {
     await waitFor(() => expect(capturedSubmit).toBeTruthy())
 
     await act(async () => {
-      await capturedSubmit?.(
-        serviceValues({ lineMode: 'custom', serviceId: null, name: 'Freeform', catalogSnapshot: null }),
-      )
+      await capturedSubmit?.(customValues())
     })
 
     const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
-    expect(payload).toMatchObject({ kind: 'product', serviceId: null, productId: null, productVariantId: null })
+    expect(payload).toMatchObject({ serviceId: null, productId: null, productVariantId: null })
+    expect(definedKeys(payload)).not.toContain('kind')
+  })
+
+  it('keeps the kind and references of a line that was already custom', async () => {
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId="order-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{
+          ...productLine,
+          name: 'Express shipping',
+          productId: null,
+          productVariantId: null,
+          metadata: { lineMode: 'custom', customLine: true, priceMode: 'gross' },
+        }}
+        shippedQuantity={0}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await act(async () => {
+      await capturedSubmit?.(customValues({ name: 'Express shipping' }))
+    })
+
+    expect(mockUpdateCrud).toHaveBeenCalledTimes(1)
+    const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
+    const keys = definedKeys(payload)
+    expect(keys).not.toContain('kind')
+    expect(keys).not.toContain('productId')
+    expect(keys).not.toContain('productVariantId')
+    expect(keys).not.toContain('serviceId')
+  })
+
+  it('keeps the stored product of a line opened as custom because its product was deleted', async () => {
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId="order-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={productLine}
+        shippedQuantity={0}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() =>
+      expect(capturedFields.some((field) => field.id === 'deletedCatalogReference')).toBe(true),
+    )
+    expect(formValues.lineMode).toBe('custom')
+
+    await act(async () => {
+      await capturedSubmit?.(
+        customValues({ productId: 'product-1', variantId: 'variant-1', name: 'Original name' }),
+      )
+    })
+
+    expect(mockUpdateCrud).toHaveBeenCalledTimes(1)
+    const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
+    const keys = definedKeys(payload)
+    expect(keys).not.toContain('kind')
+    expect(keys).not.toContain('productId')
+    expect(keys).not.toContain('productVariantId')
+    expect(keys).not.toContain('serviceId')
+  })
+
+  it('clears the product and variant when a product line is switched to custom', async () => {
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/catalog/products?id=')) {
+        return { ok: true, result: { items: [{ id: 'product-1', title: 'Widget' }] } }
+      }
+      if (url.startsWith('/api/catalog/variants?')) {
+        return { ok: true, result: { items: [{ id: 'variant-1', name: 'Default' }] } }
+      }
+      return { ok: true, result: { items: [] } }
+    })
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId="order-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={productLine}
+        shippedQuantity={0}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+    await waitFor(() =>
+      expect(mockApiCall.mock.calls.some(([url]) => String(url).startsWith('/api/catalog/variants?'))).toBe(true),
+    )
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(capturedFields.some((field) => field.id === 'deletedCatalogReference')).toBe(false)
+    expect(formValues.lineMode).toBe('product')
+
+    await act(async () => {
+      await capturedSubmit?.(customValues())
+    })
+
+    expect(mockUpdateCrud).toHaveBeenCalledTimes(1)
+    const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
+    expect(payload).toMatchObject({ productId: null, productVariantId: null, serviceId: null })
+    expect(definedKeys(payload)).not.toContain('kind')
   })
 
   it('creates the first line without a separate document currency write', async () => {

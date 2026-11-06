@@ -15,6 +15,8 @@ import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -118,6 +120,16 @@ export default function ServicesDataTable() {
   const [status, setStatus] = React.useState<'all' | 'active' | 'inactive'>('all')
   const [search, setSearch] = React.useState('')
   const [canManage, setCanManage] = React.useState(false)
+  const mutationContextId = 'catalog-services-list:mutation'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   React.useEffect(() => {
     let cancelled = false
@@ -219,20 +231,32 @@ export default function ServicesDataTable() {
       variant: 'destructive',
     })
     if (!confirmed) return
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['catalog-services'] })
     try {
       const headers = buildOptimisticLockHeader(typeof service.updated_at === 'string' ? service.updated_at : null)
-      await withScopedApiRequestHeaders(headers, () =>
-        deleteCrud('catalog/services', service.id, {
-          errorMessage: t('catalog.services.list.error.delete', 'Failed to delete service'),
-        }),
-      )
-      await queryClient.invalidateQueries({ queryKey: ['catalog-services'] })
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(headers, () =>
+            deleteCrud('catalog/services', service.id, {
+              errorMessage: t('catalog.services.list.error.delete', 'Failed to delete service'),
+            }),
+          ),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'catalog.service',
+          resourceId: service.id,
+          retryLastMutation,
+        },
+        mutationPayload: { id: service.id },
+      })
+      await refresh()
       flash(t('catalog.services.flash.deleted', 'Service archived'), 'success')
     } catch (err: unknown) {
+      if (surfaceRecordConflict(err, t, { onRefresh: () => { void refresh() } })) return
       const fallback = t('catalog.services.list.error.delete', 'Failed to delete service')
       flash(err instanceof Error ? err.message : fallback, 'error')
     }
-  }, [confirm, queryClient, t])
+  }, [confirm, queryClient, retryLastMutation, runMutation, t])
 
   return (
     <>

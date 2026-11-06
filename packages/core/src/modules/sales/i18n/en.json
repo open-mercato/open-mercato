@@ -1494,6 +1494,7 @@
   "sales.shipments.not_found": "Shipment not found",
   "sales.shipments.payment_completed": "Cannot modify shipment: order payment is completed.",
   "sales.shipments.quantity_exceeded": "Cannot ship more than the remaining quantity.",
+  "sales.shipments.service_line_not_shippable": "Line {{line}} is a service and cannot be shipped.",
   "sales.stageBar.changeFailed": "Failed to update stage",
   "sales.stageBar.changed": "Stage updated",
   "sales.stageBar.closed.lost": "Lost",

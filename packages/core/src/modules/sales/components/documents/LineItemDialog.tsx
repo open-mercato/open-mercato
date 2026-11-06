@@ -1828,18 +1828,31 @@ export function LineItemDialog({
         ...(resolvedQuantityUnit ? { quantityUnit: resolvedQuantityUnit } : {}),
       };
 
+      const switchedToCustomLine =
+        Boolean(editingId) && initialValues.lineMode !== "custom";
+      const lineReferencePayload: Record<string, unknown> = isProductLine
+        ? {
+            kind: "product",
+            productId: String(values.productId),
+            productVariantId: String(values.variantId),
+            serviceId: null,
+          }
+        : isServiceLine
+          ? {
+              kind: "service",
+              serviceId: String(values.serviceId),
+              productId: null,
+              productVariantId: null,
+            }
+          : switchedToCustomLine
+            ? { productId: null, productVariantId: null, serviceId: null }
+            : {};
+
       const payload: Record<string, unknown> = {
         ...(resolvedDocumentId ? { [documentKey]: resolvedDocumentId } : {}),
         ...(resolvedOrg ? { organizationId: resolvedOrg } : {}),
         ...(resolvedTenant ? { tenantId: resolvedTenant } : {}),
-        kind: isServiceLine ? "service" : "product",
-        productId: isProductLine && values.productId
-            ? String(values.productId)
-            : null,
-        productVariantId: isProductLine && values.variantId
-            ? String(values.variantId)
-            : null,
-        serviceId: isServiceLine && values.serviceId ? String(values.serviceId) : null,
+        ...lineReferencePayload,
         quantity: qtyNumber,
         quantityUnit: resolvedQuantityUnit ?? undefined,
         currencyCode: resolvedCurrency,
@@ -1925,6 +1938,7 @@ export function LineItemDialog({
       documentUpdatedAt,
       editingId,
       initialLine,
+      initialValues.lineMode,
       isShippedOrderLine,
       onDraftSaved,
       priceOptions,

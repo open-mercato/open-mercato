@@ -4,6 +4,7 @@ import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/facto
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { E } from '#generated/entities.ids.generated'
@@ -49,18 +50,13 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-export async function buildServiceFilters(query: ServicesQuery, ctx: CrudCtx): Promise<Record<string, unknown>> {
+export async function buildServiceFilters(query: ServicesQuery, _ctx: CrudCtx): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
-  const em = (ctx.container.resolve('em') as EntityManager).fork()
-  const scope = {
-    organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-    tenantId: ctx.auth?.tenantId ?? null,
-  }
   if (query.id) {
     filters.id = { $eq: query.id }
   }
   if (query.categoryId) {
-    filters.category = { $eq: query.categoryId }
+    filters.category_id = { $eq: query.categoryId }
   }
   const active = parseBooleanToken(query.isActive)
   if (active !== null) {
@@ -69,26 +65,11 @@ export async function buildServiceFilters(query: ServicesQuery, ctx: CrudCtx): P
   const term = query.search?.trim()
   if (term) {
     const like = `%${escapeLikePattern(term)}%`
-    const matches = await findWithDecryption(
-      em,
-      CatalogService,
-      {
-        ...scope,
-        ...(query.withDeleted ? {} : { deletedAt: null }),
-        $or: [
-          { title: { $ilike: like } },
-          { description: { $ilike: like } },
-          { scope: { $ilike: like } },
-        ],
-      },
-      { fields: ['id'] },
-      scope,
-    )
-    const matchedIds = matches
-      .map((item) => item.id)
-      .filter((id): id is string => Boolean(id))
-      .filter((id) => !query.id || id === query.id)
-    filters.id = { $in: matchedIds }
+    filters.$or = [
+      { title: { $ilike: like } },
+      { description: { $ilike: like } },
+      { scope: { $ilike: like } },
+    ]
   }
   return filters
 }
@@ -131,29 +112,31 @@ export async function decorateServicesAfterList(
     organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
     tenantId: ctx.auth?.tenantId ?? null,
   }
+  const scopedWhere = (base: Record<string, unknown>) =>
+    buildScopedWhere(base, {
+      organizationId: scope.organizationId,
+      organizationIds: Array.isArray(ctx.organizationIds) ? ctx.organizationIds : undefined,
+      tenantId: scope.tenantId,
+    })
   const [mediaRows, requirementRows, categories] = await Promise.all([
     findWithDecryption(
       em,
       CatalogServiceMedia,
-      { service: { $in: ids }, deletedAt: null, ...scope },
+      scopedWhere({ service: { $in: ids } }),
       { orderBy: { sortOrder: 'asc', createdAt: 'asc' } },
       scope,
     ),
     findWithDecryption(
       em,
       CatalogServiceWorkRequirement,
-      { service: { $in: ids }, deletedAt: null, ...scope },
+      scopedWhere({ service: { $in: ids } }),
       { orderBy: { sortOrder: 'asc', createdAt: 'asc' } },
       scope,
     ),
     findWithDecryption(
       em,
       CatalogProductCategory,
-      {
-        id: { $in: items.map(serviceCategoryId).filter((id): id is string => Boolean(id)) },
-        deletedAt: null,
-        ...scope,
-      },
+      scopedWhere({ id: { $in: items.map(serviceCategoryId).filter((id): id is string => Boolean(id)) } }),
       { fields: ['id', 'name', 'slug'] },
       scope,
     ),

@@ -528,7 +528,7 @@ type InvoiceLineSnapshot = {
   orderLineId: string | null;
   lineNumber: number;
   kind: string;
-  serviceId: string | null;
+  serviceId?: string | null;
   name: string | null;
   sku: string | null;
   description: string | null;
@@ -578,8 +578,8 @@ type CreditMemoLineSnapshot = {
   id: string;
   orderLineId: string | null;
   lineNumber: number;
-  kind: string;
-  serviceId: string | null;
+  kind?: string;
+  serviceId?: string | null;
   name: string | null;
   sku: string | null;
   description: string | null;
@@ -9817,6 +9817,14 @@ const createInvoiceCommand: CommandHandler<
     }
     ensureOrganizationScope(ctx, parsed.organizationId);
     ensureTenantScope(ctx, parsed.tenantId);
+    const inputLines = parsed.lines ?? [];
+    for (let i = 0; i < inputLines.length; i++) {
+      const line = inputLines[i];
+      await assertLineReferencesConsistent(
+        { kind: line.kind ?? "product", serviceId: line.serviceId ?? null },
+        line.lineNumber ?? i + 1,
+      );
+    }
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const status = await resolveDictionaryEntryValue(
       em,
@@ -10320,8 +10328,8 @@ const deleteInvoiceCommand: CommandHandler<
         organizationId: before.invoice.organizationId,
         tenantId: before.invoice.tenantId,
         lineNumber: line.lineNumber,
-        kind: line.kind,
-        serviceId: line.serviceId,
+        kind: line.kind ?? "product",
+        serviceId: line.serviceId ?? null,
         name: line.name,
         sku: line.sku,
         description: line.description,
@@ -10391,6 +10399,14 @@ const createCreditMemoCommand: CommandHandler<
     }
     ensureOrganizationScope(ctx, parsed.organizationId);
     ensureTenantScope(ctx, parsed.tenantId);
+    const inputLines = parsed.lines ?? [];
+    for (let i = 0; i < inputLines.length; i++) {
+      const line = inputLines[i];
+      await assertLineReferencesConsistent(
+        { kind: line.kind ?? "product", serviceId: line.serviceId ?? null },
+        line.lineNumber ?? i + 1,
+      );
+    }
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const status = await resolveDictionaryEntryValue(
       em,
@@ -10871,8 +10887,8 @@ const deleteCreditMemoCommand: CommandHandler<
         organizationId: before.creditMemo.organizationId,
         tenantId: before.creditMemo.tenantId,
         lineNumber: line.lineNumber,
-        kind: line.kind,
-        serviceId: line.serviceId,
+        kind: line.kind ?? "product",
+        serviceId: line.serviceId ?? null,
         name: line.name,
         sku: line.sku,
         description: line.description,

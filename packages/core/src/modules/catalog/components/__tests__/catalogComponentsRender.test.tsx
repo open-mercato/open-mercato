@@ -161,6 +161,30 @@ jest.mock('@open-mercato/ui/primitives/input', () => ({
   Input: ({ children, ...props }: any) => <input {...props}>{children}</input>,
 }))
 
+jest.mock('@open-mercato/ui/primitives/select', () => {
+  const ReactLib = require('react') as typeof import('react')
+  const collectItems = (children: React.ReactNode): React.ReactElement[] => {
+    const items: React.ReactElement[] = []
+    ReactLib.Children.forEach(children, (child) => {
+      if (!ReactLib.isValidElement(child)) return
+      const props = child.props as { value?: string; children?: React.ReactNode }
+      if (typeof props.value === 'string') items.push(<option key={props.value} value={props.value}>{props.children}</option>)
+      else items.push(...collectItems(props.children))
+    })
+    return items
+  }
+  return {
+    __esModule: true,
+    Select: ({ value, onValueChange, children }: { value?: string; onValueChange?: (next: string) => void; children?: React.ReactNode }) => (
+      <select value={value} onChange={(event) => onValueChange?.(event.target.value)}>{collectItems(children)}</select>
+    ),
+    SelectTrigger: () => null,
+    SelectValue: () => null,
+    SelectContent: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+    SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) => <option value={value}>{children}</option>,
+  }
+})
+
 jest.mock('@open-mercato/ui/primitives/label', () => ({
   Label: ({ children, ...props }: any) => <label {...props}>{children}</label>,
 }))
@@ -519,11 +543,13 @@ describe('catalog module components', () => {
     const memberId = 'f818c729-3cac-4e19-9655-cd605abe6079'
     mockApiCall.mockImplementation((url: string) => Promise.resolve({
       ok: true,
-      result: {
-        items: url.startsWith('/api/staff/team-members')
-          ? [{ id: memberId, display_name: 'Filip Kubala' }]
-          : [],
-      },
+      result: url === '/api/auth/feature-check'
+        ? { granted: ['staff.view', 'resources.view'] }
+        : {
+            items: url.startsWith('/api/staff/team-members')
+              ? [{ id: memberId, display_name: 'Filip Kubala' }]
+              : [],
+          },
     }))
 
     render(
@@ -547,6 +573,58 @@ describe('catalog module components', () => {
     expect(handleChange).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({ targetId: memberId, labelSnapshot: 'Filip Kubala' }),
     ]))
+  })
+
+  it('only loads work requirement references the user may read, without forbidden redirects', async () => {
+    mockApiCall.mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      result: url === '/api/auth/feature-check' ? { granted: ['resources.view'] } : { items: [] },
+    }))
+
+    render(
+      <ServiceWorkRequirements
+        value={[{
+          targetType: 'resource',
+          targetId: null,
+          labelSnapshot: 'Studio',
+          allocationMode: 'ratio',
+          allocationValue: '1',
+          sortOrder: 0,
+        }]}
+        onChange={jest.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledWith(
+      expect.stringContaining('/api/resources/resource-types'),
+      expect.anything(),
+    ))
+    const requestedUrls = mockApiCall.mock.calls.map(([url]) => String(url))
+    expect(requestedUrls.some((url) => url.startsWith('/api/staff/'))).toBe(false)
+    expect(requestedUrls.filter((url) => url.startsWith('/api/resources/'))).toHaveLength(2)
+    for (const [, init] of mockApiCall.mock.calls) {
+      expect(init).toEqual(expect.objectContaining({
+        headers: expect.objectContaining({ 'x-om-forbidden-redirect': '0' }),
+      }))
+    }
+  })
+
+  it('skips every reference lookup when the user may read neither staff nor resources', async () => {
+    mockApiCall.mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      result: url === '/api/auth/feature-check' ? { granted: [] } : { items: [] },
+    }))
+
+    render(
+      <ServiceWorkRequirements
+        value={[]}
+        onChange={jest.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledWith('/api/auth/feature-check', expect.anything()))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockApiCall).toHaveBeenCalledTimes(1)
   })
 
   it('allows staff work requirements to use an explicit label without selecting a reference', () => {

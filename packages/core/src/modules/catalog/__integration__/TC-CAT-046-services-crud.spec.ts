@@ -126,6 +126,11 @@ test.describe('TC-CAT-046: catalog services CRUD', () => {
       expect(requirements[1].allocationMode).toBe('ratio');
       expect(Number(requirements[1].allocationValue)).toBeCloseTo(0.5, 4);
 
+      const byCategory = await listServices(request, token, `categoryId=${encodeURIComponent(categoryId)}`);
+      expect(byCategory.map((row) => row.id), 'categoryId filter returns the service').toContain(serviceId);
+      const byOtherCategory = await listServices(request, token, `categoryId=${encodeURIComponent(randomUUID())}`);
+      expect(byOtherCategory.map((row) => row.id), 'categoryId filter excludes other categories').not.toContain(serviceId);
+
       const updatedTitle = `${title} updated`;
       const updated = await apiRequest(request, 'PUT', SERVICES_PATH, {
         token,

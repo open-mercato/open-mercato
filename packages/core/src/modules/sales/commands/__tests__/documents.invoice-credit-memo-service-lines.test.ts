@@ -111,4 +111,35 @@ describe('invoice and credit memo service lines', () => {
     expect(lines[0]).toMatchObject({ kind: 'service', serviceId: SERVICE_ID })
     expect(lines[1]).toMatchObject({ kind: 'product', serviceId: null })
   })
+
+  it.each([
+    ['sales.invoices.create', 'SalesInvoiceLine', { invoiceNumber: 'INV-1' }],
+    ['sales.credit_memos.create', 'SalesCreditMemoLine', { creditMemoNumber: 'CM-1' }],
+  ])('%s rejects a non-service line that references a service', async (commandId, lineEntity, numbering) => {
+    const handler = commandRegistry.get(commandId)
+    expect(handler).toBeTruthy()
+    const { ctx, created } = buildCtx()
+
+    await expect(
+      handler!.execute(
+        {
+          organizationId: ORG_ID,
+          tenantId: TENANT_ID,
+          currencyCode: 'USD',
+          ...numbering,
+          lines: [
+            { name: 'Freeform', quantity: 1, currencyCode: 'USD' },
+            { ...serviceLine, kind: 'product' },
+          ],
+        },
+        ctx,
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      body: { error: expect.stringContaining('references a service but is not a service line') },
+    })
+
+    expect(created.filter((entry) => entry.entity === lineEntity)).toHaveLength(0)
+    expect(ctx.container.resolve<{ persist: jest.Mock }>('em').persist).not.toHaveBeenCalled()
+  })
 })

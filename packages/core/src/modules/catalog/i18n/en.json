@@ -791,6 +791,7 @@
   "catalog.search.status.inactive": "Inactive",
   "catalog.search.variant.default": "Default",
   "catalog.services.create.mediaTransferIncomplete": "Service created, but {failed} of {total} media files could not be attached.",
+  "catalog.services.errors.categoryNotFound": "Catalog category not found or inaccessible.",
   "catalog.services.flash.created": "Service created",
   "catalog.services.flash.deleted": "Service archived",
   "catalog.services.flash.updated": "Service updated",

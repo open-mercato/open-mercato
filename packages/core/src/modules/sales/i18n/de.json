@@ -1494,6 +1494,7 @@
   "sales.shipments.not_found": "Sendung wurde nicht gefunden",
   "sales.shipments.payment_completed": "Die Sendung kann nicht geändert werden: Die Zahlung der Bestellung ist abgeschlossen.",
   "sales.shipments.quantity_exceeded": "Es kann nicht mehr als die verbleibende Menge versendet werden.",
+  "sales.shipments.service_line_not_shippable": "Position {{line}} ist eine Dienstleistung und kann nicht versendet werden.",
   "sales.stageBar.changeFailed": "Failed to update stage",
   "sales.stageBar.changed": "Stage updated",
   "sales.stageBar.closed.lost": "Lost",
