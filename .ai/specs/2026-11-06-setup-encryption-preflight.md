@@ -14,7 +14,7 @@ The existing setup write authorization remains first. Containerized init, migrat
 
 Forms wrapped DEKs and stored binary revisions/attachments use the existing Forms KMS adapter and decrypt method through a SELECT-only lookup adapter. No module bootstrap, ORM subscribers, key creation, encrypt, rotate, persist or flush is invoked. A custom Forms DI adapter cannot be bootstrapped safely here; environments needing it must stop rather than claim compatibility.
 
-Foreign tables, row-level-security tables, denied reads, unknown populated binary stores, unresolved key scopes, malformed/unknown version envelopes and incomplete scans reject. All helper stdout/stderr are discarded; only a fixed status crosses IPC. Parent failures use static guidance without raw errors, identifiers, addresses, key material or plaintext. The parent kills the child after 60 seconds. Queries have timeouts; scans stop at 100,000 rows / 64 MiB. Exceeding limits blocks reuse.
+Foreign tables, row-level-security tables, denied reads, unknown populated binary stores, unresolved key scopes, malformed/unknown version envelopes and incomplete scans reject. All helper stdout/stderr are discarded; only a fixed status crosses IPC. Parent failures use static guidance without raw errors, identifiers, addresses, key material or plaintext. The parent kills the child after 60 seconds. Queries have timeouts; scans stop at 100,000 rows / 64 MiB, with JSON/decryption nesting capped at 32 levels. Exceeding limits blocks reuse.
 
 ## Data Models and API Contracts
 

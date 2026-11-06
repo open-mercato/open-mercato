@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn } from 'node:child_process'
 import { parseEnv } from 'node:util'
 
-const FAILURE = '[setup] Encryption compatibility could not be verified; database writes are blocked. Restore the original TENANT_DATA_ENCRYPTION settings and encryption keys, and check Vault/KMS access (including historical tenant keys and FORMS_ENCRYPTION_MASTER_KEY). Do not regenerate keys or reinstall this database. Inspect permissions and unsupported encrypted stores with your administrator, or select a separate empty database. No preflight database or KMS writes were performed.'
+const FAILURE = '[setup] Encryption compatibility could not be verified; database writes are blocked. Restore the original TENANT_DATA_ENCRYPTION settings and encryption keys, and check Vault/KMS access (including historical tenant keys and FORMS_ENCRYPTION_MASTER_KEY). Do not regenerate keys or reinstall this database. Ensure matching application packages are installed and built. Inspect permissions and unsupported encrypted stores with your administrator, or select a separate empty database. No preflight database or KMS writes were performed.'
 const MAX_ROWS = 100_000
 const MAX_BYTES = 64 * 1024 * 1024
 const TIMEOUT_MS = 60_000
