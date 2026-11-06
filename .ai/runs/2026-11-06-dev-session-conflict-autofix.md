@@ -36,6 +36,8 @@ When `yarn dev`, `yarn dev:greenfield` or `yarn setup` hits "Another Open Mercat
 
 ## Progress
 
+PR: #8929
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Recovery engine
