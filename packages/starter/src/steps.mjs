@@ -793,7 +793,7 @@ export async function runSteps(steps, ctx) {
       const startedAt = Date.now()
       if (step.interactive) logs.suspend()
       else if (logs.interactive) {
-        spinner = (ctx.createSpinnerImpl ?? createSpinner)('working…', { startPaused: true, frames: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] })
+        spinner = (ctx.createSpinnerImpl ?? createSpinner)('⚙️ working…', { startPaused: true, frames: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] })
         logs.setActivity?.(spinner)
       }
       ctx.log = step.interactive ? log : (...args) => logs.log(...args)

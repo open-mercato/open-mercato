@@ -106,10 +106,10 @@ test('Ctrl+C uses the interrupt callback and suspended prompts do not consume d'
   assert.equal(interrupts, 1)
   logs.suspend()
   input.emit('data', 'd')
-  assert.doesNotMatch(text(), /RAW DEBUG LOGS/)
+  assert.doesNotMatch(text(), /📖 Raw logs shown/)
   logs.resume()
   input.emit('data', 'd')
-  assert.match(text(), /RAW DEBUG LOGS/)
+  assert.match(text(), /📖 Raw logs shown/)
   logs.stop()
 })
 
@@ -280,14 +280,15 @@ test('folding a partial live line adds only a newline before resuming progress',
 })
 
 
-test('dark gray banner and setup messages share three-space content padding', () => {
+test('compact emoji hints and setup messages share padding without backgrounds or borders', () => {
   const { logs, text } = harness()
   logs.start()
   logs.raw('compiler par')
   logs.show()
   logs.raw('tial\nnext line\n')
   logs.stop()
-  assert.match(text(), /\x1b\[48;2;51;55;64;97m   Press \[d\]/)
+  assert.match(text(), /   📋 Press \[d\]/)
+  assert.doesNotMatch(text(), /\x1b\[(?:4[0-9]|10[0-7])|━|DEBUG LOGS/)
   assert.doesNotMatch(text(), /\x1b\[46/)
   assert.match(text(), /\n   compiler partial\n   next line\n/)
 })

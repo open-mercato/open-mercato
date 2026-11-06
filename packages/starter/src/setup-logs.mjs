@@ -39,14 +39,7 @@ export function createSetupLogs({
 
   const write = (value) => output.write(value)
   const tint = (code, value) => colored ? `\u001b[${code}m${value}\u001b[0m` : value
-  const banner = (content) => {
-    const longest = Math.max(36, ...content.map((line) => line.length))
-    const width = Math.max(longest, Number.isFinite(output.columns) ? output.columns - 4 : 0)
-    const border = '━'.repeat(width + 4)
-    write(`${tint('48;2;51;55;64;97', border)}\n`)
-    for (const line of content) write(`${tint('48;2;51;55;64;97', `   ${line.trimStart().padEnd(width + 1)}`)}\n`)
-    write(`${tint('48;2;51;55;64;97', border)}\n`)
-  }
+
 
   function writeRaw(text) {
     let formatted = ''
@@ -86,11 +79,11 @@ export function createSetupLogs({
     }
   }
 
-  function show(reason = '📖 Raw logs shown') {
+  function show(reason = 'Raw logs shown') {
     if (!interactive || visible) return
     activity?.pause()
     visible = true
-    banner([' RAW DEBUG LOGS', ` ${reason}`, ' Press [d] again to hide logs'])
+    write(`   📖 ${reason} · press [d] to hide\n`)
     rawLineStart = true
     if (lines.length === 0 && !partial) {
       write('   📭 No buffered logs yet\n')
@@ -190,7 +183,7 @@ export function createSetupLogs({
       started = true
       initializeFile()
       if (logFile && !fileFailed) write(`   📝 Verbose logs ${logFile}\n`)
-      if (interactive) banner([' Press [d] to show or hide raw logs'])
+      if (interactive) write(`${tint('2', '   📋 Press [d] to show or hide raw logs')}\n`)
       process.once('exit', suspend)
       resume()
     },

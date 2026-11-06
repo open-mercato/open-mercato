@@ -70,7 +70,7 @@ test('stage activity stops on success, skip and failure and never starts over a 
       setActivity(activity) { if (activity) { events.push('attach'); activity.resume() } }, resumeActivity() {},
     }
     const ctx = { flags: {}, logs, log: (line) => events.push(String(line)), createSpinnerImpl(label) {
-      assert.equal(label, 'working…')
+      assert.equal(label, '⚙️ working…')
       events.push('create')
       return { pause() { events.push('pause') }, resume() { events.push('resume') }, stop() { events.push('stop') } }
     } }
