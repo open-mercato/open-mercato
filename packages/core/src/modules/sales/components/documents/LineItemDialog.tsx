@@ -1890,7 +1890,7 @@ export function LineItemDialog({
         ...(resolvedTenant ? { tenantId: resolvedTenant } : {}),
         ...lineReferencePayload,
         quantity: qtyNumber,
-        quantityUnit: resolvedQuantityUnit ?? undefined,
+        quantityUnit: resolvedQuantityUnit ?? (editingId ? null : undefined),
         currencyCode: resolvedCurrency,
         priceId:
           isProductLine && values.priceId ? String(values.priceId) : undefined,

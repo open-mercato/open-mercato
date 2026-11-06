@@ -348,6 +348,20 @@ describe('sales line writes — service lines', () => {
       expect(line.uomSnapshot).toEqual(expect.objectContaining({ enteredQuantity: '5', normalizedQuantity: '5' }))
     })
 
+    it('clears the unit of a service line when the caller sends null', async () => {
+      setWorld([serviceLine({ quantityUnit: 'h', normalizedUnit: 'h' })])
+
+      const lines = await runCommand(commandId, {
+        ...baseBody,
+        id: FIRST_LINE_ID,
+        [parentKey]: parentId,
+        quantityUnit: null,
+      })
+
+      expect(lines.get(FIRST_LINE_ID)!.quantityUnit ?? null).toBeNull()
+      expect(lines.get(FIRST_LINE_ID)!.normalizedUnit ?? null).toBeNull()
+    })
+
     it('clears the stored catalog snapshot when the caller sends null', async () => {
       setWorld([serviceLine()])
 

@@ -151,7 +151,12 @@ import {
   type SalesPersistedLineSnapshot,
 } from "../lib/lineSnapshots";
 import { assertLineReferencesConsistent } from "../lib/lineReferences";
-import { buildLineUomInput, canConvertLineUnitPrices } from "../lib/lineUomInput";
+import {
+  buildLineUomInput,
+  canConvertLineUnitPrices,
+  isCarriedOverLineUnit,
+  normalizeWithCarriedUnitFallback,
+} from "../lib/lineUomInput";
 import {
   assertLineServicesExistInScope,
   changedLineServiceReference,
@@ -7728,8 +7733,9 @@ const hasUnitChange = (
   next: string | null | undefined,
   previous: string | null | undefined,
 ): boolean => {
-  if (next === undefined || next === null) return false;
+  if (next === undefined) return false;
   const normalizedPrevious = (previous ?? "").trim().toLowerCase();
+  if (next === null) return normalizedPrevious.length > 0;
   if (!normalizedPrevious) return false;
   return next.trim().toLowerCase() !== normalizedPrevious;
 };
@@ -8052,18 +8058,24 @@ async function buildUpsertedOrderLineSnapshot(
   const statusEntryId =
     parsed.statusEntryId ?? existingSnapshot?.statusEntryId ?? null;
   const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-  const lineUomInput = buildLineUomInput(parsed, existingSnapshot);
-  let normalizedUom = await normalizeLineUom({
-    em,
-    resolver: uomResolver,
-    organizationId: order.organizationId,
-    tenantId: order.tenantId,
-    line: {
-      ...lineUomInput,
-      unitPriceNet: unitPriceNet ?? 0,
-      unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-    },
-  });
+  const normalizedFirstPass = await normalizeWithCarriedUnitFallback(
+    buildLineUomInput(parsed, existingSnapshot),
+    isCarriedOverLineUnit(parsed, existingSnapshot),
+    (candidate) =>
+      normalizeLineUom({
+        em,
+        resolver: uomResolver,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        line: {
+          ...candidate,
+          unitPriceNet: unitPriceNet ?? 0,
+          unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+        },
+      }),
+  );
+  const lineUomInput = normalizedFirstPass.lineUomInput;
+  let normalizedUom = normalizedFirstPass.result;
   const convertedPrices = canConvertLineUnitPrices(parsed, lineUomInput, existingSnapshot)
     ? convertLineUnitPricesOnUnitChange({
         existingSnapshot,
@@ -8797,19 +8809,25 @@ const quoteLineUpsertCommand: CommandHandler<
       const statusEntryId =
         parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
       const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-      const lineUomInput = buildLineUomInput(parsed, existingSnapshot);
       const uomResolver = createUomResolver();
-      let normalizedUom = await normalizeLineUom({
-        em,
-        resolver: uomResolver,
-        organizationId: quote.organizationId,
-        tenantId: quote.tenantId,
-        line: {
-          ...lineUomInput,
-          unitPriceNet: unitPriceNet ?? 0,
-          unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-        },
-      });
+      const normalizedFirstPass = await normalizeWithCarriedUnitFallback(
+        buildLineUomInput(parsed, existingSnapshot),
+        isCarriedOverLineUnit(parsed, existingSnapshot),
+        (candidate) =>
+          normalizeLineUom({
+            em,
+            resolver: uomResolver,
+            organizationId: quote.organizationId,
+            tenantId: quote.tenantId,
+            line: {
+              ...candidate,
+              unitPriceNet: unitPriceNet ?? 0,
+              unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+            },
+          }),
+      );
+      const lineUomInput = normalizedFirstPass.lineUomInput;
+      let normalizedUom = normalizedFirstPass.result;
       const convertedPrices = canConvertLineUnitPrices(parsed, lineUomInput, existingSnapshot)
         ? convertLineUnitPricesOnUnitChange({
             existingSnapshot,

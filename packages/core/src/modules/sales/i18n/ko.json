@@ -1056,7 +1056,7 @@
   "sales.documents.items.errors.uom.unitNotFound": "지정한 단위 코드를 찾을 수 없습니다.",
   "sales.documents.items.lineMode.catalog": "카탈로그 품목",
   "sales.documents.items.lineMode.custom": "사용자 지정 품목",
-  "sales.documents.items.lineMode.helper": "카탈로그 상품을 사용하거나 원하는 가격으로 자유 형식 품목을 만드세요.",
+  "sales.documents.items.lineMode.helper": "카탈로그 상품, 카탈로그 서비스 또는 원하는 가격의 자유 형식 품목을 사용하세요.",
   "sales.documents.items.lineMode.label": "품목 유형",
   "sales.documents.items.lineMode.product": "상품",
   "sales.documents.items.lineMode.service": "서비스",

@@ -299,6 +299,18 @@ describe('sales.orders.lines.upsert shipment guard (issue #3993)', () => {
     expect(em.flush).not.toHaveBeenCalled()
   })
 
+  it('rejects clearing the quantity unit of a shipped line', async () => {
+    setWorld({
+      shipments: [{ id: SHIPMENT_ID }],
+      shipmentItems: [{ shipment: { id: SHIPMENT_ID }, orderLine: { id: LINE_ID }, quantity: '2' }],
+      quantityUnit: 'pcs',
+    })
+    const { caught, em } = await runUpsert(editInput({ quantityUnit: null }))
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   it('allows a resolved unit to be sent when the line has no stored unit', async () => {
     shippedWorld()
     const { caught } = await runUpsert(editInput({ quantity: 5, quantityUnit: 'pcs' }))

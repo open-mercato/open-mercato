@@ -333,7 +333,7 @@ export const amountsModeSchema = z.enum(['computed', 'external'])
 
 const linePricingSchema = z.object({
   quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
-  quantityUnit: z.string().trim().max(25).optional(),
+  quantityUnit: z.string().trim().max(25).nullable().optional(),
   normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
   normalizedUnit: z.string().trim().max(25).nullable().optional(),
   unitPriceNet: decimal({ min: 0 }).optional(),

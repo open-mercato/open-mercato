@@ -992,4 +992,59 @@ describe('LineItemDialog service lines', () => {
     const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
     expect(payload).toMatchObject({ kind: 'product', productId: 'product-1', serviceId: null })
   })
+
+  it('sends an explicit unit clear when a saved service line is switched to custom without a unit', async () => {
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId="order-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{
+          ...productLine,
+          productId: null,
+          productVariantId: null,
+          serviceId: 'service-1',
+          quantityUnit: 'h',
+          metadata: { lineMode: 'service', priceMode: 'gross' },
+        }}
+        shippedQuantity={0}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await act(async () => {
+      await capturedSubmit?.(customValues({ quantityUnit: null }))
+    })
+
+    const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
+    expect(payload).toHaveProperty('quantityUnit', null)
+  })
+
+  it('leaves the unit out of a new line without one', async () => {
+    render(
+      <LineItemDialog
+        open
+        kind="quote"
+        documentId="quote-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await act(async () => {
+      await capturedSubmit?.(customValues({ quantityUnit: null }))
+    })
+
+    const [, payload] = mockCreateCrud.mock.calls[0] as [string, FormValues]
+    expect(definedKeys(payload)).not.toContain('quantityUnit')
+  })
 })
