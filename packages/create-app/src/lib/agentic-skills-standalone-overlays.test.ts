@@ -654,7 +654,7 @@ test('every agent MCP example declares the om-modules catalog server that om-fin
   assert.match(skill, /`mcp\.json\.example` files declare it/, 'om-find-module must point at the shipped MCP examples')
 })
 
-test('OMH-241 routes module discovery to om-find-module without widening the OMH-239 publication case', () => {
+test('OMH-241 routes module discovery without adding it to the OMH-239 publication context', () => {
   const cases = JSON.parse(fs.readFileSync(new URL('../harness/cases.json', skillsDir), 'utf8')) as {
     id: string
     mode: string
@@ -676,5 +676,5 @@ test('OMH-241 routes module discovery to om-find-module without widening the OMH
   assert.ok(publication)
   assert.deepEqual(publication.requiredSkills, [])
   assert.equal(publication.maxContextFiles, 6)
-  assert.ok(!(publication.context.allowedExtra ?? []).some((item) => item.includes('om-find-module')), 'publication must not need the discovery skill')
+  assert.ok(![...publication.context.required, ...(publication.context.allowedExtra ?? [])].some((item) => item.includes('om-find-module')), 'publication must not need the discovery skill')
 })

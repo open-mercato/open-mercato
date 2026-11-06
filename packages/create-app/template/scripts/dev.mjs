@@ -78,7 +78,7 @@ import {
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
-import { acquireDevSession } from './dev-session-guard.mjs'
+import { acquireDevSessionWithRecovery as acquireDevSession } from './dev-session-recovery.mjs'
 import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
   DEFAULT_MEMORY_TRACE_OUT_DIR,
@@ -1697,7 +1697,7 @@ function shutdown(exitCode = 0) {
   shuttingDown = true
   announceShutdown()
 
-  const alive = Array.from(children).filter((child) => !child.killed)
+  const alive = Array.from(children).filter((child) => child.exitCode == null && child.signalCode == null)
   if (alive.length === 0) {
     void finalizeDevProcess(exitCode)
     return
@@ -1708,10 +1708,8 @@ function shutdown(exitCode = 0) {
   }
 
   setTimeout(() => {
-    for (const child of children) {
-      if (!child.killed) {
-        killProcessTree(child, 'SIGKILL')
-      }
+    for (const child of alive) {
+      killProcessTree(child, 'SIGKILL')
     }
     void finalizeDevProcess(exitCode)
   }, 3000)
@@ -1748,7 +1746,11 @@ function resolveChildExitCode(result, fallback = 1) {
 
 // `mercato init` prints "Start the dev server: yarn dev" unless told that this
 // runner launches the dev server right after it.
-const INIT_DEV_AUTOSTART_ENV = { OM_INIT_DEV_AUTOSTART: '1' }
+const INIT_DEV_AUTOSTART_ENV = {
+  OM_INIT_DEV_AUTOSTART: '1',
+  OM_INIT_SUMMARY_COLUMNS: String(process.stdout.columns || 80),
+  OM_INIT_SUMMARY_COLOR: process.stdout.isTTY && process.env.NO_COLOR === undefined ? '1' : '0',
+}
 
 async function runRawYarnCommand(commandArgs, options = {}) {
   const child = spawnCommand(yarnCommand, commandArgs, {
@@ -2945,7 +2947,7 @@ function resolveDevSessionMode() {
 }
 
 try {
-  devSession = acquireDevSession({
+  devSession = await acquireDevSession({
     workspaceRoot: process.env.OM_DEV_SESSION_WORKSPACE_ROOT?.trim() || process.cwd(),
     mode: resolveDevSessionMode(),
     url: resolveExpectedAppBaseUrl(),
