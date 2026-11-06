@@ -1,14 +1,15 @@
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync } from 'node:fs'
-import { collectForwardedSetupFlags } from './dev-database-url.mjs'
+import { copyFileSync, existsSync, readFileSync } from 'node:fs'
+import { collectForwardedSetupFlags, previewDatabaseNameOverride } from './dev-database-url.mjs'
 import { NO_INFRA_FLAG } from './dev-infra-preflight.mjs'
 import { ensureInfra } from './infra.mjs'
+import { verifyServiceConnections } from './dev-service-connections.mjs'
 
 const argv = process.argv.slice(2)
 const reinstall = argv.includes('--reinstall')
 const classic = argv.includes('--classic')
 const verbose = argv.includes('--verbose')
-const noInfra = argv.includes(NO_INFRA_FLAG)
+let noInfra = argv.includes(NO_INFRA_FLAG)
 const forwardedDatabaseFlags = collectForwardedSetupFlags(argv)
 
 // Compose and the port preflight read POSTGRES_PORT & co. from .env, so it has
@@ -24,8 +25,9 @@ if (!existsSync('.env') && existsSync('.env.example')) {
 if (noInfra) {
   console.log(`[setup] ${NO_INFRA_FLAG}: skipping Docker, using the services configured in .env`)
 } else {
-  const infra = await ensureInfra()
+  const infra = await ensureInfra({ allowExistingServices: true })
   if (!infra.ok) process.exit(2)
+  if (infra.existingServices) noInfra = true
 }
 
 if (!existsSync('node_modules/cross-spawn')) {
@@ -34,6 +36,14 @@ if (!existsSync('node_modules/cross-spawn')) {
     shell: process.platform === 'win32',
   })
   if (bootstrap.status !== 0) process.exit(bootstrap.status ?? 1)
+}
+
+try {
+  const selectedDatabaseUrl = previewDatabaseNameOverride({ argv, env: process.env, envText: existsSync('.env') ? readFileSync('.env', 'utf8') : '' })
+  await verifyServiceConnections({ env: selectedDatabaseUrl ? { ...process.env, DATABASE_URL: selectedDatabaseUrl } : process.env })
+} catch (error) {
+  console.error(error.message)
+  process.exit(2)
 }
 
 const result = spawnSync(
