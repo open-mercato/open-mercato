@@ -187,6 +187,7 @@ export default function DirectoryOrganizationsPage() {
     formId: string
     resourceKind: string
     resourceId: string
+    operation: 'delete'
     retryLastMutation: () => Promise<boolean>
   }>({
     contextId: deleteMutationContextId,
@@ -213,9 +214,10 @@ export default function DirectoryOrganizationsPage() {
           ),
         ),
         context: {
-          formId: deleteMutationContextId,
+          formId: `${deleteMutationContextId}:${org.id}`,
           resourceKind: 'directory.organization',
           resourceId: org.id,
+          operation: 'delete',
           retryLastMutation: retryDeleteMutation,
         },
       })
