@@ -80,7 +80,7 @@ test('CI orchestration changes select the full integration suite without includi
   }
 })
 
-function runValidationSteps({ eventName = 'pull_request', changedPath = 'README.md', createParent = true } = {}) {
+function runValidationSteps({ eventName = 'pull_request', changedPath = 'README.md', createParent = true, fullSuite = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-validation-scope-'))
   try {
     const git = (...argumentsList) => {
@@ -115,7 +115,7 @@ function runValidationSteps({ eventName = 'pull_request', changedPath = 'README.
       const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], {
         cwd: root,
         encoding: 'utf8',
-        env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}`, YARN_CALLS_FILE: callsFile },
+        env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}`, YARN_CALLS_FILE: callsFile, FORCE_FULL_SUITE: String(fullSuite) },
         timeout: 10000,
       })
       assert.equal(result.status, 0, `${stepName}: ${result.stderr}`)
@@ -145,6 +145,10 @@ test('protected branch pushes run full typecheck and unit gates', () => {
 
 test('unavailable PR comparison ancestry falls back to full validation', () => {
   assert.deepEqual(runValidationSteps({ createParent: false }), ['typecheck', 'test'])
+})
+
+test('explicit full-suite scope runs full validation for documentation PRs', () => {
+  assert.deepEqual(runValidationSteps({ fullSuite: true }), ['typecheck', 'test'])
 })
 
 function runCoverageMerge({ includeCoverage = true } = {}) {
