@@ -129,6 +129,11 @@ function stageApp(): string {
     path.join(root, 'src', 'app', 'globals.css'),
   )
   for (const [packageName, relativePaths] of Object.entries({
+    cli: [
+      'src/lib/module-install.ts',
+      'src/lib/module-identity.ts',
+      'src/lib/eject.ts',
+    ],
     core: [
       'src/modules/design_system/gallery/entries/buttons.tsx',
       'src/modules/customers/backend/customers/people-v2/[id]/page.tsx',

@@ -132,6 +132,24 @@ test('MarkdownField customization resolves exact installed contracts from the co
   }
 })
 
+test('module tooling retains exact installed contracts and unknown-origin protection', () => {
+  const inventory = checkedInventory()
+  for (const relativePath of ['src/lib/module-install.ts', 'src/lib/module-identity.ts', 'src/lib/eject.ts']) {
+    const record = recordFor(inventory, `guides/module-tool:node_modules/@open-mercato/cli/${relativePath}`)
+    assert.equal(record.originAsset, '.ai/guides/module-tool.md')
+    assert.equal(record.requirement, 'source-required')
+    assert.equal(record.targetKind, 'installed-package')
+    assert.equal(record.readStatus, 'readable')
+    assert.equal(record.packageName, '@open-mercato/cli')
+    assert.equal(record.packageRelativePath, relativePath)
+    assert.ok(record.affectedCaseIds.includes('OMH-239'))
+  }
+  const protection = recordFor(inventory, 'rule:guides/module-tool#file-artifact-unknown-origin')
+  assert.equal(protection.requirement, 'retained-normative-snippet')
+  assert.equal(protection.originAsset, '.ai/guides/module-tool.md')
+  assert.equal(protection.evidence, 'A local file artifact establishes neither an npm nor a GitHub origin: omit an unknown `locator`; an active binding replacement must fail before Yarn when its origin cannot be preserved.')
+})
+
 test('the checked inventory is byte-identical to a fresh derivation', () => {
   const { errors, inventory } = generator.buildInventory(freshInputs())
   assert.deepEqual(errors, [])
@@ -250,15 +268,15 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  assert.equal(inventory.derived.sourceRequiredCount, 132)
-  assert.equal(inventory.records.length, 157)
-  assert.equal(inventory.derived.renderedLinkCount, 134)
+  assert.equal(inventory.derived.sourceRequiredCount, 135)
+  assert.equal(inventory.records.length, 161)
+  assert.equal(inventory.derived.renderedLinkCount, 137)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 132)
+  assert.equal(sourceRequired.length, 135)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -451,9 +469,12 @@ test('capability joins come from the example surface inventory, not from the top
     [...new Set(unjoined.map((record) => record.resolvedPath))].sort(),
     [
       '.ai/guides/customers-calendar.md',
+        '.ai/skills/om-data-model-design/references/sensitive-data.md',
+      'node_modules/@open-mercato/cli/src/lib/eject.ts',
+      'node_modules/@open-mercato/cli/src/lib/module-identity.ts',
+      'node_modules/@open-mercato/cli/src/lib/module-install.ts',
       // The installed UI implementation joins no example capability: it is the framework's own
       // component, not a canonical-example surface.
-      '.ai/skills/om-data-model-design/references/sensitive-data.md',
       'node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts',
       'node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx',
       'node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts',
