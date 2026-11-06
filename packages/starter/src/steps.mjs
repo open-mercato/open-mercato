@@ -420,7 +420,7 @@ export const envFilesStep = {
     return { ok: false, detail: 'converging (never overwrites existing values)' }
   },
   async apply(ctx) {
-    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${line}`), warn: (line) => ctx.log(`   ⚠️ ${line}`), extraDefaults: ctx.company.env })
+    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${String(line).trimStart()}`), warn: (line) => ctx.log(`   ⚠️ ${line}`), extraDefaults: ctx.company.env })
   },
 }
 
@@ -485,7 +485,7 @@ export const llmProviderStep = {
     }, {
       skipPrompt: ctx.flags.skipLlmPrompt,
       nonInteractive: ctx.flags.nonInteractive,
-      log: (line) => ctx.log(`   ${line}`),
+      log: (line) => ctx.log(`   ${String(line).trimStart()}`),
       warn: (line) => ctx.log(`   ⚠️ ${line}`),
     })
     if (outcome === 'failed') {

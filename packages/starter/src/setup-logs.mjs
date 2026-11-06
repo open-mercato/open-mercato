@@ -34,6 +34,7 @@ export function createSetupLogs({
   let lines = []
   let partial = ''
   let visiblePartial = false
+  let rawLineStart = true
   const decoder = new StringDecoder('utf8')
 
   const write = (value) => output.write(value)
@@ -42,16 +43,25 @@ export function createSetupLogs({
     const longest = Math.max(36, ...content.map((line) => line.length))
     const width = Math.max(longest, Number.isFinite(output.columns) ? output.columns - 4 : 0)
     const border = '━'.repeat(width + 4)
-    write(`${tint('46;30', border)}\n`)
-    for (const line of content) write(`${tint('46;30', ` ${line.padEnd(width + 2)}`)}\n`)
-    write(`${tint('46;30', border)}\n`)
+    write(`${tint('48;2;51;55;64;97', border)}\n`)
+    for (const line of content) write(`${tint('48;2;51;55;64;97', `   ${line.trimStart().padEnd(width + 1)}`)}\n`)
+    write(`${tint('48;2;51;55;64;97', border)}\n`)
+  }
+
+  function writeRaw(text) {
+    let formatted = ''
+    for (const part of text.split(/(\r\n|\r|\n)/)) {
+      if (part === '\n' || part === '\r' || part === '\r\n') { formatted += part; rawLineStart = true }
+      else if (part) { formatted += (rawLineStart ? '   ' : '') + part; rawLineStart = false }
+    }
+    write(formatted)
   }
 
   function reportFileFailure() {
     if (fileFailed) return
     fileFailed = true
     activity?.pause()
-    write('⚠️ Could not save setup logs; terminal output is still available.\n')
+    write('   ⚠️ Could not save setup logs; terminal output is still available.\n')
     if (active && !visible) activity?.resume()
   }
 
@@ -81,12 +91,13 @@ export function createSetupLogs({
     activity?.pause()
     visible = true
     banner([' RAW DEBUG LOGS', ` ${reason}`, ' Press [d] again to hide logs'])
+    rawLineStart = true
     if (lines.length === 0 && !partial) {
-      write('📭 No buffered logs yet\n')
+      write('   📭 No buffered logs yet\n')
       return
     }
-    if (lines.length > 0) write(`${lines.join('\n')}\n`)
-    if (partial) write(partial)
+    if (lines.length > 0) writeRaw(`${lines.join('\n')}\n`)
+    if (partial) writeRaw(partial)
     visiblePartial = partial.length > 0
     // Displayed output remains in terminal scrollback and in the full log
     // file. Replay only new output collected while the panel was hidden.
@@ -106,6 +117,7 @@ export function createSetupLogs({
         visible = false
         if (visiblePartial) write('\n')
         visiblePartial = false
+        rawLineStart = true
         activity?.resume()
       } else show()
     }
@@ -143,15 +155,15 @@ export function createSetupLogs({
     }
   }
 
-  function raw(chunk) {
+  function raw(chunk, displayChunk = chunk) {
     persist(chunk)
     if (!interactive) {
       write(chunk)
       return
     }
-    const text = typeof chunk === 'string' ? chunk : decoder.write(chunk)
+    const text = typeof displayChunk === 'string' ? displayChunk : decoder.write(displayChunk)
     if (visible) {
-      if (text) { write(text); visiblePartial = !text.endsWith('\n') }
+      if (text) { writeRaw(text); visiblePartial = !text.endsWith('\n') }
       return
     }
     // Bound both completed lines and partial progress output. A process can
@@ -177,7 +189,7 @@ export function createSetupLogs({
       if (started) return
       started = true
       initializeFile()
-      if (logFile && !fileFailed) write(`📝 Verbose logs ${logFile}\n`)
+      if (logFile && !fileFailed) write(`   📝 Verbose logs ${logFile}\n`)
       if (interactive) banner([' Press [d] to show or hide raw logs'])
       process.once('exit', suspend)
       resume()
@@ -187,7 +199,10 @@ export function createSetupLogs({
     resume,
     raw,
     show,
-    log(...args) { raw(`${format(...args)}\n`) },
+    log(...args) {
+      const text = format(...args)
+      raw(`${text}\n`, `${text.replace(/^ {1,3}/gm, '')}\n`)
+    },
     record(...args) { persist(`${format(...args)}\n`) },
   }
 }

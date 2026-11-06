@@ -51,7 +51,7 @@ export function printBanner(subtitle, { log = console.log } = {}) {
 
 export function stepHeader(index, total, title, expectation, { log = console.log } = {}) {
   log('')
-  log(`${color.bold(color.blue(`── Step ${index}/${total}`))} ${color.bold(title)}`)
+  log(`   ${color.bold(color.blue(`── Step ${index}/${total}`))} ${color.bold(title)}`)
   if (expectation) log(`   ${color.bold(color.yellow('Expected:'))} ${expectation}`)
 }
 

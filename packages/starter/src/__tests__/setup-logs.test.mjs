@@ -52,7 +52,7 @@ test('chunk boundaries and split UTF-8 characters survive buffered replay', () =
   logs.raw(emoji.subarray(0, 1))
   logs.raw(emoji.subarray(1))
   logs.show('failure details')
-  assert.match(text(), /first part\nsecond ✅/)
+  assert.match(text(), /first part\n   second ✅/)
   logs.raw(' done\n')
   assert.match(text(), /second ✅ done\n/)
   input.emit('data', 'd')
@@ -276,5 +276,42 @@ test('folding a partial live line adds only a newline before resuming progress',
   input.emit('data', 'd')
   assert.equal(text().split('compiler partial').length - 1, 1)
   assert.match(text(), /new hidden tail/)
+  logs.stop()
+})
+
+
+test('dark gray banner and setup messages share three-space content padding', () => {
+  const { logs, text } = harness()
+  logs.start()
+  logs.raw('compiler par')
+  logs.show()
+  logs.raw('tial\nnext line\n')
+  logs.stop()
+  assert.match(text(), /\x1b\[48;2;51;55;64;97m   Press \[d\]/)
+  assert.doesNotMatch(text(), /\x1b\[46/)
+  assert.match(text(), /\n   compiler partial\n   next line\n/)
+})
+
+
+test('starter-generated details align with raw child output without altering the saved file', (t) => {
+  const repoRoot = temporaryRepo(t)
+  const { logs, text } = harness({ repoRoot })
+  logs.start()
+  logs.log('   generated status')
+  logs.raw('child diagnostic\n')
+  logs.show()
+  logs.stop()
+  assert.match(text(), /\n   generated status\n   child diagnostic\n/)
+  assert.equal(fs.readFileSync(logs.logFile, 'utf8'), '   generated status\nchild diagnostic\n')
+})
+
+
+test('live carriage-return progress keeps the same left margin', () => {
+  const { logs, text } = harness()
+  logs.start()
+  logs.show()
+  const before = text()
+  logs.raw('first\rsecond\r\nthird')
+  assert.equal(text().slice(before.length), '   first\r   second\r\n   third')
   logs.stop()
 })
