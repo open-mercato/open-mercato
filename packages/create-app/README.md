@@ -108,7 +108,7 @@ npx create-mercato-app <app-name> --template <slug | owner/repo>[#ref] [--keep-n
 - `--template` cannot be combined with `--app`, `--app-url`, `--modules`, `--module-picker`, `--agents`, `--experimental-hooks-validator` or a `--preset` other than `classic`. The module picker and the agentic setup wizard are not offered. `--registry` and `--verdaccio` do not apply: the app keeps the registry settings of its own `.yarnrc.yml`.
 - The app is copied as it is, with three changes: the `package.json` `name` becomes the app name (unless `--keep-name`), `package.json` gets an `openMercatoTemplate` field with the repository, ref and commit, and the root `mercato-template.json` is removed.
 - If the import fails, the CLI removes the directory it created.
-- The next steps include `cp .env.example .env` when the template has one, and the env keys the template declares.
+- The next steps depend on the scripts in the created app's `package.json`. With `setup` and `infra:up` (apps scaffolded since `yarn setup` starts Docker), they are `yarn setup` and the `yarn setup --no-infra` alternative for your own services, like a normal scaffold; `cp .env.example .env` and the env keys come first only when the template declares keys. With `setup` but no `infra:up`, they are `cp .env.example .env`, the env keys, `docker compose up -d` (or a note to start PostgreSQL, Redis and Meilisearch yourself) and `yarn setup`. With neither, they are `cp .env.example .env`, the env keys, `yarn install`, `yarn initialize` and `yarn dev`.
 
 Set `OM_TEMPLATES_URL` to read another index, for example a local copy. It must be an `https` URL, or `http` on `localhost`, `127.0.0.1` or `[::1]`.
 
@@ -302,7 +302,7 @@ The standalone dev splash also exposes a GitHub publishing panel after `yarn dev
 
 ## After Importing A Ready App
 
-For an app created with `--template`, follow the next steps the CLI prints. They add `cp .env.example .env` and the env keys the template declares.
+For an app created with `--template`, follow the next steps the CLI prints. They match the scripts the app has: `yarn setup` for an app with `setup` and `infra:up`, the services first and then `yarn setup` for an older `setup`, otherwise the steps below. The env keys the template declares are listed with them.
 
 1. Navigate to your app directory:
    ```bash

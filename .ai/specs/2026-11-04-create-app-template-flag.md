@@ -347,6 +347,15 @@ Created from the app template owner/repo@<sha> (recorded in package.json "openMe
 If you want agentic tooling in the app later, run `yarn mercato agentic:init` inside it.
 ```
 
+The commands after the env block depend on the created app's `package.json` scripts (follow-up #8901):
+
+- `setup` and `infra:up`: `yarn setup` with the same explanation and `yarn setup --no-infra` alternative as a normal
+  scaffold. `cp .env.example .env` comes first only when keys are declared, because `scripts/setup.mjs` copies
+  `.env.example` itself; otherwise it is listed under the `--no-infra` alternative.
+- `setup` without `infra:up`: `docker compose up -d` when the app has a Compose file (otherwise a note to start
+  PostgreSQL, Redis and Meilisearch and point `.env` at them), then `yarn setup`.
+- Neither: `yarn install`, `yarn initialize`, `yarn dev`, as shown above.
+
 The `cp` line is printed only when `.env.example` exists; the env block only when the manifest declares keys.
 `--app` / `--app-url` next steps are unchanged.
 
@@ -745,3 +754,5 @@ None blocking. Judgment calls made in this spec, open to reviewer override:
   cannot be read; deadlines over headers and body for the `--template` GitHub requests, stalled archive streams
   included; separator-independent path assertions and symlink fixtures skipped with a reason where links cannot be
   created. Judgment calls 20 and 21 added.
+- 2026-11-06: Follow-up #8901: the `--template` next steps follow the created app's `package.json` scripts
+  (`yarn setup` for `setup` + `infra:up`, services then `yarn setup` for `setup` alone, the old list otherwise).
