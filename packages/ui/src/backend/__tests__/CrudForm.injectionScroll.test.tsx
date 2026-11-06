@@ -102,6 +102,58 @@ describe('CrudForm injection-block scroll behavior', () => {
     expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'instant', block: 'start', inline: 'nearest' })
   })
 
+  it.each([false, true])('reveals the translated transformed field-only injection error in embedded=%s', async (embedded) => {
+    triggerEventMock.mockImplementation(async (event: string, data: Record<string, unknown>) => {
+      if (event === 'onBeforeSave') {
+        return { ok: false, fieldErrors: { description: 'example.calendar.visitAvailability.unavailable' } }
+      }
+      if (event === 'transformValidation') {
+        return { ok: true, data: { description: 'example.calendar.visitAvailability.retry' } }
+      }
+      return { ok: true, data }
+    })
+    const onSubmit = jest.fn()
+    const { container, getByRole } = renderWithProviders(
+      <CrudForm
+        fields={fields}
+        embedded={embedded}
+        injectionSpotId="crud-form:example.todo"
+        onSubmit={onSubmit}
+      />,
+      { dict: { 'example.calendar.visitAvailability.retry': 'Availability could not be checked. Try again.' } },
+    )
+
+    const input = container.querySelector('input') as HTMLInputElement
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      input.focus()
+      await act(async () => { fireEvent.submit(container.querySelector('form') as HTMLFormElement) })
+      await waitFor(() => expect(container.querySelector('[data-crud-form-error]')).toHaveFocus())
+      const rejection = container.querySelector('[data-crud-form-error]')
+      expect(getByRole('alert')).toHaveTextContent('Availability could not be checked. Try again.')
+      expect(container.querySelector('[data-crud-field-id="description"]')).toHaveTextContent('Availability could not be checked. Try again.')
+      expect(scrollSpy).toHaveBeenCalledTimes(attempt)
+      expect(scrollSpy.mock.instances[attempt - 1]).toBe(rejection)
+    }
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('retains the generic injection fallback when transformed field errors are empty', async () => {
+    triggerEventMock.mockImplementation(async (event: string, data: Record<string, unknown>) => {
+      if (event === 'onBeforeSave') return { ok: false, fieldErrors: { description: 'Unavailable.' } }
+      if (event === 'transformValidation') return { ok: true, data: {} }
+      return { ok: true, data }
+    })
+    const onSubmit = jest.fn()
+    const { container, getByRole } = renderWithProviders(
+      <CrudForm fields={fields} injectionSpotId="crud-form:example.todo" onSubmit={onSubmit} />,
+      { dict: { 'ui.forms.flash.saveBlocked': 'Save blocked by validation.' } },
+    )
+    await act(async () => { fireEvent.submit(container.querySelector('form') as HTMLFormElement) })
+    await waitFor(() => expect(container.querySelector('[data-crud-form-error]')).toHaveFocus())
+    expect(getByRole('alert')).toHaveTextContent('Save blocked by validation.')
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
   it('does not scroll when the injection widget allows save', async () => {
     triggerEventMock.mockImplementation(async (event: string, data: Record<string, unknown>) => {
       if (event === 'onBeforeSave') return { ok: true }

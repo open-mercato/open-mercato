@@ -3206,13 +3206,18 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           } catch {
             // ignore event dispatch failures
           }
+          let firstFieldError: string | undefined
           if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
             const transformedErrors = await transformValidationErrors(result.fieldErrors)
-            setErrors(translateValidationErrors(transformedErrors))
+            const translatedErrors = translateValidationErrors(transformedErrors)
+            setErrors(translatedErrors)
+            firstFieldError = Object.values(translatedErrors).find((message) => message.length > 0)
           }
-          const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+          const message = translateValidationMessage(result.message)
+            || firstFieldError
+            || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
           flash(message, 'error')
-          setFormError(translateValidationMessage(message))
+          setFormError(message)
           setPending(false)
           return
         }
