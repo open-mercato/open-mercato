@@ -199,8 +199,10 @@ describe('module-facts BC resolve guard (T2)', () => {
     // Re-measured on the merged tree (`yarn jest module-facts.bc-guard`), which
     // carries both the catalog AI categorization surfaces (routes, pages,
     // bulk-action widget, worker, subscriber, events, ACL feature) and
-    // whatever `main` had accumulated since this branch forked. Neither
-    // side's cap covers the union — see the note above.
+    // whatever `main` had accumulated since this branch forked:
+    //   completeJson 5,573,265 · legacy delta 2,438,777 · markdown 2,110,921 ·
+    //   directory markdown 2,300,284.
+    // The caps below keep the usual ~15% headroom over that measurement.
     expect(Buffer.byteLength(completeJson)).toBeLessThan(6_380_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_790_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
