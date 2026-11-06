@@ -2042,10 +2042,13 @@ const setReturnLabelCommand: CommandHandler<ClaimSetReturnLabelInput, ClaimSetRe
     const input = parseCommandInput(claimSetReturnLabelSchema, rawInput)
     const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const claim = await requireScopedClaim(em, input.id, scope)
-    await enforceWarrantyClaimOptimisticLock(ctx, claim, WARRANTY_CLAIM_RESOURCE_KIND, input.updatedAt ?? undefined)
+    let claim = await requireScopedClaim(em, input.id, scope)
 
     await withAtomicFlush(em, [
+      async () => {
+        claim = await requireScopedClaim(em, input.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        await enforceWarrantyClaimOptimisticLock(ctx, claim, WARRANTY_CLAIM_RESOURCE_KIND, input.updatedAt ?? undefined)
+      },
       () => {
         if (input.labelUrl !== undefined) claim.returnLabelUrl = input.labelUrl
         if (input.trackingNumber !== undefined) claim.returnTrackingNumber = input.trackingNumber
