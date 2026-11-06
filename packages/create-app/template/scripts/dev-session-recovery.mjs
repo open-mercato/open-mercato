@@ -77,18 +77,18 @@ function classifySession(state, dependencies) {
     const tree = dependencies.inspectTree(member.pid)
     const root = tree.find((row) => row.pid === member.pid)
     if (!root) {
-      stale.push({ member, reason: 'exited' })
+      unverified.push(member)
       continue
     }
     const lastSeen = Date.parse(member.registeredAt ?? member.heartbeatAt ?? state.owner.transferredAt ?? state.owner.startedAt)
     const started = Date.parse(root.startedAt)
     if (Number.isFinite(lastSeen) && Number.isFinite(started) && started > lastSeen) {
-      stale.push({ member, reason: 'reused' })
+      stale.push({ member })
       continue
     }
     const workspace = canonicalPath(dependencies.processWorkspace(member.pid))
     if (workspace && !isInsideWorkspace(state.workspaceRoot, workspace)) {
-      stale.push({ member, reason: 'reused' })
+      stale.push({ member })
       continue
     }
     if (!workspace || !Number.isFinite(lastSeen) || !Number.isFinite(started)) {
@@ -110,7 +110,7 @@ function describeConflict(snapshot, plan, endpointFree) {
     `Another Open Mercato dev session already owns this workspace (PID ${owner.pid ?? 'unknown'}, mode ${owner.mode || 'unknown'}, URL ${owner.url || 'unavailable'}).`,
     `Workspace: ${snapshot.workspaceRoot}`,
     ...plan.running.map((record) => `  ${record.role ?? 'managed process'} (PID ${record.pid}) is still running in this workspace`),
-    ...plan.stale.map(({ member, reason }) => `  ${member.role ?? 'managed process'} (PID ${member.pid}) is no longer running${reason === 'reused' ? ' (the PID now belongs to an unrelated process, which is left untouched)' : ''}`),
+    ...plan.stale.map(({ member }) => `  ${member.role ?? 'managed process'} (PID ${member.pid}) is no longer running (the PID now belongs to an unrelated process, which is left untouched)`),
   ]
   if (endpoint) {
     lines.push(endpointFree

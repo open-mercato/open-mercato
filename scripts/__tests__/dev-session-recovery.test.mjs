@@ -71,11 +71,15 @@ test('orphaned app-runtime processes may have cwd inside the workspace app direc
   assert.equal(fixture.signals.length, 1)
 })
 
-for (const scenario of ['declined', 'noninteractive', 'unverifiable workspace']) {
+for (const scenario of ['declined', 'noninteractive', 'unverifiable workspace', 'process table unavailable']) {
   test(`recovery never signals or unlocks when ${scenario}`, async (context) => {
     const fixture = orphanFixture(context)
     if (scenario === 'declined') fixture.dependencies.confirm = async () => false
     if (scenario === 'noninteractive') fixture.dependencies.interactive = false
+    if (scenario === 'process table unavailable') {
+      fixture.dependencies.inspectTree = () => []
+      fixture.dependencies.confirm = async () => assert.fail('a live PID missing from the process table must not be offered for cleanup')
+    }
     if (scenario === 'unverifiable workspace') {
       fixture.dependencies.processWorkspace = () => null
       fixture.dependencies.confirm = async () => assert.fail('an unverifiable session must not be offered for cleanup')
