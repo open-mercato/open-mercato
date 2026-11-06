@@ -1,3 +1,7 @@
+jest.mock('../../db/advisoryLock', () => ({
+  withAdvisoryXactLock: async <T>(em: unknown, _key: string, work: (txEm: unknown) => Promise<T>): Promise<T> => work(em),
+}))
+
 import { DefaultDataEngine, clearDataEngineTableExistsCache } from '../engine'
 import { registerEntityIds } from '../../encryption/entityIds'
 import { isCrudHttpError } from '../../crud/errors'

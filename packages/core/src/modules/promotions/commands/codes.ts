@@ -11,6 +11,7 @@ import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -31,7 +32,7 @@ import {
   type PromotionCodeUpdateInput,
   type PromotionCodeDeleteInput,
 } from '../data/validators'
-import { PromotionCodeService, type PromotionsCodeScope } from '../lib/code-service'
+import { PromotionCodeService, hasRemainingGlobalUses, type PromotionsCodeScope } from '../lib/code-service'
 import type { PromotionCodeGenerationService } from '../services/code-generation'
 import type { CodeReservationResult, CodeUseResult } from '../lib/types'
 
@@ -201,6 +202,12 @@ function getCodeIdentifiers(code: Code) {
 
 async function loadCode(em: EntityManager, id: string): Promise<Code | null> {
   return em.findOne(Code, { id, deletedAt: null })
+}
+
+function resolveUndoActiveFlag(code: Code, before: CodeSnapshot): boolean {
+  if (!before.active || code.type !== 'static') return before.active
+  const redeemedSinceUpdate = code.used > before.used
+  return !redeemedSinceUpdate || hasRemainingGlobalUses(code)
 }
 
 // Mirrors `commands/promotions.ts`'s `resolveActorScope` — a new code's scope is always
@@ -391,13 +398,20 @@ const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: stri
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const code = await em.findOne(Code, { id: before.id })
-    if (!code) return
+    let code = null as Code | null
 
     await withAtomicFlush(
       em,
       [
+        async () => {
+          code = await em.findOne(
+            Code,
+            { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId },
+            { lockMode: LockMode.PESSIMISTIC_WRITE },
+          )
+        },
         () => {
+          if (!code) return
           code.name = before.name
           code.type = before.type
           code.code = before.code
@@ -408,11 +422,12 @@ const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: stri
           code.usage = before.usage
           code.usageAmount = before.usageAmount
           code.usagePerCustomer = before.usagePerCustomer
-          code.active = before.active
+          code.active = resolveUndoActiveFlag(code, before)
         },
       ],
       { transaction: true, label: 'promotions.code.update.undo' },
     )
+    if (!code) return
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudUndoSideEffects({
