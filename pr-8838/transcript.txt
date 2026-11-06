@@ -1,0 +1,33 @@
+📝 Verbose logs /tmp/setup-folded-pty-evidence/.mercato/logs/presentation-check-setup-raw.log
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DEBUG LOGS                                                                                           
+  Press [d] to show or hide raw logs                                                                   
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🧭 Step 1/3 Build workspace packages
+   Expected: scripted presentation check
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  RAW DEBUG LOGS                                                                                       
+  📖 Raw logs shown                                                                                    
+  Press [d] again to hide logs                                                                         
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+compiler detail: packages ready
+
+📕 Raw logs hidden. Press [d] to show them again.
+   ✅ done in 1s
+
+🧭 Step 2/3 AI provider
+Choose a provider: openai
+   ✅ done in 0s
+
+🧭 Step 3/3 Database (migrations)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  RAW DEBUG LOGS                                                                                       
+  Setup stopped at Database (migrations)                                                               
+  Press [d] again to hide logs                                                                         
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+compiler detail: packages ready
+build finished
+migration diagnostic: simulated failure
+   ❌ Simulated migration failure — presentation test only
+Terminal restored: raw=false, listeners=1, baseline=1
