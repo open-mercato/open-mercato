@@ -80,7 +80,11 @@ npx create-mercato-app my-portal --template some-agency/b2b-portal#v1.0.0
 - The app is copied as it is, with three changes: the `package.json` `name` becomes your app name (unless `--keep-name`), `package.json` gets an `openMercatoTemplate` field with the repository, ref and commit, and the root `mercato-template.json` is removed. A failed import removes the directory it created.
 - Every import, with `--template`, `--app-url` or `--app`, is inspected before the app directory is created: at most a 64 MiB download, 10,000 entries and 128 MiB unpacked, and only files and directories. A link, a special file, an absolute path or a `..` segment stops it.
 
-Then follow the next steps the CLI prints: `cp .env.example .env`, fill in the keys the template declares, `yarn install`, `yarn initialize` and `yarn dev`.
+Then follow the next steps the CLI prints. They match the scripts in the app's `package.json`:
+
+- `setup` and `infra:up`: `yarn setup`, as for a new app (`yarn setup --no-infra` for your own services). When the template declares env keys, `cp .env.example .env` and the keys come first.
+- `setup` only (apps from before `yarn setup` started Docker): `cp .env.example .env`, the declared keys, `docker compose up -d` (or start PostgreSQL, Redis and Meilisearch yourself), then `yarn setup`.
+- Neither: `cp .env.example .env`, the declared keys, `yarn install`, `yarn initialize` and `yarn dev`.
 
 To share your own app as a template, save it with [create-mercato-template](https://github.com/open-mercato/create-mercato-template): `prepare` builds a reviewed, code-only snapshot of one commit and `publish` pushes it as a one-commit GitHub template repository.
 

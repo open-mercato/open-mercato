@@ -22,7 +22,13 @@ import {
   resolveTemplateSelection,
 } from './resolve-template.js'
 import { NPM_CORE_DIST_TAGS_URL, compatibilityNotice, enterpriseNotice, lineOf, readEnterpriseRegistrations } from './compat.js'
-import { finalizeTemplateApp, printTemplateImportNextSteps, readTemplateManifest } from './finalize.js'
+import {
+  detectTemplateStartup,
+  finalizeTemplateApp,
+  printTemplateImportNextSteps,
+  readTemplateManifest,
+  type TemplateNextStepsInput,
+} from './finalize.js'
 import { scaffoldFromTemplate } from './template-step.js'
 import type { TemplatesFetch, TemplatesIndex } from './types.js'
 
@@ -1042,6 +1048,8 @@ test('finalizing rewrites the name, adds provenance as the last key and removes 
     hasEnvExample: true,
     envKeys: [{ name: 'OPENAI_API_KEY', description: 'Used by the AI assistant.', link: 'https://platform.openai.com/api-keys' }],
     provenance: { repo: 'acme/crm-template', ref: 'main', sha: SHA_VERIFIED },
+    startup: 'manual',
+    hasDockerCompose: false,
   })
 })
 
@@ -1142,39 +1150,99 @@ test('readTemplateManifest keeps valid env keys once, cleans control characters 
 
 // Next steps
 
-test('next steps print cp .env.example .env and the declared env keys only when present', () => {
-  const provenance = { repo: 'acme/crm-template', ref: 'main', sha: SHA_VERIFIED }
+const NEXT_STEPS_PROVENANCE = { repo: 'acme/crm-template', ref: 'main', sha: SHA_VERIFIED }
+const NEXT_STEPS_KEYS = [
+  { name: 'OPENAI_API_KEY', description: 'Used by the AI assistant.', link: 'https://platform.openai.com/api-keys' },
+  { name: 'S3_BUCKET', description: 'Bucket for uploads.', link: 'javascript:alert(1)' },
+]
+const KEY_LINES = [
+  '  # Fill in the keys this template declares:',
+  '  #   OPENAI_API_KEY  Used by the AI assistant.  https://platform.openai.com/api-keys',
+  '  #   S3_BUCKET       Bucket for uploads.',
+]
+const FOOTER_LINES = [
+  '',
+  `Created from the app template acme/crm-template@${SHA_VERIFIED} (recorded in package.json "openMercatoTemplate").`,
+  'If you want agentic tooling in the app later, run `yarn mercato agentic:init` inside it.',
+  '',
+]
+
+function nextStepsLines(overrides: Partial<TemplateNextStepsInput>): string[] {
   const lines: string[] = []
   printTemplateImportNextSteps({
     appName: 'my-app',
     hasEnvExample: true,
-    envKeys: [
-      { name: 'OPENAI_API_KEY', description: 'Used by the AI assistant.', link: 'https://platform.openai.com/api-keys' },
-      { name: 'S3_BUCKET', description: 'Bucket for uploads.', link: 'javascript:alert(1)' },
-    ],
-    provenance,
+    envKeys: [],
+    provenance: NEXT_STEPS_PROVENANCE,
+    startup: 'manual',
+    hasDockerCompose: false,
+    ...overrides,
   }, (line) => lines.push(stripAnsi(line)))
-  assert.deepEqual(lines, [
-    'Next steps:',
-    '',
-    '  cd my-app',
-    '  cp .env.example .env',
-    '  # Fill in the keys this template declares:',
-    '  #   OPENAI_API_KEY  Used by the AI assistant.  https://platform.openai.com/api-keys',
-    '  #   S3_BUCKET       Bucket for uploads.',
-    '  yarn install',
-    '  yarn initialize',
-    '  yarn dev',
-    '',
-    `Created from the app template acme/crm-template@${SHA_VERIFIED} (recorded in package.json "openMercatoTemplate").`,
-    'If you want agentic tooling in the app later, run `yarn mercato agentic:init` inside it.',
-    '',
-  ])
+  return lines
+}
 
-  const bare: string[] = []
-  printTemplateImportNextSteps({ appName: 'my-app', hasEnvExample: false, envKeys: [], provenance }, (line) => bare.push(stripAnsi(line)))
-  assert.ok(!bare.some((line) => line.includes('cp .env.example') || line.includes('Fill in')), bare.join('\n'))
-  assert.deepEqual(bare.slice(0, 4), ['Next steps:', '', '  cd my-app', '  yarn install'])
+test('next steps without setup print cp .env.example .env, the declared keys, yarn install, initialize and dev', () => {
+  const manual = ['  yarn install', '  yarn initialize', '  yarn dev']
+  assert.deepEqual(nextStepsLines({ envKeys: NEXT_STEPS_KEYS }), [
+    'Next steps:', '', '  cd my-app', '  cp .env.example .env', ...KEY_LINES, ...manual, ...FOOTER_LINES,
+  ])
+  assert.deepEqual(nextStepsLines({}), ['Next steps:', '', '  cd my-app', '  cp .env.example .env', ...manual, ...FOOTER_LINES])
+  assert.deepEqual(nextStepsLines({ hasEnvExample: false }), ['Next steps:', '', '  cd my-app', ...manual, ...FOOTER_LINES])
+})
+
+test('next steps for an infra-aware template print yarn setup and copy .env.example only when keys are declared', () => {
+  const setup = [
+    '  yarn setup',
+    '  # Checks Docker, starts PostgreSQL, Redis and Meilisearch and waits until they are healthy,',
+    '  # then installs dependencies, migrates and initializes the database and starts the dev server.',
+    '  # Needs Node 24, Yarn 4 (corepack enable) and a running Docker engine. Safe to re-run: data and .env are kept.',
+    '',
+    'Using your own PostgreSQL, Redis and Meilisearch instead of Docker:',
+  ]
+  const noInfra = [
+    '  # Point DATABASE_URL (and Redis/Meilisearch settings) at your services, then:',
+    '  yarn setup --no-infra',
+    '  # Makes no Docker calls and keeps your URLs',
+  ]
+  assert.deepEqual(nextStepsLines({ startup: 'infra', hasDockerCompose: true, envKeys: NEXT_STEPS_KEYS }), [
+    'Next steps:', '', '  cd my-app', '  cp .env.example .env', ...KEY_LINES, ...setup, ...noInfra, ...FOOTER_LINES,
+  ])
+  assert.deepEqual(nextStepsLines({ startup: 'infra', hasDockerCompose: true }), [
+    'Next steps:', '', '  cd my-app', ...setup, '  cp .env.example .env', ...noInfra, ...FOOTER_LINES,
+  ])
+})
+
+test('next steps for a setup that expects running services start them first, then run yarn setup', () => {
+  const setup = ['  yarn setup', '  # Installs dependencies, migrates and initializes the database and starts the dev server.']
+  const compose = ['  docker compose up -d', "  # Starts PostgreSQL, Redis and Meilisearch from the app's Docker Compose file."]
+  const ownServices = ['  # Start PostgreSQL, Redis and Meilisearch and point DATABASE_URL (and Redis/Meilisearch settings) in .env at them, then:']
+  assert.deepEqual(nextStepsLines({ startup: 'setup', hasDockerCompose: true, envKeys: NEXT_STEPS_KEYS }), [
+    'Next steps:', '', '  cd my-app', '  cp .env.example .env', ...KEY_LINES, ...compose, ...setup, ...FOOTER_LINES,
+  ])
+  assert.deepEqual(nextStepsLines({ startup: 'setup', hasDockerCompose: true }), [
+    'Next steps:', '', '  cd my-app', '  cp .env.example .env', ...compose, ...setup, ...FOOTER_LINES,
+  ])
+  assert.deepEqual(nextStepsLines({ startup: 'setup', hasDockerCompose: false }), [
+    'Next steps:', '', '  cd my-app', '  cp .env.example .env', ...ownServices, ...setup, ...FOOTER_LINES,
+  ])
+})
+
+test('the template step reads the startup kind from the created app scripts and its compose file', async () => {
+  const withScripts = (scripts: Record<string, string>) => appPackageJson('0.10.0', { scripts })
+  const infra = await runTemplateStep('crm', { 'package.json': withScripts({ setup: 'node ./scripts/setup.mjs', 'infra:up': 'node ./scripts/infra.mjs up' }), 'docker-compose.yml': 'services: {}\n' }, [npmRoute('0.10.0')])
+  assert.deepEqual([infra.result.startup, infra.result.hasDockerCompose], ['infra', true])
+  const setupOnly = await runTemplateStep('crm', { 'package.json': withScripts({ setup: 'node ./scripts/setup.mjs' }) }, [npmRoute('0.10.0')])
+  assert.deepEqual([setupOnly.result.startup, setupOnly.result.hasDockerCompose], ['setup', false])
+  const manual = await runTemplateStep('crm', { 'package.json': withScripts({ dev: 'mercato dev' }) }, [npmRoute('0.10.0')])
+  assert.equal(manual.result.startup, 'manual')
+
+  const dir = scratchDir()
+  writeFileSync(join(dir, 'package.json'), '{"scripts": {"setup": 1}}')
+  assert.equal(detectTemplateStartup(dir), 'manual', 'a non-string setup script is not runnable')
+  writeFileSync(join(dir, 'package.json'), '{"scripts": ')
+  assert.equal(detectTemplateStartup(dir), 'manual', 'an unparsable package.json counts as manual')
+  writeFileSync(join(dir, 'package.json'), '\uFEFF{"scripts": {"setup": "node ./scripts/setup.mjs", "infra:up": "node ./scripts/infra.mjs up"}}')
+  assert.equal(detectTemplateStartup(dir), 'infra', 'a BOM does not hide the scripts')
 })
 
 // Cleanup and flags in main
