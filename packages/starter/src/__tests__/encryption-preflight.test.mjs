@@ -63,7 +63,7 @@ test('system-scoped onboarding keeps its system key after tenant assignment', as
 test('empty, plaintext-only and unavailable KMS have distinct safe outcomes', async () => {
   assert.equal(await inspectEncryptionCompatibility(fixture([])), 'empty')
   assert.equal(await inspectEncryptionCompatibility(fixture([{ tenant_id: tenant, value: 'plain' } ])), 'plaintext-only')
-  const unavailable = fixture([{ value: 'plain' }])
+  const unavailable = fixture([{ tenant_id: tenant, value: 'plain' }])
   unavailable.kms.getTenantDek = async () => null
   await assert.rejects(inspectEncryptionCompatibility(unavailable))
   assert.equal(await inspectEncryptionCompatibility({ ...unavailable, ...fixture([{ value: 'plain' }]), kms: unavailable.kms, encryptionEnabled: false }), 'plaintext-only')
@@ -72,7 +72,7 @@ test('empty, plaintext-only and unavailable KMS have distinct safe outcomes', as
 test('unknown versions, malformed ciphertext, unknown scope, incomplete scans and RLS fail closed', async () => {
   for (const input of [
     fixture([{ tenant_id: tenant, value: sealed.replace(/v1$/, 'v2') }]),
-    fixture([{ tenant_id: tenant, value: 'AAAAAAAAAAAAAAAA:payload:tag:v1' }]),
+    fixture([{ tenant_id: tenant, value: 'AAAAAAAAAAAAAAAA:badpayload:AAAAAAAAAAAAAAAAAAAAAA==:v1' }]),
     fixture([{ value: sealed }]),
     { ...fixture([{ tenant_id: tenant, value: sealed }]), maxRows: 0 },
     { ...fixture([{ tenant_id: tenant, value: sealed }]), maxBytes: 0 },
@@ -149,7 +149,9 @@ test('environment convergence never generates an encryption fallback for reused 
 
 
 test('ordinary version-suffixed plaintext remains compatible before and after authenticated decryption', async () => {
+  assert.equal(await inspectEncryptionCompatibility(fixture([{ tenant_id: tenant, value: 'customeraccount1:entity:key:v1' }])), 'plaintext-only')
   const plaintext = 'urn:om:sku:v2'
+  assert.equal(await inspectEncryptionCompatibility(fixture([{ value: plaintext }])), 'plaintext-only')
   assert.equal(await inspectEncryptionCompatibility(fixture([{ tenant_id: tenant, value: plaintext }])), 'plaintext-only')
   const encrypted = encryptWithAesGcm(plaintext, correct).raw
   assert.equal(await inspectEncryptionCompatibility(fixture([{ tenant_id: tenant, value: encrypted }])), 'verified')
@@ -198,4 +200,70 @@ test('brand-new environments receive unique encryption configuration shared by r
     }
     assert.notEqual(keys[0], keys[1])
   } finally { for (const dir of directories) fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+
+test('supplied root, ambient and company key/KMS settings survive missing app environment creation without introducing a fallback', async () => {
+  const { ensureEnvFiles } = await import('../env-setup.mjs')
+  const { parseEnv } = await import('node:util')
+  const cases = [
+    { root: 'TENANT_DATA_ENCRYPTION_KEY=root-fixture-key\n', env: {}, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'root-fixture-key'] },
+    { root: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=user-original\n', env: {}, extraDefaults: { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'company-default' }, expected: ['TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'user-original'] },
+    { env: { TENANT_DATA_ENCRYPTION_KEY: 'ambient-fixture-key' }, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'ambient-fixture-key'] },
+    { env: { VAULT_ADDR: '' }, extraDefaults: { VAULT_ADDR: 'https://vault.fixture', VAULT_TOKEN: 'fixture-token' }, expected: ['VAULT_ADDR', 'https://vault.fixture'] },
+  ]
+  for (const configuration of cases) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-supplied-encryption-'))
+    try {
+      const app = path.join(dir, 'apps', 'mercato'); fs.mkdirSync(app, { recursive: true })
+      fs.writeFileSync(path.join(app, '.env.example'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=public-fixture-key\n# TENANT_DATA_ENCRYPTION_KEY=commented-example\nTENANT_DATA_ENCRYPTION_KEY=\n# VAULT_ADDR=http://localhost:8200\n# VAULT_TOKEN=default-fixture\n')
+      if (configuration.root) fs.writeFileSync(path.join(dir, '.env'), configuration.root)
+      const logs = []
+      ensureEnvFiles(dir, { ...configuration, log: value => logs.push(value), warn() {} })
+      assert.ok(!logs.join(' ').includes('fixture-token'))
+      assert.ok(!logs.join(' ').includes(configuration.expected[1]))
+      const appSettings = parseEnv(fs.readFileSync(path.join(app, '.env'), 'utf8'))
+      assert.equal(appSettings[configuration.expected[0]], configuration.expected[1])
+      const expectedFallback = configuration.expected[0] === 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY' ? configuration.expected[1] : ''
+      assert.equal(appSettings.TENANT_DATA_ENCRYPTION_FALLBACK_KEY, expectedFallback)
+      if (!expectedFallback) assert.ok(!fs.readFileSync(path.join(dir, '.env'), 'utf8').includes('TENANT_DATA_ENCRYPTION_FALLBACK_KEY='))
+      const result = await assertEncryptionCompatible({ projectDir: app, env: {}, runProbe: async (_project, settings) => {
+        assert.equal(settings[configuration.expected[0]], configuration.expected[1])
+        assert.equal(settings.TENANT_DATA_ENCRYPTION_FALLBACK_KEY, expectedFallback)
+        return 'plaintext-only'
+      } })
+      assert.equal(result.status, 'plaintext-only')
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  }
+})
+
+
+test('supplied encryption strings round-trip through root/app dotenv without changing quotes, slashes or hash characters', async () => {
+  const { ensureEnvFiles } = await import('../env-setup.mjs')
+  const { parseEnv } = await import('node:util')
+  for (const secret of ['fixture"key', String.raw`fixture\key`, 'fixture#key', 'fixture$key']) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-key-roundtrip-'))
+    try {
+      const app = path.join(dir, 'apps', 'mercato'); fs.mkdirSync(app, { recursive: true })
+      fs.writeFileSync(path.join(app, '.env.example'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=public-fixture-key\nTENANT_DATA_ENCRYPTION_KEY=\n')
+      ensureEnvFiles(dir, { env: {}, extraDefaults: { TENANT_DATA_ENCRYPTION_KEY: secret }, log() {}, warn() {} })
+      assert.equal(parseEnv(fs.readFileSync(path.join(dir, '.env'), 'utf8')).TENANT_DATA_ENCRYPTION_KEY, secret)
+      assert.equal(parseEnv(fs.readFileSync(path.join(app, '.env'), 'utf8')).TENANT_DATA_ENCRYPTION_KEY, secret)
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  }
+})
+
+test('unrepresentable supplied encryption configuration fails before environment creation without echoing key material', async () => {
+  const { ensureEnvFiles } = await import('../env-setup.mjs')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-key-render-rejection-'))
+  try {
+    const app = path.join(dir, 'apps', 'mercato'); fs.mkdirSync(app, { recursive: true })
+    fs.writeFileSync(path.join(app, '.env.example'), 'TENANT_DATA_ENCRYPTION_KEY=\n')
+    assert.throws(() => ensureEnvFiles(dir, { env: {}, extraDefaults: { TENANT_DATA_ENCRYPTION_KEY: "fixture'key" }, log() {}, warn() {} }), error => {
+      assert.ok(!error.message.includes("fixture'key"))
+      return /do not edit or regenerate encryption keys/.test(error.message)
+    })
+    assert.equal(fs.existsSync(path.join(dir, '.env')), false)
+    assert.equal(fs.existsSync(path.join(app, '.env')), false)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })

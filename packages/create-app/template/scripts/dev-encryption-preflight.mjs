@@ -8,7 +8,8 @@ import { parseEnv } from 'node:util'
 const FAILURE = '[setup] Encryption compatibility could not be verified; database writes are blocked. Restore the original TENANT_DATA_ENCRYPTION settings and encryption keys, and check Vault/KMS access (including historical tenant keys and FORMS_ENCRYPTION_MASTER_KEY). Do not regenerate keys or reinstall this database. Ensure matching application packages are installed and built. Inspect permissions and unsupported encrypted stores with your administrator, or select a separate empty database. No preflight database or KMS writes were performed.'
 const MAX_ROWS = 100_000
 const SAMPLE_ROWS_PER_SCOPE = 5
-const ENVELOPE_PATTERN = '[A-Za-z0-9+/]{16}:[A-Za-z0-9+/=]*:[A-Za-z0-9+/=]+:v[0-9]+'
+const ENVELOPE_PATTERN = '[A-Za-z0-9+/]{16}:[A-Za-z0-9+/]*={0,2}:[A-Za-z0-9+/]{22}==:v[0-9]+'
+const ENVELOPE_CANDIDATE = new RegExp(`^${ENVELOPE_PATTERN}$`)
 const OPAQUE_BINARY_COLUMNS = new Set(['document_contents.yjs_state', 'document_versions.yjs_snapshot'])
 const MAX_BYTES = 64 * 1024 * 1024
 const TIMEOUT_MS = 60_000
@@ -83,8 +84,7 @@ export async function inspectEncryptionCompatibility({ client, kms, decrypt, res
   const inspectValue = async (value, keyId, depth = 0) => {
     if (depth > 32) throw new Error(FAILURE)
     if (typeof value === 'string') {
-      const envelopeParts = value.split(':')
-      if (envelopeParts.length === 4 && /^[A-Za-z0-9+/]{16}$/.test(envelopeParts[0]) && /^v\d+$/.test(envelopeParts[3])) {
+      if (ENVELOPE_CANDIDATE.test(value)) {
         if (!encryptionEnabled || !keyId) throw new Error(FAILURE)
         let dek = keys.get(keyId)
         if (!dek) {
@@ -164,7 +164,7 @@ export async function inspectEncryptionCompatibility({ client, kms, decrypt, res
               ? resolveKeyId('onboarding:onboarding_request', 'system', record.tenant_id)
               : record.tenant_id
             if (keyId) scopes.add(keyId)
-            for (const column of metadata.binary) {
+            for (const column of binaryColumns) {
               const value = record[column]
               if (value === null) continue
               const adapter = await getForms()
@@ -183,7 +183,6 @@ export async function inspectEncryptionCompatibility({ client, kms, decrypt, res
       } finally { await client.query('CLOSE encryption_preflight') }
     }
     if (applicationRows && encryptionEnabled) {
-      if (scopes.size === 0 && !ciphertexts) throw new Error(FAILURE)
       for (const scope of scopes) {
         if (!keys.has(scope) && !await kms.getTenantDek(scope)) throw new Error(FAILURE)
       }

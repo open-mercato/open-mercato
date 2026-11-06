@@ -59,6 +59,8 @@ test('disposable PostgreSQL: actual isolated helpers prove keys and rejected reu
     await client.query('INSERT INTO document_contents VALUES ($1, $2, $3)', [tenant, Buffer.from([1, 2, 3]), 'urn:om:sku:v2'])
     await client.query('INSERT INTO document_versions VALUES ($1, $2)', [tenant, Buffer.from([4, 5, 6])])
     assert.equal((await run()).status, 'verified')
+    await client.query('UPDATE document_contents SET content_text = $1', [sealed])
+    assert.equal((await run()).status, 'verified')
     await client.query('CREATE TABLE audit_fixture (tenant_id uuid, message text, protected_value text)')
     await client.query("INSERT INTO audit_fixture SELECT $1::uuid, repeat('audit', 150), NULL::text FROM generate_series(1, 150000)", [tenant])
     assert.equal((await run()).status, 'verified')
