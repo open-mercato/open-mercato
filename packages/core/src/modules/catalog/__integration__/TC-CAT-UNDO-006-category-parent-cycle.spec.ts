@@ -15,6 +15,7 @@ import {
 const CATEGORIES_PATH = '/api/catalog/categories'
 const PARENT_CYCLE_CODE = 'catalog.categories.errors.parentCycle'
 const PARENT_CYCLE_MESSAGE = "A category can't be moved under itself or one of its subcategories."
+const PARENT_CYCLE_MESSAGE_PL = 'Kategorii nie można przenieść pod nią samą ani pod jedną z jej podkategorii.'
 const REPLAY_CYCLE_CODE = 'catalog.categories.errors.replayCycle'
 const REPLAY_CYCLE_MESSAGE =
   "The category hierarchy changed since this action, so it can't be reverted without making a category its own ancestor."
@@ -116,6 +117,16 @@ test.describe('TC-CAT-UNDO-006: category parent cycles are refused', () => {
         expect(body?.code).toBe(PARENT_CYCLE_CODE)
         expect(body?.error).toBe(PARENT_CYCLE_MESSAGE)
       }
+
+      const localized = await apiRequest(request, 'PUT', CATEGORIES_PATH, {
+        token,
+        data: { id: top, parentId: child },
+        headers: { 'Accept-Language': 'pl' },
+      })
+      expect(localized.status(), 'the refusal is localized for Polish').toBe(400)
+      const localizedBody = await readJsonSafe<{ error?: string; code?: string }>(localized)
+      expect(localizedBody?.code).toBe(PARENT_CYCLE_CODE)
+      expect(localizedBody?.error).toBe(PARENT_CYCLE_MESSAGE_PL)
 
       await expectTree({ [top]: null, [child]: top, [grandchild]: child })
 

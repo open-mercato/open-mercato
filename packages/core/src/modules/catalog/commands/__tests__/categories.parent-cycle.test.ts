@@ -200,16 +200,19 @@ describe('catalog.categories.update — parent cycles', () => {
     await expect(command.execute({ id: CAT_A, name: 'Renamed', parentId: CAT_B }, ctx)).resolves.toEqual({ categoryId: CAT_A })
     await expect(command.execute({ id: CAT_C, parentId: null }, ctx)).resolves.toEqual({ categoryId: CAT_C })
     expect(rows[2].parentId).toBeNull()
+    expect(ctx.container.resolve('em').find).not.toHaveBeenCalled()
     expect(rebuildCategoryHierarchyForOrganization).toHaveBeenCalledTimes(2)
   })
 
   it('does not run the cycle check on an undo that keeps the current parent', async () => {
     const rows = [row(CAT_A, CAT_B), row(CAT_B, CAT_A)]
     const command = loadUpdateCommand()
+    const ctx = buildCtx(rows)
 
-    await command.undo({ logEntry: updateLogEntry(CAT_A, CAT_B, CAT_B), ctx: buildCtx(rows) })
+    await command.undo({ logEntry: updateLogEntry(CAT_A, CAT_B, CAT_B), ctx })
 
     expect(rows[0].parentId).toBe(CAT_B)
+    expect(ctx.container.resolve('em').find).not.toHaveBeenCalled()
     expect(rebuildCategoryHierarchyForOrganization).toHaveBeenCalledTimes(1)
   })
 
