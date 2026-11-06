@@ -186,14 +186,6 @@ test('extractInitSummaryLines preserves dark panel styling and removes turbo pre
   assert.deepEqual(extractInitSummaryLines(prefixed.slice(0, -1)), [])
 })
 
-test('greenfield initialization disables turbo prefixes before the forwarded reinstall flag', async () => {
-  const { readFile } = await import('node:fs/promises')
-  for (const file of ['../dev.mjs', '../../packages/create-app/template/scripts/dev.mjs']) {
-    const source = await readFile(new URL(file, import.meta.url), 'utf8')
-    assert.equal(source.match(/\['initialize', '--log-prefix=none', '--', '--reinstall'\]/g)?.length, 2)
-  }
-})
-
 test('direct monorepo initialization also suppresses task prefixes around the panel', async () => {
   const { readFile } = await import('node:fs/promises')
   const manifest = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'))

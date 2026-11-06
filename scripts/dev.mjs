@@ -2786,7 +2786,7 @@ async function runGreenfieldDev() {
   await runStage('🧱 Greenfield build packages', ['build:packages'], { stageCurrent: 1, stageTotal: 5 })
   await runStage('🧬 Greenfield generate artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
   await runStage('🧱 Greenfield rebuild packages', ['build:packages'], { stageCurrent: 3, stageTotal: 5 })
-  await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--log-prefix=none', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5, env: INIT_DEV_AUTOSTART_ENV, echoSummaryBox: true })
+  await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5, env: INIT_DEV_AUTOSTART_ENV, echoSummaryBox: true })
 
   startPackageWatch()
   launchMonorepoAppDev()
@@ -2797,7 +2797,7 @@ async function runClassicGreenfieldDev() {
   await runRawYarnCommand(['build:packages'])
   await runRawYarnCommand(['generate'])
   await runRawYarnCommand(['build:packages'])
-  await runRawYarnCommand(['initialize', '--log-prefix=none', '--', '--reinstall'], { env: INIT_DEV_AUTOSTART_ENV })
+  await runRawYarnCommand(['initialize', '--', '--reinstall'], { env: INIT_DEV_AUTOSTART_ENV })
 
   startPackageWatch()
   launchMonorepoAppDev()
