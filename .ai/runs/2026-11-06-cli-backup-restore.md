@@ -47,3 +47,6 @@ Revise the design-only spec so the backup/restore feature is enterprise-only, en
 - [x] 2.3 Specify resumable chunked backup and journaled resumable restore with honest consistency modes — 6524c35743
 - [x] 2.4 Specify per-entity progress bars for backup and restore (TTY, plain, NDJSON) — 6524c35743
 - [x] 2.5 Update the automated-backups crosslink, scenario matrix, phasing and changelog — 6524c35743
+
+- [x] Post-review fix: encrypted journal, renderer-only pg_restore, standalone bin, exit table — bf75ed63ee
+- [x] Post-review fix: batched pre-data, hash-chain integrity with hash-on-load — 49043c9db9
