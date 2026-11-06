@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn } from 'node:child_process'
 import { parseEnv } from 'node:util'
 
-const FAILURE = '[setup] Encryption compatibility could not be verified; database writes are blocked. Restore the original TENANT_DATA_ENCRYPTION settings and encryption keys, and check Vault/KMS access (including historical tenant keys and FORMS_ENCRYPTION_MASTER_KEY). Do not regenerate keys or reinstall this database. Ensure matching application packages are installed and built. Inspect permissions and unsupported encrypted stores with your administrator, or select a separate empty database. No preflight database or KMS writes were performed.'
+const FAILURE = '[setup] Encryption compatibility could not be verified; database writes are blocked. Restore the original TENANT_DATA_ENCRYPTION settings and encryption keys, and check Vault/KMS access (including historical tenant keys and FORMS_ENCRYPTION_MASTER_KEY). Do not regenerate keys or reinstall this database. Confirm DATABASE_URL targets the intended database and matching application packages are installed and built. Inspect permissions and unsupported encrypted stores with your administrator, or select a separate empty database. No preflight database or KMS writes were performed.'
 const MAX_ROWS = 100_000
 const SAMPLE_ROWS_PER_SCOPE = 5
 const ENVELOPE_PATTERN = '[A-Za-z0-9+/]{16}:[A-Za-z0-9+/]*={0,2}:[A-Za-z0-9+/]{22}==:v[0-9]+'
@@ -192,6 +192,7 @@ export async function inspectEncryptionCompatibility({ client, kms, decrypt, res
 }
 
 async function probe(projectDir) {
+  if (!process.env.DATABASE_URL?.trim()) throw new Error(FAILURE)
   const { Client } = createRequire(requireFrom(projectDir).resolve('@open-mercato/cli'))('pg')
   const client = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000, query_timeout: 15_000 })
   client.on('error', () => {})

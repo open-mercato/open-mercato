@@ -54,8 +54,7 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
   setValue('APP_URL', `http://localhost:${readEnvValue(rootEnv, 'APP_PORT')?.trim() || '3000'}`)
   setValue('OM_INIT_SUPERADMIN_EMAIL', 'superadmin@acme.com')
   for (const [key, value] of Object.entries(extraDefaults)) {
-    if (encryptionSettings.includes(key)) setSecret(key, String(value))
-    else setValue(key, value)
+    setSecret(key, String(value))
   }
   // Dev-default credentials, not secrets (see header). Set after extraDefaults
   // so a company preset — like anything already in .env — wins.

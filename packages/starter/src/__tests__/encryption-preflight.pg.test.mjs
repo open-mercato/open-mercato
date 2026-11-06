@@ -35,6 +35,7 @@ test('disposable PostgreSQL: actual isolated helpers prove keys and rejected reu
     const run = (changes = {}, project = projectDir) => assertEncryptionCompatible({ projectDir: project, env: { ...env, ...changes } })
     client = new pg.Client({ connectionString: url }); await client.connect()
     assert.equal((await run()).status, 'empty')
+    await assert.rejects(run({ DATABASE_URL: '' }), /writes are blocked/)
     await client.query('CREATE TABLE mikro_orm_migrations_fixture (name text)')
     await client.query("INSERT INTO mikro_orm_migrations_fixture VALUES ('new-migration')")
     assert.equal((await run()).status, 'empty')

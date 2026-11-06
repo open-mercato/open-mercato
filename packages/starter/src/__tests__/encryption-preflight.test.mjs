@@ -210,7 +210,7 @@ test('supplied root, ambient and company key/KMS settings survive missing app en
     { root: 'TENANT_DATA_ENCRYPTION_KEY=root-fixture-key\n', env: {}, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'root-fixture-key'] },
     { root: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=user-original\n', env: {}, extraDefaults: { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'company-default' }, expected: ['TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'user-original'] },
     { env: { TENANT_DATA_ENCRYPTION_KEY: 'ambient-fixture-key' }, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'ambient-fixture-key'] },
-    { env: { VAULT_ADDR: '' }, extraDefaults: { VAULT_ADDR: 'https://vault.fixture', VAULT_TOKEN: 'fixture-token' }, expected: ['VAULT_ADDR', 'https://vault.fixture'] },
+    { env: { VAULT_ADDR: '' }, extraDefaults: { VAULT_ADDR: 'https://vault.fixture', VAULT_TOKEN: 'fixture-token', POSTGRES_PASSWORD: 'private-fixture-password' }, expected: ['VAULT_ADDR', 'https://vault.fixture'] },
   ]
   for (const configuration of cases) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-supplied-encryption-'))
@@ -221,6 +221,7 @@ test('supplied root, ambient and company key/KMS settings survive missing app en
       const logs = []
       ensureEnvFiles(dir, { ...configuration, log: value => logs.push(value), warn() {} })
       assert.ok(!logs.join(' ').includes('fixture-token'))
+      assert.ok(!logs.join(' ').includes('private-fixture-password'))
       assert.ok(!logs.join(' ').includes(configuration.expected[1]))
       const appSettings = parseEnv(fs.readFileSync(path.join(app, '.env'), 'utf8'))
       assert.equal(appSettings[configuration.expected[0]], configuration.expected[1])
