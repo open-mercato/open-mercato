@@ -19,6 +19,7 @@ import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared
 import {
   CustomerCompanyProfile,
   CustomerEntity,
+  CustomerInteraction,
   CustomerPersonProfile,
 } from '../../data/entities'
 
@@ -164,6 +165,7 @@ function createFakeEm(kind: Kind, existing: { entity: Record<string, unknown> | 
     entity: existing.entity,
     profile: existing.entity ? makeProfile(kind, existing.entity) : null,
     flushedEntity: null as Record<string, unknown> | null,
+    interaction: { interactionType: 'call', visibility: null } as { interactionType: string; visibility: string | null } | null,
   }
   const em: any = {
     fork: () => em,
@@ -172,6 +174,7 @@ function createFakeEm(kind: Kind, existing: { entity: Record<string, unknown> | 
         return state.entity && where?.id === state.entity.id ? state.entity : null
       }
       if (ctor === profileCtor) return state.profile
+      if (ctor === CustomerInteraction) return state.interaction
       return null
     }),
     find: jest.fn(async () => []),
@@ -297,6 +300,34 @@ describe.each<Kind>(['person', 'company'])('customers %s undo/redo restore nextI
     expect(state.flushedEntity!.nextInteractionAt).toBeNull()
   })
 
+  it.each(['update', 'delete'] as const)('does not restore a private email subject on %s undo', async (action) => {
+    const { em, state } = createFakeEm(kind, { entity: makeEntity(kind) })
+    state.interaction = { interactionType: 'email', visibility: 'private' }
+    const snapshot = makeSnapshot(kind, NEXT_AT_ISO)
+    snapshot.entity.nextInteractionName = 'Private planned email'
+
+    await commandFor(kind, action).undo!({
+      logEntry: undoLogEntry(snapshot, null), ctx: createCtx(em),
+    } as never)
+
+    expect(state.flushedEntity!.nextInteractionName).toBeNull()
+    expect(state.flushedEntity!.nextInteractionAt).toBeInstanceOf(Date)
+    expect(em.findOne).toHaveBeenCalledWith(CustomerInteraction, {
+      id: INTERACTION_ID, entity: ENTITY_ID, tenantId: TENANT_ID, organizationId: ORG_ID,
+    }, { fields: ['interactionType', 'visibility'] })
+  })
+
+  it('fails closed for a linked interaction missing from the current scope', async () => {
+    const { em, state } = createFakeEm(kind, { entity: makeEntity(kind) })
+    state.interaction = null
+
+    await commandFor(kind, 'update').undo!({
+      logEntry: undoLogEntry(makeSnapshot(kind, NEXT_AT_ISO), null), ctx: createCtx(em),
+    } as never)
+
+    expect(state.flushedEntity!.nextInteractionName).toBeNull()
+  })
+
   it('rejects an unparsable snapshot date before writing anything', async () => {
     const { em, state } = createFakeEm(kind, { entity: null })
     const handler = commandFor(kind, 'delete')
@@ -311,6 +342,20 @@ describe.each<Kind>(['person', 'company'])('customers %s undo/redo restore nextI
 
 describe('customers create redo restores nextInteractionAt as a Date (#6336)', () => {
   afterEach(() => jest.clearAllMocks())
+
+  it.each<Kind>(['person', 'company'])('redacts a private subject during %s create redo', async (kind) => {
+    const { em, state } = createFakeEm(kind, { entity: null })
+    state.interaction = { interactionType: 'email', visibility: 'private' }
+    const snapshot = makeSnapshot(kind, NEXT_AT_ISO)
+    snapshot.entity.nextInteractionName = 'Private planned email'
+
+    await commandFor(kind, 'create').redo!({
+      logEntry: undoLogEntry(null, snapshot), ctx: createCtx(em),
+    } as never)
+
+    expect(state.flushedEntity!.nextInteractionName).toBeNull()
+    expect(state.flushedEntity!.nextInteractionAt).toBeInstanceOf(Date)
+  })
 
   it('redoes a company create whose snapshot carries a next interaction', async () => {
     const { em, state } = createFakeEm('company', { entity: null })

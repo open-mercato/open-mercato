@@ -648,3 +648,16 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## 2026-11-07 — Private next-interaction subjects (#8888)
+
+Surface: stable customer projection response behavior. Private email subjects and
+unresolved historical linked names now become NULL in shared projections; response
+keys/types, scheduling, manual names and authorized interaction readers remain
+unchanged. Continuing to serve the private subject as a bridge retains the privacy
+bypass. Clients use unnamed-interaction fallbacks and authorized interaction reads.
+Operators apply the idempotent data repair, complete the declared query-index
+rebuilds and rebuild configured search providers before reopening affected reads.
+See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES.
+This entry requests the emergency security exception. A named human maintainer
+must acknowledge the waiver before merge; automated review does not grant it.
