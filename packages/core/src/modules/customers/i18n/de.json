@@ -1788,7 +1788,7 @@
   "customers.deals.timeline.savedViews.saveError": "Die Ansicht konnte nicht gespeichert werden.",
   "customers.deals.timeline.savedViews.saved": "Ansicht gespeichert.",
   "customers.deals.timeline.savedViews.searchTooLong": "Der Suchtext ist zu lang, um ihn in einer Ansicht zu speichern. Kürze ihn und versuche es erneut.",
-  "customers.deals.timeline.savedViews.statusInvalid": "Ein ausgewählter Status ist zu lang, um ihn in einer Ansicht zu speichern. Ändere den Statusfilter und versuche es erneut.",
+  "customers.deals.timeline.savedViews.statusInvalid": "Der Statusfilter kann nicht in einer Ansicht gespeichert werden: Er enthält zu viele Werte oder einen zu langen Wert. Ändere den Statusfilter und versuche es erneut.",
   "customers.deals.timeline.savedViews.tooLarge": "Diese Ansicht enthält zu viele Filterwerte zum Speichern. Grenzen Sie die Filter ein und versuchen Sie es erneut.",
   "customers.deals.timeline.status.closed": "Geschlossen",
   "customers.deals.timeline.status.lost": "Verloren",

@@ -1788,7 +1788,7 @@
   "customers.deals.timeline.savedViews.saveError": "Failed to save the view.",
   "customers.deals.timeline.savedViews.saved": "View saved.",
   "customers.deals.timeline.savedViews.searchTooLong": "The search text is too long to save in a view. Shorten it and try again.",
-  "customers.deals.timeline.savedViews.statusInvalid": "A selected status is too long to save in a view. Change the Status filter and try again.",
+  "customers.deals.timeline.savedViews.statusInvalid": "The Status filter can't be saved in a view: it has too many values or a value that is too long. Change the Status filter and try again.",
   "customers.deals.timeline.savedViews.tooLarge": "This view has too many filter values to save. Narrow the filters and try again.",
   "customers.deals.timeline.status.closed": "Closed",
   "customers.deals.timeline.status.lost": "Lost",

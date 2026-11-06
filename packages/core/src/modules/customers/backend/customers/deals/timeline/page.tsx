@@ -14,6 +14,7 @@ import {
 } from '@open-mercato/ui/primitives/breadcrumb'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
+import { DEAL_TIMELINE_SAVED_VIEW_MAX_SEARCH_LENGTH } from '../../../../data/validators'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
@@ -89,6 +90,7 @@ export default function DealsTimelinePage(): React.ReactElement {
               <SearchInput
                 value={search}
                 onChange={setSearch}
+                maxLength={DEAL_TIMELINE_SAVED_VIEW_MAX_SEARCH_LENGTH}
                 placeholder={translateWithFallback(t, 'customers.deals.kanban.search.placeholder', 'Search deals…')}
                 className="w-64"
               />

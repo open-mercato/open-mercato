@@ -1788,7 +1788,7 @@
   "customers.deals.timeline.savedViews.saveError": "No se pudo guardar la vista.",
   "customers.deals.timeline.savedViews.saved": "Vista guardada.",
   "customers.deals.timeline.savedViews.searchTooLong": "El texto de búsqueda es demasiado largo para guardarlo en una vista. Acórtalo e inténtalo de nuevo.",
-  "customers.deals.timeline.savedViews.statusInvalid": "Un estado seleccionado es demasiado largo para guardarlo en una vista. Cambia el filtro de estado e inténtalo de nuevo.",
+  "customers.deals.timeline.savedViews.statusInvalid": "El filtro de estado no se puede guardar en una vista: tiene demasiados valores o un valor demasiado largo. Cambia el filtro de estado e inténtalo de nuevo.",
   "customers.deals.timeline.savedViews.tooLarge": "Esta vista tiene demasiados valores de filtro para guardarla. Reduce los filtros e inténtalo de nuevo.",
   "customers.deals.timeline.status.closed": "Cerrada",
   "customers.deals.timeline.status.lost": "Perdida",

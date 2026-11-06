@@ -180,6 +180,7 @@ export function useTimelineUrlState() {
   const pendingStateRef = React.useRef<TimelineUrlState | null>(null)
   const inFlightQueriesRef = React.useRef<string[]>([])
   const backPendingRef = React.useRef(false)
+  const queriesBeforeBackRef = React.useRef<string[]>([])
   const deferredNavigationRef = React.useRef<TimelineNavigation | null>(null)
   const backTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -195,6 +196,7 @@ export function useTimelineUrlState() {
   const flushDeferredNavigation = React.useCallback(
     (landedQuery: string | null) => {
       backPendingRef.current = false
+      queriesBeforeBackRef.current = []
       if (backTimeoutRef.current) {
         clearTimeout(backTimeoutRef.current)
         backTimeoutRef.current = null
@@ -218,6 +220,11 @@ export function useTimelineUrlState() {
 
   React.useEffect(() => {
     if (backPendingRef.current) {
+      const earlierIndex = queriesBeforeBackRef.current.indexOf(paramsKey)
+      if (earlierIndex !== -1) {
+        queriesBeforeBackRef.current = queriesBeforeBackRef.current.slice(earlierIndex + 1)
+        return
+      }
       if (flushDeferredNavigation(paramsKey)) return
       inFlightQueriesRef.current = []
       pendingStateRef.current = null
@@ -245,6 +252,9 @@ export function useTimelineUrlState() {
       pendingStateRef.current = next
       const query = buildTimelineSearchParams(next).toString()
       if (options?.history === 'back') {
+        queriesBeforeBackRef.current = backPendingRef.current
+          ? queriesBeforeBackRef.current
+          : [...inFlightQueriesRef.current]
         inFlightQueriesRef.current = [...inFlightQueriesRef.current, query]
         backPendingRef.current = true
         if (backTimeoutRef.current) clearTimeout(backTimeoutRef.current)

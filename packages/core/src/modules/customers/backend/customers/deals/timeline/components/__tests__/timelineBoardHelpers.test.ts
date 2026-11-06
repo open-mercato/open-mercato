@@ -3,7 +3,13 @@
  */
 import { act, renderHook } from '@testing-library/react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { isTimelineItemDraggable, mergeCollapsedLaneToggles, resolveTimelineCountCaps } from '../DealsTimelineBoard'
+import {
+  isTimelineItemDraggable,
+  keepDismissedOnOpen,
+  mergeCollapsedLaneToggles,
+  nextPushedDrawerDealId,
+  resolveTimelineCountCaps,
+} from '../DealsTimelineBoard'
 import {
   formatTimelineCount,
   formatTimelineDealCount,
@@ -145,6 +151,26 @@ describe('useTimelineUrlState functional updates', () => {
     }
   })
 
+  it('keeps a deferred update when an earlier replace lands while the back is pending', () => {
+    currentParams = new URLSearchParams('deal=66666666-6666-4666-8666-666666666666')
+    const { result, rerender } = renderHook(() => useTimelineUrlState())
+    act(() => result.current.update({ bucket: 'month' }))
+    expect(replace).toHaveBeenCalledTimes(1)
+    const earlierQuery = (replace.mock.calls[0][0] as string).split('?')[1] ?? ''
+    act(() => result.current.update({ dealId: null }, { history: 'back' }))
+    act(() => result.current.update({ groupBy: 'stage' }))
+    currentParams = new URLSearchParams(earlierQuery)
+    act(() => rerender())
+    expect(replace).toHaveBeenCalledTimes(1)
+    currentParams = new URLSearchParams('bucket=month')
+    act(() => rerender())
+    expect(replace).toHaveBeenCalledTimes(2)
+    const href = replace.mock.calls[1][0] as string
+    expect(href).toContain('bucket=month')
+    expect(href).toContain('groupBy=stage')
+    expect(href).not.toContain('deal=')
+  })
+
   it('does not navigate again when the history back alone matches the pending state', () => {
     currentParams = new URLSearchParams('bucket=month&deal=66666666-6666-4666-8666-666666666666')
     const { result, rerender } = renderHook(() => useTimelineUrlState())
@@ -198,5 +224,20 @@ describe('mergeCollapsedLaneToggles', () => {
       'lane-c',
     ])
     expect(mergeCollapsedLaneToggles(['lane-a'], [])).toEqual(['lane-a'])
+  })
+})
+
+describe('drawer history bookkeeping', () => {
+  it('keeps the pushed drawer id until the URL moves away from that deal', () => {
+    expect(nextPushedDrawerDealId('deal-y', 'deal-x', null)).toBe('deal-y')
+    expect(nextPushedDrawerDealId('deal-y', null, 'deal-y')).toBe('deal-y')
+    expect(nextPushedDrawerDealId('deal-y', 'deal-y', null)).toBeNull()
+    expect(nextPushedDrawerDealId(null, 'deal-y', null)).toBeNull()
+  })
+
+  it('keeps a closing deal hidden while a different deal opens', () => {
+    expect(keepDismissedOnOpen('deal-x', 'deal-y')).toBe('deal-x')
+    expect(keepDismissedOnOpen('deal-x', 'deal-x')).toBeNull()
+    expect(keepDismissedOnOpen(null, 'deal-y')).toBeNull()
   })
 })

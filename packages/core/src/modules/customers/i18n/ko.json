@@ -1788,7 +1788,7 @@
   "customers.deals.timeline.savedViews.saveError": "보기를 저장하지 못했습니다.",
   "customers.deals.timeline.savedViews.saved": "보기를 저장했습니다.",
   "customers.deals.timeline.savedViews.searchTooLong": "검색어가 너무 길어 보기에 저장할 수 없습니다. 검색어를 줄인 후 다시 시도하세요.",
-  "customers.deals.timeline.savedViews.statusInvalid": "선택한 상태 값이 너무 길어 보기에 저장할 수 없습니다. 상태 필터를 변경한 후 다시 시도하세요.",
+  "customers.deals.timeline.savedViews.statusInvalid": "상태 필터를 보기에 저장할 수 없습니다. 값이 너무 많거나 너무 긴 값이 있습니다. 상태 필터를 변경한 후 다시 시도하세요.",
   "customers.deals.timeline.savedViews.tooLarge": "필터 값이 너무 많아 이 보기를 저장할 수 없습니다. 필터를 좁힌 후 다시 시도하세요.",
   "customers.deals.timeline.status.closed": "종료",
   "customers.deals.timeline.status.lost": "실패",

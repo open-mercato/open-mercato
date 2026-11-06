@@ -186,7 +186,7 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
             ? translateWithFallback(
                 t,
                 'customers.deals.timeline.savedViews.statusInvalid',
-                'A selected status is too long to save in a view. Change the Status filter and try again.',
+                "The Status filter can't be saved in a view: it has too many values or a value that is too long. Change the Status filter and try again.",
               )
             : translateWithFallback(
                 t,

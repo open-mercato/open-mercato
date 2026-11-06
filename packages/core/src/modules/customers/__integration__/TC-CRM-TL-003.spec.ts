@@ -43,6 +43,18 @@ async function closeDateOf(request: Parameters<typeof readDeal>[0], token: strin
 }
 
 async function dragCardTo(page: Page, card: Locator, target: Locator): Promise<void> {
+  await card.scrollIntoViewIfNeeded();
+  await expect
+    .poll(
+      async () =>
+        card.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+          return !!hit && element.contains(hit);
+        }),
+      { message: 'the drag starts on the card itself, inside the viewport' },
+    )
+    .toBe(true);
   const from = await card.boundingBox();
   const to = await target.boundingBox();
   if (!from || !to) throw new Error('[internal] drag source or target not rendered');

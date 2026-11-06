@@ -1788,7 +1788,7 @@
   "customers.deals.timeline.savedViews.saveError": "Nie udało się zapisać widoku.",
   "customers.deals.timeline.savedViews.saved": "Widok zapisany.",
   "customers.deals.timeline.savedViews.searchTooLong": "Tekst wyszukiwania jest za długi, aby zapisać go w widoku. Skróć go i spróbuj ponownie.",
-  "customers.deals.timeline.savedViews.statusInvalid": "Wybrany status jest za długi, aby zapisać go w widoku. Zmień filtr statusu i spróbuj ponownie.",
+  "customers.deals.timeline.savedViews.statusInvalid": "Filtra statusu nie można zapisać w widoku: ma za dużo wartości lub wartość jest za długa. Zmień filtr statusu i spróbuj ponownie.",
   "customers.deals.timeline.savedViews.tooLarge": "Ten widok ma zbyt wiele wartości filtrów, aby go zapisać. Zawęź filtry i spróbuj ponownie.",
   "customers.deals.timeline.status.closed": "Zamknięta",
   "customers.deals.timeline.status.lost": "Przegrana",

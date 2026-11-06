@@ -166,6 +166,19 @@ function utcFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl
   }
 }
 
+export function nextPushedDrawerDealId(
+  pushedDealId: string | null,
+  previousDealId: string | null,
+  currentDealId: string | null,
+): string | null {
+  if (!pushedDealId) return null
+  return previousDealId === pushedDealId && currentDealId !== pushedDealId ? null : pushedDealId
+}
+
+export function keepDismissedOnOpen(dismissedDealId: string | null, openingDealId: string): string | null {
+  return dismissedDealId && dismissedDealId !== openingDealId ? dismissedDealId : null
+}
+
 export function isTimelineItemDraggable(
   item: Pick<DealTimelineItem, 'id' | 'expectedCloseAt' | 'status'>,
   context: { canManage: boolean; locked: boolean; inFlightDealIds: { has(dealId: string): boolean } },
@@ -415,7 +428,8 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   const focusShowDealOnCloseRef = React.useRef(false)
   const [drawerRefreshToken, setDrawerRefreshToken] = React.useState(0)
   const returnFocusRef = React.useRef<HTMLElement | null>(null)
-  const drawerPushedRef = React.useRef(false)
+  const drawerPushedDealIdRef = React.useRef<string | null>(null)
+  const previousDealIdRef = React.useRef<string | null>(state.dealId)
   const showDealRef = React.useRef<HTMLButtonElement | null>(null)
 
   const focusCard = React.useCallback((dealId: string): boolean => {
@@ -427,7 +441,12 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   }, [])
 
   React.useEffect(() => {
-    if (!state.dealId) drawerPushedRef.current = false
+    drawerPushedDealIdRef.current = nextPushedDrawerDealId(
+      drawerPushedDealIdRef.current,
+      previousDealIdRef.current,
+      state.dealId,
+    )
+    previousDealIdRef.current = state.dealId
   }, [state.dealId])
 
   const [dismissedDealId, setDismissedDealId] = React.useState<string | null>(null)
@@ -530,8 +549,8 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
           )
         : element
       setPopover(null)
-      setDismissedDealId(null)
-      drawerPushedRef.current = true
+      setDismissedDealId((current) => keepDismissedOnOpen(current, item.id))
+      drawerPushedDealIdRef.current = item.id
       update({ dealId: item.id }, { history: 'push' })
     },
     [popover, update],
@@ -548,8 +567,8 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
       returnFocusRef.current = showDealRef.current
     }
     setDismissedDealId(state.dealId)
-    const history = drawerPushedRef.current ? 'back' : 'replace'
-    drawerPushedRef.current = false
+    const history = state.dealId && drawerPushedDealIdRef.current === state.dealId ? 'back' : 'replace'
+    drawerPushedDealIdRef.current = null
     update({ dealId: null }, { history })
   }, [state.dealId, update])
 
