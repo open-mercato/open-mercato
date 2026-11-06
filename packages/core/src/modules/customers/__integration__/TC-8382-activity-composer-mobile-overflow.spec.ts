@@ -3,6 +3,7 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   createDealFixture,
+  createPersonFixture,
   deleteEntityByBody,
 } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
@@ -21,12 +22,21 @@ test.describe('TC-8382: deal detail activity composer does not overflow at 390px
 
     let token: string | null = null
     let dealId: string | null = null
+    let personId: string | null = null
     const stamp = Date.now()
 
     try {
       token = await getAuthToken(request)
+      personId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: `TC8382 ${stamp}`,
+        displayName: `QA TC8382 Person ${stamp}`,
+      })
+      // InlineActivityComposer only renders once the deal has a linked person/company
+      // to own the activity (otherwise the page shows the "link a record" empty state).
       dealId = await createDealFixture(request, token, {
         title: `QA TC-8382 Deal ${stamp}`,
+        personIds: [personId],
       })
 
       await login(page, 'admin')
@@ -49,6 +59,7 @@ test.describe('TC-8382: deal detail activity composer does not overflow at 390px
       expect(scrolledX, 'the document must not scroll horizontally').toBe(0)
     } finally {
       await deleteEntityByBody(request, token, '/api/customers/deals', dealId)
+      await deleteEntityByBody(request, token, '/api/customers/people', personId)
     }
   })
 })
