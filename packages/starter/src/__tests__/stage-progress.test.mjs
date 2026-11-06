@@ -131,7 +131,7 @@ test('provider instructions, choices and input prompts share the stage content m
   await assert.rejects(result, /stop at prompt/)
   assert.ok(lines.filter(Boolean).every((line) => line.startsWith('   ')))
   assert.ok(lines.some((line) => line === '   [ 1] Local'))
-  assert.equal(questions[0], '   Choose a provider [1-1]: ')
+  assert.equal(questions[0], '   Choose a provider [0-1] (default 0): ')
   assert.equal(closed, true)
 })
 

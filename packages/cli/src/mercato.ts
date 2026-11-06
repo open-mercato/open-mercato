@@ -2323,7 +2323,7 @@ export async function run(argv = process.argv) {
               )
               const nextProcess = spawn('node', nextDevCommand.args, {
                 stdio: ['inherit', 'pipe', 'pipe'],
-                env: runtimeEnv,
+                env: { ...runtimeEnv, NODE_ENV: 'development' },
                 cwd: appDir,
               })
               processes.push(nextProcess)

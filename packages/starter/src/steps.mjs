@@ -11,8 +11,9 @@ import { checkBuildToolchain, checkContainerRuntime, checkGit, checkNodeVersion,
 import { ensureEnvFiles } from './env-setup.mjs'
 import { addEnvValue, readEnvValue } from './env-file.mjs'
 import { describeInfraProblem, startInfra } from './infra.mjs'
-import { findUnhealthyServices } from './infra-preflight.mjs'
+import { WITHOUT_DOCKER_GUIDE_URL, findUnhealthyServices, requestExistingServicesConsent } from './infra-preflight.mjs'
 import { ensureLlmProvider } from './providers.mjs'
+import { verifyServiceConnections } from './service-connections.mjs'
 import { createSetupLogs } from './setup-logs.mjs'
 import { color, createSpinner, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
 
@@ -317,7 +318,12 @@ export const containerRuntimeStep = {
     if (wsl && wsl.level !== 'pass') guide.push(`WSL2 first: ${wsl.detail}`, ...wsl.guide, '')
     guide.push(...runtime.guide)
     guide.push('', 'Re-run this starter once the runtime is up — every completed step is skipped.')
-    if (ctx.mode === 'hybrid') guide.push('No container runtime at all? `yarn setup --no-infra` (or `yarn om up --no-infra`) starts just the app against services you point .env at, without any Docker call.')
+    if (ctx.mode === 'hybrid') {
+      guide.push(
+        `No container runtime at all? Run PostgreSQL yourself (Redis and Meilisearch are optional): ${WITHOUT_DOCKER_GUIDE_URL}`,
+        'Point apps/mercato/.env at it, then run `node packages/starter/bin/om-start.mjs up --no-infra` (or `yarn om up --no-infra` once dependencies are installed); it makes no Docker call.',
+      )
+    }
     throw new StepBlocked(this.id, guide)
   },
 }
@@ -420,7 +426,7 @@ export const envFilesStep = {
     return { ok: false, detail: 'converging (never overwrites existing values)' }
   },
   async apply(ctx) {
-    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${String(line).trimStart()}`), warn: (line) => ctx.log(`   ⚠️ ${line}`), extraDefaults: ctx.company.env })
+    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${String(line).trimStart()}`), warn: (line) => ctx.log(`   ⚠️  ${line}`), extraDefaults: ctx.company.env })
   },
 }
 
@@ -476,21 +482,18 @@ export const workspaceBuildStep = {
 export const llmProviderStep = {
   id: 'llm-provider',
   interactive: true,
-  expectation: 'waits for your input on first run; have an API key ready',
-  title: 'AI provider (LLM API key)',
+  expectation: 'optional; press Enter to configure AI later',
+  title: 'AI provider (optional)',
   async apply(ctx) {
-    const outcome = await ensureLlmProvider({
+    await ensureLlmProvider({
       rootEnv: path.join(ctx.repoRoot, '.env'),
       appEnv: path.join(ctx.repoRoot, 'apps', 'mercato', '.env'),
     }, {
       skipPrompt: ctx.flags.skipLlmPrompt,
       nonInteractive: ctx.flags.nonInteractive,
       log: (line) => ctx.log(`   ${String(line).trimStart()}`),
-      warn: (line) => ctx.log(`   ⚠️ ${line}`),
+      warn: (line) => ctx.log(`   ⚠️  ${line}`),
     })
-    if (outcome === 'failed') {
-      throw new Error('No LLM provider configured. Pass --skip-llm-prompt to continue without AI, or set a provider key in .env.')
-    }
   },
   async check() {
     return { ok: false, detail: 'checking configured provider' }
@@ -567,8 +570,24 @@ export const infraUpStep = {
       logs: ctx.logs,
       log: ctx.log,
       beforeUp: () => prepareOpencodeImage(ctx),
+      protectExistingServices: true,
     })
     if (!outcome.ok) {
+      if (outcome.problem.code === 'port-conflict' || (outcome.problem.code === 'unhealthy' && outcome.problem.existingServices)) {
+        let accepted
+        ctx.logs?.suspend()
+        try {
+          accepted = await (ctx.confirmExistingServicesImpl ?? requestExistingServicesConsent)(outcome.problem, { nonInteractive: ctx.flags.nonInteractive, log: ctx.promptLog ?? ctx.log })
+        } finally {
+          ctx.logs?.resume()
+          ctx.logs?.resumeActivity?.()
+        }
+        if (accepted) {
+          ctx.flags.noInfra = true
+          ctx.existingInfraAccepted = true
+          return
+        }
+      }
       const lines = describeInfraProblem(outcome.problem)
       if (ctx.tlsProbes?.some((entry) => entry.status === 'intercepted')) {
         lines.push('  TLS/certificate errors from the engine usually mean it does not trust the corporate CA yet: restart Docker Desktop (it re-imports the Windows certificate store) or Rancher Desktop (the starter wrote a provisioning script for it), then re-run.')
@@ -576,6 +595,20 @@ export const infraUpStep = {
       lines.push('  Re-running resumes from this step; database setup is not attempted until the infra is healthy.')
       throw new Error(lines.join('\n'))
     }
+  },
+}
+
+export const serviceConnectionsStep = {
+  id: 'service-connections',
+  title: 'Service credentials and connections',
+  appliesTo: (ctx) => ctx.mode === 'hybrid',
+  async apply(ctx) {
+    await (ctx.verifyServiceConnectionsImpl ?? verifyServiceConnections)({
+      projectDir: path.join(ctx.repoRoot, 'apps', 'mercato'),
+      envFiles: [path.join(ctx.repoRoot, '.env')],
+      env: ctx.env,
+      log: ctx.log,
+    })
   },
 }
 
@@ -747,6 +780,7 @@ export function buildUpSteps(ctx) {
     llmProviderStep,
     hostGatewayStep,
     infraUpStep,
+    serviceConnectionsStep,
     databaseStep,
   ]
   const disabled = new Set(ctx.company.steps.disable)
@@ -780,11 +814,13 @@ export async function createStepContext(repoRoot, { mode = 'hybrid', flags = {},
 
 export async function runSteps(steps, ctx) {
   const originalLog = ctx.log
+  const originalPromptLog = ctx.promptLog
   const logs = ctx.logs ?? createSetupLogs({ repoRoot: ctx.repoRoot, ...ctx.flags })
   // Step summaries stay visible; routine details and child output share the
   // foldable buffer. Keep mutations to ctx (env, markers) on the real context.
   let spinner = null
   const log = (...args) => { spinner?.pause(); originalLog(...args); logs.record(...args) }
+  ctx.promptLog = log
   const stopSpinner = () => {
     spinner?.stop()
     spinner = null
@@ -811,6 +847,7 @@ export async function runSteps(steps, ctx) {
           statusLine('ok', `${checked.detail || 'already satisfied'} ${color.dim('(skipped — already done)')}`, { log })
           continue
         }
+        if (step.id === 'infra-up' && checked.detail?.startsWith('starting:')) log('')
         if (checked.detail) statusLine('info', checked.detail, { log })
         if (!step.apply) continue
         logs.resumeActivity?.()
@@ -836,6 +873,8 @@ export async function runSteps(steps, ctx) {
   } finally {
     stopSpinner()
     ctx.log = originalLog
+    if (originalPromptLog === undefined) delete ctx.promptLog
+    else ctx.promptLog = originalPromptLog
     logs.stop()
   }
 }
