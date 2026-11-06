@@ -296,7 +296,7 @@ clearWarmupReadyFile()
 
 function printCompactSummary(icon, title, lines) {
   if (!Array.isArray(lines) || lines.length === 0) return
-  console.log(`${icon}${icon.endsWith('\u{FE0F}') ? '  ' : ' '}${title}`)
+  console.log(`${icon} ${title}`)
   for (const line of lines) {
     console.log(`   ${line}`)
   }
@@ -411,7 +411,7 @@ function printBackgroundServicesSummary() {
     ? `${detailItems.length} active queue/scheduler runtimes`
     : `${detailItems.length} active`
   printCompactSummary(
-    '⚙️',
+    '🔧',
     `Background services (${formatBackgroundServiceMode()}, ${activeLabel})`,
     detailItems.map((item, index) => `${index === 0 ? '🕒' : '🧵'} ${item}`),
   )
@@ -1105,7 +1105,7 @@ async function runTargetedRouteWarmup() {
     }
 
     reportWarmupStep(
-      `🗂️  Warmed authenticated /backend in ${formatDuration(Date.now() - backendStartedAt)} (${backendResponse.status})`,
+      `📂 Warmed authenticated /backend in ${formatDuration(Date.now() - backendStartedAt)} (${backendResponse.status})`,
       progressLabel,
     )
     markMemoryTrace('warmup:route-end', 'GET /backend', {
@@ -1167,7 +1167,7 @@ async function runTargetedRouteWarmup() {
         return
       }
       const retryBaseMessage = runtimeWarmupState.tenantId && looksLikeTenantSelectionError(reason)
-        ? '🏷️  Warmup resolved tenant context, retrying authenticated backend warmup'
+        ? '🔖 Warmup resolved tenant context, retrying authenticated backend warmup'
         : '⏳ Warmup delayed while the runtime settles, retrying'
       const retryMessage = `${retryBaseMessage} (${attempt}/${maxWarmupRetryAttempts})`
       updateSplashState({
@@ -1191,7 +1191,7 @@ async function runTargetedRouteWarmup() {
     const errorMessage = error instanceof Error ? error.message : 'unknown error'
     markMemoryTrace('warmup:failure', 'Warmup failed', { reason: errorMessage })
     const isCredentialsFailure = error instanceof LoginError && error.status === 401
-    const warmupWarning = `⚠️  Warmup incomplete: ${errorMessage}`
+    const warmupWarning = `❗ Warmup incomplete: ${errorMessage}`
     const loginUrl = runtimeWarmupState.baseUrl
       ? `${runtimeWarmupState.baseUrl}/login`
       : null
@@ -1221,7 +1221,7 @@ async function runTargetedRouteWarmup() {
     if (isCredentialsFailure) {
       writeWarmupReadyFile('warmup-credentials-failed')
       console.log(formatStatusOutput(
-        '⚠️  Warmup login returned 401 — credentials invalid. Set OM_INIT_SUPERADMIN_EMAIL/PASSWORD in .env or run: yarn initialize',
+        '❗ Warmup login returned 401 — credentials invalid. Set OM_INIT_SUPERADMIN_EMAIL/PASSWORD in .env or run: yarn initialize',
         runtimeReadyProgressCurrent,
         'App is ready',
       ))
@@ -1324,7 +1324,7 @@ async function finalizeRuntimeProcess(exitCode) {
   try {
     await memoryTrace?.stop()
   } catch (error) {
-    console.warn(`⚠️  Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
+    console.warn(`❗ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
   }
   devSession.release()
   process.exit(exitCode)
@@ -1686,7 +1686,7 @@ function classifyWatchLine(line) {
   if (line.startsWith('[generate:watch] Regenerating')) {
     return {
       type: 'status',
-      message: '♻️  Structural change detected; regenerating generated files',
+      message: '🔄 Structural change detected; regenerating generated files',
       splashPhase: startupSplashPhase,
       splashDetail: 'Regenerating generated files',
       activity: 'Regenerating generated files',
@@ -1697,7 +1697,7 @@ function classifyWatchLine(line) {
   if (line === '[generate:watch] Generators completed.') {
     return {
       type: 'status',
-      message: '♻️  Generated files refreshed',
+      message: '🔄 Generated files refreshed',
       splashPhase: startupSplashPhase,
       splashDetail: 'Generated files refreshed',
       activity: 'Generated files refreshed',
@@ -1718,7 +1718,7 @@ function classifyWatchLine(line) {
   }
   const watchDurationMatch = line.match(/Done in (\d+(?:\.\d+)?ms|\d+(?:\.\d+)?s)/)
   if (watchDurationMatch) {
-    const timing = `♻️  Generated files refreshed in ${parseDurationToken(watchDurationMatch[1])}`
+    const timing = `🔄 Generated files refreshed in ${parseDurationToken(watchDurationMatch[1])}`
     return {
       type: 'status',
       message: timing,
@@ -1732,7 +1732,7 @@ function classifyWatchLine(line) {
   if (line.includes('All generators completed')) {
     return {
       type: 'status',
-      message: '♻️  Generated files refreshed',
+      message: '🔄 Generated files refreshed',
       progressCurrent: 2,
       progressLabel: 'Watching structural module files',
     }
@@ -1789,7 +1789,7 @@ function classifyServerLine(line) {
       : formatBackgroundServiceStatus('Starting background services', modes)
     return {
       type: 'status',
-      message: `⚙️  ${status}`,
+      message: `🔧 ${status}`,
       splashPhase: startupSplashPhase,
       splashDetail: status,
       activity: status,
@@ -1801,7 +1801,7 @@ function classifyServerLine(line) {
     const status = formatLazyWorkerArmedStatus(line)
     return {
       type: 'status',
-      message: `⚙️  ${status}`,
+      message: `🔧 ${status}`,
       splashPhase: startupSplashPhase,
       splashDetail: status,
       activity: status,
@@ -1813,7 +1813,7 @@ function classifyServerLine(line) {
     const status = 'Scheduler armed (lazy)'
     return {
       type: 'status',
-      message: `⚙️  ${status}`,
+      message: `🔧 ${status}`,
       splashPhase: startupSplashPhase,
       splashDetail: status,
       activity: status,
@@ -1828,7 +1828,7 @@ function classifyServerLine(line) {
     const status = 'Starting shared worker (lazy shared)'
     return {
       type: 'status',
-      message: `⚙️  ${status}`,
+      message: `🔧 ${status}`,
       splashPhase: startupSplashPhase,
       splashDetail: status,
       activity: status,
@@ -1841,7 +1841,7 @@ function classifyServerLine(line) {
     const status = `Starting worker "${lazyWorkerStartMatch[1]}" (lazy per-queue)`
     return {
       type: 'status',
-      message: `⚙️  ${status}`,
+      message: `🔧 ${status}`,
       splashPhase: startupSplashPhase,
       splashDetail: status,
       activity: status,
@@ -1943,7 +1943,7 @@ function classifyServerLine(line) {
   }
   const compilingMatch = line.match(/^(?:○|◌)\s+Compiling\s+(.+?)(?:\s+\.\.\.)?$/)
   if (compilingMatch) {
-    const message = `🛠️  Compiling ${compilingMatch[1].trim()}`
+    const message = `🔨 Compiling ${compilingMatch[1].trim()}`
     return {
       type: 'status',
       message,

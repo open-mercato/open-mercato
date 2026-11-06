@@ -21,10 +21,17 @@ test('stage headings restore the original prefix and style only Expected:', () =
   assert.match(result.stdout, /\x1b\[1m\x1b\[33mExpected:\x1b\[0m\x1b\[0m migrations \+ seed/)
 })
 
-test('status lines leave a visible gap after variation-selector emojis', () => {
+test('status lines use emoji that every terminal draws two columns wide', () => {
   const lines = []
   for (const kind of ['ok', 'warn', 'fail', 'info']) statusLine(kind, 'message', { log: (line) => lines.push(line.replace(/\u001b\[[0-9;]*m/g, '')) })
-  assert.deepEqual(lines, ['   ✅ message', '   ⚠️  message', '   ❌ message', '   ℹ️  message'])
+  assert.deepEqual(lines, ['   ✅ message', '   ❗ message', '   ❌ message', '   💡 message'])
+})
+
+test('setup output avoids variation-selector emoji whose width differs between terminals', () => {
+  const sourceDir = new URL('../', import.meta.url)
+  const offenders = fs.readdirSync(sourceDir).filter((name) => name.endsWith('.mjs'))
+    .filter((name) => fs.readFileSync(new URL(name, sourceDir), 'utf8').includes('️'))
+  assert.deepEqual(offenders, [])
 })
 
 test('working spinner animates with elapsed time, pauses, and is replaced on completion', () => {
@@ -76,7 +83,7 @@ test('stage activity stops on success, skip and failure and never starts over a 
       setActivity(activity) { if (activity) { events.push('attach'); activity.resume() } }, resumeActivity() {},
     }
     const ctx = { flags: {}, logs, log: (line) => events.push(String(line)), createSpinnerImpl(label) {
-      assert.equal(label, '⚙️  working…')
+      assert.equal(label, '🔧 working…')
       events.push('create')
       return { pause() { events.push('pause') }, resume() { events.push('resume') }, stop() { events.push('stop') } }
     } }

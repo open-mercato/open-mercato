@@ -54,7 +54,7 @@ export function createSetupLogs({
     if (fileFailed) return
     fileFailed = true
     activity?.pause()
-    write('   ⚠️  Could not save setup logs; terminal output is still available.\n')
+    write('   ❗ Could not save setup logs; terminal output is still available.\n')
     if (active && !visible) activity?.resume()
   }
 

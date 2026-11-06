@@ -189,7 +189,7 @@ test('standalone template dev runtime replays buffered output when a child exits
     banner,
     '📄 Last 1 runtime log line(s) before the exit:',
     'Another next dev server is already running.',
-    'ℹ️  Rerun with MERCATO_DEV_OUTPUT=verbose for the full runtime output.',
+    '💡 Rerun with MERCATO_DEV_OUTPUT=verbose for the full runtime output.',
   ])
   assert.equal(compact.terminalLines.filter((line: string) => line === banner).length, 1)
   assert.deepEqual(compact.failureLines, ['Another next dev server is already running.', banner])

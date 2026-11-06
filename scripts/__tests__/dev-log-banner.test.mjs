@@ -34,3 +34,13 @@ for (const [name, file] of files) {
 test('standalone runtime keeps parity with the monorepo runtime', () => {
   assert.equal(fs.readFileSync(files[0][1], 'utf8'), fs.readFileSync(files[1][1], 'utf8'))
 })
+
+test('dev output avoids variation-selector emoji whose width differs between terminals', () => {
+  const directories = [new URL('../', import.meta.url), new URL('../../apps/mercato/scripts/', import.meta.url)]
+  const offenders = directories.flatMap((directory) => fs.readdirSync(directory)
+    .filter((name) => name.startsWith('dev') && name.endsWith('.mjs'))
+    .flatMap((name) => fs.readFileSync(new URL(name, directory), 'utf8').split('\n')
+      .filter((line) => line.includes('️') && !line.includes("startsWith('⚠️ [encryption]"))
+      .map((line) => `${name}: ${line.trim()}`)))
+  assert.deepEqual(offenders, [])
+})
