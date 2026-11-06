@@ -1274,6 +1274,7 @@
   "sales.errors.invalid_query": "잘못된 조회 파라미터입니다",
   "sales.errors.organization_required": "조직 컨텍스트가 필요합니다",
   "sales.errors.serviceAndProductReference": "{{line}}번 품목은 서비스와 상품 또는 변형을 동시에 참조할 수 없습니다.",
+  "sales.errors.serviceNotFound": "{{line}}번 품목이 이 조직에 존재하지 않는 서비스를 참조합니다.",
   "sales.errors.serviceReferenceRequiresServiceKind": "{{line}}번 품목은 서비스를 참조하지만 서비스 품목이 아닙니다.",
   "sales.errors.tag_invalid": "잘못된 태그 형식입니다.",
   "sales.errors.tag_required": "태그를 입력해야 합니다.",

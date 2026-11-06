@@ -10,8 +10,10 @@
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesOrder, SalesQuote, SalesShipment, SalesShipmentItem } from '../../data/entities'
 import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
+import { catalogServiceQueries, catalogServiceRow, type CatalogServiceRow } from './catalogServiceFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -39,6 +41,10 @@ const FIRST_LINE_ID = '11111111-1111-4111-8111-111111111111'
 const PRODUCT_ID = '55555555-5555-4555-8555-555555555555'
 const VARIANT_ID = '66666666-6666-4666-8666-666666666666'
 const SERVICE_ID = '77777777-7777-4777-8777-777777777777'
+const UNKNOWN_SERVICE_ID = '88888888-8888-4888-8888-888888888888'
+const OTHER_ORG_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const SCOPE = { tenantId: TENANT_ID, organizationId: ORG_ID }
+const SERVICE_NOT_FOUND = 'references a service that does not exist in this organization'
 
 type PersistedLine = Record<string, unknown> & { id: string }
 
@@ -78,7 +84,10 @@ function buildLine(overrides: Partial<PersistedLine> & { id: string }): Persiste
   }
 }
 
-function setWorld(lines: PersistedLine[]) {
+function setWorld(
+  lines: PersistedLine[],
+  services: CatalogServiceRow[] = [catalogServiceRow(SERVICE_ID, SCOPE)],
+) {
   const document = {
     id: QUOTE_ID,
     organizationId: ORG_ID,
@@ -96,7 +105,7 @@ function setWorld(lines: PersistedLine[]) {
     updatedAt: new Date('2026-09-07T00:00:00.000Z'),
   }
   const order = { ...document, id: ORDER_ID }
-  ;(globalThis as any).__serviceLinesWorld = { quote: document, order, lines }
+  ;(globalThis as any).__serviceLinesWorld = { quote: document, order, lines, services }
 }
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -106,10 +115,14 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
     if (entityClass === SalesOrder) return world.order
     return null
   }),
-  findWithDecryption: jest.fn(async (_em: unknown, entityClass: unknown) => {
+  findWithDecryption: jest.fn(async (_em: unknown, entityClass: unknown, where: unknown) => {
     const world = (globalThis as any).__serviceLinesWorld
     const entityName = (entityClass as { name?: string })?.name ?? ''
     if (entityName === 'SalesQuoteLine' || entityName === 'SalesOrderLine') return [...world.lines]
+    if (entityName === 'CatalogService') {
+      const { matchCatalogServices } = require('./catalogServiceFixture')
+      return matchCatalogServices(world.services, where)
+    }
     if (entityClass === SalesShipment) return []
     if (entityClass === SalesShipmentItem) return []
     return []
@@ -222,6 +235,7 @@ describe('sales line writes — service lines', () => {
 
   afterEach(() => {
     delete (globalThis as any).__serviceLinesWorld
+    ;(findWithDecryption as jest.Mock).mockClear()
   })
 
   describe.each(documents)('$label lines', ({ commandId, parentKey, parentId, worldKey }) => {
@@ -351,6 +365,86 @@ describe('sales line writes — service lines', () => {
       })
 
       expect((globalThis as any).__serviceLinesWorld[worldKey].currencyCode).toBe('USD')
+    })
+
+    it('rejects a service that does not exist in the organization and writes nothing', async () => {
+      setWorld([productLine()])
+
+      await expect(
+        runCommand(commandId, {
+          ...baseBody,
+          id: FIRST_LINE_ID,
+          [parentKey]: parentId,
+          kind: 'service',
+          productId: null,
+          productVariantId: null,
+          serviceId: UNKNOWN_SERVICE_ID,
+          quantity: 4,
+          currencyCode: 'EUR',
+        }),
+      ).rejects.toMatchObject({ status: 400, body: { error: expect.stringContaining(SERVICE_NOT_FOUND) } })
+
+      const world = (globalThis as any).__serviceLinesWorld
+      expect(world.lines[0]).toMatchObject({ kind: 'product', productId: PRODUCT_ID, serviceId: null, quantity: '1' })
+      expect(world[worldKey].currencyCode).toBe('USD')
+    })
+
+    it('rejects a new line referencing a service that was archived', async () => {
+      setWorld([], [catalogServiceRow(SERVICE_ID, SCOPE, new Date('2026-10-01T00:00:00.000Z'))])
+
+      await expect(
+        runCommand(commandId, {
+          ...baseBody,
+          [parentKey]: parentId,
+          kind: 'service',
+          serviceId: SERVICE_ID,
+        }),
+      ).rejects.toMatchObject({ status: 400, body: { error: expect.stringContaining(SERVICE_NOT_FOUND) } })
+      expect((globalThis as any).__serviceLinesWorld.lines).toHaveLength(0)
+    })
+
+    it('rejects a service that belongs to another organization', async () => {
+      setWorld([], [catalogServiceRow(SERVICE_ID, { tenantId: TENANT_ID, organizationId: OTHER_ORG_ID })])
+
+      await expect(
+        runCommand(commandId, {
+          ...baseBody,
+          [parentKey]: parentId,
+          kind: 'service',
+          serviceId: SERVICE_ID,
+        }),
+      ).rejects.toMatchObject({ status: 400, body: { error: expect.stringContaining(SERVICE_NOT_FOUND) } })
+    })
+
+    it("looks the service up within the caller's tenant and organization", async () => {
+      setWorld([])
+
+      await runCommand(commandId, {
+        ...baseBody,
+        [parentKey]: parentId,
+        kind: 'service',
+        serviceId: SERVICE_ID,
+      })
+
+      expect(catalogServiceQueries(findWithDecryption as jest.Mock)).toEqual([
+        { id: { $in: [SERVICE_ID] }, tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: null },
+      ])
+    })
+
+    it('keeps editing the quantity of a line whose service no longer exists', async () => {
+      setWorld([serviceLine()], [])
+
+      const lines = await runCommand(commandId, {
+        ...baseBody,
+        id: FIRST_LINE_ID,
+        [parentKey]: parentId,
+        kind: 'service',
+        serviceId: SERVICE_ID,
+        quantity: 3,
+      })
+
+      expect(lines.get(FIRST_LINE_ID)!).toMatchObject({ kind: 'service', serviceId: SERVICE_ID })
+      expect(catalogServiceQueries(findWithDecryption as jest.Mock)).toHaveLength(0)
     })
   })
 })

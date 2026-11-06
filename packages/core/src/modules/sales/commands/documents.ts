@@ -152,6 +152,11 @@ import {
 } from "../lib/lineSnapshots";
 import { assertLineReferencesConsistent } from "../lib/lineReferences";
 import {
+  assertLineServicesExistInScope,
+  changedLineServiceReference,
+  type LineServiceReference,
+} from "../lib/serviceReferences";
+import {
   assertAmountsModeUnsupportedOnQuote,
   assertExternalHeaderComplete,
   assertExternalLineComplete,
@@ -5153,6 +5158,14 @@ const createQuoteCommand: CommandHandler<
       parsed.statusEntryId ?? null,
       { tenantId: parsed.tenantId },
     );
+    await assertLineServicesExistInScope(
+      em,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      (parsed.lines ?? []).map((line, index) => ({
+        serviceId: line.serviceId,
+        lineNumber: line.lineNumber ?? index + 1,
+      })),
+    );
     const quoteId = randomUUID();
     const quote = em.create(SalesQuote, {
       id: quoteId,
@@ -6508,6 +6521,14 @@ const createOrderCommand: CommandHandler<
       deliveryWindow,
       paymentMethod,
     } = await resolveDocumentReferences(em, parsed);
+    await assertLineServicesExistInScope(
+      em,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      (parsed.lines ?? []).map((line, index) => ({
+        serviceId: line.serviceId,
+        lineNumber: line.lineNumber ?? index + 1,
+      })),
+    );
 
     const orderId = randomUUID()
     const order = em.create(SalesOrder, {
@@ -8199,6 +8220,11 @@ const orderLineUpsertCommand: CommandHandler<
         existingSnapshot,
         lineSnapshots.length + 1,
       );
+      await assertLineServicesExistInScope(
+        em,
+        { tenantId: order.tenantId, organizationId: order.organizationId },
+        changedLineServiceReference(updatedSnapshot, existingSnapshot?.serviceId),
+      );
       const lineId = updatedSnapshot.id;
       let nextLines = parsed.id
         ? lineSnapshots.map((line) =>
@@ -8576,6 +8602,7 @@ const orderLineBulkUpsertCommand: CommandHandler<
         (line) => !deleteIds.has(line.id),
       );
       const lineIds: string[] = [];
+      const serviceReferences: LineServiceReference[] = [];
       for (const entry of parsed.lines) {
         const existingSnapshot = entry.id
           ? (existingSnapshotsById.get(entry.id) ?? null)
@@ -8596,9 +8623,17 @@ const orderLineBulkUpsertCommand: CommandHandler<
           existingSnapshot,
           nextLines.length + 1,
         );
+        serviceReferences.push(
+          ...changedLineServiceReference(upserted, existingSnapshot?.serviceId),
+        );
         nextLines = placeOrderLine(nextLines, upserted, entry.lineNumber ?? null);
         lineIds.push(upserted.id);
       }
+      await assertLineServicesExistInScope(
+        em,
+        { tenantId: order.tenantId, organizationId: order.organizationId },
+        serviceReferences,
+      );
 
       if (!nextLines.length) {
         throw new CrudHttpError(409, {
@@ -8878,6 +8913,11 @@ const quoteLineUpsertCommand: CommandHandler<
         (existingSnapshot as any)?.promotionSnapshot ??
         null;
       await assertLineReferencesConsistent(updatedSnapshot, updatedSnapshot.lineNumber ?? 1);
+      await assertLineServicesExistInScope(
+        em,
+        { tenantId: quote.tenantId, organizationId: quote.organizationId },
+        changedLineServiceReference(updatedSnapshot, existingSnapshot?.serviceId),
+      );
 
       let nextLines = parsed.id
         ? lineSnapshots.map((line) =>
@@ -9884,6 +9924,15 @@ const createInvoiceCommand: CommandHandler<
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
     }
+    await assertLineServicesExistInScope(
+      em,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      inputLines.map((line, index) => ({
+        serviceId: line.serviceId,
+        lineNumber: line.lineNumber ?? index + 1,
+      })),
+      { includeDeleted: true },
+    );
 
     const invoiceId = randomUUID();
     const invoice = em.create(SalesInvoice, {
@@ -10479,6 +10528,15 @@ const createCreditMemoCommand: CommandHandler<
         throw new CrudHttpError(400, { error: "Referenced invoice not found in current scope." });
       }
     }
+    await assertLineServicesExistInScope(
+      em,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      inputLines.map((line, index) => ({
+        serviceId: line.serviceId,
+        lineNumber: line.lineNumber ?? index + 1,
+      })),
+      { includeDeleted: true },
+    );
 
     const creditMemoId = randomUUID();
     const creditMemo = em.create(SalesCreditMemo, {

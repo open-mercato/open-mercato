@@ -1274,6 +1274,7 @@
   "sales.errors.invalid_query": "Ungültige Abfrageparameter",
   "sales.errors.organization_required": "Organisationskontext ist erforderlich",
   "sales.errors.serviceAndProductReference": "Position {{line}} darf nicht gleichzeitig auf eine Dienstleistung und ein Produkt oder eine Variante verweisen.",
+  "sales.errors.serviceNotFound": "Position {{line}} verweist auf eine Dienstleistung, die in dieser Organisation nicht existiert.",
   "sales.errors.serviceReferenceRequiresServiceKind": "Position {{line}} verweist auf eine Dienstleistung, ist aber keine Dienstleistungsposition.",
   "sales.errors.tag_invalid": "Ungültiges Tag-Format.",
   "sales.errors.tag_required": "Tag ist erforderlich.",

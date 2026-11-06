@@ -1274,6 +1274,7 @@
   "sales.errors.invalid_query": "Parámetros de consulta inválidos",
   "sales.errors.organization_required": "Se requiere el contexto de la organización",
   "sales.errors.serviceAndProductReference": "La línea {{line}} no puede hacer referencia a la vez a un servicio y a un producto o variante.",
+  "sales.errors.serviceNotFound": "La línea {{line}} hace referencia a un servicio que no existe en esta organización.",
   "sales.errors.serviceReferenceRequiresServiceKind": "La línea {{line}} hace referencia a un servicio, pero no es una línea de servicio.",
   "sales.errors.tag_invalid": "Formato de etiqueta no válido.",
   "sales.errors.tag_required": "La etiqueta es obligatoria.",

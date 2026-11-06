@@ -10,7 +10,9 @@
 import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
+import { catalogServiceQueries, catalogServiceRow, type CatalogServiceRow } from './catalogServiceFixture'
 
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
@@ -52,7 +54,12 @@ jest.mock('@open-mercato/core/modules/entities/lib/helpers', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: jest.fn(async () => []),
+  findWithDecryption: jest.fn(async (_em: unknown, entityClass: unknown, where: unknown) => {
+    const fixture = require('./catalogServiceFixture')
+    if (!fixture.isCatalogServiceEntity(entityClass)) return []
+    const services: CatalogServiceRow[] = (globalThis as { __catalogServices?: CatalogServiceRow[] }).__catalogServices ?? []
+    return fixture.matchCatalogServices(services, where)
+  }),
   findOneWithDecryption: jest.fn(async () => null),
 }))
 
@@ -68,6 +75,13 @@ const TEST_TENANT_ID = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
 const TEST_ORG_ID = 'bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb'
 const PRODUCT_ID = '55555555-5555-4555-8555-555555555555'
 const SERVICE_ID = '77777777-7777-4777-8777-777777777777'
+const UNKNOWN_SERVICE_ID = '88888888-8888-4888-8888-888888888888'
+const SCOPE = { tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID }
+const SERVICE_NOT_FOUND = 'references a service that does not exist in this organization'
+
+function setCatalogServices(services: CatalogServiceRow[]) {
+  ;(globalThis as { __catalogServices?: CatalogServiceRow[] }).__catalogServices = services
+}
 
 type CreatedRecord = Record<string, unknown>
 
@@ -144,6 +158,15 @@ beforeAll(async () => {
   await import('../documents')
 })
 
+beforeEach(() => {
+  setCatalogServices([catalogServiceRow(SERVICE_ID, SCOPE)])
+  ;(findWithDecryption as jest.Mock).mockClear()
+})
+
+afterAll(() => {
+  delete (globalThis as { __catalogServices?: CatalogServiceRow[] }).__catalogServices
+})
+
 describe.each([
   ['sales.quotes.create', 'quoteId'],
   ['sales.orders.create', 'orderId'],
@@ -172,6 +195,58 @@ describe.each([
         buildInput([{ ...inboxOpsServiceLine, serviceId: SERVICE_ID }]) as never,
         ctx,
       ),
-    ).rejects.toMatchObject({ status: 400 })
+    ).rejects.toMatchObject({
+      status: 400,
+      body: { error: expect.stringContaining('cannot reference both a service and a product') },
+    })
+  })
+
+  const catalogServiceLine = {
+    lineNumber: 1,
+    kind: 'service',
+    name: 'Workshop',
+    quantity: 1,
+    currencyCode: 'USD',
+    serviceId: SERVICE_ID,
+    unitPriceNet: 100,
+  }
+
+  it('accepts a service line whose service exists in the organization, looked up once in scope', async () => {
+    const { ctx, created } = buildHarness()
+
+    await getHandler().execute(
+      buildInput([catalogServiceLine, { ...catalogServiceLine, lineNumber: 2 }]) as never,
+      ctx,
+    )
+
+    expect(created.find((record) => record.name === 'Workshop' && 'kind' in record)).toMatchObject({
+      kind: 'service',
+      serviceId: SERVICE_ID,
+    })
+    expect(catalogServiceQueries(findWithDecryption as jest.Mock)).toEqual([
+      { id: { $in: [SERVICE_ID] }, tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID, deletedAt: null },
+    ])
+  })
+
+  it('rejects a service line whose service does not exist in the organization and creates nothing', async () => {
+    const { ctx, created } = buildHarness()
+
+    await expect(
+      getHandler().execute(
+        buildInput([inboxOpsServiceLine, { ...catalogServiceLine, lineNumber: 2, serviceId: UNKNOWN_SERVICE_ID }]) as never,
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 400, body: { error: expect.stringContaining(SERVICE_NOT_FOUND) } })
+    expect(created).toHaveLength(0)
+  })
+
+  it('rejects a service line whose service was archived', async () => {
+    setCatalogServices([catalogServiceRow(SERVICE_ID, SCOPE, new Date('2026-10-01T00:00:00.000Z'))])
+    const { ctx, created } = buildHarness()
+
+    await expect(
+      getHandler().execute(buildInput([catalogServiceLine]) as never, ctx),
+    ).rejects.toMatchObject({ status: 400, body: { error: expect.stringContaining(SERVICE_NOT_FOUND) } })
+    expect(created).toHaveLength(0)
   })
 })

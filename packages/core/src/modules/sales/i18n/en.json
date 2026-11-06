@@ -1274,6 +1274,7 @@
   "sales.errors.invalid_query": "Invalid query parameters",
   "sales.errors.organization_required": "Organization context is required",
   "sales.errors.serviceAndProductReference": "Line {{line}} cannot reference both a service and a product or variant.",
+  "sales.errors.serviceNotFound": "Line {{line}} references a service that does not exist in this organization.",
   "sales.errors.serviceReferenceRequiresServiceKind": "Line {{line}} references a service but is not a service line.",
   "sales.errors.tag_invalid": "Invalid tag format.",
   "sales.errors.tag_required": "Tag is required.",

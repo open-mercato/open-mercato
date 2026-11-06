@@ -1274,6 +1274,7 @@
   "sales.errors.invalid_query": "Nieprawidłowe parametry zapytania",
   "sales.errors.organization_required": "Wymagany jest kontekst organizacji",
   "sales.errors.serviceAndProductReference": "Pozycja {{line}} nie może jednocześnie odwoływać się do usługi oraz produktu lub wariantu.",
+  "sales.errors.serviceNotFound": "Pozycja {{line}} odwołuje się do usługi, która nie istnieje w tej organizacji.",
   "sales.errors.serviceReferenceRequiresServiceKind": "Pozycja {{line}} odwołuje się do usługi, ale nie jest pozycją usługi.",
   "sales.errors.tag_invalid": "Nieprawidłowy format tagu.",
   "sales.errors.tag_required": "Tag jest wymagany.",

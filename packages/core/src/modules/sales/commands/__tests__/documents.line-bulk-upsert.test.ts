@@ -24,11 +24,18 @@ import {
   OPTIMISTIC_LOCK_HEADER_NAME,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   SalesOrder,
   SalesShipment,
   SalesShipmentItem,
 } from '../../data/entities'
+import {
+  catalogServiceQueries,
+  catalogServiceRow,
+  matchCatalogServices,
+  type CatalogServiceRow,
+} from './catalogServiceFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -66,6 +73,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
         const shipmentIds = readIdList(where.shipment)
         return world.shipmentItems.filter((item) => shipmentIds.includes(item.shipment.id))
       }
+      if (readEntityName(entityClass) === 'CatalogService') {
+        return matchCatalogServices(world.services, where)
+      }
       return []
     },
   ),
@@ -77,6 +87,10 @@ const OTHER_TENANT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const ORDER_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const MISSING_ORDER_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 const STATUS_ENTRY_ID = '11111111-1111-4111-8111-111111111111'
+const SERVICE_ID = '77777777-7777-4777-8777-777777777777'
+const SECOND_SERVICE_ID = '99999999-9999-4999-8999-999999999999'
+const UNKNOWN_SERVICE_ID = '88888888-8888-4888-8888-888888888888'
+const SERVICE_NOT_FOUND = 'references a service that does not exist in this organization'
 
 const TOTALS_EVENT = 'sales.document.totals.calculated'
 
@@ -146,6 +160,7 @@ type World = {
   adjustments: unknown[]
   shipments: TestShipment[]
   shipmentItems: TestShipmentItem[]
+  services: CatalogServiceRow[]
 }
 
 function makeOrder(overrides: Partial<TestOrder> = {}): TestOrder {
@@ -218,6 +233,7 @@ function makeWorld(lineCount: number, orderOverrides: Partial<TestOrder> = {}): 
     adjustments: [],
     shipments: [],
     shipmentItems: [],
+    services: [],
   }
 }
 
@@ -687,6 +703,67 @@ describe('sales.orders.lines.upsert_many', () => {
     )
     expect(em.flush).not.toHaveBeenCalled()
     expect(shippedLine.kind).toBe('product')
+  })
+
+  it('validates every new service reference of the batch in one scoped lookup', async () => {
+    const world = makeWorld(1)
+    world.services.push(
+      catalogServiceRow(SERVICE_ID, { tenantId: TENANT_ID, organizationId: ORG_ID }),
+      catalogServiceRow(SECOND_SERVICE_ID, { tenantId: TENANT_ID, organizationId: ORG_ID }),
+    )
+    jest.mocked(findWithDecryption).mockClear()
+
+    const { caught } = await runBulk(world, {
+      lines: [
+        newLineBody(1, { kind: 'service', serviceId: SERVICE_ID, name: 'Workshop' }),
+        newLineBody(2, { kind: 'service', serviceId: SECOND_SERVICE_ID, name: 'Training' }),
+        newLineBody(3, { kind: 'service', serviceId: SERVICE_ID, name: 'Follow-up' }),
+      ],
+    })
+
+    expect(caught).toBeUndefined()
+    expect(catalogServiceQueries(jest.mocked(findWithDecryption))).toEqual([
+      {
+        id: { $in: [SERVICE_ID, SECOND_SERVICE_ID] },
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        deletedAt: null,
+      },
+    ])
+    expect(lineNames(world)).toEqual(['Line 1', 'Workshop', 'Training', 'Follow-up'])
+  })
+
+  it('refuses a batch referencing a service missing from the organization and writes nothing', async () => {
+    const world = makeWorld(2)
+    world.services.push(catalogServiceRow(SERVICE_ID, { tenantId: TENANT_ID, organizationId: ORG_ID }))
+
+    const { caught, em } = await runBulk(world, {
+      lines: [
+        { id: world.lines[0].id, currencyCode: 'USD', quantity: 4, name: 'Edited' },
+        newLineBody(1, { kind: 'service', serviceId: SERVICE_ID, name: 'Workshop' }),
+        newLineBody(2, { kind: 'service', serviceId: UNKNOWN_SERVICE_ID, name: 'Unknown' }),
+      ],
+    })
+
+    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status).toBe(400)
+    expect(conflictMessage(caught)).toContain(SERVICE_NOT_FOUND)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(lineNames(world)).toEqual(['Line 1', 'Line 2'])
+  })
+
+  it('keeps editing a line whose service no longer exists without looking it up', async () => {
+    const world = makeWorld(1)
+    world.lines[0].kind = 'service'
+    world.lines[0].serviceId = SERVICE_ID
+    jest.mocked(findWithDecryption).mockClear()
+
+    const { caught } = await runBulk(world, {
+      lines: [{ id: world.lines[0].id, kind: 'service', serviceId: SERVICE_ID, currencyCode: 'USD', quantity: 5 }],
+    })
+
+    expect(caught).toBeUndefined()
+    expect(world.lines[0]).toMatchObject({ serviceId: SERVICE_ID, quantity: '5' })
+    expect(catalogServiceQueries(jest.mocked(findWithDecryption))).toHaveLength(0)
   })
 
   it('moves a line earlier when lineNumber names an earlier position', async () => {

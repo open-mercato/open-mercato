@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['catalog.services.manage'],
+  requireFeatures: ['catalog.services.view'],
   pageTitle: 'Edit service',
   pageTitleKey: 'catalog.services.form.editTitle',
   pageGroup: 'Catalog',

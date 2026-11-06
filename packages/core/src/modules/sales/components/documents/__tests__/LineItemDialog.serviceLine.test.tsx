@@ -283,6 +283,33 @@ const customValues = (overrides: FormValues = {}): FormValues =>
     ...overrides,
   })
 
+const productValues = (overrides: FormValues = {}): FormValues => ({
+  lineMode: 'product',
+  productId: 'product-1',
+  variantId: 'variant-1',
+  serviceId: null,
+  quantity: '3',
+  quantityUnit: null,
+  priceId: null,
+  priceMode: 'gross',
+  unitPrice: '50',
+  taxRate: 0,
+  name: 'Installation',
+  currencyCode: 'USD',
+  catalogSnapshot: null,
+  ...overrides,
+})
+
+const catalogProductResponses = async (url: string) => {
+  if (url.startsWith('/api/catalog/products?id=')) {
+    return { ok: true, result: { items: [{ id: 'product-1', title: 'Installation' }] } }
+  }
+  if (url.startsWith('/api/catalog/variants?')) {
+    return { ok: true, result: { items: [{ id: 'variant-1', name: 'Default' }] } }
+  }
+  return { ok: true, result: { items: [] } }
+}
+
 const definedKeys = (payload: FormValues): string[] =>
   Object.keys(payload).filter((key) => payload[key] !== undefined)
 
@@ -402,6 +429,101 @@ describe('LineItemDialog service lines', () => {
       })
       expect(options).toEqual({ fallback: { items: [] } })
     }
+    const searchCall = serviceCalls().find(([url]) => !String(url).includes('ids='))
+    expect(new URL(String(searchCall?.[0]), 'http://test').searchParams.get('isActive')).toBe('true')
+    const idCall = serviceCalls().find(([url]) => String(url).includes('ids=service-1'))
+    expect(String(idCall?.[0])).not.toContain('isActive')
+  })
+
+  it('keeps the kind of an InboxOps service line that carries a matched product when it is edited', async () => {
+    mockApiCall.mockImplementation(catalogProductResponses)
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId="order-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{ ...productLine, name: 'Installation', metadata: { priceMode: 'gross' } }}
+        shippedQuantity={0}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+    await waitFor(() =>
+      expect(mockApiCall.mock.calls.some(([url]) => String(url).startsWith('/api/catalog/variants?'))).toBe(true),
+    )
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(formValues.lineMode).toBe('product')
+
+    await act(async () => {
+      await capturedSubmit?.(productValues())
+    })
+
+    expect(mockUpdateCrud).toHaveBeenCalledTimes(1)
+    const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
+    expect(payload).toMatchObject({ productId: 'product-1', productVariantId: 'variant-1', quantity: 3 })
+    expect(definedKeys(payload)).not.toContain('kind')
+  })
+
+  it('turns a service line into a product line when the user switches it to Product', async () => {
+    mockApiCall.mockImplementation(catalogProductResponses)
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId="order-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{
+          ...productLine,
+          productId: null,
+          productVariantId: null,
+          serviceId: 'service-1',
+          metadata: { lineMode: 'service', priceMode: 'gross' },
+        }}
+        shippedQuantity={0}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await act(async () => {
+      await capturedSubmit?.(productValues())
+    })
+
+    const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
+    expect(payload).toMatchObject({ kind: 'product', productId: 'product-1', serviceId: null })
+  })
+
+  it('sends the product kind for a new product line', async () => {
+    mockApiCall.mockImplementation(catalogProductResponses)
+    render(
+      <LineItemDialog
+        open
+        kind="quote"
+        documentId="quote-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await act(async () => {
+      await capturedSubmit?.(productValues())
+    })
+
+    const [, payload] = mockCreateCrud.mock.calls[0] as [string, FormValues]
+    expect(payload).toMatchObject({ kind: 'product', productId: 'product-1', serviceId: null })
   })
 
   it('keeps the kind and references of a line that was already custom', async () => {

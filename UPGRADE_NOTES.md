@@ -14,7 +14,9 @@ Sales quote, order, invoice and credit memo lines accept an optional `serviceId`
 lines also gain `kind`, default `product`). Apply the catalog and sales migrations. Writes now
 reject a line that carries a `serviceId` without `kind: 'service'`, or a `serviceId` together with
 a `productId`/`productVariantId` (400); `kind: 'service'` lines without a catalog `serviceId`
-behave as before. Shipments reject order lines that reference a catalog service, and a line with
+behave as before, including when edited in the line dialog. A new or changed `serviceId` must reference
+a service in the caller's organization (quotes/orders: not archived; invoices/credit memos may keep a
+service archived since the order). Shipments reject order lines that reference a catalog service, and a line with
 shipped quantity can no longer change its kind or catalog references. Products navigation and
 page titles now read "Products" instead of "Products & services".
 

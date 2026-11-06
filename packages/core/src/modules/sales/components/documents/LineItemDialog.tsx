@@ -888,7 +888,7 @@ export function LineItemDialog({
 
   const loadServiceOptions = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
-      const params = new URLSearchParams({ pageSize: "8" });
+      const params = new URLSearchParams({ pageSize: "8", isActive: "true" });
       if (query && query.trim().length) params.set("search", query.trim());
       const response = await apiCall<{
         items?: Array<Record<string, unknown>>;
@@ -1835,32 +1835,44 @@ export function LineItemDialog({
         ...(resolvedQuantityUnit ? { quantityUnit: resolvedQuantityUnit } : {}),
       };
 
+      const initialLineMode = initialValues.lineMode;
       const switchedToCustomLine =
-        Boolean(editingId) && initialValues.lineMode !== "custom";
+        Boolean(editingId) && initialLineMode !== "custom";
+      const enteringOrLeavingServiceMode =
+        Boolean(editingId) &&
+        initialLineMode !== lineMode &&
+        (isServiceLine || initialLineMode === "service");
+      const kindPayload: Record<string, unknown> = !editingId
+        ? isServiceLine
+          ? { kind: "service" }
+          : isProductLine
+            ? { kind: "product" }
+            : {}
+        : enteringOrLeavingServiceMode
+          ? { kind: isServiceLine ? "service" : "product" }
+          : {};
       const lineReferencePayload: Record<string, unknown> = isProductLine
         ? {
-            kind: "product",
+            ...kindPayload,
             productId: String(values.productId),
             productVariantId: String(values.variantId),
             serviceId: null,
           }
         : isServiceLine
           ? {
-              kind: "service",
+              ...kindPayload,
               serviceId: String(values.serviceId),
               productId: null,
               productVariantId: null,
             }
           : switchedToCustomLine
             ? {
-                ...(initialValues.lineMode === "service"
-                  ? { kind: "product" }
-                  : {}),
+                ...kindPayload,
                 productId: null,
                 productVariantId: null,
                 serviceId: null,
               }
-            : {};
+            : kindPayload;
 
       const payload: Record<string, unknown> = {
         ...(resolvedDocumentId ? { [documentKey]: resolvedDocumentId } : {}),
