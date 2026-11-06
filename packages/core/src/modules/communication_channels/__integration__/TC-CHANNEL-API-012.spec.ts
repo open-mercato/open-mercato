@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
+  apiRequestWithSelectedOrg,
   createOrganizationFixture,
   createRoleFixture,
   createUserFixture,
@@ -23,7 +24,8 @@ import {
  * mailboxes. Self-contained: a fresh organization gets its poll tick from
  * `onOrganizationCreated`, so a user homed there must see `true`; disabling that tick
  * through the scheduler API must flip the flag to `false`. Every fixture — the
- * organization, its two module schedules, the role and the user — is removed afterwards.
+ * organization, every schedule its onOrganizationCreated hooks registered (this module's
+ * and other modules'), the role and the user — is removed afterwards.
  */
 const SCHEDULER_JOBS_PATH = '/api/scheduler/jobs'
 
@@ -41,6 +43,27 @@ async function deleteScheduleIfExists(
 ): Promise<void> {
   if (!token || !scheduleId) return
   await apiRequest(request, 'DELETE', SCHEDULER_JOBS_PATH, { token, data: { id: scheduleId } }).catch(() => undefined)
+}
+
+async function deleteOrganizationSchedules(
+  request: APIRequestContext,
+  token: string | null,
+  organizationId: string,
+): Promise<void> {
+  if (!token) return
+  const response = await apiRequestWithSelectedOrg(
+    request,
+    'GET',
+    `${SCHEDULER_JOBS_PATH}?scopeType=organization&pageSize=100`,
+    { token, selectedOrgId: organizationId },
+  ).catch(() => null)
+  if (!response || !response.ok()) return
+  const body = await readJsonSafe<{ items?: Array<{ id?: string; organizationId?: string | null }> }>(response)
+  for (const item of body?.items ?? []) {
+    if (item.id && item.organizationId === organizationId) {
+      await deleteScheduleIfExists(request, token, item.id)
+    }
+  }
 }
 
 test.describe('TC-CHANNEL-API-012: me/channels reports automatic sync per organization', () => {
@@ -98,6 +121,7 @@ test.describe('TC-CHANNEL-API-012: me/channels reports automatic sync per organi
       ).toBe(false)
     } finally {
       if (organizationId) {
+        await deleteOrganizationSchedules(request, adminToken, organizationId)
         await deleteScheduleIfExists(request, adminToken, pollTickScheduleId(organizationId))
         await deleteScheduleIfExists(
           request,
