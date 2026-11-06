@@ -8,12 +8,17 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { LastOperationBanner } from '../LastOperationBanner'
 import { apiCall } from '../../utils/apiCall'
 import { flash } from '../../FlashMessages'
+import { useBackendChrome } from '../../BackendChromeProvider'
 import { markUndoSuccess, dismissOperation, useLastOperation } from '../store'
 
 jest.setTimeout(20000)
 
 jest.mock('../../utils/apiCall', () => ({
   apiCall: jest.fn(),
+}))
+
+jest.mock('../../BackendChromeProvider', () => ({
+  useBackendChrome: jest.fn(),
 }))
 
 jest.mock('../../FlashMessages', () => ({
@@ -56,7 +61,61 @@ const dict = {
 describe('LastOperationBanner', () => {
   beforeEach(() => {
     jest.resetAllMocks()
+    jest.mocked(useBackendChrome).mockReturnValue({
+      payload: { groups: [], settingsSections: [], settingsPathPrefixes: [], profileSections: [], profilePathPrefixes: [], grantedFeatures: ['audit_logs.undo_self'], roles: [] },
+      isReady: true,
+      isLoading: false,
+      refresh: jest.fn(),
+    })
     ;(useLastOperation as jest.Mock).mockReturnValue(mockOperation)
+  })
+
+  it.each([
+    { grantedFeatures: [] },
+    { grantedFeatures: ['auth.users.create'] },
+    { grantedFeatures: ['audit_logs.view'] },
+    { grantedFeatures: ['audit_logs.undo_other'] },
+  ])('hides undo without the required feature: $grantedFeatures', ({ grantedFeatures }) => {
+    const chrome = jest.mocked(useBackendChrome)()
+    jest.mocked(useBackendChrome).mockReturnValue({ ...chrome, payload: { ...chrome.payload!, grantedFeatures } })
+    const { container } = renderWithProviders(<LastOperationBanner />, { dict })
+    expect(container).toBeEmptyDOMElement()
+    expect(apiCall).not.toHaveBeenCalled()
+  })
+
+  it.each(['audit_logs.undo_self', 'audit_logs.*', '*'])('offers undo with %s', (feature) => {
+    const chrome = jest.mocked(useBackendChrome)()
+    jest.mocked(useBackendChrome).mockReturnValue({ ...chrome, payload: { ...chrome.payload!, grantedFeatures: [feature] } })
+    renderWithProviders(<LastOperationBanner />, { dict })
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+  })
+
+  it('waits for permissions to be ready', () => {
+    const chrome = jest.mocked(useBackendChrome)()
+    jest.mocked(useBackendChrome).mockReturnValue({ ...chrome, isReady: false })
+    const { container, rerender } = renderWithProviders(<LastOperationBanner />, { dict })
+    expect(container).toBeEmptyDOMElement()
+    jest.mocked(useBackendChrome).mockReturnValue(chrome)
+    rerender(<LastOperationBanner />)
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+  })
+
+  it('removes undo when permissions are revoked', () => {
+    const chrome = jest.mocked(useBackendChrome)()
+    const { container, rerender } = renderWithProviders(<LastOperationBanner />, { dict })
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+    jest.mocked(useBackendChrome).mockReturnValue({ ...chrome, payload: { ...chrome.payload!, grantedFeatures: [] } })
+    rerender(<LastOperationBanner />)
+    expect(container).toBeEmptyDOMElement()
+    expect(apiCall).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when the chrome payload is missing', () => {
+    const chrome = jest.mocked(useBackendChrome)()
+    jest.mocked(useBackendChrome).mockReturnValue({ ...chrome, payload: null })
+    const { container } = renderWithProviders(<LastOperationBanner />, { dict })
+    expect(container).toBeEmptyDOMElement()
+    expect(apiCall).not.toHaveBeenCalled()
   })
 
   it('renders nothing when there is no operation', () => {
