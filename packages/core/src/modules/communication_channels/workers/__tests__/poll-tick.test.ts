@@ -423,4 +423,40 @@ describe('poll-tick worker — enqueue-time dedupe guard (#8713)', () => {
     await handler(makeJob(), ctx)
     expect(enqueueMock).toHaveBeenCalledTimes(1)
   })
+
+  // Regression for the cache-I/O failure path flagged in review: a cache that
+  // IS registered via DI but rejects at I/O time (e.g. a Redis outage) must
+  // also fail open — and, critically, must not abort the enumeration loop so
+  // later connected/recovery channels still get enqueued.
+  it('does not let a rejecting cache abort the tick — later channels are still enqueued', async () => {
+    const connected = [
+      { id: 'c1', pollIntervalSeconds: 60, lastPolledAt: null, tenantId: 't1', organizationId: 'o1' },
+      { id: 'c2', pollIntervalSeconds: 60, lastPolledAt: null, tenantId: 't1', organizationId: 'o1' },
+    ]
+    const originalLastPolledAt = new Date(Date.now() - 60 * 60 * 1000)
+    const errorChannel = {
+      id: 'c-err',
+      pollIntervalSeconds: 60,
+      lastPolledAt: originalLastPolledAt,
+      status: 'error',
+      tenantId: 't1',
+      organizationId: 'o1',
+    }
+    const rejectingCache = {
+      has: jest.fn(async () => {
+        throw new Error('redis connection reset')
+      }),
+      set: jest.fn(async () => {}),
+    }
+
+    await handler(makeJob(), makeCtxWithCache(connected, [errorChannel], rejectingCache))
+
+    expect(enqueueMock).toHaveBeenCalledTimes(3)
+    expect(enqueueMock.mock.calls.map((call) => call[0].channelId).sort()).toEqual([
+      'c-err',
+      'c1',
+      'c2',
+    ])
+    expect(errorChannel.lastPolledAt.getTime()).toBeGreaterThan(originalLastPolledAt.getTime())
+  })
 })

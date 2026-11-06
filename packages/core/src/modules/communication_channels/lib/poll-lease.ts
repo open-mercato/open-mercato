@@ -21,7 +21,15 @@
  * `CACHE_STRATEGY=memory` (the default) — a multi-replica deployment wanting
  * it to hold across replicas needs `CACHE_STRATEGY=redis`. Either way the
  * fallback is only a wasted fetch, never incorrect data.
+ *
+ * A registered cache can still fail at I/O time (e.g. a Redis outage) rather
+ * than just at DI-resolution time — `store.has()`/`store.set()` reject. This
+ * is best-effort dedupe, not a precondition for polling: a rejecting cache
+ * must fail open (treat the lease as acquired) so callers still enqueue,
+ * never block or abort polling on a cache outage.
  */
+
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 /**
  * Minimal cache surface this helper needs — matches the `has`/`set` subset of
@@ -58,7 +66,9 @@ export function pollLeaseCacheKey(tenantId: string, channelId: string): string {
  *
  * Returns `true` when no lease was found (the caller should enqueue the job
  * and a fresh lease is now recorded), `false` when a lease is already held
- * (the caller should skip the enqueue).
+ * (the caller should skip the enqueue). A cache read/write failure (e.g. a
+ * Redis outage) is reported through telemetry and treated as `true` — the
+ * lease is best-effort dedupe, not a gate on polling.
  */
 export async function tryAcquirePollLease(
   store: PollLeaseStore,
@@ -66,10 +76,23 @@ export async function tryAcquirePollLease(
   ttlMs: number = getPollLeaseTtlMs(),
 ): Promise<boolean> {
   const key = pollLeaseCacheKey(scope.tenantId, scope.channelId)
-  if (await store.has(key)) return false
-  await store.set(key, 1, {
-    ttl: ttlMs,
-    tags: [`${COMMUNICATION_CHANNELS_POLL_LEASE_CACHE_TAG}:${scope.tenantId}`],
-  })
-  return true
+  try {
+    if (await store.has(key)) return false
+    await store.set(key, 1, {
+      ttl: ttlMs,
+      tags: [`${COMMUNICATION_CHANNELS_POLL_LEASE_CACHE_TAG}:${scope.tenantId}`],
+    })
+    return true
+  } catch (err) {
+    try {
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'communication_channels',
+        code: 'communication_channels.poll_lease_cache_io_failed',
+        attributes: { tenantId: scope.tenantId, channelId: scope.channelId },
+      })
+    } catch {
+      // Telemetry reporting itself must never block enqueueing.
+    }
+    return true
+  }
 }

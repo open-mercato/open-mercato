@@ -36,13 +36,14 @@ const cacheStore = {
 }
 
 let cacheRegistered = true
+let cacheOverride: { has: (key: string) => Promise<boolean>; set: (...args: unknown[]) => Promise<void> } | null = null
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'rbacService') return { loadAcl: loadAclMock }
     if (name === 'cache') {
       if (!cacheRegistered) throw new Error('cache not registered')
-      return cacheStore
+      return cacheOverride ?? cacheStore
     }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
@@ -111,6 +112,7 @@ describe('communication_channels poll-now route', () => {
     jest.clearAllMocks()
     cacheEntries = new Map()
     cacheRegistered = true
+    cacheOverride = null
     getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
     loadAclMock.mockResolvedValue({ isSuperAdmin: true, features: ['*'], organizations: null })
     assertCanManageChannelMock.mockImplementation(() => {})
@@ -197,6 +199,40 @@ describe('communication_channels poll-now route', () => {
     it('does not block the request when the DI container has no cache registered', async () => {
       findOneWithDecryptionMock.mockResolvedValue(channel({ realtimePush: false }))
       cacheRegistered = false
+
+      const response = await invoke()
+
+      expect(response.status).toBe(202)
+      expect(enqueueMock).toHaveBeenCalledTimes(1)
+    })
+
+    // Regression for the cache-I/O failure path flagged in review: a cache
+    // that IS registered but rejects at I/O time (e.g. a Redis outage) must
+    // fail open the same way a missing registration does — enqueue the poll
+    // rather than answering 409 for an operator-triggered retry.
+    it('still enqueues when the registered cache rejects on has()', async () => {
+      findOneWithDecryptionMock.mockResolvedValue(channel({ realtimePush: false }))
+      cacheOverride = {
+        has: jest.fn(async () => {
+          throw new Error('redis connection reset')
+        }),
+        set: jest.fn(async () => {}),
+      }
+
+      const response = await invoke()
+
+      expect(response.status).toBe(202)
+      expect(enqueueMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('still enqueues when the registered cache rejects on set()', async () => {
+      findOneWithDecryptionMock.mockResolvedValue(channel({ realtimePush: false }))
+      cacheOverride = {
+        has: jest.fn(async () => false),
+        set: jest.fn(async () => {
+          throw new Error('redis connection reset')
+        }),
+      }
 
       const response = await invoke()
 

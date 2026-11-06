@@ -1,3 +1,8 @@
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 import {
   COMMUNICATION_CHANNELS_POLL_LEASE_CACHE_TAG,
   getPollLeaseTtlMs,
@@ -99,5 +104,62 @@ describe('tryAcquirePollLease', () => {
     await tryAcquirePollLease(store, { tenantId: 't1', channelId: 'c1' }, 1)
     await new Promise((resolve) => setTimeout(resolve, 5))
     expect(await tryAcquirePollLease(store, { tenantId: 't1', channelId: 'c1' }, 10_000)).toBe(true)
+  })
+
+  // Regression for the cache-I/O failure path flagged in review: a cache that
+  // is registered via DI but fails at I/O time (e.g. a Redis outage) must
+  // fail open — the lease is best-effort dedupe, not a precondition for
+  // polling — rather than reject and abort the caller's enqueue loop.
+  describe('cache I/O failures fail open', () => {
+    beforeEach(() => {
+      mockReportError.mockClear()
+    })
+
+    it('fails open and reports the error when has() rejects', async () => {
+      const store: PollLeaseStore = {
+        has: jest.fn(async () => {
+          throw new Error('redis connection reset')
+        }),
+        set: jest.fn(async () => {}),
+      }
+      const acquired = await tryAcquirePollLease(store, { tenantId: 't1', channelId: 'c1' }, 10_000)
+      expect(acquired).toBe(true)
+      expect(store.set).not.toHaveBeenCalled()
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      const [err, context] = mockReportError.mock.calls[0]
+      expect(err).toBeInstanceOf(Error)
+      expect(context).toMatchObject({
+        module: 'communication_channels',
+        code: 'communication_channels.poll_lease_cache_io_failed',
+        attributes: { tenantId: 't1', channelId: 'c1' },
+      })
+    })
+
+    it('fails open and reports the error when set() rejects', async () => {
+      const store: PollLeaseStore = {
+        has: jest.fn(async () => false),
+        set: jest.fn(async () => {
+          throw new Error('redis connection reset')
+        }),
+      }
+      const acquired = await tryAcquirePollLease(store, { tenantId: 't1', channelId: 'c1' }, 10_000)
+      expect(acquired).toBe(true)
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not throw even when telemetry reporting itself fails', async () => {
+      mockReportError.mockImplementationOnce(() => {
+        throw new Error('telemetry sink unavailable')
+      })
+      const store: PollLeaseStore = {
+        has: jest.fn(async () => {
+          throw new Error('redis connection reset')
+        }),
+        set: jest.fn(async () => {}),
+      }
+      await expect(
+        tryAcquirePollLease(store, { tenantId: 't1', channelId: 'c1' }, 10_000),
+      ).resolves.toBe(true)
+    })
   })
 })
