@@ -32,7 +32,6 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
   }
 
   setSecret('JWT_SECRET', jwtSecret)
-  setSecret('TENANT_DATA_ENCRYPTION_FALLBACK_KEY', secretHex(16))
   const meiliKey = readEnvValue(rootEnv, 'MEILISEARCH_MASTER_KEY')?.trim() || secretHex(16)
   setSecret('MEILISEARCH_MASTER_KEY', meiliKey)
   setValue('APP_URL', `http://localhost:${readEnvValue(rootEnv, 'APP_PORT')?.trim() || '3000'}`)

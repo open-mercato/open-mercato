@@ -79,6 +79,7 @@ import {
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
 import { assertDatabaseWriteAllowed } from './dev-database-write-guard.mjs'
+import { assertEncryptionCompatible } from './dev-encryption-preflight.mjs'
 import { acquireDevSessionWithRecovery as acquireDevSession } from './dev-session-recovery.mjs'
 import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
@@ -986,7 +987,7 @@ function resolveDatabaseEnvFilePath() {
 }
 
 async function guardDatabaseMutation(commandArgs, env = {}) {
-  if (!['db:migrate', 'initialize'].includes(commandArgs?.[0])) return
+  if (!['db:migrate', 'initialize', 'mcp:ensure-api-key'].includes(commandArgs?.[0])) return
   const result = await assertDatabaseWriteAllowed({
     projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
     env: { ...process.env, ...env },
@@ -994,6 +995,12 @@ async function guardDatabaseMutation(commandArgs, env = {}) {
   })
   if (result?.connectionEnv) { Object.assign(process.env, result.connectionEnv); Object.assign(env, result.connectionEnv) }
   if (result?.argument && !args.includes(result.argument)) args.push(result.argument)
+  const compatibility = await assertEncryptionCompatible({
+    projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
+    env: { ...process.env, ...env },
+  })
+  Object.assign(process.env, compatibility.settings)
+  Object.assign(env, compatibility.settings)
 }
 
 async function applyDatabaseNameOverrideIfRequested() {
@@ -2384,6 +2391,7 @@ function spawnMcpCommand(subcommandArgs, label, onLine) {
 }
 
 async function provisionMcpApiKey() {
+  await guardDatabaseMutation(['mcp:ensure-api-key'])
   try {
     fs.mkdirSync(path.dirname(mcpKeyFilePath), { recursive: true })
   } catch (error) {

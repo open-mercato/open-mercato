@@ -2,7 +2,7 @@
 
 ## TLDR
 
-Follow-up to #8613: successful service authentication does not prove that application encryption keys can open stored data. Before setup database writes, inspect existing data using read-only KMS reads and authenticated decryption. Reject unverifiable reuse without disclosing secrets.
+Follow-up to #8613: successful service authentication does not prove that application encryption keys can open stored data. Before setup database writes (including MCP API-key provisioning), inspect existing data using read-only KMS reads and authenticated decryption. Reject unverifiable reuse without disclosing secrets.
 
 ## Overview and Problem Statement
 

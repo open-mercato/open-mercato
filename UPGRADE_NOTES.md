@@ -5194,3 +5194,14 @@ password and matching URLs. Full-Docker deployment bindings are unchanged.
 `POST /api/auth/logout` now returns `303 See Other` with the same login Location, so browsers navigate with GET and reloading the login page does not resubmit a form. This supersedes the 307 status in the earlier logout notes, including refresh-cookie-only and cookieless requests.
 
 **Action for integrators:** accept 303 instead of asserting 307 and follow Location with GET. Operators need no configuration or database migration. Session revocation, cookie expiry and events retain their current behavior, and other users of the shared redirect helper still default to 307. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md).
+
+
+## Setup verifies encryption before database reuse (#8908)
+
+Setup migrations, initialization, reinstall and development recovery migrations now inspect existing database ciphertext with the configured tenant KMS and Forms key adapter before writes. Correct PostgreSQL credentials alone no longer permit reuse. Both monorepo and refreshed standalone setup scripts include this guard.
+
+Keep the original `TENANT_DATA_ENCRYPTION` configuration, fallback/application key, historical Vault tenant keys and Forms master key. The starter no longer fills a missing tenant encryption fallback key automatically. Restore the original configuration; do not regenerate keys, rotate them, or use reinstall to bypass a rejection. No key or ciphertext migration is performed by the preflight.
+
+Empty/new databases and migration-bookkeeping-only databases proceed normally. Populated plaintext-only databases need read-only resolution of existing tenant keys when encryption is enabled; they are reported as having no ciphertext proof. Unavailable KMS, missing keys, unknown scopes/formats, denied reads, RLS/foreign tables, unsupported binary stores, or scans exceeding 100,000 rows / 64 MiB / 60 seconds block reuse. Custom Forms DI adapters and custom system encryption stores require administrator review; app bootstrap is deliberately not invoked. Use a separate empty database when the existing environment cannot be verified. Stop concurrent application writers during setup; a preflight snapshot cannot prevent external key rotation or subsequent concurrent writes. External encrypted files/object stores are outside the database proof.
+
+Existing standalone applications must refresh `scripts/dev.mjs` and add `scripts/dev-encryption-preflight.mjs` together with the matching installed helper packages. No production dependency or database migration is required.
