@@ -25,7 +25,7 @@ for (const [name, file] of files) {
       console: { log: (line) => output.push(line) },
     })
     const text = output.join('\n')
-    assert.match(text, /   📋 Press \[d\] to show or hide raw logs/)
+    assert.match(text, /^📋 Press \[d\] to show or hide raw logs/m)
     assert.match(text, /   📖 A diagnostic failure · press \[d\] to hide/)
     assert.doesNotMatch(text, /\u001b\[(?:4[0-9]|10[0-7])|━|DEBUG LOGS/)
   })

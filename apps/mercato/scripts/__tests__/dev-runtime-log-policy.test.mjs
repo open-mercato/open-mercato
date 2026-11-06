@@ -308,7 +308,7 @@ test('buildUnexpectedChildExitReport replays the buffered tail exactly once in c
     '📄 Last 2 runtime log line(s) before the exit:',
     'Another next dev server is already running.',
     '- PID:          4242',
-    'ℹ️ Rerun with MERCATO_DEV_OUTPUT=verbose for the full runtime output.',
+    'ℹ️  Rerun with MERCATO_DEV_OUTPUT=verbose for the full runtime output.',
   ])
   // The banner is printed from terminalLines, so it must appear only once there.
   assert.equal(report.terminalLines.filter((line) => line === banner).length, 1)

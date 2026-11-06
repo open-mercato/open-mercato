@@ -353,7 +353,7 @@ async function finalizeDevProcess(exitCode) {
   try {
     await memoryTrace?.stop()
   } catch (error) {
-    console.warn(`⚠️ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
+    console.warn(`⚠️  Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
   }
   closeSplashServer()
   closeDevLogSession()
@@ -494,7 +494,7 @@ function ensureDevFileWatchLimits() {
   const requestedBundler = resolveRequestedDevBundler()
   const requestedDecision = resolveDevBundlerDecision({ requestedBundler })
   if (!requestedDecision.shouldCheckInotify) {
-    console.log('ℹ️ Using Next.js Webpack dev server; Linux inotify limits are not required')
+    console.log('ℹ️  Using Next.js Webpack dev server; Linux inotify limits are not required')
     return true
   }
 
@@ -510,7 +510,7 @@ function ensureDevFileWatchLimits() {
   const decision = resolveDevBundlerDecision({ requestedBundler, inotifyResult: result })
   if (decision.fallback) {
     process.env.OM_DEV_BUNDLER = 'webpack'
-    console.warn('⚠️ Linux inotify limits could not be raised; continuing with Next.js Webpack')
+    console.warn('⚠️  Linux inotify limits could not be raised; continuing with Next.js Webpack')
     console.warn(`   Current values: ${JSON.stringify(result.current)}`)
     console.warn('   To restore Turbopack, run `yarn dev:fix-wsl-watchers` or apply:')
     for (const command of result.manualCommands ?? []) {
@@ -819,7 +819,7 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
       || isEnabledEnvFlag(lazyWorkersRaw)
     if (lazyWorkersCanRun && !localDevLazyWorkerModeDefaultLogged) {
       localDevLazyWorkerModeDefaultLogged = true
-      console.warn('⚠️ OM_AUTO_SPAWN_WORKERS_LAZY_MODE is not set; defaulting to "shared" for local dev.')
+      console.warn('⚠️  OM_AUTO_SPAWN_WORKERS_LAZY_MODE is not set; defaulting to "shared" for local dev.')
     }
   }
   if (
@@ -935,7 +935,7 @@ function consumeRequestedRestart() {
 function keepSupervisorAliveAfterFailure() {
   if (!gatewayMode || shuttingDown) return false
   managedAppChild = null
-  console.error('⚠️ The app runtime stopped. The dev gateway stays available for diagnostics and recovery actions.')
+  console.error('⚠️  The app runtime stopped. The dev gateway stays available for diagnostics and recovery actions.')
   return true
 }
 
@@ -1231,7 +1231,7 @@ async function reportStageFailure(label, commandArgs, capturedLines, code, optio
 function keepSupervisorAliveAfterStageFailure(label) {
   if (!gatewayMode || shuttingDown) return false
   startupAborted = true
-  console.error(`⚠️ "${label}" failed. The dev gateway stays available on ${resolveExpectedAppBaseUrl()} for diagnostics and recovery actions.`)
+  console.error(`⚠️  "${label}" failed. The dev gateway stays available on ${resolveExpectedAppBaseUrl()} for diagnostics and recovery actions.`)
   return true
 }
 
@@ -1437,7 +1437,7 @@ async function startSplashServer() {
     await listenSplashServer(splashPortConfig.port)
   } catch (error) {
     if (shouldRetrySplashServerWithRandomPort(error)) {
-      console.warn(`⚠️ Dev splash port ${splashPortConfig.port} is already in use. Switching to a random free port.`)
+      console.warn(`⚠️  Dev splash port ${splashPortConfig.port} is already in use. Switching to a random free port.`)
       splashServer.close()
       splashServer = createSplashHttpServer()
       try {
@@ -1482,7 +1482,7 @@ async function startSplashServer() {
     return
   }
 
-  console.log('ℹ️ Open either URL manually while the runtime is starting.')
+  console.log('ℹ️  Open either URL manually while the runtime is starting.')
 }
 
 // Runs one allowlisted lifecycle command for a recovery action. Unlike
@@ -1508,7 +1508,7 @@ function waitForRecoveryChildExit(child) {
 
 async function runRecoveryCommand(label, commandArgs) {
   await guardDatabaseMutation(commandArgs)
-  console.log(`🛠️ ${label}...`)
+  console.log(`🛠️  ${label}...`)
   updateSplashState({ phase: label, detail: 'Recovery action in progress', activity: `${label} started` })
 
   const child = spawnCommand(yarnCommand, commandArgs, { label, logFile: getDevRunnerLog() })
@@ -1586,7 +1586,7 @@ async function settleAppPort() {
   }
   if (preflight.status === 'moved') {
     Object.assign(process.env, preflight.envOverrides)
-    console.log(`⚠️ Port ${configuredPort} is already in use; this run serves the app on ${preflight.envOverrides.APP_URL}`)
+    console.log(`⚠️  Port ${configuredPort} is already in use; this run serves the app on ${preflight.envOverrides.APP_URL}`)
   }
 }
 
@@ -1656,7 +1656,7 @@ async function startDevRuntimeGateway() {
   }
 
   devRuntime.setUpstream({ configuredPort: publicAppPort, actualPort: devUpstreamPort })
-  console.log(`🛡️ Dev runtime gateway on ${resolveExpectedAppBaseUrl()} → managed runtime on 127.0.0.1:${devUpstreamPort}`)
+  console.log(`🛡️  Dev runtime gateway on ${resolveExpectedAppBaseUrl()} → managed runtime on 127.0.0.1:${devUpstreamPort}`)
   return true
 }
 
@@ -2387,7 +2387,7 @@ async function provisionMcpApiKey() {
   try {
     fs.mkdirSync(path.dirname(mcpKeyFilePath), { recursive: true })
   } catch (error) {
-    console.warn(`⚠️ Could not create ${path.dirname(mcpKeyFilePath)}: ${error instanceof Error ? error.message : String(error)}`)
+    console.warn(`⚠️  Could not create ${path.dirname(mcpKeyFilePath)}: ${error instanceof Error ? error.message : String(error)}`)
     console.warn('   ↳ if Docker created the directory as root, fix it with: sudo chown -R "$(id -u)" .mercato/mcp-shared')
   }
 
@@ -2411,22 +2411,22 @@ async function provisionMcpApiKey() {
     }
 
     if (!shouldRetryMcpProvisioning(capturedLines)) {
-      console.warn('⚠️ MCP is disabled — the ai_assistant module is not enabled in this app.')
+      console.warn('⚠️  MCP is disabled — the ai_assistant module is not enabled in this app.')
       console.warn('   ↳ enable ai_assistant (or pick a preset that includes it) to use MCP, then restart the dev runner (MCP startup is not re-armed in a running session), or silence this with --no-mcp / OM_DEV_WITH_MCP=0. The app keeps running without MCP.')
       return false
     }
 
     if (looksLikePermissionError(capturedLines)) {
-      console.warn(`⚠️ MCP key provisioning hit a permission error writing ${mcpKeyFilePath}.`)
+      console.warn(`⚠️  MCP key provisioning hit a permission error writing ${mcpKeyFilePath}.`)
       console.warn('   ↳ if Docker created .mercato/mcp-shared as root, fix it with: sudo chown -R "$(id -u)" .mercato/mcp-shared')
     } else if (looksLikeMissingKeyOwner(capturedLines)) {
-      console.warn('⚠️ MCP API key provisioning failed — the key owner (superadmin) could not be resolved.')
+      console.warn('⚠️  MCP API key provisioning failed — the key owner (superadmin) could not be resolved.')
       console.warn('   ↳ set OM_INIT_SUPERADMIN_EMAIL in apps/mercato/.env to the email you sign into /backend with, then restart.')
       console.warn('   ↳ if it still fails with the right email, the database was seeded under different secrets (LOOKUP_HASH_PEPPER); reseed with `yarn om reset` then `yarn om`.')
     } else if (looksLikeUninitializedDatabase(capturedLines)) {
-      console.warn('⚠️ MCP API key provisioning failed — is the database initialized and reachable? Run `yarn infra:up`, then `yarn db:migrate && yarn initialize`.')
+      console.warn('⚠️  MCP API key provisioning failed — is the database initialized and reachable? Run `yarn infra:up`, then `yarn db:migrate && yarn initialize`.')
     } else {
-      console.warn('⚠️ MCP API key provisioning failed:')
+      console.warn('⚠️  MCP API key provisioning failed:')
       for (const line of extractFailureLines(capturedLines, 4)) {
         console.warn(`   ${line}`)
       }
@@ -2517,7 +2517,7 @@ let dockerUnavailableNoticeShown = false
 function noteDockerUnavailable(detail) {
   if (dockerUnavailableNoticeShown) return
   dockerUnavailableNoticeShown = true
-  console.warn(`ℹ️ Skipping the OpenCode container refresh — ${detail}.`)
+  console.warn(`ℹ️  Skipping the OpenCode container refresh — ${detail}.`)
   console.warn('   ↳ Docker is optional: it is only used to recreate the containerized OpenCode agent.')
   console.warn('   ↳ The app, the dev server and the MCP server are unaffected.')
 }
@@ -2552,7 +2552,7 @@ function restartOpencodeContainer(reason) {
     { encoding: 'utf8', timeout: 120_000, env: environment },
   )
   if (restart.error || restart.status !== 0) {
-    console.warn('⚠️ Could not recreate the OpenCode container automatically.')
+    console.warn('⚠️  Could not recreate the OpenCode container automatically.')
     console.warn(`   ↳ recreate it manually: ${opencodeRestartCommand()}`)
     return false
   }
@@ -2563,7 +2563,7 @@ async function checkOpencodeMcpWiring() {
   const status = await fetchOpencodeMcpStatus()
   if (status === null || status === 'connected') return
   if (!restartOpencodeContainer('OpenCode is not connected to the MCP server')) {
-    console.warn('⚠️ OpenCode is running but not connected to the MCP server (it may hold a stale key).')
+    console.warn('⚠️  OpenCode is running but not connected to the MCP server (it may hold a stale key).')
     // Without Docker the compose hint is not actionable; the stale-key warning
     // above still is, however OpenCode happens to be running.
     if (!dockerUnavailableNoticeShown) console.warn(`   ↳ restart it with: ${opencodeRestartCommand()}`)
@@ -2574,7 +2574,7 @@ async function checkOpencodeMcpWiring() {
   if (rechecked === 'connected') {
     console.log('🔌 OpenCode reconnected to the MCP server.')
   } else if (rechecked !== null) {
-    console.warn('⚠️ OpenCode is still not connected after a restart — check `docker logs mercato-opencode` and the container→host hop (yarn om doctor).')
+    console.warn('⚠️  OpenCode is still not connected after a restart — check `docker logs mercato-opencode` and the container→host hop (yarn om doctor).')
   }
 }
 
@@ -2632,7 +2632,7 @@ async function runMcpLifecycle() {
       const previousPort = attemptedPort
       mcpPort = await selectAvailableMcpPort(0)
       opencodeEndpointRefreshNeeded = !process.env.OPENCODE_MCP_URL
-      console.warn(`⚠️ MCP port ${previousPort} was claimed before startup completed; retrying on ${mcpPort}.`)
+      console.warn(`⚠️  MCP port ${previousPort} was claimed before startup completed; retrying on ${mcpPort}.`)
       if (!process.env.MCP_URL && managedAppChild && !managedAppChild.killed) {
         restartManagedRuntime(`MCP endpoint moved to http://localhost:${mcpPort}`)
       }
@@ -2648,7 +2648,7 @@ async function runMcpLifecycle() {
       return
     }
     const delay = nextMcpRestartDelayMs(fastCrashes)
-    console.warn(`⚠️ MCP server exited (code ${exitCode}) — restarting in ${Math.round(delay / 1000)}s`)
+    console.warn(`⚠️  MCP server exited (code ${exitCode}) — restarting in ${Math.round(delay / 1000)}s`)
     await sleepUnlessShuttingDown(delay)
   }
 }
@@ -2658,14 +2658,14 @@ function startMcpRuntime() {
   if (!withMcp || mcpRuntimeStarted || shuttingDown) return
   mcpRuntimeStarted = true
   void runMcpLifecycle().catch((error) => {
-    console.warn(`⚠️ MCP runtime stopped unexpectedly: ${error instanceof Error ? error.message : String(error)}`)
+    console.warn(`⚠️  MCP runtime stopped unexpectedly: ${error instanceof Error ? error.message : String(error)}`)
   })
 }
 
 async function applyPendingMigrationsBestEffort() {
   if (!shouldAutoMigrateOnDev()) return
   await guardDatabaseMutation(['db:migrate'])
-  console.log('🗄️ Applying database migrations...')
+  console.log('🗄️  Applying database migrations...')
   const child = spawnCommand(yarnCommand, ['db:migrate'], {
     label: 'Applying database migrations',
     logFile: getDevRunnerLog(),
@@ -2675,7 +2675,7 @@ async function applyPendingMigrationsBestEffort() {
   const result = await waitForClose(child)
   if (shuttingDown || isGracefulShutdownResult(result)) return
   if (resolveChildExitCode(result) !== 0) {
-    console.warn('⚠️ Database migrations were not applied (database unreachable or migration failed).')
+    console.warn('⚠️  Database migrations were not applied (database unreachable or migration failed).')
     console.warn('   ↳ start the infra containers with `yarn infra:up`, then run `yarn db:migrate` (opt out of this check with OM_DEV_AUTO_MIGRATE=0)')
   }
 }
@@ -2746,7 +2746,7 @@ async function runAppLifecycle() {
       return
     }
     const delay = nextMcpRestartDelayMs(fastCrashes)
-    console.warn(`⚠️ App runtime exited (code ${exitCode}) — restarting in ${Math.round(delay / 1000)}s (OM_DEV_APP_RESTART=0 disables restarts)`)
+    console.warn(`⚠️  App runtime exited (code ${exitCode}) — restarting in ${Math.round(delay / 1000)}s (OM_DEV_APP_RESTART=0 disables restarts)`)
     updateSplashState({ activity: `App runtime crashed — restarting in ${Math.round(delay / 1000)}s` })
     managedAppChild = null
     await sleepUnlessShuttingDown(delay)
@@ -2800,7 +2800,7 @@ async function runGreenfieldDev() {
   await runStage('🧱 Greenfield build packages', ['build:packages'], { stageCurrent: 1, stageTotal: 5 })
   await runStage('🧬 Greenfield generate artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
   await runStage('🧱 Greenfield rebuild packages', ['build:packages'], { stageCurrent: 3, stageTotal: 5 })
-  await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5, env: INIT_DEV_AUTOSTART_ENV, echoSummaryBox: true })
+  await runPassthroughStage('🛠️  Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5, env: INIT_DEV_AUTOSTART_ENV, echoSummaryBox: true })
 
   startPackageWatch()
   launchMonorepoAppDev()
@@ -2828,9 +2828,9 @@ async function runStandaloneSetup() {
   }
   await runPassthroughStage('📦 Installing dependencies', ['install'], { stageCurrent: 1, stageTotal: 5 })
   await runPassthroughStage('🧬 Generating app artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
-  await runPassthroughStage('🗄️ Applying database migrations', ['db:migrate'], { stageCurrent: 3, stageTotal: 5 })
+  await runPassthroughStage('🗄️  Applying database migrations', ['db:migrate'], { stageCurrent: 3, stageTotal: 5 })
   await runPassthroughStage(
-    '🛠️ Initializing Open Mercato',
+    '🛠️  Initializing Open Mercato',
     reinstall ? ['initialize', '--reinstall'] : ['initialize', '--skip-if-initialized'],
     { stageCurrent: 4, stageTotal: 5, env: INIT_DEV_AUTOSTART_ENV, echoSummaryBox: true },
   )
@@ -2920,7 +2920,7 @@ async function main() {
       })
     }
     if (shouldAutoMigrateOnDev()) {
-      await runPassthroughStage('🗄️ Applying database migrations', ['db:migrate'], {
+      await runPassthroughStage('🗄️  Applying database migrations', ['db:migrate'], {
         stageCurrent: 2,
         stageTotal: standaloneStageTotal,
       })

@@ -64,7 +64,7 @@ export function purgeAppBuildCaches({
 } = {}) {
   const activeServer = findActiveNextDevServer({ rootDir, fsImpl, targets, isProcessAlive })
   if (activeServer) {
-    logger.log(`⚠️ [dev:greenfield] another next dev server (pid ${activeServer.pid}${activeServer.appUrl ? `, ${activeServer.appUrl}` : ''}) holds ${activeServer.lockPath}; build caches were left untouched`)
+    logger.log(`⚠️  [dev:greenfield] another next dev server (pid ${activeServer.pid}${activeServer.appUrl ? `, ${activeServer.appUrl}` : ''}) holds ${activeServer.lockPath}; build caches were left untouched`)
     return { removed: [], activeServer }
   }
   const removed = []
