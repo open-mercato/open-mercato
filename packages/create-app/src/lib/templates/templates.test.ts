@@ -1239,6 +1239,10 @@ test('the template step reads the startup kind from the created app scripts and 
   const dir = scratchDir()
   writeFileSync(join(dir, 'package.json'), '{"scripts": {"setup": 1}}')
   assert.equal(detectTemplateStartup(dir), 'manual', 'a non-string setup script is not runnable')
+  writeFileSync(join(dir, 'package.json'), '{"scripts": ')
+  assert.equal(detectTemplateStartup(dir), 'manual', 'an unparsable package.json counts as manual')
+  writeFileSync(join(dir, 'package.json'), '\uFEFF{"scripts": {"setup": "node ./scripts/setup.mjs", "infra:up": "node ./scripts/infra.mjs up"}}')
+  assert.equal(detectTemplateStartup(dir), 'infra', 'a BOM does not hide the scripts')
 })
 
 // Cleanup and flags in main
