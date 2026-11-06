@@ -71,6 +71,7 @@ describe('built-in setting keys', () => {
       targets: { dailyHours: 8 },
       warnings: { overlap: true, runningTimer: true },
       access: { assignmentGraceDays: 14 },
+      support: { referencePrefix: 'SUP' },
     })
     expect(DEFAULT_TIME_TRACKING_SETTINGS).toEqual(buildDefaultTimeTrackingSettings())
   })
@@ -129,7 +130,7 @@ describe('contributed setting keys', () => {
 
       const { writes, service } = createConfigService()
       await writeTimeTrackingSettings(service, SCOPE, { jira: { projectKey: 'TIME' } })
-      expect(writes).toHaveLength(9)
+      expect(writes).toHaveLength(10)
       expect(writes.find((write) => write.name === 'jira.projectKey')).toEqual({
         name: 'jira.projectKey',
         value: 'TIME',

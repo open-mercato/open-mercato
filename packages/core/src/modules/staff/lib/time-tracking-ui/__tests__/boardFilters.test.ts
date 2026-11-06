@@ -8,6 +8,7 @@ import {
   withAssigneeFilter,
   withStatusFilter,
   withTagFilter,
+  withUnassignedFilter,
   withoutTagFilter,
 } from '../boardFilters'
 
@@ -24,7 +25,7 @@ describe('boardFilters', () => {
         taskStatusId: STATUS_ID,
         tagIds: ['tag-a', 'tag-a', 42, ''],
       }),
-    ).toEqual({ assigneeStaffMemberId: null, taskStatusId: STATUS_ID, tagIds: ['tag-a'] })
+    ).toEqual({ assigneeStaffMemberId: null, taskStatusId: STATUS_ID, tagIds: ['tag-a'], unassigned: false })
   })
 
   it('counts every active filter, tags included', () => {
@@ -74,5 +75,38 @@ describe('boardFilters', () => {
   it('asks for every selected tag, which is what the route filter means', () => {
     const filters = withTagFilter(withTagFilter(EMPTY_BOARD_FILTERS, 'a'), 'b')
     expect(boardServerFilterParams(filters)).toBe('&tagIds=a%2Cb')
+  })
+})
+
+describe('the unassigned filter', () => {
+  const ASSIGNEE_ID = '99999999-9999-4999-8999-999999999999'
+
+  it('asks the server for unassigned tasks only', () => {
+    const filters = withUnassignedFilter(EMPTY_BOARD_FILTERS, true)
+    expect(boardServerFilterParams(filters)).toBe('&unassigned=true')
+    expect(boardServerFilterKey(filters)).toContain('unassigned')
+  })
+
+  it('drops a picked assignee when switched on, since the two cannot both hold', () => {
+    const filters = withUnassignedFilter(withAssigneeFilter(EMPTY_BOARD_FILTERS, ASSIGNEE_ID), true)
+    expect(filters).toMatchObject({ assigneeStaffMemberId: null, unassigned: true })
+    expect(countActiveBoardFilters(filters)).toBe(1)
+  })
+
+  it('is switched off by picking an assignee', () => {
+    const filters = withAssigneeFilter(withUnassignedFilter(EMPTY_BOARD_FILTERS, true), ASSIGNEE_ID)
+    expect(filters).toMatchObject({ assigneeStaffMemberId: ASSIGNEE_ID, unassigned: false })
+    expect(boardServerFilterParams(filters)).toBe(`&assigneeStaffMemberId=${ASSIGNEE_ID}`)
+  })
+
+  it('keeps the assignee when switched off', () => {
+    const filters = withUnassignedFilter(withAssigneeFilter(EMPTY_BOARD_FILTERS, ASSIGNEE_ID), false)
+    expect(filters).toMatchObject({ assigneeStaffMemberId: ASSIGNEE_ID, unassigned: false })
+  })
+
+  it('restores from storage only when no assignee is stored alongside it', () => {
+    expect(normalizeBoardFilters({ unassigned: true }).unassigned).toBe(true)
+    expect(normalizeBoardFilters({ unassigned: true, assigneeStaffMemberId: ASSIGNEE_ID }).unassigned).toBe(false)
+    expect(normalizeBoardFilters({ unassigned: 'yes' }).unassigned).toBe(false)
   })
 })

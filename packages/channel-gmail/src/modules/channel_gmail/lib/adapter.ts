@@ -690,14 +690,14 @@ class GmailChannelAdapter implements ChannelAdapter {
         const ref = refs[index]
         try {
           const raw = await api.getMessageRaw(auth, ref.id)
-          const fallbackDate = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
+          const receivedAt = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
           results[index] = await normalizeInboundGmailMessage({
             rawMessage: decodeBase64Url(raw.raw),
             gmailMessageId: raw.id,
             gmailThreadId: raw.threadId,
             gmailLabelIds: raw.labelIds ?? [],
             accountIdentifier,
-            fallbackDate,
+            receivedAt,
           })
         } catch (error) {
           if (isFatalGmailImportError(error)) throw error

@@ -15,6 +15,7 @@ import {
   type DateRangePresetItem,
 } from './date-picker-helpers'
 import { formatWithPublicDateFormat, resolvePublicDateFormat } from './date-format'
+import { useDateFnsLocale } from './date-locale'
 
 export type { DateRangePresetItem } from './date-picker-helpers'
 
@@ -32,6 +33,10 @@ export type DateRangePickerProps = {
   minDate?: Date
   maxDate?: Date
   numberOfMonths?: 1 | 2
+  /**
+   * date-fns locale for month/weekday names, the first day of the week and the
+   * formatted range. Defaults to the active `I18nProvider` locale.
+   */
   locale?: Locale
   formatRange?: (value: DateRange, locale?: Locale) => string
   className?: string
@@ -78,7 +83,7 @@ export function DateRangePicker({
   minDate,
   maxDate,
   numberOfMonths = 2,
-  locale,
+  locale: localeProp,
   formatRange,
   className,
   popoverClassName,
@@ -89,6 +94,8 @@ export function DateRangePicker({
   'aria-describedby': ariaDescribedBy,
 }: DateRangePickerProps) {
   const t = useT()
+  const appLocale = useDateFnsLocale()
+  const locale = localeProp ?? appLocale
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState<DateRange | null>(value ?? null)
   const [activePresetId, setActivePresetId] = React.useState<string | null>(null)
@@ -205,16 +212,16 @@ export function DateRangePicker({
       <PopoverContent
         align={align}
         className={cn(
-          'w-auto p-0 flex flex-col overflow-hidden',
+          'w-auto min-w-0 max-w-[var(--radix-popover-content-available-width)] p-0 flex flex-col overflow-hidden',
           'max-h-[var(--radix-popover-content-available-height)]',
           popoverClassName,
         )}
       >
-        <div className="flex min-h-0 flex-1 overflow-auto">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto md:flex-row">
           {showPresets ? (
             <div
               data-slot="date-range-presets"
-              className="flex w-[200px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r p-2"
+              className="flex w-full shrink-0 flex-col gap-0.5 overflow-y-auto border-b p-2 md:w-48 md:border-b-0 md:border-r"
             >
               {resolvedPresets.map((preset) => {
                 const isActive = activePresetId === preset.id
@@ -236,7 +243,7 @@ export function DateRangePicker({
               })}
             </div>
           ) : null}
-          <div className="p-3">
+          <div className="min-w-0 p-3">
             <Calendar
               mode="range"
               selected={rdpSelected}
