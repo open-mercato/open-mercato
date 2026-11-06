@@ -146,6 +146,8 @@ services:
       OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING: ${OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING:-false}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
+      # Development fallback only; production init rejects placeholders and enforces password policy.
+      # Set OM_INIT_SUPERADMIN_PASSWORD to a unique password before the first production boot.
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
       OPEN_MERCATO_DOCKER_REGISTRY_HOST: ${OPEN_MERCATO_DOCKER_REGISTRY_HOST:-host.docker.internal}
     depends_on:
