@@ -248,6 +248,9 @@ export function TaskDrawer({
   const [notice, setNotice] = React.useState<{ status: 'warning' | 'error'; message: string; rejection: object } | null>(null)
   const noticeRef = React.useRef<HTMLDivElement>(null)
   useRevealError(noticeRef, open ? notice?.rejection : null)
+  const preserveNoticeFocus = React.useCallback((event: Event) => {
+    if (noticeRef.current === document.activeElement) event.preventDefault()
+  }, [])
 
   const { runMutation: runGuardedMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -1462,7 +1465,7 @@ export function TaskDrawer({
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent onCloseAutoFocus={preserveNoticeFocus}>
                   {statuses.map((entry) => (
                     <SelectItem key={entry.id} value={entry.id}>
                       {entry.name}
@@ -1488,7 +1491,7 @@ export function TaskDrawer({
                     placeholder={t('staff.time_tracking.taskDrawer.properties.unassigned', 'Unassigned')}
                   />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent onCloseAutoFocus={preserveNoticeFocus}>
                   {members.map((member) => (
                     <SelectItem key={member.id} value={member.id}>
                       {member.name}

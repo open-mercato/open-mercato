@@ -95,11 +95,20 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
  * swapped for a native `<select>` that keeps the trigger's label and test id.
  * The assertions are about what a committed choice writes, not about the popup.
  */
+let mockUseRealSelect = false
+
 jest.mock('@open-mercato/ui/primitives/select', () => {
   const ReactModule = jest.requireActual('react') as typeof React
   type SlotProps = { children?: React.ReactNode } & Record<string, unknown>
   const Slot = (slot: string) => {
-    const Component = ({ children }: SlotProps) => ReactModule.createElement(ReactModule.Fragment, null, children)
+    const Component = (props: SlotProps) => {
+      if (mockUseRealSelect) {
+        const actual = jest.requireActual<typeof import('@open-mercato/ui/primitives/select')>('@open-mercato/ui/primitives/select')
+        const name = `Select${slot[0].toUpperCase()}${slot.slice(1)}` as keyof typeof actual
+        return ReactModule.createElement(actual[name] as React.ElementType, props)
+      }
+      return ReactModule.createElement(ReactModule.Fragment, null, props.children)
+    }
     ;(Component as unknown as { __slot: string }).__slot = slot
     return Component
   }
@@ -118,6 +127,10 @@ jest.mock('@open-mercato/ui/primitives/select', () => {
     disabled?: boolean
     children?: React.ReactNode
   }) => {
+    if (mockUseRealSelect) {
+      const actual = jest.requireActual<typeof import('@open-mercato/ui/primitives/select')>('@open-mercato/ui/primitives/select')
+      return ReactModule.createElement(actual.Select, { value, onValueChange, disabled }, children)
+    }
     const nodes = ReactModule.Children.toArray(children) as React.ReactElement[]
     const trigger = nodes.find((node) => (node.type as { __slot?: string })?.__slot === 'trigger')
     const content = nodes.find((node) => (node.type as { __slot?: string })?.__slot === 'content')
@@ -230,6 +243,7 @@ function writeCalls(pattern: string) {
 }
 
 beforeEach(() => {
+  mockUseRealSelect = false
   Element.prototype.scrollIntoView = mockScrollIntoView
   mockScrollIntoView.mockClear()
   jest.clearAllMocks()
@@ -679,6 +693,69 @@ describe('TaskDrawer', () => {
     expect(await screen.findByTestId('task-drawer-notice')).toHaveTextContent('Someone else changed this task.')
     await waitFor(() => expect(screen.getByTestId('task-drawer-notice')).toHaveFocus())
     expect(mockScrollIntoView.mock.instances.at(-1)).toBe(screen.getByTestId('task-drawer-notice'))
+  })
+
+  it.each(['status', 'assignee'])('retains rejection focus after the real %s Select exits, preserving cancellation and retry focus', async (field) => {
+    mockUseRealSelect = true
+    const computedStyle = window.getComputedStyle.bind(window)
+    const styleSpy = jest.spyOn(window, 'getComputedStyle').mockImplementation((element) => {
+      const style = computedStyle(element)
+      if (element.getAttribute('role') !== 'listbox') return style
+      return new Proxy(style, {
+        get: (target, property) => property === 'animationName'
+          ? element.getAttribute('data-state') === 'open' ? 'selectOpen' : 'selectClose'
+          : Reflect.get(target, property),
+      })
+    })
+    const previousEscape = CSS.escape
+    CSS.escape = (value) => value
+    mockApiCallOrThrow.mockRejectedValue(Object.assign(new Error('Conflict'), {
+      status: 409,
+      body: { code: 'optimistic_lock_conflict', currentUpdatedAt: VERSION_TWO, expectedUpdatedAt: VERSION_ONE },
+    }))
+    const view = renderDrawer()
+    try {
+      const trigger = await screen.findByTestId(`task-drawer-${field}-select`)
+      const optionName = field === 'status' ? 'Zrobione' : 'Anna Nowak'
+      const finishExit = async (menu: HTMLElement) => {
+        expect(menu).toHaveAttribute('data-state', 'closed')
+        const animationEnd = new Event('animationend', { bubbles: true })
+        Object.defineProperty(animationEnd, 'animationName', { value: 'selectClose' })
+        fireEvent(menu, animationEnd)
+        await waitFor(() => expect(menu).not.toBeInTheDocument())
+        await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)) })
+      }
+      fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+      const menu = await screen.findByRole('listbox')
+      fireEvent.keyDown(screen.getByRole('option', { name: optionName }), { key: 'Enter' })
+      const notice = await screen.findByTestId('task-drawer-notice')
+      await waitFor(() => expect(notice).toHaveFocus())
+      await finishExit(menu)
+      expect(notice).toHaveFocus()
+      expect(notice).toHaveTextContent('Someone else changed this task.')
+      expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1)
+
+      fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+      const cancelledMenu = await screen.findByRole('listbox')
+      fireEvent.keyDown(cancelledMenu, { key: 'Escape' })
+      await finishExit(cancelledMenu)
+      expect(trigger).toHaveFocus()
+      expect(notice).toBeInTheDocument()
+
+      mockApiCallOrThrow.mockResolvedValue(ok({ updatedAt: VERSION_TWO }) as never)
+      fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+      const retryMenu = await screen.findByRole('listbox')
+      fireEvent.keyDown(screen.getByRole('option', { name: optionName }), { key: 'Enter' })
+      await waitFor(() => expect(notice).not.toBeInTheDocument())
+      await finishExit(retryMenu)
+      expect(trigger).toHaveFocus()
+      expect(mockApiCallOrThrow).toHaveBeenCalledTimes(2)
+    } finally {
+      view.unmount()
+      await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)) })
+      styleSpy.mockRestore()
+      CSS.escape = previousEscape
+    }
   })
 
   it('does not replay an old rejection when the drawer closes and reopens', async () => {
