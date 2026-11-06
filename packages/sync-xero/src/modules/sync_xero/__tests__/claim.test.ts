@@ -131,6 +131,13 @@ describe('claimCompanyMapping', () => {
     expect(storeCalls).toEqual([])
   })
 
+  it('loses without a winner, and stores nothing, when the candidate was deleted after the index was built', async () => {
+    liveCompanies.delete(COMPANY_A)
+
+    await expect(claim(COMPANY_A)).resolves.toEqual({ outcome: 'lost', winnerEntityId: null })
+    expect(storeCalls).toHaveLength(0)
+  })
+
   it('lets an unavailable lock fail the run with xero.claim_lock_unavailable', async () => {
     lockUnavailable = true
 

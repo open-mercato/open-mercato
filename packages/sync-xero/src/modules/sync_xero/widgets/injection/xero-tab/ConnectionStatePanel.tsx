@@ -61,7 +61,7 @@ export function ConnectionStatePanel({ connection, state, canConnect, actions }:
     <div className="space-y-3">
       {state === 'not_configured' ? <Message status="information" text={t('sync_xero.tab.notConfigured')} /> : null}
       {state === 'not_connected' ? <p className="text-sm">{t('sync_xero.tab.notConnected')}</p> : null}
-      {state === 'not_connected' && revocationUnconfirmed(connection) ? (
+      {grant.status === 'none' && revocationUnconfirmed(connection) ? (
         <Message status="warning" text={t('sync_xero.tab.revocationUnconfirmed')} />
       ) : null}
       {state === 'unavailable' ? <Message status="error" text={t('sync_xero.tab.unavailable.message')} /> : null}

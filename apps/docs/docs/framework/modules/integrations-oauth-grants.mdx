@@ -14,7 +14,7 @@ The core guarantees:
 - **A real Disconnect.** Once a Disconnect commits, the live database holds no decryptable refresh token for that owner, whatever happens to revocation at the provider.
 - **No secrets outside the grant row.** Tokens never appear in the credentials API, logs, health `details` or route responses.
 
-The core owns the protocol helpers and the grant service. The provider owns its Provider Descriptor, its initiate and callback routes, its detail-page tab and its health check. No first-party integration uses the core yet.
+The core owns the protocol helpers and the grant service. The provider owns its Provider Descriptor, its initiate and callback routes, its detail-page tab and its health check. `packages/sync-xero` is the first first-party integration on the core and a reference for a new provider.
 
 ## Terms
 

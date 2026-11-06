@@ -152,6 +152,13 @@ describe('resolveXeroTabState', () => {
 })
 
 describe('Xero tab', () => {
+  it('keeps the unconfirmed revocation warning after the Client Configuration was removed too', async () => {
+    const lastDisconnect = { at: '2026-10-13T10:00:00.000Z', disconnectId: 'd1', revocation: 'failed' as const }
+    serve(connectionView({ configured: false }, { status: 'none', connectionState: 'not_configured', organisation: null, lastDisconnect }))
+    renderTab()
+    expect(await screen.findByText(enDict['sync_xero.tab.revocationUnconfirmed'])).toBeTruthy()
+  })
+
   it('asks for the Client Configuration and opens the Credentials tab', async () => {
     serve(connectionView({ configured: false }, { status: 'none', connectionState: 'not_configured', organisation: null }))
     const setActiveTab = jest.fn()

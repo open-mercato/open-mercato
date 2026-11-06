@@ -114,7 +114,7 @@
   "sync_xero.tab.redirectUri.label": "Redirect-URI",
   "sync_xero.tab.redirectUri.unavailable": "Legen Sie APP_URL fest, um die Redirect-URI anzuzeigen",
   "sync_xero.tab.retry": "Erneut versuchen",
-  "sync_xero.tab.revocationUnconfirmed": "Xero hat nicht bestätigt, dass der Zugriff von Open Mercato beendet wurde. Entfernen Sie die App unter „Connected apps“ der Organisation in Xero.",
+  "sync_xero.tab.revocationUnconfirmed": "Open Mercato hat keine Bestätigung, dass Xero den Zugriff beendet hat. Entfernen Sie die App unter „Connected apps“ der Organisation in Xero.",
   "sync_xero.tab.seamNotice": "Testmodus: Diese Organisation spricht mit den Xero-Testattrappen, nicht mit Xero.",
   "sync_xero.tab.state.account_pending": "Keine Organisation gewählt",
   "sync_xero.tab.state.connected": "Verbunden",

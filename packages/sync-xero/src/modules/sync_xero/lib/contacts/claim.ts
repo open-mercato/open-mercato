@@ -22,7 +22,7 @@ export type ClaimCompanyMappingInput = {
 /**
  * `lost` with a winner: the Contact is already mapped to another Company, which the caller uses
  * (`winnerDeleted` when that Company was deleted in OM). `lost` without one: the candidate is
- * mapped to another Contact, so the caller drops it and matches again.
+ * mapped to another Contact or no longer exists, so the caller drops it and matches again.
  */
 export type ClaimCompanyMappingOutcome =
   | { outcome: 'won' }
@@ -68,6 +68,7 @@ export async function claimCompanyMapping(input: ClaimCompanyMappingInput): Prom
       }
       const candidateExternalId = await mappings.lookupExternalId(XERO_INTEGRATION_ID, XERO_COMPANY_MAPPING_TYPE, candidateEntityId, scope)
       if (candidateExternalId && candidateExternalId !== externalId) return { outcome: 'lost', winnerEntityId: null }
+      if (!(await companyExists(txEm, scope, candidateEntityId))) return { outcome: 'lost', winnerEntityId: null }
       await mappings.storeExternalIdMapping(XERO_INTEGRATION_ID, XERO_COMPANY_MAPPING_TYPE, candidateEntityId, externalId, scope)
       return { outcome: 'won' }
     },
