@@ -1,6 +1,55 @@
 # Issue 8204 validation evidence
 
-Status: implementation in draft. Live UI exploration and focused regression tests pass; the new native integration suite and full configured local gate remain incomplete.
+The sections under **Earlier attempts** preserve the evidence and limitations as they were recorded; their incomplete-gate statements describe those historical attempts. The current result is below.
+
+## Verified candidate — 2026-11-06
+
+All eight configured validation commands passed in order on `315ff6ee628416c9079b49ce32a24a7b2d37273e` (tree `8cc81aa910b09bcb4584d1cccc9f78c173b0c0fd`). This candidate includes canonical main through `8687fc8e2f6fb15690b3460ca0c67b8b7ba7ee3d`, the field-only injection rejection correction, and the dependent form regression assertion correction. Results below belong to this exact source; they do not claim validation of a later combined branch.
+
+Runner: local, selected once because no compose app was running. Runtime: official Node 24.22.2 arm64 and repository-pinned Yarn 4.17.1. Normal immutable installation passed on the same lockfile before these source-only corrections. No hooks, worker settings, test timeouts, retries, assertions or validation commands were bypassed. Optional real-database test inputs were absent at the actual unit invocation; no peer URL or explicit database sentinel was supplied. The root test script's own heap and concurrency defaults remained unchanged.
+
+| Ordered command | Result | Wall time | Native task/cache evidence |
+| --- | --- | --- | --- |
+| `yarn build:packages` | PASS | 8.135s | 42/42 tasks, 41 cached |
+| `yarn generate` | PASS | 6.942s | Working tree remained clean |
+| `yarn build:packages` | PASS | 0.685s | 42/42 tasks, 42 cached |
+| `yarn i18n:check-sync` | PASS | 1.330s | 70 modules synchronized |
+| `yarn i18n:check-usage` | PASS | 142.698s | Existing unused-key advisory retained |
+| `yarn typecheck` | PASS | 3.062s | 42/42 tasks, 41 cached |
+| `yarn test` | PASS | 284.725s | 51/51 tasks, 5 cached; core 27,055 passed/241 skipped; create-app 1,114 passed/6 skipped |
+| `yarn build:app` | PASS | 88.323s | 1/1 task, zero cached; eight dynamic-filesystem tracing warnings retained |
+
+The full sequence completed at 04:15:18 UTC. All foreground results were collected, all recorded owned validation processes exited, both source checkouts remained clean, and the lockfile and staged entries were unchanged. `git diff --check` also passed. This completes the configured local gate; it is not human QA approval.
+
+### Corrections and regression proof
+
+A fresh content review identified an existing injection consumer that vetoes saving with field errors but no general message. `7cb0d9492c03460ca559bfa11bc3c11aa9a5114e` makes the summary select the first non-empty translated/transformed field reason before the generic fallback. Explicit messages retain precedence, inline errors remain, repeated rejection is revealed, and successful saving does not scroll.
+
+```sh
+yarn workspace @open-mercato/ui test --runInBand src/backend/__tests__/CrudForm.injectionScroll.test.tsx
+```
+
+Corrected source: 10 passed (2.938s). Temporarily substituting only the preceding CrudForm source while retaining the new tests: two expected failures/eight passes (2.337s). Exact restoration: 10 passed (2.403s). Source restoration was verified; no other checkout, test configuration or assertion was changed.
+
+The next full gate found a real dependent test ambiguity: `CreateDealForm.test.tsx` expected one global `Priority blocked` match, while the form now correctly renders both inline and summary messages. A first scoped correction used a saved DOM node and failed (one failed/eight passed, 4.054s). The final correction queries the current field wrapper inside `waitFor`, separately verifies the actual summary, and reacquires the current input for the successful retry. Blocked-create, guard-once, after-save completion, payload stripping, navigation and one-form checks remain intact.
+
+```sh
+yarn workspace @open-mercato/core test --runInBand src/modules/customers/components/detail/create/__tests__/CreateDealForm.test.tsx
+```
+
+PASS: nine tests, 2.924s, on `315ff6ee`, followed by the complete passing gate above. The preceding `7cb0` full run failed after 237.471s with that single ambiguous consumer test; app build was not run on the failed attempt. These were change-related failures, not baseline exceptions. Independent content review approved the field-only and current-DOM corrections. A later comparison with concurrent published work identified an additional drawer Select teardown focus race; see the open review item below.
+
+### Open review item after the passing gate
+
+The published branch contains a concurrent drawer repair (`99c1e7d253012b2d357ff45a5cf3d7d6c4b051c3`, published through `418d73d3180d9997765e713177ae9304cdba4a1c`) that was absent from candidate315ff6. Read-only review confirmed that Radix Select can restore trigger focus during delayed teardown after a fast rejection focused the notice. The repair preserves notice focus only when it already owns focus and adds real-Select rejection/cancel/success controls. Its isolated content is approved. Ordinary merge `bfb236ae7e568069a9867ab5fa94fff0ac23270a` preserves both315ff6 and418d73 plus all previously published work; combined-source validation remains outstanding. The eight passing commands above do not resolve or waive that finding.
+
+### Accepted integration and manual UI evidence
+
+At coverage commit `4d568dfd64156d1f055ed8ff0bd9653856f4d014`, [native CI run 41849313454](https://github.com/open-mercato/open-mercato/actions/runs/41849313454) passed all 15 integration shards. All four new issue cases and all three adjusted existing validation cases passed on their first attempt: dialog 5.6s, claim race 5.2s, stale status 5.4s, long page 9.9s, CAT 2.1s, CGRP 2.3s, CRM 3.1s. This supersedes the outstanding rerun requirement from the earlier failed native attempts documented below; it does not erase those attempts.
+
+The completed [manual UI report and five screenshots](https://github.com/open-mercato/open-mercato/pull/8672#issuecomment-6633453276) cover oversized/repeated page rejection, dialog focus and keyboard retry, a real claim race, stale status rejection and successful recovery. This accepted integration and manual evidence was not duplicated for the later unit-covered field-only and dependent-test corrections. Mobile-width, restricted-role, all-locale and full perceived-performance checks remain unexercised. `needs-qa` remains required; neither `qa-approved` nor merge approval is claimed.
+
+## Earlier attempts
 
 ## Eligibility and scope
 
@@ -10,13 +59,13 @@ Status: implementation in draft. Live UI exploration and focused regression test
 - Source commit: `4ab9dee741660a3fc526a99ddeb5992a03a4a88c`, branch `cez/a6fed540`.
 - Existing component contracts, mutation guards, optimistic locking, message translation and conflict banner remain intact. New shared reveal helper is integrated into CrudForm and staff TaskDrawer.
 
-## Environment
+## Earlier environment
 
 Local runner selected once: no compose app was running. Node 24.18.0; `yarn install --immutable` passed with existing peer warnings and no lockfile changes. macOS requires a private task-specific short directory made with `mktemp -d /private/tmp/cz-XXXXXX`; pass that directory as `TMPDIR`, `TMP`, `TEMP` and, for browser tools, `PWTEST_SOCKETS_DIR` to every command. No hooks were bypassed.
 
 Browser verification uses the native ephemeral runner with a new task-owned disposable database. The earlier stale descriptor was replaced through the normal managed lifecycle. Cold start, warm reuse, live UI exploration, and a source-freshness rebuild completed successfully; no developer/shared database is used.
 
-## Ordered configured gate
+## Earlier ordered configured gate
 
 Each command has a 1800-second process timeout.
 
