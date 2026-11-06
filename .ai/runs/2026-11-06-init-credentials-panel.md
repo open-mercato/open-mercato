@@ -15,5 +15,7 @@ Terminal widths and piped child output require explicit width/color propagation.
 
 ## Progress
 
-- [ ] 1.1 Implement panel and compact summary rendering
+PR: #8894
+
+- [x] 1.1 Implement panel and compact summary rendering — 595c7938c
 - [ ] 1.2 Verify rendering, validation and code review
