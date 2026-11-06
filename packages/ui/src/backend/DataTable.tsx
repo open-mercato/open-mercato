@@ -1967,6 +1967,8 @@ function DataTableImpl<T extends RowData>({
       onExpandedChange: handleExpandedChange,
     } : {}),
     manualSorting: manualSorting === true,
+    sortDescFirst: false,
+    enableMultiSort: false,
     getRowId: resolveDataTableRowId,
     state: { sorting, columnVisibility, columnOrder, rowSelection, ...(expansionEnabled ? { expanded: expandedState } : {}) },
     enableRowSelection: hasInjectedBulkActions,
@@ -3888,7 +3890,7 @@ function DataTableImpl<T extends RowData>({
                       variant="ghost"
                       type="button"
                       className="h-auto p-0 has-[>svg]:px-0 font-medium cursor-pointer select-none"
-                      onClick={() => header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
+                      onClick={header.column.getToggleSortingHandler()}
                     >
                       {headerContent}
                       {(() => {
