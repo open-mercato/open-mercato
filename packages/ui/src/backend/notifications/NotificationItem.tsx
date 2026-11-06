@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Bell, AlertTriangle, CheckCircle2, XCircle, Info, Loader2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
-import { Badge } from '../../primitives/badge'
+import { StatusBadge } from '../../primitives/status-badge'
 import { IconButton } from '../../primitives/icon-button'
 import { flash } from '../FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -227,11 +227,11 @@ export function NotificationItem({
             {titleText}
           </p>
           {notification.status === 'actioned' && notification.actionTaken ? (
-            <Badge variant="neutral" className="whitespace-normal">
+            <StatusBadge variant="neutral" className="whitespace-normal">
               {t('notifications.actionTaken', 'Action taken: {action}', {
                 action: resolveActionLabel(notification.actionTaken, notification.actions, t),
               })}
-            </Badge>
+            </StatusBadge>
           ) : null}
         </div>
 
