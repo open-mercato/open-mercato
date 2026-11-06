@@ -7,6 +7,9 @@ import { parseEnv } from 'node:util'
 
 const FAILURE = '[setup] Encryption compatibility could not be verified; database writes are blocked. Restore the original TENANT_DATA_ENCRYPTION settings and encryption keys, and check Vault/KMS access (including historical tenant keys and FORMS_ENCRYPTION_MASTER_KEY). Do not regenerate keys or reinstall this database. Ensure matching application packages are installed and built. Inspect permissions and unsupported encrypted stores with your administrator, or select a separate empty database. No preflight database or KMS writes were performed.'
 const MAX_ROWS = 100_000
+const SAMPLE_ROWS_PER_SCOPE = 5
+const ENVELOPE_PATTERN = '[A-Za-z0-9+/]{16}:[A-Za-z0-9+/=]*:[A-Za-z0-9+/=]+:v[0-9]+'
+const OPAQUE_BINARY_COLUMNS = new Set(['document_contents.yjs_state', 'document_versions.yjs_snapshot'])
 const MAX_BYTES = 64 * 1024 * 1024
 const TIMEOUT_MS = 60_000
 
@@ -27,13 +30,17 @@ function settingsFor(projectDir, envFiles, env) {
   return { ...settings, ...env }
 }
 
+class EncryptionCompatibilityError extends Error {
+  constructor() { super(FAILURE); this.name = 'EncryptionCompatibilityError' }
+}
+
 export async function assertEncryptionCompatible({ projectDir = process.cwd(), envFiles = [], env = process.env, runProbe = runIsolatedProbe } = {}) {
-  const settings = settingsFor(projectDir, envFiles, env)
   try {
+    const settings = settingsFor(projectDir, envFiles, env)
     const status = await runProbe(projectDir, settings)
     if (!['empty', 'plaintext-only', 'verified'].includes(status)) throw new Error(FAILURE)
     return { status, settings }
-  } catch { throw new Error(FAILURE) }
+  } catch { throw new EncryptionCompatibilityError() }
 }
 
 function runIsolatedProbe(projectDir, settings) {
@@ -76,9 +83,8 @@ export async function inspectEncryptionCompatibility({ client, kms, decrypt, res
   const inspectValue = async (value, keyId, depth = 0) => {
     if (depth > 32) throw new Error(FAILURE)
     if (typeof value === 'string') {
-      if (/^\\x[0-9a-f]+$/i.test(value)) throw new Error(FAILURE)
       const envelopeParts = value.split(':')
-      if (envelopeParts.length === 4 && /^v\d+$/.test(envelopeParts[3])) {
+      if (envelopeParts.length === 4 && /^[A-Za-z0-9+/]{16}$/.test(envelopeParts[0]) && /^v\d+$/.test(envelopeParts[3])) {
         if (!encryptionEnabled || !keyId) throw new Error(FAILURE)
         let dek = keys.get(keyId)
         if (!dek) {
@@ -106,10 +112,11 @@ export async function inspectEncryptionCompatibility({ client, kms, decrypt, res
     await client.query("SET LOCAL statement_timeout = '10s'")
     await client.query('SET LOCAL row_security = off')
     const { rows: tables } = await client.query(`SELECT n.nspname AS schema, c.relname AS name, c.relkind AS kind,
-      c.relrowsecurity AS rls, a.attname AS column, t.typname AS type
+      c.relrowsecurity AS rls, a.attname AS column, COALESCE(base.typname, t.typname) AS type
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
       JOIN pg_type t ON t.oid = a.atttypid
+      LEFT JOIN pg_type base ON base.oid = NULLIF(t.typbasetype, 0)
       WHERE c.relkind IN ('r', 'p', 'm', 'f') AND n.nspname NOT IN ('pg_catalog', 'information_schema')
       AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%'
       ORDER BY n.nspname, c.relname, a.attnum`)
@@ -117,11 +124,34 @@ export async function inspectEncryptionCompatibility({ client, kms, decrypt, res
     for (const column of tables) {
       if (column.rls || column.kind === 'f') throw new Error(FAILURE)
       const id = `${quote(column.schema)}.${quote(column.name)}`
-      if (!inventory.has(id)) inventory.set(id, { ...column, binary: [] })
-      if (column.type === 'bytea') inventory.get(id).binary.push(column.column)
+      if (!inventory.has(id)) inventory.set(id, { ...column, binary: [], columns: [] })
+      inventory.get(id).columns.push(column.column)
+      if (['bytea', '_bytea'].includes(column.type)) inventory.get(id).binary.push(column.column)
     }
     for (const [table, metadata] of inventory) {
-      await client.query(`DECLARE encryption_preflight NO SCROLL CURSOR FOR SELECT to_jsonb(record) AS record FROM ${table} record`)
+      const { rows: presence } = await client.query(`SELECT EXISTS(SELECT 1 FROM ${table}) AS populated`)
+      if (!presence[0]?.populated) continue
+      if (!metadata.name.startsWith('mikro_orm_migrations')) applicationRows += 1
+      if (metadata.columns.includes('tenant_id') && metadata.name !== 'onboarding_requests') {
+        const { rows: tenantScopes } = await client.query(`SELECT DISTINCT tenant_id::text AS scope FROM ${table} WHERE tenant_id IS NOT NULL`)
+        for (const { scope } of tenantScopes) scopes.add(scope)
+      }
+      if (metadata.name === 'onboarding_requests') scopes.add(resolveKeyId('onboarding:onboarding_request', 'system', null))
+      const selectedColumns = metadata.columns.filter(column => !OPAQUE_BINARY_COLUMNS.has(`${metadata.name}.${column}`))
+      const binaryColumns = metadata.binary.filter(column => selectedColumns.includes(column))
+      const knownForms = metadata.name === 'forms_encryption_key' || metadata.name === 'forms_form_submission_revision' || metadata.name === 'forms_form_attachment'
+      if (binaryColumns.length && !knownForms) {
+        const { rows: binaryPresence } = await client.query(`SELECT EXISTS(SELECT 1 FROM ${table} WHERE ${binaryColumns.map(column => `${quote(column)} IS NOT NULL`).join(' OR ')}) AS populated`)
+        if (binaryPresence[0]?.populated) throw new Error(FAILURE)
+      }
+      const projection = selectedColumns.length ? `SELECT ${selectedColumns.map(quote).join(', ')} FROM ${table}` : `SELECT NULL AS empty FROM ${table}`
+      const binaryPredicate = binaryColumns.map(column => `record->>'${column.replaceAll("'", "''")}' IS NOT NULL`).join(' OR ')
+      const partition = metadata.name.startsWith('forms_') ? "record->>'organization_id', record->>'key_version', record->>'encryption_key_version'" : "record->>'tenant_id'"
+      await client.query(`DECLARE encryption_preflight NO SCROLL CURSOR FOR
+        WITH projected AS (SELECT to_jsonb(source) AS record FROM (${projection}) source),
+        candidates AS (SELECT record, row_number() OVER (PARTITION BY ${partition} ORDER BY record->>'id') AS sample
+          FROM projected WHERE record::text ~ '${ENVELOPE_PATTERN}' ${binaryPredicate ? `OR ${binaryPredicate}` : ''})
+        SELECT record FROM candidates WHERE sample <= ${SAMPLE_ROWS_PER_SCOPE}`)
       try {
         while (true) {
           const { rows } = await client.query('FETCH FORWARD 100 FROM encryption_preflight')
@@ -133,10 +163,7 @@ export async function inspectEncryptionCompatibility({ client, kms, decrypt, res
             const keyId = metadata.name === 'onboarding_requests'
               ? resolveKeyId('onboarding:onboarding_request', 'system', record.tenant_id)
               : record.tenant_id
-            if (!metadata.name.startsWith('mikro_orm_migrations')) {
-              applicationRows += 1
-              if (keyId) scopes.add(keyId)
-            }
+            if (keyId) scopes.add(keyId)
             for (const column of metadata.binary) {
               const value = record[column]
               if (value === null) continue

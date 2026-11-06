@@ -33,7 +33,7 @@ function testContext(source, overrides = {}) {
     formatProgressLine: () => '',
     resolveProgressPercent: () => 0,
     updateSplashState() {},
-    console: { log() {} },
+    console: { log() {}, warn() {} },
     shouldAutoMigrateOnDev: () => true,
     ...overrides,
   }
@@ -69,7 +69,7 @@ for (const file of devFiles) {
       const order = []
       const context = testContext(source, {
         async assertDatabaseWriteAllowed() { order.push('remote'); return { remote: false } },
-        async assertEncryptionCompatible() { order.push('encryption'); throw new Error('Encryption compatibility rejected') },
+        async assertEncryptionCompatible() { order.push('encryption'); throw Object.assign(new Error('Encryption compatibility rejected'), { name: 'EncryptionCompatibilityError' }) },
         spawnCommand() { spawned = true; throw new Error('must not spawn') },
         spawnMcpCommand() { spawned = true; throw new Error('must not spawn') },
       })
@@ -77,7 +77,8 @@ for (const file of devFiles) {
       const argumentsForLauncher = launcher === 'runRawYarnCommand' ? [['initialize', '--reinstall']]
         : ['applyPendingMigrationsBestEffort', 'provisionMcpApiKey'].includes(launcher) ? []
           : ['Applying migrations', ['db:migrate']]
-      await assert.rejects(run(...argumentsForLauncher), /Encryption compatibility rejected/)
+      if (launcher === 'applyPendingMigrationsBestEffort') await run(...argumentsForLauncher)
+      else await assert.rejects(run(...argumentsForLauncher), /Encryption compatibility rejected/)
       assert.deepEqual(order, ['remote', 'encryption'])
       assert.equal(spawned, false)
     })

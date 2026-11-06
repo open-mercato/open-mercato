@@ -14,7 +14,7 @@ import test from 'node:test'
 // what setup forwarded to it.
 
 const TEMPLATE_SCRIPTS = fileURLToPath(new URL('../../template/scripts/', import.meta.url))
-const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-service-modes.mjs', 'dev-service-connections.mjs', 'dev-database-write-guard.mjs', 'dev-encryption-preflight.mjs', 'dev-session-guard.mjs']
+const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-service-modes.mjs', 'dev-service-connections.mjs', 'dev-database-write-guard.mjs', 'dev-session-guard.mjs']
 const skip = process.platform === 'win32' ? 'fake docker shim is a POSIX shell script' : false
 
 const FAKE_DOCKER = `#!/bin/sh
@@ -70,7 +70,7 @@ async function freePort(): Promise<number> {
 async function makeApp() {
   const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-setup-infra-'))
   fs.mkdirSync(path.join(appDir, 'scripts'))
-  for (const file of SHIPPED_SCRIPTS) {
+  for (const file of [...SHIPPED_SCRIPTS, 'dev-encryption-preflight.mjs']) {
     fs.copyFileSync(path.join(TEMPLATE_SCRIPTS, file), path.join(appDir, 'scripts', file))
   }
   fs.writeFileSync(path.join(appDir, 'scripts', 'dev.mjs'), DEV_STUB)

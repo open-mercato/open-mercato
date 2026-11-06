@@ -1,6 +1,6 @@
 # Setup encryption compatibility preflight
 
-Status: complete
+Status: in-progress
 Source doc: .ai/specs/2026-07-19-unified-starter-package.md
 
 ## Goal
@@ -52,8 +52,8 @@ PR: #8913 (supersedes #8908)
 
 ### Phase 3: Verification and publication
 
-- [x] 3.1 Run focused tests, then configured validation in order; document concrete blockers. — 823a589d0
-- [x] 3.2 Review compatibility/security and publish evidence and resumable handoff on the new PR. — 823a589d0
+- [ ] 3.1 Run focused tests, then configured validation in order; document concrete blockers.
+- [ ] 3.2 Review compatibility/security and publish evidence and resumable handoff on the new PR.
 
 
 ## Prior branch validation evidence (superseded by refreshed verification)
@@ -68,3 +68,7 @@ Focused starter/write-boundary tests: 251 passed, 1 opt-in PostgreSQL skip. Stan
 Runner: local, with task-owned temporary directories outside the repository and verified isolated Docker Buildx tooling. No repository/production dependency changes. Both package builds, generate, i18n sync/usage, typecheck, full `yarn test` and optimized app build pass. Full gate: 51/51 Turbo tasks successful; CLI 121 suites / 2,561 tests pass; core 2,700 suites / 27,124 tests pass (standard integration skips remain); create-app 1,145 tests pass / 4 standard skips. Additional scripts: 1,575 pass / 5 standard skips; standalone setup 37 pass; dedicated live PostgreSQL test passes with no skips. Latest focused shell/scanner/boundary run: 45 pass. Actual live fixture covers host/source-mounted and installed-container helper layouts, real correct/wrong/missing tenant/Forms keys, Vault GET-only success/403/404/503/unavailable, nested/system data, plaintext, empty/missing/migration-only DBs and no mutation on refusal.
 
 Static review has no remaining findings. Initial review findings were fixed: version-suffixed plaintext recognition, Docker command coverage and fatal encryption refusal during ACL sync. The full-suite Linux harness fixture correction changes only its fake-runner location; no assertions or runtime sandbox policy are weakened. Original setup branch and published draft history are intact. Final-head CI/independent approval/QA remain external gates; this task does not merge.
+
+## Independent review follow-up
+
+External review/QA at 3587b60ffc identified five actionable findings. Revised proof uses five server-filtered candidate rows per store/scope, excludes known Documents CRDT columns, recognises canonical IV-shaped envelopes, preserves best-effort optional dev migration behavior while leaving remote-target guards intact, and creates unique fallback configuration only for a fresh unconfigured environment. Live reported cases (Documents, 150k plaintext and encrypted rows, URNs) now pass; revised full gate and review remain pending.

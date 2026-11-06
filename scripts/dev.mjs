@@ -2673,7 +2673,13 @@ function startMcpRuntime() {
 
 async function applyPendingMigrationsBestEffort() {
   if (!shouldAutoMigrateOnDev()) return
-  await guardDatabaseMutation(['db:migrate'])
+  try {
+    await guardDatabaseMutation(['db:migrate'])
+  } catch (error) {
+    if (error?.name !== 'EncryptionCompatibilityError') throw error
+    console.warn('[setup] Automatic migrations were skipped because encryption compatibility could not be verified. Restore the configured encryption keys and service access before running setup.')
+    return
+  }
   console.log('🗄️ Applying database migrations...')
   const child = spawnCommand(yarnCommand, ['db:migrate'], {
     label: 'Applying database migrations',

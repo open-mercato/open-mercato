@@ -54,6 +54,18 @@ test('disposable PostgreSQL: actual isolated helpers prove keys and rejected reu
     const before = (await client.query('SELECT row_to_json(record) AS record FROM protected_fixture record')).rows
     assert.equal((await run()).status, 'verified')
     assert.equal((await run({}, path.join(repository, 'apps', 'mercato'))).status, 'verified')
+    await client.query('CREATE TABLE document_contents (tenant_id uuid, yjs_state bytea, content_text text)')
+    await client.query('CREATE TABLE document_versions (tenant_id uuid, yjs_snapshot bytea)')
+    await client.query('INSERT INTO document_contents VALUES ($1, $2, $3)', [tenant, Buffer.from([1, 2, 3]), 'urn:om:sku:v2'])
+    await client.query('INSERT INTO document_versions VALUES ($1, $2)', [tenant, Buffer.from([4, 5, 6])])
+    assert.equal((await run()).status, 'verified')
+    await client.query('CREATE TABLE audit_fixture (tenant_id uuid, message text, protected_value text)')
+    await client.query("INSERT INTO audit_fixture SELECT $1::uuid, repeat('audit', 150), NULL::text FROM generate_series(1, 150000)", [tenant])
+    assert.equal((await run()).status, 'verified')
+    await client.query('UPDATE audit_fixture SET protected_value = $1', [sealed])
+    assert.equal((await run()).status, 'verified')
+    await client.query('DROP TABLE audit_fixture')
+
     for (const changes of [
       { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'wrong-fixture-key' },
       { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: '' },

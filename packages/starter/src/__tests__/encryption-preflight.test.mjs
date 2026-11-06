@@ -17,7 +17,12 @@ function fixture(records, options = {}) {
   let fetched = false
   const client = { async query(sql) {
     queries.push(sql)
-    if (sql.includes('FROM pg_class')) return { rows: [{ schema: 'public', name: options.table ?? 'fixture', kind: 'r', column: 'value', type: 'text', rls: false, ...options.metadata }] }
+    if (sql.includes('FROM pg_class')) {
+      const base = { schema: 'public', name: options.table ?? 'fixture', kind: 'r', rls: false }
+      return { rows: [{ ...base, column: 'value', type: 'text', ...options.metadata }, ...(records.some(record => record.tenant_id) ? [{ ...base, column: 'tenant_id', type: 'uuid' }] : [])] }
+    }
+    if (sql.startsWith('SELECT EXISTS')) return { rows: [{ populated: records.length > 0 }] }
+    if (sql.startsWith('SELECT DISTINCT')) return { rows: [...new Set(records.map(record => record.tenant_id).filter(Boolean))].map(scope => ({ scope })) }
     if (sql.startsWith('FETCH')) { const rows = fetched ? [] : records.map(record => ({ record: structuredClone(record) })); fetched = true; return { rows } }
     return { rows: [] }
   } }
@@ -67,10 +72,10 @@ test('empty, plaintext-only and unavailable KMS have distinct safe outcomes', as
 test('unknown versions, malformed ciphertext, unknown scope, incomplete scans and RLS fail closed', async () => {
   for (const input of [
     fixture([{ tenant_id: tenant, value: sealed.replace(/v1$/, 'v2') }]),
-    fixture([{ tenant_id: tenant, value: 'broken:payload:tag:v1' }]),
+    fixture([{ tenant_id: tenant, value: 'AAAAAAAAAAAAAAAA:payload:tag:v1' }]),
     fixture([{ value: sealed }]),
-    { ...fixture([{ value: 'plain' }]), maxRows: 0 },
-    { ...fixture([{ value: 'plain' }]), maxBytes: 0 },
+    { ...fixture([{ tenant_id: tenant, value: sealed }]), maxRows: 0 },
+    { ...fixture([{ tenant_id: tenant, value: sealed }]), maxBytes: 0 },
     fixture([], { metadata: { rls: true } }),
     fixture([], { metadata: { kind: 'f' } }),
     fixture([{ value: '\\x0102' }], { metadata: { type: 'bytea' } }),
@@ -144,7 +149,7 @@ test('environment convergence never generates an encryption fallback for reused 
 
 
 test('ordinary version-suffixed plaintext remains compatible before and after authenticated decryption', async () => {
-  const plaintext = 'customer-api:v1'
+  const plaintext = 'urn:om:sku:v2'
   assert.equal(await inspectEncryptionCompatibility(fixture([{ tenant_id: tenant, value: plaintext }])), 'plaintext-only')
   const encrypted = encryptWithAesGcm(plaintext, correct).raw
   assert.equal(await inspectEncryptionCompatibility(fixture([{ tenant_id: tenant, value: encrypted }])), 'verified')
@@ -173,4 +178,24 @@ test('container command wrapper freezes verified settings and never spawns on re
   assert.equal(received.command, 'sh')
   assert.equal(received.env.DATABASE_URL, 'verified-fixture')
   assert.equal(received.env.TENANT_DATA_ENCRYPTION_KEY, 'verified-fixture-key')
+})
+
+
+test('brand-new environments receive unique encryption configuration shared by root and app', async () => {
+  const { ensureEnvFiles } = await import('../env-setup.mjs')
+  const directories = []
+  const keys = []
+  try {
+    for (const index of [0, 1]) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), `om-fresh-encryption-${index}-`)); directories.push(dir)
+      const app = path.join(dir, 'apps', 'mercato'); fs.mkdirSync(app, { recursive: true })
+      fs.writeFileSync(path.join(app, '.env.example'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=public-fixture-placeholder\nJWT_SECRET=placeholder\n')
+      ensureEnvFiles(dir, { log() {}, warn() {}, env: {} })
+      const rootKey = fs.readFileSync(path.join(dir, '.env'), 'utf8').match(/^TENANT_DATA_ENCRYPTION_FALLBACK_KEY=(.+)$/m)?.[1]
+      assert.match(rootKey, /^[a-f0-9]{64}$/)
+      assert.ok(fs.readFileSync(path.join(app, '.env'), 'utf8').includes(`TENANT_DATA_ENCRYPTION_FALLBACK_KEY=${rootKey}`))
+      keys.push(rootKey)
+    }
+    assert.notEqual(keys[0], keys[1])
+  } finally { for (const dir of directories) fs.rmSync(dir, { recursive: true, force: true }) }
 })
