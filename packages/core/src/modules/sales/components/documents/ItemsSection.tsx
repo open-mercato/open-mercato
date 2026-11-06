@@ -427,6 +427,8 @@ export function SalesDocumentItemsSection({
                 typeof item.product_variant_id === "string"
                   ? item.product_variant_id
                   : null,
+              serviceId:
+                typeof item.service_id === "string" ? item.service_id : null,
               quantity,
               quantityUnit,
               normalizedQuantity,
@@ -1118,6 +1120,7 @@ export function SalesDocumentItemsSection({
         documentId={documentId}
         currencyCode={currencyCode}
         documentUpdatedAt={documentUpdatedAt}
+        existingLineCount={items.length}
         organizationId={resolvedOrganizationId}
         tenantId={resolvedTenantId}
         initialLine={lineForEdit}

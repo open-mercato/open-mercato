@@ -512,6 +512,22 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'product'",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "line_number": {
           "name": "line_number",
           "type": "int",
@@ -655,6 +671,22 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "text"
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         },
         "sku": {
           "name": "sku",
@@ -2882,6 +2914,22 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "service_id": {
+          "name": "service_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
         "sku": {
           "name": "sku",
           "type": "text",
@@ -4701,6 +4749,22 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "decimal"
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         },
         "status": {
           "name": "status",
@@ -7724,6 +7788,22 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "service_id": {
+          "name": "service_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
           "unique": false,
           "length": null,
           "precision": null,

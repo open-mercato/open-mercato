@@ -18,6 +18,8 @@ export const setup: ModuleSetupConfig = {
     employee: [
       'catalog.products.view',
       'catalog.products.manage',
+      'catalog.services.view',
+      'catalog.services.manage',
       'catalog.categories.view',
       'catalog.categories.manage',
       'catalog.variants.manage',
