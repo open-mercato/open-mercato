@@ -28,7 +28,7 @@ PR: #8971
 ### Phase 1: Patch dependencies
 
 - [x] 1.1 Verify installed vulnerable paths and add regression coverage — 81d1763c0
-- [ ] 1.2 Upgrade compatible dependencies and prove removal
+- [x] 1.2 Upgrade compatible dependencies and prove removal — 6b1d63f01
 
 ### Phase 2: Verify and publish
 
@@ -36,3 +36,5 @@ PR: #8971
 - [ ] 2.2 Recheck duplicates and obtain independent review
 
 Baseline: Yarn4.17.1 immutable install passes with existing native better-sqlite3/cpu-features build warnings. yarn why confirms Moment2.30.1 via react-big-calendar/moment-timezone ^2.29.4 and PostCSS8.5.22 forced globally. Four focused tests: both exploit regressions fail, both ordinary-consumer controls pass. Short TMPDIR needed for tsx Unix sockets.
+
+Patched Moment2.31.0 (Sep15) and PostCSS8.5.27 (Sep3); both older than5days. Refreshed Moment within existing ^2.29.4, retained existing PostCSS override and re-keyed existing nanoid3.3.18 pin to PostCSS new ^3.3.18 range. Pinned Yarn install and immutable install pass; check:resolutions passes30 keyed resolutions. All4 focused tests pass after correcting absent-map serialization in the assertion. Bulk npm advisory endpoint independently confirms target vulnerable ranges exclude patches. Runner local: neither prescribed compose app runs; fullapp compose probe requires unset JWT_SECRET; docker ps shows no running containers. Full gate uses TMPDIR=/tmp/om-e487 and TURBO_ENV_MODE=loose,600-second per-command bounds.
