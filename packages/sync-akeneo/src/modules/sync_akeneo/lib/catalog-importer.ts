@@ -93,6 +93,7 @@ type ResolvedHierarchy = {
   mergedValues: AkeneoValues
   categories: string[]
   parentChain: string[]
+  parentChainComplete: boolean
   associationSource: AkeneoProduct
   axisCodes: string[]
 }
@@ -1981,6 +1982,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         mergedValues: mergeValueLayers(product.values),
         categories: Array.isArray(product.categories) ? product.categories : [],
         parentChain: [],
+        parentChainComplete: true,
         associationSource: product,
         axisCodes: [],
       }
@@ -1988,9 +1990,13 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
 
     const chain: Array<{ code: string; values: AkeneoValues; categories: string[]; family?: string | null; familyVariant?: string | null }> = []
     let nextCode: string | null = product.parent
+    let parentChainComplete = true
     while (nextCode) {
       const model = await client.getProductModel(nextCode)
-      if (!model) break
+      if (!model) {
+        parentChainComplete = false
+        break
+      }
       chain.unshift({
         code: model.code,
         values: mergeValueLayers(model.values),
@@ -2017,6 +2023,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         ...(product.categories ?? []),
       ])),
       parentChain: chain.map((model) => model.code),
+      parentChainComplete,
       associationSource: product,
       axisCodes: [],
     }
@@ -2048,8 +2055,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         ? [params.hierarchy.rootValues, params.hierarchy.mergedValues]
         : [params.product.values ?? {}, params.hierarchy.mergedValues]
       const rawValue = readLayeredAkeneoValue(sourceLayers, fieldMapping.attributeCode, settings.locale, settings.channel ?? null)
-      const value = resolveCustomFieldValue(rawValue, attribute, kind)
-      if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) continue
+      const resolved = resolveCustomFieldValue(rawValue, attribute, kind)
+      const isEmpty = resolved === null || resolved === undefined || (Array.isArray(resolved) && resolved.length === 0)
+      if (isEmpty && !params.hierarchy.parentChainComplete) continue
+      const value = isEmpty ? null : resolved
       if (fieldMapping.target === 'product') {
         productCustomFields[normalizeFieldKey(fieldMapping.fieldKey)] = value
       } else {
@@ -2057,24 +2066,22 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       }
     }
 
-    await Promise.all([
-      setCustomFieldsIfAny({
-        dataEngine,
-        entityId: PRODUCT_ENTITY_ID,
-        recordId: params.localProductId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        values: productCustomFields,
-      }),
-      setCustomFieldsIfAny({
-        dataEngine,
-        entityId: VARIANT_ENTITY_ID,
-        recordId: params.localVariantId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        values: variantCustomFields,
-      }),
-    ])
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: PRODUCT_ENTITY_ID,
+      recordId: params.localProductId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      values: productCustomFields,
+    })
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: VARIANT_ENTITY_ID,
+      recordId: params.localVariantId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      values: variantCustomFields,
+    })
 
     await Promise.all([
       params.fieldsetPlan?.product?.code
