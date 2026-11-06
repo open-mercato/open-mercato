@@ -139,7 +139,7 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
 
       const before = (await listInteractions(request, token, personId)).find((item) => item.id === firstTaskId)
       expect(before?.updatedAt, 'task version should be available before concurrent update').toBeTruthy()
-      await dialog.getByRole('textbox', { name: 'Task title' }).fill(`${marker} edited title`)
+      await dialog.getByRole('textbox', { name: /^Title/ }).fill(`${marker} edited title`)
       const concurrentUpdate = await apiRequest(request, 'PUT', INTERACTIONS_API, {
         token,
         data: { id: firstTaskId, body: 'Concurrent description preserved' },
@@ -156,14 +156,14 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       await expect(conflictBanner).toContainText(/record changed|changed by another|modified by someone else|refresh and try again/i)
       await expect(page.getByText(/record_modified|Task updated/i)).toHaveCount(0)
       await expect(dialog).toBeVisible()
-      await expect(dialog.getByRole('textbox', { name: 'Task title' })).toHaveValue(`${marker} edited title`)
+      await expect(dialog.getByRole('textbox', { name: /^Title/ })).toHaveValue(`${marker} edited title`)
 
       const conflictVersion = (await listInteractions(request, token, personId)).find((item) => item.id === firstTaskId)?.updatedAt
       expect(conflictVersion, 'server should expose the refreshed task version after the concurrent update').toBeTruthy()
       expect(new Date(failedVersion).toISOString()).toBe(new Date(before!.updatedAt).toISOString())
       expect(new Date(conflictVersion!).toISOString()).not.toBe(new Date(failedVersion).toISOString())
       const retrySubmit = page.waitForRequest((outgoing: Request) => outgoing.method() === 'PUT' && outgoing.url().includes(INTERACTIONS_API))
-      await dialog.getByRole('textbox', { name: 'Task title' }).focus()
+      await dialog.getByRole('textbox', { name: /^Title/ }).focus()
       await page.keyboard.press('Control+Enter')
       const retryRequest = await retrySubmit
       expect(new Date(retryRequest.headers()[OPTIMISTIC_LOCK_HEADER_NAME]).toISOString()).toBe(new Date(conflictVersion!).toISOString())
