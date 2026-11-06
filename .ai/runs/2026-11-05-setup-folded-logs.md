@@ -53,3 +53,11 @@ Review follow-up: 0b72be2886 persists infrastructure preflight guidance and term
 - [x] 3.2 Verify spinner lifecycle, log toggles and prompts; publish the follow-up on PR #8838. — f1538d2031
 
 Phase 3 verification: all 89 starter tests passed; pre-commit translation/template parity and diff checks passed. Real PTY verified active working animation, log toggles, prompt handling, failure replay and terminal restoration. Follow-up review found no remaining issues after ensuring log-write warnings clear the spinner first. Full workspace gate was not repeated for this isolated terminal presentation follow-up; CI remains authoritative for the new head.
+
+
+### Phase 4: Remove duplicate log output
+
+- [x] 4.1 Replay only newly hidden output, fold silently, and remove the DEBUG LOGS heading from the initial hint. — 0b260251ad
+- [x] 4.2 Verify toggles, partial lines, failure reveal and full saved logs; publish the cleanup. — 0b260251ad
+
+Phase 4 verification: 91 starter tests passed; real PTY confirms the initial hint has no heading, hiding is silent and previously displayed compiler output appears only once after a failure reveal. Full saved output and partial-line handling remain covered. Review found no actionable findings.
