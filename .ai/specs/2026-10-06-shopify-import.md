@@ -86,6 +86,8 @@ No new HTTP routes. Runs use the existing `POST /api/data_sync/run` with `provid
 
 ## Out of scope
 
+Shopify remains enabled in the monorepo app only. The standalone template does not install `@open-mercato/sync-shopify`; template synchronization omits its registration and preserves existing scaffold defaults.
+
 Inventory and locations, collections, metafields, webhooks, export back to Shopify, and installing the connector on a shop outside the Dev Dashboard organization. Those remain on #607.
 
 ## Follow-ups

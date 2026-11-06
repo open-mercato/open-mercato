@@ -201,7 +201,7 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
 // apps/mercato for the maintainers' own seeding flow and out of the template until shipping
 // it to every scaffolded app is a deliberate maintainer call (it needs an evaluation-catalog
 // case before module-facts-build.test.ts will accept it).
-const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example', 'seeds'] as const
+const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example', 'seeds', 'sync_shopify'] as const
 const ENABLED_MODULES_DECLARATION = 'export const enabledModules: ModuleEntry[] = ['
 const EXAMPLE_CUSTOMERS_SYNC_GUARD = "if (enabledModules.some((entry) => entry.id === 'example')) {"
 
