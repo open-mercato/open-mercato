@@ -257,6 +257,30 @@ function extractRecordLockConflictPayload(error: unknown): {
   return null
 }
 
+const CONSTRAINT_VIOLATION_CODES = new Set(['UNIQUE_VIOLATION', 'FOREIGN_KEY_VIOLATION'])
+
+function isConstraintViolationError(error: unknown): boolean {
+  const queue: unknown[] = [error]
+  const visited = new Set<unknown>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current || visited.has(current)) continue
+    visited.add(current)
+    if (!isObjectRecord(current)) continue
+
+    if (typeof current.code === 'string' && CONSTRAINT_VIOLATION_CODES.has(current.code)) return true
+
+    const nested = ['body', 'response', 'data', 'details', 'error', 'cause']
+    for (const key of nested) {
+      const next = current[key]
+      if (next && !visited.has(next)) queue.push(next)
+    }
+  }
+
+  return false
+}
+
 function isRecordDeletedError(error: unknown): boolean {
   const queue: unknown[] = [error]
   const visited = new Set<unknown>()
@@ -362,6 +386,7 @@ export function resolveRecordLockSaveErrorDecision(args: {
     // the shared `optimisticLockFloor` detector so this arbitration stays identical to
     // the conflict bar's ownership decision (single source of truth).
     if (isOptimisticLockFloorConflict(error)) return { action: 'ignore' }
+    if (isConstraintViolationError(error)) return { action: 'ignore' }
     if (extractErrorStatus(error) === 409) return { action: 'fallback-dialog' }
     return { action: 'ignore' }
   }

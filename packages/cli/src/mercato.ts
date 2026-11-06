@@ -9,7 +9,9 @@ export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
-import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import { formatInitSummary } from './lib/init-summary'
+import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from './lib/init-secrets'
+import { decideExistingDatabase, formatSkipIfInitializedMessage } from './lib/init-existing-database'
 import {
   resolveAutoSpawnWorkersMode,
   resolveLazySpawnMode,
@@ -956,7 +958,7 @@ export function isHelpRequest(args: string[]): boolean {
 // generic help branch. Without an entry here, `mercato init --help` runs a full install.
 const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
   init: [
-    'Usage: mercato init [--reinstall|-r] [--no-examples] [--no-demo-users] [--stresstest [--lite] [--count=<n>]]',
+    'Usage: mercato init [--reinstall|-r] [--skip-if-initialized] [--no-examples] [--no-demo-users] [--stresstest [--lite] [--count=<n>]]',
     'Initializes this app: installs dependencies, runs generators, applies migrations and seeds data.',
   ],
   'agentic:init': [
@@ -1029,6 +1031,8 @@ export async function run(argv = process.argv) {
       } else if (process.env.OM_INIT_REINSTALL) {
         delete process.env.OM_INIT_REINSTALL
       }
+      const skipIfInitialized = initArgs.includes('--skip-if-initialized')
+      const credentials = skipIfInitialized && !reinstall ? undefined : resolveInitSuperadminCredentials(initArgs)
       const skipExamples = initArgs.includes('--no-examples')
       const skipDemoUsers = initArgs.includes('--no-demo-users')
       const stressTestEnabled =
@@ -1182,7 +1186,12 @@ export async function run(argv = process.argv) {
               'SELECT COUNT(*)::text AS count FROM users',
             )
             const existingUsersCount = Number.parseInt(countResult.rows?.[0]?.count ?? '0', 10)
-            if (Number.isFinite(existingUsersCount) && existingUsersCount > 0) {
+            const existingDatabase = decideExistingDatabase(existingUsersCount, skipIfInitialized)
+            if (existingDatabase === 'skip') {
+              for (const line of formatSkipIfInitializedMessage(existingUsersCount, dbUrl)) console.log(line)
+              return 0
+            }
+            if (existingDatabase === 'abort') {
               console.error(
                 `❌ Initialization aborted: found ${existingUsersCount} existing user(s) in the database.`,
               )
@@ -1200,6 +1209,8 @@ export async function run(argv = process.argv) {
           } catch {}
         }
       }
+
+      const { email, password, skipPasswordPolicy } = credentials ?? resolveInitSuperadminCredentials(initArgs)
 
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
@@ -1249,16 +1260,7 @@ export async function run(argv = process.argv) {
         }
         return fallback
       }
-      const readEnvDefault = (key: string) => {
-        const value = process.env[key]
-        if (typeof value === 'string' && value.trim().length > 0) return value.trim()
-        return undefined
-      }
-      const defaultEmail = readEnvDefault('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com'
-      const defaultPassword = readEnvDefault('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret'
       const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
-      const email = findArgValue(['--email='], defaultEmail)
-      const password = findArgValue(['--password='], defaultPassword)
       const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
       const adminEmailDerived = derivedSecrets.adminEmail
       const employeeEmailDerived = derivedSecrets.employeeEmail
@@ -1292,16 +1294,6 @@ export async function run(argv = process.argv) {
         process.env.OM_INIT_EMPLOYEE_EMAIL = employeeEmailDerived
       }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
-      const skipPasswordPolicyRaw = initArgs.find((arg) =>
-        arg === '--skip-password-policy' ||
-        arg.startsWith('--skip-password-policy=') ||
-        arg === '--allow-weak-password' ||
-        arg.startsWith('--allow-weak-password=')
-      )
-      const skipPasswordPolicy = skipPasswordPolicyRaw
-        ? parseBooleanToken(skipPasswordPolicyRaw.split('=')[1] ?? 'true') ?? true
-        : true
-
       console.log('🔐 Setting up RBAC and users...')
       // Run auth setup command via CLI
       const setupArgs = [
@@ -1475,25 +1467,18 @@ export async function run(argv = process.argv) {
         pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
         pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
       }
-      // Simplified success message: we know which users were created
-      console.log('🎉 App initialization complete!\n')
-      console.log('╔══════════════════════════════════════════════════════════════╗')
-      console.log('║  🚀 You\'re now ready to start development!                   ║')
-      console.log('║                                                              ║')
-      console.log('║  Start the dev server:                                       ║')
-      console.log('║    yarn dev                                                  ║')
-      console.log('║                                                              ║')
-      console.log('║  Users created:                                              ║')
-      for (const entry of createdUsers) {
-        const label = `${entry.icon} ${entry.label}:`
-        const labelPad = padByCodePointWidth(label, 13)
-        const entryPassword = createdPasswords.get(entry.email.toLowerCase()) ?? password
-        console.log(`║    ${labelPad}${entry.email.padEnd(42)} ║`)
-        console.log(`║       Password: ${entryPassword.padEnd(44)} ║`)
-      }
-      console.log('║                                                              ║')
-      console.log('║  Happy coding!                                               ║')
-      console.log('╚══════════════════════════════════════════════════════════════╝')
+      const summaryColor = parseBooleanToken(process.env.OM_INIT_SUMMARY_COLOR)
+      const summaryColumns = Number(process.env.OM_INIT_SUMMARY_COLUMNS ?? process.stdout.columns)
+      const summary = formatInitSummary({
+        users: createdUsers.map((entry) => ({
+          ...entry,
+          password: createdPasswords.get(entry.email.toLowerCase()) ?? password,
+        })),
+        autoStart: parseBooleanToken(process.env.OM_INIT_DEV_AUTOSTART) === true,
+        columns: summaryColumns,
+        color: process.env.NO_COLOR === undefined && (summaryColor ?? (Boolean(process.stdout.isTTY) || parseBooleanToken(process.env.FORCE_COLOR) === true)),
+      })
+      for (const line of summary) console.log(line)
 
       return 0
     } catch (error: unknown) {
@@ -2322,7 +2307,7 @@ export async function run(argv = process.argv) {
               )
               const nextProcess = spawn('node', nextDevCommand.args, {
                 stdio: ['inherit', 'pipe', 'pipe'],
-                env: runtimeEnv,
+                env: { ...runtimeEnv, NODE_ENV: 'development' },
                 cwd: appDir,
               })
               processes.push(nextProcess)

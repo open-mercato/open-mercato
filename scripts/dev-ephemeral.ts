@@ -14,7 +14,7 @@ import {
 } from '../packages/cli/src/lib/testing/runtime-utils'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createEphemeralShutdownController } from './dev-ephemeral-shutdown.mjs'
-import { acquireDevSession } from './dev-session-guard.mjs'
+import { acquireDevSessionWithRecovery as acquireDevSession } from './dev-session-recovery.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 import {
   resolveDevBaseUrl,
@@ -150,9 +150,9 @@ const splashState = {
   activities: [] as string[],
 }
 
-let devSession: ReturnType<typeof acquireDevSession>
+let devSession: Awaited<ReturnType<typeof acquireDevSession>>
 try {
-  devSession = acquireDevSession({
+  devSession = await acquireDevSession({
     workspaceRoot: projectRootDirectory,
     mode: `ephemeral:${classic ? 'classic' : verbose ? 'verbose' : 'compact'}`,
     role: 'ephemeral-runner',
@@ -170,6 +170,7 @@ const codingFlow = createDevSplashCodingFlow({
   env: process.env,
   platform: process.platform,
   launchDir: projectRootDirectory,
+  projectDir: projectRootDirectory,
   agenticSetupDir: null,
 })
 

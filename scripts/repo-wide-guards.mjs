@@ -124,6 +124,14 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/lib/__tests__/init-secrets.test.ts',
+        scans: 'starters/docker and packages/create-app/template full-app Compose defaults — production bootstrap credential safety (#7809)',
+      },
+      {
+        path: 'src/__tests__/documented-queue-subcommands.test.ts',
+        scans: 'apps/docs/docs/**/*.mdx — documented queue subcommands resolve through the real CLI dispatcher (#8511)',
+      },
+      {
         path: 'src/lib/generators/__tests__/attachment-access.test.ts',
         scans: 'packages/core attachments generator plugin — installed-package and monorepo owner-policy discovery/bootstrap (#6726)',
       },

@@ -113,3 +113,70 @@ export function isIgnorableTurboLine(line) {
   }
   return false
 }
+
+const SUMMARY_BOX_CHARS = /[╔║╚]/
+
+// Compact mode captures `mercato init` output into the log file only, which
+// used to hide the "Users created" box with the login credentials. Returns the
+// LAST double-line box (╔ … ╚) from the captured lines, with any turbo task
+// prefix stripped, or [] when the output has none.
+export function extractInitSummaryBox(lines) {
+  if (!Array.isArray(lines)) return []
+  const plain = lines.map((line) => stripAnsi(String(line ?? '')).replace(/\s+$/, ''))
+  let start = -1
+  for (let index = plain.length - 1; index >= 0; index -= 1) {
+    if (plain[index].includes('╔')) {
+      start = index
+      break
+    }
+  }
+  if (start === -1) return []
+  const box = []
+  for (let index = start; index < plain.length; index += 1) {
+    const line = plain[index]
+    const column = line.search(SUMMARY_BOX_CHARS)
+    if (column === -1) return []
+    box.push(line.slice(column))
+    if (line.includes('╚')) return box
+  }
+  return []
+}
+
+function extractInitSummaryPanel(lines) {
+  const plain = lines.map((line) => stripAnsi(String(line ?? '')))
+  for (let heading = plain.length - 1; heading > 0; heading -= 1) {
+    if (!plain[heading].includes('  🔑 ')) continue
+    const start = heading - 2
+    if (start < 0) continue
+    const column = plain[start].indexOf('━')
+    if (column < 0 || !/^━+\s*$/.test(plain[start].slice(column))) continue
+    const end = plain.findIndex((line, index) => index > heading && line.slice(column).trim() === plain[start].slice(column).trim())
+    if (end === -1) return []
+    return lines.slice(start, end + 1).map((line) => {
+      let offset = 0
+      let visible = 0
+      while (visible < column && offset < line.length) {
+        const escape = line.slice(offset).match(/^\u001b\[[0-9;]*m/)
+        if (escape) offset += escape[0].length
+        else {
+          offset += 1
+          visible += 1
+        }
+      }
+      return line.slice(offset).replace(/^(?:\u001b\[0m)+/, '')
+    })
+  }
+  return []
+}
+
+// What compact setup echoes after `mercato init`: the credentials box on a
+// first run, or the "already initialized" notice when a re-run kept the data.
+export function extractInitSummaryLines(lines) {
+  if (!Array.isArray(lines)) return []
+  const panel = extractInitSummaryPanel(lines)
+  if (panel.length > 0) return panel
+  const box = extractInitSummaryBox(lines)
+  if (box.length > 0) return box
+  const kept = lines.map((line) => normalize(line)).find((line) => line.includes('Database already initialized'))
+  return kept ? [kept] : []
+}
