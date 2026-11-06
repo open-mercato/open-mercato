@@ -42,12 +42,14 @@ PR: #8672
 
 ## Current validation state
 
-Verified candidate: `315ff6ee628416c9079b49ce32a24a7b2d37273e`. Exact commands, timings, earlier failures and limits are in [.ai/analysis/issue-8204-validation.md](../analysis/issue-8204-validation.md).
+Combined candidate: `10024a8575ab85584fd9a1942d102936b526b346`. [Exact commands, results and retained failures](../analysis/issue-8204-validation.md).
 
-All eight configured commands passed sequentially on this candidate with official Node 24.22.2 and Yarn 4.17.1: package build, generation, package rebuild, translation sync, translation usage, typecheck, full unit tests and application build. Full tests passed 51/51 tasks (five cached); the app build passed without a cache hit. Normal hooks passed, source and lock remained unchanged, and all owned validation processes exited.
+All eight configured commands passed in order on this combined source: package build, generation, package rebuild, translation sync, translation usage, typecheck, full unit tests and application build. Unit tests completed51/51 tasks (five cached); the app build completed1/1 without a cache hit. Normal hooks passed, source/index/lock stayed unchanged, and all owned processes exited.
 
-Field-only injection rejection regressions passed 10 tests, failed two expected cases against the preceding source, then passed all 10 after exact restoration. The dependent CreateDealForm suite passed all nine tests using current DOM references while preserving inline and summary message checks and the successful retry. Earlier ambiguous-global-text and stale-reference failures are retained as change-related failures, not waived.
+The ordinary merge preserves the published Select teardown repair and the local field-only rejection fix. Focused native regressions passed50 TaskDrawer,10 CrudForm and9 CreateDealForm tests. Independent combined-source content review has no remaining Medium-or-higher findings.
 
-Four self-contained issue integration specs and three adjusted existing cases passed in native CI run41849313454 at coverage commit4d568dfd. Completed manual exploration and screenshots demonstrate the long page, dialog and drawer rejection/retry paths. Mobile, role/locale and full performance coverage remain unexercised; no QA approval is claimed.
+A supplementary Linux-script test run failed15PASS/3FAIL because GNUtimeout is absent on the macOS host. No assertion or environment substitute was introduced; exact published-head Linux CI must validate these scripts. The earlier field-only baseline comparison, ambiguous dependent locator failure, stale DOM-reference failure, native integration timeouts and runtime failures remain documented honestly.
 
-After the gate passed, comparison with the concurrently published drawer Select teardown repair revealed an additional focus race absent from this candidate. That isolated repair is content-approved and preserved by ordinary merge `bfb236ae7e568069a9867ab5fa94fff0ac23270a`; combined-source validation remains outstanding. Phase3 stays open until final same-PR publication, current-head review and claim cleanup are complete. Check the PR for the published head and current CI; historical CI is not represented as a run against an unpublished candidate.
+Prior coverage commit4d568dfd passed all four new integration cases and three adjusted existing cases in native CI41849313454. Actual manual UI exploration and five screenshots cover long-form, dialog, claim-race and stale-status rejection/retry. These retain their source attribution; current published-head integration is still required for the combined source. Mobile, role/locale and full performance checks remain unexercised; no QA approval is claimed.
+
+Phase3 remains open until publication, current-head hosted review evidence and claim cleanup are complete. The PR records the published head and pending checks; a local gate does not waive hosted CI or human QA.

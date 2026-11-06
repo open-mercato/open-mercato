@@ -1,8 +1,49 @@
 # Issue 8204 validation evidence
 
-The sections under **Earlier attempts** preserve the evidence and limitations as they were recorded; their incomplete-gate statements describe those historical attempts. The current result is below.
+The current combined-source result is below. Earlier attempts preserve their original failures and limitations; their incomplete-gate statements describe those historical attempts.
 
-## Verified candidate — 2026-11-06
+## Combined-source validation — 2026-11-06
+
+The complete configured local gate passed on `10024a8575ab85584fd9a1942d102936b526b346` (tree `ce9cf499d75e44196fbb120f9f8252aadad590d7`). Ordinary merge `bfb236ae7e568069a9867ab5fa94fff0ac23270a` preserves both the field-only CrudForm correction and the published drawer Select teardown repair, including all intervening published commits. The later evidence-only update does not change production or test source.
+
+The drawer now retains notice focus when a closing status/assignee Select would otherwise restore trigger focus after a fast rejection. Normal cancellation and successful retry keep their normal trigger focus. The field-only CrudForm summary still uses the actual translated/transformed field error; its inline error and dependent consumer behavior remain covered.
+
+Runner: local; official Node24.22.2 arm64, pinned Yarn4.17.1, same immutable dependency installation and lockfile. Each command used the task's short private temporary directory. No worker, heap, timeout, retry, assertion or repository policy was altered. Actual unit invocation recorded optional database/URL inputs and operator overrides as absent; the root script's own defaults remained intact.
+
+| Ordered command | Result | Wall time |
+| --- | --- | --- |
+| `yarn build:packages` | PASS, 42/42 tasks | 7.484s |
+| `yarn generate` | PASS, source remained clean | 6.334s |
+| `yarn build:packages` | PASS, 42/42 tasks | 0.685s |
+| `yarn i18n:check-sync` | PASS, 70 modules | 1.347s |
+| `yarn i18n:check-usage` | PASS, 8,121 unused-key advisory retained | 142.708s |
+| `yarn typecheck` | PASS, 42/42 tasks | 3.141s |
+| `yarn test` | PASS, 51/51 tasks, five cached; create-app 1,114 passed/six configured skips | 255.704s |
+| `yarn build:app` | PASS, 1/1 task, zero cached | 31.109s |
+
+All foreground results were collected. Both source checkouts remained clean with identical staged entries and lockfile, and all owned validation processes exited. Independent combined-source review found no outstanding Medium-or-higher content findings; it did not grant QA or merge approval.
+
+The combined candidate also passed these focused regressions using native repository scripts:
+
+```sh
+yarn workspace @open-mercato/core test --runInBand src/modules/staff/lib/time-tracking-ui/__tests__/TaskDrawer.test.tsx
+yarn workspace @open-mercato/ui test --runInBand src/backend/__tests__/CrudForm.injectionScroll.test.tsx
+yarn workspace @open-mercato/core test --runInBand src/modules/customers/components/detail/create/__tests__/CreateDealForm.test.tsx
+```
+
+Results: TaskDrawer50/50 (3.995s), CrudForm10/10 (2.925s), CreateDealForm9/9 (2.383s). The drawer tests include real Select teardown, cancellation and successful retry controls.
+
+### Supplementary Linux-script prerequisite
+
+```sh
+yarn node --test scripts/__tests__/ci-merge-coverage.test.mjs scripts/__tests__/npm-metadata-wait.test.mjs
+```
+
+This supplementary local run **failed**: 15 passed, three failed, exit1 after1.893s. All13 coverage tests and the changed deterministic shared-deadline case passed. Three unchanged metadata-wait tests failed before their npm stub created its attempt counter. The unchanged wait script invokes GNU `timeout --signal=TERM`; neither `timeout` nor `gtimeout` is installed on this macOS host. No substitute was invented, infrastructure installed, assertion weakened or unchanged command retried. These tests are outside the configured eight-command local gate. Their failure remains recorded, and the exact published-head Linux scripts job must pass before verification is complete.
+
+Current-head hosted integration must also verify the published combined source. The prior4d integration/manual evidence and prior418 Linux CI remain historical evidence for those heads, not a combined-head result. Mobile-width, restricted-role, all-locale and full perceived-performance checks remain unexercised. Human review and `needs-qa` continue to gate merge; this task does not add QA approval.
+
+## Earlier verified candidate315ff6 — 2026-11-06
 
 All eight configured validation commands passed in order on `315ff6ee628416c9079b49ce32a24a7b2d37273e` (tree `8cc81aa910b09bcb4584d1cccc9f78c173b0c0fd`). This candidate includes canonical main through `8687fc8e2f6fb15690b3460ca0c67b8b7ba7ee3d`, the field-only injection rejection correction, and the dependent form regression assertion correction. Results below belong to this exact source; they do not claim validation of a later combined branch.
 
@@ -39,9 +80,9 @@ yarn workspace @open-mercato/core test --runInBand src/modules/customers/compone
 
 PASS: nine tests, 2.924s, on `315ff6ee`, followed by the complete passing gate above. The preceding `7cb0` full run failed after 237.471s with that single ambiguous consumer test; app build was not run on the failed attempt. These were change-related failures, not baseline exceptions. Independent content review approved the field-only and current-DOM corrections. A later comparison with concurrent published work identified an additional drawer Select teardown focus race; see the open review item below.
 
-### Open review item after the passing gate
+### Review finding after the earlier passing gate (resolved in the combined source)
 
-The published branch contains a concurrent drawer repair (`99c1e7d253012b2d357ff45a5cf3d7d6c4b051c3`, published through `418d73d3180d9997765e713177ae9304cdba4a1c`) that was absent from candidate315ff6. Read-only review confirmed that Radix Select can restore trigger focus during delayed teardown after a fast rejection focused the notice. The repair preserves notice focus only when it already owns focus and adds real-Select rejection/cancel/success controls. Its isolated content is approved. Ordinary merge `bfb236ae7e568069a9867ab5fa94fff0ac23270a` preserves both315ff6 and418d73 plus all previously published work; combined-source validation remains outstanding. The eight passing commands above do not resolve or waive that finding.
+The published branch contains a concurrent drawer repair (`99c1e7d253012b2d357ff45a5cf3d7d6c4b051c3`, published through `418d73d3180d9997765e713177ae9304cdba4a1c`) that was absent from candidate315ff6. Read-only review confirmed that Radix Select can restore trigger focus during delayed teardown after a fast rejection focused the notice. The repair preserves notice focus only when it already owns focus and adds real-Select rejection/cancel/success controls. Its isolated content is approved. Ordinary merge `bfb236ae7e568069a9867ab5fa94fff0ac23270a` preserves both315ff6 and418d73 plus all previously published work; the combined-source validation at the top of this document subsequently passed. The earlier315ff6 gate alone did not resolve or waive that finding.
 
 ### Accepted integration and manual UI evidence
 
