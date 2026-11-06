@@ -42,6 +42,10 @@ import {
  * The width policy itself (how many columns fit) is unit-tested in
  * `components/calendar/__tests__/TimeGrid.dense.test.tsx`.
  *
+ * A fourth test covers #8867: when a long block keeps a whole afternoon in one
+ * dense cluster, a hidden meeting hours later stays at its own start time and
+ * the "+N more" slot covers only the meetings it really overlaps.
+ *
  * Determinism notes:
  * - The default Playwright viewport (1280px) boots the calendar in Week view.
  * - Both fixtures are anchored to **this week's Monday at 09:00** (overlapping:
@@ -338,6 +342,75 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
       expect(narrowOverflowBox!.x + narrowOverflowBox!.width).toBeLessThanOrEqual(
         narrowColumnBox!.x + narrowColumnBox!.width + 0.5,
       );
+    } finally {
+      for (const meetingId of meetingIds) {
+        await deleteEntityIfExists(request, adminToken, INTERACTIONS_PATH, meetingId);
+      }
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId);
+    }
+  });
+  // #8867: a full-day block plus a burst of calls at 10:10 and a demo at 15:10
+  // on Thursday. The calls collapse into a "+N more" slot of their own; the demo
+  // must stay drawn at 15:10 instead of being pulled into that slot.
+  test('a later meeting keeps its own time slot when an earlier burst collapses', async ({ page, request }) => {
+    test.slow();
+
+    const stamp = Date.now();
+    const runToken = `QA Cal Burst ${stamp}`;
+    const trainingTitle = `${runToken} Training`;
+    const callTitles = ['Call A', 'Call B', 'Call C', 'Call D'].map((name) => `${runToken} ${name}`);
+    const demoTitle = `${runToken} Demo`;
+    let adminToken: string | null = null;
+    let personId: string | null = null;
+    const meetingIds: string[] = [];
+
+    const monday = mondayWeekRange(new Date()).from;
+    const thursdayAt = (hours: number, minutes: number) =>
+      new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 3, hours, minutes, 0, 0);
+
+    try {
+      adminToken = await getAuthToken(request, 'admin');
+      personId = await createPersonFixture(request, adminToken, {
+        firstName: 'CalBurst',
+        lastName: `Person${stamp}`,
+        displayName: `CalBurst Person ${stamp}`,
+      });
+      const meetings = [
+        { title: trainingTitle, scheduledAt: thursdayAt(9, 10), durationMinutes: 470 },
+        ...callTitles.map((title) => ({ title, scheduledAt: thursdayAt(10, 10), durationMinutes: 45 })),
+        { title: demoTitle, scheduledAt: thursdayAt(15, 10), durationMinutes: 60 },
+      ];
+      for (const meeting of meetings) {
+        meetingIds.push(
+          await createInteractionFixture(request, adminToken, {
+            entityId: personId,
+            interactionType: 'meeting',
+            status: 'planned',
+            ...meeting,
+          }),
+        );
+      }
+
+      await login(page, 'admin');
+      await page.goto('/backend/calendar');
+      await waitForCalendarLoaded(page);
+
+      const overflow = page.getByRole('button', { name: /more events, .*10:10.*10:55/ });
+      await expect(overflow, 'the calls collapse into a slot of their own').toHaveCount(1);
+      await expect(
+        page.getByRole('button', { name: /more events, .*10:10.*4:10/ }),
+        'no slot stretches from the calls to the demo',
+      ).toHaveCount(0);
+
+      const demo = page.getByRole('button', { name: gridBlockName(demoTitle) });
+      await expect(demo, 'the demo is drawn as its own block').toHaveCount(1);
+      await demo.scrollIntoViewIfNeeded();
+      await expect(demo).toBeVisible();
+      await overflow.scrollIntoViewIfNeeded();
+      const [overflowBox, demoBox] = await Promise.all([overflow.boundingBox(), demo.boundingBox()]);
+      expect(overflowBox, 'overflow block should have a bounding box').not.toBeNull();
+      expect(demoBox, 'demo block should have a bounding box').not.toBeNull();
+      expect(demoBox!.y, 'the demo sits below the collapsed calls').toBeGreaterThan(overflowBox!.y + overflowBox!.height);
     } finally {
       for (const meetingId of meetingIds) {
         await deleteEntityIfExists(request, adminToken, INTERACTIONS_PATH, meetingId);

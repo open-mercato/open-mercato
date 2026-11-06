@@ -123,7 +123,7 @@ function buildDayColumn(
   }))
 
   const overflows: PositionedOverflow[] = overflow.map((entry) => ({
-    key: `${dayStartMs}-${entry.cluster}`,
+    key: `${dayStartMs}-${entry.cluster}-${entry.group}`,
     items: entry.items.map((clone) => originalByClone.get(clone) ?? clone),
     start: entry.start,
     end: entry.end,

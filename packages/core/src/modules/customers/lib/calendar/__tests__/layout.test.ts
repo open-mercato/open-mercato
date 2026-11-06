@@ -219,6 +219,46 @@ describe('collapseDenseClusters', () => {
     expect(overflow[0].cluster).not.toBe(overflow[1].cluster)
   })
 
+  it('keeps a hidden meeting hours later at its own time instead of pulling it into an earlier overflow slot', () => {
+    const packed = packOverlaps([
+      makeCalendarItem({ id: 'training', start: at(9), end: at(17) }),
+      makeCalendarItem({ id: 'client-a', start: at(10), end: at(10, 45) }),
+      makeCalendarItem({ id: 'client-b', start: at(10), end: at(10, 45) }),
+      makeCalendarItem({ id: 'client-c', start: at(15), end: at(16) }),
+    ])
+    const { visible, overflow } = collapseDenseClusters(packed, 2)
+    expect(visible.map((entry) => entry.item.id)).toEqual(['training', 'client-c'])
+    expect(visible.find((entry) => entry.item.id === 'client-c')).toMatchObject({ column: 1, columns: 2 })
+    expect(overflow).toHaveLength(1)
+    expect(overflow[0].items.map((item) => item.id)).toEqual(['client-a', 'client-b'])
+    expect(overflow[0].start).toEqual(at(10))
+    expect(overflow[0].end).toEqual(at(10, 45))
+  })
+
+  it('gives each separate burst of hidden meetings its own overflow slot and time range', () => {
+    const packed = packOverlaps([
+      makeCalendarItem({ id: 'booth', start: at(12), end: at(18) }),
+      makeCalendarItem({ id: 'intro-1', start: at(12), end: at(12, 30) }),
+      makeCalendarItem({ id: 'intro-2', start: at(12), end: at(12, 30) }),
+      makeCalendarItem({ id: 'intro-3', start: at(12, 15), end: at(12, 45) }),
+      makeCalendarItem({ id: 'follow-1', start: at(17), end: at(17, 30) }),
+      makeCalendarItem({ id: 'follow-2', start: at(17), end: at(17, 30) }),
+      makeCalendarItem({ id: 'follow-3', start: at(17), end: at(17, 30) }),
+    ])
+    const { visible, overflow } = collapseDenseClusters(packed, 2)
+    expect(visible.map((entry) => entry.item.id)).toEqual(['booth'])
+    expect(overflow.map((entry) => entry.items.map((item) => item.id))).toEqual([
+      ['intro-1', 'intro-2', 'intro-3'],
+      ['follow-1', 'follow-2', 'follow-3'],
+    ])
+    expect(overflow.map((entry) => [entry.start, entry.end])).toEqual([
+      [at(12), at(12, 45)],
+      [at(17), at(17, 30)],
+    ])
+    expect(overflow[0].group).not.toBe(overflow[1].group)
+    expect(overflow.every((entry) => entry.cluster === overflow[0].cluster)).toBe(true)
+  })
+
   it('never produces an overflow slot holding a single event', () => {
     const packed = packOverlaps(['x', 'y', 'z', 'w'].map((id) => makeCalendarItem({ id, start: at(9), end: at(10) })))
     const { overflow } = collapseDenseClusters(packed, 3)
