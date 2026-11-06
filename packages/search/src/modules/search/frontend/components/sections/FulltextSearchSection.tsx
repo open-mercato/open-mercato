@@ -101,6 +101,12 @@ export function FulltextSearchSection({
   onRefresh,
 }: FulltextSearchSectionProps) {
   const t = useT()
+  const environmentHints: Record<string, string> = {
+    MEILISEARCH_HOST: t('search.settings.fulltext.hints.host', 'The URL of your Meilisearch server (e.g., http://localhost:7700)'),
+    MEILISEARCH_API_KEY: t('search.settings.fulltext.hints.apiKey', 'API key for authentication with Meilisearch'),
+    MEILISEARCH_INDEX_PREFIX: t('search.settings.fulltext.hints.indexPrefix', 'Prefix for index names to namespace indexes per tenant'),
+    SEARCH_EXCLUDE_ENCRYPTED_FIELDS: t('search.settings.fulltext.hints.excludeEncrypted', 'Exclude encrypted fields from full-text indexing for security'),
+  }
   const [reindexing, setReindexing] = React.useState<ReindexAction | null>(null)
   const [showReindexDialog, setShowReindexDialog] = React.useState<ReindexAction | null>(null)
   const [activityLogs, setActivityLogs] = React.useState<ActivityLog[]>([])
@@ -238,7 +244,7 @@ export function FulltextSearchSection({
   )
 
   return (
-    <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
+    <div className="min-w-0 rounded-lg border border-border bg-card p-5 shadow-sm">
       <h2 className="text-lg font-semibold mb-2">
         {t('search.settings.fulltext.sectionTitle', 'Full-Text Search')}
       </h2>
@@ -247,7 +253,7 @@ export function FulltextSearchSection({
       </p>
 
       <Tabs defaultValue="configuration">
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 h-auto max-w-full flex-wrap">
           <TabsTrigger value="configuration">
             {t('search.settings.tabs.configuration', 'Configuration')}
           </TabsTrigger>
@@ -316,14 +322,14 @@ export function FulltextSearchSection({
                           </svg>
                         )}
                       </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
                           <code className="text-sm font-mono bg-muted px-1.5 py-0.5 rounded">{key}</code>
                           <span className={`text-xs ${status.set ? 'text-status-success-text' : 'text-status-error-text'}`}>
                             {status.set ? t('search.settings.fulltext.envSet', 'Set') : t('search.settings.fulltext.envMissing', 'Missing')}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">{status.hint}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{environmentHints[key] ?? status.hint}</p>
                       </div>
                     </div>
                   ))}
@@ -337,10 +343,10 @@ export function FulltextSearchSection({
                 </h3>
                 <div className="space-y-2">
                   {fulltextConfig?.optionalEnvVars && Object.entries(fulltextConfig.optionalEnvVars).map(([key, status]) => (
-                    <div key={key} className="flex items-start gap-3 p-2 rounded-md bg-muted/30">
+                    <div key={key} className="flex flex-wrap items-start gap-3 p-2 rounded-md bg-muted/30">
                       <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{key}</code>
-                      <div className="flex-1 text-xs text-muted-foreground">
-                        <span>{status.hint}</span>
+                      <div className="min-w-0 flex-1 text-xs text-muted-foreground">
+                        <span>{environmentHints[key] ?? status.hint}</span>
                         {status.set ? (
                           <span className="ml-2 text-status-success-text">
                             ({t('search.settings.fulltext.currentValue', 'Current')}: {String(status.value)})
