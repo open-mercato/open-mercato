@@ -1,6 +1,7 @@
 import { expect, type APIRequestContext, test } from '@playwright/test'
 import {
   apiRequest,
+  retryApiKeyVerification,
   getAuthToken,
   withCredentialIsolatedRequest,
 } from '@open-mercato/core/helpers/integration/api'
@@ -169,7 +170,7 @@ async function getDocumentWithApiKey(
   documentId: string,
   selectedOrganizationId?: string,
 ) {
-  return withCredentialIsolatedRequest((keyOnly) => keyOnly.fetch(
+  return withCredentialIsolatedRequest((keyOnly) => retryApiKeyVerification(() => keyOnly.fetch(
     resolveUrl(`/api/documents/${encodeURIComponent(documentId)}`),
     {
       headers: {
@@ -177,7 +178,7 @@ async function getDocumentWithApiKey(
         ...(selectedOrganizationId ? { Cookie: `om_selected_org=${selectedOrganizationId}` } : {}),
       },
     },
-  ))
+  )))
 }
 
 test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken, retryApiKeyVerification } from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture, createRoleFixture, createUserFixture,
   setRoleAclFeatures,
@@ -67,7 +67,7 @@ test('TC-AUTH-7261: personal API-key data stays within the binding and key permi
     for (const endpoint of ['/api/auth/profile', '/api/dashboards/layout']) {
       const bearer = await apiRequest(request, 'GET', endpoint, { token: userToken })
       const cookie = await request.get(endpoint, { headers: { Cookie: `auth_token=${userToken}` } })
-      const bound = await request.get(endpoint, { headers: { 'x-api-key': keys[0].secret, Cookie: '' } })
+      const bound = await retryApiKeyVerification(() => request.get(endpoint, { headers: { 'x-api-key': keys[0].secret, Cookie: '' } }))
       expect(bearer.status()).toBe(200)
       expect(cookie.status()).toBe(200)
       expect(bound.status()).toBe(200)
@@ -77,24 +77,24 @@ test('TC-AUTH-7261: personal API-key data stays within the binding and key permi
       } else {
         expect(boundBody?.context).toMatchObject({ userId, tenantId: tenants[0], organizationId: organizations[0] })
       }
-      const unbound = await request.get(endpoint, { headers: { 'x-api-key': keys[2].secret, Cookie: '' } })
+      const unbound = await retryApiKeyVerification(() => request.get(endpoint, { headers: { 'x-api-key': keys[2].secret, Cookie: '' } }))
       expect(unbound.status()).toBe(403)
       for (const key of keys.slice(3)) {
-        const denied = await request.get(endpoint, { headers: { 'x-api-key': key.secret, Cookie: '' } })
+        const denied = await retryApiKeyVerification(() => request.get(endpoint, { headers: { 'x-api-key': key.secret, Cookie: '' } }))
         expect(denied.status()).toBe(401)
       }
       expect((await request.get(endpoint, { headers: { Cookie: '' } })).status()).toBe(401)
     }
 
     const restrictedHeaders = { 'x-api-key': keys[1].secret, Cookie: '' }
-    const restrictedLayout = await request.get('/api/dashboards/layout', { headers: restrictedHeaders })
+    const restrictedLayout = await retryApiKeyVerification(() => request.get('/api/dashboards/layout', { headers: restrictedHeaders }))
     expect(restrictedLayout.status()).toBe(200)
     expect((await readJsonSafe<{ canConfigure?: boolean }>(restrictedLayout))?.canConfigure).toBe(false)
-    const restrictedProfile = await request.get('/api/auth/profile', { headers: restrictedHeaders })
+    const restrictedProfile = await retryApiKeyVerification(() => request.get('/api/auth/profile', { headers: restrictedHeaders }))
     expect(restrictedProfile.status()).toBe(200)
     expect((await readJsonSafe<{ roles?: string[] }>(restrictedProfile))?.roles).toEqual([`qa-7261-reader-${suffix}`])
-    expect((await request.put('/api/dashboards/layout', { headers: restrictedHeaders, data: { items: [] } })).status()).toBe(403)
-    const profileUpdate = await request.put('/api/auth/profile', { headers: restrictedHeaders, data: { email: `changed-${email}` } })
+    expect((await retryApiKeyVerification(() => request.put('/api/dashboards/layout', { headers: restrictedHeaders, data: { items: [] } }))).status()).toBe(403)
+    const profileUpdate = await retryApiKeyVerification(() => request.put('/api/auth/profile', { headers: restrictedHeaders, data: { email: `changed-${email}` } }))
     expect(profileUpdate.status()).toBe(403)
     expect(profileUpdate.headers()['set-cookie'] ?? '').not.toContain('auth_token=')
     const profileAfter = await apiRequest(request, 'GET', '/api/auth/profile', { token: userToken })

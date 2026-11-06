@@ -1,22 +1,31 @@
 # Carry forward #8376: cost 12 with verification work limits
 
-- [x] Read the original issue, security finding, cache implementation, and application/MCP callers.
-- [x] Replace comparison-result caching with an always-on, constant-memory work limiter; raise new hashes to 12.
-- [x] Cover changing suffixes/prefixes, concurrent attempts, sustained attempts, failures, recovery, live records, and legacy hashes.
-- [ ] Measure real bcrypt behavior, run validation, review, and publish the carry-forward PR.
+PR: https://github.com/open-mercato/open-mercato/pull/8899
 
-The limiter serializes expensive verification with no pending queue. After each attempt it reserves at least 250 ms and three times the observed verification duration before another comparison may start. Rejected requests do not extend the deadline. This bounds sustained verification duty cycle even on slower hosts, without retaining credentials or comparison outcomes. The existing request-authentication cache is separate and is not the protection boundary. Ingress/distributed request rate limiting remains necessary for bandwidth, database work, and fairness; a local work budget does not promise availability under sustained abuse.
+- [x] Analyze the original issue, CPU-amplification finding, comparison-cache proposal and all verification consumers.
+- [x] Raise new hashes to cost 12 and implement constant-memory, queue-free admission before bcrypt.
+- [x] Preserve retryable overload across application, MCP, settings/provisioning and OAuth consumers.
+- [x] Pass the configured local validation gate and all 13 live API-key tests.
+- [x] Complete independent source security review and publish the credited carry-forward.
+- [ ] Complete the expanded authorization-client integration run and exact-head CI.
+- [ ] Obtain formal human review and risk-high QA approval before merge.
+
+## Design
+
+The limiter allows one expensive verification at a time with no queue. After each attempt it reserves at least 250 ms or three times the observed verification duration. Rejected attempts do not extend the deadline. It retains no credentials, hashes, fingerprints or comparison outcomes. The existing request-auth cache is separate and is not the CPU-protection boundary. Ingress/distributed rate limiting remains necessary for bandwidth, database work and fairness; this process-local budget does not promise uninterrupted authentication under sustained abuse.
 
 ## Evidence
 
-- API-key module: 98 tests pass. MCP core paths: 39 tests pass, settings: 24 tests pass, API dispatcher: 29 tests pass. OAuth consumer: 16 tests pass after correcting its overload handling and single-candidate rotation lookup.
-- A real cost-12 burst of 1,000 changing wrong suffixes admitted one comparison and throttled 999 attempts in 222 ms wall/CPU time on this host; the valid key succeeded after the recovery interval.
-- Independent source security review found no remaining blockers, conditional on final configured validation and E2E.
-- First full gate passed all commands except tests, which exposed the additional OAuth verifier consumer. That consumer was fixed, not waived. The gate is being rerun with enterprise modules enabled.
+- Main `f60620c07d` merged without conflicts.
+- Full local gate passed: package builds, generation, rebuild, translation sync/usage, typecheck, full tests (51 workspace tasks), app build and template parity. Enterprise modules were enabled. Core passed 2,697 suites / 27,103 tests; application 116 / 809; enterprise 246 / 2,248; AI assistant 134 / 1,808.
+- All 13 managed API-key integration tests pass against an isolated app/database, including new cost-12 issuance, changing-guess throttling, valid-key recovery without poisoned negative cache, immediate deletion revocation, role/scope/expiry checks.
+- A real cost-12 burst of 1,000 changing wrong suffixes admitted one comparison and throttled 999 in 222 ms wall/CPU time on this host. A valid key succeeded after recovery.
+- Independent security review found no remaining source blockers. Overload never becomes an invalid credential or rotates an MCP key. OAuth rotation selects one scoped candidate, including overlapping cost-10/cost-12 credentials.
+- The gate exposed additional OAuth handling and malformed SCIM hash fixtures; both were fixed without removing assertions. An outdated create-app harness assertion now verifies main's exact five required paths, one allowed extra and six-file budget.
+- Local reruns initially overlapped generated build artifacts and inherited integration webhook settings. A subsequent clean, sequential full unit run passed all 51 tasks; neither execution problem was waived or patched around in source.
 
-## Final validation progress
+## Expanded authorization coverage
 
-- Updated target to main `f60620c07d` without conflicts. Package builds, generation, translation sync/usage, typecheck, app build and template parity pass.
-- Full tests passed core (2,697 suites / 27,103 tests), application (116 / 809), enterprise (246 / 2,248) and AI assistant (134 / 1,808). The one deterministic create-app failure was an outdated three-file expectation after main added three required CLI references. Its correction asserts all five required paths, the single permitted extra and exact six-file budget; independent review approved it.
-- The first live API-key run passed 12/13 tests, including the new real cost-12/burst/recovery/revocation test. Existing scope test 008 now honors only explicit 429/Retry-After, still rejects 401 immediately and requires 200 for every valid scope. Independent review approved the unchanged scope assertions.
-- A parallel local integration build replaced create-app assets during the full test rerun and caused four ENOENT errors. Final integration and full tests are rerunning sequentially against stable artifacts. No full-gate or merge-ready claim is made while those results remain pending.
+A bounded test-client helper retries only 429 with positive finite Retry-After, at most four times, and never retries 401/403. Existing authorization specs use it explicitly for cold keys and setup outside concurrency windows. All final status/body/scope assertions remain intact. Warm-cache immediate revocation checks, concurrent replay requests and flood assertions remain raw. Independent review approved this test-only delta; package builds, typecheck and template parity pass. The expanded managed integration run and refreshed CI are pending.
+
+Formal human approval and QA remain separate from local source review and automated evidence. No merge or QA approval is claimed.
