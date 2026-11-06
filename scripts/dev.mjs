@@ -78,6 +78,7 @@ import {
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
+import { assertDatabaseWriteAllowed } from './dev-database-write-guard.mjs'
 import { acquireDevSessionWithRecovery as acquireDevSession } from './dev-session-recovery.mjs'
 import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
@@ -984,6 +985,17 @@ function resolveDatabaseEnvFilePath() {
     : path.join(process.cwd(), '.env')
 }
 
+async function guardDatabaseMutation(commandArgs, env = {}) {
+  if (!['db:migrate', 'initialize'].includes(commandArgs?.[0])) return
+  const result = await assertDatabaseWriteAllowed({
+    projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
+    env: { ...process.env, ...env },
+    argv: args,
+  })
+  if (result?.connectionEnv) { Object.assign(process.env, result.connectionEnv); Object.assign(env, result.connectionEnv) }
+  if (result?.argument && !args.includes(result.argument)) args.push(result.argument)
+}
+
 async function applyDatabaseNameOverrideIfRequested() {
   let result
   try {
@@ -1495,6 +1507,7 @@ function waitForRecoveryChildExit(child) {
 }
 
 async function runRecoveryCommand(label, commandArgs) {
+  await guardDatabaseMutation(commandArgs)
   console.log(`🛠️ ${label}...`)
   updateSplashState({ phase: label, detail: 'Recovery action in progress', activity: `${label} started` })
 
@@ -1753,6 +1766,7 @@ const INIT_DEV_AUTOSTART_ENV = {
 }
 
 async function runRawYarnCommand(commandArgs, options = {}) {
+  await guardDatabaseMutation(commandArgs, options.env)
   const child = spawnCommand(yarnCommand, commandArgs, {
     label: commandArgs.join(' '),
     logFile: getDevRunnerLog(),
@@ -2122,6 +2136,7 @@ async function runStage(label, commandArgs, options = {}) {
 
 async function runPassthroughStage(label, commandArgs, options = {}) {
   if (startupAborted) return
+  await guardDatabaseMutation(commandArgs, options.env)
   const startedAt = Date.now()
   const stageOrder = {
     'build:packages': 1,
@@ -2649,6 +2664,7 @@ function startMcpRuntime() {
 
 async function applyPendingMigrationsBestEffort() {
   if (!shouldAutoMigrateOnDev()) return
+  await guardDatabaseMutation(['db:migrate'])
   console.log('🗄️ Applying database migrations...')
   const child = spawnCommand(yarnCommand, ['db:migrate'], {
     label: 'Applying database migrations',
@@ -2966,4 +2982,9 @@ markMemoryTrace('dev:start', 'Dev runner started', {
   greenfield,
   classic,
 })
-await main()
+try {
+  await main()
+} catch (error) {
+  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  shutdown(2)
+}

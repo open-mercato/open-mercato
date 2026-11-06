@@ -14,6 +14,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 const hooksDir = new URL('../../agentic/claude-code/hooks/', import.meta.url)
 const settingsPath = new URL('../../agentic/claude-code/settings.json', import.meta.url)
@@ -77,7 +78,7 @@ test('every hook registered in settings.json exists on disk', () => {
   assert.ok(registered.length > 0, 'expected settings.json to register at least one hook')
   for (const hook of new Set(registered)) {
     assert.ok(
-      fs.existsSync(path.join(hooksDir.pathname, hook)),
+      fs.existsSync(path.join(fileURLToPath(hooksDir), hook)),
       `settings.json registers .claude/hooks/${hook}, which does not exist in the source tree`,
     )
   }
