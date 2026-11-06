@@ -14,11 +14,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
-const mockQueueEnqueue = jest.fn(async () => 'job-2')
-
 jest.mock('../queue', () => ({
   enqueueWebhookDelivery: jest.fn(async () => 'job-1'),
-  getWebhookQueue: () => ({ enqueue: mockQueueEnqueue }),
+  enqueueWebhookDeliveryFromJob: jest.fn(async () => 'job-2'),
 }))
 
 jest.mock('../integration-state', () => ({
@@ -36,9 +34,11 @@ jest.mock('../url-safety', () => {
 })
 
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { enqueueWebhookDeliveryFromJob } from '../queue'
 import { safeWebhookFetch } from '../url-safety'
 
 const findOneWithDecryptionMock = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const enqueueFromJobMock = enqueueWebhookDeliveryFromJob as jest.MockedFunction<typeof enqueueWebhookDeliveryFromJob>
 const safeWebhookFetchMock = safeWebhookFetch as jest.MockedFunction<typeof safeWebhookFetch>
 
 const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
@@ -219,9 +219,9 @@ describeWithPostgres('processWebhookDeliveryJob claim on real Postgres', () => {
     expect(row.status).toBe('sending')
     expect(row.attemptNumber).toBe(0)
     expect(row.errorMessage ?? null).toBeNull()
-    expect(mockQueueEnqueue).toHaveBeenCalledWith(
+    expect(enqueueFromJobMock).toHaveBeenCalledWith(
       { deliveryId: seeded.deliveryId, tenantId: seeded.tenantId, organizationId: seeded.organizationId },
-      { delayMs: WEBHOOK_TIMEOUT_MS + 16_000 },
+      WEBHOOK_TIMEOUT_MS + 16_000,
     )
   }, 30_000)
 
@@ -253,6 +253,28 @@ describeWithPostgres('processWebhookDeliveryJob claim on real Postgres', () => {
     expect(row.status).toBe('pending')
     expect(row.attemptNumber).toBe(1)
     expect(row.nextRetryAt).toBeInstanceOf(Date)
+  }, 30_000)
+
+  it('does not send a scheduled retry before it is due and rechecks it then', async () => {
+    const nextRetryAt = new Date(Date.now() + 120_000)
+    const scheduled = await seed({ attemptNumber: 1, nextRetryAt })
+    const due = await seed({ attemptNumber: 1, nextRetryAt: new Date(Date.now() - 1_000) })
+
+    await expect(runJob(scheduled, true)).resolves.toBeNull()
+
+    expect(safeWebhookFetchMock).not.toHaveBeenCalled()
+    const scheduledRow = await readDelivery(scheduled)
+    expect(scheduledRow.status).toBe('pending')
+    expect(scheduledRow.attemptNumber).toBe(1)
+    expect(scheduledRow.nextRetryAt?.getTime()).toBe(nextRetryAt.getTime())
+    expect(enqueueFromJobMock).toHaveBeenCalledTimes(1)
+    const [, recheckDelayMs] = enqueueFromJobMock.mock.calls[0]
+    expect(recheckDelayMs).toBeGreaterThan(110_000)
+    expect(recheckDelayMs).toBeLessThanOrEqual(121_000)
+
+    await expect(runJob(due)).resolves.toEqual({ status: 'delivered', deliveryId: due.deliveryId })
+    expect(safeWebhookFetchMock).toHaveBeenCalledTimes(1)
+    expect((await readDelivery(due)).attemptNumber).toBe(2)
   }, 30_000)
 
   it('reclaims a delivery whose sending worker stopped past its timeout', async () => {

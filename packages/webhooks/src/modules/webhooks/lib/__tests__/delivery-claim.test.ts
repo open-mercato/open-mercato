@@ -14,11 +14,9 @@ jest.mock('../integration-state', () => ({
   WEBHOOK_INTEGRATION_DISABLED_MESSAGE: 'disabled',
 }))
 
-const mockQueueEnqueue = jest.fn(async () => 'job-2')
-
 jest.mock('../queue', () => ({
   enqueueWebhookDelivery: jest.fn(async () => 'job-1'),
-  getWebhookQueue: () => ({ enqueue: mockQueueEnqueue }),
+  enqueueWebhookDeliveryFromJob: jest.fn(async () => 'job-2'),
 }))
 
 jest.mock('../url-safety', () => {
@@ -31,11 +29,12 @@ jest.mock('../url-safety', () => {
 })
 
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { enqueueWebhookDelivery } from '../queue'
+import { enqueueWebhookDelivery, enqueueWebhookDeliveryFromJob } from '../queue'
 import { safeWebhookFetch } from '../url-safety'
 
 const findOneWithDecryptionMock = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 const enqueueWebhookDeliveryMock = enqueueWebhookDelivery as jest.MockedFunction<typeof enqueueWebhookDelivery>
+const enqueueFromJobMock = enqueueWebhookDeliveryFromJob as jest.MockedFunction<typeof enqueueWebhookDeliveryFromJob>
 const safeWebhookFetchMock = safeWebhookFetch as jest.MockedFunction<typeof safeWebhookFetch>
 
 const JOB = { deliveryId: 'delivery-1', tenantId: 'tenant-1', organizationId: 'org-1' }
@@ -110,8 +109,19 @@ describe('processWebhookDeliveryJob — delivery claim', () => {
     expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
     expect(em.flush).not.toHaveBeenCalled()
     expect(safeWebhookFetchMock).not.toHaveBeenCalled()
-    expect(mockQueueEnqueue).toHaveBeenCalledWith(JOB, { delayMs: 5000 + 15_000 + 1000 })
+    expect(enqueueFromJobMock).toHaveBeenCalledWith(JOB, 5000 + 15_000 + 1000)
     expect(enqueueWebhookDeliveryMock).not.toHaveBeenCalled()
+  })
+
+  it('rechecks a delivery with a scheduled retry once the retry is due', async () => {
+    const em = buildEm(buildDelivery({ nextRetryAt: new Date(Date.now() + 120_000) }), 0)
+
+    await processWebhookDeliveryJob(em as unknown as EntityManager, JOB)
+
+    expect(safeWebhookFetchMock).not.toHaveBeenCalled()
+    const [, recheckDelayMs] = enqueueFromJobMock.mock.calls[0]
+    expect(recheckDelayMs).toBeGreaterThan(110_000)
+    expect(recheckDelayMs).toBeLessThanOrEqual(121_000)
   })
 
   it('does not schedule a recheck when retries are not scheduled', async () => {
@@ -119,7 +129,7 @@ describe('processWebhookDeliveryJob — delivery claim', () => {
 
     await processWebhookDeliveryJob(em as unknown as EntityManager, JOB, { scheduleRetries: false })
 
-    expect(mockQueueEnqueue).not.toHaveBeenCalled()
+    expect(enqueueFromJobMock).not.toHaveBeenCalled()
   })
 
   it('releases its claim when processing throws after claiming', async () => {
@@ -156,13 +166,15 @@ describe('processWebhookDeliveryJob — delivery claim', () => {
     expect(em.nativeUpdate.mock.invocationCallOrder[0]).toBeLessThan(safeWebhookFetchMock.mock.invocationCallOrder[0])
     const [, filter, data] = em.nativeUpdate.mock.calls[0] as unknown as [
       unknown,
-      { $or: [{ status: string }, { status: string; lastAttemptAt: { $lt: Date } }] },
+      { $or: [{ status: string; nextRetryAt: null }, { status: string; nextRetryAt: { $lte: Date } }, { status: string; lastAttemptAt: { $lt: Date } }] },
       { status: string; lastAttemptAt: Date },
     ]
     expect(filter).toEqual(expect.objectContaining({ id: 'delivery-1', tenantId: 'tenant-1', organizationId: 'org-1' }))
-    expect(filter.$or[0]).toEqual({ status: 'pending' })
-    expect(filter.$or[1].status).toBe('sending')
-    expect(data.lastAttemptAt.getTime() - filter.$or[1].lastAttemptAt.$lt.getTime()).toBe(5000 + 15_000)
+    expect(filter.$or[0]).toEqual({ status: 'pending', nextRetryAt: null })
+    expect(filter.$or[1].status).toBe('pending')
+    expect(filter.$or[1].nextRetryAt.$lte.getTime() - data.lastAttemptAt.getTime()).toBe(1000)
+    expect(filter.$or[2].status).toBe('sending')
+    expect(data.lastAttemptAt.getTime() - filter.$or[2].lastAttemptAt.$lt.getTime()).toBe(5000 + 15_000)
     expect(data.status).toBe('sending')
     expect(delivery.attemptNumber).toBe(1)
   })

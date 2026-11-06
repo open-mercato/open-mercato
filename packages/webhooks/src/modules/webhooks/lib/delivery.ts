@@ -5,7 +5,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { emitWebhooksEvent } from '../events'
-import { enqueueWebhookDelivery, getWebhookQueue } from './queue'
+import { enqueueWebhookDelivery, enqueueWebhookDeliveryFromJob } from './queue'
 import { isWebhookIntegrationEnabled, WEBHOOK_INTEGRATION_DISABLED_MESSAGE } from './integration-state'
 import { sanitizeWebhookCustomHeaders } from './custom-headers'
 import {
@@ -36,6 +36,7 @@ const logger = createLogger('webhooks')
 const CLAIMABLE_DELIVERY_STATUSES: ReadonlySet<string> = new Set(['pending', 'sending'])
 const SENDING_LEASE_GRACE_MS = 15_000
 const CLAIM_RECHECK_MARGIN_MS = 1_000
+const RETRY_DUE_TOLERANCE_MS = 1_000
 
 type ProcessWebhookDeliveryOptions = {
   scheduleRetries?: boolean
@@ -114,7 +115,10 @@ export async function processWebhookDeliveryJob(
   const leaseMs = (webhook?.timeoutMs ?? 0) + SENDING_LEASE_GRACE_MS
   const claimed = await claimWebhookDelivery(em, delivery, claimedAt, leaseMs)
   if (!claimed) {
-    if (options.scheduleRetries !== false) await scheduleWebhookDeliveryClaimRecheck(job, leaseMs)
+    if (options.scheduleRetries !== false) {
+      const retryDueInMs = (delivery.nextRetryAt?.getTime() ?? 0) - claimedAt.getTime()
+      await scheduleWebhookDeliveryClaimRecheck(job, Math.max(leaseMs, retryDueInMs))
+    }
     return null
   }
 
@@ -318,6 +322,7 @@ async function claimWebhookDelivery(
   leaseMs: number,
 ): Promise<boolean> {
   const staleSendingBefore = new Date(claimedAt.getTime() - leaseMs)
+  const retryDueBy = new Date(claimedAt.getTime() + RETRY_DUE_TOLERANCE_MS)
   const affected = await em.nativeUpdate(
     WebhookDeliveryEntity,
     {
@@ -325,7 +330,8 @@ async function claimWebhookDelivery(
       tenantId: delivery.tenantId,
       organizationId: delivery.organizationId,
       $or: [
-        { status: 'pending' },
+        { status: 'pending', nextRetryAt: null },
+        { status: 'pending', nextRetryAt: { $lte: retryDueBy } },
         { status: 'sending', lastAttemptAt: { $lt: staleSendingBefore } },
       ],
     },
@@ -357,11 +363,11 @@ async function releaseWebhookDeliveryClaim(
   }
 }
 
-async function scheduleWebhookDeliveryClaimRecheck(job: WebhookDeliveryJob, leaseMs: number): Promise<void> {
+async function scheduleWebhookDeliveryClaimRecheck(job: WebhookDeliveryJob, waitMs: number): Promise<void> {
   try {
-    await getWebhookQueue().enqueue(
+    await enqueueWebhookDeliveryFromJob(
       { deliveryId: job.deliveryId, tenantId: job.tenantId, organizationId: job.organizationId },
-      { delayMs: leaseMs + CLAIM_RECHECK_MARGIN_MS },
+      waitMs + CLAIM_RECHECK_MARGIN_MS,
     )
   } catch (error) {
     logger.error('Failed to schedule webhook delivery claim recheck', { deliveryId: job.deliveryId, err: error })
