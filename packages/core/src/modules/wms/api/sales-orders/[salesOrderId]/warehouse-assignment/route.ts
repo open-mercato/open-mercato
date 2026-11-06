@@ -238,10 +238,7 @@ export async function DELETE(
         tenantId: scope.tenantId,
       },
     })
-    if (!intercepted.ok) {
-      return NextResponse.json(intercepted.body, { status: intercepted.statusCode })
-    }
-    return NextResponse.json(intercepted.body, { status: intercepted.statusCode })
+    return NextResponse.json(intercepted.body, { status: intercepted.statusCode, headers: intercepted.headers })
   } catch (error) {
     const interceptorRejection = getCommandInterceptorHttpRejection(error)
     if (interceptorRejection) {
