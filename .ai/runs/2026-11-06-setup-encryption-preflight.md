@@ -33,11 +33,13 @@ A preflight snapshot cannot prevent concurrent application writes or later exter
 
 ## Progress
 
+PR: #8908
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Design
 
-- [ ] 1.1 Trace setup writes and persisted encryption formats; specify empty/plaintext and unsupported-store policy.
+- [x] 1.1 Trace setup writes and persisted encryption formats; specify empty/plaintext and unsupported-store policy. — e3e0ebb5e
 
 ### Phase 2: Guard
 
