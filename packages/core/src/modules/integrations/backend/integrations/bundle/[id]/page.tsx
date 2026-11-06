@@ -292,7 +292,8 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
               {credFields.filter(isFieldVisible).map((field) => (
                 <div key={field.key} className="space-y-1.5">
                   <label htmlFor={`bundle-credential-${field.key}`} className="text-sm font-medium">
-                    {field.label}{field.required && <span className="ml-0.5 text-destructive">*</span>}
+                    {field.labelKey ? t(field.labelKey, field.label) : field.label}
+                    {field.required && <span className="ml-0.5 text-destructive">*</span>}
                   </label>
                   {field.type === 'select' && field.options ? (
                     <Select
@@ -304,7 +305,9 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
                       </SelectTrigger>
                       <SelectContent>
                         {field.options.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.labelKey ? t(opt.labelKey, opt.label) : opt.label}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -317,7 +320,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
                   ) : field.type === 'secret' ? (
                     <PasswordInput
                       id={`bundle-credential-${field.key}`}
-                      placeholder={field.placeholder}
+                      placeholder={field.placeholderKey ? t(field.placeholderKey, field.placeholder ?? '') : field.placeholder}
                       value={(credValues[field.key] as string) ?? ''}
                       onChange={(event) => setCredValues((prev) => ({ ...prev, [field.key]: event.target.value }))}
                       autoComplete="new-password"
@@ -326,7 +329,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
                     <Input
                       id={`bundle-credential-${field.key}`}
                       type="text"
-                      placeholder={field.placeholder}
+                      placeholder={field.placeholderKey ? t(field.placeholderKey, field.placeholder ?? '') : field.placeholder}
                       value={(credValues[field.key] as string) ?? ''}
                       onChange={(e) => setCredValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
                     />
