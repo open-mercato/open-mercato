@@ -34,6 +34,7 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
 import { CustomerCreditAccount, CustomerCreditLedgerEntry } from '../../data/entities'
 import {
+  CustomerCreditServiceError,
   DefaultCustomerCreditService,
   type CommerceScope,
   type CustomerCreditService,
@@ -189,6 +190,143 @@ maybe('customerCreditService reserveCredit under real concurrency (G1)', () => {
     const consumedInDb = await sumLedgerInDb(accountId)
     expect(consumedInDb).toBeLessThanOrEqual(Number(CREDIT_LIMIT))
     expect(consumedInDb).toBe(reserved.length * Number(PER_RESERVE_AMOUNT))
+  })
+})
+
+// #8268 review Minor / #8820: `adjustCredit`'s ledger carries a REAL
+// `(tenant_id, idempotency_key)` unique constraint (G2) — a reused key races the account
+// row lock, so only the DB's own constraint (never the pre-check `findOne` above it) can
+// catch a cross-account reuse. A fake `EntityManager` with no constraint cannot prove this
+// path at all; this suite runs it against the genuine schema. The adjust API route maps
+// `CustomerCreditServiceError` to a typed 409/422 — this is the service-level proof the
+// error it maps is always a `CustomerCreditServiceError`, never a raw, unhandled Postgres
+// unique-violation.
+maybe('customerCreditService.adjustCredit idempotency key reuse against the real unique constraint (#8820)', () => {
+  jest.setTimeout(60_000)
+  let orm: MikroORM
+
+  beforeAll(async () => {
+    orm = await MikroORM.init({
+      clientUrl: PG_URL,
+      entities: [CustomerCreditAccount, CustomerCreditLedgerEntry],
+      metadataProvider: ReflectMetadataProvider,
+      allowGlobalContext: true,
+      debug: false,
+      pool: { min: 0, max: 8 },
+    })
+    await orm.schema.refresh()
+  }, 60_000)
+
+  afterAll(async () => {
+    await orm?.close(true)
+  })
+
+  async function seedAccountFor(customerId: string): Promise<{ accountId: string }> {
+    const em = orm.em.fork()
+    const account = em.create(CustomerCreditAccount, {
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      customerId,
+      currencyCode: CURRENCY,
+      creditLimit: '1000.00',
+      isOnHold: false,
+    })
+    em.persist(account)
+    await em.flush()
+    return { accountId: account.id }
+  }
+
+  function serviceForAdjust(em: EntityManager): CustomerCreditService {
+    return new DefaultCustomerCreditService(em, ALWAYS_ALLOWED_GROUPS_SERVICE)
+  }
+
+  test('reusing the same key on the SAME account with a different amount resolves to a typed mismatch, never a raw 500', async () => {
+    const customerId = randomUUID()
+    await seedAccountFor(customerId)
+    const key = `adjust-${randomUUID()}`
+    const first = serviceForAdjust(orm.em.fork())
+    await first.adjustCredit({
+      scope: SCOPE,
+      buyer: { customerId },
+      currencyCode: CURRENCY,
+      amount: '10.00',
+      note: 'first adjustment',
+      idempotencyKey: key,
+    })
+
+    const second = serviceForAdjust(orm.em.fork())
+    const attempt = second.adjustCredit({
+      scope: SCOPE,
+      buyer: { customerId },
+      currencyCode: CURRENCY,
+      amount: '11.00',
+      note: 'reused key, different amount',
+      idempotencyKey: key,
+    })
+    await expect(attempt).rejects.toBeInstanceOf(CustomerCreditServiceError)
+    await expect(attempt).rejects.toMatchObject({ code: 'idempotency_key_mismatch' })
+  })
+
+  test('reusing the same key on a DIFFERENT account races the row lock and resolves to a typed mismatch, never a raw 500', async () => {
+    const customerA = randomUUID()
+    const customerB = randomUUID()
+    await seedAccountFor(customerA)
+    await seedAccountFor(customerB)
+    const key = `adjust-cross-account-${randomUUID()}`
+
+    const first = serviceForAdjust(orm.em.fork())
+    await first.adjustCredit({
+      scope: SCOPE,
+      buyer: { customerId: customerA },
+      currencyCode: CURRENCY,
+      amount: '10.00',
+      note: 'account A adjustment',
+      idempotencyKey: key,
+    })
+
+    // This loses the account-row-lock pre-check (it locks account B's row, not A's, so the
+    // `findOne` guard above it sees nothing) and must instead be caught by the real
+    // `(tenant_id, idempotency_key)` unique constraint on INSERT — the exact path a fake
+    // EntityManager with no constraint cannot exercise.
+    const second = serviceForAdjust(orm.em.fork())
+    const attempt = second.adjustCredit({
+      scope: SCOPE,
+      buyer: { customerId: customerB },
+      currencyCode: CURRENCY,
+      amount: '10.00',
+      note: 'account B reusing account A key',
+      idempotencyKey: key,
+    })
+    await expect(attempt).rejects.toBeInstanceOf(CustomerCreditServiceError)
+    await expect(attempt).rejects.toMatchObject({ code: 'idempotency_key_mismatch' })
+  })
+
+  test('replaying the exact same request (same key, same amount, same account) is idempotent and returns the original entry', async () => {
+    const customerId = randomUUID()
+    await seedAccountFor(customerId)
+    const key = `adjust-replay-${randomUUID()}`
+
+    const first = serviceForAdjust(orm.em.fork())
+    const firstResult = await first.adjustCredit({
+      scope: SCOPE,
+      buyer: { customerId },
+      currencyCode: CURRENCY,
+      amount: '25.00',
+      note: 'idempotent replay',
+      idempotencyKey: key,
+    })
+
+    const second = serviceForAdjust(orm.em.fork())
+    const secondResult = await second.adjustCredit({
+      scope: SCOPE,
+      buyer: { customerId },
+      currencyCode: CURRENCY,
+      amount: '25.00',
+      note: 'idempotent replay',
+      idempotencyKey: key,
+    })
+
+    expect(secondResult.entry.entryId).toBe(firstResult.entry.entryId)
   })
 })
 
