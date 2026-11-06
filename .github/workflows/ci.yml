@@ -1122,6 +1122,19 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
 
+      - name: Generate disposable production-mode bootstrap credentials
+        # The isolated runtime initializes with NODE_ENV=production. Preserve the
+        # production password policy and share this job's random fixture secret
+        # with initialization and Playwright's DEFAULT_CREDENTIALS resolver.
+        run: |
+          node --input-type=module <<'NODE'
+          import { randomBytes } from 'node:crypto'
+          import { appendFileSync } from 'node:fs'
+          const ciInitPassword = `Aa1!${randomBytes(32).toString('base64url')}`
+          console.log(`::add-mask::${ciInitPassword}`)
+          appendFileSync(process.env.GITHUB_ENV, `OM_INIT_SUPERADMIN_PASSWORD=${ciInitPassword}\n`)
+          NODE
+
       - name: Run ephemeral integration tests with code coverage
         env:
           OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
