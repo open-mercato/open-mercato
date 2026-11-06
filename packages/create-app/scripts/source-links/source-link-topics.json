@@ -1091,6 +1091,20 @@
       "href": "../../../../node_modules/@open-mercato/shared/src/lib/query/engine.ts",
       "resolvedPath": "node_modules/@open-mercato/shared/src/lib/query/engine.ts",
       "requirement": "source-required"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts"
     }
   ]
 }

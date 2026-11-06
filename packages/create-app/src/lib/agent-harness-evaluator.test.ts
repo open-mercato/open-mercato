@@ -141,7 +141,7 @@ function stageApp(): string {
       'src/modules/customers/components/calendar/CalendarEventEditor.tsx',
       'src/modules/customers/lib/calendar/eventTypeResolver.ts',
     ],
-    ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
+    ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx', 'src/backend/inputs/MarkdownField.tsx', 'src/backend/markdown/codeBlockLanguages.ts'],
     shared: [
       'src/lib/commands/types.ts',
       'src/lib/commands/registry.ts',
@@ -441,7 +441,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
     'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-074',
     'OMH-082', 'OMH-087', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-108', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150',
-    'OMH-182',
+    'OMH-182', 'OMH-242',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
     'OMH-006', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-018', 'OMH-026',
@@ -722,12 +722,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-241', () => {
+test('deterministic evaluation enforces the case schema through OMH-242', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-241')
+    assert.equal(cases.at(-1)?.id, 'OMH-242')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -3976,7 +3976,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 241)
+  assert.equal(cases.length, 242)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)
