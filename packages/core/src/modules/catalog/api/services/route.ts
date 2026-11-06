@@ -49,7 +49,7 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-async function buildServiceFilters(query: ServicesQuery, ctx: CrudCtx): Promise<Record<string, unknown>> {
+export async function buildServiceFilters(query: ServicesQuery, ctx: CrudCtx): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const scope = {

@@ -389,7 +389,10 @@ const createServiceCommand: CommandHandler<ServiceCreateInput, { serviceId: stri
       title: parsed.title,
       description: trimNullable(parsed.description),
       scope: trimNullable(parsed.scope),
-      category: await resolveCategory(em, parsed.categoryId ?? null, parsed),
+      category: await resolveCategory(em, parsed.categoryId ?? null, {
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+      }),
       defaultPriceAmount:
         parsed.defaultPriceAmount === null || parsed.defaultPriceAmount === undefined
           ? null

@@ -61,6 +61,7 @@ Catalog currently models service-like examples through products and custom field
 
 ## Changelog
 
+- 2026-11-06: Review follow-ups. Service custom fields are persisted and restored on undo; services are indexed under `catalog:catalog_service` and search results require `catalog.services.view`; draft media is moved onto the created service. Sales line upserts treat an explicit `null` reference as a clear, reject a `serviceId` on non-service lines and a product/variant on service lines (400), and the document currency is aligned only server-side, in the same transaction as the first line. Catalog service lines are hidden from the shipment line picker. Coverage: `TC-CAT-046-services-crud.spec.ts`, `TC-SALES-050-service-lines.spec.ts`, plus command/unit tests for services, service lines, conversion and invoice/credit memo lines.
 - 2026-11-06: Reapplied the closed PR #3417 onto current `main`: migrations re-timestamped after existing module migrations, service default-price currencies read from the currencies module (catalog must not import customers), service lines use a free-text unit input, and `CatalogService` registered in the optimistic-lock and record-locks coverage guards.
 - 2026-06-19: Added upstream-safe QA findings covering decorated service responses, dictionary-backed currency selection, price display formatting, work-requirement layout, and human-readable service references.
 - 2026-06-16: Initial implementation spec.
