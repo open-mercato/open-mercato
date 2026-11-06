@@ -42,8 +42,8 @@ Revise the design-only spec so the backup/restore feature is enterprise-only, en
 
 ### Phase 2: Enterprise-only resumable encrypted redesign
 
-- [ ] 2.1 Move the spec to the enterprise specs directory and retarget it to the enterprise backups module
-- [ ] 2.2 Specify encryption-by-default whole-archive encryption with an explicit unencrypted option
-- [ ] 2.3 Specify resumable chunked backup and journaled resumable restore with honest consistency modes
-- [ ] 2.4 Specify per-entity progress bars for backup and restore (TTY, plain, NDJSON)
-- [ ] 2.5 Update the automated-backups crosslink, scenario matrix, phasing and changelog
+- [x] 2.1 Move the spec to the enterprise specs directory and retarget it to the enterprise backups module — 6524c35743
+- [x] 2.2 Specify encryption-by-default whole-archive encryption with an explicit unencrypted option — 6524c35743
+- [x] 2.3 Specify resumable chunked backup and journaled resumable restore with honest consistency modes — 6524c35743
+- [x] 2.4 Specify per-entity progress bars for backup and restore (TTY, plain, NDJSON) — 6524c35743
+- [x] 2.5 Update the automated-backups crosslink, scenario matrix, phasing and changelog — 6524c35743
