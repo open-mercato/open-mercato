@@ -40,10 +40,10 @@ When `yarn dev`, `yarn dev:greenfield` or `yarn setup` hits "Another Open Mercat
 
 ### Phase 1: Recovery engine
 
-- [ ] 1.1 Guard: expose lock discard inside `withDevSessionRecovery`
-- [ ] 1.2 Recovery: classify live/stale/unverified records, prompt, stop, discard, re-acquire; tests
+- [x] 1.1 Guard: expose lock discard inside `withDevSessionRecovery` — c7845e8074
+- [x] 1.2 Recovery: classify live/stale/unverified records, prompt, stop, discard, re-acquire; tests — c7845e8074
 
 ### Phase 2: Setup entry points
 
-- [ ] 2.1 Starter (`yarn setup` in monorepo) uses recovery
-- [ ] 2.2 Create-app template `setup.mjs` uses recovery; template sync
+- [x] 2.1 Starter (`yarn setup` in monorepo) uses recovery — 63edcc8cbe
+- [x] 2.2 Create-app template `setup.mjs` uses recovery; template sync — 7a21cb8435
