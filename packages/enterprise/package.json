@@ -91,6 +91,7 @@
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-is": ">=18.0.0",
     "zod": ">=3.23.0"
   },
   "devDependencies": {
@@ -101,6 +102,7 @@
     "jest": "^30.4.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-is": "^19.2.8",
     "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },

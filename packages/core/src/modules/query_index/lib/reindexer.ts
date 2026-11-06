@@ -188,6 +188,56 @@ function reportColumnProbeFailure(error: unknown, tableName: string): void {
   }
 }
 
+type ReindexSourceMetadata = ReturnType<typeof resolveQueryIndexSourceTableMetadata>
+
+function writesGlobalReindexProjection(
+  entityType: string,
+  columns: Set<string>,
+  source: ReindexSourceMetadata,
+): boolean {
+  return columns.has('id')
+    && !columns.has('tenant_id')
+    && !columns.has('organization_id')
+    && !source?.tenantColumn
+    && !source?.organizationColumn
+    && isTenantGlobalEntityType(entityType)
+}
+
+function resolveTenantlessRefusal(
+  entityType: string,
+  columns: Set<string>,
+  source: ReindexSourceMetadata,
+): Exclude<ReindexRefusalReason, 'column-probe-failed'> | null {
+  if (columns.has('tenant_id')) return null
+  if (writesGlobalReindexProjection(entityType, columns, source)) return null
+  return isTenantGlobalEntityType(entityType) ? 'declared-global-but-org-scoped' : 'no-tenant-column'
+}
+
+/**
+ * Answers, without logging, whether a tenant-scoped sweep of `entityType` would be refused
+ * because its source table has no `tenant_id` column and the type is not a declared
+ * tenant-global catalogue. Callers that enumerate every registered entity type for one
+ * tenant (e.g. `mercato query_index reindex --tenant <id>` during `mercato init`) use it to
+ * leave such types out up front, so the guard inside `reindexEntity()` keeps warning only
+ * for callers that genuinely aimed a tenant-scoped sweep at a tenant-less table.
+ *
+ * Deliberately narrow: an unregistered type, a failed column probe, or a tenant-global
+ * declaration that cannot be honoured all return `false`, so those still reach the guard
+ * and surface their own diagnostics.
+ */
+export async function isTenantlessReindexTarget(
+  em: EntityManager,
+  entityType: string,
+): Promise<boolean> {
+  if (!entityType) return false
+  const source = resolveQueryIndexSourceTableMetadata(em, entityType)
+  if (!source?.table) return false
+  const db = em.getKysely<Record<string, Record<string, unknown>>>()
+  const columns = await getColumnSet(db, source.tableName ?? source.table, source.schema)
+  if (columns === null) return false
+  return resolveTenantlessRefusal(entityType, columns, source) === 'no-tenant-column'
+}
+
 export async function reindexEntity(
   em: EntityManager,
   options: ReindexJobOptions,
@@ -307,8 +357,7 @@ export async function reindexEntity(
   // Only the PROJECTION scope moves. `jobScope` keeps the caller's tenant and organization:
   // it records who ran the sweep, so two tenants reindexing the catalogue remain two jobs
   // rather than one that blocks the other behind the active-job guard.
-  const writesGlobalProjection =
-    columns.has('id') && !hasTenantCol && !hasOrgCol && !source?.tenantColumn && !source?.organizationColumn && isTenantGlobalEntityType(entityType)
+  const writesGlobalProjection = writesGlobalReindexProjection(entityType, columns, source)
   const projectionTenantId = writesGlobalProjection ? null : tenantId
   const projectionOrganizationId = writesGlobalProjection ? null : organizationId
   // Vector work keeps the caller's scope even where the projection moves. Its consumers -
@@ -325,10 +374,10 @@ export async function reindexEntity(
   // through would silently drop the tenant predicate and stamp the caller's tenant - the
   // exact defect the guard exists for - while the author believes the declaration took
   // effect. Fail closed and name it, in the spirit of the allowlist itself.
-  if (!hasTenantCol && tenantId != null && !writesGlobalProjection) {
-    const declaredButOrgScoped = isTenantGlobalEntityType(entityType)
+  const tenantlessRefusal = tenantId != null ? resolveTenantlessRefusal(entityType, columns, source) : null
+  if (tenantlessRefusal) {
     logger.warn(
-      declaredButOrgScoped
+      tenantlessRefusal === 'declared-global-but-org-scoped'
         ? 'Refusing tenant-scoped reindex: entity type is declared tenant-global but its table has an organization_id column'
         : 'Refusing tenant-scoped reindex of a table with no tenant_id column',
       { entityType, table, tenantId },
@@ -338,7 +387,7 @@ export async function reindexEntity(
       total: 0,
       tenantScopes: [],
       scopes: [],
-      refused: declaredButOrgScoped ? 'declared-global-but-org-scoped' : 'no-tenant-column',
+      refused: tenantlessRefusal,
     }
   }
 
