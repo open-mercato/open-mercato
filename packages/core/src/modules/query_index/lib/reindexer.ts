@@ -231,7 +231,7 @@ export async function isTenantlessReindexTarget(
   if (!entityType) return false
   const source = resolveQueryIndexSourceTableMetadata(em, entityType)
   if (!source?.table) return false
-  const db = (em as any).getKysely() as Kysely<any>
+  const db = em.getKysely<Record<string, Record<string, unknown>>>()
   const columns = await getColumnSet(db, source.tableName ?? source.table, source.schema)
   if (columns === null) return false
   return resolveTenantlessRefusal(entityType, columns, source) === 'no-tenant-column'

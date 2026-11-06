@@ -20,11 +20,12 @@ type ScopeLookupEntityManager = {
 }
 
 type ScopePropertyMetadata = { fieldNames?: unknown }
+type ScopeDatabase = Record<string, Record<string, unknown>>
 
 const ORGANIZATION_COLUMN = 'organization_id'
 const TENANT_COLUMN = 'tenant_id'
 
-const probedColumnsCache = new Map<string, { organizationColumn: string | null; tenantColumn: string | null }>()
+let probedColumnsCache = new WeakMap<Kysely<ScopeDatabase>, Map<string, { organizationColumn: string | null; tenantColumn: string | null }>>()
 
 function readScopeFieldName(property: ScopePropertyMetadata | undefined): string | null {
   const fieldNames = property?.fieldNames
@@ -47,25 +48,30 @@ function resolveScopeColumnsFromMetadata(
 }
 
 async function probeScopeColumns(
-  db: Kysely<any>,
+  db: Kysely<ScopeDatabase>,
   table: string,
 ): Promise<{ organizationColumn: string | null; tenantColumn: string | null } | null> {
-  const cached = probedColumnsCache.get(table)
+  let cache = probedColumnsCache.get(db)
+  if (!cache) {
+    cache = new Map()
+    probedColumnsCache.set(db, cache)
+  }
+  const cached = cache.get(table)
   if (cached) return cached
   try {
     const rows = await db
-      .selectFrom('information_schema.columns' as any)
-      .select(['column_name' as any])
+      .selectFrom('information_schema.columns')
+      .select(['column_name'])
       .where(sql<boolean>`table_schema = current_schema()`)
-      .where('table_name' as any, '=', table)
-      .where('column_name' as any, 'in', [ORGANIZATION_COLUMN, TENANT_COLUMN])
-      .execute() as Array<{ column_name: string }>
-    const columns = new Set(rows.map((row) => String(row.column_name).toLowerCase()))
+      .where('table_name', '=', table)
+      .where('column_name', 'in', [ORGANIZATION_COLUMN, TENANT_COLUMN])
+      .execute()
+    const columns = new Set(rows.map((row) => typeof row.column_name === 'string' ? row.column_name.toLowerCase() : ''))
     const resolved = {
       organizationColumn: columns.has(ORGANIZATION_COLUMN) ? ORGANIZATION_COLUMN : null,
       tenantColumn: columns.has(TENANT_COLUMN) ? TENANT_COLUMN : null,
     }
-    probedColumnsCache.set(table, resolved)
+    cache.set(table, resolved)
     return resolved
   } catch {
     return null
@@ -85,7 +91,7 @@ export async function resolveEntityScopeColumns(
   const table = resolveEntityTableName(em as never, entityType)
   if (!table) return null
   const columns = resolveScopeColumnsFromMetadata(em, table)
-    ?? await probeScopeColumns(em.getKysely<any>(), table)
+    ?? await probeScopeColumns(em.getKysely<ScopeDatabase>(), table)
   if (!columns) return null
   return { table, ...columns }
 }
@@ -105,18 +111,20 @@ export async function loadEntityRecordScope(
   const selected = [columns.organizationColumn, columns.tenantColumn]
     .filter((column): column is string => column !== null)
   if (selected.length === 0) return null
-  const row = await em.getKysely<any>()
-    .selectFrom(columns.table as any)
-    .select(selected as any)
-    .where('id' as any, '=', recordId)
-    .executeTakeFirst() as Record<string, string | null | undefined> | undefined
+  const row = await em.getKysely<ScopeDatabase>()
+    .selectFrom(columns.table)
+    .select(selected)
+    .where('id', '=', recordId)
+    .executeTakeFirst()
   if (!row) return null
+  const organizationId = columns.organizationColumn ? row[columns.organizationColumn] : null
+  const tenantId = columns.tenantColumn ? row[columns.tenantColumn] : null
   return {
-    organizationId: columns.organizationColumn ? row[columns.organizationColumn] ?? null : null,
-    tenantId: columns.tenantColumn ? row[columns.tenantColumn] ?? null : null,
+    organizationId: typeof organizationId === 'string' ? organizationId : null,
+    tenantId: typeof tenantId === 'string' ? tenantId : null,
   }
 }
 
 export function resetEntityScopeColumnsCacheForTests(): void {
-  probedColumnsCache.clear()
+  probedColumnsCache = new WeakMap()
 }
