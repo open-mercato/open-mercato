@@ -268,6 +268,11 @@ describe('akeneo catalog importer custom field values', () => {
     expect(writes).toHaveLength(2)
     expect(writes[0]).toMatchObject({ warranty_notes: 'Two years' })
     expect(writes[1]).toHaveProperty('warranty_notes', null)
+    expect(mockLoadCustomFieldSnapshot).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      entityId: PRODUCT_ENTITY_ID,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }))
   })
 
   it('clears a multi-select product custom field once every Akeneo option is removed', async () => {
@@ -309,17 +314,21 @@ describe('akeneo catalog importer custom field values', () => {
   it('leaves skipped mappings and attributes unknown to Akeneo untouched', async () => {
     const world = createWorld()
     const importer = await createAkeneoImporter(world.client as never, scope)
+    const syncedMapping = buildMapping([
+      { attributeCode: 'warranty_notes', fieldKey: 'warranty_notes', target: 'product' },
+      { attributeCode: 'internal_memo', fieldKey: 'internal_memo', target: 'product' },
+    ])
     const mapping = buildMapping([
       { attributeCode: 'warranty_notes', fieldKey: 'warranty_notes', target: 'product' },
       { attributeCode: 'internal_memo', fieldKey: 'internal_memo', target: 'product', skip: true },
       { attributeCode: 'name', fieldKey: 'legacy_name', target: 'product' },
     ])
 
-    await importer.upsertProduct(buildSimpleProduct({ warranty_notes: text('Two years') }), mapping)
+    await importer.upsertProduct(buildSimpleProduct({ warranty_notes: text('Two years'), internal_memo: text('Fragile') }), syncedMapping)
     await importer.upsertProduct(buildSimpleProduct({}), mapping)
 
     const writes = world.writesFor(PRODUCT_ENTITY_ID, ['warranty_notes', 'internal_memo', 'legacy_name'])
-    expect(writes).toEqual([{ warranty_notes: 'Two years' }, { warranty_notes: null }])
+    expect(writes).toEqual([{ warranty_notes: 'Two years', internal_memo: 'Fragile' }, { warranty_notes: null }])
   })
 
   it('clears a product custom field inherited from the parent model once the model value is removed', async () => {
