@@ -34,8 +34,8 @@ PR: #8904
 ### Phase 2: Verify and review
 
 - [x] 2.1 Run the configured validation gate and full PR CI, fixing remaining failures
-- [ ] 2.2 Dispatch one final independent review and resolve findings
-- [ ] 2.3 Finalize evidence and labels; request automerge only after green CI
+- [x] 2.2 Dispatch one final independent review and resolve findings
+- [x] 2.3 Finalize evidence and labels; request automerge only after green CI
 
 ## Slot decision
 Today's original stabilization branch shipped as PR #8841 and merged at 09:07 UTC. This subsequent scheduled run uses the v2 suffix and a separate plan to preserve that completed run's evidence.
@@ -48,3 +48,8 @@ Today's original stabilization branch shipped as PR #8841 and merged at 09:07 UT
 - Local runner: package build, generate, second package build, translation sync/usage, typecheck, and production app build passed. Initial tsx invocations exceeded the host Unix socket path limit; translation checks passed with a short TMPDIR. Unit retry using short TMPDIR/TEMP/TMP and TURBO_ENV_MODE=loose passed 50/51 tasks; create-app's containment fixture and session-share ZIP subprocess failed locally while this PR's CI unit job passed. These local failures are disclosed, not treated as green. Optional native dependency builds warned during install.
 - Existing same-repository stabilize/* and ci-full workflow routing already forces all 15 shards and full validation. No workflow change, contract change, or product change was needed.
 - The final independent review and final-head CI still gate readiness and automerge.
+
+## Completion and external merge
+Independent final review task 4b798984-0087-4089-84d0-a20317c99471 approved merged head 135fe0d31 and evidence tip 86db445a2 without findings: [authoritative review](https://github.com/open-mercato/open-mercato/pull/8904#issuecomment-6684526695). Parent verified its zero-file diff and whitespace check. Formal self-approval was rejected by GitHub; the independent verdict is recorded as a comment.
+
+Human maintainer pkarw readied and merged PR #8904 at 2026-11-06T12:07:08Z before the review was dispatched; this run did not merge. All 33 reported successful PR checks belong to merged head 135fe0d31. Later branch commits only record evidence/progress and have no CI runs; no green final-tip claim is made. The requested automerge label is completion metadata after the already completed human merge. No additional source repair or PR is needed. Local unit limitations remain as disclosed above.
