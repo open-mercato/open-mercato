@@ -517,6 +517,7 @@ describe('API Route Authorization', () => {
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
       expect(response.status).toBe(429)
       expect(response.headers.get('retry-after')).toBe('2')
+      expect(response.headers.get('x-om-api-key-verification-throttled')).toBe('1')
       expect(response.headers.get('set-cookie')).toBeNull()
     })
 
@@ -528,6 +529,7 @@ describe('API Route Authorization', () => {
 
       expect(response.status).toBe(503)
       expect(response.headers.get('retry-after')).toBe('2')
+      expect(response.headers.get('x-om-api-key-verification-throttled')).toBeNull()
       const setCookie = response.headers.get('set-cookie') || ''
       expect(setCookie).not.toContain('auth_token=;')
       expect(setCookie).not.toContain('session_token=;')

@@ -1,3 +1,4 @@
+import { API_KEY_VERIFICATION_THROTTLE_HEADER } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type ApiRouteBeforeAuth, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -405,7 +406,7 @@ async function handleRequest(
       const response = retryAfterMs !== undefined
         ? NextResponse.json(
           { error: t('api.errors.rateLimit', 'Too many requests. Please try again later.') },
-          { status: 429, headers: { 'retry-after': String(Math.ceil(retryAfterMs / 1000)) } },
+          { status: 429, headers: { 'retry-after': String(Math.ceil(retryAfterMs / 1000)), [API_KEY_VERIFICATION_THROTTLE_HEADER]: '1' } },
         )
         : NextResponse.json(
           { error: t('api.errors.serviceUnavailable', 'Service temporarily unavailable') },

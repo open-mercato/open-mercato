@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { expect, type APIRequestContext, type APIResponse } from '@playwright/test'
-import { apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { apiRequest, retryApiKeyVerification } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { expectId, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 
 export const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at'
@@ -270,11 +270,11 @@ export async function externalRequest(
   secret: string,
   data?: unknown,
 ): Promise<APIResponse> {
-  return request.fetch(path, {
+  return retryApiKeyVerification(() => request.fetch(path, {
     method,
     headers: apiKeyHeaders(secret, { Cookie: '' }),
     ...(data === undefined ? {} : { data }),
-  })
+  }))
 }
 
 export async function readRequiredJson<T>(response: APIResponse, message: string): Promise<T> {

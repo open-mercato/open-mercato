@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { ApiKeyVerificationRateLimitError } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
+import { API_KEY_VERIFICATION_THROTTLE_HEADER, ApiKeyVerificationRateLimitError } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
@@ -200,7 +200,7 @@ export async function GET(req: NextRequest) {
         if (error instanceof ApiKeyVerificationRateLimitError) {
           return NextResponse.json(
             { error: 'MCP key verification is temporarily rate limited' },
-            { status: 429, headers: { 'Retry-After': String(Math.ceil(error.retryAfterMs / 1000)) } },
+            { status: 429, headers: { 'Retry-After': String(Math.ceil(error.retryAfterMs / 1000)), [API_KEY_VERIFICATION_THROTTLE_HEADER]: '1' } },
           )
         }
         mcpKeyConfigured = false

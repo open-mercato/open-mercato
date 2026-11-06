@@ -23,6 +23,7 @@ it.each([true, false])('keeps verification overload distinct from invalid_client
     }),
   }))
   expect(response.status).toBe(limited ? 429 : 401)
+  expect(response.headers.get('x-om-api-key-verification-throttled')).toBe(limited ? '1' : null)
   expect(response.headers.get('retry-after')).toBe(limited ? '2' : null)
   expect(await response.json()).toEqual({ error: limited ? 'temporarily_unavailable' : 'invalid_client' })
 })

@@ -22,6 +22,7 @@ it.each(['limited', 'invalid', 'unavailable'])('MCP HTTP authentication distingu
   try {
     const { port } = server.address() as AddressInfo
     const response = await fetch(`http://127.0.0.1:${port}`)
+    expect(response.headers.get('x-om-api-key-verification-throttled')).toBe(outcome === 'limited' ? '1' : null)
     expect(response.status).toBe(outcome === 'limited' ? 429 : outcome === 'unavailable' ? 503 : 401)
     expect(response.headers.get('retry-after')).toBe(outcome === 'limited' ? '2' : outcome === 'unavailable' ? '1' : null)
     const body = await response.text()

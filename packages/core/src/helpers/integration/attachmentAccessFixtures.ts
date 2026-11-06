@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { expect, type APIRequestContext } from '@playwright/test'
-import { apiRequest, clearAuthTokenCache, getAuthToken, withCredentialIsolatedRequest } from './api'
+import { apiRequest, clearAuthTokenCache, getAuthToken, retryApiKeyVerification, withCredentialIsolatedRequest } from './api'
 import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures } from './authFixtures'
 import { deleteAttachmentIfExists, uploadAttachmentFixture } from './attachmentsFixtures'
 import { expectId, getTokenContext, readJsonSafe } from './generalFixtures'
@@ -24,10 +24,11 @@ export async function ownerPolicyRequest<Body = { error?: string }>(
   method: string, path: string, token: string, data?: unknown, scheme: 'Bearer' | 'ApiKey' = 'Bearer',
 ) {
   return withCredentialIsolatedRequest(async (isolated) => {
-    const response = await isolated.fetch(path, {
+    const send = () => isolated.fetch(path, {
       method, headers: { Authorization: `${scheme} ${token}`, 'Content-Type': 'application/json' },
       ...(data === undefined ? {} : { data }),
     })
+    const response = scheme === 'ApiKey' ? await retryApiKeyVerification(send) : await send()
     return {
       status: response.status(), headers: response.headers(),
       body: await readJsonSafe<Body>(response), bytes: await response.body(),

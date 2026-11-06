@@ -3,7 +3,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findApiKeyBySecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
-import { ApiKeyVerificationRateLimitError } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
+import { API_KEY_VERIFICATION_THROTTLE_HEADER, ApiKeyVerificationRateLimitError } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
 
 const logger = createLogger('ai_assistant').child({ component: 'http-api-key-auth' })
 
@@ -18,6 +18,7 @@ export async function authenticateHttpApiKey(em: EntityManager, secret: string, 
       response.writeHead(429, {
         'Content-Type': 'application/json',
         'Retry-After': String(Math.ceil(error.retryAfterMs / 1000)),
+        [API_KEY_VERIFICATION_THROTTLE_HEADER]: '1',
       })
       response.end(JSON.stringify({ error: 'API-key verification is temporarily rate limited' }))
     } else {

@@ -429,6 +429,7 @@ describe('GET /api/ai_assistant/settings', () => {
       const response = await GET(new Request('http://localhost/api/ai_assistant/settings') as Parameters<typeof GET>[0])
       expect(response.status).toBe(429)
       expect(response.headers.get('retry-after')).toBe('2')
+      expect(response.headers.get('x-om-api-key-verification-throttled')).toBe('1')
       const body = await response.json()
       expect(body).not.toHaveProperty('mcpKeyConfigured', false)
     } finally {

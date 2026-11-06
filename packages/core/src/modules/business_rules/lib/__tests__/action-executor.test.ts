@@ -749,6 +749,41 @@ describe('Action Executor', () => {
         expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
       })
 
+      it('keeps one temporary key alive while retrying a marked authentication rejection', async () => {
+        const { context, createdApiKeys } = createOpenMercatoContext()
+        mockFetch.mockImplementationOnce(async () => {
+          expect(createdApiKeys[0].deletedAt).toBeFalsy()
+          return new Response(null, { status: 429, headers: { 'retry-after': '1', 'x-om-api-key-verification-throttled': '1' } })
+        }).mockImplementationOnce(async () => {
+          expect(createdApiKeys[0].deletedAt).toBeFalsy()
+          return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } })
+        })
+        const result = await executeAction({
+          type: 'CALL_OPEN_MERCATO',
+          config: { endpoint: '/api/business_rules/rules', method: 'POST', apiKeyId: apiKeyProfileId, body: { value: 1 } },
+        }, context)
+        expect(result.success).toBe(true)
+        expect(mockFetch).toHaveBeenCalledTimes(2)
+        expect(mockFetch.mock.calls[0]).toEqual(mockFetch.mock.calls[1])
+        expect((mockFetch.mock.calls[0][1] as RequestInit).redirect).toBe('manual')
+        expect(createdApiKeys).toHaveLength(1)
+        expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+      })
+
+      it.each([429, 302])('does not replay a domain response or redirect with status %s', async (status) => {
+        const { context, createdApiKeys } = createOpenMercatoContext()
+        mockFetch.mockResolvedValue(new Response(null, { status, headers: { 'retry-after': '1', location: 'https://external.example.test/api/action' } }))
+        const result = await executeAction({
+          type: 'CALL_OPEN_MERCATO',
+          config: { endpoint: '/api/business_rules/rules', method: 'POST', apiKeyId: apiKeyProfileId },
+        }, context)
+        expect(result.success).toBe(false)
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+        expect((mockFetch.mock.calls[0][1] as RequestInit).redirect).toBe('manual')
+        expect(createdApiKeys).toHaveLength(1)
+        expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+      })
+
       it.each([
         { kind: 'session', sessionUserId: 'user-123', expectedSuccess: false },
         { kind: 'independent', sessionUserId: null, expectedSuccess: true },

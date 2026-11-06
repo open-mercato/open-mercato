@@ -156,6 +156,21 @@ describe('executeCallApi', () => {
     expect(mockEm.flush).toHaveBeenCalled()
   })
 
+  it('retries only pre-handler capacity rejection with the same temporary key and cleans it up', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, {
+      status: 429, headers: { 'retry-after': '1', 'x-om-api-key-verification-throttled': '1' },
+    })).mockResolvedValueOnce(new Response('{"id":"order-retried"}', { status: 200, headers: { 'content-type': 'application/json' } }))
+    const result = await executeCallApi(mockEm, {
+      endpoint: '/api/sales/orders', method: 'POST', body: { value: 1 },
+    }, mockContext, mockContainer)
+    expect(result.status).toBe(200)
+    expect(result.body).toEqual({ id: 'order-retried' })
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(mockFetch.mock.calls[0]).toEqual(mockFetch.mock.calls[1])
+    expect(createdApiKeys).toHaveLength(1)
+    expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+  })
+
   it('creates the one-time API key on a context-detached EM so it commits outside the workflow transaction (issue #4202)', async () => {
     // CALL_API runs inside workflowExecutor.executeWorkflow()'s em.transactional(...).
     // If the key is written on the transaction-bound EM it stays invisible until

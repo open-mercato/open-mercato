@@ -33,6 +33,14 @@ HTTP MCP returns 429 with `Retry-After` for verification overload, and retains 4
 
 Data models, secret format, prefix uniqueness, database schema, entity scoping, role checks and exported verification signatures are unchanged. Normal bcrypt true/false outcomes retain their meaning. `verifyApiKey` already returns a rejecting promise for verification failures; the new overload error gives consumers an explicit retryable failure rather than silently manufacturing a bad credential.
 
+## Internal API callers
+
+Business-rule `CALL_OPEN_MERCATO` and workflow `CALL_API` use a temporary key for inner HTTP calls. They keep the same key alive while retrying only a marked authentication-capacity rejection. The reserved `x-om-api-key-verification-throttled: 1` response header is emitted by the API authentication dispatcher, native MCP authentication, the read-only settings key probe and OAuth verification before token issuance. These paths have not performed the requested state-changing operation; an arbitrary business-handler 429 is unmarked.
+
+The shared server HTTP helper allows at most three retries with positive integer Retry-After, starts retries within a ten-second monotonic window, cancels rejected response bodies and honors the caller's AbortSignal during both fetch and backoff. A scheduling stall beyond that window stops before another request with a typed capacity error. Existing in-flight request timeout behavior remains with the caller. Unmarked 429, 400/401/403, other failures and ambiguous network errors receive no new transport retries. The surrounding action/workflow is not replayed by this helper.
+
+Both callers already validate internal platform API URLs. Fetch remains manual for redirects: workflows retain their existing same-origin `/api/` redirect checks; business-rule calls now reject redirect responses so only the intended internal endpoint can supply the authentication marker. Temporary-key cleanup remains in the existing finally block after the entire call, including retries or aborts.
+
 ## Risks and deployment
 
 - A process-local limiter bounds work per application/MCP process, not aggregate ingress across replicas. Deploy all verification processes. Reverse-proxy/WAF or shared ingress rate limits remain necessary for distributed request volume, connection pressure and database work preceding comparison.

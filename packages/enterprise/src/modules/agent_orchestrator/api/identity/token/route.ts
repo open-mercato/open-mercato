@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { ApiKeyVerificationRateLimitError } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
+import { API_KEY_VERIFICATION_THROTTLE_HEADER, ApiKeyVerificationRateLimitError } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     if (!(error instanceof ApiKeyVerificationRateLimitError)) throw error
     return NextResponse.json(
       { error: 'temporarily_unavailable' },
-      { status: 429, headers: { 'Retry-After': String(Math.ceil(error.retryAfterMs / 1000)) } },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(error.retryAfterMs / 1000)), [API_KEY_VERIFICATION_THROTTLE_HEADER]: '1' } },
     )
   }
 
