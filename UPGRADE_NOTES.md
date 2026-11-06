@@ -1,5 +1,15 @@
 # Upgrade Notes
 
+## Search writes honor entity strategy pins (#5930)
+
+SearchService direct and bulk writes now honor each registered entity's existing
+`strategies` restriction; an explicit empty list writes to no strategy. Unpinned
+entities, fulltext content, and null-source behavior are unchanged. No client,
+configuration, or database migration is required. After upgrading all workers,
+operators whose entities previously reached an excluded writer should purge those
+entities from that index using the existing cleanup operations. Existing vectors
+and embedding-provider retention are not removed automatically.
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings
@@ -5156,3 +5166,9 @@ reruns. The `mercato-local-v2-*` namespace starts separate volumes; old random
 stacks/data remain available and are not deleted or migrated. Development
 bindings default to loopback. Explicit nonlocal Redis bindings require a Redis
 password and matching URLs. Full-Docker deployment bindings are unchanged.
+
+## Staff logout redirect status correction (2026-11-05, #7383)
+
+`POST /api/auth/logout` now returns `303 See Other` with the same login Location, so browsers navigate with GET and reloading the login page does not resubmit a form. This supersedes the 307 status in the earlier logout notes, including refresh-cookie-only and cookieless requests.
+
+**Action for integrators:** accept 303 instead of asserting 307 and follow Location with GET. Operators need no configuration or database migration. Session revocation, cookie expiry and events retain their current behavior, and other users of the shared redirect helper still default to 307. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md).

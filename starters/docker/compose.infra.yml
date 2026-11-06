@@ -217,7 +217,7 @@ services:
       VERDACCIO_PORT: 4873
       VERDACCIO_PUBLIC_URL: http://localhost:4873
     ports:
-      - "${INFRA_BIND_HOST:-127.0.0.1}:${VERDACCIO_PORT:-4873}:4873"
+      - "${VERDACCIO_HOST:-127.0.0.1}:${VERDACCIO_PORT:-4873}:4873"
     volumes:
       - verdaccio_storage:/verdaccio/storage
       - verdaccio_plugins:/verdaccio/plugins
