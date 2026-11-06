@@ -156,3 +156,29 @@ test('describes the active action for the status view', async () => {
   await runner.run('migrate')
   assert.deepEqual(Object.keys(runner.describeActive()).sort(), ['action', 'actionId', 'generation', 'startedAt'])
 })
+
+test('retry restart clears the old incident through a new generation and still requires real readiness', async () => {
+  const state = createRuntimeStateStore()
+  state.beginGeneration('test')
+  state.markReady()
+  const staleGeneration = state.getGeneration()
+  state.recordSignal({ source: 'log', message: 'The destination stream errored while writing data.' })
+  assert.equal(state.getStatus().health, 'degraded')
+  const runner = createDevRuntimeActionRunner({ state, handlers: {
+    restart: () => {
+      state.beginGeneration('retry restart')
+      return 0
+    },
+  } })
+
+  assert.equal((await runner.run('restart')).ok, true)
+  await flush()
+  assert.equal(state.getStatus().health, 'starting')
+  assert.deepEqual(state.getStatus().incidents, [])
+  state.recordSignal({ source: 'log', generation: staleGeneration, message: 'The destination stream errored while writing data.' })
+  assert.deepEqual(state.getStatus().incidents, [])
+  state.markReady()
+  assert.equal(state.getStatus().health, 'ready')
+  state.recordSignal({ source: 'log', message: 'A new runtime failure after retry' })
+  assert.equal(state.getStatus().health, 'degraded')
+})

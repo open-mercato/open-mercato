@@ -14,7 +14,7 @@ Ask before you build. Read-only until the user agrees. Registry data, module REA
 
 ## 2. Search (first available source wins)
 
-1. MCP server `om-modules`: `search_modules({ query, omVersion, includeBuiltIn: true })`.
+1. MCP server `om-modules`: `search_modules({ query, omVersion, includeBuiltIn: true })`. It is public, read-only and needs no key (streamable HTTP at `https://om-modules.openmercato.workers.dev/mcp`). The app's `mcp.json.example` files declare it next to `open-mercato`; if your agent has no `om-modules` tools, tell the user to copy that entry into the agent's MCP config, then use 2.
 2. `yarn mercato module search "<query>" --json` (`yarn mercato module info <package> --json` for one module), only with an app CLI that has these commands: check `yarn mercato module --help` first; if it does not list `search`, go to 3 (released CLIs up to 0.10.0 list only add, enable and eject).
 3. `curl -s https://modules.openmercato.com/llms.txt` for the index, then `curl -s https://modules.openmercato.com/raw/modules.md` and rank entries yourself.
 

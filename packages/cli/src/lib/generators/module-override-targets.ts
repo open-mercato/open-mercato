@@ -680,7 +680,12 @@ const cliAdapter: InternalAdapter = {
 
 // `SetupOverridesShape` keys the runtime override resolver accepts. Only these
 // supported hook/profile properties become `setup` targets.
-const SUPPORTED_SETUP_HOOKS = new Set(['seedDefaults', 'seedExamples', 'onTenantCreated'])
+const SUPPORTED_SETUP_HOOKS = new Set([
+  'seedDefaults',
+  'seedExamples',
+  'onTenantCreated',
+  'onOrganizationCreated',
+])
 
 const setupAdapter: InternalAdapter = {
   domain: 'setup',

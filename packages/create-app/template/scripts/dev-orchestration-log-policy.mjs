@@ -142,12 +142,41 @@ export function extractInitSummaryBox(lines) {
   return []
 }
 
+function extractInitSummaryPanel(lines) {
+  const plain = lines.map((line) => stripAnsi(String(line ?? '')))
+  for (let heading = plain.length - 1; heading > 0; heading -= 1) {
+    if (!plain[heading].includes('  🔑 ')) continue
+    const start = heading - 2
+    if (start < 0) continue
+    const column = plain[start].indexOf('━')
+    if (column < 0 || !/^━+\s*$/.test(plain[start].slice(column))) continue
+    const end = plain.findIndex((line, index) => index > heading && line.slice(column).trim() === plain[start].slice(column).trim())
+    if (end === -1) return []
+    return lines.slice(start, end + 1).map((line) => {
+      let offset = 0
+      let visible = 0
+      while (visible < column && offset < line.length) {
+        const escape = line.slice(offset).match(/^\u001b\[[0-9;]*m/)
+        if (escape) offset += escape[0].length
+        else {
+          offset += 1
+          visible += 1
+        }
+      }
+      return line.slice(offset).replace(/^(?:\u001b\[0m)+/, '')
+    })
+  }
+  return []
+}
+
 // What compact setup echoes after `mercato init`: the credentials box on a
 // first run, or the "already initialized" notice when a re-run kept the data.
 export function extractInitSummaryLines(lines) {
+  if (!Array.isArray(lines)) return []
+  const panel = extractInitSummaryPanel(lines)
+  if (panel.length > 0) return panel
   const box = extractInitSummaryBox(lines)
   if (box.length > 0) return box
-  if (!Array.isArray(lines)) return []
   const kept = lines.map((line) => normalize(line)).find((line) => line.includes('Database already initialized'))
   return kept ? [kept] : []
 }

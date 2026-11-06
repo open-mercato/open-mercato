@@ -339,32 +339,35 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     }
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    let user: User
-    try {
-      user = await de.createOrmEntity({
-        entity: User,
-        data: {
-          email: parsed.email,
-          name: parsed.name,
-          emailHash,
-          passwordHash,
-          isConfirmed: true,
-          organizationId: parsed.organizationId,
-          tenantId,
-        },
-      })
-    } catch (error) {
-      if (isUniqueViolation(error)) await throwDuplicateEmailError()
-      throw error
-    }
-
+    let user!: User
     let assignedRoles: string[] = []
-    if (Array.isArray(parsed.roles) && parsed.roles.length) {
-      await withAtomicFlush(em, [
-        async () => syncUserRoles(em, user, parsed.roles ?? [], tenantId),
-      ], { transaction: true, label: 'auth.users.create.roles' })
-      assignedRoles = await loadUserRoleNames(em, String(user.id))
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        try {
+          user = await de.createOrmEntity({
+            entity: User,
+            data: {
+              email: parsed.email,
+              name: parsed.name,
+              emailHash,
+              passwordHash,
+              isConfirmed: true,
+              organizationId: parsed.organizationId,
+              tenantId,
+            },
+          })
+        } catch (error) {
+          if (isUniqueViolation(error)) await throwDuplicateEmailError()
+          throw error
+        }
+      },
+      async () => {
+        if (Array.isArray(parsed.roles) && parsed.roles.length) {
+          await syncUserRoles(em, user, parsed.roles, tenantId)
+          assignedRoles = await loadUserRoleNames(em, String(user.id))
+        }
+      },
+    ], { transaction: true, label: 'auth.users.create' })
 
     await setCustomFieldsIfAny({
       dataEngine: de,

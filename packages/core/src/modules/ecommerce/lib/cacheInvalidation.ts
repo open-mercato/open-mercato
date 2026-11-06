@@ -11,6 +11,7 @@ import {
   ecommerceCustomerUserTag,
   ecommerceDomainMappingTag,
   ecommerceDomainTag,
+  ecommerceSalesChannelTag,
   ecommerceStoreTag,
   ecommerceUngroupedBuyerTag,
   invalidateEcommerceCacheTags,
@@ -63,6 +64,9 @@ export const storeDomainBindingEventTags: TagDeriver = (payload) => [
 
 export const storeChannelBindingEventTags: TagDeriver = (payload) =>
   tagsFrom([readPayloadString(payload, 'storeId'), readPayloadString(payload, 'previousStoreId')], ecommerceStoreTag)
+
+export const salesChannelEventTags: TagDeriver = (payload) =>
+  tagsFrom([readPayloadString(payload, 'id')], ecommerceSalesChannelTag)
 
 export const domainMappingEventTags: TagDeriver = (payload) => [
   ...tagsFrom(

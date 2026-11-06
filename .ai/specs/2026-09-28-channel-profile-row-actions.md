@@ -16,7 +16,10 @@ Every per-row action moves into the ⋯ menu, handed to `DataTable` through its 
 goes from 11 columns to 8 plus DataTable's own actions cell, and adding a future
 action costs a menu entry instead of a column.
 
-No contract surface changes: no DB, API, event, ACL, DI or widget spot-ID change.
+The consolidation itself changes no contract surface: no DB, API, event, ACL, DI or
+widget spot-ID change. The later `set-primary` refusal of a `disconnected` channel
+(#7799) narrows one API route and one exported command result; see
+[Data Model / API Contracts](#-data-model--api-contracts).
 
 ## 📝 Problem Statement
 
@@ -77,7 +80,7 @@ is worse than a short menu.
 
 | Action | Included when | Notes |
 |---|---|---|
-| `set-primary` | `!isPrimary` | |
+| `set-primary` | `!isPrimary && status !== 'disconnected'` | The set-primary route refuses a disconnected channel with 409 `channel_disconnected` |
 | `share-with-team` / `make-private` | `channelType === 'email'` | Label flips on `visibility` |
 | `register-push` | `supportsPushRegistration && pushStatus !== 'active'` | Re-registering a healthy subscription is a no-op |
 | `import-history` | `isActive && status === 'connected' && channelType === 'email'` | Same rule the `History` column enforced |
@@ -111,9 +114,24 @@ disappears in a refactor.
 
 ## 📝 Data Model / API Contracts
 
-Unchanged. `GET /api/communication_channels/me/channels` already returns every field
-the menu reads (`isPrimary`, `visibility`, `updatedAt`, `isActive`, `status`,
+`GET /api/communication_channels/me/channels` is unchanged. It already returns every
+field the menu reads (`isPrimary`, `visibility`, `updatedAt`, `isActive`, `status`,
 `channelType`, `pushStatus`, `supportsRealtimePush`, `supportsPushRegistration`).
+
+**`set-primary` refuses a disconnected channel (#7799).**
+
+- `POST /api/communication_channels/channels/{id}/set-primary` answers
+  `409 { error, code: "channel_disconnected" }` for a channel whose `status` is
+  `disconnected`, and leaves the current primary unchanged. It previously answered `200`
+  and promoted the channel. A legacy row that is disconnected and still flagged primary
+  also gets `409` instead of the `200` no-op. `connected`, `requires_reauth` and `error`
+  channels are accepted as before. The `409` is listed in the route's OpenAPI responses.
+- The `communication_channels.channel.set_primary` command returns the new
+  `SetPrimaryChannelResult` member `{ status: 'disconnected'; reason: string }`. It is
+  checked after ownership (another user's channel still gets the masked `404`) and
+  before the already-primary no-op, and it writes nothing.
+- URL, request shape, success response, event IDs, ACL features, DI names and database
+  schema are unchanged.
 
 ## 📝 UI/UX
 
@@ -138,7 +156,8 @@ Push · Last synced`, followed by DataTable's own right-aligned actions cell.
 | Push-driven channel | `poll-now` omitted; reason on the `Push-driven` tag's `title` |
 | Push already active | `register-push` omitted |
 | Channel in `error` | `poll-now` present, labelled `Retry` |
-| Channel in `requires_reauth` / `disconnected` | Only `set-primary`, share and `disconnect`; the `Status` column explains why |
+| Channel in `requires_reauth` | Only `set-primary`, share and `disconnect`; the `Status` column explains why |
+| Channel `disconnected` | Only share and `disconnect`; the `Status` column explains why |
 | Every optional action ineligible | `disconnect` still present, so the menu is never empty |
 
 ## 📝 Risks & Impact Review
@@ -155,6 +174,17 @@ Push · Last synced`, followed by DataTable's own right-aligned actions cell.
 `.importHistory`, `.pollNow`, across all five bundled locales (en, de, es, ko, pl).
 **No keys added** — the actions cell's header comes from `ui.dataTable.actionsColumn`,
 which DataTable already owns and which is already translated app-side.
+
+**`set-primary` refusal (#7799)** — an intentional narrowing of one API route's behaviour and
+an exported command result type, recorded in `UPGRADE_NOTES.md`:
+
+- HTTP consumers of `POST /api/communication_channels/channels/{id}/set-primary` must
+  handle `409` with `code: "channel_disconnected"`; the call no longer promotes a
+  disconnected channel.
+- Code that switches exhaustively over `SetPrimaryChannelResult` must add a branch for
+  `{ status: 'disconnected'; reason: string }`. The only in-repo consumer is the route.
+- No bridge is provided: promoting a channel that cannot send is the defect being
+  removed. No data migration is needed.
 
 No other contract surface is touched. `channel-*` packages are unaffected: the
 injection spot and its contract are untouched by this change.
@@ -180,6 +210,14 @@ with a `row actions menu` suite:
 | Poll action labelled `Retry` on `status === 'error'` | Recovery path |
 | Re-register push absent from the Push cell, present in the menu | Nothing lost in the move |
 | Push-driven tag carries the "polling does not apply" title | The relocated explanation |
+| `Set as primary` omitted on a `disconnected` row, kept for `connected`, `requires_reauth` and `error` | #7799 |
+
+Playwright integration cases added for #7799:
+
+| Case | Guards |
+|---|---|
+| `TC-CHANNEL-API-011` | `set-primary` on a disconnected channel answers `409` `channel_disconnected` and the current primary stays primary |
+| `TC-CHANNEL-EMAIL-HUB-009` | The row menu of a disconnected channel has no `Set as primary`; a connected row still offers it |
 
 ## 📝 Prior Specs Reviewed
 
@@ -248,3 +286,5 @@ backend table that uses it, not just this page. Both are strict improvements
 |---|---|
 | 2026-09-28 | Initial spec and implementation: per-row actions consolidated into a `RowActions` column. |
 | 2026-09-30 | QA follow-ups: pinned the actions cell (#6717); added arrow-key/Home/End navigation and a Tab trap to `RowActions` (#6718); made the panel size to its content and its items wrap (#6719). |
+| 2026-10-18 | `set-primary` omitted on a `disconnected` row, matching the route's new 409 refusal (#7799). |
+| 2026-10-23 | Recorded the #7799 `set-primary` 409 and the new `SetPrimaryChannelResult` member in the API contract and backward-compatibility sections, and listed its integration cases. |

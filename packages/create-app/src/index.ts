@@ -16,6 +16,7 @@ import { applyStarterPreset, resolvePreset } from './lib/apply-starter-preset.js
 import { runCatalogStep, type CatalogStepOptions, type CatalogStepResult } from './lib/catalog/catalog-step.js'
 import { parseModulesFlag } from './lib/catalog/selection.js'
 import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
+import { WITHOUT_DOCKER_GUIDE_URL, isDockerCliAvailable, missingDockerNotice } from './lib/docker-availability.js'
 import { runAgenticSetup, parseAgentsValue } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -537,20 +538,43 @@ function printTemplateNextSteps(
   appName: string,
   agenticConfigured: boolean,
   catalogPlan: CatalogPlan = { commands: [], commandWarnings: {} },
+  dockerAvailable: boolean = isDockerCliAvailable(),
 ): void {
+  if (!dockerAvailable) {
+    const [title, ...details] = missingDockerNotice()
+    console.log(pc.yellow(`⚠️  ${title}`))
+    for (const line of details) console.log(pc.yellow(line))
+    console.log('')
+  }
   console.log('Next steps:')
   console.log('')
   console.log(pc.cyan(`  cd ${appName}`))
   console.log(pc.cyan('  yarn setup'))
-  console.log(pc.dim('  # Checks Docker, starts PostgreSQL, Redis and Meilisearch and waits until they are healthy,'))
-  console.log(pc.dim('  # then installs dependencies, migrates and initializes the database and starts the dev server.'))
-  console.log(pc.dim('  # Needs Node 24, Yarn 4 (corepack enable) and a running Docker engine. Safe to re-run: data and .env are kept.'))
+  console.log(pc.dim('  # Reuses the services in .env when they answer and verify; otherwise starts Docker Compose services'))
+  console.log(pc.dim('  # (on free ports when the configured ones belong to something else). Then installs, migrates, initializes'))
+  console.log(pc.dim('  # and starts dev. Needs Node 24 and Yarn 4 (corepack enable); Docker unless you run PostgreSQL yourself.'))
+  console.log('')
+  console.log('Choose services explicitly:')
+  console.log(pc.cyan('  yarn setup --infra'))
+  console.log(pc.dim('  # Start pinned Docker Compose services on configured loopback ports.'))
+  console.log(pc.cyan('  yarn setup --random-ports'))
+  console.log(pc.dim('  # Docker Compose on free ports; saves matching ports and service URLs to .env.'))
+  console.log(pc.cyan('  yarn setup --ephemeral'))
+  console.log(pc.dim('  # Testcontainers on allocated ports; stops services and restores config when setup/dev exits.'))
+  console.log(pc.cyan('  yarn setup --no-infra'))
+  console.log(pc.dim('  # Use the services configured in .env; makes no Docker calls. Alias: --reuse-services.'))
+  console.log(pc.dim('  # Remote DB writes require --allow-remote-database=host:port/database.'))
   console.log('')
   console.log('Using your own PostgreSQL, Redis and Meilisearch instead of Docker:')
   console.log(pc.cyan('  cp .env.example .env'))
   console.log(pc.dim('  # Point DATABASE_URL (and Redis/Meilisearch settings) at your services, then:'))
   console.log(pc.cyan('  yarn setup --no-infra'))
   console.log(pc.dim('  # Makes no Docker calls and keeps your URLs'))
+  console.log(pc.dim(`  # Step by step: ${WITHOUT_DOCKER_GUIDE_URL}`))
+  console.log('')
+  console.log('If setup fails, configure .env for your intended services, then run manually:')
+  console.log(pc.cyan('  yarn install && yarn generate && yarn db:migrate && yarn initialize --skip-if-initialized'))
+  console.log(pc.cyan('  yarn dev --no-infra'))
   console.log('')
   console.log('Later:')
   console.log(pc.cyan('  yarn dev'))

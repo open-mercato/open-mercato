@@ -2,6 +2,7 @@
   "search.api.errors.autoIndexingDisabled": "OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING(레거시 별칭: DISABLE_VECTOR_SEARCH_AUTOINDEXING)에 의해 자동 인덱싱이 비활성화되어 있습니다.",
   "search.api.errors.configUnavailable": "구성 서비스를 사용할 수 없습니다.",
   "search.api.errors.confirmAllRequired": "모든 항목에 대한 확인이 필요합니다.",
+  "search.api.errors.dimensionMismatch": "임베딩 차원은 공유 벡터 인덱스와 일치해야 합니다. 인덱스 차원을 변경하려면 인스턴스 관리자에게 문의하세요.",
   "search.api.errors.indexFetchFailed": "인덱스 데이터를 가져오지 못했습니다.",
   "search.api.errors.indexUnavailable": "검색 인덱스를 사용할 수 없습니다.",
   "search.api.errors.indexerUnavailable": "검색 인덱서를 사용할 수 없습니다.",

@@ -106,6 +106,27 @@ describe('ReceiveAsnLineDialog', () => {
     expect(screen.queryByText('Receive inventory (no ASN)')).toBeNull()
   })
 
+  it('shows a translatable error instead of the raw zod message when the received quantity is not positive', async () => {
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={line}
+      />,
+    )
+
+    const quantityInput = screen.getByTestId('receive-asn-qty')
+    fireEvent.change(quantityInput, { target: { value: '0' } })
+    fireEvent.submit(quantityInput.closest('form') as HTMLFormElement)
+
+    expect(await screen.findByText('wms.backend.asns.receive.errors.quantityPositive')).toBeTruthy()
+    expect(screen.queryByText(/Too small/)).toBeNull()
+    expect(mockApiCall).not.toHaveBeenCalled()
+  })
+
   it('refreshes the optimistic-lock token from a 409 so retry sends a fresh If-Match', async () => {
     const freshUpdatedAt = '2026-08-22T10:05:00.000Z'
     mockApiCall

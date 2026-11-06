@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import {
   normalizeDictionaryValue,
@@ -110,6 +111,30 @@ export async function loadWarrantyClaimDictionaryOptions(
     { orderBy: { position: 'asc', label: 'asc' } }
   )
   return entries.map((entry) => ({ value: entry.value, label: entry.label }))
+}
+
+export async function loadWarrantyClaimDictionaryLabel(
+  em: EntityManager,
+  scope: SeedScope,
+  kind: WarrantyClaimDictionaryKind,
+  value: string,
+): Promise<string | null> {
+  const dictionary = await findOneWithDecryption(
+    em,
+    Dictionary,
+    { ...scope, key: getWarrantyClaimDictionaryDefinition(kind).key, isActive: true, deletedAt: null },
+    {},
+    scope,
+  )
+  if (!dictionary) return null
+  const entry = await findOneWithDecryption(
+    em,
+    DictionaryEntry,
+    { ...scope, dictionary: dictionary.id, value },
+    {},
+    scope,
+  )
+  return entry?.label ?? null
 }
 
 export async function ensureWarrantyClaimDictionary(params: {

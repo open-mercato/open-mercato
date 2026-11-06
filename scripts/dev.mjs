@@ -78,7 +78,8 @@ import {
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
-import { acquireDevSession } from './dev-session-guard.mjs'
+import { assertDatabaseWriteAllowed } from './dev-database-write-guard.mjs'
+import { acquireDevSessionWithRecovery as acquireDevSession } from './dev-session-recovery.mjs'
 import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
   DEFAULT_MEMORY_TRACE_OUT_DIR,
@@ -984,6 +985,17 @@ function resolveDatabaseEnvFilePath() {
     : path.join(process.cwd(), '.env')
 }
 
+async function guardDatabaseMutation(commandArgs, env = {}) {
+  if (!['db:migrate', 'initialize'].includes(commandArgs?.[0])) return
+  const result = await assertDatabaseWriteAllowed({
+    projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
+    env: { ...process.env, ...env },
+    argv: args,
+  })
+  if (result?.connectionEnv) { Object.assign(process.env, result.connectionEnv); Object.assign(env, result.connectionEnv) }
+  if (result?.argument && !args.includes(result.argument)) args.push(result.argument)
+}
+
 async function applyDatabaseNameOverrideIfRequested() {
   let result
   try {
@@ -1495,6 +1507,7 @@ function waitForRecoveryChildExit(child) {
 }
 
 async function runRecoveryCommand(label, commandArgs) {
+  await guardDatabaseMutation(commandArgs)
   console.log(`🛠️ ${label}...`)
   updateSplashState({ phase: label, detail: 'Recovery action in progress', activity: `${label} started` })
 
@@ -1697,7 +1710,7 @@ function shutdown(exitCode = 0) {
   shuttingDown = true
   announceShutdown()
 
-  const alive = Array.from(children).filter((child) => !child.killed)
+  const alive = Array.from(children).filter((child) => child.exitCode == null && child.signalCode == null)
   if (alive.length === 0) {
     void finalizeDevProcess(exitCode)
     return
@@ -1708,10 +1721,8 @@ function shutdown(exitCode = 0) {
   }
 
   setTimeout(() => {
-    for (const child of children) {
-      if (!child.killed) {
-        killProcessTree(child, 'SIGKILL')
-      }
+    for (const child of alive) {
+      killProcessTree(child, 'SIGKILL')
     }
     void finalizeDevProcess(exitCode)
   }, 3000)
@@ -1748,9 +1759,14 @@ function resolveChildExitCode(result, fallback = 1) {
 
 // `mercato init` prints "Start the dev server: yarn dev" unless told that this
 // runner launches the dev server right after it.
-const INIT_DEV_AUTOSTART_ENV = { OM_INIT_DEV_AUTOSTART: '1' }
+const INIT_DEV_AUTOSTART_ENV = {
+  OM_INIT_DEV_AUTOSTART: '1',
+  OM_INIT_SUMMARY_COLUMNS: String(process.stdout.columns || 80),
+  OM_INIT_SUMMARY_COLOR: process.stdout.isTTY && process.env.NO_COLOR === undefined ? '1' : '0',
+}
 
 async function runRawYarnCommand(commandArgs, options = {}) {
+  await guardDatabaseMutation(commandArgs, options.env)
   const child = spawnCommand(yarnCommand, commandArgs, {
     label: commandArgs.join(' '),
     logFile: getDevRunnerLog(),
@@ -2120,6 +2136,7 @@ async function runStage(label, commandArgs, options = {}) {
 
 async function runPassthroughStage(label, commandArgs, options = {}) {
   if (startupAborted) return
+  await guardDatabaseMutation(commandArgs, options.env)
   const startedAt = Date.now()
   const stageOrder = {
     'build:packages': 1,
@@ -2647,6 +2664,7 @@ function startMcpRuntime() {
 
 async function applyPendingMigrationsBestEffort() {
   if (!shouldAutoMigrateOnDev()) return
+  await guardDatabaseMutation(['db:migrate'])
   console.log('🗄️ Applying database migrations...')
   const child = spawnCommand(yarnCommand, ['db:migrate'], {
     label: 'Applying database migrations',
@@ -2945,7 +2963,7 @@ function resolveDevSessionMode() {
 }
 
 try {
-  devSession = acquireDevSession({
+  devSession = await acquireDevSession({
     workspaceRoot: process.env.OM_DEV_SESSION_WORKSPACE_ROOT?.trim() || process.cwd(),
     mode: resolveDevSessionMode(),
     url: resolveExpectedAppBaseUrl(),
@@ -2964,4 +2982,9 @@ markMemoryTrace('dev:start', 'Dev runner started', {
   greenfield,
   classic,
 })
-await main()
+try {
+  await main()
+} catch (error) {
+  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  shutdown(2)
+}

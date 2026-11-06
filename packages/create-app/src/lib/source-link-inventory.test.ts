@@ -236,16 +236,15 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  // Exact encrypted-search links extend the existing file-shaped source contract.
-  assert.equal(inventory.derived.sourceRequiredCount, 130)
-  assert.equal(inventory.records.length, 155)
-  assert.equal(inventory.derived.renderedLinkCount, 132)
+  assert.equal(inventory.derived.sourceRequiredCount, 133)
+  assert.equal(inventory.records.length, 159)
+  assert.equal(inventory.derived.renderedLinkCount, 135)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 130)
+  assert.equal(sourceRequired.length, 133)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -438,9 +437,12 @@ test('capability joins come from the example surface inventory, not from the top
     [...new Set(unjoined.map((record) => record.resolvedPath))].sort(),
     [
       '.ai/guides/customers-calendar.md',
+        '.ai/skills/om-data-model-design/references/sensitive-data.md',
+      'node_modules/@open-mercato/cli/src/lib/eject.ts',
+      'node_modules/@open-mercato/cli/src/lib/module-identity.ts',
+      'node_modules/@open-mercato/cli/src/lib/module-install.ts',
       // The installed UI implementation joins no example capability: it is the framework's own
       // component, not a canonical-example surface.
-      '.ai/skills/om-data-model-design/references/sensitive-data.md',
       'node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts',
       'node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx',
       'node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts',

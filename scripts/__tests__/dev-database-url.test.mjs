@@ -6,6 +6,7 @@ import path from 'node:path'
 
 import {
   parseDatabaseNameArgs,
+  previewDatabaseNameOverride,
   deriveDatabaseNameFromCwd,
   validateDatabaseName,
   resolveDatabaseName,
@@ -481,4 +482,15 @@ test('resolveDatabaseNameOverride: CLI flag wins over OM_DEV_DATABASE_NAME', asy
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+
+test('database override preview follows flag/env precedence without prompting or changing env text', () => {
+  const envText = 'DATABASE_URL="postgres://fixture:pw@localhost/old"\nUNRELATED=keep\n'
+  assert.equal(previewDatabaseNameOverride({ argv: [], env: {}, envText }), null)
+  assert.equal(previewDatabaseNameOverride({ argv: ['--database-name=selected'], env: { OM_DEV_DATABASE_NAME: 'other' }, envText }), 'postgres://fixture:pw@localhost/selected')
+  assert.equal(previewDatabaseNameOverride({ argv: [], env: { OM_DEV_DATABASE_NAME: 'selected' }, envText }), 'postgres://fixture:pw@localhost/selected')
+  assert.equal(previewDatabaseNameOverride({ argv: ['--database-name'], env: {}, envText, cwd: '/fixture/my-app' }), 'postgres://fixture:pw@localhost/my_app')
+  assert.throws(() => previewDatabaseNameOverride({ argv: ['--database-name=bad/name'], envText }), /Invalid database name/)
+  assert.equal(envText, 'DATABASE_URL="postgres://fixture:pw@localhost/old"\nUNRELATED=keep\n')
 })

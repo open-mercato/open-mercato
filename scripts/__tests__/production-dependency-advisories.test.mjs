@@ -15,7 +15,7 @@ const vulnerableRanges = {
   dompurify: ['<=3.4.10'],
   'ip-address': ['<=10.1.0'],
   'js-yaml': ['<3.15.0', '>=4.0.0 <=4.1.1'],
-  mermaid: ['>=11.0.0-alpha.1 <=11.14.0'],
+  mermaid: ['>=11.0.0-alpha.1 <11.16.1'],
   postcss: ['<8.5.10'],
   qs: ['>=6.11.1 <=6.15.1'],
   uuid: ['<11.1.1'],

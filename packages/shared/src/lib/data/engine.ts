@@ -14,7 +14,7 @@ import {
   type CrudEntityIdentifiers,
 } from '../crud/types'
 import type { BulkImportSuppression } from '../commands/types'
-import { conflict, CrudHttpError, isUniqueViolation } from '../crud/errors'
+import { conflict, CrudHttpError, isUniqueViolation, notFound } from '../crud/errors'
 import { withAdvisoryXactLock } from '../db/advisoryLock'
 import { resolveRegisteredEntityTableName } from '../query/engine'
 import { getEntityIds } from '../encryption/entityIds'
@@ -136,6 +136,7 @@ export interface DataEngine {
     tenantId?: string | null
     values: CustomEntityValues
     notify?: boolean // keep event emitting as it is via setCustomFields (updated)
+    requireActive?: boolean
   }): Promise<void>
 
   deleteCustomEntityRecord(opts: {
@@ -549,6 +550,7 @@ export class DefaultDataEngine implements DataEngine {
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null
+    const requireActive = opts.requireActive === true
 
     // Merge doc shallowly: load existing doc and overlay
     await this.ensureStorageTableExists()
@@ -561,11 +563,13 @@ export class DefaultDataEngine implements DataEngine {
       chain = tenantId === null
         ? chain.where('tenant_id' as any, 'is', null as any)
         : chain.where('tenant_id' as any, '=', tenantId)
+      if (requireActive) chain = chain.where('deleted_at', 'is', null)
       return chain
     }
     const row = await applyScope(
       db.selectFrom('custom_entities_storage' as any).select(['doc' as any])
     ).executeTakeFirst()
+    if (requireActive && !row) throw notFound()
     const prevDoc: Record<string, unknown> = (row as any)?.doc || { id }
     const nextDoc = await encryptCustomEntityRecordDocument(this.em, {
       entityId: opts.entityId, organizationId: orgId, tenantId,
@@ -581,6 +585,7 @@ export class DefaultDataEngine implements DataEngine {
         } as any) as any
       ).executeTakeFirst()
       if (!updated || Number((updated as any).numUpdatedRows ?? 0) === 0) {
+        if (requireActive) throw notFound()
         await db.insertInto('custom_entities_storage' as any).values({
           entity_type: opts.entityId,
           entity_id: id,
