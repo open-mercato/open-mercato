@@ -35,5 +35,5 @@ Cases:
 
 ### Phase 2: Docs and verification
 
-- [ ] 2.1 Update the `--template` next-steps docs
+- [x] 2.1 Update the `--template` next-steps docs — 7579df13a
 - [ ] 2.2 Build create-app and capture the demo template output
