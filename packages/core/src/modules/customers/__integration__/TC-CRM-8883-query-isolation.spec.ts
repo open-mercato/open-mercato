@@ -1,15 +1,23 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createUserFixture } from '@open-mercato/core/helpers/integration/authFixtures'
 import { customerTestPassword } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 import { createOrganizationInDb, setUserAclInDb, withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
-export const integrationMeta = { dependsOnModules: ['customers', 'auth', 'directory'] }
+export const integrationMeta = { dependsOnModules: ['customers', 'auth', 'directory', 'audit_logs', 'query_index'] }
 
-test('TC-CRM-8883: recurrence and search cannot widen interaction scope', async ({ request }) => {
-  test.setTimeout(120_000)
+type IsolationFixtures = {
+  marker: string
+  token: string
+  entityId: string
+  expected: string[]
+  expectedAll: string[]
+  ordinaryId: string | undefined
+}
+
+async function withIsolationFixtures(request: APIRequestContext, run: (fixtures: IsolationFixtures) => Promise<void>): Promise<void> {
   const rootToken = await getAuthToken(request, 'superadmin')
   const tenantIds = [randomUUID(), randomUUID()]
   const organizationIds: string[] = []
@@ -70,9 +78,31 @@ test('TC-CRM-8883: recurrence and search cannot widen interaction scope', async 
         )
       }
     })
-    const headers = { Cookie: '' }
-    for (const mode of ['recurrence', 'recurrence-search', 'search']) {
-      for (const sortField of ['scheduledAt', 'title']) {
+    await run({ marker, token, entityId, expected, expectedAll, ordinaryId })
+  } finally {
+    await withClient(async (client) => {
+      await client.query('delete from customer_interactions where tenant_id = any($1::uuid[])', [tenantIds])
+      await client.query('delete from customer_entities where id = any($1::uuid[])', [[entityId, otherEntityId]])
+      await client.query('delete from action_logs where tenant_id = any($1::uuid[]) or actor_user_id = $2', [tenantIds, userId ?? null])
+      await client.query('delete from entity_indexes where tenant_id = any($1::uuid[]) or entity_id = $2', [tenantIds, userId ?? null])
+      await client.query('delete from search_tokens where tenant_id = any($1::uuid[])', [tenantIds])
+      if (userId) {
+        for (const table of ['sessions', 'user_acls', 'user_roles']) {
+          await client.query(`delete from ${table} where user_id = $1`, [userId])
+        }
+        await client.query('delete from users where id = $1', [userId])
+      }
+      await client.query('delete from organizations where id = any($1::uuid[])', [organizationIds])
+      await client.query('delete from tenants where id = any($1::uuid[])', [tenantIds])
+    })
+  }
+}
+
+for (const mode of ['recurrence', 'recurrence-search', 'search']) {
+  for (const sortField of ['scheduledAt', 'title']) {
+    test(`TC-CRM-8883: ${mode} preserves scope with ${sortField} pagination`, async ({ request }) => {
+      await withIsolationFixtures(request, async ({ marker, token, entityId, expected, expectedAll }) => {
+        const headers = { Cookie: '' }
         const params = new URLSearchParams({ entityId, limit: '1', sortField })
         const allowedIds = mode === 'search' ? expectedAll : expected
         if (mode !== 'search') {
@@ -98,26 +128,19 @@ test('TC-CRM-8883: recurrence and search cannot widen interaction scope', async 
           expect(seen.length).toBeLessThanOrEqual(allowedIds.length)
         } while (cursor)
         expect(seen.sort()).toEqual([...allowedIds].sort())
-      }
-    }
+      })
+    })
+  }
+}
+
+test('TC-CRM-8883: ordinary windows and counts retain scope and email visibility', async ({ request }) => {
+  await withIsolationFixtures(request, async ({ token, entityId, ordinaryId }) => {
+    const headers = { Cookie: '' }
     const ordinaryResponse = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${entityId}&from=2026-02-01&to=2026-02-08`, { token, headers })
     expect(ordinaryResponse.status()).toBe(200)
     expect(await readJsonSafe<{ items: { id: string }[] }>(ordinaryResponse)).toMatchObject({ items: [{ id: ordinaryId }] })
     const countsResponse = await apiRequest(request, 'GET', `/api/customers/interactions/counts?entityId=${entityId}`, { token, headers })
     expect(countsResponse.status()).toBe(200)
     expect(await readJsonSafe<{ result: { total: number; email: number } }>(countsResponse)).toMatchObject({ result: { total: 7, email: 2 } })
-  } finally {
-    await withClient(async (client) => {
-      await client.query('delete from customer_interactions where tenant_id = any($1::uuid[])', [tenantIds])
-      await client.query('delete from customer_entities where id = any($1::uuid[])', [[entityId, otherEntityId]])
-      if (userId) {
-        for (const table of ['sessions', 'user_acls', 'user_roles']) {
-          await client.query(`delete from ${table} where user_id = $1`, [userId])
-        }
-        await client.query('delete from users where id = $1', [userId])
-      }
-      await client.query('delete from organizations where id = any($1::uuid[])', [organizationIds])
-      await client.query('delete from tenants where id = any($1::uuid[])', [tenantIds])
-    })
-  }
+  })
 })
