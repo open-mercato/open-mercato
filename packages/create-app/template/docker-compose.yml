@@ -1,3 +1,7 @@
+# Published ports bind to 127.0.0.1 so the dev-default credentials are not
+# reachable from other machines (Docker-published ports bypass ufw/iptables
+# INPUT rules on Linux). Set OM_DOCKER_BIND_ADDRESS=0.0.0.0 to expose them.
+
 services:
   # --- Agent Orchestrator: OpenCode runtime (hybrid dev) --------------------
   # Opt-in: starts only with `--profile agents`.
@@ -38,7 +42,7 @@ services:
       OPENCODE_MCP_KEY_WAIT_SECONDS: ${OPENCODE_MCP_KEY_WAIT_SECONDS:-1800}
       OM_OPENCODE_FILES_ENABLED: ${OM_OPENCODE_FILES_ENABLED:-false}
     ports:
-      - "${OPENCODE_PORT:-4096}:4096"
+      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${OPENCODE_PORT:-4096}:4096"
     volumes:
       # Host-provisioned MCP API key (see scripts/dev-mcp.mjs).
       - ${OM_MCP_SHARED_DIR:-./.mercato/mcp-shared}:/run/mcp-shared:ro
@@ -67,7 +71,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-open-mercato}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -81,7 +85,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
     volumes:
       - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redis_data:/data
@@ -102,7 +106,7 @@ services:
       MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       MEILI_NO_ANALYTICS: "true"
     ports:
-      - "${MEILISEARCH_PORT:-7700}:7700"
+      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${MEILISEARCH_PORT:-7700}:7700"
     volumes:
       - meilisearch_data:/meili_data
     healthcheck:
@@ -119,7 +123,7 @@ services:
     profiles:
       - storage-s3
     ports:
-      - "${LOCALSTACK_PORT:-4566}:4566"
+      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${LOCALSTACK_PORT:-4566}:4566"
     environment:
       SERVICES: s3
       AWS_DEFAULT_REGION: us-east-1
