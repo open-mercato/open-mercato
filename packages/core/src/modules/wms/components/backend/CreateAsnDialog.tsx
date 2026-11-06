@@ -48,19 +48,19 @@ type LineDraft = {
 }
 
 const formSchema = z.object({
-  warehouseId: z.string().uuid(),
-  expectedAt: z.string().min(1),
+  warehouseId: z.string().uuid('wms.backend.asns.create.errors.warehouseRequired'),
+  expectedAt: z.string().min(1, 'wms.backend.asns.create.errors.expectedAtRequired'),
   referenceNumber: z.string().trim().max(120).optional(),
   notes: z.string().trim().max(2000).optional(),
   lines: z
     .array(
       z.object({
-        catalogVariantId: z.string().uuid(),
-        expectedQty: z.number().positive(),
+        catalogVariantId: z.string().uuid('wms.backend.asns.create.errors.variantRequired'),
+        expectedQty: z.number().positive('wms.backend.asns.create.errors.quantityPositive'),
         targetStagingLocationId: z.string().uuid().optional(),
       }),
     )
-    .min(1),
+    .min(1, 'wms.backend.asns.create.errors.linesRequired'),
 })
 
 const EMPTY_LINE: LineDraft = {

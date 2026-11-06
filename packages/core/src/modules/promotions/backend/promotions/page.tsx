@@ -42,6 +42,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
+import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
+import { promotionCalendarDate } from '../../components/promotionDates'
 
 const PAGE_SIZE = 50
 const RESOURCE_KIND = 'promotions.promotion'
@@ -81,8 +83,12 @@ function sameOrder(a: PromotionRow[], b: PromotionRow[]): boolean {
   return a.every((row, index) => row.id === b[index]?.id)
 }
 
+// Promotion windows are calendar dates, so they render in the tenant's date format but in UTC:
+// a promotion starting on the 15th must not show the 14th in a zone west of UTC.
 function formatDate(value: string | null, locale: string): string | null {
-  return formatDisplayDate(value, locale)
+  const dateOnly = promotionCalendarDate(value)
+  if (!dateOnly) return null
+  return formatDisplayDate(`${dateOnly}T00:00:00.000Z`, locale, { ...getActiveDateLocaleSettings(), timeZone: 'UTC' })
 }
 
 function isFilterValueActive(value: unknown): boolean {
