@@ -127,6 +127,13 @@ export async function acquireDevSessionWithRecovery(options = {}, overrides = {}
         for (const row of tree) survivors.set(row.pid, row)
       }
     }
+    const discovered = [...survivors.values()].filter((row) => !records.some((record) => record.pid === row.pid && record.startedAt === row.startedAt))
+    if (discovered.length) {
+      withDevSessionRecovery(snapshot, (current, retainProcesses) => {
+        snapshot = retainProcesses([...survivors.keys()])
+        records = [...new Map([...records, ...discovered].map((record) => [record.pid, record])).values()]
+      })
+    }
     return [...survivors.values()]
   }
   const deadline = Date.now() + dependencies.graceMs

@@ -22,7 +22,7 @@ async function waitUntil(predicate, message) {
   assert.fail(message)
 }
 
-async function createOrphanFixture(context) {
+async function createOrphanFixture(context, lateFork = false) {
   if (process.platform === 'win32') {
     context.skip('POSIX orphan recovery requires process identity and cwd inspection')
     return null
@@ -32,9 +32,22 @@ async function createOrphanFixture(context) {
   const leafSource = "process.on('SIGTERM', () => {}); process.send('ready'); setInterval(() => {}, 1000)"
   const wrapperSource = `
     const { spawn } = require('node:child_process')
-    const leaf = spawn(process.execPath, ['-e', ${JSON.stringify(leafSource)}], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] })
-    leaf.once('message', () => process.send({ wrapper: process.pid, leaf: leaf.pid }))
-    process.on('SIGTERM', () => process.exit(0))
+    const fs = require('node:fs')
+    const startLeaf = () => {
+      const leaf = spawn(process.execPath, ['-e', ${JSON.stringify(leafSource)}], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] })
+      leaf.once('message', () => {
+        const pids = { wrapper: process.pid, leaf: leaf.pid }
+        if (${lateFork}) fs.writeFileSync(${JSON.stringify(pidsPath)}, JSON.stringify(pids))
+        else process.send(pids)
+      })
+    }
+    if (${lateFork}) {
+      process.send({ wrapper: process.pid })
+      process.on('SIGTERM', startLeaf)
+    } else {
+      startLeaf()
+      process.on('SIGTERM', () => process.exit(0))
+    }
     setInterval(() => {}, 1000)
   `
   const intermediarySource = `
@@ -50,7 +63,7 @@ async function createOrphanFixture(context) {
   const intermediary = spawn(process.execPath, ['-e', intermediarySource], { cwd: workspaceRoot, stdio: 'ignore' })
   let pids
   context.after(() => {
-    for (const pid of [pids?.leaf, pids?.wrapper, intermediary.pid, unrelated.pid]) {
+    for (const pid of [fs.existsSync(pidsPath) ? JSON.parse(fs.readFileSync(pidsPath, 'utf8')).leaf : null, pids?.leaf, pids?.wrapper, intermediary.pid, unrelated.pid]) {
       if (pid) {
         try { process.kill(pid, 'SIGKILL') } catch {}
       }
@@ -61,7 +74,7 @@ async function createOrphanFixture(context) {
   pids = JSON.parse(fs.readFileSync(pidsPath, 'utf8'))
   await waitUntil(() => !isRunning(intermediary.pid), 'intermediary did not exit')
   const wrapper = inspectProcessTree(pids.wrapper).find((record) => record.pid === pids.wrapper)
-  if (wrapper?.parentPid !== 1) {
+  if (wrapper?.parentPid !== 1 && !lateFork) {
     context.skip('host reparented the controlled orphan to a subreaper instead of PID 1')
     return null
   }
@@ -124,3 +137,37 @@ for (const change of ['owner changed', 'member joined']) {
     assert.equal(isRunning(unrelated.pid), true)
   })
 }
+
+test('recovery retains a late descendant after its TERM-handling parent exits', async (context) => {
+  const fixture = await createOrphanFixture(context, true)
+  if (!fixture) return
+  const { workspaceRoot, pids, membersDirectory, unrelated } = fixture
+  let observed = false
+  let retained = false
+  let session
+  try {
+    session = await acquireDevSessionWithRecovery({ workspaceRoot, token: null }, {
+      interactive: true, processWorkspace: () => workspaceRoot, confirm: async () => true,
+      endpointAvailable: async () => true, graceMs: 500,
+      inspectTree: (pid) => {
+        const tree = inspectProcessTree(pid).map((row) => row.pid === pids.wrapper ? { ...row, parentPid: 1 } : row)
+        if (!observed && pid === pids.wrapper && tree.length > 1) {
+          observed = true
+          setTimeout(() => {
+            retained = fs.existsSync(path.join(membersDirectory, `${tree.find((row) => row.pid !== pids.wrapper).pid}.json`))
+            try { process.kill(pids.wrapper, 'SIGKILL') } catch {}
+          }, 0)
+        }
+        return tree
+      },
+    })
+    const latePids = JSON.parse(fs.readFileSync(path.join(workspaceRoot, 'processes.json'), 'utf8'))
+    assert.equal(observed, true, 'late descendant was never observed with its parent')
+    assert.equal(retained, true, 'late descendant was not registered before its parent exited')
+    assert.equal(isRunning(pids.wrapper), false)
+    assert.equal(isRunning(latePids.leaf), false, 'late descendant survived successful acquisition')
+    assert.equal(isRunning(unrelated.pid), true, 'unrelated process was signaled')
+  } finally {
+    session?.release()
+  }
+})
