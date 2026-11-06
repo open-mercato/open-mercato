@@ -33,6 +33,7 @@ export function createSetupLogs({
   let previousFlowing = false
   let lines = []
   let partial = ''
+  let visiblePartial = false
   const decoder = new StringDecoder('utf8')
 
   const write = (value) => output.write(value)
@@ -86,6 +87,11 @@ export function createSetupLogs({
     }
     if (lines.length > 0) write(`${lines.join('\n')}\n`)
     if (partial) write(partial)
+    visiblePartial = partial.length > 0
+    // Displayed output remains in terminal scrollback and in the full log
+    // file. Replay only new output collected while the panel was hidden.
+    lines = []
+    partial = ''
   }
 
   function onData(chunk) {
@@ -98,7 +104,8 @@ export function createSetupLogs({
       if (key.toLowerCase() !== 'd') continue
       if (visible) {
         visible = false
-        write(`${tint('96', '\n📕 Raw logs hidden. Press [d] to show them again.')}\n`)
+        if (visiblePartial) write('\n')
+        visiblePartial = false
         activity?.resume()
       } else show()
     }
@@ -143,6 +150,10 @@ export function createSetupLogs({
       return
     }
     const text = typeof chunk === 'string' ? chunk : decoder.write(chunk)
+    if (visible) {
+      if (text) { write(text); visiblePartial = !text.endsWith('\n') }
+      return
+    }
     // Bound both completed lines and partial progress output. A process can
     // emit megabytes without a newline; it must not grow the buffer forever.
     const entries = `${partial}${text}`.split('\n')
@@ -150,7 +161,6 @@ export function createSetupLogs({
     if (entries.length > 0) {
       lines = lines.concat(entries.slice(-MAX_LINES).map((line) => line.slice(-MAX_LINE_LENGTH))).slice(-MAX_LINES)
     }
-    if (visible) write(text)
   }
 
   return {
@@ -168,7 +178,7 @@ export function createSetupLogs({
       started = true
       initializeFile()
       if (logFile && !fileFailed) write(`📝 Verbose logs ${logFile}\n`)
-      if (interactive) banner([' DEBUG LOGS', ' Press [d] to show or hide raw logs'])
+      if (interactive) banner([' Press [d] to show or hide raw logs'])
       process.once('exit', suspend)
       resume()
     },
