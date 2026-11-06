@@ -176,6 +176,41 @@ async function linkSuccessorAtomically(params: {
 }
 
 /**
+ * A replayed re-author means the successor proposal already committed, but the process may
+ * have died before the old row was linked to it. Re-runs the idempotent compare-and-swap link
+ * (a no-op when the old row already points at a successor) and, only when this call won it,
+ * finishes the cleanup the first attempt never reached.
+ */
+async function completeReplayedSupersede(params: {
+  ctx: CommandRuntimeContext
+  em: EntityManager
+  oldProposal: AssistedSellingProposal
+  successorProposalId: string
+}): Promise<void> {
+  const { ctx, em, oldProposal, successorProposalId } = params
+  if (oldProposal.supersededByProposalId || oldProposal.id === successorProposalId) return
+  const wasLive = oldProposal.status === 'published'
+  const linked = await linkSuccessorAtomically({
+    em,
+    oldProposal,
+    originalOldStatus: oldProposal.status,
+    wasLive,
+    successorProposalId,
+  })
+  if (!linked || !wasLive) return
+  await rejectProposalCartBestEffort(ctx, oldProposal.proposalCartId, {
+    tenantId: oldProposal.tenantId,
+    organizationId: oldProposal.organizationId,
+  })
+  await emitAssistedSellingEvent('assisted_selling.proposal.superseded', {
+    threadId: oldProposal.threadId,
+    proposalId: oldProposal.id,
+    tenantId: oldProposal.tenantId,
+    organizationId: oldProposal.organizationId,
+  })
+}
+
+/**
  * Cleans up a just-authored successor that must not stay live (lost CAS, or a failure while
  * linking it): rejects its proposal cart and atomically withdraws its local row, undoing its
  * own `live_proposal_count` bump exactly once.
@@ -618,6 +653,7 @@ const reauthorProposalCommand: CommandHandler<AssistedSellingProposalReauthorInp
       if (priorResult.requestDigest !== computeAssistedSellingRequestDigest({ reauthorOf: oldProposal.id, note: input.note ?? null })) {
         throw new CrudHttpError(409, { error: '[internal] idempotency_key_mismatch', code: 'idempotency_key_mismatch' })
       }
+      await completeReplayedSupersede({ ctx, em, oldProposal, successorProposalId: priorResult.id })
       return buildReplayResponse(priorResult)
     }
 
@@ -691,12 +727,18 @@ const reauthorProposalCommand: CommandHandler<AssistedSellingProposalReauthorInp
             proposalId: oldProposal.id,
             err: compensationError,
           })
+          getTelemetryRuntime()?.reportError(compensationError, {
+            module: 'assisted_selling',
+            code: 'assisted_selling.proposal_withdraw_compensation_failed',
+          })
         })
       }
       throw error
     }
 
-    if (!result.replayed) {
+    if (result.replayed) {
+      await completeReplayedSupersede({ ctx, em, oldProposal, successorProposalId: result.proposalId })
+    } else {
       let linked: boolean
       try {
         linked = await linkSuccessorAtomically({
@@ -793,49 +835,53 @@ export async function reauthorProposalForMergeRetarget(params: {
     targetBuyerIdentity: { customerId: targetCustomerId, customerUserId: targetCustomerUserId },
   })
 
-  if (!result.replayed) {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const successorScope = { tenantId: oldProposal.tenantId, organizationId: oldProposal.organizationId, threadId: thread.id }
-    let linked: boolean
-    try {
-      linked = await linkSuccessorAtomically({
-        em,
-        oldProposal,
-        originalOldStatus,
-        wasLive,
-        successorProposalId: result.proposalId,
-      })
-    } catch (error) {
-      await discardUnlinkedSuccessor({ ctx, em, successor: result, scope: successorScope })
-      throw error
-    }
-    if (!linked) {
-      // Lost the CAS: a concurrent writer already linked its own successor. The winner owns
-      // the old row's transition and its count decrement — only OUR successor is cleaned up.
-      await discardUnlinkedSuccessor({ ctx, em, successor: result, scope: successorScope })
-      return result
-    }
-    if (wasLive) {
-      const commandBus = ctx.container.resolve('commandBus') as CommandBus
-      await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
-        CART_PROPOSAL_REJECT_COMMAND_ID,
-        {
-          input: {
-            proposalCartId: oldProposal.proposalCartId,
-            tenantId: oldProposal.tenantId,
-            organizationId: oldProposal.organizationId,
-            rejectedBy: 'author',
-          },
-          ctx,
+  if (result.replayed) {
+    const replayEm = (ctx.container.resolve('em') as EntityManager).fork()
+    await completeReplayedSupersede({ ctx, em: replayEm, oldProposal, successorProposalId: result.proposalId })
+    return result
+  }
+
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const successorScope = { tenantId: oldProposal.tenantId, organizationId: oldProposal.organizationId, threadId: thread.id }
+  let linked: boolean
+  try {
+    linked = await linkSuccessorAtomically({
+      em,
+      oldProposal,
+      originalOldStatus,
+      wasLive,
+      successorProposalId: result.proposalId,
+    })
+  } catch (error) {
+    await discardUnlinkedSuccessor({ ctx, em, successor: result, scope: successorScope })
+    throw error
+  }
+  if (!linked) {
+    // Lost the CAS: a concurrent writer already linked its own successor. The winner owns
+    // the old row's transition and its count decrement — only OUR successor is cleaned up.
+    await discardUnlinkedSuccessor({ ctx, em, successor: result, scope: successorScope })
+    return result
+  }
+  if (wasLive) {
+    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
+      CART_PROPOSAL_REJECT_COMMAND_ID,
+      {
+        input: {
+          proposalCartId: oldProposal.proposalCartId,
+          tenantId: oldProposal.tenantId,
+          organizationId: oldProposal.organizationId,
+          rejectedBy: 'author',
         },
-      )
-      await emitAssistedSellingEvent('assisted_selling.proposal.superseded', {
-        threadId: oldProposal.threadId,
-        proposalId: oldProposal.id,
-        tenantId: oldProposal.tenantId,
-        organizationId: oldProposal.organizationId,
-      })
-    }
+        ctx,
+      },
+    )
+    await emitAssistedSellingEvent('assisted_selling.proposal.superseded', {
+      threadId: oldProposal.threadId,
+      proposalId: oldProposal.id,
+      tenantId: oldProposal.tenantId,
+      organizationId: oldProposal.organizationId,
+    })
   }
 
   return result

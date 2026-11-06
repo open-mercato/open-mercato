@@ -2,6 +2,7 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -51,9 +52,10 @@ export async function requireAssistedSellingStaffAssignee(
   ctx: CommandRuntimeContext,
   tenantId: string,
   assigneeActorId: string,
+  organizationId: string | null = null,
 ): Promise<void> {
   const em = (ctx.container.resolve('em') as EntityManager).fork()
-  const assignee = await em.findOne(User, { id: assigneeActorId, tenantId, deletedAt: null })
+  const assignee = await findOneWithDecryption(em, User, { id: assigneeActorId, tenantId, deletedAt: null }, undefined, { tenantId, organizationId })
   if (!assignee) {
     throw new CrudHttpError(400, { error: '[internal] actorId is not a staff member of this tenant', code: 'invalid_assignee' })
   }
@@ -62,7 +64,7 @@ export async function requireAssistedSellingStaffAssignee(
     !!rbac &&
     (await rbac.userHasAllFeatures(assigneeActorId, ['assisted_selling.threads.participate'], {
       tenantId,
-      organizationId: null,
+      organizationId,
     }))
   if (!granted) {
     throw new CrudHttpError(400, { error: '[internal] actorId is not a staff member of this tenant', code: 'invalid_assignee' })

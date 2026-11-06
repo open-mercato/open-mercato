@@ -431,7 +431,7 @@ const assignThreadCommand: CommandHandler<AssistedSellingThreadAssignInput, Assi
     // `actorId` omitted case) needs no re-check: the caller already passed the feature guard
     // above for their own tenant.
     if (input.actorId && input.actorId !== callerId) {
-      await requireAssistedSellingStaffAssignee(ctx, input.tenantId, input.actorId)
+      await requireAssistedSellingStaffAssignee(ctx, input.tenantId, input.actorId, thread.organizationId)
     }
     const now = new Date()
     thread.assignedActorId = assignedActorId

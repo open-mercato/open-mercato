@@ -41,15 +41,22 @@ const ASSISTED_SELLING_RATE_LIMIT_WINDOW_SECONDS = 60
 
 const logger = createLogger('assisted_selling').child({ component: 'rate-limit' })
 
-let untrustedProxyWarned = false
+let unusableClientIpFlagged = false
 
-function warnOnceWithoutTrustedProxy(trustProxyDepth: number): void {
-  if (untrustedProxyWarned || (Number.isInteger(trustProxyDepth) && trustProxyDepth > 0)) return
-  untrustedProxyWarned = true
-  logger.warn(
-    'Assisted-selling buyer rate limits are inactive until RATE_LIMIT_TRUST_PROXY_DEPTH is set; the client IP cannot be trusted without it',
-    { trustProxyDepth },
-  )
+function flagUnusableClientIp(trustProxyDepth: number): void {
+  if (unusableClientIpFlagged) return
+  unusableClientIpFlagged = true
+  const message =
+    'Assisted-selling buyer rate limits cannot key on the client IP (RATE_LIMIT_TRUST_PROXY_DEPTH is unset or does not match the proxy chain); buckets fall back to the per-cart-token digest, so a caller minting fresh carts gets fresh buckets'
+  if (process.env.NODE_ENV === 'production') {
+    logger.error(message, { trustProxyDepth })
+    getTelemetryRuntime()?.reportError(new Error(message), {
+      module: 'assisted_selling',
+      code: 'assisted_selling.rate_limit_client_ip_unavailable',
+    })
+    return
+  }
+  logger.warn(message, { trustProxyDepth })
 }
 
 export function readAssistedSellingBuyerRateLimitConfig(endpoint: AssistedSellingBuyerRateLimitEndpoint): RateLimitConfig {
@@ -126,8 +133,8 @@ export async function enforceAssistedSellingBuyerRateLimit(
   const limiter = resolveRateLimiter(container)
   if (!limiter) return failClosed ? unavailableResponse() : null
   try {
-    warnOnceWithoutTrustedProxy(limiter.trustProxyDepth)
     const clientIp = getClientIp(req, limiter.trustProxyDepth)
+    if (!clientIp) flagUnusableClientIp(limiter.trustProxyDepth)
     const key = buildAssistedSellingRateLimitKey(clientIp, token)
     const limited = await checkRateLimit(
       limiter,

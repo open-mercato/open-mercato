@@ -352,6 +352,28 @@ describe('assisted_selling.thread.assign', () => {
     expect(assigneeChecks).toHaveLength(0)
   })
 
+  test('checks the assignee features in the thread\'s own organization, not tenant-wide', async () => {
+    const STAFF_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const { em } = makeFakeEm({
+      threads: [makeThreadRow()],
+      users: [{ id: STAFF_ID, tenantId: TENANT_ID, deletedAt: null, email: 'staff@example.com' }],
+    })
+    const rbac = {
+      userHasAllFeatures: jest.fn(async (userId: string, _required: string[], scope: { organizationId: string | null }) =>
+        userId === STAFF_ID ? scope.organizationId === OTHER_ORG_ID : true,
+      ),
+    }
+    const ctx = makeCtx({ em, rbac, organizationIds: [ORG_ID] })
+
+    const err = await assignThreadCommand
+      .execute({ tenantId: TENANT_ID, organizationIds: [ORG_ID], threadId: THREAD_ID, actorId: STAFF_ID }, ctx)
+      .catch((e) => e)
+    expect(err.status).toBe(400)
+    expect(err.body.code).toBe('invalid_assignee')
+    const assigneeCall = rbac.userHasAllFeatures.mock.calls.find((call) => call[0] === STAFF_ID)
+    expect(assigneeCall?.[2]).toEqual({ tenantId: TENANT_ID, organizationId: ORG_ID })
+  })
+
   test('does not re-check staff membership when assigning to self (actorId omitted)', async () => {
     const { em } = makeFakeEm({ threads: [makeThreadRow()] })
     const rbac = makeRbac(['assisted_selling.threads.participate'])

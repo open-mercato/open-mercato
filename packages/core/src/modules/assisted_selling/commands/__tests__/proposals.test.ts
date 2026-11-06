@@ -601,6 +601,23 @@ describe('reauthor hardening — replay ordering, atomic transition, compensatio
     expect(thread.liveProposalCount).toBe(1)
   })
 
+  test('a retried re-author after a crash before the link finishes the link instead of leaving two live proposals', async () => {
+    const { old, ctx, input, thread } = setup()
+    const first = await reauthorProposalCommand.execute(input, ctx)
+    old.status = 'published'
+    old.supersededByProposalId = null
+    old.resolvedAt = null
+    thread.liveProposalCount = 2
+
+    const second = await reauthorProposalCommand.execute(input, ctx)
+
+    expect(second.replayed).toBe(true)
+    expect(second.proposalId).toBe(first.proposalId)
+    expect(old.status).toBe('superseded')
+    expect(old.supersededByProposalId).toBe(first.proposalId)
+    expect(thread.liveProposalCount).toBe(1)
+  })
+
   test('a replay with a different payload under the same key answers 409 idempotency_key_mismatch', async () => {
     const { ctx, input } = setup()
     await reauthorProposalCommand.execute(input, ctx)
@@ -782,5 +799,41 @@ describe('reauthorProposalForMergeRetarget — Step 4.4-fix (§8.1/D-R5-14, migr
     expect(oldProposal.status).toBe('superseded')
     expect(thread.liveProposalCount).toBe(1)
     expect(commandBus.rejectCalls.length).toBe(rejectCallsAfterFirst)
+  })
+  test('a redelivery after a crash between the successor commit and the link still links the old row exactly once', async () => {
+    const oldProposal = makeOldProposal()
+    const thread = makeOpenThread({ liveProposalCount: 1 })
+    const { em } = makeFakeEm({ threads: [thread], proposals: [oldProposal] })
+    const rbac = makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author'])
+    const commandBus = makeCommandBus()
+    commandBus.setNextProposalCartId('new-proposal-cart-id-3')
+    const ctx = makeCtx({ em, rbac, commandBus, organizationIds: [ORG_ID], userId: REP_USER_ID })
+    const params = {
+      ctx,
+      oldProposal,
+      thread,
+      lines: [{ productId: 'prod-1', variantId: null, quantity: '2', configuration: null }],
+      targetCartId: MERGED_INTO_CART_ID,
+      targetCustomerId: null,
+      targetCustomerUserId: null,
+      idempotencyKey: 'reauthor-on-merge:old-proposal-1',
+    }
+    const first = await reauthorProposalForMergeRetarget(params)
+    oldProposal.status = 'published'
+    oldProposal.supersededByProposalId = null
+    oldProposal.resolvedAt = null
+    thread.liveProposalCount = 2
+
+    const second = await reauthorProposalForMergeRetarget(params)
+
+    expect(second.replayed).toBe(true)
+    expect(second.proposalId).toBe(first.proposalId)
+    expect(oldProposal.status).toBe('superseded')
+    expect(oldProposal.supersededByProposalId).toBe(first.proposalId)
+    expect(thread.liveProposalCount).toBe(1)
+
+    const third = await reauthorProposalForMergeRetarget({ ...params, oldProposal })
+    expect(third.replayed).toBe(true)
+    expect(thread.liveProposalCount).toBe(1)
   })
 })

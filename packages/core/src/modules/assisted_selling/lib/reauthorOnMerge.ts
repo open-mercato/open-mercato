@@ -4,6 +4,7 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildTrustedCommandContext } from '@open-mercato/shared/lib/commands/trusted-context'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { AssistedSellingProposal, AssistedSellingThread } from '../data/entities'
@@ -145,7 +146,7 @@ async function isAuthorStillEligible(
   actorId: string,
 ): Promise<boolean> {
   try {
-    const user = await em.findOne(User, { id: actorId, tenantId: scope.tenantId, deletedAt: null })
+    const user = await findOneWithDecryption(em, User, { id: actorId, tenantId: scope.tenantId, deletedAt: null }, undefined, scope)
     if (!user) return false
     const rbac = container.resolve<RbacService | null>('rbacService')
     if (!rbac) return false

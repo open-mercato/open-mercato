@@ -84,3 +84,76 @@ describe('enforceAssistedSellingBuyerRateLimit', () => {
     expect(response).toBeNull()
   })
 })
+
+describe('enforceAssistedSellingBuyerRateLimit client IP trust', () => {
+  const originalNodeEnv = process.env.NODE_ENV
+  const logger = { warn: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn(), child: jest.fn() }
+  const reportError = jest.fn()
+
+  function loadIsolated() {
+    let loaded: typeof import('../rateLimit') | null = null
+    jest.isolateModules(() => {
+      logger.child.mockReturnValue(logger)
+      jest.doMock('@open-mercato/shared/lib/logger', () => ({ createLogger: () => logger }))
+      jest.doMock('@open-mercato/shared/lib/telemetry/runtime', () => ({ getTelemetryRuntime: () => ({ reportError }) }))
+      loaded = require('../rateLimit')
+    })
+    return loaded as unknown as typeof import('../rateLimit')
+  }
+
+  const allowed = () => jest.fn(async () => ({ allowed: true, degraded: false, remainingPoints: 5, msBeforeNext: 0 }))
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  afterAll(() => {
+    Object.assign(process.env, { NODE_ENV: originalNodeEnv })
+  })
+
+  it('keys on the proxy-derived client IP when the proxy depth is usable and does not flag anything', async () => {
+    Object.assign(process.env, { NODE_ENV: 'production' })
+    const mod = loadIsolated()
+    const consume = allowed()
+    await mod.enforceAssistedSellingBuyerRateLimit(makeContainer(makeLimiter(consume, 1)), makeRequest({ 'x-forwarded-for': '203.0.113.7' }), 'message', TOKEN)
+    const calls = consume.mock.calls as unknown as Array<[string]>
+    expect(calls[0][0]).toContain('203.0.113.7:t:')
+    expect(logger.warn).not.toHaveBeenCalled()
+    expect(logger.error).not.toHaveBeenCalled()
+    expect(reportError).not.toHaveBeenCalled()
+  })
+
+  it('ignores spoofed forwarded headers at the default proxy depth and flags the unusable configuration once in production', async () => {
+    Object.assign(process.env, { NODE_ENV: 'production' })
+    const mod = loadIsolated()
+    const consume = allowed()
+    const container = makeContainer(makeLimiter(consume, 0))
+    await mod.enforceAssistedSellingBuyerRateLimit(container, makeRequest({ 'x-forwarded-for': '203.0.113.7' }), 'message', TOKEN)
+    await mod.enforceAssistedSellingBuyerRateLimit(container, makeRequest({ 'x-forwarded-for': '203.0.113.8' }), 'message', TOKEN)
+    const calls = consume.mock.calls as unknown as Array<[string]>
+    expect(calls[0][0].startsWith('t:')).toBe(true)
+    expect(calls[0][0]).toBe(calls[1][0])
+    expect(logger.error).toHaveBeenCalledTimes(1)
+    expect(String(logger.error.mock.calls[0][0])).not.toContain('inactive')
+    expect(reportError).toHaveBeenCalledTimes(1)
+  })
+
+  it('flags a proxy depth longer than the forwarded chain as unusable', async () => {
+    Object.assign(process.env, { NODE_ENV: 'production' })
+    const mod = loadIsolated()
+    const consume = allowed()
+    await mod.enforceAssistedSellingBuyerRateLimit(makeContainer(makeLimiter(consume, 3)), makeRequest({ 'x-forwarded-for': '203.0.113.7' }), 'open', TOKEN)
+    const calls = consume.mock.calls as unknown as Array<[string]>
+    expect(calls[0][0].startsWith('t:')).toBe(true)
+    expect(logger.error).toHaveBeenCalledTimes(1)
+  })
+
+  it('only warns outside production', async () => {
+    Object.assign(process.env, { NODE_ENV: 'test' })
+    const mod = loadIsolated()
+    await mod.enforceAssistedSellingBuyerRateLimit(makeContainer(makeLimiter(allowed(), 0)), makeRequest(), 'read', TOKEN)
+    expect(logger.warn).toHaveBeenCalledTimes(1)
+    expect(logger.error).not.toHaveBeenCalled()
+    expect(reportError).not.toHaveBeenCalled()
+  })
+})
