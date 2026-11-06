@@ -654,15 +654,17 @@ test('every agent MCP example declares the om-modules catalog server that om-fin
   assert.match(skill, /`mcp\.json\.example` files declare it/, 'om-find-module must point at the shipped MCP examples')
 })
 
-test('OMH-241 routes module discovery to om-find-module without widening the OMH-239 publication case', () => {
+test('OMH-241 keeps module discovery separate from the bounded OMH-239 publication/install context', () => {
   const cases = JSON.parse(fs.readFileSync(new URL('../harness/cases.json', skillsDir), 'utf8')) as {
     id: string
     mode: string
     expectedRouter: { required: string[] }
     requiredSkills: string[]
     owner: { path: string }
-    context: { required: string[]; allowedExtra?: string[] }
+    context: { required: string[]; allowedExtra?: string[]; sourceReferenceIds?: string[] }
     maxContextFiles: number
+    maxInitialContextBytes: number
+    maxTotalContextBytes: number
   }[]
   const discovery = cases.find(({ id }) => id === 'OMH-241')
   assert.ok(discovery, 'the catalog needs a module-discovery case')
@@ -675,6 +677,21 @@ test('OMH-241 routes module discovery to om-find-module without widening the OMH
   const publication = cases.find(({ id }) => id === 'OMH-239')
   assert.ok(publication)
   assert.deepEqual(publication.requiredSkills, [])
-  assert.equal(publication.maxContextFiles, 3)
+  assert.deepEqual(publication.context.required, [
+    'AGENTS.md',
+    '.ai/guides/module-tool.md',
+    'node_modules/@open-mercato/cli/src/lib/module-install.ts',
+    'node_modules/@open-mercato/cli/src/lib/module-identity.ts',
+    'node_modules/@open-mercato/cli/src/lib/eject.ts',
+  ])
+  assert.deepEqual(publication.context.allowedExtra, ['.ai/guides/architecture.md'])
+  assert.deepEqual(publication.context.sourceReferenceIds, [
+    'guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-install.ts',
+    'guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-identity.ts',
+    'guides/module-tool:node_modules/@open-mercato/cli/src/lib/eject.ts',
+  ])
+  assert.equal(publication.maxContextFiles, 6)
+  assert.equal(publication.maxInitialContextBytes, 73728)
+  assert.equal(publication.maxTotalContextBytes, 81920)
   assert.ok(!(publication.context.allowedExtra ?? []).some((item) => item.includes('om-find-module')), 'publication must not need the discovery skill')
 })
