@@ -51,8 +51,8 @@ test('PostCSS does not disclose an absolute source map without a source filename
       names: [],
     }))
     const result = await postcss([]).process(`a{color:red}\n/*# sourceMappingURL=${secretPath} */`, { map: true })
-    assert.equal(JSON.stringify(result.map?.toJSON()).includes(secret), false)
-    assert.equal(JSON.stringify(result.map?.toJSON()).includes('/private/original.css'), false)
+    assert.equal(JSON.stringify(result.map?.toJSON() ?? null).includes(secret), false)
+    assert.equal(JSON.stringify(result.map?.toJSON() ?? null).includes('/private/original.css'), false)
   } finally {
     await rm(fixtureDirectory, { recursive: true, force: true })
   }
