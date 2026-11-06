@@ -838,6 +838,7 @@
   "catalog.services.form.group.pricing": "Precios predeterminados",
   "catalog.services.form.group.work": "Requisitos de trabajo",
   "catalog.services.form.loading": "Cargando servicio...",
+  "catalog.services.form.readOnly": "Puedes ver este servicio, pero no tienes permiso para modificarlo.",
   "catalog.services.list.actions.create": "Crear",
   "catalog.services.list.actions.delete": "Eliminar",
   "catalog.services.list.actions.edit": "Editar",

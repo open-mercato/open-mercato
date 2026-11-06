@@ -294,6 +294,35 @@ describe('sales line writes — service lines', () => {
       expect(lines.get(FIRST_LINE_ID)!.kind).toBe('service')
     })
 
+    it('clears the stored catalog snapshot when the caller sends null', async () => {
+      setWorld([serviceLine()])
+
+      const lines = await runCommand(commandId, {
+        ...baseBody,
+        id: FIRST_LINE_ID,
+        [parentKey]: parentId,
+        kind: 'product',
+        serviceId: null,
+        catalogSnapshot: null,
+      })
+
+      expect(lines.get(FIRST_LINE_ID)!.catalogSnapshot).toBeNull()
+      expect(lines.get(FIRST_LINE_ID)!.serviceId).toBeNull()
+    })
+
+    it('keeps the stored catalog snapshot when the caller omits it', async () => {
+      setWorld([serviceLine()])
+
+      const lines = await runCommand(commandId, {
+        ...baseBody,
+        id: FIRST_LINE_ID,
+        [parentKey]: parentId,
+        quantity: 3,
+      })
+
+      expect(lines.get(FIRST_LINE_ID)!.catalogSnapshot).toEqual({ service: { id: SERVICE_ID } })
+    })
+
     it('rejects a service reference on a product line', async () => {
       setWorld([productLine({ productId: null, productVariantId: null })])
 

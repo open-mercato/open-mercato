@@ -1019,7 +1019,7 @@
   "sales.documents.items.created": "품목이 추가되었습니다.",
   "sales.documents.items.deleteConfirm": "이 품목을 삭제하시겠습니까?",
   "sales.documents.items.deleted": "품목이 삭제되었습니다.",
-  "sales.documents.items.deletedCatalogReference.description": "저장된 품목 데이터는 유지되며 사용자 지정 품목으로 표시됩니다. 카탈로그 품목으로 전환하면 기존 상품으로 교체할 수 있습니다.",
+  "sales.documents.items.deletedCatalogReference.description": "저장된 품목 데이터는 유지되며 사용자 지정 품목으로 표시됩니다. 상품으로 전환하면 기존 상품으로 교체할 수 있습니다.",
   "sales.documents.items.deletedCatalogReference.label": "삭제된 카탈로그 품목",
   "sales.documents.items.deletedCatalogReference.title": "이 카탈로그 품목은 삭제되었습니다",
   "sales.documents.items.editTitle": "품목 수정",

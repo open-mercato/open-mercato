@@ -838,6 +838,7 @@
   "catalog.services.form.group.pricing": "기본 가격",
   "catalog.services.form.group.work": "작업 요구사항",
   "catalog.services.form.loading": "서비스를 불러오는 중...",
+  "catalog.services.form.readOnly": "이 서비스를 볼 수는 있지만 변경할 권한이 없습니다.",
   "catalog.services.list.actions.create": "생성",
   "catalog.services.list.actions.delete": "삭제",
   "catalog.services.list.actions.edit": "수정",

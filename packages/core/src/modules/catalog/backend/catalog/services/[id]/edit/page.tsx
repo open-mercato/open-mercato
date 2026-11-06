@@ -6,6 +6,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import {
   buildServicePayload,
@@ -21,6 +22,8 @@ import {
   type CatalogServiceWorkAllocationMode,
   type CatalogServiceWorkTargetType,
 } from '../../../../../data/types'
+
+const SERVICES_MANAGE_FEATURE = 'catalog.services.manage'
 
 type ServiceResponse = {
   items?: Array<Record<string, unknown>>
@@ -99,6 +102,26 @@ export default function EditCatalogServicePage({ params }: { params?: { id?: str
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
+  const [canManage, setCanManage] = React.useState(false)
+
+  React.useEffect(() => {
+    let cancelled = false
+    apiCall<{ granted?: string[] }>('/api/auth/feature-check', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ features: [SERVICES_MANAGE_FEATURE] }),
+    })
+      .then((call) => {
+        const granted = Array.isArray(call.result?.granted) ? call.result.granted : []
+        if (!cancelled) setCanManage(hasFeature(granted, SERVICES_MANAGE_FEATURE))
+      })
+      .catch(() => {
+        if (!cancelled) setCanManage(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   React.useEffect(() => {
     if (!serviceId) return
@@ -192,11 +215,12 @@ export default function EditCatalogServicePage({ params }: { params?: { id?: str
           onSubmit={async (formValues) => {
             await updateCrud('catalog/services', buildServicePayload({ ...formValues, id: serviceId }, t))
           }}
-          onDelete={async () => {
+          onDelete={canManage ? async () => {
             await deleteCrud('catalog/services', serviceId, {
               errorMessage: t('catalog.services.form.errors.delete', 'Failed to delete service'),
             })
-          }}
+          } : undefined}
+          readOnly={!canManage}
         />
       </PageBody>
     </Page>

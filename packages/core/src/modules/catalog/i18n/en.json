@@ -838,6 +838,7 @@
   "catalog.services.form.group.pricing": "Default pricing",
   "catalog.services.form.group.work": "Work requirements",
   "catalog.services.form.loading": "Loading service...",
+  "catalog.services.form.readOnly": "You can view this service, but you don't have permission to change it.",
   "catalog.services.list.actions.create": "Create",
   "catalog.services.list.actions.delete": "Delete",
   "catalog.services.list.actions.edit": "Edit",

@@ -405,7 +405,7 @@ export const orderLineCreateSchema = scoped.extend({
   lineNumber: z.coerce.number().int().min(0).optional(),
   ...lineSharedSchema.shape,
   ...linePricingSchema.shape,
-  catalogSnapshot: z.record(z.string(), z.unknown()).optional(),
+  catalogSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export const orderLineUpdateSchema = z
@@ -490,7 +490,7 @@ export const quoteLineCreateSchema = scoped.extend({
   lineNumber: z.coerce.number().int().min(0).optional(),
   ...lineSharedSchema.shape,
   ...linePricingSchema.shape,
-  catalogSnapshot: z.record(z.string(), z.unknown()).optional(),
+  catalogSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export const quoteLineUpdateSchema = z

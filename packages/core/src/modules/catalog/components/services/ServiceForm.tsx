@@ -47,6 +47,7 @@ type Props = {
   optimisticLockUpdatedAt?: string | null
   successRedirect?: string
   deleteRedirect?: string
+  readOnly?: boolean
 }
 
 export function createServiceInitialValues(overrides: Partial<ServiceFormValues> = {}): ServiceFormValues {
@@ -327,6 +328,7 @@ export function ServiceForm({
   optimisticLockUpdatedAt,
   successRedirect,
   deleteRedirect,
+  readOnly = false,
 }: Props) {
   const t = useT()
   const normalizedInitialValues = React.useMemo<ServiceFormValues>(() => ({
@@ -469,6 +471,12 @@ export function ServiceForm({
       deleteRedirect={deleteRedirect}
       versionHistory={normalizedInitialValues.id ? { resourceKind: 'catalog.service', resourceId: normalizedInitialValues.id } : undefined}
       injectionSpotId="crud-form:catalog.service"
+      readOnly={readOnly}
+      readOnlyOverlay={readOnly ? (
+        <p className="rounded-xl border border-border/70 bg-background/95 px-4 py-3 text-sm text-muted-foreground shadow-sm">
+          {t('catalog.services.form.readOnly', "You can view this service, but you don't have permission to change it.")}
+        </p>
+      ) : undefined}
     />
   )
 }

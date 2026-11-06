@@ -838,6 +838,7 @@
   "catalog.services.form.group.pricing": "Cennik domyślny",
   "catalog.services.form.group.work": "Wymagania pracy",
   "catalog.services.form.loading": "Wczytywanie usługi...",
+  "catalog.services.form.readOnly": "Możesz wyświetlić tę usługę, ale nie masz uprawnień do jej zmiany.",
   "catalog.services.list.actions.create": "Utwórz",
   "catalog.services.list.actions.delete": "Usuń",
   "catalog.services.list.actions.edit": "Edytuj",

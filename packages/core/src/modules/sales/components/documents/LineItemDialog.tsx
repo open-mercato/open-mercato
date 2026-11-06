@@ -1836,13 +1836,13 @@ export function LineItemDialog({
       };
 
       const initialLineMode = initialValues.lineMode;
+      const writesWholeLine = !editingId || Boolean(onDraftSaved);
+      const lineModeChanged = Boolean(editingId) && initialLineMode !== lineMode;
       const switchedToCustomLine =
         Boolean(editingId) && initialLineMode !== "custom";
       const enteringOrLeavingServiceMode =
-        Boolean(editingId) &&
-        initialLineMode !== lineMode &&
-        (isServiceLine || initialLineMode === "service");
-      const kindPayload: Record<string, unknown> = !editingId
+        lineModeChanged && (isServiceLine || initialLineMode === "service");
+      const kindPayload: Record<string, unknown> = writesWholeLine
         ? isServiceLine
           ? { kind: "service" }
           : isProductLine
@@ -1890,7 +1890,11 @@ export function LineItemDialog({
         unitPriceGross: safeUnitPriceGross,
         totalNetAmount,
         totalGrossAmount,
-        ...(catalogSnapshot ? { catalogSnapshot } : {}),
+        ...(catalogSnapshot
+          ? { catalogSnapshot }
+          : lineModeChanged
+            ? { catalogSnapshot: null }
+            : {}),
         metadata,
         customFieldSetId: values.customFieldSetId ?? undefined,
         ...(typeof values.statusEntryId === "string" &&
@@ -2103,7 +2107,7 @@ export function LineItemDialog({
                   <AlertDescription>
                     {t(
                       "sales.documents.items.deletedCatalogReference.description",
-                      "The saved line data is kept and the line is shown as a custom line. Switch to Catalog item to replace it with an existing product.",
+                      "The saved line data is kept and the line is shown as a custom line. Switch to Product to replace it with an existing product.",
                     )}
                   </AlertDescription>
                 </Alert>

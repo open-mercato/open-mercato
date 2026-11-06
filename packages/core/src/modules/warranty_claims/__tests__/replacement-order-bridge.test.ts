@@ -18,6 +18,7 @@ const VARIANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const CUSTOMER_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const CONTACT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const CHANNEL_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+const SERVICE_ID = 'abababab-abab-4bab-8bab-abababababab'
 const REPLACEMENT_UPDATED_AT = '2026-07-17T09:30:00.000Z'
 const APPROVAL_UPDATED_AT = '2026-07-17T09:30:00.500Z'
 const CLAIM_UPDATED_AT = '2026-07-17T08:00:00.000Z'
@@ -141,19 +142,29 @@ function rowSatisfiesWheres(row: Record<string, unknown>, wheres: Array<[string,
   })
 }
 
+function projectColumns(row: Record<string, unknown>, columns: string[]): Record<string, unknown> {
+  return Object.fromEntries(columns.filter((column) => column in row).map((column) => [column, row[column]]))
+}
+
 function makeKysely() {
   return {
     selectFrom: (table: string) => {
       const wheres: Array<[string, string, unknown]> = []
+      let selectedColumns: string[] = []
       const builder = {
-        select: () => builder,
+        select: (columns: string[]) => {
+          selectedColumns = columns
+          return builder
+        },
         where: (column: string, op: string, value: unknown) => {
           wheres.push([column, op, value])
           return builder
         },
         limit: () => builder,
         execute: async () => table === 'sales_order_lines'
-          ? Array.from(mockSourceLineRows.values()).filter((row) => rowSatisfiesWheres(row, wheres))
+          ? Array.from(mockSourceLineRows.values())
+            .filter((row) => rowSatisfiesWheres(row, wheres))
+            .map((row) => projectColumns(row, selectedColumns))
           : [],
         executeTakeFirst: async () => {
           const id = findIdWhere(wheres)
@@ -257,6 +268,7 @@ function sourceLine(overrides: Record<string, unknown> = {}): Record<string, unk
     order_id: ORDER_ID,
     product_id: PRODUCT_ID,
     product_variant_id: VARIANT_ID,
+    service_id: null,
     name: 'Replacement item',
     kind: 'product',
     currency_code: 'USD',
@@ -524,6 +536,46 @@ describe('warranty_claims.claim.create_replacement_order', () => {
       unitPriceGross: '14.7580',
       taxRate: '19.5000',
     })
+  })
+
+  it('copies the catalog service reference and service kind from a service source line', async () => {
+    seedClaim()
+    seedLine()
+    seedSourceLine(ORDER_LINE_ID, {
+      kind: 'service',
+      product_id: null,
+      product_variant_id: null,
+      service_id: SERVICE_ID,
+      name: 'On-site repair',
+    })
+
+    await createReplacementOrderCommand.execute(executeInput(), makeCtx())
+    const lines = createDispatch().input.lines as Array<Record<string, unknown>>
+
+    expect(lines).toEqual([expect.objectContaining({
+      kind: 'service',
+      serviceId: SERVICE_ID,
+      name: 'On-site repair',
+      quantity: '1.0000',
+    })])
+    expect(lines[0]).not.toHaveProperty('productId')
+    expect(lines[0]).not.toHaveProperty('productVariantId')
+  })
+
+  it('leaves a plain product replacement line without a service reference', async () => {
+    seedClaim()
+    seedLine()
+    seedSourceLine()
+
+    await createReplacementOrderCommand.execute(executeInput(), makeCtx())
+    const lines = createDispatch().input.lines as Array<Record<string, unknown>>
+
+    expect(lines).toEqual([expect.objectContaining({
+      kind: 'product',
+      productId: PRODUCT_ID,
+      productVariantId: VARIANT_ID,
+    })])
+    expect(lines[0]).not.toHaveProperty('serviceId')
   })
 
   it('copies source-order fields and omits every null optional from the nested create input', async () => {

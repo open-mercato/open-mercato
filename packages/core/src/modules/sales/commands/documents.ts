@@ -8146,7 +8146,9 @@ async function buildUpsertedOrderLineSnapshot(
     amountsMode: order.totalsMode ?? "computed",
     statusEntryId,
     catalogSnapshot:
-      parsed.catalogSnapshot ?? existingSnapshot?.catalogSnapshot ?? null,
+      parsed.catalogSnapshot !== undefined
+        ? parsed.catalogSnapshot
+        : (existingSnapshot?.catalogSnapshot ?? null),
     promotionSnapshot:
       parsed.promotionSnapshot ?? existingSnapshot?.promotionSnapshot ?? null,
   };
@@ -8905,9 +8907,9 @@ const quoteLineUpsertCommand: CommandHandler<
       );
       (updatedSnapshot as any).statusEntryId = statusEntryId;
       (updatedSnapshot as any).catalogSnapshot =
-        parsed.catalogSnapshot ??
-        (existingSnapshot as any)?.catalogSnapshot ??
-        null;
+        parsed.catalogSnapshot !== undefined
+          ? parsed.catalogSnapshot
+          : ((existingSnapshot as any)?.catalogSnapshot ?? null);
       (updatedSnapshot as any).promotionSnapshot =
         parsed.promotionSnapshot ??
         (existingSnapshot as any)?.promotionSnapshot ??

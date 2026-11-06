@@ -838,6 +838,7 @@
   "catalog.services.form.group.pricing": "Standardpreise",
   "catalog.services.form.group.work": "Arbeitsanforderungen",
   "catalog.services.form.loading": "Service wird geladen...",
+  "catalog.services.form.readOnly": "Sie können diese Dienstleistung ansehen, haben aber keine Berechtigung, sie zu ändern.",
   "catalog.services.list.actions.create": "Erstellen",
   "catalog.services.list.actions.delete": "Löschen",
   "catalog.services.list.actions.edit": "Bearbeiten",

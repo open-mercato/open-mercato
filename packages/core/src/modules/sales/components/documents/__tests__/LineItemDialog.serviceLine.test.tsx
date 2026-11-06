@@ -666,4 +666,102 @@ describe('LineItemDialog service lines', () => {
     expect(payload).toMatchObject({ kind: 'service', serviceId: 'service-1', currencyCode: 'EUR' })
     expect(mockUpdateCrud).not.toHaveBeenCalled()
   })
+
+  it('keeps the service kind when a draft service line is edited before the order exists', async () => {
+    const onDraftSaved = jest.fn()
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId=""
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{
+          ...productLine,
+          id: 'draft-1',
+          productId: null,
+          productVariantId: null,
+          serviceId: 'service-1',
+          metadata: { lineMode: 'service', priceMode: 'gross' },
+        }}
+        onDraftSaved={onDraftSaved}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await act(async () => {
+      await capturedSubmit?.(serviceValues({ quantity: '5' }))
+    })
+
+    expect(mockUpdateCrud).not.toHaveBeenCalled()
+    expect(onDraftSaved).toHaveBeenCalledTimes(1)
+    const [payload, lineId] = onDraftSaved.mock.calls[0] as [FormValues, string | null]
+    expect(lineId).toBe('draft-1')
+    expect(payload).toMatchObject({ kind: 'service', serviceId: 'service-1', quantity: 5 })
+  })
+
+  it('clears the catalog snapshot when a service line is switched to custom', async () => {
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId="order-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{
+          ...productLine,
+          productId: null,
+          productVariantId: null,
+          serviceId: 'service-1',
+          metadata: { lineMode: 'service', priceMode: 'gross' },
+          catalogSnapshot: { service: { id: 'service-1' } },
+        }}
+        shippedQuantity={0}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await act(async () => {
+      await capturedSubmit?.(customValues())
+    })
+
+    const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
+    expect(payload).toMatchObject({ kind: 'product', serviceId: null, catalogSnapshot: null })
+  })
+
+  it('leaves the catalog snapshot alone when the line type does not change', async () => {
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId="order-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{
+          ...productLine,
+          productId: null,
+          productVariantId: null,
+          metadata: { lineMode: 'custom', customLine: true, priceMode: 'gross' },
+        }}
+        shippedQuantity={0}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await act(async () => {
+      await capturedSubmit?.(customValues())
+    })
+
+    const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
+    expect(definedKeys(payload)).not.toContain('catalogSnapshot')
+  })
 })
