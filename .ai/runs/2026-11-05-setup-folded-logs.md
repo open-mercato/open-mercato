@@ -49,5 +49,7 @@ Review follow-up: 0b72be2886 persists infrastructure preflight guidance and term
 
 ### Phase 3: Approved stage presentation
 
-- [x] 3.1 Restore original stage headings, emphasize only Expected:, and animate lowercase working… until completion.
-- [ ] 3.2 Verify spinner lifecycle, log toggles and prompts; publish the follow-up on PR #8838.
+- [x] 3.1 Restore original stage headings, emphasize only Expected:, and animate lowercase working… until completion. — f1538d2031
+- [x] 3.2 Verify spinner lifecycle, log toggles and prompts; publish the follow-up on PR #8838. — f1538d2031
+
+Phase 3 verification: all 89 starter tests passed; pre-commit translation/template parity and diff checks passed. Real PTY verified active working animation, log toggles, prompt handling, failure replay and terminal restoration. Follow-up review found no remaining issues after ensuring log-write warnings clear the spinner first. Full workspace gate was not repeated for this isolated terminal presentation follow-up; CI remains authoritative for the new head.
