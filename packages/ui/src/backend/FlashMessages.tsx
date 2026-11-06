@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, type AlertStatus } from '../primitives/alert'
 
 export type FlashKind = 'success' | 'error' | 'warning' | 'info'
@@ -191,6 +192,7 @@ function useLocationKey() {
 }
 
 function FlashMessagesInner() {
+  const translate = useOptionalT()
   const [msg, setMsg] = React.useState<string | null>(null)
   const [kind, setKind] = React.useState<FlashKind>('info')
   const isPrimaryHost = useIsPrimaryFlashHost()
@@ -220,9 +222,16 @@ function FlashMessagesInner() {
     }
   }, [clearDismissTimer])
 
-  // Read flash from URL on any navigation change (client-side too)
+  // Read flash from URL on any navigation change (client-side too).
+  // Only the primary host may consume it: every mounted host would otherwise
+  // race to strip the params first, and a non-primary "winner" stores the
+  // message in state that never renders (its render is gated on
+  // isPrimaryHost below), silently swallowing the toast. Leaving the params
+  // in the URL for a non-primary host means the eventually-primary host's
+  // own effect re-runs and consumes them once isPrimaryHost flips true.
   React.useEffect(() => {
     if (typeof window === 'undefined') return
+    if (!isPrimaryHost) return
     const url = new URL(window.location.href)
     const message = url.searchParams.get('flash')
     const type = normalizeFlashKind(url.searchParams.get('type'))
@@ -237,7 +246,7 @@ function FlashMessagesInner() {
         showFlash(message, type)
       }
     }
-  }, [locationKey, showFlash])
+  }, [locationKey, showFlash, isPrimaryHost])
 
   // Listen for programmatic flash events
   React.useEffect(() => {
@@ -272,6 +281,7 @@ function FlashMessagesInner() {
           status={flashKindToAlertStatus[kind]}
           size="sm"
           dismissible
+          dismissAriaLabel={translate ? translate('common.close', 'Close') : 'Close'}
           onDismiss={handleDismiss}
           className="shadow-md"
         >
