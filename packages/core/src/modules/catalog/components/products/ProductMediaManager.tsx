@@ -12,18 +12,20 @@ export type ProductMediaItem = {
   id: string
   url: string
   fileName: string
-  fileSize?: number | null
+  fileSize: number
   thumbnailUrl?: string | null
 }
 
-export type CatalogMediaItem = ProductMediaItem
+export type CatalogMediaItem = Omit<ProductMediaItem, 'fileSize'> & {
+  fileSize?: number | null
+}
 
-type Props = {
+type Props<TItem extends CatalogMediaItem> = {
   entityId: string
   draftRecordId: string
-  items: ProductMediaItem[]
+  items: TItem[]
   defaultMediaId: string | null
-  onItemsChange: (items: ProductMediaItem[]) => void
+  onItemsChange: (items: Array<TItem | ProductMediaItem>) => void
   onDefaultChange: (attachmentId: string | null) => void
   onUploadingChange?: (isUploading: boolean) => void
   translationPrefix?: 'catalog.products.media' | 'catalog.services.media'
@@ -42,7 +44,7 @@ function humanFileSize(size: number | null | undefined): string | null {
   return `${value.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`
 }
 
-export function ProductMediaManager({
+export function ProductMediaManager<TItem extends CatalogMediaItem = ProductMediaItem>({
   entityId,
   draftRecordId,
   items,
@@ -52,7 +54,7 @@ export function ProductMediaManager({
   onUploadingChange,
   translationPrefix = 'catalog.products.media',
   showLabel = true,
-}: Props) {
+}: Props<TItem>) {
   const t = useT()
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -65,7 +67,7 @@ export function ProductMediaManager({
       setError(null)
       setUploading(true)
       onUploadingChange?.(true)
-      let nextItems = items
+      let nextItems: Array<TItem | ProductMediaItem> = items
       let defaultId = defaultMediaId
       try {
         for (const file of Array.from(files)) {
