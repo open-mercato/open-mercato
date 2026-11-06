@@ -3,6 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Bell, AlertTriangle, CheckCircle2, XCircle, Info, Loader2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
+import { StatusBadge } from '../../primitives/status-badge'
 import { IconButton } from '../../primitives/icon-button'
 import { flash } from '../FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -221,9 +222,18 @@ export function NotificationItem({
 
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         {/* Title row */}
-        <p className="text-sm font-medium leading-5 tracking-tight text-foreground">
-          {titleText}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium leading-5 tracking-tight text-foreground">
+            {titleText}
+          </p>
+          {notification.status === 'actioned' && notification.actionTaken ? (
+            <StatusBadge variant="neutral" className="whitespace-normal">
+              {t('notifications.actionTaken', 'Action taken: {action}', {
+                action: resolveActionLabel(notification.actionTaken, notification.actions, t),
+              })}
+            </StatusBadge>
+          ) : null}
+        </div>
 
         {/* Description row: time · source */}
         <div className="flex flex-wrap items-center gap-1 text-xs leading-4 text-muted-foreground">
@@ -265,14 +275,6 @@ export function NotificationItem({
               )
             })}
           </div>
-        ) : null}
-
-        {notification.status === 'actioned' && notification.actionTaken ? (
-          <p className="mt-1 text-xs italic text-muted-foreground">
-            {t('notifications.actionTaken', 'Action taken: {action}', {
-              action: resolveActionLabel(notification.actionTaken, notification.actions, t),
-            })}
-          </p>
         ) : null}
       </div>
 

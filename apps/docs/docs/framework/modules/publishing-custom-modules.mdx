@@ -104,14 +104,13 @@ This installs, registers, and generates the module. `--allow-third-party` explic
 
 ### From GitHub
 
-Select the repository commit to test, then install it with Yarn and enable its package name separately:
+Select the repository revision to test and let `module add` pin it to an immutable commit before installation:
 
 ```bash
-yarn add '@your-name/mercato-visits@github:your-name/mercato-visits#<full-commit-sha>'
-yarn mercato module enable @your-name/mercato-visits --allow-third-party
+yarn mercato module add github:your-name/mercato-visits#<branch-tag-or-commit> --allow-third-party
 ```
 
-Replace `<full-commit-sha>` with the desired full Git commit SHA. The package's build hooks prepare compiled output during Git installation. Private repositories require Git credentials; private npm dependencies also require registry read access. The framework's `module add` accepts npm versions/tags and file locators, so use this two-step flow for GitHub locators. See [`module enable`](/cli/module-enable).
+The CLI resolves the revision once and records the canonical GitHub origin separately from the package's npm identity. The package's build hooks prepare compiled output during Git installation. Private repositories require Git credentials; private npm dependencies also require registry read access. See [`module add`](/cli/module-add) for accepted GitHub locator forms and source ejection.
 
 Neither installation path applies database migrations automatically. Review any module migrations and apply them deliberately using your app's migration workflow.
 
