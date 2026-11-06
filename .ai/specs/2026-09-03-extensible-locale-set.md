@@ -225,8 +225,10 @@ Both checkers now resolve target locales per module through `scripts/lib/i18n-lo
 - **Inside `apps/<app>/`**: the locale files present in `apps/<app>/src/i18n/`. That directory is
   already the step an app takes to add a language (upgrade note: add `src/i18n/<code>.json`), so it
   doubles as the app's declaration of which languages its own modules must carry. File names must
-  use the normalized code `registerLocales` stores (lowercase, hyphenated: `pt-br.json`). An app
-  without that directory follows the platform set.
+  use the normalized code `registerLocales` stores (lowercase, hyphenated: `pt-br.json`), and only
+  count when their base code is an ISO 639-1 language from `packages/shared/src/lib/i18n/iso639.ts`
+  (the table `registerLocales` validates against) or a code declared in `config.ts`, so an unrelated
+  file such as `faq.json` or `app.json` is ignored. An app without that directory follows the platform set.
 
 The resolver fails closed: an unreadable or inconsistent `config.ts` (including a `locales` array
 that is not entirely string literals) and a locale-shaped app file that is not normalized
@@ -475,3 +477,17 @@ change, not a behaviour change; an assertion covering the new prop was added alo
 - An app's locale files must use normalized codes (lowercase, hyphenated — the form `registerLocales` stores).
   A locale-shaped file such as `pt-BR.json` or `zh_Hant.json` now aborts the run with the rename to make,
   instead of being silently left out of the app's checked set.
+
+### 2026-11-04
+- Follow-up #8436: app dictionary files count only when their base code is an ISO 639-1 language (read
+  from `iso639.ts`) or a code declared in `config.ts`. Unrelated JSON files such as `faq.json` or `app.json`
+  no longer enter either checker's target set, and the normalized-name check only fires for real language
+  codes (`pt-BR.json` still aborts; `FAQ.json` is ignored). An undeclared code must also be a well-formed
+  BCP 47 tag (`Intl.getCanonicalLocales`), so region, script and variant locales such as `pt-br`, `zh-hant`,
+  `es-419`, `ca-valencia` or `de-1996` keep being checked — the same codes `registerLocales` accepts, since it
+  validates only the ISO 639-1 base — while `my-app.json` or `id-map.json` is ignored. Known limit: a name that
+  is itself a well-formed tag, such as `en-config.json` (`config` has the shape of a variant subtag), is read as
+  a locale. A three-letter base such as `fil` must be declared in `config.ts`; `registerLocales` rejects it too.
+- The `config.ts` parser ignores commented-out declarations, rejects a second `locales`/`defaultLocale`
+  declaration, rejects declared codes that are not normalized, and requires `defaultLocale` to be a single
+  string literal (an `as`/`satisfies` type suffix is allowed).

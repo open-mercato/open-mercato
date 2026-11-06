@@ -70,7 +70,8 @@ describe('POST /api/search/embeddings — Ollama baseUrl SSRF guard', () => {
         if (name === 'embeddingProviderProbe') {
           return { checkAvailability: mockCheckAvailability }
         }
-        if (name === 'vectorDrivers') return []
+        if (name === 'em') return { transactional: (callback: () => Promise<void>) => callback() }
+        if (name === 'vectorDrivers') return [{ id: 'pgvector', getTableDimension: async () => 768 }]
         throw new Error(`unexpected resolve(${name})`)
       }),
       dispose: jest.fn(),
