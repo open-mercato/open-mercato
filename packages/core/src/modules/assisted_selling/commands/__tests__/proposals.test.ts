@@ -618,6 +618,23 @@ describe('reauthor hardening — replay ordering, atomic transition, compensatio
     expect(thread.liveProposalCount).toBe(1)
   })
 
+  test('a retried re-author after the old proposal was accepted does not link it to the successor', async () => {
+    const { old, ctx, input, thread } = setup()
+    const first = await reauthorProposalCommand.execute(input, ctx)
+    old.status = 'accepted'
+    old.supersededByProposalId = null
+    old.resolvedAt = new Date()
+    thread.liveProposalCount = 1
+
+    const second = await reauthorProposalCommand.execute(input, ctx)
+
+    expect(second.replayed).toBe(true)
+    expect(second.proposalId).toBe(first.proposalId)
+    expect(old.status).toBe('accepted')
+    expect(old.supersededByProposalId).toBeNull()
+    expect(thread.liveProposalCount).toBe(1)
+  })
+
   test('a replay with a different payload under the same key answers 409 idempotency_key_mismatch', async () => {
     const { ctx, input } = setup()
     await reauthorProposalCommand.execute(input, ctx)

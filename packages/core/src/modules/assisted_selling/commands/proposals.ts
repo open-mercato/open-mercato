@@ -189,6 +189,7 @@ async function completeReplayedSupersede(params: {
 }): Promise<void> {
   const { ctx, em, oldProposal, successorProposalId } = params
   if (oldProposal.supersededByProposalId || oldProposal.id === successorProposalId) return
+  if (oldProposal.status === 'accepted') return
   const wasLive = oldProposal.status === 'published'
   const linked = await linkSuccessorAtomically({
     em,

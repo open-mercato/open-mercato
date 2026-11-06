@@ -145,8 +145,11 @@ export async function POST(req: Request, context: RouteContext) {
     // only, G2) — but this route never mapped it, so it fell through to the generic 500
     // below. A reused key is a caller-input conflict, not a server failure.
     if (err instanceof CustomerCreditServiceError) {
-      const status = err.code === 'idempotency_key_mismatch' ? 409 : 422
-      return NextResponse.json({ error: err.message, code: err.code }, { status })
+      const isKeyMismatch = err.code === 'idempotency_key_mismatch'
+      const message = isKeyMismatch
+        ? translate('customer_groups.errors.creditIdempotencyKeyMismatch', 'This idempotency key was already used for a different credit adjustment.')
+        : translate('customer_groups.errors.creditAdjustRejected', 'Credit adjustment was rejected.')
+      return NextResponse.json({ error: message, code: err.code }, { status: isKeyMismatch ? 409 : 422 })
     }
     logger.error('customer_groups.credit.adjust failed', { err })
     getTelemetryRuntime()?.reportError(err, { module: 'customer_groups', code: 'customer_groups.credit_adjust_failed' })
