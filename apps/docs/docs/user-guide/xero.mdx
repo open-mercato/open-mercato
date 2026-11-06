@@ -9,7 +9,8 @@ sidebar_label: Xero
 The Xero integration connects one Xero Organisation to each Open Mercato organization and imports its Contacts into **Companies** every hour. A Contact always updates the same Company, so repeated runs never create duplicates.
 
 - **Import only.** Open Mercato reads Contacts from Xero and never writes back.
-- **Xero owns the fields it sends.** Name, legal name, email, phone, website, status, tax number and the Xero addresses are overwritten from Xero on the next run that returns the Contact. Every other Company field, note and activity stays yours.
+- **Xero owns the fields it sends.** Name, legal name, email, phone, website, archive status, tax number and the Xero addresses are overwritten from Xero on the next run that returns the Contact. Every other Company field, note and activity stays yours.
+- **Not every Contact becomes a Company.** A Contact that has no Company yet is skipped when it is only a supplier, archived or redacted for GDPR.
 - **Grants are per organization.** Each Open Mercato organization connects its own Xero Organisation through OAuth2. Tokens are encrypted and never shown.
 
 ## Before you start
@@ -18,7 +19,7 @@ The Xero integration connects one Xero Organisation to each Open Mercato organiz
 - **`OM_HUB_OAUTH_STATE_KEY`** (or `KMS_MASTER_KEY`) must be set in production. Connect fails without it.
 - **`CACHE_STRATEGY=redis`** when more than one web replica serves the app, so each Connect state is used only once.
 - The **scheduler** module runs the hourly schedule. Without it, Contacts sync only when started by hand.
-- You need `integrations.credentials.manage` to connect, choose an Organisation and disconnect.
+- You need `integrations.credentials.manage` to connect, choose an Organisation and disconnect, and `integrations.manage` to enable the integration.
 
 ## 1. Register a Xero app
 
@@ -27,7 +28,7 @@ The Xero integration connects one Xero Organisation to each Open Mercato organiz
 3. Enter the redirect URI shown on the **Xero** tab of the integration (Integrations → Xero → Xero). It is `<APP_URL>/api/sync_xero/oauth/callback`, for example `https://app.example.com/api/sync_xero/oauth/callback`. It must match exactly.
 4. Create the app, copy its **Client ID** and generate a **Client Secret**.
 
-One Xero app can serve every organization of your Open Mercato instance: each organization connects with its own consent.
+Register one Xero app per Open Mercato organization. Disconnect ends every connection the same Xero user authorized for the same app, so a shared app ties those organizations together (see [Disconnect](#disconnect)).
 
 ## 2. Enter the Client ID and Secret
 
@@ -43,7 +44,17 @@ Open Mercato requests read-only access to Contacts and Invoices (`accounting.con
 
 ### Try it with the Xero Demo Company
 
-Every Xero login has a **Demo Company** with sample contacts and invoices. Register the app with `APP_URL=http://localhost:3000` (or your local port), connect, and choose the Demo Company in Xero's consent screen. Nothing you do there touches real financial data.
+Every Xero login has a **Demo Company** with sample contacts and invoices. Register the app with `APP_URL=http://localhost:3000` (or your local port), connect, and choose the Demo Company in Xero's consent screen. Do this in a separate Open Mercato organization, so the sample contacts stay out of your real Companies. Nothing you do there touches real financial data.
+
+## 4. Enable the integration
+
+The integration starts disabled: the Xero tab shows a paused warning and no scheduled run fires. A first sync matches a Contact to an existing Company by tax number, so prepare any Companies you already have before you enable it:
+
+1. Connect while the integration is still disabled. The **Tax number (Xero)** custom field exists from the moment the Organisation is saved.
+2. Fill in **Tax number (Xero)** on the Companies you entered by hand, with the number Xero holds as the Contact's Tax Number or Company Number.
+3. Turn on the **State** switch on the integration's detail page.
+
+A Company without that number is not matched: its Contact creates a new Company, and the run log warns when the names are the same.
 
 ## Schedules and Xero's 60-day limit
 
@@ -51,7 +62,7 @@ When the Organisation is saved, Open Mercato creates an hourly incremental sched
 
 Xero ends a connection that is not used for 60 days. Every sync renews it, so an enabled integration with its schedule never reaches the limit. When syncing is paused or no schedule is enabled, the Xero tab shows how many days are left before Xero requires a Reconnect.
 
-Keep **Run scheduled jobs as full sync** off: a full sync reads every contact on each run and cannot resume a run that Xero's daily limit interrupts. To re-read everything once, start a single run with **Run as full sync** from **Sync Runs**.
+Keep **Run scheduled jobs as full sync** off: a full sync reads every contact on each run and cannot resume a run that Xero's daily limit interrupts. To re-read everything once, start a single run with **Run as full sync** from **Sync Runs**. Do this after failed items, and when a supplier becomes a customer in Xero: hourly runs read only the Contacts Xero reports as changed, and Xero does not report that change.
 
 ## Daily limits
 
@@ -61,7 +72,7 @@ Xero limits each Organisation to 60 calls a minute and to a daily number of call
 
 **Disconnect** on the Xero tab erases the stored tokens and asks Xero to revoke them. Then it runs one health check and disables the integration, so the schedules stop firing; they resume when you reconnect and enable the integration again. Disabling needs `integrations.manage`: without it the integration stays enabled, the tab says so, and an administrator must disable it. Companies imported so far stay. Tick **Also remove the Client ID and Secret** to clear the Credentials tab as well.
 
-When the stored connection cannot be read (for example after an encryption key change), the tab offers **Replace unreadable connection**, which connects again over it, and **Disconnect anyway**, which erases it without a revoke. In both cases remove the app from the Organisation's **Connected apps** in Xero yourself.
+When the stored connection cannot be read (for example after an encryption key change), the tab offers **Replace unreadable connection**, which connects again over it, and **Disconnect anyway**, which erases it without a revoke. After **Disconnect anyway**, remove the app from the Organisation's **Connected apps** in Xero yourself. After a replace, remove it only if you no longer use it: removing it ends the new connection too.
 
 :::warning Revocation reaches every connection of the same Xero user
 Xero ends **every** connection that the same Xero user authorized for the same Xero app, not only this one. If one Xero user connected several Open Mercato organizations through one Xero app, Disconnect ends all of them; each must connect again.
