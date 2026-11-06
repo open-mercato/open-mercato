@@ -1,5 +1,16 @@
 import type { EventArgs, EventSubscriber } from '@mikro-orm/core'
-import { getAgentActorScope, isAuditedCommandActive } from './agentWriteScope'
+import {
+  AgentContextBundle,
+  AgentEvalResult,
+  AgentGuardrailCheck,
+  AgentGuardrailSet,
+  AgentRun,
+  AgentRunArtifact,
+  AgentRunSession,
+  AgentSpan,
+  AgentToolCall,
+} from '../../data/entities'
+import { getAgentActorScope, isAuditedCommandActive, isRuntimeAuditWriteActive } from './agentWriteScope'
 
 /**
  * Thrown by the flush-time write-interceptor when a `kind='agent'` actor attempts
@@ -17,6 +28,82 @@ export class AgentWriteBypassError extends Error {
     )
     this.name = 'AgentWriteBypassError'
   }
+}
+
+/**
+ * Agent-orchestrator runtime-audit entities admitted under an agent actor while
+ * `withRuntimeAuditWrite` is active. `AgentRun` is admitted only for the narrow
+ * trace-field update below. Every other entity keeps failing closed.
+ */
+const RUNTIME_AUDIT_ENTITY_CLASSES = [
+  AgentGuardrailCheck,
+  AgentContextBundle,
+  AgentSpan,
+  AgentToolCall,
+  AgentEvalResult,
+  AgentRunArtifact,
+  AgentRunSession,
+  AgentRun,
+] as const
+
+const RUNTIME_AUDIT_ENTITY_CLASS_SET: ReadonlySet<unknown> = new Set<unknown>(RUNTIME_AUDIT_ENTITY_CLASSES)
+
+/**
+ * Append-only AO entities the runtime may only INSERT under
+ * `withRuntimeAuditWrite`: the integrity guardrail set a run syncs on first use
+ * (`agent_guardrail_sets` rows are immutable per `(org, capability, version)`).
+ */
+const RUNTIME_AUDIT_CREATE_ONLY_ENTITY_CLASSES: ReadonlySet<unknown> = new Set<unknown>([AgentGuardrailSet])
+
+/**
+ * `AgentRun` properties the runtime may change on an EXISTING run under
+ * `withRuntimeAuditWrite`: the usage/cost/latency stamp native trace capture
+ * sends through `ingestTrace` and the online eval verdict `evaluateRun` writes.
+ * Status, output, proposal link, routing, workflow binding and identity stay on
+ * the audited Command path.
+ */
+export const RUNTIME_AUDIT_AGENT_RUN_FIELDS: ReadonlySet<string> = new Set([
+  'model',
+  'inputTokens',
+  'outputTokens',
+  'costMinor',
+  'currency',
+  'latencyMs',
+  'evalScore',
+  'evalPassed',
+  'goldenCaseId',
+  'goldenPassed',
+  'updatedAt',
+])
+
+function entityClassOf(args: EventArgs<unknown>): unknown {
+  const meta = args.meta as { class?: unknown } | undefined
+  if (typeof meta?.class === 'function') return meta.class
+  const ctor = (args.entity as { constructor?: unknown } | null | undefined)?.constructor
+  return typeof ctor === 'function' ? ctor : undefined
+}
+
+export function isRuntimeAuditEntity(args: EventArgs<unknown>): boolean {
+  const entityClass = entityClassOf(args)
+  return RUNTIME_AUDIT_ENTITY_CLASS_SET.has(entityClass) || RUNTIME_AUDIT_CREATE_ONLY_ENTITY_CLASSES.has(entityClass)
+}
+
+function isRuntimeAuditTraceUpdate(operation: 'create' | 'update' | 'delete', args: EventArgs<unknown>): boolean {
+  if (operation !== 'update') return false
+  const payload = (args.changeSet as { payload?: unknown } | undefined)?.payload
+  if (!payload || typeof payload !== 'object') return false
+  return Object.keys(payload).every((field) => RUNTIME_AUDIT_AGENT_RUN_FIELDS.has(field))
+}
+
+export function isRuntimeAuditWriteAllowed(
+  operation: 'create' | 'update' | 'delete',
+  args: EventArgs<unknown>,
+): boolean {
+  if (!isRuntimeAuditEntity(args)) return false
+  const entityClass = entityClassOf(args)
+  if (RUNTIME_AUDIT_CREATE_ONLY_ENTITY_CLASSES.has(entityClass)) return operation === 'create'
+  if (entityClass !== AgentRun) return true
+  return isRuntimeAuditTraceUpdate(operation, args)
 }
 
 function entityNameOf(args: EventArgs<unknown>): string {
@@ -60,6 +147,8 @@ export class AgentKindNoBypassSubscriber implements EventSubscriber<unknown> {
     if (!getAgentActorScope()) return
     // Inside the agent's own audited Command write → legitimate, attributed write.
     if (isAuditedCommandActive()) return
+    // Inside the runtime's own audit write → only the AO runtime-audit allowlist passes.
+    if (isRuntimeAuditWriteActive() && isRuntimeAuditWriteAllowed(operation, args)) return
     // Agent actor active + no audited-command context → fail closed.
     throw new AgentWriteBypassError(operation, entityNameOf(args))
   }

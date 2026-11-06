@@ -40,6 +40,10 @@ const lowLevelMatcherAllowlist = new Set([
   // Authoring-time lint: warns that a step needs a feature the DEFINITION does
   // not grant. Evaluated against the definition, never against a caller.
   'packages/core/src/modules/workflows/lib/flow-logic-warnings.ts',
+  // Pure intersection of an agent principal's and a caller's resolved grants;
+  // the ACL load and every tool decision stay in `resolveEffectiveToolAcl.ts`
+  // and `authorizeFeatures`.
+  'packages/enterprise/src/modules/agent_orchestrator/lib/identity/toolAclGrantIntersection.ts',
 
   // --- Pure decision functions over an ALREADY-RESOLVED effective-feature
   // snapshot, with the impure per-request read living in the `-request`

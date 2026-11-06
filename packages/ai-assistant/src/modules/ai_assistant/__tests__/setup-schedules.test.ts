@@ -21,13 +21,23 @@ describe('ai_assistant setup schedules', () => {
 
     await setup.seedDefaults?.({ container } as never)
 
-    expect(register).toHaveBeenCalledTimes(2)
+    expect(register).toHaveBeenCalledTimes(3)
     const ids = register.mock.calls.map(([registration]) => registration.id)
 
-    expect(ids).toHaveLength(2)
-    expect(new Set(ids).size).toBe(2)
+    expect(ids).toHaveLength(3)
+    expect(new Set(ids).size).toBe(3)
     expect(ids).not.toContain('ai_assistant:pending-action-cleanup')
     expect(ids).not.toContain('ai_assistant:token-usage-prune')
+    expect(ids).not.toContain('ai_assistant:agent-run-prune')
     expect(ids.every((id) => UUID_RE.test(id))).toBe(true)
+  })
+
+  it('registers the agent-run prune schedule on the ai-agent-run-prune queue', async () => {
+    const { container, register } = makeContainer()
+
+    await setup.seedDefaults?.({ container } as never)
+
+    const queues = register.mock.calls.map(([registration]) => registration.targetQueue)
+    expect(queues).toContain('ai-agent-run-prune')
   })
 })

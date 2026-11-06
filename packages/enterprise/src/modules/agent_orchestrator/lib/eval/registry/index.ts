@@ -8,7 +8,7 @@ import { textScorers } from './text'
 import { toolScorers } from './tools'
 
 /**
- * The single source of truth for scorer identity. 21 definitions — 20 deterministic
+ * The single source of truth for scorer identity. 23 definitions — 22 deterministic
  * plus `llm_judge` — consumed by the online plane (EvalRuntimeService), the offline
  * plane (replay engine, CI gate) and `GET /eval-scorers`, which generates the
  * assertion form from `fields`.

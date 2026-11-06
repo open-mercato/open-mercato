@@ -16,6 +16,7 @@ import {
   type SearchEntityDenyReason,
 } from '@open-mercato/shared/lib/search/entityAccess'
 import { defineAiTool } from '../lib/ai-tool-definition'
+import { emitCitations, isSafeHref, type AiCitation } from '../lib/citations'
 import type { AiToolDefinition, McpToolContext } from '../lib/types'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
@@ -110,6 +111,22 @@ async function resolveActorOrganizationScope(ctx: McpToolContext): Promise<{
   return { organizationId, organizationIds: scopeFilter.organizationIds, denyAll }
 }
 
+function toRecordCitation(result: Pick<SearchResult, 'entityId' | 'recordId' | 'presenter' | 'url'>): AiCitation {
+  const citation: AiCitation = { kind: 'record', ref: `${result.entityId}:${result.recordId}` }
+  const label = typeof result.presenter?.title === 'string' ? result.presenter.title.trim().slice(0, 200) : ''
+  if (label) citation.label = label
+  if (typeof result.url === 'string' && result.url.length <= 2048 && isSafeHref(result.url)) citation.href = result.url
+  return citation
+}
+
+function emitRecordCitations(
+  ctx: McpToolContext,
+  results: ReadonlyArray<Pick<SearchResult, 'entityId' | 'recordId' | 'presenter' | 'url'>>,
+): void {
+  if (results.length === 0) return
+  emitCitations(ctx, results.map(toRecordCitation))
+}
+
 const hybridSearchInput = z.object({
   q: z.string().min(1).describe('Search query text.'),
   limit: z
@@ -162,6 +179,7 @@ const hybridSearchTool = defineAiTool({
       const strategiesUsed = Array.from(
         new Set(results.map((result) => result.source).filter((id): id is SearchStrategyId => typeof id === 'string')),
       )
+      emitRecordCitations(ctx, results)
       return {
         query: input.q,
         totalResults: results.length,
@@ -207,6 +225,7 @@ const hybridSearchTool = defineAiTool({
     const strategiesUsed = Array.from(
       new Set(results.map((result) => result.source).filter((id): id is SearchStrategyId => typeof id === 'string')),
     )
+    emitRecordCitations(ctx, results)
     return {
       query: input.q,
       totalResults: results.length,
@@ -272,6 +291,7 @@ const getRecordContextTool = defineAiTool({
         recordId: input.recordId,
       }
     }
+    emitRecordCitations(ctx, [match])
     return {
       found: true as const,
       entityId: match.entityId,

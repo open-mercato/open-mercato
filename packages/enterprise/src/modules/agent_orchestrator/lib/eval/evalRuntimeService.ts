@@ -11,7 +11,7 @@ import {
 } from '../../data/entities'
 import { parseCaseAssertionRefs, resolveEffectiveAssertions } from './assertionResolution'
 import { canonicalInputKey } from './canonicalInputKey'
-import { projectRunView } from './projectRunView'
+import { loadRunGuardrailChecks, projectRunView } from './projectRunView'
 import { runScorer } from './registry'
 import { SKIP_REASON, type Json } from './types'
 
@@ -114,11 +114,14 @@ export async function evaluateRun(
     organizationId: scope.organizationId,
   })
 
+  const guardrailChecks = await loadRunGuardrailChecks(em, run.id, scope)
+
   const runView = projectRunView({
     run,
     toolCalls,
     spans,
     disposition: proposal?.disposition ?? null,
+    guardrailChecks,
   })
 
   // BOTH planes must resolve the assertion set the same way. Skipping this call

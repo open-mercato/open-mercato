@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ChevronDown,
+  Download,
   Gauge,
   MinusCircle,
   Octagon,
@@ -19,6 +20,15 @@ import { SectionHeader, CollapsibleSection } from '@open-mercato/ui/backend/Sect
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Dropdown,
+  DropdownContent,
+  DropdownItem,
+  DropdownList,
+  DropdownSeparator,
+  DropdownTrigger,
+} from '@open-mercato/ui/primitives/dropdown'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Progress } from '@open-mercato/ui/primitives/progress'
@@ -77,6 +87,130 @@ type ResultsState = {
 type EvalCaseState = {
   status: 'loading' | 'ready' | 'error'
   evalCase: EvalCaseView | null
+}
+
+const EVAL_EXPORT_FEATURE = 'agent_orchestrator.eval.export'
+
+type ReportFormat = 'json' | 'md' | 'junit'
+
+const REPORT_FORMATS: ReadonlyArray<{ format: ReportFormat; labelKey: string; extension: string }> = [
+  { format: 'json', labelKey: 'agent_orchestrator.evalRuns.report.json', extension: 'json' },
+  { format: 'md', labelKey: 'agent_orchestrator.evalRuns.report.markdown', extension: 'md' },
+  { format: 'junit', labelKey: 'agent_orchestrator.evalRuns.report.junit', extension: 'xml' },
+]
+
+function filenameFromDisposition(disposition: string | null, fallback: string): string {
+  if (!disposition) return fallback
+  const match = /filename="?([^"]+)"?/i.exec(disposition)
+  return match?.[1] ?? fallback
+}
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * Renderers live server-side, so the page only streams the finished file into a
+ * Blob. Disabled while the run is still producing results: the route answers 409
+ * until the suite reaches a terminal status.
+ */
+function DownloadReportMenu({ suiteRunId, isActive }: { suiteRunId: string; isActive: boolean }) {
+  const t = useT()
+  const [open, setOpen] = React.useState(false)
+  const [includePayloads, setIncludePayloads] = React.useState(false)
+  const [isDownloading, setIsDownloading] = React.useState(false)
+
+  const download = React.useCallback(
+    async (format: ReportFormat, extension: string) => {
+      setOpen(false)
+      setIsDownloading(true)
+      try {
+        const params = new URLSearchParams({ format })
+        if (includePayloads) params.set('includePayloads', 'true')
+        const call = await apiCall<Blob>(
+          `/api/agent_orchestrator/eval-runs/${encodeURIComponent(suiteRunId)}/report?${params.toString()}`,
+          undefined,
+          { parse: (response) => response.blob() },
+        )
+        if (!call.ok || !call.result) {
+          flash(
+            call.status === 409
+              ? t('agent_orchestrator.evalRuns.report.notFinished')
+              : t('agent_orchestrator.evalRuns.report.error'),
+            'error',
+          )
+          return
+        }
+        saveBlob(
+          call.result,
+          filenameFromDisposition(call.response.headers.get('content-disposition'), `eval-${suiteRunId}.${extension}`),
+        )
+      } catch {
+        flash(t('agent_orchestrator.evalRuns.report.error'), 'error')
+      } finally {
+        setIsDownloading(false)
+      }
+    },
+    [includePayloads, suiteRunId, t],
+  )
+
+  if (isActive) {
+    return (
+      <SimpleTooltip content={t('agent_orchestrator.evalRuns.report.notFinished')}>
+        <span tabIndex={0} className="inline-flex">
+          <Button type="button" variant="outline" size="sm" disabled>
+            <Download className="size-4" />
+            {t('agent_orchestrator.evalRuns.report.download')}
+          </Button>
+        </span>
+      </SimpleTooltip>
+    )
+  }
+
+  return (
+    <Dropdown open={open} onOpenChange={setOpen}>
+      <DropdownTrigger asChild>
+        <Button type="button" variant="outline" size="sm" disabled={isDownloading}>
+          {isDownloading ? <Spinner className="size-4" /> : <Download className="size-4" />}
+          {t('agent_orchestrator.evalRuns.report.download')}
+          <ChevronDown className="size-4" />
+        </Button>
+      </DropdownTrigger>
+      <DropdownContent
+        align="end"
+        className="w-64"
+        aria-label={t('agent_orchestrator.evalRuns.report.download')}
+        commandProps={{ label: t('agent_orchestrator.evalRuns.report.download') }}
+      >
+        <DropdownList>
+          {REPORT_FORMATS.map((entry) => (
+            <DropdownItem
+              key={entry.format}
+              value={entry.format}
+              onSelect={() => void download(entry.format, entry.extension)}
+            >
+              {t(entry.labelKey)}
+            </DropdownItem>
+          ))}
+          <DropdownSeparator />
+          <DropdownItem
+            value="include-payloads"
+            checked={includePayloads}
+            onSelect={() => setIncludePayloads((current) => !current)}
+          >
+            {t('agent_orchestrator.evalRuns.report.includePayloads')}
+          </DropdownItem>
+        </DropdownList>
+      </DropdownContent>
+    </Dropdown>
+  )
 }
 
 function readEventString(payload: Record<string, unknown>, key: string): string | null {
@@ -329,12 +463,27 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
   const [results, setResults] = React.useState<Record<string, ResultsState>>({})
   const [evalCases, setEvalCases] = React.useState<Record<string, EvalCaseState>>({})
   const [isCancelling, setIsCancelling] = React.useState(false)
+  const [mayExport, setMayExport] = React.useState(false)
   const loadedRunRef = React.useRef<string | null>(null)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
     contextId: 'agent_orchestrator.evalRuns',
     blockedMessage: t('agent_orchestrator.proposal.flash.blocked'),
   })
+
+  React.useEffect(() => {
+    let cancelled = false
+    void apiCall<{ granted?: unknown }>(
+      '/api/auth/feature-check',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ features: [EVAL_EXPORT_FEATURE] }) },
+      { fallback: { granted: [] } },
+    ).then((call) => {
+      if (cancelled || !call.ok) return
+      const granted = Array.isArray(call.result?.granted) ? call.result.granted : []
+      setMayExport(granted.includes(EVAL_EXPORT_FEATURE))
+    })
+    return () => { cancelled = true }
+  }, [])
 
   React.useEffect(() => {
     let cancelled = false
@@ -424,9 +573,11 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
     })()
   }, [])
 
+  const isFileSet = run?.evalSetSource === 'file'
+
   const toggleExpanded = React.useCallback((caseRunId: string, evalCaseId: string) => {
     setExpandedId((current) => (current === caseRunId ? null : caseRunId))
-    loadEvalCase(evalCaseId)
+    if (!isFileSet) loadEvalCase(evalCaseId)
     if (requestedResultsRef.current.has(caseRunId)) return
     requestedResultsRef.current.add(caseRunId)
     setResults((current) => ({ ...current, [caseRunId]: { status: 'loading', items: [] } }))
@@ -454,7 +605,7 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
         },
       }))
     })()
-  }, [suiteRunId, loadEvalCase])
+  }, [suiteRunId, loadEvalCase, isFileSet])
 
   // Live progress: case-run events patch the loaded rows in place (no refetch of
   // a list the very run is still writing). The suite-completion event refreshes
@@ -592,12 +743,17 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
                         : ''}
                     </p>
                   </div>
-                  {isActiveSuiteStatus(run.status) ? (
-                    <Button type="button" variant="outline" size="sm" onClick={cancelRun} disabled={isCancelling}>
-                      <Octagon className="size-4" />
-                      {t('agent_orchestrator.evalRuns.detail.cancel')}
-                    </Button>
-                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {mayExport ? (
+                      <DownloadReportMenu suiteRunId={run.id} isActive={isActiveSuiteStatus(run.status)} />
+                    ) : null}
+                    {isActiveSuiteStatus(run.status) ? (
+                      <Button type="button" variant="outline" size="sm" onClick={cancelRun} disabled={isCancelling}>
+                        <Octagon className="size-4" />
+                        {t('agent_orchestrator.evalRuns.detail.cancel')}
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 
@@ -722,9 +878,14 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
                                 </IconButton>
                               </TableCell>
                               <TableCell>
-                                <StatusBadge variant={evalCaseRunStatusVariant[caseRun.status]} dot>
-                                  {t(`agent_orchestrator.evalRuns.caseStatus.${caseRun.status}`)}
-                                </StatusBadge>
+                                <div className="flex flex-wrap items-center gap-1">
+                                  <StatusBadge variant={evalCaseRunStatusVariant[caseRun.status]} dot>
+                                    {t(`agent_orchestrator.evalRuns.caseStatus.${caseRun.status}`)}
+                                  </StatusBadge>
+                                  {isFileSet ? (
+                                    <StatusBadge variant="neutral">{t('agent_orchestrator.evalRuns.fileCase.badge')}</StatusBadge>
+                                  ) : null}
+                                </div>
                               </TableCell>
                               <TableCell className="tabular-nums text-muted-foreground">
                                 {caseRun.trialIndex + 1}
@@ -785,12 +946,18 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
                                       title={t('agent_orchestrator.evalRuns.detail.goldenCase')}
                                       defaultCollapsed
                                     >
-                                      <GoldenCase
-                                        state={
-                                          evalCases[caseRun.evalCaseId] ?? { status: 'loading', evalCase: null }
-                                        }
-                                        evalCaseId={caseRun.evalCaseId}
-                                      />
+                                      {isFileSet ? (
+                                        <p className="py-2 text-sm text-muted-foreground">
+                                          {t('agent_orchestrator.evalRuns.detail.fileCaseNoRecord')}
+                                        </p>
+                                      ) : (
+                                        <GoldenCase
+                                          state={
+                                            evalCases[caseRun.evalCaseId] ?? { status: 'loading', evalCase: null }
+                                          }
+                                          evalCaseId={caseRun.evalCaseId}
+                                        />
+                                      )}
                                     </CollapsibleSection>
                                   </div>
                                 </TableCell>

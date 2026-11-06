@@ -23,7 +23,7 @@ export type HealthState = 'ok' | 'unknown' | 'degraded' | 'down' | 'error'
  */
 const SEVERITY: Record<HealthState, number> = { ok: 0, unknown: 1, degraded: 2, down: 3, error: 4 }
 
-export type HealthIndicatorId = 'webSearch' | 'mcp' | 'opencode' | 'opencodeMcp'
+export type HealthIndicatorId = 'webSearch' | 'mcp' | 'opencode' | 'opencodeMcp' | 'otelExport'
 
 /** What calling an adapter's health check costs. See `packages/web-research`. */
 export type ProbeCost = 'free' | 'heavy' | 'billable'
@@ -197,6 +197,57 @@ export function deriveRuntimeIndicators(
   }
 
   return [mcp, opencode, opencodeMcp]
+}
+
+export type OtelExportHealthPayload = {
+  deployment: { enabled: boolean; switchOn: boolean }
+  health: { lastSuccessAt: string | null; lastErrorAt: string | null; lastErrorCode: string | null }
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string'
+}
+
+export function isOtelExportHealthPayload(value: unknown): value is OtelExportHealthPayload {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as { deployment?: unknown; health?: unknown }
+  const deployment = candidate.deployment as Record<string, unknown> | null | undefined
+  const health = candidate.health as Record<string, unknown> | null | undefined
+  if (typeof deployment !== 'object' || deployment === null) return false
+  if (typeof health !== 'object' || health === null) return false
+  return (
+    typeof deployment.enabled === 'boolean' &&
+    typeof deployment.switchOn === 'boolean' &&
+    isNullableString(health.lastSuccessAt) &&
+    isNullableString(health.lastErrorAt) &&
+    isNullableString(health.lastErrorCode)
+  )
+}
+
+function parseTimestamp(value: string | null): number | null {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+/**
+ * OTel trace export, from the export settings payload. Export is opt-in per
+ * deployment, so the line is hidden (`null`) while the master switch is off or
+ * the payload could not be read — a missing optional feature is not a fault.
+ * A switched-on deployment without a usable endpoint or protocol exports
+ * nothing and reports `down`; otherwise the newest of the last success and the
+ * last error decides, and a tenant that never exported is `unknown`.
+ */
+export function deriveOtelExportIndicator(payload: OtelExportHealthPayload | null): HealthIndicator | null {
+  if (!payload || !payload.deployment.switchOn) return null
+  if (!payload.deployment.enabled) return { id: 'otelExport', state: 'down', detail: null }
+  const successAt = parseTimestamp(payload.health.lastSuccessAt)
+  const errorAt = parseTimestamp(payload.health.lastErrorAt)
+  if (successAt === null && errorAt === null) return { id: 'otelExport', state: 'unknown', detail: null }
+  if (errorAt !== null && (successAt === null || errorAt >= successAt)) {
+    return { id: 'otelExport', state: 'degraded', detail: payload.health.lastErrorCode }
+  }
+  return { id: 'otelExport', state: 'ok', detail: null }
 }
 
 /**

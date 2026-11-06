@@ -16,6 +16,59 @@ export class AgentNotFoundError extends Error {
 }
 
 /**
+ * The run's invoker does not hold every feature the agent declares in
+ * `requiredFeatures`. The message never names the missing features so a
+ * non-admin caller cannot enumerate the agent's ACL.
+ */
+export class AgentInvokeDeniedError extends Error {
+  readonly code = 'agent_invoke_denied'
+  readonly agentId: string
+  constructor(agentId: string) {
+    super(`[internal] invoker may not run agent "${agentId}"`)
+    this.name = 'AgentInvokeDeniedError'
+    this.agentId = agentId
+  }
+}
+
+export const AGENT_INVOKE_DENIED_CODE = 'agent_invoke_denied' as const
+
+/**
+ * Structural match so a denial is recognised after crossing a boundary that
+ * drops the prototype (admission queue, workflow job, duplicated module copy).
+ */
+export function isAgentInvokeDeniedError(err: unknown): err is { code: typeof AGENT_INVOKE_DENIED_CODE; agentId?: string } {
+  if (err instanceof AgentInvokeDeniedError) return true
+  if (!err || typeof err !== 'object') return false
+  return (err as { code?: unknown }).code === AGENT_INVOKE_DENIED_CODE
+}
+
+/**
+ * The agent declares `principal.required: true` but has no enabled principal in
+ * the run's organization, so the run refuses instead of falling back to the
+ * caller's attribution.
+ */
+export class AgentPrincipalMissingError extends Error {
+  readonly code = 'agent_principal_missing'
+  readonly agentId: string
+  constructor(agentId: string) {
+    super(`[internal] agent "${agentId}" requires a provisioned principal and has none in this organization`)
+    this.name = 'AgentPrincipalMissingError'
+    this.agentId = agentId
+  }
+}
+
+export const AGENT_PRINCIPAL_MISSING_CODE = 'agent_principal_missing' as const
+
+/** Structural match, like {@link isAgentInvokeDeniedError}. */
+export function isAgentPrincipalMissingError(
+  err: unknown,
+): err is { code: typeof AGENT_PRINCIPAL_MISSING_CODE; agentId?: string } {
+  if (err instanceof AgentPrincipalMissingError) return true
+  if (!err || typeof err !== 'object') return false
+  return (err as { code?: unknown }).code === AGENT_PRINCIPAL_MISSING_CODE
+}
+
+/**
  * The in-process wall-clock deadline (`OM_AGENT_RUN_TIMEOUT_MS`, default 5 min —
  * symmetric with the OpenCode runner's `OM_OPENCODE_RUN_TIMEOUT_MS`) expired
  * before the model finished. The run is already marked failed via `failRun`
@@ -49,15 +102,22 @@ export class AgentGuardrailBlockedError extends AgentOutputInvalidError {
   readonly phase: GuardrailPhaseInput
   readonly kind: GuardrailKindInput
   readonly guardrailSetVersion: string
+  readonly ruleId: string | null
   constructor(
     agentId: string,
     detail: string,
-    reason: { phase: GuardrailPhaseInput; kind: GuardrailKindInput; guardrailSetVersion: string },
+    reason: {
+      phase: GuardrailPhaseInput
+      kind: GuardrailKindInput
+      guardrailSetVersion: string
+      ruleId?: string | null
+    },
   ) {
     super(agentId, detail)
     this.name = 'AgentGuardrailBlockedError'
     this.phase = reason.phase
     this.kind = reason.kind
     this.guardrailSetVersion = reason.guardrailSetVersion
+    this.ruleId = reason.ruleId ?? null
   }
 }

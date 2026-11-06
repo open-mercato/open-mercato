@@ -10,12 +10,31 @@ import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-tool-parts'
 import { emitAgentOrchestratorEvent } from '../../events'
-import type { AgentRegistryEntry } from '../sdk/defineAgent'
-import { type AgentResult } from '../../data/validators'
+import { resolveAgentEffectiveTools, type AgentRegistryEntry } from '../sdk/defineAgent'
+import { resolveAgentDefinitionHash } from '../trace/definitionHash'
+import { buildAgentRunManifestInput, buildRunManifestSpan, captureManifestTraceparent } from '../trace/runManifestEntry'
+import { resolveRunCapture } from '../trace/capturePolicy'
+import type { RunManifestCapture } from '../trace/runManifest'
+import { isNativeTraceCaptureEnabled } from './nativeTraceCapture'
+import { type AgentResult, type GuardResults } from '../../data/validators'
+import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
+import {
+  attachRawOutputPointer,
+  normalizeToolName,
+  runOutputPipeline,
+  type OutputPipelineResult,
+} from '../guardrails/integrity/pipeline'
+import { isAgentIntegrityEnforced, resolveIntegritySet } from '../guardrails/integrity/integritySets'
+import type { IntegrityToolCall } from '../guardrails/integrity/types'
+import { emitRunReviewRequested } from '../guardrails/integrity/reviewRequestedEvent'
+import { readCheckRuleId } from '../guardrails/integrity/summary'
+import { ensureRunIntegritySetSynced, storeRunRawOutput } from './integrityRunSupport'
+import { AgentGuardrailBlockedError } from './errors'
 import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import {
   type AgentRunCtx,
   buildCommandContext,
+  withRunAuditCorrelation,
   createRun,
   completeRun,
   failRun,
@@ -31,8 +50,26 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { withAuditedCommand } from '../identity/agentWriteScope'
 import type { IngestTraceCommandInput } from '../../commands/trace'
 import type { IngestTraceResult } from '../trace/traceIngestionService'
-import type { TraceSpanIngest } from '../../data/validators'
+import type { TraceLlmRequestIngest, TraceSpanIngest } from '../../data/validators'
+import {
+  buildOpenCodeMessageSpans,
+  buildReconstructedRequest,
+  createOpenCodeMessageCollector,
+  mergeMessageAndToolSpans,
+  resolveObservedModel,
+  type OpenCodeAssistantMessage,
+  type OpenCodeMessageCollector,
+} from './openCodeMessageTrace'
+import {
+  TOOL_OBSERVATION_SPAN_NAME,
+  foldToolObservationsIntoToolSpans,
+  mergeToolObservationKnowledge,
+  parseToolObservationRecord,
+  type ToolObservationRecord,
+} from '../trace/toolObservation'
+import { AgentSpan } from '../../data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'opencode-agent-runner' })
 
@@ -49,6 +86,7 @@ type CapturedToolCall = {
   status: 'ok' | 'error'
   startedAt: string
   endedAt?: string
+  messageId?: string
 }
 
 /**
@@ -157,7 +195,7 @@ export class OpenCodeAgentRunner {
   async run(entry: AgentRegistryEntry, input: unknown, ctx: AgentRunCtx): Promise<AgentResult> {
     const agentId = entry.id
     const openCodeAgentName = agentId.replace(/[^a-z0-9_-]/gi, '_')
-    const commandCtx = buildCommandContext(this.container, ctx)
+    const baseCommandCtx = buildCommandContext(this.container, ctx)
 
     // File plane (#12): strip the reserved `__files` envelope BEFORE persisting the
     // run input, so the stored/prompted input stays clean business data and the
@@ -169,8 +207,14 @@ export class OpenCodeAgentRunner {
     // so stamping the session id at creation lets a later trace POST upsert THIS
     // row instead of creating a duplicate.
     const session = await this.client.createSession()
+    const traceCaptureEnabled = isNativeTraceCaptureEnabled()
+    const traceparent = traceCaptureEnabled ? captureManifestTraceparent() : null
+    const runCapture = traceCaptureEnabled
+      ? await resolveRunCapture(this.container, { tenantId: ctx.tenantId, agentId, runSource: ctx.source })
+      : null
+    const messageCollector = runCapture && runCapture.level !== 'off' ? createOpenCodeMessageCollector() : null
 
-    const runId = await createRun(this.commandBus, commandCtx, {
+    const runId = await createRun(this.commandBus, baseCommandCtx, {
       source: ctx.source,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
@@ -184,7 +228,9 @@ export class OpenCodeAgentRunner {
       stepId: ctx.stepId ?? null,
       invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
+      definitionHash: resolveAgentDefinitionHash(entry),
     })
+    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId)
 
     if (ctx.onRunPersisted) {
       try {
@@ -279,6 +325,8 @@ export class OpenCodeAgentRunner {
     // leaving the debugger with no duration, no spans and no tool calls — the
     // exact evidence needed to see WHERE it broke.
     let startedAtMs: number | null = null
+    let integrityRawOutputKey: string | null = null
+    let reconstructedRequest: TraceLlmRequestIngest | null = null
 
     try {
       if (filesEnabled) {
@@ -316,6 +364,9 @@ export class OpenCodeAgentRunner {
       }
 
       const message = this.buildMessage(sessionToken, businessInput, workspace, stagedInputs)
+      if (runCapture?.level === 'full') {
+        reconstructedRequest = buildReconstructedRequest({ system: entry.instructions, message })
+      }
 
       startedAtMs = Date.now()
       const capturedOutcome = await this.driveSession({
@@ -326,6 +377,7 @@ export class OpenCodeAgentRunner {
         store,
         toolCallSink: capturedToolCalls,
         onProgress: emitProgress,
+        messageSink: messageCollector,
         runTimeoutMs: resolveRunTimeoutMs(ctx.runTimeoutMs),
       })
 
@@ -337,9 +389,14 @@ export class OpenCodeAgentRunner {
         throw new OpenCodeRunFailedError(agentId, 'no outcome submitted')
       }
 
+      const integrity = entry.integrity?.length
+        ? await this.runIntegrityPipeline({ entry, ctx, commandCtx, runId, businessInput, capturedOutcome, capturedToolCalls })
+        : null
+      integrityRawOutputKey = integrity?.rawOutputKey ?? null
+
       // Defense in depth: re-validate the captured outcome against the schema
       // even though submit_outcome already validated it server-side.
-      const parsed = entry.schema.safeParse(capturedOutcome)
+      const parsed = entry.schema.safeParse(integrity ? integrity.finalOutput : capturedOutcome)
       if (!parsed.success) {
         const detail = parsed.error.message
         await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
@@ -368,6 +425,18 @@ export class OpenCodeAgentRunner {
           confidence: deriveEnvelopeConfidence(result.proposal),
           workflowInstanceId: ctx.workflowInstanceId ?? null,
           stepId: ctx.stepId ?? null,
+          ...(integrity ? { guardResults: integrity.guardResults } : {}),
+        })
+      }
+
+      if (integrity) {
+        await emitRunReviewRequested({
+          agentRunId: runId,
+          agentId,
+          workflowInstanceId: ctx.workflowInstanceId ?? null,
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+          reviewRequest: integrity.reviewRequest,
         })
       }
 
@@ -408,6 +477,21 @@ export class OpenCodeAgentRunner {
       // so this can never turn a completed run into a failed one.
       if (startedAtMs != null) {
         const endedAtMs = Date.now()
+        const observedMessages = messageCollector?.assistantMessages() ?? []
+        const toolObservations = await this.loadToolObservations(runId, ctx.tenantId, ctx.organizationId)
+        const manifestSpan = traceCaptureEnabled
+          ? this.buildManifestSpan(
+              runId,
+              entry,
+              ctx,
+              traceparent,
+              startedAtMs,
+              runCapture,
+              integrityRawOutputKey,
+              observedMessages,
+              toolObservations,
+            )
+          : null
         await this.ingestSessionTrace(commandCtx, {
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId,
@@ -417,6 +501,11 @@ export class OpenCodeAgentRunner {
           startedAtMs,
           endedAtMs,
           latencyMs: Math.max(0, Math.round(endedAtMs - startedAtMs)),
+          manifestSpan,
+          messages: observedMessages,
+          reconstructedRequest,
+          includeResponses: runCapture?.level === 'full',
+          toolObservations,
         })
       }
 
@@ -453,6 +542,141 @@ export class OpenCodeAgentRunner {
   }
 
   /**
+   * Runs the output integrity pipeline (spec `2026-10-21-output-integrity-guardrails`
+   * → Phase 5) on the submitted outcome of an agent whose registry entry declares
+   * `integrity` rules: persists the verdict, offloads the raw outcome when a rule
+   * repaired it, and fails the run with a typed guardrail block. `attemptedTools`
+   * stays empty: the session also records OpenCode built-in tools, which are not
+   * registry tools and would trip a false `tool_scope` block; the MCP session
+   * token already gates every Open Mercato tool call by the caller's ACL.
+   */
+  private async runIntegrityPipeline(args: {
+    entry: AgentRegistryEntry
+    ctx: AgentRunCtx
+    commandCtx: ReturnType<typeof buildCommandContext>
+    runId: string
+    businessInput: unknown
+    capturedOutcome: unknown
+    capturedToolCalls: readonly CapturedToolCall[]
+  }): Promise<{
+    finalOutput: unknown
+    guardResults: GuardResults
+    rawOutputKey: string | null
+    reviewRequest: OutputPipelineResult['reviewRequest']
+  }> {
+    const { entry, ctx, commandCtx, runId } = args
+    const agentId = entry.id
+    const integritySet = resolveIntegritySet(entry)
+    if (integritySet) await ensureRunIntegritySetSynced(this.container, ctx, entry)
+    const allowedTools = resolveAgentEffectiveTools(entry)
+
+    let outcome: OutputPipelineResult
+    try {
+      outcome = await runOutputPipeline({
+        entry,
+        rawObject: args.capturedOutcome,
+        input: args.businessInput,
+        toolCalls: toIntegrityToolCalls(args.capturedToolCalls, collectKnownToolIds(entry, allowedTools)),
+        guardrailService: new GuardrailService(this.container),
+        capability: agentId,
+        allowedTools,
+        attemptedTools: [],
+        guardrailSetVersion: integritySet?.version ?? GUARDRAIL_SET_VERSION,
+        scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        container: this.container,
+        shadow: !isAgentIntegrityEnforced(),
+      })
+    } catch (err) {
+      await failRun(this.commandBus, commandCtx, {
+        runId,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
+
+    const rawOutputPointer = outcome.changed
+      ? await storeRunRawOutput(this.container, ctx, runId, outcome.rawOutput)
+      : null
+    const verdict = rawOutputPointer
+      ? attachRawOutputPointer(outcome.verdict, outcome.changedCheckIndexes, rawOutputPointer)
+      : outcome.verdict
+    const guardEm = this.container.resolve<EntityManager>('em').fork()
+    const guardScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId }
+    const guardResults = await persistVerdict({ em: guardEm }, guardScope, {
+      verdict,
+      capability: agentId,
+      phase: 'output',
+      proposalId: null,
+    })
+
+    if (verdict.result === 'block') {
+      const blocked = verdict.blockedReason
+      const parsed = entry.schema.safeParse(outcome.finalOutput)
+      const detail = parsed.success ? 'guardrail block' : parsed.error.message
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+      if (!blocked) throw new OpenCodeRunFailedError(agentId, `outcome failed re-validation: ${detail}`)
+      const blockingCheck = verdict.checks.find((check) => check.result === 'block')
+      throw new AgentGuardrailBlockedError(agentId, detail, {
+        phase: blocked.phase,
+        kind: blocked.kind,
+        guardrailSetVersion: blockingCheck?.guardrailSetVersion ?? GUARDRAIL_SET_VERSION,
+        ruleId: readCheckRuleId(blockingCheck?.evidence),
+      })
+    }
+
+    return {
+      finalOutput: outcome.finalOutput,
+      guardResults,
+      rawOutputKey: rawOutputPointer?.key ?? null,
+      reviewRequest: outcome.reviewRequest,
+    }
+  }
+
+  private buildManifestSpan(
+    runId: string,
+    entry: AgentRegistryEntry,
+    ctx: AgentRunCtx,
+    traceparent: string | null,
+    startedAtMs: number,
+    capture: RunManifestCapture | null,
+    integrityRawOutputKey: string | null,
+    observedMessages: readonly OpenCodeAssistantMessage[] = [],
+    toolObservations: readonly ToolObservationRecord[] = [],
+  ): TraceSpanIngest | null {
+    try {
+      const manifest = buildAgentRunManifestInput({
+        entry,
+        ctx,
+        runtime: 'opencode',
+        traceparent,
+        capture,
+        integrityRawOutputKey,
+        observation: toolObservations.length > 0 ? mergeToolObservationKnowledge(toolObservations) : null,
+      })
+      const observedModel = resolveObservedModel(observedMessages)
+      if (observedModel?.modelResolved) manifest.modelResolved = observedModel.modelResolved
+      if (observedModel?.provider) manifest.provider = observedModel.provider
+      return buildRunManifestSpan({
+        runId,
+        manifest,
+        sequence: 0,
+        recordedAtMs: startedAtMs,
+      })
+    } catch (err) {
+      logger.warn('failed to build OpenCode run manifest', {
+        agentId: entry.id,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'agent_orchestrator',
+        code: 'run_manifest_build_failed',
+        attributes: { runId, agentId: entry.id },
+      })
+      return null
+    }
+  }
+
+  /**
    * Persist the tool/skill calls observed during the run as trace spans + tool
    * calls, correlating on `(runtime='opencode', externalRunId=session.id)` so the
    * upsert lands on the run row this runner already created (it appends spans
@@ -473,11 +697,16 @@ export class OpenCodeAgentRunner {
       startedAtMs?: number | null
       endedAtMs?: number | null
       latencyMs?: number | null
+      manifestSpan?: TraceSpanIngest | null
+      messages?: readonly OpenCodeAssistantMessage[]
+      reconstructedRequest?: TraceLlmRequestIngest | null
+      includeResponses?: boolean
+      toolObservations?: readonly ToolObservationRecord[]
     },
   ): Promise<void> {
     if (args.toolCalls.length === 0 && args.latencyMs == null) return
     try {
-      const spans: TraceSpanIngest[] = args.toolCalls.map((toolCall, index) => ({
+      const capturedToolSpans: TraceSpanIngest[] = args.toolCalls.map((toolCall, index) => ({
         externalSpanId: `${toolCall.id}-${index}`,
         sequence: index,
         name: toolCall.toolName,
@@ -494,6 +723,21 @@ export class OpenCodeAgentRunner {
           },
         ],
       }))
+      const toolSpans = foldToolObservationsIntoToolSpans(capturedToolSpans, args.toolObservations ?? [])
+      const messageSpans = buildOpenCodeMessageSpans({
+        externalRunId: args.externalRunId,
+        messages: args.messages ?? [],
+        request: args.reconstructedRequest ?? null,
+        includeResponses: args.includeResponses ?? false,
+      })
+      const spans =
+        messageSpans.length > 0
+          ? mergeMessageAndToolSpans(
+              messageSpans,
+              toolSpans.map((span, index) => ({ span, messageId: args.toolCalls[index].messageId ?? null })),
+              args.externalRunId,
+            )
+          : toolSpans
       // A run that called no tool still has to leave a trace. Spans here are
       // derived 1:1 from tool calls, so a pure reasoning run produced NONE — and
       // a run with no span is unauditable, which `dispositionService` reads as
@@ -514,6 +758,7 @@ export class OpenCodeAgentRunner {
           status: 'ok',
         })
       }
+      if (args.manifestSpan) spans.push({ ...args.manifestSpan, sequence: spans.length })
       await withAuditedCommand(() =>
         this.commandBus.execute<IngestTraceCommandInput, IngestTraceResult>(
           'agent_orchestrator.trace.ingest',
@@ -538,6 +783,43 @@ export class OpenCodeAgentRunner {
         agentId: args.agentId,
         error: err instanceof Error ? err.message : String(err),
       })
+    }
+  }
+
+  /**
+   * Reads the `tool.observation` spans the MCP process wrote for this run
+   * (knowledge/retrieval reported by tools) so the ingest can fold them into the
+   * manifest and the matching tool spans. Best-effort: any failure yields none.
+   */
+  private async loadToolObservations(
+    runId: string,
+    tenantId: string,
+    organizationId: string,
+  ): Promise<ToolObservationRecord[]> {
+    try {
+      const em = (this.container.resolve('em') as EntityManager).fork()
+      const spans = await findWithDecryption(
+        em,
+        AgentSpan,
+        { agentRunId: runId, tenantId, organizationId, name: TOOL_OBSERVATION_SPAN_NAME },
+        { orderBy: { startedAt: 'asc' } },
+        { tenantId, organizationId },
+      )
+      const spanList = Array.isArray(spans) ? spans : []
+      return spanList
+        .map((span) => parseToolObservationRecord(span))
+        .filter((record): record is ToolObservationRecord => record !== null)
+    } catch (err) {
+      logger.warn('failed to load OpenCode tool observations', {
+        runId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'agent_orchestrator',
+        code: 'tool_observation_load_failed',
+        attributes: { runId },
+      })
+      return []
     }
   }
 
@@ -588,10 +870,11 @@ export class OpenCodeAgentRunner {
     store: AgentRunSessionStore
     toolCallSink: CapturedToolCall[]
     onProgress?: (transition: CapturedTransition) => void
+    messageSink?: OpenCodeMessageCollector | null
     /** Wall-clock budget for this run (already resolved by the caller). */
     runTimeoutMs: number
   }): Promise<unknown | typeof NO_OUTCOME> {
-    const idleSignal = this.subscribeSession(args.sessionId, args.toolCallSink, args.onProgress)
+    const idleSignal = this.subscribeSession(args.sessionId, args.toolCallSink, args.onProgress, args.messageSink)
     const deadline = createDeadline(args.runTimeoutMs)
     // The send is synchronous server-side (holds until the loop finishes), so use
     // the long run deadline as its timeout — aborting at the 30s chat default
@@ -675,6 +958,7 @@ export class OpenCodeAgentRunner {
     sessionId: string,
     toolCallSink: CapturedToolCall[],
     onTransition?: (transition: CapturedTransition) => void,
+    messageSink?: OpenCodeMessageCollector | null,
   ): {
     nextIdle: () => Promise<void>
     unsubscribe: () => void
@@ -708,6 +992,7 @@ export class OpenCodeAgentRunner {
           (properties.session as { id?: string } | undefined)?.id ||
           (properties.status as { sessionID?: string } | undefined)?.sessionID
         if (eventSessionId && eventSessionId !== sessionId) return
+        messageSink?.observe(type, properties)
         // Capture MCP tool/skill calls for the trace (#3628). The same SSE stream
         // that signals idle also carries the tool_use/tool_result parts; the chat
         // path parses them identically (opencode-handlers `message.part.updated`).
@@ -782,6 +1067,38 @@ export class OpenCodeAgentRunner {
 
 const NO_OUTCOME = Symbol('no-outcome')
 
+const OPENCODE_MCP_TOOL_PREFIX = 'open-mercato_'
+
+function collectKnownToolIds(entry: AgentRegistryEntry, allowedTools: readonly string[]): string[] {
+  const ruleTools = (entry.integrity ?? []).flatMap((rule) => (rule.kind === 'tool_consulted' ? rule.tools : []))
+  return [...new Set([...allowedTools, ...ruleTools].map(normalizeToolName))]
+}
+
+/**
+ * Resolves an OpenCode tool name back to its registry id: OpenCode exposes MCP
+ * tools as `open-mercato_<id with dots as underscores>`, so the prefix is dropped
+ * and the remainder matched against the agent's known tool ids. Names that match
+ * nothing (OpenCode built-ins, `submit_outcome`) pass through unchanged.
+ */
+function resolveRegistryToolName(rawToolName: string, knownToolIds: readonly string[]): string {
+  if (!rawToolName.startsWith(OPENCODE_MCP_TOOL_PREFIX)) return rawToolName
+  const bareName = rawToolName.slice(OPENCODE_MCP_TOOL_PREFIX.length)
+  const match = knownToolIds.find((toolId) => toolId === bareName || toolId.replace(/\./g, '_') === bareName)
+  return match ?? bareName
+}
+
+function toIntegrityToolCalls(
+  capturedToolCalls: readonly CapturedToolCall[],
+  knownToolIds: readonly string[],
+): IntegrityToolCall[] {
+  return capturedToolCalls.map((toolCall) => ({
+    toolName: resolveRegistryToolName(toolCall.toolName, knownToolIds),
+    args: toolCall.args,
+    result: toolCall.result,
+    ...(toolCall.status === 'error' ? { error: 'tool_error' } : {}),
+  }))
+}
+
 /**
  * Extract a tool invocation from an OpenCode `message.part.updated` part and fold
  * it into the run's tool-call sink. Delegates schema detection to the shared
@@ -794,7 +1111,9 @@ const NO_OUTCOME = Symbol('no-outcome')
 function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): CapturedTransition | null {
   const update = normalizeOpenCodeToolPart(rawPart)
   if (!update) return null
+  const messageId = readPartMessageId(rawPart)
   const existing = sink.find((call) => call.id === update.callId)
+  if (existing && !existing.messageId && messageId) existing.messageId = messageId
   if (update.phase === 'progress') {
     if (existing) {
       // Mid-flight arg refinement for an already-open call — no new transition.
@@ -807,6 +1126,7 @@ function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): CapturedTr
       args: update.input,
       status: 'ok',
       startedAt: new Date().toISOString(),
+      ...(messageId ? { messageId } : {}),
     })
     return { callId: update.callId, toolName: update.toolName, phase: 'started', status: 'ok', input: update.input }
   }
@@ -825,6 +1145,7 @@ function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): CapturedTr
       status: update.status,
       startedAt: now,
       endedAt: now,
+      ...(messageId ? { messageId } : {}),
     })
   }
   return {
@@ -834,6 +1155,12 @@ function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): CapturedTr
     status: update.status,
     input: update.input,
   }
+}
+
+function readPartMessageId(rawPart: unknown): string | null {
+  if (!rawPart || typeof rawPart !== 'object') return null
+  const messageId = (rawPart as { messageID?: unknown }).messageID
+  return typeof messageId === 'string' && messageId.length > 0 ? messageId : null
 }
 
 /**

@@ -1,6 +1,7 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { UIMessage } from 'ai'
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -15,6 +16,8 @@ import {
   type AiAgentLoopBudgetPreset,
 } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+import type { AiAgentRunChannel } from '../../../lib/agent-call-contract'
+import { CORRELATION_ID_HEADER, resolveCorrelationId } from '../../../lib/mcp-audit'
 import { AiModerationBlockedError, AiModerationUnavailableError } from '../../../lib/moderation'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
 import {
@@ -211,6 +214,10 @@ function statusForDenyCode(code: AgentPolicyDenyCode): number {
   }
 }
 
+function resolveChatChannel(pageContext: AiChatRequest['pageContext']): AiAgentRunChannel {
+  return pageContext?.source === 'playground' ? 'playground' : 'chat'
+}
+
 function extractDataPayload(eventBlock: string): string | null {
   const dataLines = eventBlock
     .split('\n')
@@ -353,6 +360,7 @@ function persistAssistantOnStreamCompletion(input: {
   userId: string
   conversationId: string
   userClientMessageId: string | null
+  runId: string
 }): Response {
   if (!input.response.body || !input.tenantId) return input.response
   const tenantId = input.tenantId
@@ -385,6 +393,7 @@ function persistAssistantOnStreamCompletion(input: {
             role: 'assistant',
             content: assistant.content,
             uiParts: assistant.uiParts,
+            metadata: { runId: input.runId },
           },
           {
             tenantId,
@@ -668,8 +677,14 @@ export async function POST(req: NextRequest): Promise<Response> {
       logger.error('AI Chat Agent — Failed to persist user message', { err: error })
     }
 
+    const runId = randomUUID()
     const response = await runAiAgentText({
       agentId,
+      runId,
+      trace: {
+        channel: resolveChatChannel(bodyResult.data.pageContext),
+        correlationId: resolveCorrelationId(req.headers.get(CORRELATION_ID_HEADER)),
+      },
       messages: bodyResult.data.messages as unknown as UIMessage[],
       attachmentIds: bodyResult.data.attachmentIds,
       pageContext: bodyResult.data.pageContext,
@@ -697,6 +712,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       userId: auth.sub,
       conversationId: persistedTurn.conversationId,
       userClientMessageId: persistedTurn.userClientMessageId,
+      runId,
     })
   } catch (error) {
     if (error instanceof AgentPolicyError) {

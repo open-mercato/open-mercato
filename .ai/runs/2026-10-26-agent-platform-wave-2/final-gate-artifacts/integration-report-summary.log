@@ -1,0 +1,22 @@
+  11 failed
+    apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts:291:3 › TC-EXAMPLE-018: staff date-specific availability overrides recurring availability and guards writes 
+    apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts:291:3 › TC-EXAMPLE-018: resource date-specific availability overrides recurring availability and guards writes 
+    apps/mercato/src/modules/example/__integration__/TC-START-001-onboarding-gate.spec.ts:10:5 › TC-START-001: start page onboarding gate › desktop shows the connected onboarding state without layout or browser errors 
+    apps/mercato/src/modules/example/__integration__/TC-START-001-onboarding-gate.spec.ts:10:5 › TC-START-001: start page onboarding gate › mobile shows the connected onboarding state without layout or browser errors 
+    packages/core/src/modules/customers/__integration__/TC-CRM-065.spec.ts:22:3 › TC-CRM-065: People bulk delete partial failure › keeps blocked row, deletes eligible rows, surfaces grouped dependency toast 
+    packages/documents/src/modules/documents/__integration__/TC-DOCUMENTS-009.spec.ts:271:3 › TC-DOCUMENTS-009: capability, folder, token, and readiness hardening › keeps owner/manager relationship access separate from edit and share action features 
+    packages/documents/src/modules/documents/__integration__/TC-DOCUMENTS-013.spec.ts:120:3 › TC-DOCUMENTS-013: preview, capability chrome, and readable fallbacks › persists preview mode, forces read-only owners, and keeps comment actions independently gated 
+    packages/onboarding/src/modules/onboarding/__integration__/TC-ONB-001-self-service-consent.spec.ts:150:3 › TC-ONB-001: self-service onboarding with marketing consent › creates the workspace, verifies from the email link, and logs in to the new tenant 
+    packages/onboarding/src/modules/onboarding/__integration__/TC-ONB-002-multi-tenant-parallel-login.spec.ts:172:3 › TC-ONB-002: multi-tenant onboarding parallel login › creates two self-service tenants, handles repeated status polling, and keeps both logins authenticated 
+    packages/onboarding/src/modules/onboarding/__integration__/TC-ONB-003-signup-account-privacy.spec.ts:102:3 › TC-ONB-003: signup does not reveal whether an email already has an account › answers identically for a registered and an unregistered address, and notifies the owner out of band 
+    packages/onboarding/src/modules/onboarding/__integration__/TC-ONBOARDING-EMAIL-001.spec.ts:47:3 › TC-ONBOARDING-EMAIL-001: Onboarding emails use system channel › start, ready, and demo feedback emails dispatch through Communications Hub 
+  7 flaky
+    packages/core/src/modules/customers/__integration__/TC-CRM-028.spec.ts:711:3 › TC-CRM-028: Example customer sync › syncs canonical customer task lifecycle to example todos and exposes mappings 
+    packages/core/src/modules/forms/__integration__/TC-FORMS-UI-002.spec.ts:41:3 › TC-FORMS-UI-002: create a form through the UI › submits the create form and persists the reshaped payload 
+    packages/core/src/modules/sales/__integration__/TC-LOCK-OSS-030.spec.ts:244:3 › TC-LOCK-OSS-030: sales settings dialogs (payment/shipping/tax) optimistic lock › SAL-16: stale tax-rate dialog save shows the conflict bar 
+    packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-002.spec.ts:11:1 › TC-SALES-ADDR-CONTACT-002: the document form persists address contact fields 
+    packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:319:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a batch row whose address is rejected keeps its mapping, so retries and the corrected file reuse the same person 
+    packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:407:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › re-importing after the person was deleted and re-created by hand with the same email updates that person 
+    packages/core/src/modules/workflows/__integration__/TC-WF-037.spec.ts:77:3 › TC-WF-037: keyboard-only authoring loop (a11y smoke) › adds, configures and saves a step using only the palette and the keyboard 
+  103 skipped
+  2774 passed (46.7m)

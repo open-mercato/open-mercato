@@ -28,7 +28,7 @@ import { issueAgentToken } from '../../../lib/identity/agentTokenService'
  * caller gets both a credential-guessing oracle and a CPU-amplification lever.
  */
 export const metadata = {
-  POST: {},
+  POST: { requireAuth: false },
 }
 
 const oauthErrorSchema = z.object({ error: z.string() })

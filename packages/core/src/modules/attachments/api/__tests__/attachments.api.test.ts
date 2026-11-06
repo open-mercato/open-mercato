@@ -129,6 +129,12 @@ jest.mock('@open-mercato/core/modules/attachments/lib/ocrQueue', () => ({
 const mockRequestOcrProcessing = jest.requireMock('@open-mercato/core/modules/attachments/lib/ocrQueue')
   .requestOcrProcessing as jest.Mock
 
+jest.mock('@open-mercato/core/modules/attachments/lib/documentStructure/purge', () => ({
+  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 0, sectionCount: 0, indexedSectionIds: [] })),
+}))
+const mockPurgeDocumentStructure = jest.requireMock('@open-mercato/core/modules/attachments/lib/documentStructure/purge')
+  .purgeDocumentStructure as jest.Mock
+
 // Avoid loading MikroORM decorators in tests
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   Attachment: class Attachment {},
@@ -722,6 +728,14 @@ describe('attachments API', () => {
       expect.objectContaining({ refresh: true }),
     )
     expect(mockEm.remove).toHaveBeenCalled()
+    expect(mockPurgeDocumentStructure).toHaveBeenCalledWith(
+      mockEm,
+      { attachmentId: 'att-1', tenantId: 't1', organizationId: 'org-owned-by-another-org' },
+      { flush: false },
+    )
+    expect(mockPurgeDocumentStructure.mock.invocationCallOrder[0]).toBeLessThan(
+      mockEm.flush.mock.invocationCallOrder[0],
+    )
   })
 
   describe.each(['legacy', 'strict'])('DELETE with shared stored objects under %s policy', (policy) => {
@@ -792,6 +806,7 @@ describe('attachments API', () => {
     const req = new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' })
     const res = await remove(req)
     expect(res.status).toBe(401)
+    expect(mockPurgeDocumentStructure).not.toHaveBeenCalled()
   })
 
   it('stores the attachment under the currently selected organization, not the uploader home org (#3765)', async () => {

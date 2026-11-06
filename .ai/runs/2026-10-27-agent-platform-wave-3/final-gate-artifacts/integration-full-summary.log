@@ -1,0 +1,59 @@
+  48 failed
+    apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts:291:3 › TC-EXAMPLE-018: staff date-specific availability overrides recurring availability and guards writes 
+    apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts:291:3 › TC-EXAMPLE-018: resource date-specific availability overrides recurring availability and guards writes 
+    apps/mercato/src/modules/example/__integration__/TC-START-001-onboarding-gate.spec.ts:10:5 › TC-START-001: start page onboarding gate › desktop shows the connected onboarding state without layout or browser errors 
+    apps/mercato/src/modules/example/__integration__/TC-START-001-onboarding-gate.spec.ts:10:5 › TC-START-001: start page onboarding gate › mobile shows the connected onboarding state without layout or browser errors 
+    packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:319:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a batch row whose address is rejected keeps its mapping, so retries and the corrected file reuse the same person 
+    packages/documents/src/modules/documents/__integration__/TC-DOCUMENTS-009.spec.ts:271:3 › TC-DOCUMENTS-009: capability, folder, token, and readiness hardening › keeps owner/manager relationship access separate from edit and share action features 
+    packages/documents/src/modules/documents/__integration__/TC-DOCUMENTS-013.spec.ts:120:3 › TC-DOCUMENTS-013: preview, capability chrome, and readable fallbacks › persists preview mode, forces read-only owners, and keeps comment actions independently gated 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-001.spec.ts:11:3 › TC-SEC-001: MFA enrollment redirect notice › shows enrollment notice, clears consumed params, and dismiss keeps user on MFA page 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-001.spec.ts:31:3 › TC-SEC-001: MFA enrollment redirect notice › renders overdue warning copy when overdue=1 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-002.spec.ts:31:3 › TC-SEC-002: TOTP enrollment, login, and recovery codes › enrolls TOTP, completes MFA login, consumes a recovery code, and rotates the recovery set 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-003.spec.ts:30:3 › TC-SEC-003: OTP email challenge attempts › enrolls OTP email, rejects repeated invalid codes, and accepts a fresh valid challenge 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-004.spec.ts:30:3 › TC-SEC-004: Passkey enrollment and MFA login › shows the passkey provider UI, enrolls a passkey, and refuses login verification without an assertion 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-005.spec.ts:41:3 › TC-SEC-005: Enforcement cascade, redirect, and compliance › resolves org policy precedence, filters allowed methods, redirects unenrolled users, and marks overdue users in compliance 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-006.spec.ts:38:3 › TC-SEC-006: Sudo challenge and admin override › requires sudo and refuses a passkey step-up without a WebAuthn assertion 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-007.spec.ts:58:3 › TC-SEC-007: Admin MFA reset and status reporting › reports user MFA status, enforces sudo for reset, and leaves unrelated users unchanged 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-008.spec.ts:30:3 › TC-SEC-008: Provider registry and generic fallback UI › lists built-in providers and exercises the generic fallback when a custom provider exists 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-009.spec.ts:15:3 › TC-SEC-009: MFA mutation feature authorization › permits compelled enrollment while retaining the MFA management gate 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-010-sudo-binding-substitution.spec.ts:18:3 › TC-SEC-010: Sudo challenge binding substitution › rejects target, tenant, and organization substitution before password verification 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-011-sudo-policy-drift.spec.ts:16:3 › TC-SEC-011: Sudo policy drift › re-resolves policy under a PostgreSQL table lock after credentials pass 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-012-sudo-single-use.spec.ts:14:3 › TC-SEC-012: Sudo session single-use CAS › allows exactly one concurrent verification to consume a pending session 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-013-sudo-legacy-session.spec.ts:14:3 › TC-SEC-013: Legacy unbound sudo sessions › fails closed when a pre-migration session has no immutable binding fields 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-014.spec.ts:88:3 › TC-SEC-014: MFA-pending tokens are rejected by general staff APIs (#5212) › pending bearer token gets 401 (not authenticated) from protected read and mutation APIs 
+    packages/enterprise/src/modules/security/__integration__/TC-SEC-EMAIL-001.spec.ts:35:3 › TC-SEC-EMAIL-001: Enterprise security email OTP uses system channel › email OTP challenge dispatches through Communications Hub when security module is enabled 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-001-config-crud.spec.ts:5:3 › TC-SSO-001: SSO Config CRUD › should create, read, update, and delete an SSO config 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-001-config-crud.spec.ts:38:3 › TC-SSO-001: SSO Config CRUD › should list SSO configs 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-001-config-crud.spec.ts:53:3 › TC-SSO-001: SSO Config CRUD › should not activate config without domains 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-001-config-crud.spec.ts:70:3 › TC-SSO-001: SSO Config CRUD › should activate config with domain and prevent deletion while active 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-002-domain-management.spec.ts:5:3 › TC-SSO-002: Domain Management & HRD › should add and remove domains 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-002-domain-management.spec.ts:34:3 › TC-SSO-002: Domain Management & HRD › should handle duplicate domain addition idempotently 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-002-domain-management.spec.ts:59:3 › TC-SSO-002: Domain Management & HRD › should reject invalid domain format 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-002-domain-management.spec.ts:76:3 › TC-SSO-002: Domain Management & HRD › should return hasSso:true for matching domain via HRD 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-002-domain-management.spec.ts:103:3 › TC-SSO-002: Domain Management & HRD › should return hasSso:false for non-matching domain 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-003-scim-user-lifecycle.spec.ts:13:3 › TC-SSO-003: SCIM User Lifecycle › should create, read, list, patch, and delete a SCIM user 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-004-scim-token-lifecycle.spec.ts:13:3 › TC-SSO-004: SCIM Token Lifecycle › should create a token and return raw value only once 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-004-scim-token-lifecycle.spec.ts:43:3 › TC-SSO-004: SCIM Token Lifecycle › should authenticate SCIM requests with valid token 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-004-scim-token-lifecycle.spec.ts:72:3 › TC-SSO-004: SCIM Token Lifecycle › should reject SCIM requests with revoked token 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-004-scim-token-lifecycle.spec.ts:93:3 › TC-SSO-004: SCIM Token Lifecycle › should reject SCIM requests with invalid token 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-004-scim-token-lifecycle.spec.ts:98:3 › TC-SSO-004: SCIM Token Lifecycle › should reject SCIM requests without Authorization header 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-005-jit-scim-exclusivity.spec.ts:10:3 › TC-SSO-005: JIT/SCIM Mutual Exclusivity › should block SCIM token creation when JIT is enabled 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-005-jit-scim-exclusivity.spec.ts:29:3 › TC-SSO-005: JIT/SCIM Mutual Exclusivity › should block enabling JIT when SCIM tokens exist 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-005-jit-scim-exclusivity.spec.ts:52:3 › TC-SSO-005: JIT/SCIM Mutual Exclusivity › should allow SCIM token creation after disabling JIT 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-005-jit-scim-exclusivity.spec.ts:74:3 › TC-SSO-005: JIT/SCIM Mutual Exclusivity › should allow enabling JIT after revoking all SCIM tokens 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-006-error-scenarios.spec.ts:9:3 › TC-SSO-006: Error Scenarios › should reject config creation with missing required fields 
+    packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-006-error-scenarios.spec.ts:20:3 › TC-SSO-006: Error Scenarios › should reject duplicate config creation 
+    packages/onboarding/src/modules/onboarding/__integration__/TC-ONB-001-self-service-consent.spec.ts:150:3 › TC-ONB-001: self-service onboarding with marketing consent › creates the workspace, verifies from the email link, and logs in to the new tenant 
+    packages/onboarding/src/modules/onboarding/__integration__/TC-ONB-002-multi-tenant-parallel-login.spec.ts:172:3 › TC-ONB-002: multi-tenant onboarding parallel login › creates two self-service tenants, handles repeated status polling, and keeps both logins authenticated 
+    packages/onboarding/src/modules/onboarding/__integration__/TC-ONB-003-signup-account-privacy.spec.ts:102:3 › TC-ONB-003: signup does not reveal whether an email already has an account › answers identically for a registered and an unregistered address, and notifies the owner out of band 
+    packages/onboarding/src/modules/onboarding/__integration__/TC-ONBOARDING-EMAIL-001.spec.ts:47:3 › TC-ONBOARDING-EMAIL-001: Onboarding emails use system channel › start, ready, and demo feedback emails dispatch through Communications Hub 
+  4 flaky
+    packages/core/src/modules/catalog/__integration__/TC-CAT-037-bulk-create-products.spec.ts:88:3 › TC-CAT-037: Bulk create products › creates products via the async queue worker and reports a batch-collision failure 
+    packages/core/src/modules/forms/__integration__/TC-FORMS-UI-001.spec.ts:29:3 › TC-FORMS-UI-001: backend forms list page › lists an API-created form for an admin and shows nothing to an employee 
+    packages/core/src/modules/forms/__integration__/TC-FORMS-UI-002.spec.ts:41:3 › TC-FORMS-UI-002: create a form through the UI › submits the create form and persists the reshaped payload 
+    packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-002.spec.ts:11:1 › TC-SALES-ADDR-CONTACT-002: the document form persists address contact fields 
+  112 skipped
+  4 did not run
+  2911 passed (53.3m)
+[integration] Screenshot capture is enabled (override with --screenshots / --no-screenshots)
+💥 Failed: Command failed: yarn run test:integration (exit 1).

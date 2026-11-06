@@ -19,7 +19,13 @@ const writerCoverage = [
 
 const enterpriseWriterCoverage = [
   ['src/modules/sso/services/accountLinkingService.ts', 'lockUserRoleWriterAuthorizationState'],
-  ['src/modules/agent_orchestrator/lib/identity/agentPrincipalService.ts', 'lockAuthorizationState'],
+  ['src/modules/agent_orchestrator/lib/identity/agentPrincipalService.ts', 'provisionExecutionPrincipal'],
+  ['src/modules/agent_orchestrator/lib/identity/syncAgentPrincipals.ts', 'provisionExecutionPrincipal'],
+] as const
+
+const enterpriseDelegatingWriters = [
+  'src/modules/agent_orchestrator/lib/identity/agentPrincipalService.ts',
+  'src/modules/agent_orchestrator/lib/identity/syncAgentPrincipals.ts',
 ] as const
 
 describe('authorization-state writer protocol coverage', () => {
@@ -31,6 +37,11 @@ describe('authorization-state writer protocol coverage', () => {
   it.each(enterpriseWriterCoverage)('%s uses %s', (relativePath, helper) => {
     const source = readFileSync(path.resolve(enterpriseRoot, relativePath), 'utf8')
     expect(source).toContain(helper)
+  })
+
+  it.each(enterpriseDelegatingWriters)('%s writes no authorization-state entity directly', (relativePath) => {
+    const source = readFileSync(path.resolve(enterpriseRoot, relativePath), 'utf8')
+    expect(source).not.toMatch(/import[^;]*\b(?:RoleAcl|UserAcl|UserRole)\b[^;]*from/)
   })
 
   it('keeps both service-level rolesJson insertions behind role-parent locks', () => {

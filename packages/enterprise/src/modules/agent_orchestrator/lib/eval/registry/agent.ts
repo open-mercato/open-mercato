@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { agentTypeSchema } from '../../../data/validators'
+import { agentTypeSchema, guardrailKind } from '../../../data/validators'
 import { normalizeProposalEnvelope } from '../../../data/proposalEnvelope'
-import type { Json, ScorerDefinition } from '../types'
+import type { Json, ScorerDefinition, ScorerGuardrailCheckView } from '../types'
 import { SKIP_REASON, skipped } from '../types'
 import { baseConfigSchema, directionSchema, toText, verdict } from './shared'
 
@@ -324,6 +324,133 @@ export const actionVocabulary: ScorerDefinition<ActionVocabularyConfig> = {
   },
 }
 
+const GUARDRAIL_RESULT_EXPECTATIONS = ['pass', 'warn', 'block', 'not_block'] as const
+const GUARDRAIL_OUTCOME_PREFIX = 'outcome:'
+const GUARDRAIL_OUTCOME_OPTIONS = ['none', 'not_applicable', 'needs_review'] as const
+
+const guardrailExpectSchema = z.union([
+  z.enum(GUARDRAIL_RESULT_EXPECTATIONS),
+  z.string().regex(/^outcome:[a-z0-9_]+$/),
+])
+
+const optionalTargetString = z.string().trim().min(1).optional().catch(undefined)
+
+const guardrailCheckConfig = baseConfigSchema.extend({
+  kind: optionalTargetString,
+  ruleId: optionalTargetString,
+  expect: guardrailExpectSchema,
+})
+export type GuardrailCheckConfig = z.infer<typeof guardrailCheckConfig>
+
+const guardrailCheckWriteConfig = baseConfigSchema
+  .extend({
+    kind: guardrailKind.optional(),
+    ruleId: z.string().trim().min(1).max(200).optional(),
+    expect: guardrailExpectSchema,
+  })
+  .refine((config) => Boolean(config.kind || config.ruleId), {
+    message: '[internal] guardrail_check needs a kind or a ruleId',
+    path: ['ruleId'],
+  })
+
+function meetsGuardrailExpectation(check: ScorerGuardrailCheckView, expectation: string): boolean {
+  if (expectation.startsWith(GUARDRAIL_OUTCOME_PREFIX)) {
+    return check.outcome === expectation.slice(GUARDRAIL_OUTCOME_PREFIX.length)
+  }
+  if (expectation === 'not_block') return check.result !== 'block'
+  return check.result === expectation
+}
+
+/**
+ * Asserts the verdict of a persisted guardrail check (spec
+ * `2026-10-21-output-integrity-guardrails`, Phase 5): `pass`/`warn`/`block` match the
+ * check's result, `not_block` accepts anything short of a block, and `outcome:<value>`
+ * matches the `abstain_or_review` outcome. Every check matching the target must meet
+ * the expectation. A missing target check FAILS rather than skips: an expectation about
+ * a rule that never ran is a regression (the rule was removed or stopped running), and a
+ * skip would drop it from the gate.
+ */
+export const guardrailCheck: ScorerDefinition<GuardrailCheckConfig> = {
+  scorerKey: 'guardrail_check',
+  labelKey: `${I18N}.guardrail_check`,
+  group: 'agent',
+  kind: 'deterministic',
+  configSchema: guardrailCheckConfig,
+  writeConfigSchema: guardrailCheckWriteConfig,
+  fields: [
+    {
+      name: 'kind',
+      kind: 'select',
+      labelKey: `${I18N}.guardrail_check.field.kind`,
+      hintKey: `${I18N}.guardrail_check.field.kind.hint`,
+      options: guardrailKind.options.map((value) => ({
+        value,
+        labelKey: `agent_orchestrator.traces.detail.guardrailKind.${value}`,
+      })),
+    },
+    {
+      name: 'ruleId',
+      kind: 'text',
+      labelKey: `${I18N}.guardrail_check.field.ruleId`,
+      hintKey: `${I18N}.guardrail_check.field.ruleId.hint`,
+    },
+    {
+      name: 'expect',
+      kind: 'select',
+      labelKey: `${I18N}.guardrail_check.field.expect`,
+      hintKey: `${I18N}.guardrail_check.field.expect.hint`,
+      required: true,
+      default: 'pass',
+      options: [
+        ...GUARDRAIL_RESULT_EXPECTATIONS.map((value) => ({
+          value,
+          labelKey: `${I18N}.guardrail_check.expect.${value}`,
+        })),
+        ...GUARDRAIL_OUTCOME_OPTIONS.map((value) => ({
+          value: `${GUARDRAIL_OUTCOME_PREFIX}${value}`,
+          labelKey: `${I18N}.guardrail_check.expect.outcome.${value}`,
+        })),
+      ],
+    },
+  ],
+  needsExpected: () => false,
+  score: (run, _expected, config) => {
+    if (!config.kind && !config.ruleId) {
+      return skipped(SKIP_REASON.invalidConfig, { reason: 'guardrail_check needs a kind or a ruleId' })
+    }
+    const target = { kind: config.kind ?? null, ruleId: config.ruleId ?? null }
+    const matching = (run.guardrailChecks ?? []).filter(
+      (check) =>
+        (!config.kind || check.kind === config.kind) && (!config.ruleId || check.ruleId === config.ruleId),
+    )
+    if (matching.length === 0) {
+      return verdict(false, 0, { reason: 'target guardrail check not found', target, expect: config.expect })
+    }
+    const failing = matching.filter((check) => !meetsGuardrailExpectation(check, config.expect))
+    const evidence: Json = {
+      target,
+      expect: config.expect,
+      matched: matching.length,
+      ...(failing.length
+        ? {
+            failing: failing.map((check) => ({
+              kind: check.kind,
+              phase: check.phase,
+              result: check.result,
+              ruleId: check.ruleId,
+              outcome: check.outcome,
+            })),
+          }
+        : {}),
+    }
+    return {
+      passed: failing.length === 0,
+      score: (matching.length - failing.length) / matching.length,
+      evidence,
+    }
+  },
+}
+
 export const agentScorers = [
   outputPresent,
   requiredKeys,
@@ -331,4 +458,5 @@ export const agentScorers = [
   dispositionEquals,
   noPii,
   actionVocabulary,
+  guardrailCheck,
 ] as const

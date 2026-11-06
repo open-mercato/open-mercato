@@ -221,6 +221,79 @@ describe('createAgentFilesExtension', () => {
     ).toThrow(/malformed SAMPLE\.json/)
   })
 
+  function writeAgentMd(appBase: string, extraFrontmatter: string[]): string {
+    const agentDir = path.join(appBase, 'agents', 'deals_health_check')
+    fs.writeFileSync(
+      path.join(agentDir, 'AGENT.md'),
+      [
+        '---',
+        'id: deals.health_check',
+        'label: Deal health check',
+        'description: Assess a deal.',
+        ...extraFrontmatter,
+        '---',
+        'You assess a deal.',
+      ].join('\n'),
+      'utf8',
+    )
+    return agentDir
+  }
+
+  function readManifest(root: string): string {
+    return fs.readFileSync(
+      path.join(root, 'packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts'),
+      'utf8',
+    )
+  }
+
+  it('emits inline-list requiredFeatures into the manifest (deduped)', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    writeAgentMd(fixture.appBase, ['requiredFeatures: [deals.health.run, customers.deals.view, deals.health.run]'])
+
+    const extension = createAgentFilesExtension()
+    extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+    extension.generateOutput()
+
+    const manifest = readManifest(repoRoot)
+    expect(manifest).toContain('requiredFeatures: ["deals.health.run","customers.deals.view"],')
+    expect(manifest).toContain('  requiredFeatures?: string[]')
+  })
+
+  it('emits block-list requiredFeatures into the manifest', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    writeAgentMd(fixture.appBase, ['requiredFeatures:', '  - deals.health.run', '  - customers.*'])
+
+    const extension = createAgentFilesExtension()
+    extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+    extension.generateOutput()
+
+    expect(readManifest(repoRoot)).toContain('requiredFeatures: ["deals.health.run","customers.*"],')
+  })
+
+  it('omits requiredFeatures from a descriptor that declares none', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+
+    const extension = createAgentFilesExtension()
+    extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+    extension.generateOutput()
+
+    expect(readManifest(repoRoot)).not.toContain('requiredFeatures: [')
+  })
+
+  it('fails generation on a malformed requiredFeatures entry', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    writeAgentMd(fixture.appBase, ['requiredFeatures: [deals health run]'])
+
+    const extension = createAgentFilesExtension()
+    expect(() =>
+      extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
+    ).toThrow(/invalid requiredFeatures entry "deals health run"/)
+  })
+
   it('emits an agent FACTS.json into the manifest as facts', () => {
     const fixture = makeRepoFixture()
     repoRoot = fixture.repoRoot

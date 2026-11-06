@@ -134,7 +134,7 @@ test.describe('TC-AGENT-UXC-006: PL locale smoke', () => {
       const queue = page.getByRole('listbox')
       await expect(queue.getByRole('option')).toHaveCount(1, { timeout: 15_000 })
       await queue.getByRole('option').first().click()
-      const guardLine = page.getByText(/Zabezpieczenie\s+pii/i).first()
+      const guardLine = page.getByText(/Zabezpieczenie\s+Dane osobowe \(PII\)/i).first()
       await expect(guardLine).toBeVisible({ timeout: 10_000 })
       await expect(page.locator('body')).not.toContainText('{kind}')
 

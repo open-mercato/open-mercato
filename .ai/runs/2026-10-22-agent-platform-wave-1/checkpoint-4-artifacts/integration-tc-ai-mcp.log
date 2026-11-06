@@ -1,0 +1,9 @@
+  ✓  1 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MCP-APPROVAL-015-approval-flow.spec.ts:55:3 › TC-AI-MCP-APPROVAL-015: approval mode flow › approver confirms via API; outsiders get 404; get_pending_action reports confirmed (2.3s)
+  ✓  2 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MCP-APPROVAL-015-approval-flow.spec.ts:115:3 › TC-AI-MCP-APPROVAL-015: approval mode flow › approver rejects with a reason; the row is cancelled and the record unchanged (1.2s)
+  ✓  3 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MCP-APPROVAL-015-approval-flow.spec.ts:146:3 › TC-AI-MCP-APPROVAL-015: approval mode flow › approver approves from the Pending AI actions page (2.9s)
+  ✓  4 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MCP-APPROVAL-016-execute-202-shape.spec.ts:49:3 › TC-AI-MCP-APPROVAL-016: /tools/execute 202 shape › a queued mutation returns the pending-approval envelope and leaves the record untouched (811ms)
+  ✓  5 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MCP-AUDIT-014-tool-call-audit.spec.ts:34:3 › TC-AI-MCP-AUDIT-014: tool-call audit rows › a /tools/execute call writes an audit row with the correlation id and no argument values (48ms)
+  ✓  6 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MCP-EXPOSURE-010-tools-list-acl.spec.ts:51:3 › TC-AI-MCP-EXPOSURE-010: per-caller tool listing › API key with a limited role lists only permitted tools and cannot call others (303ms)
+  -  7 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MCP-MUTATION-013-deny-mode.spec.ts:40:3 › TC-AI-MCP-MUTATION-013: deny mutation mode › a mutation via /tools/execute is refused and the record is unchanged
+  1 skipped
+  6 passed (1.9m)

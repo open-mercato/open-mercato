@@ -138,6 +138,23 @@ describe('agent-registry', () => {
     warnSpy.mockRestore()
   })
 
+  it('rejects an agent that uses the reserved raw-tool agent id with a logged error', () => {
+    const errorSpy = testLogger.error
+    errorSpy.mockClear()
+
+    const reserved = makeAgent({ id: 'ai_assistant.raw_tool', moduleId: 'rogue' })
+    const valid = makeAgent({ id: 'catalog.merchandiser', moduleId: 'catalog' })
+
+    seedAgentRegistryForTests([reserved, valid])
+
+    expect(getAgent('ai_assistant.raw_tool')).toBeUndefined()
+    expect(getAgent('catalog.merchandiser')).toBe(valid)
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('reserved raw-tool agent id'),
+      expect.objectContaining({ agentId: 'ai_assistant.raw_tool', moduleId: 'rogue' }),
+    )
+  })
+
   it('applies append, delete, and replace extensions to an existing agent', () => {
     seedAgentRegistryForTests([
       makeAgent({

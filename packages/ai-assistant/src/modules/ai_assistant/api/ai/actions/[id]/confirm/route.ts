@@ -9,11 +9,13 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { AiPendingActionRepository } from '../../../../../data/repositories/AiPendingActionRepository'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
 import { serializePendingActionForClient } from '../../../../../lib/pending-action-client'
+import { AI_PENDING_ACTION_APPROVE_FEATURE } from '../../../../../lib/pending-action-types'
 import { getAgent, loadAgentRegistry } from '../../../../../lib/agent-registry'
 import { toolRegistry } from '../../../../../lib/tool-registry'
 import { loadAllModuleTools } from '../../../../../lib/tool-loader'
 import type { AiToolDefinition } from '../../../../../lib/types'
 import {
+  isRawToolPendingAction,
   runPendingActionRechecks,
   type PendingActionRecheckResult,
 } from '../../../../../lib/pending-action-recheck'
@@ -57,7 +59,8 @@ export const openApi: OpenApiRouteDoc = {
       description:
         'Re-verifies the full contract from spec §9.4 (status, expiry, agent registration, ' +
         'required features, mutation policy, tool whitelist, attachment tenant scope, record ' +
-        'version, and schema drift), flips the pending-action state machine to `executing`, ' +
+        'version, and schema drift; raw MCP / tools-api rows instead re-check tool exposure, ' +
+        'approver and requester features, and API key validity), flips the pending-action state machine to `executing`, ' +
         'invokes the wrapped tool handler, and persists `executionResult`. Idempotent: a ' +
         'second call on a row already in `confirmed` state returns the prior result without ' +
         're-executing the handler.',
@@ -71,7 +74,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'The `:id` path parameter is not a UUID.' },
         { status: 401, description: 'Unauthenticated caller.' },
-        { status: 403, description: 'Caller lacks `ai_assistant.view`, a required agent feature, tool whitelist, or accesses attachments outside their tenant.' },
+        { status: 403, description: 'Caller lacks `ai_assistant.view`, a required agent or tool feature, tool whitelist or exposure, the requester was revoked or lost features, or attachments are outside their tenant.' },
         { status: 404, description: 'Pending action or agent not found in the caller scope.' },
         { status: 409, description: 'Pending action is not in `pending` status or has expired.' },
         { status: 412, description: 'Record version changed between propose and confirm, or the input schema no longer accepts the stored payload.' },
@@ -139,11 +142,18 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
 
     const em = container.resolve<EntityManager>('em')
     const repo = new AiPendingActionRepository(em)
-    const row = await repo.getById(pendingActionId, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId ?? null,
-      userId: auth.sub,
-    })
+    const row = await repo.getByIdForApprover(
+      pendingActionId,
+      { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
+      {
+        userId: auth.sub,
+        canApproveAny: hasRequiredFeatures(
+          [AI_PENDING_ACTION_APPROVE_FEATURE],
+          acl.features,
+          acl.isSuperAdmin,
+        ),
+      },
+    )
     if (!row) {
       return jsonError(
         404,
@@ -164,17 +174,21 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
 
     await loadAgentRegistry()
     await loadAllModuleTools()
-    const agent = getAgent(row.agentId)
+    const isRawToolRow = isRawToolPendingAction(row)
+    const agent = isRawToolRow ? null : getAgent(row.agentId)
     const tool = toolRegistry.getTool(row.toolName) as AiToolDefinition | undefined
 
-    const policyOverrideRepo = new AiAgentMutationPolicyOverrideRepository(em)
-    const overrideRow = await policyOverrideRepo.get(row.agentId, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId ?? null,
-    })
-    const rawOverridePolicy = overrideRow?.mutationPolicy ?? null
-    const mutationPolicyOverride: AiAgentMutationPolicy | null =
-      rawOverridePolicy && isKnownMutationPolicy(rawOverridePolicy) ? rawOverridePolicy : null
+    let mutationPolicyOverride: AiAgentMutationPolicy | null = null
+    if (!isRawToolRow) {
+      const policyOverrideRepo = new AiAgentMutationPolicyOverrideRepository(em)
+      const overrideRow = await policyOverrideRepo.get(row.agentId, {
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId ?? null,
+      })
+      const rawOverridePolicy = overrideRow?.mutationPolicy ?? null
+      mutationPolicyOverride =
+        rawOverridePolicy && isKnownMutationPolicy(rawOverridePolicy) ? rawOverridePolicy : null
+    }
 
     const recheckResult = await runPendingActionRechecks({
       action: row,
@@ -206,7 +220,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
 
     const executed = await executePendingActionConfirm({
       action: row,
-      agent: agent!,
+      agent: agent ?? null,
       tool: tool!,
       ctx: executeCtx,
       repo,

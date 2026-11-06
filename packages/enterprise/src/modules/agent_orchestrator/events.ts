@@ -14,6 +14,7 @@ const events = [
   // live-update on completion (UX consistency pass, Area 1). Org-scoped by the
   // DOM Event Bridge; every subscriber coalesces (5 s), bounding refetch rate.
   { id: 'agent_orchestrator.run.completed', label: 'Agent Run Completed', entity: 'run', category: 'lifecycle', clientBroadcast: true },
+  { id: 'agent_orchestrator.run.review_requested', label: 'Agent Run Review Requested', entity: 'run', category: 'lifecycle', clientBroadcast: true },
   { id: 'agent_orchestrator.proposal.created', label: 'Agent Proposal Created', entity: 'proposal', category: 'lifecycle', clientBroadcast: true },
   { id: 'agent_orchestrator.proposal.disposed', label: 'Agent Proposal Disposed', entity: 'proposal', category: 'lifecycle', clientBroadcast: true },
   { id: 'agent_orchestrator.proposal.ready', label: 'Agent Proposal Ready', entity: 'proposal', category: 'lifecycle', clientBroadcast: true },

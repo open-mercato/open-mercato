@@ -9,6 +9,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { AiPendingActionRepository } from '../../../../../data/repositories/AiPendingActionRepository'
 import { hasRequiredFeatures } from '../../../../../lib/auth'
 import { serializePendingActionForClient } from '../../../../../lib/pending-action-client'
+import { AI_PENDING_ACTION_APPROVE_FEATURE } from '../../../../../lib/pending-action-types'
 import { checkStatusAndExpiry } from '../../../../../lib/pending-action-recheck'
 import { executePendingActionCancel } from '../../../../../lib/pending-action-cancel'
 
@@ -155,11 +156,18 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
 
     const em = container.resolve<EntityManager>('em')
     const repo = new AiPendingActionRepository(em)
-    const row = await repo.getById(pendingActionId, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId ?? null,
-      userId: auth.sub,
-    })
+    const row = await repo.getByIdForApprover(
+      pendingActionId,
+      { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
+      {
+        userId: auth.sub,
+        canApproveAny: hasRequiredFeatures(
+          [AI_PENDING_ACTION_APPROVE_FEATURE],
+          acl.features,
+          acl.isSuperAdmin,
+        ),
+      },
+    )
     if (!row) {
       return jsonError(
         404,

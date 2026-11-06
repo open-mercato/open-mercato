@@ -34,7 +34,17 @@ import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '../../../../components/types'
 
 type EvalCaseStatus = 'draft' | 'approved' | 'archived'
-type EvalCaseSourceType = 'correction' | 'golden_run'
+type EvalCaseSourceType = 'correction' | 'golden_run' | 'file'
+
+const SOURCE_TYPE_LABEL_KEY: Record<EvalCaseSourceType, string> = {
+  correction: 'agent_orchestrator.evalCases.sourceType.correction',
+  golden_run: 'agent_orchestrator.evalCases.sourceType.goldenRun',
+  file: 'agent_orchestrator.evalCases.sourceType.file',
+}
+
+function parseSourceType(raw: string | null): EvalCaseSourceType {
+  return raw === 'correction' || raw === 'file' ? raw : 'golden_run'
+}
 
 const STATUS_TONE: StatusMap<EvalCaseStatus> = {
   draft: 'info',
@@ -93,7 +103,7 @@ function mapDetail(record: Record<string, unknown>): EvalCaseDetail | null {
     id,
     name: readString(record, 'name') || null,
     status: statusRaw === 'approved' ? 'approved' : statusRaw === 'archived' ? 'archived' : 'draft',
-    sourceType: sourceTypeRaw === 'correction' ? 'correction' : 'golden_run',
+    sourceType: parseSourceType(sourceTypeRaw),
     sourceId: readString(record, 'source_id', 'sourceId'),
     agentDefinitionId: readString(record, 'agent_definition_id', 'agentDefinitionId'),
     processType: readString(record, 'process_type', 'processType') || null,
@@ -359,11 +369,7 @@ export function EvalCaseDrawer({ open, onOpenChange, mode, caseId, agentId, agen
                       {t(`agent_orchestrator.evalCases.status.${detail.status}`)}
                     </StatusBadge>
                     <span className="text-xs text-muted-foreground">
-                      {t(
-                        detail.sourceType === 'correction'
-                          ? 'agent_orchestrator.evalCases.sourceType.correction'
-                          : 'agent_orchestrator.evalCases.sourceType.goldenRun',
-                      )}
+                      {t(SOURCE_TYPE_LABEL_KEY[detail.sourceType])}
                     </span>
                     <span className="font-mono text-xs text-muted-foreground">{detail.id}</span>
                   </div>
@@ -408,11 +414,7 @@ export function EvalCaseDrawer({ open, onOpenChange, mode, caseId, agentId, agen
                     <div className="grid gap-3 sm:grid-cols-2">
                       <MetaRow
                         label={t('agent_orchestrator.evalCases.col.sourceType')}
-                        value={t(
-                          detail.sourceType === 'correction'
-                            ? 'agent_orchestrator.evalCases.sourceType.correction'
-                            : 'agent_orchestrator.evalCases.sourceType.goldenRun',
-                        )}
+                        value={t(SOURCE_TYPE_LABEL_KEY[detail.sourceType])}
                       />
                       <MetaRow
                         label={t('agent_orchestrator.evalCases.col.sourceId')}

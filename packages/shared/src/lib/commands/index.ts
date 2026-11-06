@@ -26,3 +26,4 @@ export {
   type CrudCommandWriteScope,
   type CrudCommandWriteSideEffectTarget,
 } from './runCrudCommandWrite'
+export { withAuditCorrelation, getAmbientAuditCorrelation } from './auditCorrelationScope'

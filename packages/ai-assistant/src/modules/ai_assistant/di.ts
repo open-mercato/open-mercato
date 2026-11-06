@@ -1,9 +1,11 @@
 import { asFunction, asValue } from 'awilix'
 import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { toolRegistry } from './lib/tool-registry'
 import { createModerationService } from './lib/moderation'
 import { createDecisionModelService } from './lib/decision-model-service'
 import { createOpenCodeClient } from './lib/opencode-client'
+import { createAgentRunReader } from './lib/agent-run-reader'
 
 export function register(container: AwilixContainer): void {
   container.register({
@@ -18,5 +20,8 @@ export function register(container: AwilixContainer): void {
     // fake client) resolve it from DI instead of constructing it inline.
     // Production wiring uses the env-configured factory.
     openCodeClient: asFunction(() => createOpenCodeClient()).singleton(),
+    aiAgentRunReader: asFunction(() =>
+      createAgentRunReader(() => container.resolve<EntityManager>('em')),
+    ).singleton(),
   })
 }

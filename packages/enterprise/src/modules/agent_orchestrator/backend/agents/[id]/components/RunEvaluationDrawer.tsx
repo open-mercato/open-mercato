@@ -39,6 +39,53 @@ export type RunEvaluationDrawerProps = {
 
 const ALL_CASES = '__all__'
 const FORM_ID = 'agent-orchestrator-run-evaluation-form'
+export const SNAPSHOT_NONE = '__none__'
+export const SNAPSHOT_LATEST = 'latest'
+const HASH_PIN_PREFIX = 'sha256:'
+const HASH_DISPLAY_LENGTH = 12
+
+export function knownSnapshotHashes(items: ReadonlyArray<Record<string, unknown>>): string[] {
+  const hashes: string[] = []
+  for (const item of items) {
+    for (const candidate of [readString(item, 'manifest_hash', 'manifestHash'), readString(item, 'eval_set_version', 'evalSetVersion')]) {
+      if (candidate.startsWith(HASH_PIN_PREFIX) && !hashes.includes(candidate)) hashes.push(candidate)
+    }
+  }
+  return hashes
+}
+
+export function shortSnapshotHash(hash: string): string {
+  const digest = hash.slice(HASH_PIN_PREFIX.length)
+  return digest.length > HASH_DISPLAY_LENGTH ? `${HASH_PIN_PREFIX}${digest.slice(0, HASH_DISPLAY_LENGTH)}…` : hash
+}
+
+export function isHashSnapshot(snapshot: string): boolean {
+  return snapshot.startsWith(HASH_PIN_PREFIX)
+}
+
+export function canSubmitEvalRun(options: { caseCount: number; snapshot: string }): boolean {
+  return options.caseCount > 0 || isHashSnapshot(options.snapshot)
+}
+
+export function buildEvalRunRequestBody(options: {
+  agentId: string
+  caseIds: ReadonlyArray<string>
+  selection: string
+  snapshot: string
+  repeatCount: number
+  judgeMayGate: boolean
+}): Record<string, unknown> {
+  const pinned = options.snapshot !== SNAPSHOT_NONE
+  const replaysWholeSet = options.selection === ALL_CASES || isHashSnapshot(options.snapshot)
+  const evalCaseIds = replaysWholeSet ? (pinned ? null : [...options.caseIds]) : [options.selection]
+  return {
+    agentDefinitionId: options.agentId,
+    ...(evalCaseIds ? { evalCaseIds } : {}),
+    ...(pinned ? { snapshot: options.snapshot } : {}),
+    repeatCount: options.repeatCount,
+    judgeMayGate: options.judgeMayGate,
+  }
+}
 
 function readString(record: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {
@@ -61,6 +108,8 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
   const [selection, setSelection] = React.useState<string>(ALL_CASES)
   const [repeatCount, setRepeatCount] = React.useState(1)
   const [judgeMayGate, setJudgeMayGate] = React.useState(false)
+  const [snapshot, setSnapshot] = React.useState<string>(SNAPSHOT_NONE)
+  const [knownHashes, setKnownHashes] = React.useState<string[]>([])
   const [isBusy, setIsBusy] = React.useState(false)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
@@ -73,8 +122,18 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
     setSelection(ALL_CASES)
     setRepeatCount(1)
     setJudgeMayGate(false)
+    setSnapshot(SNAPSHOT_NONE)
+    setKnownHashes([])
     let cancelled = false
     setIsLoading(true)
+    void apiCall<{ items?: Array<Record<string, unknown>> }>(
+      `/api/agent_orchestrator/eval-runs?agentDefinitionId=${encodeURIComponent(agentId)}&pageSize=100`,
+      undefined,
+      { fallback: { items: [] } },
+    ).then((call) => {
+      if (cancelled) return
+      setKnownHashes(knownSnapshotHashes(Array.isArray(call.result?.items) ? call.result.items : []))
+    })
     void apiCall<{ items?: Array<Record<string, unknown>> }>(
       `/api/agent_orchestrator/eval-cases?agentDefinitionId=${encodeURIComponent(agentId)}&status=approved&pageSize=100`,
       undefined,
@@ -97,8 +156,7 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
   }, [open, agentId])
 
   const submit = React.useCallback(async () => {
-    const evalCaseIds = selection === ALL_CASES ? cases.map((row) => row.id) : [selection]
-    if (evalCaseIds.length === 0) {
+    if (!canSubmitEvalRun({ caseCount: cases.length, snapshot })) {
       flash(t('agent_orchestrator.agentDetail.evaluation.run.noApproved', 'This agent has no approved cases to evaluate.'), 'error')
       return
     }
@@ -111,12 +169,16 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
             {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({
-                agentDefinitionId: agentId,
-                evalCaseIds,
-                repeatCount,
-                judgeMayGate,
-              }),
+              body: JSON.stringify(
+                buildEvalRunRequestBody({
+                  agentId,
+                  caseIds: cases.map((row) => row.id),
+                  selection,
+                  snapshot,
+                  repeatCount,
+                  judgeMayGate,
+                }),
+              ),
             },
           ),
         context: { retryLastMutation },
@@ -129,9 +191,12 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
     } finally {
       setIsBusy(false)
     }
-  }, [selection, cases, agentId, repeatCount, judgeMayGate, runMutation, retryLastMutation, onOpenChange, onStarted, t])
+  }, [selection, cases, agentId, snapshot, repeatCount, judgeMayGate, runMutation, retryLastMutation, onOpenChange, onStarted, t])
 
   const noApproved = !isLoading && cases.length === 0
+  const hashPinned = isHashSnapshot(snapshot)
+  const showForm = !isLoading && (cases.length > 0 || knownHashes.length > 0)
+  const submitBlocked = !canSubmitEvalRun({ caseCount: cases.length, snapshot })
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -159,7 +224,7 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
               <Spinner className="size-4" />
               {t('agent_orchestrator.agentDetail.evaluation.run.loadingCases', 'Loading approved cases…')}
             </div>
-          ) : noApproved ? (
+          ) : !showForm ? (
             <p className="py-4 text-sm text-muted-foreground">
               {t('agent_orchestrator.agentDetail.evaluation.run.noApproved', 'This agent has no approved cases to evaluate.')}
             </p>
@@ -175,25 +240,62 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
                 }
               }}
             >
+              {noApproved && !hashPinned ? (
+                <p className="text-sm text-muted-foreground">
+                  {t('agent_orchestrator.agentDetail.evaluation.run.noApproved', 'This agent has no approved cases to evaluate.')}
+                </p>
+              ) : null}
               <div className="space-y-2">
                 <Label htmlFor="run-eval-case-set">
                   {t('agent_orchestrator.agentDetail.evaluation.run.caseSet', 'Case set')}
                 </Label>
-                <Select value={selection} onValueChange={setSelection}>
+                <Select value={hashPinned ? ALL_CASES : selection} onValueChange={setSelection} disabled={hashPinned}>
                   <SelectTrigger id="run-eval-case-set">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL_CASES}>
-                      {t('agent_orchestrator.agentDetail.evaluation.run.allApproved', 'All approved cases ({count})', { count: cases.length })}
+                      {hashPinned
+                        ? t('agent_orchestrator.agentDetail.evaluation.run.allInSnapshot', 'All cases in the frozen snapshot')
+                        : t('agent_orchestrator.agentDetail.evaluation.run.allApproved', 'All approved cases ({count})', { count: cases.length })}
                     </SelectItem>
-                    {cases.map((row) => (
+                    {hashPinned ? null : cases.map((row) => (
                       <SelectItem key={row.id} value={row.id}>
                         {row.processType ? `${row.processType} · ${shortCaseId(row.id)}` : shortCaseId(row.id)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="run-eval-snapshot">
+                  {t('agent_orchestrator.agentDetail.evaluation.run.snapshot', 'Snapshot')}
+                </Label>
+                <Select value={snapshot} onValueChange={setSnapshot}>
+                  <SelectTrigger id="run-eval-snapshot">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SNAPSHOT_NONE}>
+                      {t('agent_orchestrator.agentDetail.evaluation.run.snapshotNone', 'None (current cases, unpinned)')}
+                    </SelectItem>
+                    <SelectItem value={SNAPSHOT_LATEST}>
+                      {t('agent_orchestrator.agentDetail.evaluation.run.snapshotLatest', 'Latest (freeze now)')}
+                    </SelectItem>
+                    {knownHashes.map((hash) => (
+                      <SelectItem key={hash} value={hash}>
+                        <span className="font-mono">{shortSnapshotHash(hash)}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'agent_orchestrator.agentDetail.evaluation.run.snapshotHint',
+                    'Pin the run to a frozen eval-set manifest so its baseline compares only against the identical dataset.',
+                  )}
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -234,7 +336,7 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
               {t('agent_orchestrator.proposal.actions.cancelEdit', 'Cancel')}
             </Button>
           </DrawerClose>
-          <Button type="submit" form={FORM_ID} disabled={isBusy || isLoading || noApproved}>
+          <Button type="submit" form={FORM_ID} disabled={isBusy || isLoading || !showForm || submitBlocked}>
             {isBusy ? <Spinner className="size-4" /> : <Play className="size-4" />}
             {t('agent_orchestrator.agentDetail.evaluation.run.submit', 'Run evaluation')}
           </Button>

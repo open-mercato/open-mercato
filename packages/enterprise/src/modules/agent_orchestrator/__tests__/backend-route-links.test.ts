@@ -32,6 +32,7 @@ const EXTERNAL_ROUTES: Record<string, string> = {
   'backend/tasks': 'core workflows — the frozen user-task surface',
   'backend/instances': 'core workflows — a run instance. NOT /backend/workflows/instances: the module prefix is not in the route, and assuming it was is exactly the dead link this guard first caught.',
   'backend/instances/[id]': 'core workflows — one run instance',
+  'backend/integrations/[id]': 'core integrations — the integration detail page, where an organization configures the agent_orchestrator_otel_export tenant destination (OTEL_EXPORT_INTEGRATION_HREF)',
 }
 
 /** Declared page routes as segment lists; `[id]` is a wildcard segment. */

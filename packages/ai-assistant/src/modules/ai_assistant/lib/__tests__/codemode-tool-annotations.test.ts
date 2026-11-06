@@ -48,6 +48,13 @@ describe('issue #5283 — Code Mode tools declare their mutation surface', () =>
     })
   })
 
+  it('marks only execute as refused in approval mode', async () => {
+    const tools = await loadRegisteredCodeModeTools()
+
+    expect(tools.get('execute')?.mcp?.approvalMode).toBe('refuse')
+    expect(tools.get('search')?.mcp?.approvalMode).toBeUndefined()
+  })
+
   it('registers both Code Mode tools under the codemode module id', async () => {
     await loadRegisteredCodeModeTools()
 

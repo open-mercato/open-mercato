@@ -127,6 +127,7 @@ export function AssertionFormDrawer({ open, onOpenChange, assertion, agentId, on
   const [agents, setAgents] = React.useState<CrudFieldOption[]>([])
   const [descriptors, setDescriptors] = React.useState<ScorerDescriptor[]>([])
   const [toolNames, setToolNames] = React.useState<string[]>([])
+  const [rubricKeys, setRubricKeys] = React.useState<string[]>([])
 
   React.useEffect(() => {
     if (!open) return
@@ -148,16 +149,19 @@ export function AssertionFormDrawer({ open, onOpenChange, assertion, agentId, on
   React.useEffect(() => {
     if (!open) return
     let cancelled = false
-    void apiCall<{ scorers?: ScorerDescriptor[] }>(
-      '/api/agent_orchestrator/eval-scorers',
+    const query = agentId ? `?agentDefinitionId=${encodeURIComponent(agentId)}` : ''
+    void apiCall<{ scorers?: ScorerDescriptor[]; rubrics?: Array<{ key?: unknown }> }>(
+      `/api/agent_orchestrator/eval-scorers${query}`,
       undefined,
-      { fallback: { scorers: [] } },
+      { fallback: { scorers: [], rubrics: [] } },
     ).then((call) => {
       if (cancelled || !call.ok) return
       setDescriptors(Array.isArray(call.result?.scorers) ? call.result.scorers : [])
+      const rubrics = Array.isArray(call.result?.rubrics) ? call.result.rubrics : []
+      setRubricKeys(rubrics.map((rubric) => (typeof rubric?.key === 'string' ? rubric.key : '')).filter(Boolean))
     })
     return () => { cancelled = true }
-  }, [open])
+  }, [open, agentId])
 
   React.useEffect(() => {
     if (!open) return
@@ -253,7 +257,12 @@ export function AssertionFormDrawer({ open, onOpenChange, assertion, agentId, on
               'placeholderKey' in field && field.placeholderKey
                 ? t(field.placeholderKey, '') || undefined
                 : undefined,
-            suggestions: 'suggest' in field && field.suggest === 'tool' ? toolNames : undefined,
+            suggestions:
+              'suggest' in field && field.suggest === 'tool'
+                ? toolNames
+                : 'suggest' in field && field.suggest === 'rubric'
+                  ? rubricKeys
+                  : undefined,
             options:
               field.kind === 'select'
                 ? field.options.map((option) => ({ value: option.value, label: t(option.labelKey, option.value) }))
@@ -261,7 +270,7 @@ export function AssertionFormDrawer({ open, onOpenChange, assertion, agentId, on
           }
         }),
       ),
-    [descriptors, t, toolNames],
+    [descriptors, t, toolNames, rubricKeys],
   )
 
   const fields = React.useMemo<CrudField[]>(

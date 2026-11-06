@@ -207,7 +207,9 @@ describe('DispositionService applies the rule', () => {
    * policy — the ordinary case, so a test about the threshold is not silently
    * blocked by another gate. `evidence` varies one gate at a time.
    */
-  function makeService(evidence: { guardrailBlocks?: number; spans?: number; policy?: unknown } = {}) {
+  function makeService(
+    evidence: { guardrailBlocks?: number; heldWarns?: number; spans?: number; policy?: unknown } = {},
+  ) {
     const execute = jest.fn<(...args: unknown[]) => Promise<unknown>>()
     const nativeUpdate = jest.fn<(...args: unknown[]) => Promise<number>>().mockResolvedValue(1)
     const count = jest.fn<(...args: unknown[]) => Promise<number>>(async (entity: unknown) => {
@@ -215,6 +217,12 @@ describe('DispositionService applies the rule', () => {
       if (name === 'AgentGuardrailCheck') return evidence.guardrailBlocks ?? 0
       return evidence.spans ?? 1
     })
+    const find = jest.fn<(...args: unknown[]) => Promise<unknown[]>>(async () =>
+      Array.from({ length: evidence.heldWarns ?? 0 }, (_slot, index) => ({
+        id: `warn-${index}`,
+        evidence: { holdsAutoApproval: true },
+      })),
+    )
     const getRecord = jest
       .fn<(...args: unknown[]) => Promise<unknown>>()
       .mockResolvedValue(
@@ -223,7 +231,7 @@ describe('DispositionService applies the rule', () => {
     const container = {
       resolve: (token: string) => {
         if (token === 'commandBus') return { execute }
-        if (token === 'em') return { fork: () => ({ nativeUpdate, count }) }
+        if (token === 'em') return { fork: () => ({ nativeUpdate, count, find }) }
         if (token === 'moduleConfigService') return { getRecord }
         throw new Error(`Unexpected DI token in test: ${token}`)
       },
@@ -288,6 +296,24 @@ describe('DispositionService applies the rule', () => {
 
   test('a guardrail block holds a threshold-clearing proposal, and says so', async () => {
     const { service, execute, nativeUpdate } = makeService({ guardrailBlocks: 1 })
+
+    const outcome = await service.dispose(
+      makeProposal({ options: [option('a', 0.99)] }),
+      { autoApproveThreshold: 0.8 },
+      ctx,
+    )
+
+    expect(outcome.kind).toBe('user_task')
+    expect(execute).not.toHaveBeenCalled()
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'proposal-1' }),
+      { autoDispositionBlock: 'guardrail' },
+    )
+  })
+
+  test('an integrity warn that holds auto-approval holds a threshold-clearing proposal, and says so', async () => {
+    const { service, execute, nativeUpdate } = makeService({ heldWarns: 1 })
 
     const outcome = await service.dispose(
       makeProposal({ options: [option('a', 0.99)] }),
@@ -375,6 +401,19 @@ describe('DispositionService applies the rule', () => {
     expect(execute).toHaveBeenCalledWith(
       'agent_orchestrator.proposals.dispose',
       expect.objectContaining({ input: expect.objectContaining({ selectedOptionId: 'b' }) }),
+    )
+  })
+
+  test('the auto-approve dispose carries the proposal and run correlation', async () => {
+    const { service, execute } = makeService()
+
+    await service.dispose(makeProposal({ options: [option('a', 0.95)] }), { autoApproveThreshold: 0.8 }, ctx)
+
+    expect(execute).toHaveBeenCalledWith(
+      'agent_orchestrator.proposals.dispose',
+      expect.objectContaining({
+        ctx: expect.objectContaining({ auditCorrelation: { proposalId: 'proposal-1', agentRunId: 'run-1' } }),
+      }),
     )
   })
 })

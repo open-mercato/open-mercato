@@ -122,11 +122,18 @@ function seedProposalAndRun(storeFor: (entity: unknown) => Array<Record<string, 
 }
 
 describe('dispose command — correction flywheel hook (step 8b)', () => {
-  function makeCtx(em: EntityManager): CommandRuntimeContext {
+  const executedContexts: CommandRuntimeContext[] = []
+
+  beforeEach(() => {
+    executedContexts.length = 0
+  })
+
+  function makeCtx(em: EntityManager, auditCorrelation?: Record<string, string>): CommandRuntimeContext {
     // A real-but-minimal command bus: routes corrections.create to its actual
     // handler so the correction + draft eval case are genuinely written.
     const commandBus = {
       async execute(commandId: string, args: { input: unknown; ctx: CommandRuntimeContext }) {
+        executedContexts.push(args.ctx)
         if (commandId === 'agent_orchestrator.corrections.create') {
           return createCorrectionCommand.execute(args.input as never, args.ctx)
         }
@@ -143,8 +150,33 @@ describe('dispose command — correction flywheel hook (step 8b)', () => {
     return {
       container,
       request: new Request('http://test/dispose', { method: 'POST' }),
+      ...(auditCorrelation ? { auditCorrelation } : {}),
     } as unknown as CommandRuntimeContext
   }
+
+  it('stamps the proposal and run correlation on the correction write', async () => {
+    const { em, storeFor } = createFakeEm()
+    seedProposalAndRun(storeFor)
+
+    await disposeProposalCommand.execute(
+      {
+        proposalId: PROPOSAL_ID,
+        tenantId: TENANT,
+        organizationId: ORG,
+        userId: USER,
+        disposition: 'rejected',
+        reason: 'not actionable',
+      },
+      makeCtx(em, { proposalId: PROPOSAL_ID, correlationId: 'request-1' }),
+    )
+
+    expect(executedContexts).toHaveLength(1)
+    expect(executedContexts[0].auditCorrelation).toEqual({
+      proposalId: PROPOSAL_ID,
+      correlationId: 'request-1',
+      agentRunId: RUN_ID,
+    })
+  })
 
   it('records ONE correction (proposedValue = ORIGINAL payload) + draft eval case for an edit', async () => {
     const { em, storeFor } = createFakeEm()

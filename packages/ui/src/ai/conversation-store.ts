@@ -1,6 +1,7 @@
 "use client"
 
 import type { AiChatMessage, AiChatMessageUiPart } from './useAiChat'
+import { readRunIdFromMessageMetadata } from './run-trace-link'
 
 const CONVERSATIONS_ENDPOINT = '/api/ai_assistant/ai/conversations'
 
@@ -208,6 +209,7 @@ export async function importAiLocalConversation(input: {
 
 export function serverMessageToChatMessage(message: AiServerMessage): AiChatMessage | null {
   if (message.role !== 'user' && message.role !== 'assistant') return null
+  const runId = message.role === 'assistant' ? readRunIdFromMessageMetadata(message.metadata) : null
   const uiParts: AiChatMessageUiPart[] = []
   message.uiParts.forEach((part, index) => {
     if (!part || typeof part !== 'object') return
@@ -262,5 +264,6 @@ export function serverMessageToChatMessage(message: AiServerMessage): AiChatMess
       .filter((file): file is NonNullable<AiChatMessage['files']>[number] => file !== null),
     uiParts,
     senderUserId: message.senderUserId ?? null,
+    ...(runId ? { runId } : {}),
   }
 }

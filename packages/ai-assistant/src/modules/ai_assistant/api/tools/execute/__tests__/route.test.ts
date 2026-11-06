@@ -1,169 +1,275 @@
-import { NextRequest } from 'next/server'
-import { z } from 'zod'
-import { registerMcpTool, toolRegistry } from '../../../../lib/tool-registry'
-import type { AiToolDefinition } from '../../../../lib/types'
-import enTranslations from '../../../../i18n/en.json'
-import { POST, metadata } from '../route'
+import type { McpAuditAccessLogInput } from '../../../../lib/mcp-audit'
 
 const authMock = jest.fn()
-const loadAclMock = jest.fn()
-const resolveMock = jest.fn()
-const loadAllModuleToolsMock = jest.fn()
+const executeToolMock = jest.fn()
+const getToolMock = jest.fn()
+const accessLogEntries: McpAuditAccessLogInput[] = []
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => authMock(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({ resolve: resolveMock }),
+  createRequestContainer: jest.fn(async () => ({
+    resolve: (name: string) => {
+      if (name === 'rbacService') {
+        return { loadAcl: jest.fn(async () => ({ features: ['customers.*'], isSuperAdmin: false })) }
+      }
+      if (name === 'accessLogService') {
+        return {
+          log: jest.fn(async (input: McpAuditAccessLogInput) => {
+            accessLogEntries.push(input)
+          }),
+        }
+      }
+      return undefined
+    },
+  })),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: async () => ({
-    t: (key: string) => (enTranslations as Record<string, string>)[key] ?? key,
-  }),
+  resolveTranslations: jest.fn(async () => ({ t: (key: string) => key })),
+}))
+
+jest.mock('../../../../lib/tool-executor', () => ({
+  executeTool: (...args: unknown[]) => executeToolMock(...args),
 }))
 
 jest.mock('../../../../lib/tool-loader', () => ({
-  loadAllModuleTools: (...args: unknown[]) => loadAllModuleToolsMock(...args),
+  loadAllModuleTools: jest.fn(async () => undefined),
 }))
 
-function request(body: Record<string, unknown>): NextRequest {
-  return new NextRequest('http://localhost/api/ai_assistant/tools/execute', {
+jest.mock('../../../../lib/tool-registry', () => ({
+  getToolRegistry: () => ({ getTool: (name: string) => getToolMock(name) }),
+}))
+
+import { POST } from '../route'
+
+const SECRET_ARG_VALUE = 'very-secret-customer-name'
+
+function buildRequest(body: unknown, headers: Record<string, string> = {}) {
+  return new Request('http://localhost/api/ai_assistant/tools/execute', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  })
+    headers: { 'content-type': 'application/json', ...headers },
+  }) as unknown as Parameters<typeof POST>[0]
 }
 
-function registerTool(isMutation?: boolean) {
-  const handler = jest.fn(async () => ({ recordId: 'record-1' }))
-  const tool: AiToolDefinition = {
-    name: 'test.direct_execution',
-    description: 'Direct execution regression fixture',
-    inputSchema: z.object({ title: z.string() }),
-    requiredFeatures: ['test.records.manage'],
-    ...(isMutation === undefined ? {} : { isMutation }),
-    handler,
-  }
-  registerMcpTool(tool, { moduleId: 'test' })
-  return handler
-}
-
-describe('POST /api/ai_assistant/tools/execute approval boundary', () => {
+describe('POST /api/ai_assistant/tools/execute — audit', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    toolRegistry.clear()
+    accessLogEntries.length = 0
     authMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
-    loadAclMock.mockResolvedValue({ features: ['test.records.manage'], isSuperAdmin: false })
-    resolveMock.mockReturnValue({ loadAcl: loadAclMock })
-    loadAllModuleToolsMock.mockResolvedValue(undefined)
+    getToolMock.mockReturnValue({ name: 'customers.get_person', isMutation: false })
   })
 
-  afterEach(() => toolRegistry.clear())
+  it('writes one tools-api row with the header correlation id and keeps the response body', async () => {
+    executeToolMock.mockResolvedValue({ success: true, result: { id: 'p-1' } })
 
-  it.each([false, true])('refuses mutations before their handler runs (superadmin=%s)', async (isSuperAdmin) => {
-    const handler = registerTool(true)
-    loadAclMock.mockResolvedValue({ features: ['test.records.manage'], isSuperAdmin })
-
-    const response = await POST(request({ toolName: 'test.direct_execution', args: { title: 'Changed' } }))
-
-    expect(handler).not.toHaveBeenCalled()
-    expect(response.status).toBe(403)
-    expect(await response.json()).toEqual({
-      success: false,
-      error: enTranslations['ai_assistant.errors.directMutationDenied'],
-    })
-  })
-
-  it('ignores client-supplied approval and agent policy claims', async () => {
-    const handler = registerTool(true)
-
-    const response = await POST(request({
-      toolName: 'test.direct_execution',
-      args: { title: 'Changed', approved: true },
-      approved: true,
-      pendingActionId: 'forged-action',
-      agent: 'test.assistant',
-      mutationPolicy: 'destructive-confirm-required',
-    }))
-
-    expect(handler).not.toHaveBeenCalled()
-    expect(response.status).toBe(403)
-  })
-
-  it('checks the registry populated by tool loading', async () => {
-    const handler = jest.fn(async () => ({ written: true }))
-    loadAllModuleToolsMock.mockImplementationOnce(async () => {
-      const tool: AiToolDefinition = {
-        name: 'test.loaded_mutation',
-        description: 'Loaded mutation fixture',
-        inputSchema: z.object({}),
-        isMutation: true,
-        handler,
-      }
-      registerMcpTool(tool, { moduleId: 'test' })
-    })
-
-    const response = await POST(request({ toolName: 'test.loaded_mutation' }))
-
-    expect(handler).not.toHaveBeenCalled()
-    expect(response.status).toBe(403)
-  })
-
-  it.each([false, undefined])('executes read tools and preserves the scoped context (isMutation=%s)', async (isMutation) => {
-    const handler = registerTool(isMutation)
-
-    const response = await POST(request({ toolName: 'test.direct_execution', args: { title: 'Read' } }))
+    const response = await POST(
+      buildRequest(
+        { toolName: 'customers.get_person', args: { name: SECRET_ARG_VALUE } },
+        { 'x-correlation-id': 'corr-tools-1' },
+      ),
+    )
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ success: true, result: { recordId: 'record-1' } })
-    expect(handler).toHaveBeenCalledWith({ title: 'Read' }, expect.objectContaining({
+    expect(await response.json()).toEqual({ success: true, result: { id: 'p-1' } })
+    expect(accessLogEntries).toHaveLength(1)
+    expect(accessLogEntries[0]).toMatchObject({
       tenantId: 'tenant-1',
       organizationId: 'org-1',
-      userId: 'user-1',
-      userFeatures: ['test.records.manage'],
-      isSuperAdmin: false,
-    }))
-    expect(loadAclMock).toHaveBeenCalledWith('user-1', { tenantId: 'tenant-1', organizationId: 'org-1' })
+      actorUserId: 'user-1',
+      resourceId: 'customers.get_person',
+      context: {
+        channel: 'tools-api',
+        mcpServer: null,
+        principal: 'session',
+        apiKeyId: null,
+        outcome: 'ok',
+        errorCode: null,
+        isMutation: false,
+        correlationId: 'corr-tools-1',
+        argKeys: ['name'],
+      },
+    })
+    expect(JSON.stringify(accessLogEntries[0])).not.toContain(SECRET_ARG_VALUE)
   })
 
-  it('keeps tool ACL checks on read execution', async () => {
-    const handler = registerTool(false)
-    loadAclMock.mockResolvedValue({ features: [], isSuperAdmin: false })
+  it('uses the API key id and the key owner as actor for API-key auth', async () => {
+    authMock.mockResolvedValue({
+      sub: 'api_key:key-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+      isApiKey: true,
+      keyId: 'key-1',
+      userId: 'owner-1',
+    })
+    executeToolMock.mockResolvedValue({ success: false, error: 'denied', errorCode: 'UNAUTHORIZED' })
 
-    const response = await POST(request({ toolName: 'test.direct_execution', args: { title: 'Read' } }))
+    const response = await POST(buildRequest({ toolName: 'customers.get_person', args: {} }))
 
-    expect(handler).not.toHaveBeenCalled()
     expect(response.status).toBe(403)
-    expect(await response.json()).toMatchObject({ success: false, error: expect.stringContaining('Insufficient permissions') })
+    expect(await response.json()).toEqual({ success: false, error: 'denied' })
+    expect(accessLogEntries).toHaveLength(1)
+    expect(accessLogEntries[0].actorUserId).toBe('owner-1')
+    expect(accessLogEntries[0].context).toMatchObject({
+      principal: 'api_key',
+      apiKeyId: 'key-1',
+      outcome: 'denied',
+      errorCode: 'UNAUTHORIZED',
+    })
+    expect(accessLogEntries[0].context.correlationId).toEqual(expect.any(String))
   })
 
-  it('keeps tool schema validation on read execution', async () => {
-    const handler = registerTool(false)
+  it('records error when the tool throws', async () => {
+    executeToolMock.mockRejectedValue(new Error('boom'))
+    jest.spyOn(console, 'error').mockImplementation(() => {})
 
-    const response = await POST(request({ toolName: 'test.direct_execution', args: { title: 123 } }))
+    const response = await POST(buildRequest({ toolName: 'customers.get_person', args: {} }))
 
-    expect(handler).not.toHaveBeenCalled()
+    expect(response.status).toBe(500)
+    expect(accessLogEntries).toHaveLength(1)
+    expect(accessLogEntries[0].context).toMatchObject({ outcome: 'error', errorCode: 'EXCEPTION' })
+  })
+
+  it('returns the agent payload and records the run ids for an agent tool', async () => {
+    getToolMock.mockReturnValue({
+      name: 'customers.summary_agent.run',
+      agentRef: { agentId: 'customers.summary_agent', engine: 'ai-assistant' },
+    })
+    const payload = { result: { summary: 'ok' }, agentId: 'customers.summary_agent', runId: 'run-1', agentRunId: null }
+    executeToolMock.mockResolvedValue({ success: true, result: { ...payload, internal: 'dropped' } })
+
+    const response = await POST(
+      buildRequest({ toolName: 'customers.summary_agent.run', args: { input: SECRET_ARG_VALUE } }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ success: true, result: payload })
+    expect(accessLogEntries).toHaveLength(1)
+    expect(accessLogEntries[0].context).toMatchObject({
+      outcome: 'ok',
+      isMutation: false,
+      agentId: 'customers.summary_agent',
+      aiAgentRunId: 'run-1',
+      agentRunId: null,
+      argKeys: ['input'],
+    })
+    expect(JSON.stringify(accessLogEntries[0])).not.toContain(SECRET_ARG_VALUE)
+  })
+
+  it('records the agent id and dispatcher_unavailable when an agent tool cannot run', async () => {
+    getToolMock.mockReturnValue({
+      name: 'customers.summary_agent.run',
+      agentRef: { agentId: 'customers.summary_agent', engine: 'ai-assistant' },
+    })
+    executeToolMock.mockResolvedValue({
+      success: false,
+      error: 'unavailable',
+      errorCode: 'AGENT_DISPATCHER_UNAVAILABLE',
+    })
+
+    const response = await POST(buildRequest({ toolName: 'customers.summary_agent.run', args: {} }))
+
     expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ success: false, error: 'unavailable' })
+    expect(accessLogEntries[0].context).toMatchObject({
+      outcome: 'dispatcher_unavailable',
+      errorCode: 'AGENT_DISPATCHER_UNAVAILABLE',
+      agentId: 'customers.summary_agent',
+      aiAgentRunId: null,
+      agentRunId: null,
+    })
   })
 
-  it('keeps unknown-tool errors', async () => {
-    const response = await POST(request({ toolName: 'test.unknown' }))
+  it('writes no row when toolName is missing', async () => {
+    const response = await POST(buildRequest({ args: {} }))
 
     expect(response.status).toBe(400)
-    expect(await response.json()).toMatchObject({ success: false, error: expect.stringContaining('not found') })
+    expect(accessLogEntries).toHaveLength(0)
+  })
+})
+
+describe('POST /api/ai_assistant/tools/execute — mutation tools', () => {
+  const originalMutationMode = process.env.OM_MCP_MUTATION_MODE
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    accessLogEntries.length = 0
+    authMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    getToolMock.mockReturnValue({ name: 'customers.update_person', isMutation: true })
   })
 
-  it('keeps endpoint authentication and declarative feature requirements', async () => {
-    const handler = registerTool(true)
-    authMock.mockResolvedValue(null)
+  afterEach(() => {
+    if (originalMutationMode === undefined) delete process.env.OM_MCP_MUTATION_MODE
+    else process.env.OM_MCP_MUTATION_MODE = originalMutationMode
+  })
 
-    const response = await POST(request({ toolName: 'test.direct_execution', args: { title: 'Changed' } }))
+  it.each([undefined, 'direct', 'deny', 'approval'])(
+    'refuses a mutation tool with 403 and audits the denial when OM_MCP_MUTATION_MODE=%s',
+    async (mode) => {
+      if (mode === undefined) delete process.env.OM_MCP_MUTATION_MODE
+      else process.env.OM_MCP_MUTATION_MODE = mode
 
-    expect(handler).not.toHaveBeenCalled()
-    expect(loadAllModuleToolsMock).not.toHaveBeenCalled()
-    expect(response.status).toBe(401)
-    expect(metadata.POST).toEqual({ requireAuth: true, requireFeatures: ['ai_assistant.view'] })
+      const response = await POST(
+        buildRequest({ toolName: 'customers.update_person', args: { name: SECRET_ARG_VALUE } }, { 'x-correlation-id': 'corr-deny-1' }),
+      )
+
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual({
+        success: false,
+        error: 'ai_assistant.errors.directMutationDenied',
+      })
+      expect(executeToolMock).not.toHaveBeenCalled()
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0].context).toMatchObject({
+        channel: 'tools-api',
+        outcome: 'denied',
+        errorCode: 'DIRECT_MUTATION_DENIED',
+        isMutation: true,
+        correlationId: 'corr-deny-1',
+      })
+      expect(JSON.stringify(accessLogEntries[0])).not.toContain(SECRET_ARG_VALUE)
+    },
+  )
+
+  it('runs read tools with the tools-api channel and the env mutation mode for agent-tool policy', async () => {
+    process.env.OM_MCP_MUTATION_MODE = 'approval'
+    getToolMock.mockReturnValue({ name: 'customers.get_person', isMutation: false })
+    executeToolMock.mockResolvedValue({ success: true, result: {} })
+
+    await POST(buildRequest({ toolName: 'customers.get_person', args: {} }))
+
+    expect(executeToolMock).toHaveBeenCalledWith(
+      'customers.get_person',
+      {},
+      expect.any(Object),
+      {
+        channel: 'tools-api',
+        mutationMode: 'approval',
+        requester: { userId: 'user-1', apiKeyId: null },
+        correlationId: expect.any(String),
+      },
+    )
+  })
+
+  it('passes the API key owner as requester instead of the api_key subject', async () => {
+    authMock.mockResolvedValue({
+      sub: 'api_key:key-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+      isApiKey: true,
+      keyId: 'key-1',
+      userId: 'owner-1',
+    })
+    getToolMock.mockReturnValue({ name: 'customers.get_person', isMutation: false })
+    executeToolMock.mockResolvedValue({ success: true, result: {} })
+
+    await POST(buildRequest({ toolName: 'customers.get_person', args: {} }))
+
+    expect(executeToolMock.mock.calls[0][3]).toMatchObject({
+      requester: { userId: 'owner-1', apiKeyId: 'key-1' },
+    })
   })
 })

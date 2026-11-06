@@ -10,6 +10,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatNumber, type AgentDetailView, type SkillDetailView } from '../../../../components/types'
 import { TokenUsageCard } from './workspacePrimitives'
+import { AgentAccessSection } from './AgentAccessSection'
+import { guardrailKindLabelKey } from '../../../../components/guardrailEvidence'
 import type { RuntimeTokenUsage } from './workspaceShared'
 
 type ConfigurationTabProps = {
@@ -114,6 +116,38 @@ export function ConfigurationTab({ agent, runtimeTokens, onSkillClick }: Configu
             </div>
           )}
         </section>
+
+        {agent.integrityRules.length ? (
+          <section className="space-y-2">
+            <SectionHeader title={t('agent_orchestrator.agentDetail.integrity.title')} count={agent.integrityRules.length} />
+            <div className="space-y-2 rounded-xl border border-border bg-card p-4">
+              <ul className="space-y-2" aria-label={t('agent_orchestrator.agentDetail.integrity.title')}>
+                {agent.integrityRules.map((rule) => (
+                  <li key={rule.id} className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-mono text-foreground">{rule.id}</span>
+                    <Tag variant="neutral">{t(guardrailKindLabelKey(rule.kind === 'custom' ? 'custom_integrity' : rule.kind), rule.kind)}</Tag>
+                    <span className="min-w-0 flex-1" />
+                    <span className="text-xs text-muted-foreground">
+                      {rule.onViolation
+                        ? t(`agent_orchestrator.agentDetail.integrity.onViolation.${rule.onViolation}`, rule.onViolation)
+                        : rule.reviewRoute
+                          ? t(`agent_orchestrator.agentDetail.integrity.route.${rule.reviewRoute}`, rule.reviewRoute)
+                          : t('agent_orchestrator.agentDetail.integrity.abstainOnly')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {agent.integritySetVersion ? (
+                <p className="border-t border-border pt-2 text-xs text-muted-foreground">
+                  {t('agent_orchestrator.traces.detail.guardrailSetVersion')}:{' '}
+                  <span className="font-mono">{agent.integritySetVersion}</span>
+                </p>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
+        <AgentAccessSection principal={agent.principal} />
 
         <section className="space-y-2">
           <SectionHeader title={t('agent_orchestrator.agentDetail.tokens.runtimeTitle', 'Token usage')} />

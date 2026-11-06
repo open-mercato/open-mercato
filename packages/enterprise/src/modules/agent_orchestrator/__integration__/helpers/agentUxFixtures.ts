@@ -63,6 +63,7 @@ export type AgentGuardrailCheckSeed = {
   result?: 'pass' | 'warn' | 'block'
   capability?: string
   guardrailSetVersion?: string
+  evidence?: Record<string, unknown> | null
 }
 
 /** Inserts guardrail-check rows for a run (feeds the trace inspector's Guardrails card); returns ids. */
@@ -75,8 +76,8 @@ export async function insertAgentGuardrailCheckFixtures(rows: AgentGuardrailChec
       await client.query(
         `insert into agent_guardrail_checks (
            id, tenant_id, organization_id, agent_run_id, proposal_id,
-           guardrail_set_version, capability, phase, kind, result, created_at
-         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())`,
+           guardrail_set_version, capability, phase, kind, result, evidence, created_at
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, now())`,
         [
           id,
           row.tenantId,
@@ -88,6 +89,7 @@ export async function insertAgentGuardrailCheckFixtures(rows: AgentGuardrailChec
           row.phase ?? 'output',
           row.kind ?? 'pii',
           row.result ?? 'warn',
+          row.evidence ? JSON.stringify(row.evidence) : null,
         ],
       )
     }

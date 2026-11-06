@@ -1,0 +1,28 @@
+# Local Agent Orchestrator trace sink: OTLP collector -> Jaeger UI.
+# Always invoke with the project directory anchored at the repo root so the
+# relative config path resolves there:
+#   docker compose --project-directory . -f starters/docker/compose.agent-otel.yml --profile agent-otel up
+# Then point the app at the collector (UI at http://127.0.0.1:16686):
+#   OM_AGENT_OTEL_EXPORT=on
+#   OM_AGENT_OTEL_EXPORT_ENDPOINT=http://127.0.0.1:4318/v1/traces
+
+services:
+  otel-collector-agent:
+    profiles: [agent-otel]
+    image: otel/opentelemetry-collector:0.159.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./docker/otel-collector-config.jaeger.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:4317:4317"
+    depends_on:
+      - jaeger
+
+  jaeger:
+    profiles: [agent-otel]
+    image: jaegertracing/jaeger:2.11.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:16686:16686"

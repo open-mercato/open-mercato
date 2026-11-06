@@ -20,6 +20,7 @@ import { useAgentIconMap } from './useAgentIcons'
 import { proposalVerdict } from './cockpitStatus'
 import { proposalCaseStatusLabelKey, proposalCaseStatusVariant } from './proposalCaseStatus'
 import { humanizeKey } from './proposalFactsData'
+import { heldIntegrityRuleIds } from './guardrailEvidence'
 import {
   actionEditsToActions,
   deriveActionEdits,
@@ -342,6 +343,7 @@ export function ProposalCard({
             onSelect={onSelectOption}
             disabled={busy || !canDispose || !isPending}
             autoDispositionBlock={proposal?.autoDispositionBlock ?? null}
+            heldRuleIds={heldIntegrityRuleIds(proposal?.guardResults ?? [])}
             showChooseHint={!!onSelectOption && isPending && optionCount > 1}
           />
         </section>

@@ -857,6 +857,17 @@ async function resumeInvokeAgentWithError(
   })
 }
 
+/**
+ * The typed reason an agent failure carries (e.g. `agent_invoke_denied`), read
+ * structurally because the agent runtime is an optional peer this module never
+ * imports.
+ */
+function readAgentErrorCode(agentError: unknown): string | null {
+  if (typeof agentError !== 'object' || agentError === null) return null
+  const code = (agentError as { code?: unknown }).code
+  return typeof code === 'string' && code.length > 0 ? code : null
+}
+
 async function failInvokeAgentStep(
   em: EntityManager,
   container: AwilixContainer,
@@ -865,10 +876,12 @@ async function failInvokeAgentStep(
   agentError: unknown,
 ): Promise<void> {
   const message = agentError instanceof Error ? agentError.message : String(agentError)
+  const code = readAgentErrorCode(agentError)
   logger.error('invoke_agent failed; failing instance', {
     agentId: payload.agentId,
     workflowInstanceId: payload.workflowInstanceId,
     error: message,
+    ...(code ? { code } : {}),
   })
   try {
     const { StepInstance } = await import('../data/entities')
@@ -879,7 +892,7 @@ async function failInvokeAgentStep(
     })
     if (stepInstance && stepInstance.status === 'ACTIVE') {
       stepInstance.status = 'FAILED'
-      stepInstance.errorData = { agentId: payload.agentId, error: message }
+      stepInstance.errorData = { agentId: payload.agentId, error: message, ...(code ? { code } : {}) }
       stepInstance.exitedAt = new Date()
       await em.flush()
     }
@@ -887,7 +900,7 @@ async function failInvokeAgentStep(
     const { completeWorkflow } = await import('./workflow-executor')
     await completeWorkflow(em, container, payload.workflowInstanceId, 'FAILED', {
       error: `INVOKE_AGENT step ${payload.stepId} failed: ${message}`,
-      details: { agentId: payload.agentId, stepId: payload.stepId },
+      details: { agentId: payload.agentId, stepId: payload.stepId, ...(code ? { code } : {}) },
     })
   } catch (failError: any) {
     logger.error('invoke_agent: could not mark instance FAILED', {

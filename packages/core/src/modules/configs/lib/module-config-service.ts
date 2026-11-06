@@ -1,10 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { ModuleConfig } from '../data/entities'
 import { moduleConfigKeySchema } from '../data/validators'
 
-const CACHE_VERSION = 'v2'
+const CACHE_VERSION = 'v3'
 const CACHE_TTL_MS = 60_000
 
 type CachePayload = {
@@ -45,10 +46,14 @@ const toRecord = (entity: ModuleConfig, source: ModuleConfigSource): ModuleConfi
   updatedAt: entity.updatedAt.toISOString(),
 })
 
-const readCache = async (cache: CacheStrategy | null, key: string): Promise<CachePayload | null> => {
+const readCache = async (
+  cache: CacheStrategy | null,
+  key: string,
+  tenantId: string | null,
+): Promise<CachePayload | null> => {
   if (!cache) return null
   try {
-    const cached = await cache.get(key)
+    const cached = await runWithCacheTenant(tenantId, () => cache.get(key))
     if (cached && typeof cached === 'object' && 'found' in cached) {
       return cached as CachePayload
     }
@@ -56,25 +61,36 @@ const readCache = async (cache: CacheStrategy | null, key: string): Promise<Cach
   return null
 }
 
-const writeCache = async (cache: CacheStrategy | null, key: string, payload: CachePayload, moduleId: string) => {
+const writeCache = async (
+  cache: CacheStrategy | null,
+  key: string,
+  payload: CachePayload,
+  moduleId: string,
+  tenantId: string | null,
+) => {
   if (!cache) return
   try {
-    await cache.set(key, payload, { ttl: CACHE_TTL_MS, tags: [moduleTag(moduleId)] })
+    await runWithCacheTenant(tenantId, () =>
+      cache.set(key, payload, { ttl: CACHE_TTL_MS, tags: [moduleTag(moduleId)] }),
+    )
   } catch {}
 }
 
-const deleteCacheKey = async (cache: CacheStrategy | null, key: string) => {
+const deleteCacheKey = async (cache: CacheStrategy | null, key: string, tenantId: string | null) => {
   if (!cache) return
   try {
-    await cache.delete(key)
+    await runWithCacheTenant(tenantId, () => cache.delete(key))
   } catch {}
 }
 
-const deleteCacheByModule = async (cache: CacheStrategy | null, moduleId: string) => {
+const deleteCacheByModule = async (cache: CacheStrategy | null, moduleId: string, tenantIds: Array<string | null>) => {
   if (!cache) return
-  try {
-    await cache.deleteByTags([moduleTag(moduleId)])
-  } catch {}
+  const scopes = Array.from(new Set(tenantIds))
+  for (const tenantId of scopes) {
+    try {
+      await runWithCacheTenant(tenantId, () => cache.deleteByTags([moduleTag(moduleId)]))
+    } catch {}
+  }
 }
 
 const normalizeKey = (moduleId: string, name: string) => moduleConfigKeySchema.parse({ moduleId, name })
@@ -116,46 +132,39 @@ export type ModuleConfigService = {
 }
 
 export function createModuleConfigService(container: AppContainer): ModuleConfigService {
-  const getRecord = async (rawModuleId: string, rawName: string, scope?: ConfigScope): Promise<ModuleConfigRecord | null> => {
-    const { moduleId, name } = normalizeKey(rawModuleId, rawName)
-    const tenantId = scope?.tenantId ?? null
-    const cache = resolveCache(container)
+  const loadRow = async (
+    cache: CacheStrategy | null,
+    moduleId: string,
+    name: string,
+    tenantId: string | null,
+  ): Promise<ModuleConfigRecord | null> => {
     const key = cacheKey(moduleId, name, tenantId)
-    const cached = await readCache(cache, key)
+    const cached = await readCache(cache, key, tenantId)
     if (cached) {
       if (!cached.found) return null
       if (cached.record) return cached.record
     }
-
     const em = resolveEm(container)
     if (!em) return null
-    const repo = em.getRepository(ModuleConfig)
-
-    if (tenantId) {
-      const scoped = await repo.findOne({ moduleId, name, tenantId })
-      if (scoped) {
-        const record = toRecord(scoped, 'tenant')
-        await writeCache(cache, key, { found: true, record }, moduleId)
-        return record
-      }
-      const global = await repo.findOne({ moduleId, name, tenantId: null })
-      if (!global) {
-        await writeCache(cache, key, { found: false }, moduleId)
-        return null
-      }
-      const record = toRecord(global, 'instance')
-      await writeCache(cache, key, { found: true, record }, moduleId)
-      return record
-    }
-
-    const global = await repo.findOne({ moduleId, name, tenantId: null })
-    if (!global) {
-      await writeCache(cache, key, { found: false }, moduleId)
+    const entity = await em.getRepository(ModuleConfig).findOne({ moduleId, name, tenantId })
+    if (!entity) {
+      await writeCache(cache, key, { found: false }, moduleId, tenantId)
       return null
     }
-    const record = toRecord(global, 'instance')
-    await writeCache(cache, key, { found: true, record }, moduleId)
+    const record = toRecord(entity, tenantId ? 'tenant' : 'instance')
+    await writeCache(cache, key, { found: true, record }, moduleId, tenantId)
     return record
+  }
+
+  const getRecord = async (rawModuleId: string, rawName: string, scope?: ConfigScope): Promise<ModuleConfigRecord | null> => {
+    const { moduleId, name } = normalizeKey(rawModuleId, rawName)
+    const tenantId = scope?.tenantId ?? null
+    const cache = resolveCache(container)
+    if (tenantId) {
+      const scoped = await loadRow(cache, moduleId, name, tenantId)
+      if (scoped) return scoped
+    }
+    return loadRow(cache, moduleId, name, null)
   }
 
   const getValue = async <T>(
@@ -203,11 +212,7 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
     await em.flush()
     const record = toRecord(entity, tenantId ? 'tenant' : 'instance')
     const cache = resolveCache(container)
-    if (tenantId) {
-      await writeCache(cache, cacheKey(moduleId, name, tenantId), { found: true, record }, moduleId)
-    } else {
-      await deleteCacheByModule(cache, moduleId)
-    }
+    await writeCache(cache, cacheKey(moduleId, name, tenantId), { found: true, record }, moduleId, tenantId)
     return record
   }
 
@@ -247,20 +252,22 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
     await em.flush()
     for (const entity of touched) {
       const record = toRecord(entity, 'instance')
-      await writeCache(cache, cacheKey(entity.moduleId, entity.name, null), { found: true, record }, entity.moduleId)
+      await writeCache(cache, cacheKey(entity.moduleId, entity.name, null), { found: true, record }, entity.moduleId, null)
     }
   }
 
   const invalidate = async (rawModuleId: string, rawName?: string, scope?: ConfigScope) => {
     const cache = resolveCache(container)
     if (!cache) return
+    const tenantId = scope?.tenantId ?? null
     if (rawName) {
       const { moduleId, name } = normalizeKey(rawModuleId, rawName)
-      await deleteCacheKey(cache, cacheKey(moduleId, name, scope?.tenantId ?? null))
+      if (tenantId) await deleteCacheKey(cache, cacheKey(moduleId, name, tenantId), tenantId)
+      await deleteCacheKey(cache, cacheKey(moduleId, name, null), null)
       return
     }
     const moduleId = moduleConfigKeySchema.shape.moduleId.parse(rawModuleId)
-    await deleteCacheByModule(cache, moduleId)
+    await deleteCacheByModule(cache, moduleId, [tenantId, getCurrentCacheTenant(), null])
   }
 
   return {

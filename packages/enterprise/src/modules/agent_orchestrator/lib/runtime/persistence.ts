@@ -10,6 +10,12 @@ import {
 import type { AgentResultKind } from '../sdk/defineAgent'
 import { normalizeProposalEnvelope } from '../../data/proposalEnvelope'
 import { withAuditedCommand } from '../identity/agentWriteScope'
+import { resolveRunAgentVersion } from '../trace/definitionHash'
+import type { RunManifestEntryPoint } from '../trace/runManifest'
+import type {
+  AiAgentCallSettings,
+  AiAgentRunChannel,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 
 /**
  * Shared persistence + scope helpers used by BOTH agent runtimes (in-process
@@ -81,7 +87,29 @@ export type AgentRunCtx = {
    * delegations inherit the tag automatically because they inherit this ctx.
    */
   source?: 'runtime' | 'eval'
+  /**
+   * The identity whose ACL decides whether this agent may be invoked, distinct
+   * from the execution identity. Absent ⇒ derived from `userId` as
+   * `{ kind: 'user' }` (BC for third-party callers of `agentRuntime.run`).
+   */
+  invoker?: AgentInvoker
+  /** Which door started the run; recorded for observability. */
+  entryPoint?: AgentEntryPoint
+  /** The ai-assistant door when the run came through it (`ai_assistant` / `tool`). */
+  channel?: AiAgentRunChannel
+  /** Shared correlation id across the run tree and its audit rows. */
+  correlationId?: string
+  /** Per-call model settings, forwarded to `runAiAgentObject` by the native runner. */
+  callSettings?: AiAgentCallSettings
 }
+
+export type AgentInvoker =
+  | { kind: 'user'; userId: string }
+  | { kind: 'api_key'; apiKeyId: string; ownerUserId: string | null }
+  | { kind: 'workflow'; actingUserId: string }
+  | { kind: 'agent_token'; agentUserId: string; onBehalfOfUserId: string | null; grantId: string }
+
+export type AgentEntryPoint = RunManifestEntryPoint
 
 export type AgentRunAs = {
   /** The provisioned agent principal's `auth.User` id — actor on every write. */
@@ -116,6 +144,32 @@ export function buildCommandContext(
           },
         }
       : {}),
+  }
+}
+
+/**
+ * Correlation ids stamped on every action log a run's command context writes, so
+ * the audit trail can answer "what did this run change". Ids only, present values
+ * only; attached after `createRun` because the run id does not exist before it.
+ */
+export function buildRunAuditCorrelation(ctx: AgentRunCtx, runId: string): Record<string, string> {
+  const correlation: Record<string, string> = { agentRunId: runId }
+  if (ctx.parentRunId) correlation.parentAgentRunId = ctx.parentRunId
+  if (ctx.workflowInstanceId) correlation.workflowInstanceId = ctx.workflowInstanceId
+  if (ctx.correlationId) correlation.correlationId = ctx.correlationId
+  if (ctx.invoker?.kind === 'api_key') correlation.apiKeyId = ctx.invoker.apiKeyId
+  if (ctx.invoker?.kind === 'agent_token') correlation.grantId = ctx.invoker.grantId
+  return correlation
+}
+
+export function withRunAuditCorrelation(
+  commandCtx: CommandRuntimeContext,
+  ctx: AgentRunCtx,
+  runId: string,
+): CommandRuntimeContext {
+  return {
+    ...commandCtx,
+    auditCorrelation: { ...(commandCtx.auditCorrelation ?? {}), ...buildRunAuditCorrelation(ctx, runId) },
   }
 }
 
@@ -170,15 +224,24 @@ export async function createRun(
     source?: 'runtime' | 'eval'
     /** The agent's declared type (authoring fact); null when it declares none. */
     agentType?: AgentType | null
+    /** Explicit published agent version; wins over the definition-hash short version. */
+    agentVersion?: string | null
+    /** `sha256:<hex>` definition hash; stamped as `sha256:<first 16 hex>` when no explicit version is set. */
+    definitionHash?: string | null
   },
 ): Promise<string> {
+  const { definitionHash, agentVersion, ...runInput } = input
+  const commandInput = {
+    ...runInput,
+    agentVersion: resolveRunAgentVersion({ agentVersion, definitionHash }),
+  }
   // Audited-command scope (Phase 3, layer B-b): the agent's own AgentRun write
   // goes through the audited Command path, so it passes the flush-time no-bypass
   // guard while a raw `em.flush()` under the same agent actor would throw.
   const { result } = await withAuditedCommand(() =>
-    commandBus.execute<typeof input, { runId: string }>(
+    commandBus.execute<typeof commandInput, { runId: string }>(
       'agent_orchestrator.runs.create',
-      { input, ctx: commandCtx },
+      { input: commandInput, ctx: commandCtx },
     ),
   )
   return result.runId

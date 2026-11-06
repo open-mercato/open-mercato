@@ -8,6 +8,7 @@ import { normalizeAgentTags } from '../data/agentTags'
 import { proposalPayloadSource, deriveEnvelopeConfidence, normalizeProposalEnvelope } from '../data/proposalEnvelope'
 import type { AgentType } from '../data/validators'
 import type { AgentTokenUsage, TokenizedFile } from '../lib/tokens/types'
+import { readGuardEvidence, type RawOutputStatus } from './guardrailEvidence'
 
 export type ProposalView = {
   id: string
@@ -39,6 +40,10 @@ export type ProposalView = {
 export type GuardCheckView = {
   kind: string
   result: string
+  /** The integrity rule id from the check evidence; null for non-integrity checks. */
+  ruleId: string | null
+  /** True when this (warn) check holds the proposal back from auto-approval. */
+  holdsAutoApproval: boolean
 }
 
 /** Windowed traces KPI block on GET /metrics/overview (data-honesty pass). */
@@ -116,6 +121,8 @@ export type RunView = {
   contextRouting: unknown
   /** FK id → workflows process instance (drives "Open process"). */
   workflowInstanceId: string | null
+  /** The run this one re-ran (`agent_runs.rerun_of_run_id`); null for original runs. */
+  rerunOfRunId?: string | null
 }
 
 export type SpanView = {
@@ -129,6 +136,7 @@ export type SpanView = {
   endedAt: string | null
   durationMs: number | null
   status: string | null
+  attributes: unknown
 }
 
 export type ToolCallView = {
@@ -191,12 +199,26 @@ export type GuardrailCheckView = {
   capability: string
   guardrailSetVersion: string | null
   evidence: unknown
+  /** Integrity rule id (API `ruleId`, else evidence `ruleId`); null for non-integrity checks. */
+  ruleId: string | null
+  holdsAutoApproval: boolean
+  dropped: number
+  repaired: number
+  /** Whether the pre-repair raw output was stored for this check's change; null when it changed nothing. */
+  rawOutputStatus: RawOutputStatus | null
 }
+
+export type IntegrityOutcomeView = 'clean' | 'repaired' | 'flagged' | 'not_applicable' | 'needs_review'
 
 export type GoldenCaseView = {
   id: string
   /** The golden case's expected output (decrypted) — powers the actual-vs-expected diff. */
   expected: unknown
+}
+
+export type RunOtelLinkView = {
+  traceId: string
+  url: string
 }
 
 export type RunDetailView = {
@@ -206,10 +228,16 @@ export type RunDetailView = {
   evalResults: EvalResultView[]
   contextBundle: ContextBundleView | null
   guardrailChecks: GuardrailCheckView[]
+  /** The output-integrity outcome derived from the checks; null when the run recorded no integrity rule check. */
+  integrityOutcome: IntegrityOutcomeView | null
+  /** Artifact key of the pre-repair model output (`GET /runs/:id/artifact?kind=raw_output`); null when unchanged. */
+  rawOutputKey: string | null
   /** The run's proposals (oldest first) — carry the persisted `payload.rationale`. */
   proposals: ProposalView[]
   /** The approved golden case this run's input matched (online golden-match plane), or null. */
   goldenCase: GoldenCaseView | null
+  /** The exported OTel trace and its tracing-backend link; null when export or the link is not configured. */
+  otel: RunOtelLinkView | null
 }
 
 export type AgentRuntime = 'in-process' | 'native' | 'opencode' | 'external'
@@ -238,10 +266,27 @@ export type AgentView = {
   tags: string[]
   tools: string[]
   skills: string[]
+  requiredFeatures: string[]
+  /**
+   * The agent's principal summary. Undefined when the caller may not see it
+   * (non-managers); null when the agent has no principal.
+   */
+  principal?: AgentPrincipalView | null
+  invocable: boolean
   /** Optional example input for the Playground "Insert sample" button. */
   sampleInput?: unknown
   /** Optional declared Caseload facts (from the agent's FACTS.json / defineAgent). */
   facts?: AgentFactView[]
+}
+
+export type AgentPrincipalView = {
+  declared: boolean
+  provisioned: boolean
+  enabled: boolean
+  toolAcl: 'caller' | 'intersect'
+  required: boolean
+  /** Declared role features; undefined when the principal is not declared. */
+  roleFeatures?: string[]
 }
 
 export type AgentFactView = {
@@ -271,6 +316,33 @@ export type AgentDetailView = AgentView & {
   subAgents: string[]
   /** Baked token-usage estimate for file-defined agents; null for native agents. */
   tokenUsage: AgentTokenUsage | null
+  /** Declared output-integrity rules, in pipeline order; empty when the agent declares none. */
+  integrityRules: IntegrityRuleView[]
+  /** Content-hash version of the agent's integrity set; null when it declares none. */
+  integritySetVersion: string | null
+}
+
+export type IntegrityRuleView = {
+  id: string
+  kind: string
+  /** What a violation does (`drop`/`repair`/`flag`/`block`); null for `abstain_or_review`. */
+  onViolation: string | null
+  /** `abstain_or_review` needs-review route (`flag`/`review`); null otherwise. */
+  reviewRoute: string | null
+}
+
+function mapIntegrityRules(raw: unknown): IntegrityRuleView[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((entry): IntegrityRuleView | null => {
+      if (!entry || typeof entry !== 'object') return null
+      const rule = entry as Record<string, unknown>
+      const id = asString(rule.id)
+      const kind = asString(rule.kind)
+      if (!id || !kind) return null
+      return { id, kind, onViolation: asString(rule.onViolation), reviewRoute: asString(rule.reviewRoute) }
+    })
+    .filter((rule): rule is IntegrityRuleView => !!rule)
 }
 
 function asString(value: unknown): string | null {
@@ -308,7 +380,8 @@ function mapGuardResults(raw: unknown): GuardCheckView[] {
       const kind = asString(check.kind)
       const result = asString(check.result)
       if (!kind || !result) return null
-      return { kind, result }
+      const flags = readGuardEvidence(check.evidence)
+      return { kind, result, ruleId: flags.ruleId, holdsAutoApproval: flags.holdsAutoApproval }
     })
     .filter((check): check is GuardCheckView => !!check)
 }
@@ -470,6 +543,7 @@ export function mapRun(item: Record<string, unknown>): RunView | null {
     flaggedAt: asString(item.flagged_at) ?? asString(item.flaggedAt),
     contextRouting: item.context_routing ?? item.contextRouting ?? null,
     workflowInstanceId: asString(item.workflow_instance_id) ?? asString(item.workflowInstanceId),
+    rerunOfRunId: asString(item.rerun_of_run_id) ?? asString(item.rerunOfRunId),
   }
 }
 
@@ -487,6 +561,7 @@ export function mapSpan(item: Record<string, unknown>): SpanView | null {
     endedAt: asString(item.ended_at) ?? asString(item.endedAt),
     durationMs: asNumber(item.duration_ms) ?? asNumber(item.durationMs),
     status: asString(item.status),
+    attributes: item.attributes ?? null,
   }
 }
 
@@ -569,6 +644,8 @@ export function mapGuardrailCheck(item: Record<string, unknown>): GuardrailCheck
   if (!id) return null
   const rawResult = asString(item.result)
   const result = rawResult === 'block' || rawResult === 'warn' ? rawResult : 'pass'
+  const evidence = item.evidence ?? null
+  const flags = readGuardEvidence(evidence)
   return {
     id,
     phase: asString(item.phase) ?? 'output',
@@ -576,8 +653,21 @@ export function mapGuardrailCheck(item: Record<string, unknown>): GuardrailCheck
     result,
     capability: asString(item.capability) ?? '',
     guardrailSetVersion: asString(item.guardrail_set_version) ?? asString(item.guardrailSetVersion),
-    evidence: item.evidence ?? null,
+    evidence,
+    ruleId: asString(item.ruleId) || flags.ruleId,
+    holdsAutoApproval: flags.holdsAutoApproval,
+    dropped: flags.dropped,
+    repaired: flags.repaired,
+    rawOutputStatus: flags.rawOutputStatus,
   }
+}
+
+const INTEGRITY_OUTCOMES: readonly IntegrityOutcomeView[] = ['clean', 'repaired', 'flagged', 'not_applicable', 'needs_review']
+
+export function mapIntegrityOutcome(value: unknown): IntegrityOutcomeView | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const outcome = (value as Record<string, unknown>).outcome
+  return INTEGRITY_OUTCOMES.find((candidate) => candidate === outcome) ?? null
 }
 
 export function mapRunDetail(payload: Record<string, unknown>): RunDetailView | null {
@@ -606,7 +696,28 @@ export function mapRunDetail(payload: Record<string, unknown>): RunDetailView | 
     const goldenId = asString((goldenCaseRaw as Record<string, unknown>).id)
     if (goldenId) goldenCase = { id: goldenId, expected: (goldenCaseRaw as Record<string, unknown>).expected ?? null }
   }
-  return { run, spans, toolCalls, evalResults, contextBundle, guardrailChecks, proposals, goldenCase }
+  return {
+    run,
+    spans,
+    toolCalls,
+    evalResults,
+    contextBundle,
+    guardrailChecks,
+    integrityOutcome: mapIntegrityOutcome(payload.integrity),
+    rawOutputKey: asString(payload.rawOutputKey) || null,
+    proposals,
+    goldenCase,
+    otel: mapRunOtelLink(payload.otel),
+  }
+}
+
+export function mapRunOtelLink(value: unknown): RunOtelLinkView | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const traceId = asString(record.traceId)
+  const url = asString(record.url)
+  if (!traceId || !url || !/^https?:\/\//i.test(url)) return null
+  return { traceId, url }
 }
 
 export function mapAgent(item: Record<string, unknown>): AgentView | null {
@@ -635,8 +746,28 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     tags: normalizeAgentTags(item.tags),
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],
     skills: Array.isArray(item.skills) ? item.skills.filter((skill): skill is string => typeof skill === 'string') : [],
+    requiredFeatures: Array.isArray(item.requiredFeatures)
+      ? item.requiredFeatures.filter((feature): feature is string => typeof feature === 'string')
+      : [],
+    ...(item.principal !== undefined ? { principal: mapAgentPrincipal(item.principal) } : {}),
+    invocable: item.invocable !== false,
     sampleInput: item.sampleInput,
     facts: mapAgentFacts(item.facts),
+  }
+}
+
+export function mapAgentPrincipal(raw: unknown): AgentPrincipalView | null {
+  if (!raw || typeof raw !== 'object') return null
+  const record = raw as Record<string, unknown>
+  return {
+    declared: record.declared === true,
+    provisioned: record.provisioned === true,
+    enabled: record.enabled === true,
+    toolAcl: record.toolAcl === 'intersect' ? 'intersect' : 'caller',
+    required: record.required === true,
+    ...(Array.isArray(record.roleFeatures)
+      ? { roleFeatures: record.roleFeatures.filter((feature): feature is string => typeof feature === 'string') }
+      : {}),
   }
 }
 
@@ -748,6 +879,8 @@ export function mapAgentDetail(item: Record<string, unknown>): AgentDetailView |
       ? item.subAgents.filter((sub): sub is string => typeof sub === 'string')
       : [],
     tokenUsage: mapTokenUsage(item.tokenUsage),
+    integrityRules: mapIntegrityRules(item.integrityRules),
+    integritySetVersion: asString(item.integritySetVersion),
   }
 }
 
