@@ -42,7 +42,7 @@ packages:
 server:
   keepAliveTimeout: 60
 
-max_body_size: 50mb
+max_body_size: 100mb
 
 middlewares:
   audit:

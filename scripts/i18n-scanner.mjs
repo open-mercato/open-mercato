@@ -121,12 +121,12 @@ function lineNumberAt(lineStarts, offset) {
  * bare dotted literals) are counted as usage but are validated against known
  * keys, so an unknown literal there is just an ordinary string.
  */
-export function scanText(rawText, allTranslationKeys, { file = '<inline>' } = {}) {
+export function scanText(rawText, allTranslationKeys, { file = '<inline>', prefixIndex: preparedPrefixIndex } = {}) {
   const text = maskCodeSamples(rawText)
   const keySet = allTranslationKeys instanceof Set
     ? allTranslationKeys
     : new Set(allTranslationKeys)
-  const prefixIndex = buildPrefixIndex(keySet)
+  const prefixIndex = preparedPrefixIndex ?? buildPrefixIndex(keySet)
   const lineStarts = buildLineStarts(text)
   const refs = []
   let dynamicCount = 0

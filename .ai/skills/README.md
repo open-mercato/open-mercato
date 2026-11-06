@@ -71,7 +71,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | Tier | Default? | Skills | What's inside |
 |------|----------|--------|---------------|
 | `core` | yes | 9 | Daily-driver skills installed by default. |
-| `automation` | opt-in | 1 | PR/issue automation skills. Opt-in; agent-driven workflows. |
+| `automation` | opt-in | 2 | PR/issue automation and experiment operation skills. Opt-in; agent-driven workflows. |
 | `analysis` | opt-in | 1 | Draft accessibility review (WCAG 2.2 AA). Opt-in. |
 | `migration` | opt-in | 5 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
@@ -211,6 +211,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | Skill | When to use |
 |-------|-------------|
 | `om-auto-publish-pr` | Publish pkg.pr.new package previews for a same-repository Open Mercato PR by dispatching the Package Previews GitHub Actions workflow with gh. Use when a maintainer asks to publish, republish, or trigger a PR package preview. Does not publish npm snapshots. |
+| `om-run-harness-evals` | Run or inspect Open Mercato harness evaluations and monitor registered experiments with the local dashboard. Use for "run harness evals", "inspect experiment results", "compare eval runs", "uruchom ewaluacje harnessu", or "sprawdź wyniki eksperymentu". |
 
 ### external (open-mercato/skills)
 

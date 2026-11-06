@@ -297,6 +297,18 @@ describe('profile communication channels — row actions menu', () => {
     expect(screen.queryByRole('menuitem', { name: 'Set as primary' })).not.toBeInTheDocument()
   })
 
+  it('omits "Set as primary" on a disconnected channel', () => {
+    openRowActions(buildRow({ status: 'disconnected', isActive: false }))
+
+    expect(screen.queryByRole('menuitem', { name: 'Set as primary' })).not.toBeInTheDocument()
+  })
+
+  it.each(['connected', 'requires_reauth', 'error'])('offers "Set as primary" on a %s channel', (status) => {
+    openRowActions(buildRow({ status }))
+
+    expect(screen.getByRole('menuitem', { name: 'Set as primary' })).toBeInTheDocument()
+  })
+
   it('offers "Share with team" on a private email channel', () => {
     openRowActions(buildRow({ channelType: 'email', visibility: 'private' }))
 

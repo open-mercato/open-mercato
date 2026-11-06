@@ -68,6 +68,10 @@ export const setup: ModuleSetupConfig = {
   async seedDefaults({ container, tenantId, organizationId }) {
     await ensureSessionInitializationPruneSchedule(container, { tenantId, organizationId })
   },
+
+  async onOrganizationCreated({ container, tenantId, organizationId }) {
+    await ensureSessionInitializationPruneSchedule(container, { tenantId, organizationId })
+  },
 }
 
 export default setup

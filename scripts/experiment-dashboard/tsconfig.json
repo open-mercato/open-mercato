@@ -1,0 +1,25 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "paths": {
+      "@open-mercato/ui/*": [
+        "../../packages/ui/src/*"
+      ],
+      "@open-mercato/shared/*": [
+        "../../packages/shared/src/*"
+      ]
+    },
+    "types": [
+      "node",
+      "react",
+      "react-dom"
+    ]
+  },
+  "include": [
+    "ui/**/*.ts",
+    "ui/**/*.tsx",
+    "ui/**/*.mts"
+  ]
+}

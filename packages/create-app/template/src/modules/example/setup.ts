@@ -14,7 +14,7 @@ import {
 } from './lib/exampleSeeds'
 
 /**
- * The three setup hooks are not three flavours of "seed something". They differ in
+ * The setup hooks are not different flavours of "seed something". They differ in
  * what the framework hands them and when it calls them, and this module uses each for
  * the job only it can do:
  *
@@ -26,11 +26,13 @@ import {
  *   `mercato seed:defaults`, and is never skipped. It writes scoped reference RECORDS
  *   through the DI-resolved `dataEngine` — which `onTenantCreated` could not do,
  *   because there is no container to resolve it from there.
+ * - `onOrganizationCreated` receives the container after an organization is added
+ *   later and registers only that organization's structural schedule.
  * - `seedExamples` also receives the container but is skipped by `--no-examples`. It is
  *   the only hook allowed to create demo domain rows, and it delegates to the same
  *   `seedExampleTodos` the module CLI exposes so both entry points seed identically.
  *
- * All three are idempotent: the installer upserts definitions, the reference records
+ * All four are idempotent: the installer upserts definitions, the reference records
  * carry deterministic ids that upsert, and the todo seeder returns early once the scope
  * already has todos.
  */
@@ -48,9 +50,8 @@ function stableScheduleUuid(stableKey: string): string {
 /**
  * Registers the outbox-recovery tick for the Todo bulk-complete operation.
  *
- * Lives in `seedDefaults` because that is the only always-running hook that
- * receives a container — `onTenantCreated` gets an `EntityManager` and nothing
- * else, so a scheduler target cannot be registered from there.
+ * Lives in both container-backed structural hooks: `seedDefaults` covers the
+ * initial organization and `onOrganizationCreated` covers organizations added later.
  *
  * Returns `false` (rather than throwing) when the scheduler module is absent, and
  * `registerTodoBulkDispatchSchedule`'s caller swallows every other failure. The
@@ -132,6 +133,10 @@ export const setup: ModuleSetupConfig = {
         notify: false,
       })
     }
+    await ensureTodoBulkDispatchSchedule(container, { tenantId, organizationId })
+  },
+
+  async onOrganizationCreated({ container, tenantId, organizationId }) {
     await ensureTodoBulkDispatchSchedule(container, { tenantId, organizationId })
   },
 

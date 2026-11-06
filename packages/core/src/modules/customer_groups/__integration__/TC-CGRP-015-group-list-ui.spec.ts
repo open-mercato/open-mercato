@@ -96,13 +96,18 @@ test.describe('TC-CGRP-015: customer groups admin list page', () => {
       // The non-default row must not carry the "Default" tag.
       await expect(plainRow.getByText('Default', { exact: true })).toHaveCount(0);
 
-      await page.getByRole('link', { name: 'Create group' }).click();
-      await page.waitForURL(/\/backend\/customer-groups\/create$/, { timeout: 15_000 });
+      await expect(page.getByRole('link', { name: 'Create group' })).toHaveAttribute('href', '/backend/customer-groups/create');
     } finally {
       const cleanupToken = actor?.token ?? null;
       await deleteCustomerGroupIfExists(request, cleanupToken, defaultGroupId);
       await deleteCustomerGroupIfExists(request, cleanupToken, plainGroupId);
       await cleanupSecondTenantActor(request, superadminToken, actor);
     }
+  });
+  test('navigates from the list to the create form', async ({ page }) => {
+    await login(page, 'admin');
+    await page.goto('/backend/customer-groups', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('link', { name: 'Create group' }).click();
+    await expect(page).toHaveURL(/\/backend\/customer-groups\/create$/);
   });
 });
