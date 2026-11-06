@@ -1,63 +1,60 @@
 # Issue 8207 verification
 
-## Scope and eligibility
-
 Issue: https://github.com/open-mercato/open-mercato/issues/8207
 
-Baseline: `e5774a707321fe14867a19663bc486d7a001492d`. Prerequisite PR #7986 merged as `df08109bf500d4aa59b4d1edc59d42eedd76d878`, verified as an ancestor. Its notification-access fix explicitly left this feedback issue for follow-up. Live issue/PR/timeline checks found no assignee, claim, or open implementation PR before this run claimed the issue.
+Document mentions now separate module-view eligibility from missing document shares. Recipients without `documents.view` receive no ineffective sharing offer. A successful comment save shows the existing localized feedback for denied or skipped mentions. Eligible recipients can still be shared with and notified. Authorization, wildcard feature handling, tenant/organization isolation, and private title/identity handling remain enforced.
 
-The fix preserves recipient authorization and separates sharing eligibility from inaccessible recipients. Revoked owners, direct shares, role shares, and users without a share no longer receive an ineffective sharing offer. Successful comment saves show the existing localized information message for denied/skipped mentions. No title or identity data is added to the preflight response.
+## Verified candidate
 
-## Regression evidence
+Implementation verified at `1964ec2d67a5d14fc5a126b7ae24edacf45a2c2a`, including base `8687fc8e2f6fb15690b3460ca0c67b8b7ba7ee3d`. The recovered implementation patch is unchanged. Report and screenshot publication does not change application behavior.
 
-Runner: local. No running compose app was found. The initial `tsx` launch failed with `listen EINVAL` because the cockpit temporary directory made its Unix socket path too long. A short private task-specific temporary directory resolved this without changing repository code. The first full gate used only `TMPDIR`; an unchanged Shared test launched a child using the inherited long socket path and failed. Subsequent commands set `TMPDIR`, `TMP`, and `TEMP` together to this task’s own directory created by `mktemp -d /private/tmp/cz-XXXXXX`. Hooks use the same workaround.
+Validation used local Node 24.22.2 and Yarn 4.17.1 in an independently installed full checkout without spaces in its path. No dependency, build, or cache directories were copied. The normal configured commands and policies were retained.
 
-| Exact command | Result |
+## Ordered validation gate
+
+| Command | Result | Duration | Cache |
+|---|---|---:|---|
+| `yarn build:packages` | PASS, 42 tasks | 28.667s | 0 cached |
+| `yarn generate` | PASS, 1 task | 8.216s | 0 cached |
+| `yarn build:packages` | PASS, 42 tasks | 5.547s | 35 cached |
+| `yarn i18n:check-sync` | PASS, 70 modules | 0.902s | n/a |
+| `yarn i18n:check-usage` | PASS, unused-key findings advisory | ~140.210s | n/a |
+| `yarn typecheck` | PASS, 42 tasks | 29.992s | 0 cached |
+| `yarn test` | PASS, 51 tasks | 322.701s | 5 cached |
+| `yarn build:app` | PASS, 1 task | 82.360s | 0 cached |
+
+Sync duration is the command tool's wall time; usage duration is approximate from the last log timestamp. Other durations are reported by the commands. The Documents portion passed 161 suites/1,112 tests, with one existing skipped suite/five skipped tests. The unchanged six-suite regression subset also passed 73 tests on this candidate.
+
+Earlier failures remain disclosed: the original checkout's spaces exposed two unchanged create-app `URL.pathname` conversion failures; the same two files passed all seven tests in the independent checkout. An initial full test there failed the unchanged browser-proxy socket teardown assertion (expected 0, observed 1). Its focused unchanged diagnostic passed 37 tests; one authorized unchanged full retry then passed. A timing cause is plausible and unproven. Historical socket-path and unchanged UI-test failures from the prior run are retained separately; they are not counted as current passing results.
+
+## Native API evidence
+
+```sh
+OM_INTEGRATION_MODULES=documents yarn test:integration:ephemeral --filter 'TC-DOCUMENTS-(004|022)\.spec\.ts$' --screenshots --keep --no-reuse-env
+```
+
+All seven cases executed and passed on their first attempt: zero skips, flakes, errors, or operator retries; 9.760s reported duration. The existing timeout/retry/worker/cache/security settings were retained. TC-DOCUMENTS-004 covers cross-tenant denial and permission-filtered title/content search. TC-DOCUMENTS-022 covers owner/direct-share/role-share/no-share revocation, preserved editor shares, watch/mention delivery, and deduplication.
+
+The retained native environment was used for the browser proof below, then deliberately stopped. Its outer command exited 129 after the verified owner received SIGTERM. The seven-test JSON report and UI outcomes are recorded separately from that shutdown exit.
+
+## Live browser evidence
+
+Unique API-created users, scoped roles, and three documents were used. The configured repository Playwright browser exercised actual UI controls and real server responses in the same native app. The MCP browser failed to initialize because of its socket-path length; the supported repository browser fallback succeeded with short temporary paths.
+
+| Scenario | Observed behavior |
 |---|---|
-| `yarn install --immutable` | PASS, warnings only |
-| `yarn workspace @open-mercato/documents test --runInBand mentionAccessCheckRoute.test.ts documentCommentsReload.test.tsx` (before production fix) | Expected FAIL: 15 failed, 6 passed |
-| `yarn workspace @open-mercato/documents test --runInBand mentionAccessCheckRoute.test.ts documentCommentsReload.test.tsx permissions.test.ts notificationRecipientAuthorization.test.ts commentsRouteCommands.test.ts mutationCommandContracts.test.ts` | PASS: 6 suites, 73 tests |
-| `yarn workspace @open-mercato/documents typecheck` (final diff) | PASS, including integration specs |
-| `yarn playwright test TC-DOCUMENTS-004 TC-DOCUMENTS-022 --config=.ai/qa/tests/playwright.config.ts --list` | PASS: 7 tests discovered in 2 files; discovery only |
-| `yarn template:sync` | PASS |
-| `yarn check:client-boundaries` | PASS; existing ledger warnings |
-| `git diff --check` | PASS |
-| `yarn workspace @open-mercato/documents test --runInBand versionRestoreUiLifecycle.test.tsx` | PASS: 1 suite / 1 test (1.917 seconds Jest); isolated check of unchanged test after workspace timeout |
+| Denied recipient | Real comment POST 201; no sharing dialog; translated information after success; no share or notification; recipient GET 403 with no private title; persisted after reload. |
+| Eligible unshared recipient | Share & notify granted a commenter share and delivered exactly one mention notification; recipient GET 200; no false no-access warning; persisted after reload. |
+| Mixed recipients | Dialog offered only the eligible recipient; POST 201 granted/notified only that user; denied recipient remained 403 and unnotified; translated information appeared after success; persisted after reload. |
 
-## Configured ordered gate
+The critical PNGs were visually inspected. Persistence is established by API readback and reloaded DOM snapshots; some lower comments are outside the PNG viewport. Observed labels, selected mention chips, structured `mentions` payloads, preflight privacy, saved comment persistence, effective shares, and recipient notifications were cross-checked. Earlier throwaway fixture/probe mistakes were retained and corrected against observed behavior; no application or committed test assertion was changed for them.
 
-Restarted in full with the short task-specific `TMPDIR` after the launch failure:
+Limits: realtime collaboration was unavailable, so the app ran in its supported single-user mode. The login shell returned 200 and rendered in 111 ms; no broader performance claim is made. Escape on the unchanged sharing dialog submits without sharing; its comment persisted without a notification. This is a current observation plus comparison with unchanged baseline source, not an executed baseline. Cancellation semantics are not claimed or changed by this fix. Failed/guarded/obsolete saves remain covered by the regression tests.
 
-| Command | Result |
-|---|---|
-| `yarn build:packages` | PASS |
-| `yarn generate` | PASS |
-| `yarn build:packages` | PASS |
-| `yarn i18n:check-sync` | PASS |
-| `yarn i18n:check-usage` | PASS (906 seconds) |
-| `yarn typecheck` | PASS |
-| `yarn test` | First run: FAIL in unchanged Shared `dynamicLoader.generatedCacheRecovery.test.ts` (2 tests; `listen EINVAL`). Second run with all short temp variables: FAIL in unchanged `versionRestoreUiLifecycle.test.tsx` (preview button lookup timeout). Its isolated rerun passed. Full gate remains failed; no unrelated test repair. |
-| `yarn build:app` | NOT RUN as a root gate command because the preceding gate failed. The native integration runner separately executed the app workspace's `yarn build` successfully (2,873 seconds); this does not make the ordered gate green. |
+## Cleanup and review
 
-The completed Documents package portion of the first workspace test run passed **159 suites / 1,083 tests** (one suite / five tests skipped). The failing Shared test file has no diff from baseline. Workspace test execution stopped on that failure.
+All created documents, users, and roles were deleted through scoped APIs. Documents returned 404 on GET readback; subsequent DELETE requests for users and roles returned 404. The unique disposable database was then removed. Browser contexts were closed; the owned app, database, processes, listeners, descriptors, and sockets were verified gone. Native capture output was archived privately and its tracked runtime file restored. No raw logs, private credentials, tokens, process files, or environment state belong in publication.
 
-## Review and live evidence
+Independent code review of the recovered implementation found no actionable production defect. The current candidate is submitted for fresh independent PR review. Required mention flows passed; comprehensive QA remains requested, including narrow viewport, long content, empty/loading/error states, and locale checks not exercised during this scoped run. No QA-approval label is claimed.
 
-An independent read-only reviewer applied the code-review checklist and found no actionable production-code defect. Its requested wrong-scope integration coverage was added and accepted: TC-DOCUMENTS-004 verifies foreign-tenant recipient eligibility, foreign caller denial, and absent recipient notifications; TC-DOCUMENTS-022 covers owner/direct-share/role-share/no-share revocation. Code-only verdict: approve, with no actionable findings. Full validation approval remains withheld pending the workspace gates and live API/browser execution; the reviewer ran no tests itself.
-
-Hook tests provide automated client-behavior evidence for denied, mixed, granted, skipped, missing-metadata, failed-save, guarded-save, cancellation and context-change cases. Live API execution and browser screenshots remain unverified. The supplied app descriptors were stale, with absent PIDs and no listener. The parent clarified authorization for initialization strictly inside a new disposable database owned by the native runner.
-
-`yarn test:integration:ephemeral 'TC-DOCUMENTS-(004|022)' --no-reuse-env --force-rebuild --keep` exited **124 after 3,600.5 seconds**. Fresh database initialization passed (399 seconds), package builds and generation passed, and the production app workspace build passed (2,873 seconds). The overall timeout interrupted app readiness after six seconds; **none of the seven API tests ran**. The resulting readiness/process-exit error was induced by termination, not evidence of an application defect. No unrelated service or persistent database was reused. Cleanup was verified: owned runtime descendants absent, disposable database container removed, app port free, ephemeral descriptor absent. The shared runtime slot was released.
-
-The browser connector independently failed because of its socket-path length. A repository-native Playwright/Chromium smoke check passed with the short temporary-directory workaround, but it exercised only a data URL, **not this application**. No UI screenshot or live UI pass is claimed.
-
-The second workspace failure is intermittent evidence in unchanged code: that same Documents test passed in the first full run and in its isolated rerun. Its cause is not proven. Host load increased further by the final check; another expensive retry was not started under those conditions. Publication is blocked by the failed full gate; no branch push or PR was attempted. The local implementation is retained for independent verification. PR review and post-publication QA were not invoked because the publication gate was not met.
-
-Notification persistence continues to revalidate access. The preflight remains advisory: permission changes between preflight and delivery are still handled by the existing fail-closed notification checks, without a new delivery acknowledgement contract.
-
-## Remaining QA scenarios
-
-1. Create scoped users with owner, direct editor share, role editor share, and no share; revoke their role’s `documents.view` while retaining notification access. Mention each in a comment. Save succeeds with the information flash, no ineffective “Share and notify” dialog appears, and no document notification/title reaches the recipient.
-2. Mention a mixture of a revoked recipient and a permitted user without a share. The dialog contains only the shareable recipient; sharing grants only that user and the saved comment still reports the denied mention.
-3. Repeat the permitted no-share case with `documents.*` and `*`; sharing remains available. Declining sharing yields feedback after save. Failed, guarded, cancelled, or obsolete submissions do not display the notification warning as though saved.
-4. Run the self-contained TC-DOCUMENTS-004 and TC-DOCUMENTS-022 API cases against an owned initialized environment, including cross-tenant caller/recipient rejection and preserved editor shares.
+Screenshots are published separately from this change branch through the tracker evidence operation and linked from the PR. The committed API integration cases use the Playwright request fixture; they are not browser-level regression tests. A follow-up browser test should create scoped denied and eligible users, compose a mixed mention through the UI, assert that only the eligible user is offered and shared with, and verify successful-save feedback, persistence, denied title privacy, and one notification for the eligible recipient.
