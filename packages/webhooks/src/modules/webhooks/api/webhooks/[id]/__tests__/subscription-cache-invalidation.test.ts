@@ -55,6 +55,8 @@ jest.mock('../../../helpers', () => ({
     organizationId: 'org-1',
   })),
   findScopedWebhook: jest.fn(async () => webhookRecord),
+  canRevealWebhookCredentialHeaders: jest.fn(async () => true),
+  translateWebhookCustomHeadersRejection: jest.fn(async () => 'rejected'),
   serializeWebhookDetail: (item: { id: string }) => ({ id: item.id }),
 }))
 

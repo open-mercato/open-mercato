@@ -1,3 +1,4 @@
+import { getEnabledModuleIdentities } from '../module-identity'
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
@@ -260,18 +261,16 @@ function writePerEntityFieldFiles(
     const entDir = path.join(outRoot, entity)
     fs.mkdirSync(entDir, { recursive: true })
     const sourceFile = createGeneratedSourceFile(`${entity}/index.ts`)
-    for (const field of fields) {
-      sourceFile.addVariableStatement({
-        declarationKind: VariableDeclarationKind.Const,
-        isExported: true,
-        declarations: [
-          {
-            name: toVar(field),
-            initializer: JSON.stringify(field),
-          },
-        ],
-      })
-    }
+    sourceFile.addVariableStatements(fields.map((field) => ({
+      declarationKind: VariableDeclarationKind.Const,
+      isExported: true,
+      declarations: [
+        {
+          name: toVar(field),
+          initializer: JSON.stringify(field),
+        },
+      ],
+    })))
     writeTrackedFile(path.join(entDir, 'index.ts'), getSourceText(sourceFile), result)
   }
 
@@ -333,6 +332,7 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
   const checksumFile = path.join(outputDir, 'entities.ids.generated.checksum')
 
   const entries = resolver.loadEnabledModules()
+  getEnabledModuleIdentities(resolver, entries)
 
   const consolidated: Record<string, Record<string, string>> = {}
   const grouped: Record<GroupKey, Record<string, Record<string, string>>> = {}

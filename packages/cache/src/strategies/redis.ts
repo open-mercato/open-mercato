@@ -105,8 +105,18 @@ function loadRedisModuleViaRequire(): PossibleRedisModule | null {
   }
 }
 
-function pickRedisConstructor(mod: PossibleRedisModule): RedisConstructor | null {
-  const queue: unknown[] = [mod]
+export function pickRedisConstructor(mod: PossibleRedisModule): RedisConstructor | null {
+  // `mod` goes last: a bundler-wrapped ESM namespace for a CJS module (e.g.
+  // Turbopack's `createNS`) can itself be a callable-but-not-constructible
+  // wrapper around the real class, while `.default`/`.Redis` still point at
+  // the real class. Checking them first costs nothing for a plain CJS
+  // `require()` or a real Node ESM namespace, where they already agree with
+  // `mod`.
+  const queue: unknown[] = [
+    (mod as { default?: unknown } | null | undefined)?.default,
+    (mod as { Redis?: unknown } | null | undefined)?.Redis,
+    mod,
+  ]
   const seen = new Set<unknown>()
   while (queue.length) {
     const current = queue.shift()
