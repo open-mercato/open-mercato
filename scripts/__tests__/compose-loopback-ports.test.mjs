@@ -9,8 +9,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 // Dev-infra stacks publish backing services with dev-default credentials.
 // Docker-published ports bypass ufw/iptables INPUT rules on Linux, so every
 // published port must bind to the loopback interface unless the operator opts
-// in via OM_DOCKER_BIND_ADDRESS, or a per-service OM_<SERVICE>_BIND_ADDRESS that
-// falls back to it (#6949).
+// in via OM_DOCKER_BIND_ADDRESS, or a per-service override (OM_<SERVICE>_BIND_ADDRESS
+// or VERDACCIO_HOST) that falls back to it (#6949).
 const DEV_INFRA_COMPOSE_FILES = [
   'starters/docker/compose.infra.yml',
   'docker-compose.yml',
@@ -19,7 +19,7 @@ const DEV_INFRA_COMPOSE_FILES = [
 
 const LOOPBACK_DEFAULT = '${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}'
 const LOOPBACK_PREFIX = new RegExp(
-  `^(?:\\$\\{OM_[A-Z]+_BIND_ADDRESS:-${escapeRegExp(LOOPBACK_DEFAULT)}\\}|${escapeRegExp(LOOPBACK_DEFAULT)}):`,
+  `^(?:\\$\\{(?:OM_[A-Z]+_BIND_ADDRESS|VERDACCIO_HOST):-${escapeRegExp(LOOPBACK_DEFAULT)}\\}|${escapeRegExp(LOOPBACK_DEFAULT)}):`,
 )
 
 function escapeRegExp(value) {
@@ -62,16 +62,16 @@ for (const file of DEV_INFRA_COMPOSE_FILES) {
 test('a per-service bind override must fall back to the loopback default', () => {
   assert.ok(LOOPBACK_PREFIX.test('${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432'))
   assert.ok(
-    LOOPBACK_PREFIX.test('${OM_VERDACCIO_BIND_ADDRESS:-${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}}:${VERDACCIO_PORT:-4873}:4873'),
+    LOOPBACK_PREFIX.test('${VERDACCIO_HOST:-${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}}:${VERDACCIO_PORT:-4873}:4873'),
   )
   assert.equal(LOOPBACK_PREFIX.test('${VERDACCIO_PORT:-4873}:4873'), false)
-  assert.equal(LOOPBACK_PREFIX.test('${OM_VERDACCIO_BIND_ADDRESS:-0.0.0.0}:${VERDACCIO_PORT:-4873}:4873'), false)
+  assert.equal(LOOPBACK_PREFIX.test('${VERDACCIO_HOST:-0.0.0.0}:${VERDACCIO_PORT:-4873}:4873'), false)
   assert.equal(LOOPBACK_PREFIX.test('0.0.0.0:${POSTGRES_PORT:-5432}:5432'), false)
 })
 
 // Verdaccio writes VERDACCIO_PUBLIC_URL into every dist.tarball URL, overriding
 // the request host, and Yarn downloads tarballs from that URL. Moving only the
-// listening address (OM_VERDACCIO_BIND_ADDRESS) would keep advertising
+// listening address (VERDACCIO_HOST) would keep advertising
 // localhost, so a container install would fetch tarballs from itself. The
 // public URL must be overridable alongside the bind address.
 const VERDACCIO_COMPOSE_FILES = ['starters/docker/compose.infra.yml', 'docker-compose.yml']
@@ -91,7 +91,7 @@ test('the native-Linux registry route documents the root .env and the host VERDA
   const readme = fs.readFileSync(path.resolve(ROOT, 'docker/README.md'), 'utf8')
   const section = readme.slice(readme.indexOf('### Local Verdaccio for standalone fullapp builds on native Linux'))
   assert.match(section, /`\.env` at the \*\*repository root\*\*/)
-  assert.match(section, /OM_VERDACCIO_BIND_ADDRESS=172\.17\.0\.1/)
+  assert.match(section, /VERDACCIO_HOST=172\.17\.0\.1/)
   assert.match(section, /OM_VERDACCIO_PUBLIC_URL=http:\/\/172\.17\.0\.1:4873/)
   assert.match(section, /export VERDACCIO_URL=http:\/\/172\.17\.0\.1:4873/)
   assert.doesNotMatch(section, /\.env next to the infra compose file/)

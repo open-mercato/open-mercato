@@ -179,7 +179,7 @@ command above read the root `.env`, not one next to the compose file:
 
 ```bash
 # <repo root>/.env
-OM_VERDACCIO_BIND_ADDRESS=172.17.0.1
+VERDACCIO_HOST=172.17.0.1
 OM_VERDACCIO_PUBLIC_URL=http://172.17.0.1:4873
 ```
 
