@@ -1,5 +1,17 @@
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { randomBytes } from 'node:crypto'
+import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import { createRequire } from 'node:module'
+
+const requireLocale = createRequire(import.meta.url)
+
+function initTranslator(env: NodeJS.ProcessEnv) {
+  const locale = (env.LC_ALL || env.LC_MESSAGES || env.LANG || 'en').split(/[_.-]/)[0].toLowerCase()
+  const supportedLocale = ['en', 'pl', 'es', 'de', 'ko'].includes(locale) ? locale : 'en'
+  const dictionary: Record<string, string> = requireLocale(`../i18n/${supportedLocale}.json`)
+  return createTranslator(dictionary)
+}
 
 type EnvReader = (key: string) => string | undefined
 
@@ -70,4 +82,29 @@ export function resolveInitDerivedSecrets(options: {
     adminPassword: resolvePassword('OM_INIT_ADMIN_PASSWORD', adminEmail),
     employeePassword: resolvePassword('OM_INIT_EMPLOYEE_PASSWORD', employeeEmail),
   }
+}
+
+export function resolveInitSuperadminCredentials(args: string[], env: NodeJS.ProcessEnv = process.env) {
+  const argValue = (name: string) => args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1) || undefined
+  const email = argValue('--email') ?? readEnvValue(env, 'OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com'
+  const suppliedPassword = argValue('--password') ?? readEnvValue(env, 'OM_INIT_SUPERADMIN_PASSWORD')
+  const isProduction = (env.NODE_ENV ?? '').trim().toLowerCase() === 'production'
+  const skipPolicyArg = args.find((arg) =>
+    arg === '--skip-password-policy' || arg.startsWith('--skip-password-policy=') ||
+    arg === '--allow-weak-password' || arg.startsWith('--allow-weak-password='),
+  )
+  const skipPasswordPolicy = !isProduction && (skipPolicyArg
+    ? parseBooleanToken(skipPolicyArg.split('=')[1] ?? 'true') ?? true
+    : true)
+  if (isProduction) {
+    const t = initTranslator(env)
+    const placeholder = suppliedPassword?.trim().toLowerCase()
+    if (!suppliedPassword || !placeholder || ['secret', 'password', 'changeme', 'change-me', 'change_me', 'replace-me', 'replace_me'].includes(placeholder)) {
+      throw new Error(t('cli.init.errors.superadminPasswordRequired'))
+    }
+    if (!validatePassword(suppliedPassword, getPasswordPolicy(env)).ok) {
+      throw new Error(t('cli.init.errors.superadminPasswordPolicy'))
+    }
+  }
+  return { email, password: suppliedPassword ?? 'secret', skipPasswordPolicy }
 }
