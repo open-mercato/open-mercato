@@ -2690,7 +2690,7 @@ async function applyPendingMigrationsBestEffort() {
   const result = await waitForClose(child)
   if (shuttingDown || isGracefulShutdownResult(result)) return
   if (resolveChildExitCode(result) !== 0) {
-    console.warn('⚠️ Database migrations were not applied (database unreachable or migration failed).')
+    console.warn('❗ Database migrations were not applied (database unreachable or migration failed).')
     console.warn('   ↳ start the infra containers with `yarn infra:up`, then run `yarn db:migrate` (opt out of this check with OM_DEV_AUTO_MIGRATE=0)')
   }
 }
