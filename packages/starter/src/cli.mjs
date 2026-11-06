@@ -179,7 +179,7 @@ async function commandUp(flags) {
   let session = null
   if (!containerized) {
     try {
-      session = await acquireSetupSession(repoRoot)
+      session = await acquireSetupSession(repoRoot, { interactive: flags.nonInteractive ? false : undefined })
     } catch (error) {
       console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
       console.error('   No service configuration, .env file or container was changed.')
