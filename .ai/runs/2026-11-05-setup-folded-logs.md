@@ -61,3 +61,11 @@ Phase 3 verification: all 89 starter tests passed; pre-commit translation/templa
 - [x] 4.2 Verify toggles, partial lines, failure reveal and full saved logs; publish the cleanup. — 0b260251ad
 
 Phase 4 verification: 91 starter tests passed; real PTY confirms the initial hint has no heading, hiding is silent and previously displayed compiler output appears only once after a failure reveal. Full saved output and partial-line handling remain covered. Review found no actionable findings.
+
+
+### Phase 5: Banner background and text alignment
+
+- [x] 5.1 Use the reference dark gray background in setup, dev/greenfield and standalone log banners; align setup text to one left margin. — 54fe8e82f4
+- [x] 5.2 Verify combined behavior and post refreshed screenshots on PR #8838. — 54fe8e82f4
+
+Phase 5 verification: 336 targeted starter/runtime/orchestration/logging tests passed, template parity passed, and both dev runtime scripts passed syntax checks. A real scripted PTY verifies setup animation, toggles, prompt input, gray RGB 51/55/64, consistent padding and nonduplicated replay; runtime formatter fixtures verify dev/greenfield and standalone banners. Full live app provisioning and the workspace build gate were not repeated for this presentation follow-up. Review found no remaining findings after normalizing provider confirmation padding. Refreshed screenshots are attached on PR #8838.
