@@ -1,3 +1,4 @@
+import { MAX_CUSTOM_FIELD_KEYS_PER_RECORD } from '@open-mercato/shared/modules/entities/validation'
 import { createAkeneoImporter } from '../lib/catalog-importer'
 import {
   buildDefaultAkeneoMapping,
@@ -11,6 +12,11 @@ import {
 const mockContainerResolve = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
+const mockLoadCustomFieldSnapshot = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => ({
+  loadCustomFieldSnapshot: (...args: unknown[]) => mockLoadCustomFieldSnapshot(...args),
+}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
@@ -38,6 +44,8 @@ const MODEL_CODE = 'jacket'
 const FAMILY_CODE = 'outdoor'
 const FAMILY_VARIANT_CODE = 'outdoor_by_batch'
 
+const SPEC_CODES = Array.from({ length: MAX_CUSTOM_FIELD_KEYS_PER_RECORD + 2 }, (_, index) => `spec_${index + 1}`)
+
 const ATTRIBUTES: Record<string, AkeneoAttribute> = {
   warranty_notes: { code: 'warranty_notes', type: 'pim_catalog_text' },
   certifications: { code: 'certifications', type: 'pim_catalog_multiselect' },
@@ -47,7 +55,11 @@ const ATTRIBUTES: Record<string, AkeneoAttribute> = {
 
 type SetCustomFieldsCall = { entityId: string; recordId: string; values: Record<string, unknown> }
 
-function createWorld() {
+function createWorld(extraAttributeCodes: string[] = []) {
+  const attributes: Record<string, AkeneoAttribute> = {
+    ...ATTRIBUTES,
+    ...Object.fromEntries(extraAttributeCodes.map((code) => [code, { code, type: 'pim_catalog_text' }])),
+  }
   const products: string[] = []
   const variants: Array<{ id: string; product: string; sku: string; isDefault: boolean }> = []
   const mappings: Array<{ entityType: string; localId: string; externalId: string }> = []
@@ -97,14 +109,23 @@ function createWorld() {
     }),
   }
 
+  const storedValues = new Map<string, Record<string, unknown>>()
   let writesInFlight = 0
   let maxWritesInFlight = 0
-  const setCustomFields = jest.fn(async (_input: SetCustomFieldsCall) => {
+  const setCustomFields = jest.fn(async (input: SetCustomFieldsCall) => {
+    if (Object.keys(input.values).length > MAX_CUSTOM_FIELD_KEYS_PER_RECORD) {
+      throw new Error('[internal] too many custom fields')
+    }
     writesInFlight += 1
     maxWritesInFlight = Math.max(maxWritesInFlight, writesInFlight)
     await new Promise((resolve) => setImmediate(resolve))
+    const recordKey = `${input.entityId}:${input.recordId}`
+    storedValues.set(recordKey, { ...storedValues.get(recordKey), ...input.values })
     writesInFlight -= 1
   })
+  mockLoadCustomFieldSnapshot.mockImplementation(async (_em: unknown, options: { entityId: string; recordId: string }) => (
+    { ...storedValues.get(`${options.entityId}:${options.recordId}`) }
+  ))
   const model: { values: AkeneoValues; available: boolean } = {
     values: { name: text('Jacket') },
     available: true,
@@ -145,7 +166,7 @@ function createWorld() {
   const client = {
     getFamily: jest.fn(async (code: string) => (
       code === FAMILY_CODE
-        ? { code: FAMILY_CODE, attributes: ['sku', 'name', ...Object.keys(ATTRIBUTES)] }
+        ? { code: FAMILY_CODE, attributes: ['sku', 'name', ...Object.keys(attributes)] }
         : null
     )),
     getFamilyVariant: jest.fn(async (familyCode: string, code: string) => (
@@ -153,7 +174,7 @@ function createWorld() {
         ? { code: FAMILY_VARIANT_CODE, variant_attribute_sets: [{ level: 1, axes: [], attributes: ['sku', 'batch_code'] }] }
         : null
     )),
-    getAttribute: jest.fn(async (code: string) => ATTRIBUTES[code] ?? null),
+    getAttribute: jest.fn(async (code: string) => attributes[code] ?? null),
     listAttributeOptions: jest.fn(async () => []),
     getProductModel: jest.fn(async (code: string) => (
       code === MODEL_CODE && model.available
@@ -230,6 +251,7 @@ describe('akeneo catalog importer custom field values', () => {
     mockContainerResolve.mockReset()
     mockFindOneWithDecryption.mockReset()
     mockFindWithDecryption.mockReset()
+    mockLoadCustomFieldSnapshot.mockReset()
   })
 
   it('clears a product custom field once its Akeneo value is removed', async () => {
@@ -332,6 +354,40 @@ describe('akeneo catalog importer custom field values', () => {
 
     expect(world.writesFor(PRODUCT_ENTITY_ID, ['warranty_notes'])).toEqual([{ warranty_notes: 'Lifetime' }])
     expect(world.writesFor(VARIANT_ENTITY_ID, ['batch_code'])).toEqual([{ batch_code: 'B-2026-11' }, { batch_code: 'B-2026-12' }])
+  })
+
+  it('does not write empty Akeneo values for fields that hold no local value', async () => {
+    const world = createWorld()
+    const importer = await createAkeneoImporter(world.client as never, scope)
+    const mapping = buildMapping([
+      { attributeCode: 'warranty_notes', fieldKey: 'warranty_notes', target: 'product' },
+      { attributeCode: 'internal_memo', fieldKey: 'internal_memo', target: 'product' },
+    ])
+
+    await importer.upsertProduct(buildSimpleProduct({ warranty_notes: text('Two years') }), mapping)
+    await importer.upsertProduct(buildSimpleProduct({ warranty_notes: text('Two years') }), mapping)
+    await importer.upsertProduct(buildSimpleProduct({}), mapping)
+    await importer.upsertProduct(buildSimpleProduct({}), mapping)
+
+    expect(world.writesFor(PRODUCT_ENTITY_ID)).toEqual([
+      { warranty_notes: 'Two years' },
+      { warranty_notes: 'Two years' },
+      { warranty_notes: null },
+    ])
+  })
+
+  it('keeps the write under the per-record custom field limit when most mapped Akeneo values are empty', async () => {
+    const world = createWorld(SPEC_CODES)
+    const importer = await createAkeneoImporter(world.client as never, scope)
+    const mapping = buildMapping(SPEC_CODES.map((code) => ({ attributeCode: code, fieldKey: code, target: 'product' as const })))
+
+    await importer.upsertProduct(buildSimpleProduct({ spec_1: text('Waterproof'), spec_2: text('Breathable') }), mapping)
+    await importer.upsertProduct(buildSimpleProduct({ spec_1: text('Waterproof') }), mapping)
+
+    expect(world.writesFor(PRODUCT_ENTITY_ID)).toEqual([
+      { spec_1: 'Waterproof', spec_2: 'Breathable' },
+      { spec_1: 'Waterproof', spec_2: null },
+    ])
   })
 
   it('writes product and variant custom fields one after the other', async () => {
