@@ -17,6 +17,7 @@ import {
   resolveAppReadyTimeoutMs,
   resolveEphemeralPostgresImage,
   resolveEphemeralJwtSecret,
+  resolveEphemeralSuperadminPassword,
   ephemeralPostgresInitSql,
   shouldReuseBuildArtifacts,
   acquireEphemeralRuntimeLock,
@@ -31,6 +32,7 @@ import {
 } from '../integration'
 import type { CapturedOutputProcess, ShutdownProcessRef } from '../integration'
 import { resolveSpawnCommand } from '../../spawn'
+import { resolveInitSuperadminCredentials } from '../../init-secrets'
 import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
@@ -508,6 +510,28 @@ describe('integration cache and options', () => {
     expect(resolveEphemeralJwtSecret({ JWT_SECRET: strongSecret })).toBe(strongSecret)
     expect(resolveEphemeralJwtSecret({ JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min' })).toBe(
       'ci-ephemeral-test-jwt-secret-32-chars-min',
+    )
+  })
+
+  it('supplies a production-valid superadmin password when the inherited one is missing or a placeholder', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const fallback = resolveEphemeralSuperadminPassword({})
+      expect(fallback).toBe('Om-Ephemeral-Superadmin-2026!')
+      expect(() =>
+        resolveInitSuperadminCredentials([], { NODE_ENV: 'production', OM_INIT_SUPERADMIN_PASSWORD: fallback }),
+      ).not.toThrow()
+      expect(warnSpy).not.toHaveBeenCalled()
+      expect(resolveEphemeralSuperadminPassword({ OM_INIT_SUPERADMIN_PASSWORD: 'secret' })).toBe(fallback)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('keeps a production-valid operator-provided superadmin password', () => {
+    expect(resolveEphemeralSuperadminPassword({ OM_INIT_SUPERADMIN_PASSWORD: 'Operator-Chosen-Pass-42!' })).toBe(
+      'Operator-Chosen-Pass-42!',
     )
   })
 

@@ -4,7 +4,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   PAYMENT_SESSION_INITIALIZATION_PRUNE_QUEUE,
   PAYMENT_SESSION_INITIALIZATION_PRUNE_BATCH_SIZE,
-  pruneCompletedPaymentSessionInitializations,
+  pruneExpiredPaymentSessionInitializations,
 } from '../lib/session-idempotency'
 
 type PrunePayload = {
@@ -45,13 +45,13 @@ export default async function handle(
   }
 
   const em = ctx.resolve<EntityManager>('em').fork()
-  const deleted = await pruneCompletedPaymentSessionInitializations(
+  const deleted = await pruneExpiredPaymentSessionInitializations(
     em,
     { tenantId, organizationId },
     { batchSize: PAYMENT_SESSION_INITIALIZATION_PRUNE_BATCH_SIZE },
   )
   if (deleted > 0) {
-    logger.info('Pruned completed payment-session initialization claims', {
+    logger.info('Pruned expired payment-session initialization claims', {
       deleted,
       tenantId,
       organizationId,

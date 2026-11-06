@@ -17,7 +17,11 @@
 //      The external source and skill list live under `external` in tiers.json.
 //      A folder under .ai/skills/ matching an external skill name is a
 //      repo-local override that the external skill reads in place; it is never
-//      linked into the canonical or per-agent directories.
+//      linked into the canonical or per-agent directories. A tiered local skill
+//      whose name the collection also publishes (but that is not registered in
+//      `external.skills`) replaces the collection's copy, but only when the
+//      skills CLI lockfile (skills-lock.json) records that copy as installed
+//      from the external source; any other directory at that path is kept.
 //
 // Agent support matrix. Per-agent links are created ONLY for agents that
 // cannot read the canonical project-level .agents/skills/ directory, so no
@@ -43,6 +47,7 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   rmdirSync,
   rmSync,
@@ -265,8 +270,24 @@ export function createInstaller({
     }
   }
 
-  function installCanonical(selectedSkills, externalSkills) {
+  // Skills the external collection installed, per the skills CLI lockfile
+  // (skills-lock.json at the repo root). Only these real directories under
+  // .agents/skills/ are collection-owned; anything else is left untouched.
+  function collectionOwnedSkills(source) {
+    if (!source) return new Set()
+    let lock
+    try {
+      lock = JSON.parse(readFileSync(join(repoRoot, 'skills-lock.json'), 'utf8'))
+    } catch {
+      return new Set()
+    }
+    const entries = lock && typeof lock.skills === 'object' && lock.skills ? Object.entries(lock.skills) : []
+    return new Set(entries.filter(([, entry]) => entry?.source === source).map(([name]) => name))
+  }
+
+  function installCanonical(selectedSkills, externalSkills, externalSource) {
     prepareHarnessDir(agentsDir)
+    const ownedByCollection = collectionOwnedSkills(externalSource)
     for (const skill of selectedSkills) {
       if (externalSkills.includes(skill)) {
         // Owned by the external collection; a same-named .ai/skills/ folder is a
@@ -277,7 +298,18 @@ export function createInstaller({
       const skillTarget = join(skillsDir, skill)
       const entry = lstatSync(skillTarget, { throwIfNoEntry: false })
       if (!entry?.isDirectory()) fail(`skill folder '${skillTarget}' is missing on disk.`)
-      createLink(join(agentsDir, skill), skillTarget, platform, warn)
+      const linkPath = join(agentsDir, skill)
+      const existing = lstatSync(linkPath, { throwIfNoEntry: false })
+      if (existing?.isDirectory() && !existing.isSymbolicLink() && ownedByCollection.has(skill)) {
+        // The external collection ships a skill with the same name as this tier
+        // skill (`skills add --skill '*'` copies every published skill). The local
+        // skill wins, so replace the collection's copy instead of leaving it in place.
+        // A real directory the lockfile does not attribute to the collection is
+        // not ours to delete: createLink keeps it and warns.
+        rmSync(linkPath, { recursive: true, force: true })
+        log(`info: local skill '${skill}' replaces the external collection's copy of the same name.`)
+      }
+      createLink(linkPath, skillTarget, platform, warn)
     }
     sweepHarness(agentsDir, selectedSkills)
   }
@@ -460,7 +492,7 @@ export function createInstaller({
 
     const externalStatus = installExternal(manifest, linkAgents, options.noExternal)
 
-    installCanonical(selectedSkills, externalSkills)
+    installCanonical(selectedSkills, externalSkills, manifest.external?.source)
 
     for (const agent of KNOWN_AGENTS) {
       if (linkAgents.includes(agent)) {
