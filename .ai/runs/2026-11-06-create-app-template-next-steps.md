@@ -26,6 +26,8 @@ Cases:
 
 ## Progress
 
+PR: #8901
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Next steps by startup kind
@@ -36,4 +38,4 @@ Cases:
 ### Phase 2: Docs and verification
 
 - [x] 2.1 Update the `--template` next-steps docs — 7579df13a
-- [ ] 2.2 Build create-app and capture the demo template output
+- [x] 2.2 Build create-app and capture the demo template output — verified locally, output in PR body
