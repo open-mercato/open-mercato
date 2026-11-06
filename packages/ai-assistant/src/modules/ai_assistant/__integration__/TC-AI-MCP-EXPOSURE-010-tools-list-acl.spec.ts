@@ -24,7 +24,9 @@ import {
  *
  * An API key bound to a role that grants only `ai_assistant.view` +
  * `customers.deals.view` must see the deal read tools, must NOT see the deal
- * mutation tool, and must be refused (403) when it calls it directly.
+ * mutation tool, and must be refused (403) when it calls it directly (since
+ * #8304 any direct mutation call is refused first), and a read tool outside its
+ * role (`customers.list_people`) is hidden and refused with the ACL error.
  *
  * Harness limitation: the MCP HTTP server (`mcp:serve-http`, which owns the
  * filtered `tools/list` and the `OM_MCP_TOOL_ALLOWLIST` / `OM_MCP_TOOL_DENYLIST`
@@ -46,6 +48,8 @@ async function listToolNames(request: APIRequestContext, headers: Record<string,
   expect(Array.isArray(body?.tools)).toBe(true);
   return (body?.tools ?? []).map((tool) => tool.name);
 }
+
+const PEOPLE_READ_TOOL = 'customers.list_people';
 
 test.describe('TC-AI-MCP-EXPOSURE-010: per-caller tool listing', () => {
   test('API key with a limited role lists only permitted tools and cannot call others', async ({ request }) => {
@@ -90,10 +94,21 @@ test.describe('TC-AI-MCP-EXPOSURE-010: per-caller tool listing', () => {
           args: { dealId: '00000000-0000-4000-8000-000000000000', toStage: 'won' },
         }),
       });
-      expect(denied.status(), 'calling a tool outside the key role is forbidden').toBe(403);
+      expect(denied.status(), 'calling a mutation tool outside the key role is forbidden').toBe(403);
       const deniedBody = await readJsonSafe<{ success?: boolean; error?: string }>(denied);
       expect(deniedBody?.success).toBe(false);
-      expect(deniedBody?.error ?? '').toContain('Insufficient permissions');
+
+      expect(adminNames).toContain(PEOPLE_READ_TOOL);
+      expect(keyNames, 'read tool requiring customers.people.view is hidden').not.toContain(PEOPLE_READ_TOOL);
+      const deniedRead = await request.fetch(EXECUTE_PATH, {
+        method: 'POST',
+        headers: keyHeaders,
+        data: JSON.stringify({ toolName: PEOPLE_READ_TOOL, args: {} }),
+      });
+      expect(deniedRead.status(), 'calling a read tool outside the key role is forbidden').toBe(403);
+      const deniedReadBody = await readJsonSafe<{ success?: boolean; error?: string }>(deniedRead);
+      expect(deniedReadBody?.success).toBe(false);
+      expect(deniedReadBody?.error ?? '').toContain('Insufficient permissions');
     } finally {
       if (apiKeyId) {
         await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${encodeURIComponent(apiKeyId)}`, {
