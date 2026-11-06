@@ -18,7 +18,7 @@ import {
  * The delivery worker claims a delivery (`pending` → `sending`) atomically before sending and ignores
  * jobs for deliveries that already finished, so a queue that runs a job twice cannot send the event
  * twice. In the integration env the app process starts an in-process local-queue worker on enqueue
- * while AUTO_SPAWN_WORKERS also runs the webhook worker; on main retried jobs were seen running twice.
+ * while AUTO_SPAWN_WORKERS also runs the webhook worker, so a retried job can run twice.
  * Each delivery here fails its synchronous test send with a non-retryable 400, is retried once, and
  * must reach the receiver exactly once more. Needs OM_WEBHOOKS_ALLOW_PRIVATE_URLS (enabled in the integration env)
  * because the receiver listens on loopback.

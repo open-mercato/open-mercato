@@ -364,15 +364,10 @@ async function releaseWebhookDeliveryClaim(
 }
 
 async function scheduleWebhookDeliveryClaimRecheck(job: WebhookDeliveryJob, waitMs: number): Promise<void> {
-  try {
-    await enqueueWebhookDeliveryFromJob(
-      { deliveryId: job.deliveryId, tenantId: job.tenantId, organizationId: job.organizationId },
-      waitMs + CLAIM_RECHECK_MARGIN_MS,
-    )
-  } catch (error) {
-    logger.error('Failed to schedule webhook delivery claim recheck', { deliveryId: job.deliveryId, err: error })
-    getTelemetryRuntime()?.reportError(error, { module: 'webhooks', code: 'webhooks.delivery_claim_recheck_failed' })
-  }
+  await enqueueWebhookDeliveryFromJob(
+    { deliveryId: job.deliveryId, tenantId: job.tenantId, organizationId: job.organizationId },
+    waitMs + CLAIM_RECHECK_MARGIN_MS,
+  )
 }
 
 type RecordWebhookSafetyFailureInput = {

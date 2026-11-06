@@ -124,6 +124,16 @@ describe('processWebhookDeliveryJob — delivery claim', () => {
     expect(recheckDelayMs).toBeLessThanOrEqual(121_000)
   })
 
+  it('fails the job when the recheck cannot be scheduled so the queue retries it', async () => {
+    const em = buildEm(buildDelivery(), 0)
+    enqueueFromJobMock.mockRejectedValueOnce(new Error('queue unavailable'))
+
+    await expect(processWebhookDeliveryJob(em as unknown as EntityManager, JOB)).rejects.toThrow('queue unavailable')
+
+    expect(safeWebhookFetchMock).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+  })
+
   it('does not schedule a recheck when retries are not scheduled', async () => {
     const em = buildEm(buildDelivery(), 0)
 
