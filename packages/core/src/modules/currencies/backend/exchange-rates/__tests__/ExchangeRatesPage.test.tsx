@@ -30,6 +30,14 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   DataTable: (props: any) => (
     <div data-testid="data-table-mock">
       <div data-testid="data-table-title">{props.title}</div>
+      {props.columns.map((column: any) => (
+        <div key={column.accessorKey} data-testid={`column-${column.accessorKey}`}>
+          {column.cell?.({
+            row: { original: props.data?.[0] ?? { fromCurrencyCode: 'EUR', toCurrencyCode: 'USD' } },
+            getValue: () => props.data?.[0]?.[column.accessorKey],
+          })}
+        </div>
+      ))}
       <div data-testid="row-actions-wrapper">
         {props.rowActions?.({
           id: 'rate-1',
@@ -107,7 +115,7 @@ describe('ExchangeRatesPage', () => {
       ok: true,
       result: {
         items: [
-          { id: 'rate-1', fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', rate: '1.10', date: '2024-01-01', source: 'Manual', type: null, isActive: true, organizationId: 'org-1', tenantId: 'ten-1', createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+          { id: 'rate-1', fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', rate: '1.10', date: '2024-01-01', source: 'nbp_average', type: 'average', externalReference: '163/A/NBP/2026', isActive: true, organizationId: 'org-1', tenantId: 'ten-1', createdAt: '2024-01-01', updatedAt: '2024-01-01' },
         ],
         total: 1,
         page: 1,
@@ -121,6 +129,13 @@ describe('ExchangeRatesPage', () => {
 
     await waitFor(() => expect(apiCall).toHaveBeenCalled())
     expect((apiCall as jest.Mock).mock.calls[0][0]).toContain('/api/currencies/exchange-rates?page=1&pageSize=50')
+  })
+
+  it('renders average type and publication reference', async () => {
+    render(<ExchangeRatesPage />)
+
+    expect(await screen.findByText('exchangeRates.list.type.average')).toBeInTheDocument()
+    expect(screen.getByText('163/A/NBP/2026')).toBeInTheDocument()
   })
 
   it('handleDelete calls DELETE /api/currencies/exchange-rates after confirmation', async () => {
