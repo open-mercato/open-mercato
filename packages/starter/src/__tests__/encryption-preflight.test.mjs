@@ -3,7 +3,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import { assertEncryptionCompatible, inspectEncryptionCompatibility } from '../encryption-preflight.mjs'
+import { EventEmitter } from 'node:events'
+import { assertEncryptionCompatible, inspectEncryptionCompatibility, runEncryptionGuardedSetupCommand } from '../encryption-preflight.mjs'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 
 const correct = Buffer.alloc(32, 1).toString('base64')
@@ -66,7 +67,7 @@ test('empty, plaintext-only and unavailable KMS have distinct safe outcomes', as
 test('unknown versions, malformed ciphertext, unknown scope, incomplete scans and RLS fail closed', async () => {
   for (const input of [
     fixture([{ tenant_id: tenant, value: sealed.replace(/v1$/, 'v2') }]),
-    fixture([{ tenant_id: tenant, value: 'broken:payload:v1' }]),
+    fixture([{ tenant_id: tenant, value: 'broken:payload:tag:v1' }]),
     fixture([{ value: sealed }]),
     { ...fixture([{ value: 'plain' }]), maxRows: 0 },
     { ...fixture([{ value: 'plain' }]), maxBytes: 0 },
@@ -139,4 +140,37 @@ test('environment convergence never generates an encryption fallback for reused 
       assert.ok(!after.includes('TENANT_DATA_ENCRYPTION_FALLBACK_KEY'))
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+
+test('ordinary version-suffixed plaintext remains compatible before and after authenticated decryption', async () => {
+  const plaintext = 'customer-api:v1'
+  assert.equal(await inspectEncryptionCompatibility(fixture([{ tenant_id: tenant, value: plaintext }])), 'plaintext-only')
+  const encrypted = encryptWithAesGcm(plaintext, correct).raw
+  assert.equal(await inspectEncryptionCompatibility(fixture([{ tenant_id: tenant, value: encrypted }])), 'verified')
+})
+
+
+test('container command wrapper freezes verified settings and never spawns on rejection', async () => {
+  let spawned = false
+  await assert.rejects(runEncryptionGuardedSetupCommand('fixture-command', {
+    verify: async () => { throw new Error('rejected') },
+    spawnCommand: () => { spawned = true; throw new Error('must not launch') },
+  }), /rejected/)
+  assert.equal(spawned, false)
+  let received
+  const result = await runEncryptionGuardedSetupCommand('fixture-command', {
+    verify: async () => ({ settings: { DATABASE_URL: 'verified-fixture', TENANT_DATA_ENCRYPTION_KEY: 'verified-fixture-key' } }),
+    spawnCommand: (command, args, options) => {
+      received = { command, args, env: options.env }
+      const child = new EventEmitter()
+      child.kill = () => {}
+      setImmediate(() => child.emit('exit', 7))
+      return child
+    },
+  })
+  assert.equal(result, 7)
+  assert.equal(received.command, 'sh')
+  assert.equal(received.env.DATABASE_URL, 'verified-fixture')
+  assert.equal(received.env.TENANT_DATA_ENCRYPTION_KEY, 'verified-fixture-key')
 })

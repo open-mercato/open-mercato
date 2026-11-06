@@ -12,6 +12,7 @@ const templateScriptPath = path.join(repoRoot, 'packages/create-app/template/doc
 
 function runScript({
   seeded = false,
+  encryptionRejected = false,
   initFails = false,
   initReportsExistingUsers = false,
   syncFails = false,
@@ -21,6 +22,14 @@ function runScript({
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'init-or-migrate-'))
   const markerFile = path.join(tempDir, 'marker', '.seeded')
   const stepsFile = path.join(tempDir, 'steps.txt')
+  const copiedScript = path.join(tempDir, 'init-or-migrate.sh')
+  fs.copyFileSync(scriptPath, copiedScript)
+  fs.writeFileSync(path.join(tempDir, 'encryption-preflight.mjs'), `
+    import { spawnSync } from 'node:child_process'
+    if (process.env.TEST_ENCRYPTION_REJECTED === '1') { console.error('Encryption compatibility rejected'); process.exit(1) }
+    const result = spawnSync('sh', ['-lc', process.argv[3]], { stdio: 'inherit', env: process.env })
+    process.exit(result.status ?? 1)
+  `)
 
   if (seeded) {
     fs.mkdirSync(path.dirname(markerFile), { recursive: true })
@@ -37,10 +46,11 @@ function runScript({
     ? `${record('migrate')}; exit ${migrateExitCode}`
     : record('migrate')
 
-  const result = spawnSync('sh', [scriptPath], {
+  const result = spawnSync('sh', [copiedScript], {
     env: {
       ...process.env,
       INIT_MARKER_FILE: markerFile,
+      TEST_ENCRYPTION_REJECTED: encryptionRejected ? '1' : '0',
       INIT_COMMAND: initCommand,
       MIGRATE_COMMAND: migrateCommand,
       SYNC_ROLE_ACLS_COMMAND: syncFails ? `${record('sync')}; exit 1` : record('sync'),
@@ -105,4 +115,15 @@ test('a failing migration on an already-seeded run aborts startup with the migra
 
 test('the create-app template ships the same boot script', () => {
   assert.equal(fs.readFileSync(templateScriptPath, 'utf8'), fs.readFileSync(scriptPath, 'utf8'))
+})
+
+
+test('container setup rejects incompatible encryption before initialize, migrate, ACL sync or marker writes', () => {
+  for (const seeded of [false, true]) {
+    const { result, steps, markerExists } = runScript({ seeded, encryptionRejected: true })
+    assert.notEqual(result.status, 0)
+    assert.deepEqual(steps, [])
+    assert.equal(markerExists, seeded)
+    assert.match(result.stdout, /Encryption compatibility rejected/)
+  }
 })

@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { createServer } from 'node:http'
+import { spawnSync } from 'node:child_process'
 import { GenericContainer, Wait } from 'testcontainers'
 import pg from 'pg'
 import { assertEncryptionCompatible } from '../encryption-preflight.mjs'
@@ -111,6 +112,27 @@ test('disposable PostgreSQL: actual isolated helpers prove keys and rejected reu
       runStreamingImpl(...args) { mutations.push(args); throw new Error('mutation must not launch') },
     }), /writes are blocked/)
     assert.deepEqual(mutations, [])
+    const guardMarker = path.join(projectDir, 'guarded-mutation')
+    const command = `node -e 'require("node:fs").writeFileSync(process.env.TEST_GUARD_MARKER,"ran")'`
+    const containerRun = spawnSync('sh', [path.join(repository, 'docker', 'scripts', 'init-or-migrate.sh')], {
+      cwd: appDir,
+      env: { ...env, TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'wrong-fixture-key', INIT_MARKER_FILE: path.join(projectDir, 'seed-marker'), INIT_COMMAND: command, MIGRATE_COMMAND: command, SYNC_ROLE_ACLS_COMMAND: command, TEST_GUARD_MARKER: guardMarker },
+      encoding: 'utf8', timeout: 30_000,
+    })
+    assert.notEqual(containerRun.status, 0)
+    assert.match(containerRun.stdout, /writes are blocked/)
+    assert.equal(fs.existsSync(guardMarker), false)
+    assert.equal(fs.existsSync(path.join(projectDir, 'seed-marker')), false)
+    const acceptedContainer = spawnSync('sh', [path.join(repository, 'docker', 'scripts', 'init-or-migrate.sh')], {
+      cwd: appDir,
+      env: { ...env, ...formsEnv, INIT_MARKER_FILE: path.join(projectDir, 'seed-marker'), INIT_COMMAND: command, MIGRATE_COMMAND: command, SYNC_ROLE_ACLS_COMMAND: command, TEST_GUARD_MARKER: guardMarker },
+      encoding: 'utf8', timeout: 30_000,
+    })
+    assert.equal(acceptedContainer.status, 0, acceptedContainer.stdout + acceptedContainer.stderr)
+    assert.equal(fs.readFileSync(guardMarker, 'utf8'), 'ran')
+    assert.equal(fs.existsSync(path.join(projectDir, 'seed-marker')), true)
+
+
     assert.equal(fs.readFileSync(path.join(appDir, '.env'), 'utf8'), appEnv)
     assert.deepEqual((await client.query('SELECT data FROM forms_form_submission_revision')).rows[0].data, encrypted)
 

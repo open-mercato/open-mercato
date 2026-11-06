@@ -5225,7 +5225,7 @@ This does not rotate existing credentials. If a deployment previously initialize
 
 ## Setup verifies encryption before database reuse (#8913)
 
-Setup migrations, initialization, reinstall and development recovery migrations now inspect existing database ciphertext with the configured tenant KMS and Forms key adapter before writes. Correct PostgreSQL credentials alone no longer permit reuse. Both monorepo and refreshed standalone setup scripts include this guard.
+Setup migrations, initialization, reinstall and development recovery migrations now inspect existing database ciphertext with the configured tenant KMS and Forms key adapter before writes. Correct PostgreSQL credentials alone no longer permit reuse. Both monorepo and refreshed standalone setup scripts include this guard, including container initialization, migrations and role-ACL synchronization.
 
 Keep the original `TENANT_DATA_ENCRYPTION` configuration, fallback/application key, historical Vault tenant keys and Forms master key. The starter no longer fills a missing tenant encryption fallback key automatically. Restore the original configuration; do not regenerate keys, rotate them, or use reinstall to bypass a rejection. No key or ciphertext migration is performed by the preflight.
 

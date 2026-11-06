@@ -77,7 +77,8 @@ export async function inspectEncryptionCompatibility({ client, kms, decrypt, res
     if (depth > 32) throw new Error(FAILURE)
     if (typeof value === 'string') {
       if (/^\\x[0-9a-f]+$/i.test(value)) throw new Error(FAILURE)
-      if (/:v\d+$/.test(value)) {
+      const envelopeParts = value.split(':')
+      if (envelopeParts.length === 4 && /^v\d+$/.test(envelopeParts[3])) {
         if (!encryptionEnabled || !keyId) throw new Error(FAILURE)
         let dek = keys.get(keyId)
         if (!dek) {
@@ -200,4 +201,28 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(0)
   }
   catch { process.exit(1) }
+}
+
+
+export async function runEncryptionGuardedSetupCommand(command, { projectDir = process.cwd(), verify = assertEncryptionCompatible, spawnCommand = spawn } = {}) {
+  const compatibility = await verify({ projectDir })
+  const child = spawnCommand('sh', ['-lc', command], { cwd: projectDir, env: compatibility.settings, stdio: 'inherit' })
+  const interrupt = () => child.kill('SIGINT')
+  const terminate = () => child.kill('SIGTERM')
+  process.once('SIGINT', interrupt)
+  process.once('SIGTERM', terminate)
+  try {
+    return await new Promise((resolve, reject) => {
+      child.once('error', () => reject(new Error(FAILURE)))
+      child.once('exit', code => resolve(code ?? 1))
+    })
+  } finally {
+    process.removeListener('SIGINT', interrupt)
+    process.removeListener('SIGTERM', terminate)
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv[2] === '--run-setup-command') {
+  try { process.exit(await runEncryptionGuardedSetupCommand(process.argv[3])) }
+  catch { console.error(FAILURE); process.exit(1) }
 }
