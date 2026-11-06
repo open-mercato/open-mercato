@@ -17,6 +17,9 @@ const cleanEnv = { PATH: process.env.PATH, JWT_SECRET: randomBytes(32).toString(
 const dockerAvailable = spawnSync('docker', ['compose', 'version'], { encoding: 'utf8', timeout: 10_000 }).status === 0
 const publishedDevelopmentKey = fs.readFileSync(path.join(root, 'starters/docker/compose.fullapp.dev.yml'), 'utf8')
   .match(/TENANT_DATA_ENCRYPTION_FALLBACK_KEY:\s*\$\{TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-([^}]+)\}/)?.[1]
+const repositoryPublishedSecrets = ['om-ephemeral-integration-fallback-key', 'tc-customers-seed-001-derived-key',
+  'installation-pepper-secret-value', 'checkout-encryption-fallback-secret']
+const lowVarietySecrets = ['a'.repeat(36), 'ab'.repeat(20), '\u0105'.repeat(17)]
 
 function render(filename, overrides = {}) {
   return spawnSync('docker', ['compose', '--project-directory', root, '--env-file', '/dev/null', '-f',
@@ -88,7 +91,7 @@ for (const filename of productionFiles) {
 
   test(`${filename}: unsafe keys fail the executed startup preflight without leaking values`, { skip: !dockerAvailable }, () => {
     assert.ok(publishedDevelopmentKey)
-    for (const key of [' ', 'short-test-key', "''", publishedDevelopmentKey]) {
+    for (const key of [' ', 'short-test-key', "''", publishedDevelopmentKey, ...repositoryPublishedSecrets, ...lowVarietySecrets]) {
       const config = rendered(filename, { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: key })
       const result = preflight(config)
       assert.notEqual(result.status, 0)
@@ -124,7 +127,7 @@ for (const filename of productionFiles) {
 
   test(`${filename}: weak explicit peppers cannot override strong encryption keys`, { skip: !dockerAvailable }, () => {
     const key = randomBytes(32).toString('hex')
-    for (const pepper of ['weak-lookup-pepper', publishedDevelopmentKey]) {
+    for (const pepper of ['weak-lookup-pepper', publishedDevelopmentKey, ...repositoryPublishedSecrets, ...lowVarietySecrets]) {
       const result = preflight(rendered(filename, { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: key, LOOKUP_HASH_PEPPER: pepper }))
       assert.notEqual(result.status, 0)
       assert.match(result.stderr, /lookup/)
@@ -180,20 +183,23 @@ test('Compose prevents a dependent application process from starting after a fai
         }, entrypoint: ['node', '-e'], command: ["console.log('application-probe-started')"] },
       } }))
       const args = ['compose', '--project-name', project, '-f', composePath]
+      const compose = (command) => spawnSync('docker', [...args, ...command], {
+        encoding: 'utf8', timeout: 60_000, killSignal: 'SIGKILL',
+      })
       try {
-        const result = spawnSync('docker', [...args, 'up', '--pull', 'never', '--abort-on-container-exit', '--exit-code-from', 'app'], {
-          encoding: 'utf8', timeout: 30_000,
-        })
+        const result = compose(['run', '--rm', '--pull', 'never', 'app'])
+        assert.equal(result.error, undefined, `${filename}: docker compose run must settle within the run-level timeout`)
         if (configured) {
           assert.equal(result.status, 0, `${filename}: configured preflight must allow the dependent process`)
           assert.match(result.stdout, /application-probe-started/)
         } else {
           assert.notEqual(result.status, 0)
           assert.doesNotMatch(result.stdout, /application-probe-started/)
-          assert.match(result.stdout + result.stderr, /Tenant encryption configuration:/)
+          const logs = compose(['logs', '--no-color', 'encryption-preflight'])
+          assert.match(result.stdout + result.stderr + logs.stdout + logs.stderr, /Tenant encryption configuration:/)
         }
       } finally {
-        const cleanup = spawnSync('docker', [...args, 'down', '--volumes', '--remove-orphans'], { encoding: 'utf8', timeout: 30_000 })
+        const cleanup = compose(['down', '--volumes', '--remove-orphans'])
         assert.equal(cleanup.status, 0, 'isolated test containers must be removed')
         rmSync(directory, { recursive: true, force: true })
       }

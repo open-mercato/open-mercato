@@ -15,7 +15,15 @@ and legacy keys retain their precedence; supported Vault configuration, its moun
 timeouts, and `LOOKUP_HASH_PEPPER` now reach all app/sidecar consumers consistently.
 The check also applies when the encryption toggle is off; do not disable encryption
 to bypass it. Generate new random material only for an installation without existing
-encrypted data. Never regenerate keys on restart.
+encrypted data. Never regenerate keys on restart. Keys made only of a few repeated
+characters, and other secrets published in this repository, are rejected as well.
+
+**Local development:** when `yarn setup`, `yarn dev`, `yarn dev:ephemeral`, the
+standalone `setup`/`dev` scripts or the `mercato` CLI create a missing `.env` from
+`.env.example`, they now write a unique random `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`
+into it (`yarn setup` reuses the compose `.env` key), alongside the secrets the
+starter already generated. An existing `.env` is never modified; one still carrying
+the old published key keeps it until migrated.
 
 **Existing data:** retain the old root/DEKs and lookup pepper securely. Replacing a
 root alone makes tenant and system ciphertext unreadable; replacing the effective

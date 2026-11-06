@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { parseEnv } from 'node:util'
 import { collectForwardedSetupFlags, previewDatabaseNameOverride } from './dev-database-url.mjs'
 import { NO_INFRA_FLAG, formatInfraProblem, selectDefaultServiceMode } from './dev-infra-preflight.mjs'
@@ -8,6 +8,7 @@ import { chooseServiceMode, configureServiceMode, printManualSetup } from './dev
 import { verifyServiceConnections } from './dev-service-connections.mjs'
 import { assertDatabaseWriteAllowed } from './dev-database-write-guard.mjs'
 import { acquireDevSession } from './dev-session-guard.mjs'
+import { createEnvFileFromExample } from './dev-env-file.mjs'
 
 const argv = process.argv.slice(2)
 const verbose = argv.includes('--verbose')
@@ -64,7 +65,7 @@ try {
 
 try {
   if (!existsSync('.env') && existsSync('.env.example')) {
-    copyFileSync('.env.example', '.env')
+    createEnvFileFromExample('.env.example', '.env')
     console.log('[setup] Copied .env.example to .env')
   }
   let mode

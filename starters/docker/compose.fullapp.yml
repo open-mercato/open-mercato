@@ -21,8 +21,8 @@ services:
         const crypto = require('node:crypto')
         const normalize = (value) => (value || '').trim().replace(/(?:^['"]|['"]$)/g, '')
         const fail = (message) => { console.error('Tenant encryption configuration: ' + message); process.exit(1) }
-        const published = new Set(['c7eabc7b8d9e7cd03f1bf71364dfdd871518a68c0b9b684c14f4ece5fd7a0e3e'])
-        const unsafe = (value) => Buffer.byteLength(value, 'utf8') < 32 || published.has(crypto.createHash('sha256').update(value).digest('hex'))
+        const published = new Set(['c7eabc7b8d9e7cd03f1bf71364dfdd871518a68c0b9b684c14f4ece5fd7a0e3e', '98ad4a4afedee55ac36b52033d320ea341406e01aa28a3604dba7f30d47a294a', '1ddaf04dcf69200b4e44e3b35a04e558ea833f3fbdcea75270196a32b2269472', '68fe65529a84f01100e5ed78ea304e3020b8b19b50545aac49c54652baf61b76', '1b64067151000c77316ca44dfee4ea09e195f3d2956a42ff745035db351dd639'])
+        const unsafe = (value) => Buffer.byteLength(value, 'utf8') < 32 || new Set(value).size < 8 || published.has(crypto.createHash('sha256').update(value).digest('hex'))
         const fallback = normalize(process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY)
         const legacy = normalize(process.env.TENANT_DATA_ENCRYPTION_KEY)
         const secret = fallback || legacy
