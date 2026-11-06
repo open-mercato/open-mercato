@@ -555,10 +555,11 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
         if (revertsName || revertsTenant) {
           const assignments = await em.count(UserRole, { role: liveRole, deletedAt: null })
           if (assignments > 0) {
+            const { translate } = await resolveTranslations()
             throw new CrudHttpError(409, {
               error: revertsTenant
-                ? 'Role cannot be moved to another tenant while users are assigned'
-                : 'Role name cannot be changed while users are assigned',
+                ? translate('auth.roles.errors.tenantMoveBlockedByAssignments', 'Role cannot be moved to another tenant while users are assigned')
+                : translate('auth.roles.errors.nameChangeBlockedByAssignments', 'Role name cannot be changed while users are assigned'),
             })
           }
         }
