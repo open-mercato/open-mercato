@@ -511,6 +511,15 @@ describe('API Route Authorization', () => {
       expect(setCookie).toContain('session_token=;')
     })
 
+    it('returns 429 with retry guidance without clearing cookies when API-key verification is throttled', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'error', retryAfterMs: 1200 })
+      const request = new NextRequest('http://localhost:3001/api/example/test')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+      expect(response.status).toBe(429)
+      expect(response.headers.get('retry-after')).toBe('2')
+      expect(response.headers.get('set-cookie')).toBeNull()
+    })
+
     it('should return a retryable 503 and preserve cookies on a transient auth-resolution failure (issue #4176 — no mass logout)', async () => {
       mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'error' })
 

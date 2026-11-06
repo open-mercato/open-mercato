@@ -5156,3 +5156,7 @@ skill can parse them.
 `POST /api/auth/logout` now returns `303 See Other` with the same login Location, so browsers navigate with GET and reloading the login page does not resubmit a form. This supersedes the 307 status in the earlier logout notes, including refresh-cookie-only and cookieless requests.
 
 **Action for integrators:** accept 303 instead of asserting 307 and follow Location with GET. Operators need no configuration or database migration. Session revocation, cookie expiry and events retain their current behavior, and other users of the shared redirect helper still default to 307. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md).
+
+## API-key cost 12 and verification throttling (#3811, carry-forward of #8376)
+
+New API-key hashes use bcrypt cost 12; existing keys remain valid without rotation or migration. Application and MCP verification now have a shared per-process work budget with no comparison-result cache. Clients can receive 429 with Retry-After when verification capacity is exhausted and should retry accordingly. Internal consumers must propagate ApiKeyVerificationRateLimitError as temporary overload, never treat it as a bad credential or rotate keys because of it. The standard request-authentication cache remains compatible but is not the DoS protection. Deploy every app/MCP process; retain ingress rate limiting for distributed traffic and database/connection pressure. See `.ai/specs/2026-11-06-api-key-bcrypt12-rate-limiting.md` for capacity and residual-risk details.

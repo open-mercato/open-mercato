@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { ApiKeyVerificationRateLimitError } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
 
 jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   createApiKey: jest.fn(),
@@ -73,6 +74,17 @@ describe('ensureMcpApiKey', () => {
     expect(mockedCreateApiKey).not.toHaveBeenCalled()
     expect(mockedDeleteApiKey).not.toHaveBeenCalled()
     expect((await fs.readFile(filePath, 'utf8')).trim()).toBe('omk_old1.secret')
+  })
+
+  it('preserves the existing key and secret file when verification is temporarily throttled', async () => {
+    await fs.mkdir(join(workDir, 'shared'), { recursive: true })
+    await fs.writeFile(filePath, 'omk_old1.secret\n')
+    mockedFindApiKeyBySecret.mockRejectedValueOnce(new ApiKeyVerificationRateLimitError(1000))
+    await expect(ensureMcpApiKey({ em: createEm(), filePath }))
+      .rejects.toBeInstanceOf(ApiKeyVerificationRateLimitError)
+    expect(mockedCreateApiKey).not.toHaveBeenCalled()
+    expect(mockedDeleteApiKey).not.toHaveBeenCalled()
+    expect(await fs.readFile(filePath, 'utf8')).toBe('omk_old1.secret\n')
   })
 
   it('creates a key owned by the superadmin and writes the secret file when no file exists', async () => {

@@ -1,3 +1,8 @@
+import { promises as fs } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { ApiKeyVerificationRateLimitError } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
+
 /**
  * Tests for Phase 4a additions to /api/ai_assistant/settings:
  *   - PUT /api/ai_assistant/settings — upsert + ACL gate
@@ -6,6 +11,11 @@
  * The GET handler is tested implicitly via integration; unit testing
  * the existing GET would require mocking many opencode-provider helpers.
  */
+
+const mockFindApiKeyBySecret = jest.fn()
+jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
+  findApiKeyBySecret: (...args: unknown[]) => mockFindApiKeyBySecret(...args),
+}))
 
 const authMock = jest.fn()
 const userHasAllFeaturesMock = jest.fn()
@@ -406,6 +416,24 @@ describe('GET /api/ai_assistant/settings', () => {
   afterEach(() => {
     process.env = originalEnv
     consoleWarnSpy.mockRestore()
+  })
+
+  it('returns retryable overload instead of reporting a configured MCP key as missing', async () => {
+    const directory = await fs.mkdtemp(join(tmpdir(), 'mcp-settings-throttle-'))
+    const secretPath = join(directory, 'mcp-key')
+    await fs.writeFile(secretPath, 'omk_fixture.secret')
+    delete process.env.MCP_SERVER_API_KEY
+    process.env.MCP_SERVER_API_KEY_FILE = secretPath
+    mockFindApiKeyBySecret.mockRejectedValueOnce(new ApiKeyVerificationRateLimitError(1200))
+    try {
+      const response = await GET(new Request('http://localhost/api/ai_assistant/settings') as Parameters<typeof GET>[0])
+      expect(response.status).toBe(429)
+      expect(response.headers.get('retry-after')).toBe('2')
+      const body = await response.json()
+      expect(body).not.toHaveProperty('mcpKeyConfigured', false)
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('does not run LM Studio slashy model ids through the legacy OpenCode model parser', async () => {
