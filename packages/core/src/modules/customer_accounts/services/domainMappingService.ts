@@ -1,5 +1,8 @@
 import { Resolver, promises as dnsPromises } from 'node:dns'
 import { request as httpsRequest } from 'node:https'
+import type { ClientRequest } from 'node:http'
+import { resolveSafeHostAddress } from '@open-mercato/shared/lib/host-pinning'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { setTimeout as delay } from 'node:timers/promises'
 import { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -98,36 +101,61 @@ const defaultDnsResolver: DnsResolverContract = {
 
 const defaultHealthCheck: HealthCheckContract = (hostname, timeoutMs) =>
   new Promise((resolve) => {
-    const headerName = (process.env.CUSTOMER_DOMAIN_ORIGIN_HEADER ?? 'X-Open-Mercato-Origin').toLowerCase()
-    const req = httpsRequest(
-      {
-        host: hostname,
-        port: 443,
-        path: '/api/customer_accounts/domain-check',
-        method: 'GET',
-        headers: { 'X-Domain-Check-Secret': process.env.DOMAIN_CHECK_SECRET ?? '' },
-        timeout: timeoutMs,
-      },
-      (res) => {
-        const headerValue = res.headers[headerName]
-        const originHeader = Array.isArray(headerValue) ? headerValue[0] : headerValue
-        const originHeaderPresent = typeof originHeader === 'string' && originHeader === '1'
-        const status = res.statusCode ?? 0
-        res.resume() // discard body
-        resolve({
-          ok: status >= 200 && status < 400,
-          originHeaderPresent,
-          reason: status >= 200 && status < 400 ? undefined : `HTTP ${status}`,
-        })
-      },
-    )
-    req.on('timeout', () => {
-      req.destroy(new Error('TLS health check timed out'))
+    let req: ClientRequest | undefined
+    let settled = false
+    const failure = { ok: false, originHeaderPresent: false, reason: 'TLS health check failed' }
+    const finish = (result: Awaited<ReturnType<HealthCheckContract>>) => {
+      if (settled) return
+      settled = true
+      clearTimeout(deadline)
+      resolve(result)
+    }
+    const deadline = setTimeout(() => {
+      finish(failure)
+      req?.destroy()
+    }, timeoutMs)
+
+    void resolveSafeHostAddress(hostname).then(({ host }) => {
+      if (settled) return
+      const headerName = (process.env.CUSTOMER_DOMAIN_ORIGIN_HEADER ?? 'X-Open-Mercato-Origin').toLowerCase()
+      req = httpsRequest(
+        {
+          host,
+          servername: hostname,
+          rejectUnauthorized: true,
+          agent: false,
+          port: 443,
+          path: '/api/customer_accounts/domain-check',
+          method: 'GET',
+          headers: { Host: hostname, 'X-Domain-Check-Secret': process.env.DOMAIN_CHECK_SECRET ?? '' },
+          timeout: timeoutMs,
+        },
+        (res) => {
+          const headerValue = res.headers[headerName]
+          const originHeader = Array.isArray(headerValue) ? headerValue[0] : headerValue
+          const originHeaderPresent = typeof originHeader === 'string' && originHeader === '1'
+          const status = res.statusCode ?? 0
+          res.resume()
+          finish({
+            ok: status >= 200 && status < 400,
+            originHeaderPresent,
+            reason: status >= 200 && status < 400 ? undefined : `HTTP ${status}`,
+          })
+        },
+      )
+      req.on('timeout', () => {
+        finish(failure)
+        req?.destroy()
+      })
+      req.on('error', () => finish(failure))
+      req.end()
+    }).catch(() => {
+      getTelemetryRuntime()?.reportError(new Error('[internal] Domain TLS health check failed'), {
+        module: 'customer_accounts',
+        code: 'customer_accounts.domain_health_check_failed',
+      })
+      finish(failure)
     })
-    req.on('error', (err) => {
-      resolve({ ok: false, originHeaderPresent: false, reason: (err as Error).message })
-    })
-    req.end()
   })
 
 export class DomainMappingService {
