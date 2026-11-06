@@ -194,6 +194,10 @@ async function probe(projectDir) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv[2] === '--encryption-probe') {
-  try { process.send(await probe(process.argv[3])); process.exit(0) }
+  try {
+    const status = await probe(process.argv[3])
+    await new Promise((resolve, reject) => process.send(status, error => error ? reject(error) : resolve()))
+    process.exit(0)
+  }
   catch { process.exit(1) }
 }

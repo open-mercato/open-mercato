@@ -22,7 +22,7 @@ No schema, HTTP API, module discovery or existing CLI flag changes. Internal scr
 
 ## Empty and Plaintext Policy
 
-An absent database (PostgreSQL 3D000), zero tables or entirely empty tables has no historical data to decrypt and can proceed through the existing new-database path. A complete scan of populated tables without recognized ciphertext reports plaintext-only, never keys-compatible. With encryption disabled, stored ciphertext still rejects. For populated application tables with encryption enabled, every discovered tenant/system scope must resolve an existing key via getTenantDek, including scopes with plaintext only. A plaintext-only database with no resolvable scope rejects as unverifiable. Migration-bookkeeping-only databases are treated as new/empty so initialization can create the first tenant normally. No KMS health flag substitutes for a key read; no historical compatibility is claimed without ciphertext.
+An absent database (PostgreSQL 3D000), zero tables or entirely empty tables has no historical data to decrypt and can proceed through the existing new-database path. A complete scan of populated tables without recognized ciphertext reports plaintext-only, never keys-compatible. With tenant encryption disabled, existing tenant/system ciphertext still rejects. Forms encryption is independent and is verified through its own configured adapter. For populated application tables with encryption enabled, every discovered tenant/system scope must resolve an existing key via getTenantDek, including scopes with plaintext only. A plaintext-only database with no resolvable scope rejects as unverifiable. Migration-bookkeeping-only databases are treated as new/empty so initialization can create the first tenant normally. No KMS health flag substitutes for a key read; no historical compatibility is claimed without ciphertext.
 
 ## Risks & Impact Review
 
@@ -41,7 +41,7 @@ Real existing encryption/KMS helpers with correct/wrong fallback keys; missing/u
 
 ## Final Compliance Report
 
-In progress. No completion or full-gate claim. Tracking plan: .ai/runs/2026-11-06-setup-encryption-preflight.md.
+Implementation and focused/live verification complete; full gate and integration remain blocked. Package builds, generation, translation checks and typecheck pass. The full test run fails in four untouched CLI tests; two additional Docker COPY script checks require usable Buildx. The branch deliberately preserves the requested parent snapshot and currently conflicts with main. No full-gate or merge-ready claim. Tracking plan: .ai/runs/2026-11-06-setup-encryption-preflight.md.
 
 ## Changelog
 

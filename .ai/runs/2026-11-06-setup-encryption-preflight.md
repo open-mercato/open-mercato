@@ -29,7 +29,11 @@ Setup mutation boundaries in monorepo, standalone template, and starter. Read-on
 
 ## Risks
 
-A preflight snapshot cannot prevent concurrent application writes or later external key rotation. Incomplete inventory, unknown encrypted stores, permissions, limits and unavailable dependencies must reject rather than imply compatibility. Standalone built-helper resolution must be tested. Full gate requires an independent dependency install in this worktree.
+A preflight snapshot cannot prevent concurrent application writes or later external key rotation. Incomplete inventory, unknown encrypted stores, permissions, limits and unavailable dependencies must reject rather than imply compatibility. Standalone built-helper resolution must be tested. Full gate uses an independent dependency install in this worktree. Current blockers: untouched CLI agent-files-extension and module-inspection suites fail (4 tests; full run stops at 34/49 tasks); broader script Docker COPY tests cannot run successfully without usable Buildx. GitHub reports this deliberately preserved parent-derived branch DIRTY against main. No base merge is authorized.
+
+## Resume notes
+
+Use `om-auto-continue-pr 8908`; start at 3.1. Confirm whether #8613 has landed and obtain an allowed integration strategy before changing the requested ancestry; do not merge base or push the original setup branch. Inspect/fix the four untouched CLI fixture failures in their owning change or rerun once the repository baseline/environment is corrected. Restore usable Docker Buildx for the two Docker COPY checks. Rerun the configured full test gate, then app build if needed, inspect final-head CI and repeat the authoritative review. Do not promote the draft or claim full validation until these blockers clear. The live PostgreSQL fixture is disposable: `OM_PG_INTEGRATION=1 timeout 240 node --test packages/starter/src/__tests__/encryption-preflight.pg.test.mjs`. Ordinary environment convergence predating the DB guard is preserved; no guarantee of zero earlier local-file changes is claimed.
 
 ## Progress
 
