@@ -3,6 +3,7 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { resolveChartColor } from './ChartUtils'
 
 export type PieChartDataItem = {
   name: string
@@ -98,7 +99,7 @@ export function PieChart({
   return (
     <div className={wrapperClass}>
       {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
-      <div className="h-52 w-full">
+      <div className="h-48 w-full">
         <PieChartImpl
           data={data}
           colors={colors}
@@ -109,6 +110,18 @@ export function PieChart({
           total={total}
         />
       </div>
+      <ul className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1.5">
+        {data.map((item, idx) => (
+          <li key={`${item.name}-${idx}`} className="flex min-w-0 items-center gap-1.5">
+            <span
+              className="size-2.5 flex-none rounded-sm"
+              style={{ backgroundColor: resolveChartColor(colors?.[idx], idx) }}
+              aria-hidden="true"
+            />
+            <span className="max-w-40 truncate text-xs text-muted-foreground" title={item.name}>{item.name}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

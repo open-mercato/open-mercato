@@ -1073,19 +1073,8 @@ export async function addCustomLine(page: Page, options: AddLineOptions): Promis
   await expect(submitButton).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
   await expect(submitButton).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
   const lineRow = page.getByRole('row', { name: new RegExp(escapeRegExp(options.name), 'i') });
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await submitButton.click();
-    await Promise.race([
-      dialog.waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {}),
-      lineRow.waitFor({ state: 'visible', timeout: 3_000 }).catch(() => {}),
-    ]);
-    if (await lineRow.isVisible().catch(() => false)) break;
-    if (!(await dialog.isVisible().catch(() => false))) break;
-  }
-
-  if (await dialog.isVisible().catch(() => false)) {
-    await expect(dialog).toBeHidden({ timeout: TEST_WAIT_TIMEOUT_MS });
-  }
+  await submitButton.click();
+  await expect(dialog).toBeHidden({ timeout: TEST_WAIT_TIMEOUT_MS });
   await page.getByRole('button', { name: /^Items$/i }).click().catch(() => {});
   await expect(lineRow).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
 }

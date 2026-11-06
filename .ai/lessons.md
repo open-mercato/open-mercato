@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 182 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 183 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -73,7 +73,7 @@ This catalog indexes 182 focused lessons. Route the task first, then read only r
 ### module-data
 
 - [Cart contention tests must prove transaction liveness](lessons/cart-contention-tests-must-prove-transaction-liveness.md) — area:module-data,testing; module:cart; topic:transactions,concurrency,pool-liveness
-
+- [Cart contention retries must release connections](lessons/cart-contention-retries-must-release-connections.md) — area:module-data,integration,testing; module:cart,sales,shared; topic:transactions,database-pool,workers,testing
 - [Personal API-key data must fail closed when policy is unavailable](lessons/personal-data-api-keys-must-fail-closed-on-missing-policy.md) — area:module-data,debugging; module:auth,dashboards; topic:access-control,api-keys,failure-states
 - [Materialize locking prune batches before deleting](lessons/materialize-locking-prune-batches.md) — area:module-data,debugging,testing; module:payment_gateways; topic:concurrency,postgresql,retention,data-integrity
 
