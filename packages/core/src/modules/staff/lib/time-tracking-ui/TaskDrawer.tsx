@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useRevealError } from '@open-mercato/ui/backend/utils/useRevealError'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, X } from 'lucide-react'
@@ -244,7 +245,12 @@ export function TaskDrawer({
    * with the token the first blur just invalidated.
    */
   const versionRef = React.useRef<string | null>(null)
-  const [notice, setNotice] = React.useState<{ status: 'warning' | 'error'; message: string } | null>(null)
+  const [notice, setNotice] = React.useState<{ status: 'warning' | 'error'; message: string; rejection: object } | null>(null)
+  const noticeRef = React.useRef<HTMLDivElement>(null)
+  useRevealError(noticeRef, open ? notice?.rejection : null)
+  const preserveNoticeFocus = React.useCallback((event: Event) => {
+    if (noticeRef.current === document.activeElement) event.preventDefault()
+  }, [])
 
   const { runMutation: runGuardedMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -309,7 +315,7 @@ export function TaskDrawer({
 
   React.useEffect(() => {
     setNotice(null)
-  }, [taskId])
+  }, [taskId, open])
 
   const statusesQuery = useQuery<BoardStatus[]>({
     queryKey: [...DRAWER_QUERY_ROOT, 'statuses', `scope:${scopeVersion}`, projectId ?? 'none'],
@@ -520,7 +526,9 @@ export function TaskDrawer({
    */
   const reportError = React.useCallback(
     (error: unknown, fallback: string) => {
+      const rejection = {}
       const conflictNotice = {
+        rejection,
         status: 'warning' as const,
         message: t(
           'staff.time_tracking.taskDrawer.conflict',
@@ -535,10 +543,12 @@ export function TaskDrawer({
         return
       }
       logger.error('staff.time_tracking task drawer mutation failed', { err: error })
-      setNotice({ status: 'error', message: error instanceof Error && error.message ? error.message : fallback })
+      setNotice({ rejection, status: 'error', message: error instanceof Error && error.message ? error.message : fallback })
       void taskQuery.refetch().then((refreshed) => {
         const currentVersion = refreshed.data?.task.updatedAt ?? null
-        if (seenVersion && currentVersion && currentVersion !== seenVersion) setNotice(conflictNotice)
+        if (seenVersion && currentVersion && currentVersion !== seenVersion) {
+          setNotice((current) => current?.rejection === rejection ? conflictNotice : current)
+        }
       })
     },
     [invalidate, t, taskQuery],
@@ -884,6 +894,7 @@ export function TaskDrawer({
           const assigneeId = refreshed.data?.task.assigneeStaffMemberId ?? null
           const takenByOther = action === 'claim' && assigneeId !== null && assigneeId !== selfStaffMemberId
           setNotice({
+            rejection: {},
             status: 'warning',
             message: takenByOther
               ? t('staff.timesheets.errors.taskAlreadyClaimed', 'Someone else already took this task.')
@@ -1215,7 +1226,7 @@ export function TaskDrawer({
     return (
       <div className="flex flex-col gap-6">
         {notice ? (
-          <Alert status={notice.status} data-testid="task-drawer-notice">
+          <Alert ref={noticeRef} tabIndex={-1} className="scroll-mt-4" status={notice.status} data-testid="task-drawer-notice">
             <AlertDescription>{notice.message}</AlertDescription>
           </Alert>
         ) : null}
@@ -1454,7 +1465,7 @@ export function TaskDrawer({
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent onCloseAutoFocus={preserveNoticeFocus}>
                   {statuses.map((entry) => (
                     <SelectItem key={entry.id} value={entry.id}>
                       {entry.name}
@@ -1480,7 +1491,7 @@ export function TaskDrawer({
                     placeholder={t('staff.time_tracking.taskDrawer.properties.unassigned', 'Unassigned')}
                   />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent onCloseAutoFocus={preserveNoticeFocus}>
                   {members.map((member) => (
                     <SelectItem key={member.id} value={member.id}>
                       {member.name}
