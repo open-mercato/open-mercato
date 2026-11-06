@@ -238,6 +238,7 @@ export async function startInfraServices({
   beforeUp,
   detect = detectDockerRuntime,
   spawnSyncImpl = spawnSync,
+  runStreamingImpl,
   portProbe = probeTcpPort,
   log = console.log,
 }) {
@@ -265,9 +266,9 @@ export async function startInfraServices({
 
   const reused = required.filter((service) => running.has(service))
   if (reused.length > 0) log(`   reusing running containers: ${reused.join(', ')} (data preserved)`)
-  if (beforeUp) beforeUp()
+  if (beforeUp) await beforeUp()
 
-  const up = spawnSyncImpl('docker', composeArgs([...upArgs, 'up', '-d', '--wait']), { cwd, stdio: 'inherit', windowsHide: true })
+  const up = await (runStreamingImpl ?? spawnSyncImpl)('docker', composeArgs([...upArgs, 'up', '-d', '--wait']), { cwd, stdio: 'inherit', windowsHide: true })
   if (up?.error) return { ok: false, problem: { code: 'compose-failed', detail: up.error.message } }
   if ((up?.status ?? 1) === 0) return { ok: true, reused }
 
