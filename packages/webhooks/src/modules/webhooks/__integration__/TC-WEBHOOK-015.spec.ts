@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue';
 import { readIntegrationEnvFlag } from '@open-mercato/core/helpers/integration/standaloneEnv';
 import {
   createWebhookFixture,
@@ -24,7 +25,6 @@ import {
  */
 const PRIVATE_URLS_ALLOWED = readIntegrationEnvFlag('OM_WEBHOOKS_ALLOW_PRIVATE_URLS');
 const DELIVERY_COUNT = 3;
-const SETTLE_AFTER_DELIVERY_MS = 8_000;
 
 type Receiver = {
   server: Server;
@@ -74,8 +74,10 @@ test.describe('TC-WEBHOOK-015: delivery jobs do not send a delivery twice', () =
         const testResponse = await apiRequest(request, 'POST', `/api/webhooks/${created.id}/test`, { token, data: {} });
         expect(testResponse.status()).toBe(200);
         const testBody = await readJsonSafe<{ delivery: { id: string; status: string } }>(testResponse);
+        const deliveryId = testBody?.delivery.id;
         expect(testBody?.delivery.status).toBe('expired');
-        deliveries.push({ path, deliveryId: testBody?.delivery.id as string });
+        expect(deliveryId).toEqual(expect.any(String));
+        deliveries.push({ path, deliveryId: String(deliveryId) });
       }
 
       const retries = await Promise.all(deliveries.map(({ deliveryId }) =>
@@ -85,7 +87,7 @@ test.describe('TC-WEBHOOK-015: delivery jobs do not send a delivery twice', () =
       for (const { deliveryId } of deliveries) {
         await expect.poll(async () => (await getDeliveryDetail(request, token, deliveryId)).status, { timeout: 30_000 }).toBe('delivered');
       }
-      await new Promise((resolve) => setTimeout(resolve, SETTLE_AFTER_DELIVERY_MS));
+      await drainIntegrationQueue('webhook-deliveries');
 
       for (const { path, deliveryId } of deliveries) {
         expect(receiver.statuses(path)).toEqual([400, 200]);

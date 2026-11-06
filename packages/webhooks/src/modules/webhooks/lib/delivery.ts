@@ -5,7 +5,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { emitWebhooksEvent } from '../events'
-import { enqueueWebhookDelivery } from './queue'
+import { enqueueWebhookDelivery, getWebhookQueue } from './queue'
 import { isWebhookIntegrationEnabled, WEBHOOK_INTEGRATION_DISABLED_MESSAGE } from './integration-state'
 import { sanitizeWebhookCustomHeaders } from './custom-headers'
 import {
@@ -359,9 +359,9 @@ async function releaseWebhookDeliveryClaim(
 
 async function scheduleWebhookDeliveryClaimRecheck(job: WebhookDeliveryJob, leaseMs: number): Promise<void> {
   try {
-    await enqueueWebhookDelivery(
+    await getWebhookQueue().enqueue(
       { deliveryId: job.deliveryId, tenantId: job.tenantId, organizationId: job.organizationId },
-      leaseMs + CLAIM_RECHECK_MARGIN_MS,
+      { delayMs: leaseMs + CLAIM_RECHECK_MARGIN_MS },
     )
   } catch (error) {
     logger.error('Failed to schedule webhook delivery claim recheck', { deliveryId: job.deliveryId, err: error })

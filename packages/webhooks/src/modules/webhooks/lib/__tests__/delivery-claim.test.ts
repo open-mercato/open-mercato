@@ -14,8 +14,11 @@ jest.mock('../integration-state', () => ({
   WEBHOOK_INTEGRATION_DISABLED_MESSAGE: 'disabled',
 }))
 
+const mockQueueEnqueue = jest.fn(async () => 'job-2')
+
 jest.mock('../queue', () => ({
   enqueueWebhookDelivery: jest.fn(async () => 'job-1'),
+  getWebhookQueue: () => ({ enqueue: mockQueueEnqueue }),
 }))
 
 jest.mock('../url-safety', () => {
@@ -107,7 +110,8 @@ describe('processWebhookDeliveryJob — delivery claim', () => {
     expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
     expect(em.flush).not.toHaveBeenCalled()
     expect(safeWebhookFetchMock).not.toHaveBeenCalled()
-    expect(enqueueWebhookDeliveryMock).toHaveBeenCalledWith(JOB, 5000 + 15_000 + 1000)
+    expect(mockQueueEnqueue).toHaveBeenCalledWith(JOB, { delayMs: 5000 + 15_000 + 1000 })
+    expect(enqueueWebhookDeliveryMock).not.toHaveBeenCalled()
   })
 
   it('does not schedule a recheck when retries are not scheduled', async () => {
@@ -115,7 +119,7 @@ describe('processWebhookDeliveryJob — delivery claim', () => {
 
     await processWebhookDeliveryJob(em as unknown as EntityManager, JOB, { scheduleRetries: false })
 
-    expect(enqueueWebhookDeliveryMock).not.toHaveBeenCalled()
+    expect(mockQueueEnqueue).not.toHaveBeenCalled()
   })
 
   it('releases its claim when processing throws after claiming', async () => {
@@ -141,7 +145,7 @@ describe('processWebhookDeliveryJob — delivery claim', () => {
     expect(releaseData).toEqual(expect.objectContaining({ status: 'pending' }))
   })
 
-  it('claims a pending or stale sending delivery before sending it', async () => {
+  it('claims a pending delivery before sending it', async () => {
     const delivery = buildDelivery()
     const em = buildEm(delivery, 1)
 

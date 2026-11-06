@@ -14,8 +14,11 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
+const mockQueueEnqueue = jest.fn(async () => 'job-2')
+
 jest.mock('../queue', () => ({
   enqueueWebhookDelivery: jest.fn(async () => 'job-1'),
+  getWebhookQueue: () => ({ enqueue: mockQueueEnqueue }),
 }))
 
 jest.mock('../integration-state', () => ({
@@ -33,11 +36,9 @@ jest.mock('../url-safety', () => {
 })
 
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { enqueueWebhookDelivery } from '../queue'
 import { safeWebhookFetch } from '../url-safety'
 
 const findOneWithDecryptionMock = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
-const enqueueWebhookDeliveryMock = enqueueWebhookDelivery as jest.MockedFunction<typeof enqueueWebhookDelivery>
 const safeWebhookFetchMock = safeWebhookFetch as jest.MockedFunction<typeof safeWebhookFetch>
 
 const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
@@ -218,9 +219,9 @@ describeWithPostgres('processWebhookDeliveryJob claim on real Postgres', () => {
     expect(row.status).toBe('sending')
     expect(row.attemptNumber).toBe(0)
     expect(row.errorMessage ?? null).toBeNull()
-    expect(enqueueWebhookDeliveryMock).toHaveBeenCalledWith(
+    expect(mockQueueEnqueue).toHaveBeenCalledWith(
       { deliveryId: seeded.deliveryId, tenantId: seeded.tenantId, organizationId: seeded.organizationId },
-      WEBHOOK_TIMEOUT_MS + 16_000,
+      { delayMs: WEBHOOK_TIMEOUT_MS + 16_000 },
     )
   }, 30_000)
 
