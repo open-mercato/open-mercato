@@ -23,12 +23,13 @@ No production, API, database, workflow or package changes. No skipped tests or w
 The snapshot workflow only triggers on main and publishes packages; do not alter or republish releases to test a test-only change. Full PR CI covers the changed source test. Snapshot standalone validation may require a separate existing standalone harness. Runner: GitHub Actions; local dependencies are absent. Any unverified standalone outcome must remain explicit. Claim run: 2b5aad0d-0a61-448a-b12b-04cf336eeebd.
 
 ## Progress
+PR: #9008
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Fix and validate
 
-- [ ] 1.1 Isolate the customerless project scenario and retain routing assertions.
+- [x] 1.1 Isolate the customerless project scenario and retain routing assertions.
 - [ ] 1.2 Run full PR CI and inspect all failed checks until green.
 
 ### Phase 2: Review and handoff
