@@ -19,6 +19,7 @@
   "search.api.errors.reindexFailed": "Neuindizierung fehlgeschlagen.",
   "search.api.errors.reindexInProgress": "Eine Neuindizierung wird bereits durchgeführt.",
   "search.api.errors.reindexIncomplete": "Die Neuindizierung wurde nicht abgeschlossen. Details finden Sie im Aktivitätsprotokoll der Suche.",
+  "search.api.errors.reindexSuperseded": "Durch eine neuere Neuindizierung ersetzt.",
   "search.api.errors.scopedQueueCancelFailed": "Die eingereihten Reindexierungsaufträge konnten nicht abgebrochen werden.",
   "search.api.errors.scopedQueueCancelUnavailable": "Die bereichsbezogene Warteschlangenstornierung ist nicht verfügbar.",
   "search.api.errors.searchFailed": "Suchvorgang fehlgeschlagen.",

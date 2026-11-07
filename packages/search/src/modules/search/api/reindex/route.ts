@@ -182,6 +182,7 @@ export async function POST(req: Request) {
         description: entityId
           ? `Reindex ${entityId} (${useQueue ? 'queued' : 'sync'})`
           : `Reindex all entities (${useQueue ? 'queued' : 'sync'})`,
+        supersededMessage: t('search.api.errors.reindexSuperseded', 'Superseded by a newer reindex.'),
       })
 
       // Debug: List enabled entities
@@ -339,7 +340,7 @@ export async function POST(req: Request) {
           type: 'fulltext',
           tenantId,
           organizationId: auth.orgId ?? null,
-          errorMessage: result.errors[0]?.error ?? 'Fulltext reindex failed',
+          errorMessage: result.errors[0]?.error ?? t('search.api.errors.reindexFailed', 'Reindex operation failed.'),
         })
       } else {
         await completeReindexProgress({

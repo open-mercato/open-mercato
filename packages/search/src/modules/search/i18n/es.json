@@ -19,6 +19,7 @@
   "search.api.errors.reindexFailed": "La operación de reindexación falló.",
   "search.api.errors.reindexInProgress": "Ya hay una reindexación en progreso.",
   "search.api.errors.reindexIncomplete": "La reindexación no se completó. Consulte el registro de actividad de búsqueda para más detalles.",
+  "search.api.errors.reindexSuperseded": "Reemplazada por una reindexación más reciente.",
   "search.api.errors.scopedQueueCancelFailed": "No se pudieron cancelar los trabajos de reindexación en cola.",
   "search.api.errors.scopedQueueCancelUnavailable": "La cancelación de cola con alcance no está disponible.",
   "search.api.errors.searchFailed": "La operación de búsqueda falló.",

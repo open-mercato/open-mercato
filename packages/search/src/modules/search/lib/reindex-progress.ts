@@ -75,7 +75,6 @@ export async function ensureReindexProgressJob(params: {
   return createRunningJob(params)
 }
 
-const SUPERSEDED_JOB_MESSAGE = 'Superseded by a newer reindex'
 const MAX_SUPERSEDED_JOBS = 20
 
 /**
@@ -84,7 +83,8 @@ const MAX_SUPERSEDED_JOBS = 20
  * Holding the lock means no other run in this scope is alive, so any job still marked
  * active belongs to a run whose lock went stale; it is failed instead of adopted, so its
  * processed count cannot leak into the new run's totals. Call this before enqueueing
- * batches: workers drop the lock when they find no active job.
+ * batches: workers drop the lock when they find no active job. `supersededMessage` is
+ * stored as the failed job's error message, so pass it already translated.
  */
 export async function startReindexProgressJob(params: {
   em: EntityManager
@@ -94,13 +94,14 @@ export async function startReindexProgressJob(params: {
   organizationId?: string | null
   userId?: string | null
   description?: string | null
+  supersededMessage: string
 }): Promise<string> {
   for (let attempt = 0; attempt < MAX_SUPERSEDED_JOBS; attempt += 1) {
     const orphan = await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)
     if (!orphan) break
     const settled = await params.progressService.failJob(
       orphan.id,
-      { errorMessage: SUPERSEDED_JOB_MESSAGE },
+      { errorMessage: params.supersededMessage },
       {
         tenantId: params.tenantId,
         organizationId: params.organizationId ?? null,
