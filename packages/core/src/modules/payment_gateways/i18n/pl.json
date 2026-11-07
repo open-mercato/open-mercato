@@ -2,6 +2,7 @@
   "payment_gateways.captureMethod.automatic": "Automatyczny",
   "payment_gateways.captureMethod.manual": "Manualny",
   "payment_gateways.column.gatewayStatus": "Status bramki",
+  "payment_gateways.errors.cancelCapturedFunds": "Ta płatność ma już przechwycone środki lub trwa ich przechwytywanie, więc nie można jej anulować. Aby oddać klientowi przechwyconą kwotę, wykonaj jej zwrot.",
   "payment_gateways.errors.sessionAmountMismatch": "Kwota sesji płatności {amount} nie zgadza się z kwotą do zapłaty dla zamówienia {orderId}",
   "payment_gateways.errors.sessionCurrencyMismatch": "Waluta sesji płatności {currencyCode} nie zgadza się z walutą zamówienia {orderId}",
   "payment_gateways.errors.sessionOrderNotFound": "Nie znaleziono zamówienia {orderId} w bieżącym zakresie",

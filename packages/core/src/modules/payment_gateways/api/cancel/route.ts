@@ -92,7 +92,7 @@ export const openApi = {
       tags: [paymentGatewaysTag],
       responses: [
         { status: 200, description: 'Payment cancelled' },
-        { status: 409, description: 'Invalid payment status transition' },
+        { status: 409, description: 'Invalid payment status transition, or the payment already has captured funds (payment_cancel_captured_funds)' },
         { status: 422, description: 'Invalid payload' },
         { status: 502, description: 'Gateway provider error' },
       ],

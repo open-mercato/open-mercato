@@ -20,7 +20,7 @@ function normalizeCurrencyCode(currencyCode: string): string {
  * fall back to the English template shipped with each call, so a missing
  * dictionary degrades the wording of a rejection but never its outcome.
  */
-async function resolveConflictTranslator(): Promise<TranslateWithFallbackFn> {
+export async function resolveConflictTranslator(): Promise<TranslateWithFallbackFn> {
   try {
     const { translate } = await resolveTranslations()
     return translate
