@@ -305,7 +305,9 @@ const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean }
         } as any)
         .execute()
     } catch (err) {
-      if (isUniqueViolation(err, 'entity_translations_scope_uq')) return throwTranslationUndoConflict()
+      if (isUniqueViolation(err, 'entity_translations_scope_uq') || isUniqueViolation(err, 'entity_translations_pkey')) {
+        return throwTranslationUndoConflict()
+      }
       throw err
     }
   },

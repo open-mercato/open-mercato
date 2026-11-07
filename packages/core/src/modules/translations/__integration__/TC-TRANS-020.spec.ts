@@ -4,7 +4,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
 import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { expectOperation, undoByToken, undoOk } from '@open-mercato/core/helpers/integration/undoHarness'
+import { expectOperation, skipIfUndoTestsDisabled, undoByToken, undoOk } from '@open-mercato/core/helpers/integration/undoHarness'
 import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/translationFixtures'
 
 type Translations = Record<string, Record<string, string | null>>
@@ -92,6 +92,10 @@ async function firstTranslationField(root: Locator): Promise<Locator> {
  * token works again.
  */
 test.describe('TC-TRANS-020: translation undo keeps later edits by another operator', () => {
+  test.beforeEach(() => {
+    skipIfUndoTestsDisabled()
+  })
+
   test('refuses to undo a save that another operator saved over', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const stamp = Date.now()
