@@ -7,6 +7,7 @@
 - **Affected package:** `packages/create-app` (`create-mercato-app`)
 - **Tracking issue:** #3304 (spec PR #2871)
 - **Related:**
+  - [Structured Catalog Module Installation](2026-11-05-structured-catalog-module-installation.md) — proposed typed installation metadata and local command rendering; implementation pending.
   - [Open Mercato Modules](https://modules.openmercato.com): the module catalog that publishes `picker.json`
   - `.ai/specs/2026-05-19-official-modules-generated-location-decision.md`
   - `packages/create-app/AGENTS.md`
@@ -505,6 +506,8 @@ _None outstanding._ The 2026-06-09 decisions on catalog source and official-modu
 ---
 
 ## Changelog
+
+- **2026-11-05:** Linked the proposed structured-installation refactor. Current runtime behavior remains unchanged; the follow-up specifies local command generation, a legacy bridge, and coordinated catalog rollout.
 
 - 2026-06-09: Initial draft. Decisions captured: ship full official-modules tooling into the template; live
   remote catalog fetch with baked core offline fallback; auto-include transitive `requires` with a notice.
