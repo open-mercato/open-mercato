@@ -158,6 +158,7 @@ export function describeNumericWideningMigrations(title: string, cases: NumericW
         .withEnvironment({ POSTGRES_DB: 'numeric_migration_test', POSTGRES_USER: 'numeric_test', POSTGRES_PASSWORD: 'numeric_test' })
         .withExposedPorts(5432)
         .withWaitStrategy(Wait.forLogMessage(/database system is ready to accept connections/, 2))
+        .withStartupTimeout(110_000)
         .start()
       client = new Client({
         host: postgres.getHost(),
@@ -186,7 +187,7 @@ export function describeNumericWideningMigrations(title: string, cases: NumericW
       } finally {
         await postgres?.stop()
       }
-    }, 30_000)
+    }, 120_000)
 
     it.each(cases.map((entry) => [entry.migration.name, entry] as const))('%s widens bounded money columns without data loss and documents down() narrowing', async (_name, entry) => {
       const columns = widenedColumns(entry)
