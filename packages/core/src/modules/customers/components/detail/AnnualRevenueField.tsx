@@ -5,7 +5,8 @@ import { Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import type { InlineFieldProps } from './InlineEditors'
@@ -28,6 +29,7 @@ export function AnnualRevenueField({
   onSave,
 }: AnnualRevenueFieldProps) {
   const t = useT()
+  const locale = useLocale()
   const {
     data: currencyDictionary,
     error: currencyDictionaryErrorRaw,
@@ -87,9 +89,9 @@ export function AnnualRevenueField({
     if (!value.length) {
       return <p className="text-sm text-muted-foreground">{emptyLabel}</p>
     }
-    const numeric = Number(value.replace(/,/g, ''))
+    const numeric = parseLocaleNumber(value, locale)
     let formatted = value
-    if (!Number.isNaN(numeric)) {
+    if (numeric !== null) {
       try {
         formatted = new Intl.NumberFormat(undefined, {
           style: currency ? 'currency' : 'decimal',
@@ -108,7 +110,7 @@ export function AnnualRevenueField({
         ) : null}
       </div>
     )
-  }, [amount, currency, currencyLabel, emptyLabel])
+  }, [amount, currency, currencyLabel, emptyLabel, locale])
 
   const currencyLabels = React.useMemo(
     () => ({
@@ -145,8 +147,8 @@ export function AnnualRevenueField({
     }
     let numeric: number | null = null
     if (trimmedAmount.length) {
-      numeric = Number(trimmedAmount)
-      if (Number.isNaN(numeric)) {
+      numeric = parseLocaleNumber(trimmedAmount, locale)
+      if (numeric === null) {
         setError(t('customers.companies.detail.currency.invalidAmount', 'Enter a valid amount.'))
         return
       }
@@ -164,7 +166,7 @@ export function AnnualRevenueField({
     } finally {
       setSaving(false)
     }
-  }, [draftAmount, draftCurrency, onSave, saving, t, validator])
+  }, [draftAmount, draftCurrency, locale, onSave, saving, t, validator])
 
   const containerClasses = React.useMemo(
     () =>
@@ -231,9 +233,8 @@ export function AnnualRevenueField({
                 if (error) setError(null)
               }}
               placeholder={t('customers.companies.detail.fields.annualRevenuePlaceholder', 'Enter amount')}
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
             />
           </div>
           <div className="space-y-1">
