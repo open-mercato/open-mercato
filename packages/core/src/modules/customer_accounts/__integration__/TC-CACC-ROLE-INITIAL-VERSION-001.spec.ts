@@ -9,7 +9,7 @@ import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integr
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 for (const legacyNullVersion of [false, true]) {
-  test(`TC-CACC-ROLE-INITIAL-VERSION-001: ${legacyNullVersion ? 'legacy null' : 'new'} role rejects a stale first UI edit`, async ({ request, browser }) => {
+  test(`TC-CACC-ROLE-INITIAL-VERSION-001: ${legacyNullVersion ? 'legacy null' : 'new'} role rejects a stale first UI edit`, async ({ request, browser }, testInfo) => {
     const admin = await getAuthToken(request, 'admin')
     const scope = getTokenContext(admin)
     const suffix = randomUUID()
@@ -56,7 +56,7 @@ for (const legacyNullVersion of [false, true]) {
       const page = await actorContext.newPage()
       await acknowledgeGlobalNotices(page)
       await page.goto(`/backend/customer_accounts/roles/${role.id}`)
-      const name = page.getByLabel('Name', { exact: true })
+      const name = page.locator('[data-crud-field-id="name"]').getByRole('textbox')
       await expect(name).toHaveValue(role.name)
       const description = `Second actor description ${suffix}`
       const secondSave = await apiRequest(request, 'PUT', detailPath, {
@@ -75,6 +75,9 @@ for (const legacyNullVersion of [false, true]) {
       const conflictBody: unknown = await conflict.json()
       expect(conflictBody).toMatchObject({ code: 'optimistic_lock_conflict' })
       await expect(name).toHaveValue(draftName)
+      const conflictScreenshot = testInfo.outputPath('role-stale-conflict.png')
+      await page.screenshot({ path: conflictScreenshot, fullPage: true })
+      await testInfo.attach('role stale conflict', { path: conflictScreenshot, contentType: 'image/png' })
       const persisted = await apiRequest(request, 'GET', detailPath, { token: tokens[1] })
       expect(await readJsonSafe<{ name: string; description: string }>(persisted)).toMatchObject({ name: role.name, description })
       for (const method of ['DELETE', 'PUT']) {
@@ -86,7 +89,7 @@ for (const legacyNullVersion of [false, true]) {
       }
       await page.reload()
       await expect(name).toHaveValue(role.name)
-      await expect(page.getByLabel('Description', { exact: true })).toHaveValue(description)
+      await expect(page.locator('[data-crud-field-id="description"]').getByRole('textbox')).toHaveValue(description)
       await name.fill(draftName)
       const retry = page.waitForResponse((response) => new URL(response.url()).pathname === detailPath && response.request().method() === 'PUT')
       await page.locator('button[type="submit"]').first().click()
@@ -94,7 +97,7 @@ for (const legacyNullVersion of [false, true]) {
       const retried = await apiRequest(request, 'GET', detailPath, { token: tokens[1] })
       expect(await readJsonSafe<{ name: string; description: string }>(retried)).toMatchObject({ name: draftName, description })
     } finally {
-      for (const context of contexts) await context.close()
+      await Promise.allSettled(contexts.map((context) => context.close()))
       await deleteCustomerRoleFixture(request, admin, customerRoleId)
       for (const userId of userIds) await deleteUserIfExists(request, admin, userId)
       await deleteRoleIfExists(request, admin, staffRoleId)
