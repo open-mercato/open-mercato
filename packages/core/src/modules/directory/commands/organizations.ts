@@ -1,6 +1,6 @@
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
@@ -33,9 +33,11 @@ import {
   requireId,
   buildChanges,
 } from '@open-mercato/shared/lib/commands/helpers'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
+import { resolveOrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { slugify } from '@open-mercato/shared/lib/slugify'
 
 export const organizationCrudEvents: CrudEventsConfig = {
@@ -110,11 +112,13 @@ type OrganizationSnapshots = {
 type OrganizationActorScope = {
   isUnrestricted: boolean
   tenantId: string | null
+  allowedOrganizationIds: readonly string[] | null
 }
 
 type AuthorizedOrganizationTarget = {
   organization: Organization
   tenantId: string
+  scope: OrganizationActorScope
 }
 
 export function resolveTenantIdFromEntity(entity: Organization): string | null {
@@ -137,10 +141,90 @@ export function resolveTenantIdFromEntity(entity: Organization): string | null {
 }
 
 async function resolveOrganizationActorScope(ctx: CommandRuntimeContext): Promise<OrganizationActorScope> {
-  if (ctx.systemActor === true) return { isUnrestricted: true, tenantId: null }
+  if (ctx.systemActor === true) return { isUnrestricted: true, tenantId: null, allowedOrganizationIds: null }
   const tenantId = normalizeTenantId(ctx.auth?.tenantId ?? null) ?? null
   const isSuperAdmin = await resolveIsSuperAdmin(ctx)
-  return { isUnrestricted: isSuperAdmin, tenantId }
+  if (isSuperAdmin) return { isUnrestricted: true, tenantId, allowedOrganizationIds: null }
+  if (!ctx.auth?.sub || !tenantId) {
+    return { isUnrestricted: false, tenantId, allowedOrganizationIds: [] }
+  }
+  if (ctx.organizationScope) {
+    return {
+      isUnrestricted: false,
+      tenantId,
+      allowedOrganizationIds: ctx.organizationScope.tenantId === tenantId
+        ? ctx.organizationScope.allowedIds
+        : [],
+    }
+  }
+  if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length === 0) {
+    return { isUnrestricted: false, tenantId, allowedOrganizationIds: [] }
+  }
+  const rbac = ctx.container.resolve<RbacService>('rbacService')
+  const acl = await rbac.loadAcl(ctx.auth.sub, { tenantId, organizationId: ctx.auth.orgId ?? null })
+  if (!acl || (acl.organizations !== null && !Array.isArray(acl.organizations))) {
+    return { isUnrestricted: false, tenantId, allowedOrganizationIds: [] }
+  }
+  const organizationScope = await resolveOrganizationScope({
+    em: ctx.container.resolve<EntityManager>('em'),
+    rbac: { loadAcl: async () => acl },
+    auth: ctx.auth,
+    tenantId,
+  })
+  return { isUnrestricted: false, tenantId, allowedOrganizationIds: organizationScope.allowedIds }
+}
+
+function assertOrganizationIdsInScope(scope: OrganizationActorScope, ids: Iterable<string | null>): void {
+  if (scope.isUnrestricted || scope.allowedOrganizationIds === null) return
+  const allowedIds = new Set(scope.allowedOrganizationIds)
+  for (const id of ids) {
+    if (id && !allowedIds.has(id)) throw notFound()
+  }
+}
+
+function assertOrganizationCreateRootAccess(scope: OrganizationActorScope, parentId: string | null): void {
+  if (scope.isUnrestricted || scope.allowedOrganizationIds === null || parentId) return
+  throw notFound()
+}
+
+async function assertHierarchyAssignmentsInScope(
+  em: EntityManager,
+  scope: OrganizationActorScope,
+  tenantId: string,
+  childParents: ChildParentSnapshot[],
+): Promise<void> {
+  if (scope.isUnrestricted || scope.allowedOrganizationIds === null) return
+  assertOrganizationIdsInScope(scope, childParents.flatMap((entry) => [entry.childId, entry.parentId]))
+  const current = await loadChildParentSnapshots(em, tenantId, childParents.map((entry) => entry.childId))
+  const desired = new Map(childParents.map((entry) => [entry.childId, entry.parentId]))
+  assertOrganizationIdsInScope(scope, current
+    .filter((entry) => entry.parentId !== desired.get(entry.childId))
+    .map((entry) => entry.parentId))
+}
+
+async function assertOrganizationReplayAccess(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  snapshot: OrganizationUndoSnapshot,
+  tenantId: string,
+  parentId: string | null,
+  childParents: ChildParentSnapshot[],
+  removingTarget = false,
+): Promise<void> {
+  const scope = await resolveOrganizationActorScope(ctx)
+  assertOrganizationIdsInScope(scope, [snapshot.id])
+  if (scope.isUnrestricted || scope.allowedOrganizationIds === null) return
+  const current = await findOneWithDecryption(em, Organization,
+    buildOrganizationUndoTargetFilter(snapshot.id, tenantId), undefined, { tenantId, organizationId: snapshot.id })
+  if (!current || current.parentId !== parentId) {
+    assertOrganizationIdsInScope(scope, [current?.parentId ?? null, parentId])
+  }
+  await assertHierarchyAssignmentsInScope(em, scope, tenantId, childParents)
+  if (removingTarget) {
+    const children = await findWithDecryption(em, Organization,
+      { tenant: tenantId, parentId: snapshot.id, deletedAt: null }, undefined, { tenantId, organizationId: snapshot.id })
+    assertOrganizationIdsInScope(scope, children.map((child) => String(child.id)))
+  }
 }
 
 function buildOrganizationTargetFilter(
@@ -148,6 +232,7 @@ function buildOrganizationTargetFilter(
   scope: OrganizationActorScope,
 ): FilterQuery<Organization> | null {
   if (!scope.isUnrestricted && !scope.tenantId) return null
+  assertOrganizationIdsInScope(scope, [id])
   return {
     id,
     deletedAt: null,
@@ -169,7 +254,7 @@ async function loadAuthorizedOrganizationTarget(
   if (!tenantId || (!scope.isUnrestricted && tenantId !== scope.tenantId)) {
     throw new CrudHttpError(404, { error: 'Not found' })
   }
-  return { organization, tenantId }
+  return { organization, tenantId, scope }
 }
 
 function buildOrganizationMutationFilter(
@@ -186,8 +271,10 @@ function buildOrganizationMutationFilter(
 async function assertOrganizationUndoTenantAccess(
   ctx: CommandRuntimeContext,
   targetTenantId: string,
+  targetId: string,
 ): Promise<void> {
   const scope = await resolveOrganizationActorScope(ctx)
+  assertOrganizationIdsInScope(scope, [targetId])
   if (!scope.isUnrestricted && scope.tenantId !== targetTenantId) {
     throw new CrudHttpError(404, { error: 'Not found' })
   }
@@ -395,9 +482,11 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const tenantId = await enforceTenantSelection(ctx, parsed.tenantId)
     if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
 
+    const scope = await resolveOrganizationActorScope(ctx)
     const parentId = parsed.parentId ?? null
     const childIds = normalizeChildIds(parsed.childIds ?? [], parentId ? [parentId] : [])
     if (parentId && childIds.includes(parentId)) throw new CrudHttpError(400, { error: 'Child cannot equal parent' })
+    assertOrganizationCreateRootAccess(scope, parentId)
 
     const tenantRef = em.getReference(Tenant, tenantId)
     const baseSlug = parsed.slug ? parsed.slug : slugify(parsed.name)
@@ -407,6 +496,9 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
+        assertOrganizationIdsInScope(scope, [parentId, ...childIds])
+        await assertHierarchyAssignmentsInScope(em, scope, tenantId,
+          childIds.map((childId) => ({ childId, parentId: null })))
         if (parentId) {
           await ensureParentExists(em, tenantId, parentId)
         }
@@ -504,13 +596,14 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!after) return
     const tenantId = after.tenantId
     if (!tenantId) return
-    await assertOrganizationUndoTenantAccess(ctx, tenantId)
+    await assertOrganizationUndoTenantAccess(ctx, tenantId, after.id)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let organization: Organization | null = null
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
+        await assertOrganizationReplayAccess(em, ctx, after, tenantId, null, childrenBefore, true)
         await restoreChildParents(em, tenantId, childrenBefore)
         if (after.custom && Object.keys(after.custom).length) {
           const reset = buildCustomFieldResetMap(undefined, after.custom)
@@ -559,13 +652,15 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for organization create' })
     const tenantId = after.tenantId
     if (!tenantId) throw new CrudHttpError(400, { error: '[internal] redo snapshot missing tenant for organization create' })
-    await assertOrganizationUndoTenantAccess(ctx, tenantId)
+    await assertOrganizationUndoTenantAccess(ctx, tenantId, after.id)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let organization!: Organization
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
+        await assertOrganizationReplayAccess(em, ctx, after, tenantId, after.parentId,
+          after.childParents.map((entry) => ({ ...entry, parentId: after.id })))
         const existing = await em.findOne(Organization, buildOrganizationUndoTargetFilter(after.id, tenantId))
         if (existing) {
           existing.deletedAt = null
@@ -647,9 +742,11 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(organizationUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const { organization: current, tenantId } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
+    const { organization: current, tenantId, scope } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
     const currentChildIds = Array.isArray(current.childIds) ? current.childIds : []
     const requestedChildIds = Array.isArray(parsed.childIds) ? parsed.childIds : []
+    assertOrganizationIdsInScope(scope, requestedChildIds)
+    if (parsed.parentId !== undefined) assertOrganizationIdsInScope(scope, [parsed.parentId])
     const combinedChildIds = new Set<string>([...currentChildIds.map(String), ...requestedChildIds.map(String)])
     const childParentsBefore = tenantId
       ? await loadChildParentSnapshots(em, tenantId, combinedChildIds)
@@ -665,7 +762,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(organizationUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const { tenantId } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
+    const { tenantId, scope } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
 
     const parentProvided = parsed.parentId !== undefined
     const childrenProvided = parsed.childIds !== undefined
@@ -683,6 +780,10 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
         if (!existing) throw new CrudHttpError(404, { error: 'Not found' })
 
         const parentId = parentProvided ? parsed.parentId ?? null : existing.parentId ?? null
+        if (parentProvided) {
+          assertOrganizationIdsInScope(scope, [parentId])
+          if (parentId !== existing.parentId) assertOrganizationIdsInScope(scope, [existing.parentId])
+        }
         if (parentProvided && parentId) {
           if (parentId === parsed.id) throw new CrudHttpError(400, { error: 'Organization cannot be its own parent' })
           if (Array.isArray(existing.descendantIds) && existing.descendantIds.includes(parentId)) {
@@ -697,6 +798,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
           throw new CrudHttpError(400, { error: 'Cannot assign ancestor as child' })
         }
 
+        assertOrganizationIdsInScope(scope, normalizedChildIds)
         if (normalizedChildIds.length) {
           await ensureChildrenValid(em, tenantId, normalizedChildIds)
           const childFilter = {
@@ -710,6 +812,17 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
               throw new CrudHttpError(400, { error: 'Cannot assign descendant cycle' })
             }
           }
+        }
+
+        if (childrenProvided) {
+          const currentChildren = await findWithDecryption(em, Organization,
+            { tenant: tenantId, parentId: parsed.id, deletedAt: null }, undefined, { tenantId, organizationId: parsed.id })
+          const desiredChildren = new Set(normalizedChildIds)
+          await assertHierarchyAssignmentsInScope(em, scope, tenantId, [
+            ...normalizedChildIds.map((childId) => ({ childId, parentId: parsed.id })),
+            ...currentChildren.filter((child) => !desiredChildren.has(String(child.id)))
+              .map((child) => ({ childId: String(child.id), parentId: null })),
+          ])
         }
 
         const combinedChildIds = new Set<string>([
@@ -825,13 +938,14 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!before) return
     const tenantId = before.tenantId
     if (!tenantId) return
-    await assertOrganizationUndoTenantAccess(ctx, tenantId)
+    await assertOrganizationUndoTenantAccess(ctx, tenantId, before.id)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let updated: Organization | null = null
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
+        await assertOrganizationReplayAccess(em, ctx, before, tenantId, before.parentId, before.childParents)
         updated = await de.updateOrmEntity({
           entity: Organization,
           where: buildOrganizationUndoTargetFilter(before.id, tenantId),
@@ -887,7 +1001,8 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
   async prepare(input, ctx) {
     const id = requireId(input, 'Organization id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const { organization: existing, tenantId } = await loadAuthorizedOrganizationTarget(em, id, ctx)
+    const { organization: existing, tenantId, scope } = await loadAuthorizedOrganizationTarget(em, id, ctx)
+    assertOrganizationIdsInScope(scope, [existing.parentId, ...(existing.childIds ?? [])])
     const childParentsBefore = tenantId
       ? await loadChildParentSnapshots(em, tenantId, Array.isArray(existing.childIds) ? existing.childIds : [])
       : []
@@ -902,14 +1017,9 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
   async execute(input, ctx) {
     const id = requireId(input, 'Organization id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const { organization: existing, tenantId } = await loadAuthorizedOrganizationTarget(em, id, ctx)
-
-    const parentId = existing.parentId ?? null
-    const childSnapshotsBefore = await loadChildParentSnapshots(
-      em,
-      tenantId,
-      Array.isArray(existing.childIds) ? existing.childIds : [],
-    )
+    const { tenantId, scope } = await loadAuthorizedOrganizationTarget(em, id, ctx)
+    let parentId: string | null = null
+    let childSnapshotsBefore: ChildParentSnapshot[] = []
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
@@ -917,6 +1027,16 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
+        const existing = await findOneWithDecryption(em, Organization,
+          buildOrganizationMutationFilter(id, tenantId), { refresh: true }, { tenantId, organizationId: id })
+        if (!existing) throw notFound()
+        parentId = existing.parentId ?? null
+        assertOrganizationIdsInScope(scope, [parentId])
+        const children = await findWithDecryption(em, Organization,
+          { tenant: tenantId, parentId: id, deletedAt: null }, undefined, { tenantId, organizationId: id })
+        childSnapshotsBefore = children.map((child) => ({ childId: String(child.id), parentId: id }))
+        await assertHierarchyAssignmentsInScope(em, scope, tenantId,
+          childSnapshotsBefore.map((entry) => ({ ...entry, parentId })))
         const deleted = await de.deleteOrmEntity({
           entity: Organization,
           where: buildOrganizationMutationFilter(id, tenantId),
@@ -986,13 +1106,14 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     if (!before) return
     const tenantId = before.tenantId
     if (!tenantId) return
-    await assertOrganizationUndoTenantAccess(ctx, tenantId)
+    await assertOrganizationUndoTenantAccess(ctx, tenantId, before.id)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let organization: Organization | null = null
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
+        await assertOrganizationReplayAccess(em, ctx, before, tenantId, before.parentId, before.childParents)
         organization = await em.findOne(
           Organization,
           buildOrganizationUndoTargetFilter(before.id, tenantId),
