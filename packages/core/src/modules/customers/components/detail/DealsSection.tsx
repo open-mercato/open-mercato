@@ -330,6 +330,8 @@ export function DealsSection({
   const scopeVersion = useOrganizationScopeVersion()
   const statusDictionaryQuery = useCustomerDictionary('deal-statuses', scopeVersion)
   const statusDictionaryMap = statusDictionaryQuery.data?.map ?? null
+  const stageDictionaryQuery = useCustomerDictionary('pipeline-stages', scopeVersion)
+  const stageDictionaryMap = stageDictionaryQuery.data?.map ?? null
   const customFieldResources = useCustomFieldDisplay(E.customers.customer_deal)
 
   const [deals, setDeals] = React.useState<NormalizedDeal[]>([])
@@ -972,6 +974,9 @@ export function DealsSection({
             deal.status && statusDictionaryMap
               ? statusDictionaryMap[deal.status]?.label ?? deal.status
               : deal.status ?? emptyLabel
+          const stageLabel = deal.pipelineStage
+            ? stageDictionaryMap?.[deal.pipelineStage]?.label ?? deal.pipelineStage
+            : emptyLabel
           return (
             <article key={deal.id} className="group rounded-lg border bg-card p-4 shadow-xs transition hover:border-border/70">
               <header className="flex flex-wrap items-center justify-between gap-2">
@@ -1022,7 +1027,7 @@ export function DealsSection({
                   <dt className="font-medium">
                     {t('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage')}
                   </dt>
-                  <dd>{deal.pipelineStage ?? emptyLabel}</dd>
+                  <dd>{stageLabel}</dd>
                 </div>
                 <div className="flex flex-col gap-0.5">
                   <dt className="font-medium">
