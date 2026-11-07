@@ -897,7 +897,7 @@ function MessageRow({
       >
         <Icon className="size-4" />
       </div>
-      <div className="flex-1 space-y-1">
+      <div className="min-w-0 flex-1 space-y-1 break-words">
         <div className="flex items-center justify-between gap-2">
           <div className="text-xs font-medium text-muted-foreground">{label}</div>
           {message.content ? (
@@ -1659,7 +1659,7 @@ export function AiChat({
         role="log"
         aria-live="polite"
         aria-label={t('ai_assistant.chat.transcriptLabel', 'Chat transcript')}
-        className="min-w-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden pr-1"
+        className="min-w-0 flex-1 space-y-2 overflow-y-auto overflow-x-auto pr-1"
       >
         {chat.messages.length === 0 ? (
           <WelcomeState
