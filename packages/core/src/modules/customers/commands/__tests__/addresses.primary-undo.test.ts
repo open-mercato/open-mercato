@@ -7,7 +7,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 const mockFindOneWithDecryption = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: jest.fn(async () => []),
+  findWithDecryption: jest.fn(async (
+    manager: { find: (entity: unknown, where: unknown, options?: unknown) => Promise<unknown[]> },
+    entity: unknown, where: unknown, options?: unknown,
+  ) => manager.find(entity, where, options)),
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...(args as [])),
 }))
 
