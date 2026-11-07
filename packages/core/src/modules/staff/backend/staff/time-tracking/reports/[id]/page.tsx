@@ -513,7 +513,10 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
         />
 
         {isClosed ? (
-          <section className="mt-6 rounded-lg border border-border">
+          <section
+            data-testid="report-locked-entries"
+            className="mt-6 min-w-0 rounded-lg border border-border"
+          >
             <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border p-4">
               <h3 className="text-sm font-semibold">
                 {t('staff.time_tracking.reports.locked.tableTitle', 'Locked entries')}
@@ -524,13 +527,15 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
                   .replace('{hours}', formatReportMinutes(sheet.totals.billableMinutes))}
               </span>
             </header>
-            <DataTable<ReportSheetRow>
-              embedded
-              extensionTableId={extensionPoints.hosts.reportDetailLockedEntriesTable.tableId}
-              disableRowClick
-              columns={lockedEntriesColumns}
-              data={sheet.rows}
-            />
+            <div data-testid="report-locked-entries-scroll" className="overflow-x-auto">
+              <DataTable<ReportSheetRow>
+                embedded
+                extensionTableId={extensionPoints.hosts.reportDetailLockedEntriesTable.tableId}
+                disableRowClick
+                columns={lockedEntriesColumns}
+                data={sheet.rows}
+              />
+            </div>
             {sheet.rowsTruncated ? (
               <p className="border-t border-border p-3 text-xs text-muted-foreground">
                 {t(
