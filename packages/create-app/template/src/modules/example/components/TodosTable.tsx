@@ -40,6 +40,14 @@ type OrganizationsResponse = {
 }
 
 const EMPTY_CUSTOM_FIELD_DEFS: CustomFieldDefDto[] = []
+const TODO_FIELD_DEFAULT_LABELS: Record<string, { label: string; translationKey: string }> = {
+  priority: { label: 'Priority', translationKey: 'example.todos.table.column.priority' },
+  severity: { label: 'Severity', translationKey: 'example.todos.table.column.severity' },
+  blocked: { label: 'Blocked', translationKey: 'example.todos.table.column.blocked' },
+  labels: { label: 'Labels', translationKey: 'example.todos.table.column.labels' },
+  description: { label: 'Description', translationKey: 'example.todos.table.column.description' },
+  assignee: { label: 'Assignees', translationKey: 'example.todos.table.column.assignees' },
+}
 
 function buildBaseColumns(t: (key: string, params?: Record<string, string | number>) => string, severityPreset: ReturnType<typeof useSeverityPreset>): ColumnDef<TodoRow>[] {
   return [
@@ -86,6 +94,8 @@ function buildBaseColumns(t: (key: string, params?: Record<string, string | numb
       },
       meta: { priority: 4 },
     },
+    { accessorKey: 'cf_description', header: t('example.todos.table.column.description'), meta: { priority: 7 } },
+    { accessorKey: 'cf_assignee', header: t('example.todos.table.column.assignees'), meta: { priority: 8 } },
   ]
 }
 
@@ -131,25 +141,25 @@ export default function TodosTable() {
     return params.toString()
   }, [page, sorting, title, values])
 
-  const { data: rawCfDefs } = useCustomFieldDefs('example:todo', {
+  const { data: rawCfDefs, isLoading: customFieldDefsLoading } = useCustomFieldDefs('example:todo', {
     keyExtras: [scopeVersion],
   })
   const cfDefs = rawCfDefs ?? EMPTY_CUSTOM_FIELD_DEFS
 
-  const [columns, setColumns] = React.useState<ColumnDef<TodoRow>[]>([])
-
   const computedColumns = React.useMemo(() => {
     const base = buildBaseColumns(t, severityPreset)
     if (!cfDefs.length) return base
-    return applyCustomFieldVisibility(base, cfDefs)
+    const localizedDefs = cfDefs.map((definition) => {
+      const seeded = TODO_FIELD_DEFAULT_LABELS[definition.key]
+      return seeded && definition.label === seeded.label
+        ? { ...definition, label: t(seeded.translationKey) }
+        : definition
+    })
+    return applyCustomFieldVisibility(base, localizedDefs)
   }, [cfDefs, t])
 
-  React.useEffect(() => {
-    setColumns(computedColumns)
-  }, [computedColumns])
-
   const viewExportColumns = React.useMemo(() => {
-    const sourceColumns = columns.length ? columns : computedColumns
+    const sourceColumns = computedColumns
     return sourceColumns
       .map((col) => {
         const accessorKey = (col as any).accessorKey
@@ -163,7 +173,7 @@ export default function TodosTable() {
         return { field: accessorKey, header }
       })
       .filter((col): col is { field: string; header: string } => !!col)
-  }, [columns, computedColumns])
+  }, [computedColumns])
 
   const fullExportParams = React.useMemo(() => {
     const params: Record<string, string> = { exportScope: 'full', all: 'true' }
@@ -175,7 +185,7 @@ export default function TodosTable() {
     return params
   }, [sorting])
 
-  const effectiveColumns = columns.length ? columns : computedColumns
+  const effectiveColumns = computedColumns
 
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
     queryKey: ['todos', queryParams, scopeVersion],
@@ -343,7 +353,7 @@ export default function TodosTable() {
           totalIsCapped: todosData?.totalIsCapped === true,
           onPageChange: setPage,
         }}
-        isLoading={isLoading}
+        isLoading={isLoading || customFieldDefsLoading}
         onRowClick={(row) => router.push(`/backend/todos/${row.id}/edit`)}
       />
       {ConfirmDialogElement}

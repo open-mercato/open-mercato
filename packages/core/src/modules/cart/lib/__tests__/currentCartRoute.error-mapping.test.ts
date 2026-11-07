@@ -1,4 +1,5 @@
 /** @jest-environment node */
+import { StorefrontResolutionError, type StorefrontResolutionErrorCode, type StorefrontResolutionStatus } from '@open-mercato/core/modules/ecommerce/lib/storeContext'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { mapRouteErrorToResponse } from '../currentCartRoute'
@@ -83,5 +84,37 @@ describe('cart line lock timeout HTTP boundary', () => {
     expect(response.status).toBe(500)
     expect(response.headers.get('Retry-After')).toBeNull()
     await expect(response.json()).resolves.toEqual({ error: 'Unexpected error' })
+  })
+})
+
+
+describe('storefront resolution HTTP boundary', () => {
+  const refusals: Array<[StorefrontResolutionStatus, StorefrontResolutionErrorCode]> = [
+    [400, 'store_slug_not_allowed'],
+    [404, 'store_not_found'],
+    [403, 'store_draft'],
+    [410, 'store_archived'],
+    [503, 'store_misconfigured'],
+    [401, 'portal_session_scope_mismatch'],
+    [401, 'portal_session_invalid'],
+  ]
+
+  it.each(refusals)('preserves storefront %s %s', async (status, code) => {
+    const response = await mapRouteErrorToResponse(new StorefrontResolutionError(status, code))
+    expect(response.status).toBe(status)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    await expect(response.json()).resolves.toEqual({ error: code })
+  })
+
+  it('recognizes errors from another bundle layer', async () => {
+    let error: unknown
+    jest.isolateModules(() => {
+      const duplicate: typeof import('@open-mercato/core/modules/ecommerce/lib/storeContext') = require('@open-mercato/core/modules/ecommerce/lib/storeContext')
+      error = new duplicate.StorefrontResolutionError(404, 'store_not_found')
+    })
+    expect(error).not.toBeInstanceOf(StorefrontResolutionError)
+    const response = await mapRouteErrorToResponse(error)
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({ error: 'store_not_found' })
   })
 })

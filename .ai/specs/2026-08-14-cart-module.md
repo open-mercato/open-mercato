@@ -998,6 +998,10 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 
 ## 18) Changelog
 
+### 2026-11-03 (storefront refusal mapping, #8619)
+
+- Current-cart routes preserve branded storefront resolution status and `{ error: code }` responses instead of reporting expected store or portal-session refusals as unexpected 500s. Error responses are not cached. The boundary recognizes the shared brand without importing the optional ecommerce runtime. Route-matrix tests cover every current-cart handler and all seven refusal codes; the mapper also covers duplicated bundle instances.
+
 ### 2026-10-27 (connection release during cart line contention)
 
 - Keep PostgreSQL serialization and the existing `withAtomicFlush` phases for `cart.lines.add`/`.bulkAdd`, but release top-level contended transactions before waiting. Retry only pre-mutation lock contention, preserve caller-owned ambient transactions, and stop on an unsuccessful rollback. No schema change. The user-approved 15-second top-level lock deadline maps only the private pre-mutation timeout to `503 cart_busy` with `Retry-After: 1`; API documentation and five locales describe the retry response.

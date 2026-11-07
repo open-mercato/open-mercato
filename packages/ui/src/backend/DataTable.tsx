@@ -1707,15 +1707,15 @@ function DataTableImpl<T extends RowData>({
   const { widgets: columnWidgets, isLoading: injectedColumnsLoading, error: injectedColumnsError } = useInjectionDataWidgets(
     extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'columns') : '__disabled__:columns',
   )
+  const { widgets: rowActionWidgets, isLoading: injectedRowActionsLoading } = useInjectionDataWidgets(
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'row-actions') : '__disabled__:row-actions',
+  )
   const [hasInitializedColumns, setHasInitializedColumns] = React.useState(false)
-  const columnsPending = Boolean(isLoading || (extensionTableId && injectedColumnsLoading))
+  const columnsPending = Boolean(isLoading || (extensionTableId && (injectedColumnsLoading || injectedRowActionsLoading)))
   const isInitializingColumns = !hasInitializedColumns && columnsPending
   React.useEffect(() => {
     if (!columnsPending) setHasInitializedColumns(true)
   }, [columnsPending])
-  const { widgets: rowActionWidgets } = useInjectionDataWidgets(
-    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'row-actions') : '__disabled__:row-actions',
-  )
   const { widgets: bulkActionWidgets } = useInjectionDataWidgets(
     extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'bulk-actions') : '__disabled__:bulk-actions',
   )

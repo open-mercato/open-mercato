@@ -504,6 +504,8 @@ export default {
 
 ## Changelog
 
+- 2026-11-03 (#8649): Initial table rendering also waits for injected row actions, because they determine the Actions column. Todos waits for custom-field definitions and computes columns synchronously; known seeded Todo field labels are localized only while their stored labels match the English defaults. Administrator-customized labels retain precedence. Description and assignee headers have locale entries mirrored into the standalone template. Delayed-action, custom-header and Polish Todos host regressions cover the first-paint behavior; table IDs and public props remain unchanged.
+
 - 2026-10-29: Handle rejected injection registry chunks and failed translation prerequisites as terminal, recoverable extension failures. Added bootstrap rejection, base-table fallback, shared-state recovery and hook regressions; documented downstream empty-registry setup and the fresh-cookie scope residual. Human screen QA and the existing QA gate remain required.
 
 - 2026-10-15: Initial table rendering waits for registry registration, parent column definitions, and injected columns. Hidden defaults and injected placement settle before paint, while subsequent row refreshes retain the header (#7436). Customers People, Companies, and Deals include custom-field definition loading in the existing `isLoading` prop.

@@ -14,3 +14,5 @@ topics: ["custom-fields","filters","ui-components"]
 **Rule**: When a DataTable auto-discovers fields from entity/custom-field metadata, keep the discovery surface aligned with the concrete column registry. If a field should be selectable later, register a real hidden column for it; otherwise keep it out of chooser/filter discovery entirely.
 
 **Applies to**: `DataTable` auto-discovery, custom-field-backed list pages, and any future metadata-driven chooser/filter UI.
+
+**Review correction (#8649, 2026-11-03)**: Metadata labels are tenant-editable, so fixing localization must not globally make host string headers override definition labels. Preserve the established precedence; localize a known seeded label only while its stored value still equals the seed default. Cover an administrator rename in both column-header and column-meta assertions.
