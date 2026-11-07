@@ -16,6 +16,10 @@ import {
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
+import {
+  loadCustomerAuditRedactionContext,
+  redactCustomerAuditEntry,
+} from '@open-mercato/core/modules/customers/lib/auditRedaction'
 import { loadAuditLogDisplayMaps } from '../../display'
 import { requireResolvedTenantScope } from '../../readScope'
 
@@ -192,7 +196,14 @@ export async function GET(req: Request) {
     }
     throw err
   }
-  const entries = entriesResult.items
+  // The CRM owns private-email visibility (customers/lib/visibilityFilter.ts); the
+  // export must never show MORE than a live CRM read would (#8887).
+  const auditRedactionContext = await loadCustomerAuditRedactionContext(
+    em,
+    { tenantId: auth.tenantId ?? '', organizationId: organizationId ?? null },
+    auth.sub,
+  )
+  const entries = entriesResult.items.map((entry: any) => redactCustomerAuditEntry(entry, auditRedactionContext))
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: entries.map((entry: any) => entry.actorUserId).filter((value: any): value is string => Boolean(value)),

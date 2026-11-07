@@ -114,6 +114,85 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
     expect(data.canViewTenant).toBe(false)
   })
 
+  // Regression for issue #8887 — the route used to serialize decrypted CRM
+  // interaction snapshots verbatim, exposing private email subjects/bodies to
+  // any viewer with audit_logs.view_tenant regardless of CRM ownership.
+  it('redacts private email title/body from a customers.interaction entry when the viewer is not the author', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        makeActionLogEntry({
+          resourceKind: 'customers.interaction',
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-2',
+              title: 'Private subject',
+              body: 'Private body',
+            },
+          },
+          snapshotAfter: null,
+        }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].snapshotBefore.interaction.title).toBeNull()
+    expect(data.items[0].snapshotBefore.interaction.body).toBeNull()
+  })
+
+  it('leaves private email title/body visible to its own author', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        makeActionLogEntry({
+          resourceKind: 'customers.interaction',
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-1',
+              title: 'Private subject',
+              body: 'Private body',
+            },
+          },
+          snapshotAfter: null,
+        }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].snapshotBefore.interaction.title).toBe('Private subject')
+    expect(data.items[0].snapshotBefore.interaction.body).toBe('Private body')
+  })
+
   it('passes page and pageSize to service', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({

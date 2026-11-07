@@ -131,6 +131,59 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
     expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-1' }))
   })
 
+  // Regression for issue #8887 — the CSV export fed snapshotBefore/changesJson
+  // straight into the row builder, so a private email's subject/body change
+  // leaked as a "title"/"body" row to any viewer with audit_logs.view_tenant.
+  it('strips a private email title/body change from the exported rows when the viewer is not the author', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        {
+          id: 'action-1',
+          commandId: 'cmd-1',
+          actionLabel: 'Update interaction',
+          actorUserId: 'user-2',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          resourceKind: 'customers.interaction',
+          resourceId: 'interaction-1',
+          createdAt: new Date('2024-06-15T12:00:00.000Z'),
+          contextJson: null,
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-2',
+              title: 'Old private subject',
+              body: 'Old private body',
+            },
+          },
+          changesJson: { title: { from: 'Old private subject', to: 'New private subject' } },
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+
+    expect(res.status).toBe(200)
+    const csv = await res.text()
+    expect(csv).not.toContain('Old private subject')
+    expect(csv).not.toContain('New private subject')
+  })
+
   it('uses the canonical API-key subject for self-only exports', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
