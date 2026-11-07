@@ -171,10 +171,13 @@ test.describe('TC-TRANS-020: translation undo keeps later edits by another opera
       })
       await managerCard.getByRole('tab', { name: 'DE' }).click()
       const field = await firstTranslationField(managerCard)
-      await field.fill('Deutscher Titel QA')
+      await field.click()
+      await page.keyboard.type('Deutscher Titel QA')
+      await expect.poll(async () => field.inputValue()).toBe('Deutscher Titel QA')
 
+      const encodedPath = `/api/translations/${encodeURIComponent(ENTITY_TYPE)}/${productId}`
       const saveResponse = page.waitForResponse((response) =>
-        response.request().method() === 'PUT' && response.url().includes(translationPath(productId as string)),
+        response.request().method() === 'PUT' && response.url().includes(encodedPath),
       )
       await page.getByRole('button', { name: 'Save translations' }).click()
       expect((await saveResponse).ok()).toBeTruthy()
