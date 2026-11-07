@@ -1,6 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
 import { TERMINAL_INTERACTION_STATUS_LIST } from './interactionStatus'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CustomerInteraction } from '../data/entities'
 
 export type NextInteractionProjectionResult = {
   nextInteractionId: string | null
@@ -32,6 +34,7 @@ export async function recomputeNextInteraction(
       'scheduled_at',
       'title',
       'interaction_type',
+      'visibility',
       'appearance_icon',
       'appearance_color',
     ])
@@ -51,9 +54,11 @@ export async function recomputeNextInteraction(
     .executeTakeFirst() as Record<string, any> | undefined
 
   if (candidate) {
-    const interactionName = candidate.title && candidate.title.trim() !== ''
-      ? candidate.title
-      : candidate.interaction_type
+    const interactionName = candidate.interaction_type === 'email' && candidate.visibility === 'private'
+      ? null
+      : candidate.title && candidate.title.trim() !== ''
+        ? candidate.title
+        : candidate.interaction_type
 
     await db
       .updateTable('customer_entities')
@@ -82,5 +87,33 @@ export async function recomputeNextInteraction(
       .where('id', '=', entityId)
       .execute()
     return { nextInteractionId: null }
+  }
+}
+
+export async function redactRestoredNextInteractionName(
+  em: EntityManager,
+  snapshot: {
+    id: string
+    tenantId: string
+    organizationId: string
+    nextInteractionRefId: string | null
+    nextInteractionName: string | null
+  },
+): Promise<void> {
+  if (!snapshot.nextInteractionRefId) return
+  const interaction = await findOneWithDecryption(
+    em,
+    CustomerInteraction,
+    {
+      id: snapshot.nextInteractionRefId,
+      entity: snapshot.id,
+      tenantId: snapshot.tenantId,
+      organizationId: snapshot.organizationId,
+    },
+    { fields: ['interactionType', 'visibility'] },
+    { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+  )
+  if (!interaction || (interaction.interactionType === 'email' && interaction.visibility === 'private')) {
+    snapshot.nextInteractionName = null
   }
 }
