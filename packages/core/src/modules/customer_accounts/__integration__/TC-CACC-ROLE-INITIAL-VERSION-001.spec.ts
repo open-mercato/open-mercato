@@ -8,8 +8,12 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
-for (const legacyNullVersion of [false, true]) {
-  test(`TC-CACC-ROLE-INITIAL-VERSION-001: ${legacyNullVersion ? 'legacy null' : 'new'} role rejects a stale first UI edit`, async ({ request, browser }, testInfo) => {
+for (const { legacyNullVersion, blankDescription } of [
+  { legacyNullVersion: false, blankDescription: false },
+  { legacyNullVersion: true, blankDescription: false },
+  { legacyNullVersion: false, blankDescription: true },
+]) {
+  test(`TC-CACC-ROLE-INITIAL-VERSION-001: ${blankDescription ? 'blank description' : legacyNullVersion ? 'legacy null' : 'new'} role rejects a stale first UI edit`, async ({ request, browser }, testInfo) => {
     const admin = await getAuthToken(request, 'admin')
     const scope = getTokenContext(admin)
     const suffix = randomUUID()
@@ -39,6 +43,7 @@ for (const legacyNullVersion of [false, true]) {
         const stored = await client.query<{ updated_at: string | null }>('select updated_at from customer_roles where id = $1', [role.id])
         expect(stored.rows[0].updated_at).not.toBeNull()
         if (legacyNullVersion) await client.query('update customer_roles set updated_at = null where id = $1', [role.id])
+        if (blankDescription) await client.query('update customer_roles set description = null where id = $1', [role.id])
       })
       const detailPath = `/api/customer_accounts/admin/roles/${role.id}`
       const initial = await apiRequest(request, 'GET', detailPath, { token: tokens[0] })

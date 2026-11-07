@@ -38,3 +38,5 @@ Same-role writers now wait for each other. Multi-role locks use ID order; exampl
 - 2026-11-05: Implemented transaction-scoped fresh role locking across deletion and all assignment writers; added race regression coverage for #8736.
 
 - 2026-11-07: Addressed QA follow-up #8846: initialize role versions and guard historical null versions consistently; added legacy guard units and self-contained two-actor browser/API stale-first-save, ACL/delete refusal and reload/retry coverage in TC-CACC-ROLE-INITIAL-VERSION-001.
+
+- 2026-11-07: QA found that editing a role with no description sent a null rejected by the existing string-only API validator before optimistic locking ran. The role form now sends an empty string; the first-version browser suite also covers blank descriptions. API validation and persisted response shapes stay unchanged.

@@ -259,7 +259,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             name: (values.name as string)?.trim(),
-            description: (values.description as string)?.trim() || null,
+            description: (values.description as string)?.trim() || '',
             isDefault: values.isDefault,
             customerAssignable: values.customerAssignable,
           }),
