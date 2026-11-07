@@ -273,7 +273,8 @@ async function claimPrimaryCompanyLink(
     scope,
   )
   if (!locked) {
-    throw notFound('Person not found')
+    const { translate } = await resolveTranslations()
+    throw notFound(translate('customers.errors.person_not_found', 'Person not found'))
   }
   await findOneWithDecryption(
     em,
