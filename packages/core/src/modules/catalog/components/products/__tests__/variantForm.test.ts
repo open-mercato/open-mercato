@@ -5,6 +5,7 @@ import {
   buildVariantMetadata,
   mapPriceItemToDraft,
   findInvalidVariantPriceKinds,
+  resolveVariantPriceAmount,
 } from '../variantForm'
 import type { VariantFormValues } from '../variantForm'
 import type { PriceKindSummary } from '../productForm'
@@ -394,17 +395,33 @@ describe('findInvalidVariantPriceKinds', () => {
     expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual(['promo'])
   })
 
-  it('flags values above numeric(16,4) integer precision', () => {
+  it('accepts values beyond 12 integer digits', () => {
     const drafts = {
-      regular: { priceKindId: 'regular', amount: '1000000000000', displayMode: 'excluding-tax' as const },
+      regular: { priceKindId: 'regular', amount: '1000000000000000000000', displayMode: 'excluding-tax' as const },
     }
-    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual(['regular'])
+    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual([])
   })
 
-  it('flags values with more than four decimal places', () => {
+  it('accepts values with more than four decimal places', () => {
     const drafts = {
-      regular: { priceKindId: 'regular', amount: '12.34567', displayMode: 'excluding-tax' as const },
+      regular: { priceKindId: 'regular', amount: '0.000000000000000001', displayMode: 'excluding-tax' as const },
     }
-    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual(['regular'])
+    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual([])
+  })
+})
+
+describe('resolveVariantPriceAmount', () => {
+  const draft = (amount: string) => ({ priceKindId: 'kind-1', amount, displayMode: 'excluding-tax' as const })
+
+  it('returns the exact decimal string for a valid amount', () => {
+    expect(resolveVariantPriceAmount(draft(' 19.90 '))).toBe('19.9')
+    expect(resolveVariantPriceAmount(draft('0.123456789012345678'))).toBe('0.123456789012345678')
+  })
+
+  it('returns null for blank, invalid or negative amounts', () => {
+    expect(resolveVariantPriceAmount(undefined)).toBeNull()
+    expect(resolveVariantPriceAmount(draft('   '))).toBeNull()
+    expect(resolveVariantPriceAmount(draft('abc'))).toBeNull()
+    expect(resolveVariantPriceAmount(draft('-1'))).toBeNull()
   })
 })

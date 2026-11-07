@@ -19,6 +19,7 @@
 import {
   mapOrderLineEntityToSnapshot,
   mapQuoteLineEntityToSnapshot,
+  resolveUpsertCalculatedAmounts,
   resolveUpsertDiscountFields,
   resolveUpsertTotalsOrigin,
 } from '../lineSnapshots'
@@ -143,13 +144,14 @@ describe('resolveUpsertDiscountFields', () => {
   it('treats a caller-supplied amount as a caller assertion, defaulting to the unit basis', () => {
     const fields = resolveUpsertDiscountFields(5, undefined, { discountAmount: 99 })
 
-    expect(fields).toEqual({ discountAmount: 5, discountAmountBasis: 'unit' })
+    expect(fields).toEqual({ discountAmount: 5, discountAmountExact: '5', discountAmountBasis: 'unit' })
     expect(fields.discountAmountFromStoredRow).toBeUndefined()
   })
 
   it('honours an explicit caller basis', () => {
     expect(resolveUpsertDiscountFields(5, 'line', null)).toEqual({
       discountAmount: 5,
+      discountAmountExact: '5',
       discountAmountBasis: 'line',
     })
   })
@@ -160,6 +162,7 @@ describe('resolveUpsertDiscountFields', () => {
     // value.
     expect(resolveUpsertDiscountFields(0, undefined, { discountAmount: 99 })).toEqual({
       discountAmount: 0,
+      discountAmountExact: '0',
       discountAmountBasis: 'unit',
     })
   })
@@ -167,7 +170,7 @@ describe('resolveUpsertDiscountFields', () => {
   it('falls back to the stored amount as a line total when the caller sends nothing', () => {
     const fields = resolveUpsertDiscountFields(undefined, undefined, { discountAmount: 12.75 })
 
-    expect(fields).toEqual({ discountAmount: 12.75, discountAmountFromStoredRow: true })
+    expect(fields).toEqual({ discountAmount: 12.75, discountAmountExact: '12.75', discountAmountFromStoredRow: true })
     expect(fields.discountAmountBasis).toBeUndefined()
   })
 
@@ -176,8 +179,14 @@ describe('resolveUpsertDiscountFields', () => {
     // "not supplied" before the engine ever sees it.
     expect(resolveUpsertDiscountFields(undefined, undefined, null)).toEqual({
       discountAmount: null,
+      discountAmountExact: null,
       discountAmountFromStoredRow: false,
     })
+  })
+
+  it('keeps the exact caller amount beyond float precision', () => {
+    const exact = '0.123456789012345678901'
+    expect(resolveUpsertDiscountFields(Number(exact), 'line', null, exact).discountAmountExact).toBe(exact)
   })
 
   it('never sets both origin fields at once', () => {
@@ -295,5 +304,42 @@ describe('request schemas (§ 3 invariant, acceptance criterion 9)', () => {
         discountAmountBasis: 'per-unit',
       }),
     ).toThrow()
+  })
+})
+
+describe('resolveUpsertCalculatedAmounts exact pricing comparison', () => {
+  const existing = {
+    kind: 'product' as const,
+    quantity: 1,
+    currencyCode: 'ETH',
+    unitPriceNet: 1,
+    unitPriceNetExact: '1',
+    unitPriceGross: 1,
+    unitPriceGrossExact: '1',
+    taxRate: 0,
+    taxAmount: 0,
+    taxAmountExact: '0',
+    totalGrossAmount: 1,
+    totalGrossAmountExact: '1',
+  }
+
+  it('treats an edit beyond float precision as a pricing change', () => {
+    const next = { ...existing, unitPriceNetExact: '1.000000000000000001', unitPriceGrossExact: '1.000000000000000001' }
+    const result = resolveUpsertCalculatedAmounts({}, next, existing)
+    expect(result.totalGrossAmount).toBeNull()
+    expect(result.taxAmount).toBeNull()
+  })
+
+  it('detects a discount edit beyond 4 decimals at the currency precision', () => {
+    const stored = { ...existing, discountAmount: 0.5, discountAmountExact: '0.5', discountAmountFromStoredRow: true }
+    const next = { ...stored, discountAmountExact: '0.500000000001', discountAmount: 0.500000000001 }
+    expect(resolveUpsertCalculatedAmounts({}, next, stored, 18).totalGrossAmount).toBeNull()
+    expect(resolveUpsertCalculatedAmounts({}, next, stored).totalGrossAmount).toBe(1)
+  })
+
+  it('reuses stored tax and gross when nothing changed', () => {
+    const result = resolveUpsertCalculatedAmounts({}, { ...existing }, existing)
+    expect(result.totalGrossAmountExact).toBe('1')
+    expect(result.taxAmountExact).toBe('0')
   })
 })

@@ -42,9 +42,8 @@ async function executeCreateDocumentAction(
   const currencyCode = payload.currencyCode.trim().toUpperCase()
   const lines = payload.lineItems.map((line, index) => {
     const quantity = parseNumberToken(line.quantity, `lineItems[${index}].quantity`)
-    const unitPrice = line.unitPrice
-      ? parseNumberToken(line.unitPrice, `lineItems[${index}].unitPrice`)
-      : undefined
+    const unitPrice = line.unitPrice || undefined
+    if (unitPrice !== undefined) parseNumberToken(unitPrice, `lineItems[${index}].unitPrice`)
 
     const mappedLine: Record<string, unknown> = {
       lineNumber: index + 1,

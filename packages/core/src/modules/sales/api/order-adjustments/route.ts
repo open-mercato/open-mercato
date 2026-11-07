@@ -10,6 +10,7 @@ import {
 } from '../../data/validators'
 import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
 import { withScopedPayload } from '../utils'
+import { withExactAdjustmentInput } from '../../lib/exactAmountFields'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/sales_order_adjustment'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
@@ -115,8 +116,8 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const payload = upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
-        return { body: payload }
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        return { body: withExactAdjustmentInput(upsertSchema.parse(scoped), scoped) }
       },
       response: ({ result }) => ({ id: result?.adjustmentId ?? null, orderId: result?.orderId ?? null }),
       status: 201,
@@ -126,8 +127,8 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const payload = upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
-        return { body: payload }
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        return { body: withExactAdjustmentInput(upsertSchema.parse(scoped), scoped) }
       },
       response: ({ result }) => ({ id: result?.adjustmentId ?? null, orderId: result?.orderId ?? null }),
     },
@@ -171,9 +172,9 @@ const adjustmentSchema = z.object({
   label: z.string().nullable().optional(),
   calculator_key: z.string().nullable().optional(),
   promotion_id: z.string().uuid().nullable().optional(),
-  rate: z.number(),
-  amount_net: z.number(),
-  amount_gross: z.number(),
+  rate: z.string(),
+  amount_net: z.string(),
+  amount_gross: z.string(),
   currency_code: z.string().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   position: z.number(),

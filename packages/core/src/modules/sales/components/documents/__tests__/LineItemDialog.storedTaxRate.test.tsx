@@ -311,11 +311,11 @@ describe('LineItemDialog keeps the stored tax rate of an API-created line (issue
       quantity: 5,
       priceMode: 'gross',
       taxRate: 23,
-      unitPriceGross: 61.5,
-      totalGrossAmount: 307.5,
+      unitPriceGross: '61.5',
+      totalGrossAmount: '307.5',
     })
-    expect(payload.unitPriceNet).toBeCloseTo(50, 6)
-    expect(payload.totalNetAmount).toBeCloseTo(250, 6)
+    expect(payload.unitPriceNet).toBe('50')
+    expect(payload.totalNetAmount).toBe('250')
   })
 
   it('still applies a tax class the user picks explicitly', async () => {
@@ -352,6 +352,6 @@ describe('LineItemDialog keeps the stored tax rate of an API-created line (issue
     const payload = await submitWithQuantity('2')
     expect(payload.taxRate).toBe(7)
     expect(payload.metadata).not.toHaveProperty('taxRateId')
-    expect(payload.unitPriceNet).toBeCloseTo(100, 6)
+    expect(payload.unitPriceNet).toBe('100')
   })
 })

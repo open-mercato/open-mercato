@@ -124,6 +124,7 @@ describe('GET /api/customers/deals/[id]/stats', () => {
     expect(response.status).toBe(200)
     expect(body).toEqual({
       dealValue: 12000,
+      dealValueExact: '12000',
       dealCurrency: 'USD',
       closureOutcome: 'won',
       closedAt: '2026-04-14T16:30:00.000Z',
@@ -175,6 +176,7 @@ describe('GET /api/customers/deals/[id]/stats', () => {
     expect(response.status).toBe(200)
     expect(body).toEqual({
       dealValue: 9000,
+      dealValueExact: '9000',
       dealCurrency: 'EUR',
       closureOutcome: 'lost',
       closedAt: '2026-04-12T08:00:00.000Z',

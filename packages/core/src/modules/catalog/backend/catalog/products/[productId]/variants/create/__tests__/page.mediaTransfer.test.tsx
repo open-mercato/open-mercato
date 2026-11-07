@@ -85,7 +85,7 @@ describe('CreateVariantPage media transfer failures', () => {
       })
       expect(transferCalls).toBe(2)
       expect(createCrudMock).toHaveBeenCalledWith('catalog/variants', expect.objectContaining({ productId: 'product-1', name: 'Variant' }))
-      expect(createCrudMock).toHaveBeenCalledWith('catalog/prices', expect.objectContaining({ variantId: 'variant-1', unitPriceGross: 12 }))
+      expect(createCrudMock).toHaveBeenCalledWith('catalog/prices', expect.objectContaining({ variantId: 'variant-1', unitPriceGross: '12' }))
       expect(mockTranslate).toHaveBeenCalledWith(
         'catalog.variants.form.mediaTransferIncomplete',
         expect.any(String),

@@ -112,6 +112,44 @@ describe('DefaultCatalogBuyerPricingService.resolveLinePrice', () => {
     expect(result.priceIsPromotional).toBe(false)
   })
 
+  it('keeps every digit of the stored price and derives the other side exactly', async () => {
+    const rows = [baseRow({
+      id: 'exact',
+      currencyCode: 'ETH',
+      unitPriceNet: '1.000000000000000001',
+      unitPriceGross: null,
+      taxRate: '23',
+    } as any)]
+
+    const result = await buildService().resolveLinePrice(
+      em,
+      rows,
+      baseContext({ currencyCode: 'ETH', currencyDecimalPlaces: 18 }),
+      scope,
+    )
+
+    expect(result.amountNetExact).toBe('1.000000000000000001')
+    expect(result.amountGrossExact).toBe('1.230000000000000001')
+    expect(result.amountNet).toBe(1)
+  })
+
+  it('falls back to the ISO minor units, so an unconfigured crypto code rounds at four decimals', async () => {
+    const rows = [baseRow({ id: 'unknown', currencyCode: 'ETH', unitPriceNet: '1.123456', unitPriceGross: null, taxRate: '23' } as any)]
+
+    const result = await buildService().resolveLinePrice(em, rows, baseContext({ currencyCode: 'ETH' }), scope)
+
+    expect(result.amountGrossExact).toBe('1.3819')
+  })
+
+  it('rounds a derived fiat side to four decimals as before', async () => {
+    const rows = [baseRow({ id: 'fiat', unitPriceNet: '10.00', unitPriceGross: null, taxRate: '23' } as any)]
+
+    const result = await buildService().resolveLinePrice(em, rows, baseContext(), scope)
+
+    expect(result.amountNetExact).toBe('10')
+    expect(result.amountGrossExact).toBe('12.3')
+  })
+
   it('uses the row-carried tax rate instead of querying for a fallback when present', async () => {
     const rows = [baseRow({ id: 'with-rate', unitPriceNet: '10.00', unitPriceGross: null, taxRate: '15.0000' } as any)]
 
@@ -179,15 +217,15 @@ describe('DefaultCatalogBuyerPricingService.resolveLinePrice', () => {
 
     const atFive = await buildService().resolveLinePrice(em, rows, baseContext({ quantity: 5 }), scope)
     expect(atFive.tiers).toEqual([
-      { minQuantity: 1, maxQuantity: 4, amountNet: 10, amountGross: 10 },
-      { minQuantity: 5, maxQuantity: 9, amountNet: 9, amountGross: 9 },
-      { minQuantity: 10, maxQuantity: null, amountNet: 8, amountGross: 8 },
+      { minQuantity: 1, maxQuantity: 4, amountNet: 10, amountGross: 10, amountNetExact: '10', amountGrossExact: '10' },
+      { minQuantity: 5, maxQuantity: 9, amountNet: 9, amountGross: 9, amountNetExact: '9', amountGrossExact: '9' },
+      { minQuantity: 10, maxQuantity: null, amountNet: 8, amountGross: 8, amountNetExact: '8', amountGrossExact: '8' },
     ])
-    expect(atFive.currentTier).toEqual({ minQuantity: 5, maxQuantity: 9, amountNet: 9, amountGross: 9 })
-    expect(atFive.nextTier).toEqual({ minQuantity: 10, maxQuantity: null, amountNet: 8, amountGross: 8 })
+    expect(atFive.currentTier).toEqual({ minQuantity: 5, maxQuantity: 9, amountNet: 9, amountGross: 9, amountNetExact: '9', amountGrossExact: '9' })
+    expect(atFive.nextTier).toEqual({ minQuantity: 10, maxQuantity: null, amountNet: 8, amountGross: 8, amountNetExact: '8', amountGrossExact: '8' })
 
     const atTwelve = await buildService().resolveLinePrice(em, rows, baseContext({ quantity: 12 }), scope)
-    expect(atTwelve.currentTier).toEqual({ minQuantity: 10, maxQuantity: null, amountNet: 8, amountGross: 8 })
+    expect(atTwelve.currentTier).toEqual({ minQuantity: 10, maxQuantity: null, amountNet: 8, amountGross: 8, amountNetExact: '8', amountGrossExact: '8' })
     expect(atTwelve.nextTier).toBeNull()
   })
 

@@ -85,6 +85,7 @@ type GeneralSettingsResult = {
   slaAtRiskThresholdPct: number
   autoApproveEnabled: boolean
   autoApproveMaxAmount: number | null
+  autoApproveMaxAmountExact?: string | null
   autoApproveCurrencyCode: string | null
   autoApproveRequireInWarranty: boolean
   defaultWarrantyMonths: number | null
@@ -385,7 +386,7 @@ function buildGeneralFormValues(settings: GeneralSettingsResult): GeneralSetting
     slaPauseOnInfoRequested: settings.slaPauseOnInfoRequested,
     slaAtRiskThresholdPct: String(settings.slaAtRiskThresholdPct),
     autoApproveEnabled: settings.autoApproveEnabled,
-    autoApproveMaxAmount: settings.autoApproveMaxAmount === null ? '' : String(settings.autoApproveMaxAmount),
+    autoApproveMaxAmount: settings.autoApproveMaxAmount === null ? '' : settings.autoApproveMaxAmountExact ?? String(settings.autoApproveMaxAmount),
     autoApproveCurrencyCode: settings.autoApproveCurrencyCode ?? '',
     autoApproveRequireInWarranty: settings.autoApproveRequireInWarranty,
     defaultWarrantyMonths: settings.defaultWarrantyMonths === null ? '' : String(settings.defaultWarrantyMonths),
@@ -1332,7 +1333,7 @@ export default function WarrantyClaimSettingsPage() {
       slaPauseOnInfoRequested: generalForm.slaPauseOnInfoRequested,
       slaAtRiskThresholdPct,
       autoApproveEnabled: generalForm.autoApproveEnabled,
-      autoApproveMaxAmount,
+      autoApproveMaxAmount: amountText.length ? amountText : null,
       autoApproveCurrencyCode: currencyCode,
       autoApproveRequireInWarranty: generalForm.autoApproveRequireInWarranty,
       defaultWarrantyMonths,

@@ -2,6 +2,8 @@
   "payment_gateways.captureMethod.automatic": "Automatica",
   "payment_gateways.captureMethod.manual": "Manual",
   "payment_gateways.column.gatewayStatus": "Estado de la pasarela",
+  "payment_gateways.errors.amountMustBePositive": "El importe debe ser mayor que cero",
+  "payment_gateways.errors.amountPrecisionExceeded": "El importe {amount} tiene más decimales de los que admite {currencyCode} ({decimalPlaces})",
   "payment_gateways.errors.sessionAmountMismatch": "El importe de la sesión de pago {amount} no coincide con el importe pendiente del pedido {orderId}",
   "payment_gateways.errors.sessionCurrencyMismatch": "La moneda de la sesión de pago {currencyCode} no coincide con la moneda del pedido {orderId}",
   "payment_gateways.errors.sessionOrderNotFound": "No se encontró el pedido {orderId} en el ámbito actual",

@@ -3,6 +3,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseScopedCommandInput, withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { withWarrantyExactAmounts } from '../../commands/shared'
 import { E } from '#generated/entities.ids.generated'
 import { WarrantyClaimLine } from '../../data/entities'
 import {
@@ -184,7 +185,7 @@ const crud = makeCrudRoute<ClaimLineCreateInput, ClaimLineUpdateInput, LineListQ
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(claimLineCreateSchema, raw ?? {}, ctx, translate)
+        return withWarrantyExactAmounts(parseScopedCommandInput(claimLineCreateSchema, raw ?? {}, ctx, translate), raw)
       },
       response: ({ result }: { result: Record<string, unknown> | null }) => ({
         id: typeof result?.lineId === 'string' ? result.lineId : null,
@@ -197,7 +198,7 @@ const crud = makeCrudRoute<ClaimLineCreateInput, ClaimLineUpdateInput, LineListQ
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(claimLineUpdateSchema, raw ?? {}, ctx, translate)
+        return withWarrantyExactAmounts(parseScopedCommandInput(claimLineUpdateSchema, raw ?? {}, ctx, translate), raw)
       },
       response: ({ result }: { result: Record<string, unknown> | null }) => ({
         ok: true,

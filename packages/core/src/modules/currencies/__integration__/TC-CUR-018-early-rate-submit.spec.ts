@@ -30,7 +30,7 @@ test('TC-CUR-018: First exchange-rate save succeeds before organization scope in
     await page.getByRole('option', { name: from.code, exact: true }).click()
     await currencies.nth(1).fill(to.code)
     await page.getByRole('option', { name: to.code, exact: true }).click()
-    await page.getByRole('textbox', { name: '1.00000000', exact: true }).fill('1.25')
+    await page.getByRole('textbox', { name: '1.0', exact: true }).fill('1.25')
     await page.getByRole('textbox', { name: 'e.g., ECB, Manual', exact: true }).fill('QA-Early-Scope')
     await page.getByRole('button', { name: 'Pick date and time', exact: true }).click()
     await page.getByRole('button', { name: /^Today,/ }).click()

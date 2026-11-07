@@ -13,6 +13,17 @@
  */
 
 import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import {
+  FX_DECIMAL_PLACES,
+  decimalToNumber,
+  decimalToString,
+  divideDecimals,
+  parseDecimal,
+  resolveExactDecimal,
+  roundDecimal,
+  sumDecimals,
+  toDecimal,
+} from '@open-mercato/shared/lib/decimal'
 import { createStrategyRegistry, BUILT_IN_STRATEGY_PRIORITY } from './registries/registry'
 import { tryStrategy } from './registries/invoke'
 import { hasResolverScope, type ScopedResolverContext } from './registries/scope'
@@ -20,11 +31,34 @@ import { hasResolverScope, type ScopedResolverContext } from './registries/scope
 export type CostEntry = {
   isBillable: boolean
   roundedMinutes: number
-  rateOverrideAmount?: number | null
+  /** A number, or an exact decimal string for rates beyond float precision. */
+  rateOverrideAmount?: number | string | null
 }
 
 export type CostProject = {
+  /** A number, or an exact decimal string for rates beyond float precision. */
+  hourlyRate?: number | string | null
+}
+
+/** Amounts round to the currency's decimals; 2 when the currency is unknown. */
+export const DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES = 2
+
+/**
+ * The entry as a rate resolver sees it: `rateOverrideAmount` is the float copy,
+ * `rateOverrideAmountExact` the exact decimal string when the caller has one.
+ */
+export type TimeRateEntryContext = {
+  rateOverrideAmount?: number | null
+  rateOverrideAmountExact?: string | null
+}
+
+/**
+ * The project as a rate resolver sees it: `hourlyRate` is the float copy,
+ * `hourlyRateExact` the exact decimal string when the caller has one.
+ */
+export type TimeRateProjectContext = {
   hourlyRate?: number | null
+  hourlyRateExact?: string | null
 }
 
 /**
@@ -34,8 +68,8 @@ export type CostProject = {
  * effective date without the call site having to invent its own context shape.
  */
 export type TimeRateContext = ScopedResolverContext & {
-  entry?: Pick<CostEntry, 'rateOverrideAmount'> | null
-  project?: CostProject | null
+  entry?: TimeRateEntryContext | null
+  project?: TimeRateProjectContext | null
   task?: { id?: string | null; timeProjectId?: string | null } | null
   staffMember?: { id?: string | null } | null
   role?: { id?: string | null; name?: string | null } | null
@@ -47,6 +81,11 @@ export type TimeRateResolver = {
   id: string
   priority?: number
   resolve(ctx: TimeRateContext): number | null
+  /**
+   * Optional exact-decimal answer. When present it is asked instead of
+   * `resolve`, so a rate beyond float precision survives the chain.
+   */
+  resolveExact?(ctx: TimeRateContext): string | null
 }
 
 export const TIME_RATE_REGISTRY_ID = extensionPoints.hosts.timeRateRegistry.spotId
@@ -79,39 +118,85 @@ export function round2(value: number): number {
   return sign * restored
 }
 
-function toCents(amount: number): number {
-  return Math.round(round2(amount) * 100)
+function exactRate(value: unknown): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
 }
 
-function builtInRate(ctx: TimeRateContext): number | null {
-  const override = ctx.entry?.rateOverrideAmount
-  if (override !== null && override !== undefined && Number.isFinite(override)) return override
-  const projectRate = ctx.project?.hourlyRate
-  if (projectRate !== null && projectRate !== undefined && Number.isFinite(projectRate)) return projectRate
-  return null
+function finiteNumberOrNull(exact: string | null): number | null {
+  if (exact === null) return null
+  const value = decimalToNumber(exact)
+  return Number.isFinite(value) ? value : null
+}
+
+function finiteNumberRate(value: unknown): string | null {
+  return typeof value === 'number' && Number.isFinite(value) ? exactRate(value) : null
+}
+
+function builtInRateExact(ctx: TimeRateContext): string | null {
+  const override = resolveExactDecimal(ctx.entry?.rateOverrideAmountExact, ctx.entry?.rateOverrideAmount)
+  if (override !== null) return override
+  return resolveExactDecimal(ctx.project?.hourlyRateExact, ctx.project?.hourlyRate)
 }
 
 const builtInRateResolver: TimeRateResolver = registry.registerBuiltIn({
   id: BUILT_IN_TIME_RATE_RESOLVER_ID,
   priority: BUILT_IN_STRATEGY_PRIORITY,
-  resolve: builtInRate,
+  resolve: (ctx) => finiteNumberOrNull(builtInRateExact(ctx)),
+  resolveExact: builtInRateExact,
 })
+
+function resolverRateExact(resolver: TimeRateResolver, ctx: TimeRateContext): string | null {
+  if (typeof resolver.resolveExact === 'function') return exactRate(resolver.resolveExact(ctx))
+  return finiteNumberRate(resolver.resolve(ctx))
+}
 
 /**
  * Walks the registry in priority order and takes the first non-null answer.
  * Contributed resolvers are skipped entirely when the context carries no
- * complete scope, which leaves the built-in as the only candidate.
+ * complete scope, which leaves the built-in as the only candidate. A resolver
+ * with `resolveExact` answers through it; otherwise its `resolve` number is used.
  */
-export function resolveTimeRate(ctx: TimeRateContext): number | null {
+export function resolveTimeRateExact(ctx: TimeRateContext): string | null {
   const scoped = hasResolverScope(ctx)
   for (const resolver of registry.list()) {
     if (!scoped && resolver.id !== BUILT_IN_TIME_RATE_RESOLVER_ID) continue
     // A chain asks the next candidate anyway, so a thrower is skipped rather than
     // replaced — and the built-in is always the last candidate.
-    const rate = tryStrategy(TIME_RATE_REGISTRY_ID, resolver.id, () => resolver.resolve(ctx))
-    if (rate !== null && rate !== undefined && Number.isFinite(rate)) return rate
+    const rate = tryStrategy(TIME_RATE_REGISTRY_ID, resolver.id, () => resolverRateExact(resolver, ctx))
+    if (rate !== null && rate !== undefined) return rate
   }
   return null
+}
+
+export function resolveTimeRate(ctx: TimeRateContext): number | null {
+  const rate = resolveTimeRateExact(ctx)
+  return rate === null ? null : decimalToNumber(rate)
+}
+
+function entryRateContext(entry: Pick<CostEntry, 'rateOverrideAmount'> | null | undefined): TimeRateEntryContext | null {
+  if (!entry) return null
+  const exact = exactRate(entry.rateOverrideAmount)
+  return { ...entry, rateOverrideAmount: finiteNumberOrNull(exact), rateOverrideAmountExact: exact }
+}
+
+function projectRateContext(project: CostProject | null | undefined): TimeRateProjectContext | null {
+  if (!project) return null
+  const exact = exactRate(project.hourlyRate)
+  return { ...project, hourlyRate: finiteNumberOrNull(exact), hourlyRateExact: exact }
+}
+
+/** Exact-decimal variant of {@link applicableRate}. */
+export function applicableRateExact(
+  entry: Pick<CostEntry, 'rateOverrideAmount'> | null | undefined,
+  project: CostProject | null | undefined,
+  ctx?: Omit<TimeRateContext, 'entry' | 'project'> | null,
+): string | null {
+  return resolveTimeRateExact({
+    ...(ctx ?? {}),
+    entry: entryRateContext(entry),
+    project: projectRateContext(project),
+  })
 }
 
 export function applicableRate(
@@ -119,7 +204,26 @@ export function applicableRate(
   project: CostProject | null | undefined,
   ctx?: Omit<TimeRateContext, 'entry' | 'project'> | null,
 ): number | null {
-  return resolveTimeRate({ ...(ctx ?? {}), entry: entry ?? null, project: project ?? null })
+  const rate = applicableRateExact(entry, project, ctx)
+  return rate === null ? null : decimalToNumber(rate)
+}
+
+/**
+ * Exact-decimal variant of {@link entryAmount}: rate x minutes / 60, rounded
+ * half-up to `decimalPlaces` (the currency's decimals).
+ */
+export function entryAmountExact(
+  entry: CostEntry,
+  project: CostProject | null | undefined,
+  ctx?: Omit<TimeRateContext, 'entry' | 'project'> | null,
+  decimalPlaces: number = DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
+): string | null {
+  if (!entry?.isBillable) return null
+  const rate = applicableRateExact(entry, project, ctx)
+  if (rate === null) return null
+  const minutes = Number.isFinite(entry.roundedMinutes) ? entry.roundedMinutes : 0
+  const amount = divideDecimals(toDecimal(rate).times(minutes), 60, FX_DECIMAL_PLACES)
+  return decimalToString(roundDecimal(amount, decimalPlaces))
 }
 
 export function entryAmount(
@@ -127,18 +231,25 @@ export function entryAmount(
   project: CostProject | null | undefined,
   ctx?: Omit<TimeRateContext, 'entry' | 'project'> | null,
 ): number | null {
-  if (!entry?.isBillable) return null
-  const rate = applicableRate(entry, project, ctx)
-  if (rate === null) return null
-  const minutes = Number.isFinite(entry.roundedMinutes) ? entry.roundedMinutes : 0
-  return round2((minutes / 60) * rate)
+  const amount = entryAmountExact(entry, project, ctx)
+  return amount === null ? null : decimalToNumber(amount)
+}
+
+/**
+ * Exact-decimal variant of {@link sumAmounts}: each amount is rounded to
+ * `decimalPlaces` first, so the sum equals adding up the printed values.
+ */
+export function sumAmountsExact(
+  amounts: readonly (number | string | null | undefined)[],
+  decimalPlaces: number = DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
+): string {
+  const rounded = amounts.flatMap((amount) => {
+    const parsed = parseDecimal(amount)
+    return parsed ? [roundDecimal(parsed, decimalPlaces)] : []
+  })
+  return decimalToString(sumDecimals(rounded))
 }
 
 export function sumAmounts(amounts: readonly (number | null | undefined)[]): number {
-  let cents = 0
-  for (const amount of amounts) {
-    if (amount === null || amount === undefined || !Number.isFinite(amount)) continue
-    cents += toCents(amount)
-  }
-  return round2(cents / 100)
+  return decimalToNumber(sumAmountsExact(amounts))
 }

@@ -8,7 +8,7 @@ import {
   type CompiledQuery,
 } from 'kysely'
 import { computeTimeEntryTotals, sumTimeEntryMoneyGroups } from '../timeEntryTotals'
-import { entryAmount, sumAmounts } from '../../time-tracking/cost'
+import { entryAmountExact, sumAmountsExact } from '../../time-tracking/cost'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
@@ -111,8 +111,8 @@ describe('computeTimeEntryTotals', () => {
     const totals = await computeTimeEntryTotals(db, {}, { ...scope, canSeeRates: true })
 
     expect(totals.money).toEqual([
-      { currencyCode: 'EUR', amount: 200 },
-      { currencyCode: 'PLN', amount: 450.66 },
+      { currencyCode: 'EUR', amount: 200, amountExact: '200' },
+      { currencyCode: 'PLN', amount: 450.69, amountExact: '450.69' },
     ])
     expect(queries).toHaveLength(2)
     const moneySql = queries[1].sql
@@ -125,14 +125,35 @@ describe('computeTimeEntryTotals', () => {
     )
   })
 
-  it('prices a half-cent entry exactly like entryAmount instead of rounding the exact decimal', () => {
-    const rowCost = entryAmount({ isBillable: true, roundedMinutes: 45, rateOverrideAmount: null }, { hourlyRate: 0.3 })
-    expect(rowCost).toBe(0.22)
+  it('prices a half-cent entry exactly like the row cost', () => {
+    const rowCost = entryAmountExact({ isBillable: true, roundedMinutes: 45, rateOverrideAmount: null }, { hourlyRate: '0.3000' })
+    expect(rowCost).toBe('0.23')
     expect(
       sumTimeEntryMoneyGroups([
         { currency_code: 'EUR', rounded_minutes: 45, rate_override_amount: null, hourly_rate: '0.3000', entry_count: '1' },
       ]),
-    ).toEqual([{ currencyCode: 'EUR', amount: rowCost }])
+    ).toEqual([{ currencyCode: 'EUR', amount: 0.23, amountExact: rowCost }])
+  })
+
+  it('prices each currency at its configured decimals, as the row costs are', async () => {
+    const { db } = recordingDb((query) =>
+      query.sql.includes('currency_code')
+        ? [
+            { currency_code: 'ETH', rounded_minutes: '60', rate_override_amount: '0.000000000000000001', hourly_rate: null, entry_count: '3' },
+            { currency_code: 'JPY', rounded_minutes: '60', rate_override_amount: '0.4996', hourly_rate: null, entry_count: '2' },
+          ]
+        : [{ entry_count: '5', duration_minutes: '300', rounded_minutes: '300' }],
+    )
+    const decimals: Record<string, number> = { ETH: 18, JPY: 0 }
+    const totals = await computeTimeEntryTotals(db, {}, {
+      ...scope,
+      canSeeRates: true,
+      resolveDecimalPlaces: async (code) => decimals[code] ?? 2,
+    })
+    expect(totals.money).toEqual([
+      { currencyCode: 'ETH', amount: 3e-18, amountExact: '0.000000000000000003' },
+      { currencyCode: 'JPY', amount: 0, amountExact: '0' },
+    ])
   })
 
   it('equals the sum of the row costs for every grouped entry, override winning over the project rate', () => {
@@ -144,7 +165,7 @@ describe('computeTimeEntryTotals', () => {
       { minutes: 135, override: 0.15, projectRate: null },
     ]
     const rowCosts = entries.map((entry) =>
-      entryAmount({ isBillable: true, roundedMinutes: entry.minutes, rateOverrideAmount: entry.override }, { hourlyRate: entry.projectRate }),
+      entryAmountExact({ isBillable: true, roundedMinutes: entry.minutes, rateOverrideAmount: entry.override }, { hourlyRate: entry.projectRate }),
     )
     const groups = [
       { currency_code: 'USD', rounded_minutes: '45', rate_override_amount: null, hourly_rate: '0.3000', entry_count: '2' },
@@ -152,7 +173,8 @@ describe('computeTimeEntryTotals', () => {
       { currency_code: 'USD', rounded_minutes: '7', rate_override_amount: null, hourly_rate: '99.9900', entry_count: '1' },
       { currency_code: 'USD', rounded_minutes: '135', rate_override_amount: '0.1500', hourly_rate: null, entry_count: '1' },
     ]
-    expect(sumTimeEntryMoneyGroups(groups)).toEqual([{ currencyCode: 'USD', amount: sumAmounts(rowCosts) }])
+    const expected = sumAmountsExact(rowCosts)
+    expect(sumTimeEntryMoneyGroups(groups)).toEqual([{ currencyCode: 'USD', amount: Number(expected), amountExact: expected }])
   })
 
   it('keeps currencies apart and maps a blank currency to null', () => {
@@ -163,8 +185,8 @@ describe('computeTimeEntryTotals', () => {
         { currency_code: '', rounded_minutes: '30', rate_override_amount: null, hourly_rate: '5', entry_count: '1' },
       ]),
     ).toEqual([
-      { currencyCode: 'EUR', amount: 10 },
-      { currencyCode: null, amount: 12.5 },
+      { currencyCode: 'EUR', amount: 10, amountExact: '10' },
+      { currencyCode: null, amount: 12.5, amountExact: '12.5' },
     ])
   })
 

@@ -5,6 +5,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { OptimisticLockCurrentReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { DefaultSalesCalculationService } from './services/salesCalculationService'
+import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 import { DefaultTaxCalculationService } from './services/taxCalculationService'
 import { SalesDocumentNumberGenerator } from './services/salesDocumentNumberGenerator'
 import { DefaultSalesOrderService } from './services/salesOrderService'
@@ -131,8 +132,11 @@ registerOptimisticLockReaders({
 
 export function register(container: AppContainer) {
   container.register({
-    salesCalculationService: asFunction(({ eventBus }: AppCradle) => {
-      return new DefaultSalesCalculationService(eventBus ?? null)
+    salesCalculationService: asFunction((cradle: AppCradle) => {
+      const precisionContainer = { resolve: <T,>(name: string) => (cradle as unknown as Record<string, T>)[name] }
+      return new DefaultSalesCalculationService(cradle.eventBus ?? null, (lookup) =>
+        resolveCurrencyAmountDecimalPlaces(precisionContainer, lookup),
+      )
     })
       .singleton()
       .proxy(),

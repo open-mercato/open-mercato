@@ -192,6 +192,7 @@ export class RateFetchingService {
           // Update existing rate
           existing.rate = rate.rate
           existing.type = rate.type ?? null
+          if (rate.metadata !== undefined) existing.metadata = rate.metadata
           existing.updatedAt = now
           em.persist(existing)
         } else {
@@ -205,6 +206,7 @@ export class RateFetchingService {
             date: rate.date,
             source: rate.source,
             type: rate.type ?? null,
+            metadata: rate.metadata ?? null,
             isActive: true,
             createdAt: now,
             updatedAt: now,

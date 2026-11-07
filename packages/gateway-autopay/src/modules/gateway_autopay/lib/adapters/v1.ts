@@ -15,6 +15,7 @@ import type {
   UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { padDecimalPlaces, resolveExactDecimal, roundDecimal } from '@open-mercato/shared/lib/decimal'
 import { buildLaunchPath, createLaunchGrant, readHttpUrl, resolveLaunchUrl } from '../launch'
 import {
   buildSessionRequest,
@@ -24,7 +25,7 @@ import {
   sanitizeOrderId,
   type AutopayCredentials,
 } from '../autopay-client'
-import { mapAutopayStatus, interpretAutopayTransactionStatus, type AutopayStatusInterpretation } from '../status-map'
+import { mapAutopayStatus, interpretAutopayTransactionStatus, type AutopayExactStatusInterpretation } from '../status-map'
 
 function resolveCredentials(raw: Record<string, unknown>): AutopayCredentials {
   const serviceId = raw.serviceId
@@ -70,7 +71,7 @@ function readGatewayId(metadata: Record<string, unknown> | undefined): string | 
 async function resolveStatusInterpretation(
   credentials: AutopayCredentials,
   orderId: string,
-): Promise<AutopayStatusInterpretation> {
+): Promise<AutopayExactStatusInterpretation> {
   const { transactions } = await queryTransactionStatus(credentials, { orderId })
   return interpretAutopayTransactionStatus(transactions)
 }
@@ -111,6 +112,12 @@ async function resolveRefundRemoteId(
  * but being explicit here removes any ambiguity about which currency the
  * refund applies to. */
 const AUTOPAY_CURRENCY = 'PLN'
+const AUTOPAY_AMOUNT_DECIMAL_PLACES = 2
+
+function formatAutopayAmount(amount: number, amountExact: string | undefined): string {
+  const exact = resolveExactDecimal(amountExact, amount) ?? '0'
+  return padDecimalPlaces(roundDecimal(exact, AUTOPAY_AMOUNT_DECIMAL_PLACES), AUTOPAY_AMOUNT_DECIMAL_PLACES)
+}
 
 export const autopayAdapterV1: GatewayAdapter = {
   providerKey: 'autopay',
@@ -131,7 +138,7 @@ export const autopayAdapterV1: GatewayAdapter = {
     const session = buildSessionRequest({
       credentials,
       orderId,
-      amount: input.amount.toFixed(2),
+      amount: formatAutopayAmount(input.amount, input.amountExact),
       currencyCode: input.currencyCode,
       description: input.description,
       gatewayId,
@@ -168,7 +175,7 @@ export const autopayAdapterV1: GatewayAdapter = {
     const remoteId = await resolveRefundRemoteId(credentials, input)
     const result = await refundTransaction(credentials, {
       remoteId,
-      amount: input.amount !== undefined ? input.amount.toFixed(2) : undefined,
+      amount: input.amount !== undefined ? formatAutopayAmount(input.amount, input.amountExact) : undefined,
       currencyCode: AUTOPAY_CURRENCY,
       idempotencyKey: input.idempotencyKey,
     })
@@ -249,7 +256,9 @@ export const autopayAdapterV1: GatewayAdapter = {
     return {
       status: interpretation.status,
       amount: interpretation.amount,
+      amountExact: interpretation.amountExact,
       amountReceived: interpretation.amountReceived,
+      amountReceivedExact: interpretation.amountReceivedExact,
       currencyCode: interpretation.currencyCode || AUTOPAY_CURRENCY,
       providerData: {
         remoteId: interpretation.matchedRemoteId,

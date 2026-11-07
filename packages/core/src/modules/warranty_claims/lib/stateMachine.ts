@@ -2,6 +2,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CLAIM_STATUS_TRANSITIONS } from '../data/constants'
 import type { WarrantyClaimLineStatus, WarrantyClaimStatus } from '../data/validators'
 import { claimTypeAllowsLineFinancialAdjustments } from './claimTypeConfig'
+import { decimalToNumber, decimalToString, parseDecimal, toDecimal, type DecimalValue } from '@open-mercato/shared/lib/decimal'
 
 type AmountValue = number | string | null | undefined
 
@@ -33,21 +34,19 @@ const approvedRollupStatuses = new Set<WarrantyClaimLineStatus>(['approved', 're
 const resolvedHeaderLineStatuses = new Set<WarrantyClaimLineStatus>(['rejected', 'resolved'])
 const terminalStatuses = new Set<WarrantyClaimStatus>(['closed', 'cancelled'])
 
-function amount(value: AmountValue): number {
-  if (value === null || value === undefined) return 0
-  const parsed = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(parsed) ? parsed : 0
+function amount(value: AmountValue): DecimalValue {
+  return parseDecimal(value) ?? toDecimal(0)
 }
 
-function lineCreditAmount(line: ClaimLineRollupInput): number {
+function lineCreditAmount(line: ClaimLineRollupInput): DecimalValue {
   return amount(line.creditAmount ?? line.credit_amount)
 }
 
-function lineRestockingFee(line: ClaimLineRollupInput): number {
+function lineRestockingFee(line: ClaimLineRollupInput): DecimalValue {
   return amount(line.restockingFee ?? line.restocking_fee)
 }
 
-function lineCoreCreditAmount(line: ClaimLineRollupInput): number {
+function lineCoreCreditAmount(line: ClaimLineRollupInput): DecimalValue {
   return amount(line.coreCreditAmount ?? line.core_credit_amount)
 }
 
@@ -84,20 +83,14 @@ export function canResolveWithLineStatuses(lines: readonly ClaimLineRollupInput[
   })
 }
 
-// Matches the numeric(18,4) scale of the warranty_claims total columns so the
-// float sums serialize without artifacts like "0.30000000000000004".
-const ROLLUP_AMOUNT_SCALE = 10_000
-
-function roundRollupAmount(value: number): number {
-  return Math.round((value + Number.EPSILON) * ROLLUP_AMOUNT_SCALE) / ROLLUP_AMOUNT_SCALE
-}
-
 export function computeHeaderRollups(
   lines: readonly ClaimLineRollupInput[],
   options?: { claimType?: string | null },
 ): {
   totalClaimedAmount: number
+  totalClaimedAmountExact: string
   totalApprovedAmount: number
+  totalApprovedAmountExact: string
 } {
   // Restocking / core adjustments only belong to return-family claims. When a claimType is
   // supplied, warranty and vendor-recovery claims roll up the credit amount alone so they can
@@ -105,26 +98,32 @@ export function computeHeaderRollups(
   const applyFinancialAdjustments = options?.claimType === undefined
     ? true
     : claimTypeAllowsLineFinancialAdjustments(options.claimType)
-  let totalClaimedAmount = 0
-  let totalApprovedAmount = 0
+  const zero = toDecimal(0)
+  const atLeastZero = (value: DecimalValue) => (value.lt(0) ? zero : value)
+  let totalClaimedAmount = zero
+  let totalApprovedAmount = zero
 
   for (const line of lines) {
     if (isDeleted(line)) continue
     const creditAmount = lineCreditAmount(line)
-    totalClaimedAmount += creditAmount
+    totalClaimedAmount = totalClaimedAmount.plus(creditAmount)
 
     const status = lineStatus(line)
     if (status && approvedRollupStatuses.has(status)) {
       // A restocking fee larger than the line's credit must not drag the
       // approved header total negative — clamp the line contribution at zero.
-      totalApprovedAmount += applyFinancialAdjustments
-        ? Math.max(0, creditAmount - lineRestockingFee(line) + lineCoreCreditAmount(line))
-        : Math.max(0, creditAmount)
+      totalApprovedAmount = totalApprovedAmount.plus(
+        applyFinancialAdjustments
+          ? atLeastZero(creditAmount.minus(lineRestockingFee(line)).plus(lineCoreCreditAmount(line)))
+          : atLeastZero(creditAmount),
+      )
     }
   }
 
   return {
-    totalClaimedAmount: roundRollupAmount(totalClaimedAmount),
-    totalApprovedAmount: roundRollupAmount(totalApprovedAmount),
+    totalClaimedAmount: decimalToNumber(totalClaimedAmount),
+    totalClaimedAmountExact: decimalToString(totalClaimedAmount),
+    totalApprovedAmount: decimalToNumber(totalApprovedAmount),
+    totalApprovedAmountExact: decimalToString(totalApprovedAmount),
   }
 }

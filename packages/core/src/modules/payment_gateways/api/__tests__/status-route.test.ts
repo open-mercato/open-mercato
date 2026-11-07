@@ -128,6 +128,41 @@ describe('payment_gateways status route', () => {
       expect(body.status).toBe('captured')
     })
 
+    it('keeps stored exact amounts when the provider reports matching floats only', async () => {
+      service.findTransaction.mockResolvedValue({
+        ...makeTransaction(),
+        amount: '1234.567890123456789012',
+        capturedAmount: '1000.000000000000000001',
+      })
+      service.getPaymentStatus.mockResolvedValue({
+        status: 'captured',
+        amount: Number('1234.567890123456789012'),
+        amountReceived: 1000,
+        currencyCode: 'USD',
+        providerData: {},
+      })
+      const res = await POST(postRequest({ transactionId: TRANSACTION_ID }))
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.amountExact).toBe('1234.567890123456789012')
+      expect(body.amountReceivedExact).toBe('1000.000000000000000001')
+    })
+
+    it('prefers the provider float when it differs from the stored amount', async () => {
+      service.findTransaction.mockResolvedValue({ ...makeTransaction(), capturedAmount: '100' })
+      service.getPaymentStatus.mockResolvedValue({
+        status: 'partially_captured',
+        amount: 100,
+        amountReceived: 40.5,
+        currencyCode: 'USD',
+        providerData: {},
+      })
+      const res = await POST(postRequest({ transactionId: TRANSACTION_ID }))
+      const body = await res.json()
+      expect(body.amountExact).toBe('100')
+      expect(body.amountReceivedExact).toBe('40.5')
+    })
+
     it('blocks the write when the mutation guard denies it', async () => {
       mockValidateGuard.mockResolvedValue({ ok: false, status: 409, body: { error: 'locked' } })
       const res = await POST(postRequest({ transactionId: TRANSACTION_ID }))

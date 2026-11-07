@@ -17,6 +17,7 @@ import {
   defaultOkResponseSchema,
 } from '../api/openapi'
 import { withScopedPayload } from '../api/utils'
+import { withExactLineInput, withExactOrderTotalsInput } from './exactAmountFields'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- MikroORM entity class constructor
 type EntityClass = new (...args: any[]) => unknown
@@ -247,10 +248,8 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         schema: rawBodySchema,
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
-          const payload = upsertSchema.parse(
-            withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate),
-          )
-          return { body: payload }
+          const scoped = withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate)
+          return { body: withExactLineInput(upsertSchema.parse(scoped), scoped) }
         },
         response: ({ result }: { result: Record<string, unknown> | null }) => ({
           id: result?.lineId ?? null,
@@ -263,10 +262,8 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         schema: rawBodySchema,
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
-          const payload = upsertSchema.parse(
-            withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate),
-          )
-          return { body: payload }
+          const scoped = withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate)
+          return { body: withExactLineInput(upsertSchema.parse(scoped), scoped) }
         },
         response: ({ result }: { result: Record<string, unknown> | null }) => ({
           id: result?.lineId ?? null,
@@ -278,9 +275,8 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         schema: rawBodySchema,
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
-          const payload = deleteSchema.parse(
-            withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate),
-          )
+          const scoped = withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate)
+          const payload = withExactOrderTotalsInput(deleteSchema.parse(scoped), scoped)
           if (!payload.id || !payload[parentFkParam]) {
             throw new CrudHttpError(400, {
               error: translate(
@@ -315,14 +311,14 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     normalized_unit: z.string().nullable().optional(),
     uom_snapshot: uomSnapshotOpenApiSchema,
     currency_code: z.string(),
-    unit_price_net: z.number(),
-    unit_price_gross: z.number(),
-    discount_amount: z.number(),
+    unit_price_net: z.string(),
+    unit_price_gross: z.string(),
+    discount_amount: z.string(),
     discount_percent: z.number(),
     tax_rate: z.number(),
-    tax_amount: z.number(),
-    total_net_amount: z.number(),
-    total_gross_amount: z.number(),
+    tax_amount: z.string(),
+    total_net_amount: z.string(),
+    total_gross_amount: z.string(),
     configuration: z.record(z.string(), z.unknown()).nullable().optional(),
     promotion_code: z.string().nullable().optional(),
     promotion_snapshot: z.record(z.string(), z.unknown()).nullable().optional(),

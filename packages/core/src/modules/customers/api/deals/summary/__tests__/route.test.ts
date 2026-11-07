@@ -1,8 +1,11 @@
 /** @jest-environment node */
 
 import {
+  averageAmountExact,
   computeDelta,
   convertSumsToBase,
+  dominantCurrencyAmount,
+  sumsByCurrency,
   getPreviousQuarterWindow,
   getQuarterWindow,
   getTrailingMonths,
@@ -113,10 +116,64 @@ describe('dealsMetrics pure helpers', () => {
     expect(converted.convertedAll).toBe(false)
     expect(converted.missingRateCurrencies).toEqual(['GBP'])
 
+    expect(converted.totalExact).toBe('1110')
+
     const noBase = convertSumsToBase([{ currency: 'USD', total: 10 }], null, new Map() as never)
     expect(noBase.total).toBe(0)
+    expect(noBase.totalExact).toBe('0')
     expect(noBase.convertedAll).toBe(false)
     expect(noBase.missingRateCurrencies).toEqual(['USD'])
+  })
+
+  it('converts with exact decimal math, preferring totalExact and keeping the unrounded sum', () => {
+    const rates = new Map([
+      ['EUR/USD', { rates: [rate('1.123456789012345678')], fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', requestedDate: new Date(), actualDate: new Date() }],
+    ]) as never
+    const converted = convertSumsToBase(
+      [
+        { currency: 'USD', total: 0.1, totalExact: '0.1' },
+        { currency: 'USD', total: 0.2, totalExact: '0.2' },
+        { currency: 'EUR', total: 12345678901234.12, totalExact: '12345678901234.123456789' },
+      ],
+      'USD',
+      rates,
+    )
+    expect(converted.totalExact).toBe('13869836776558.252252399780481330763907942')
+    expect(converted.total).toBe(13869836776558)
+    expect(converted.convertedAll).toBe(true)
+  })
+
+  it('sums amounts per currency exactly in first-seen order, skipping entries without a currency', () => {
+    const sums = sumsByCurrency([
+      { currency: 'usd', amount: '0.1' },
+      { currency: 'EUR', amount: '5' },
+      { currency: ' USD ', amount: '0.2' },
+      { currency: null, amount: '100' },
+      { currency: '', amount: '100' },
+    ])
+    expect(sums).toEqual([
+      { currency: 'USD', total: 0.3, totalExact: '0.3' },
+      { currency: 'EUR', total: 5, totalExact: '5' },
+    ])
+  })
+
+  it('picks the dominant currency exactly, rounding only the display number', () => {
+    expect(
+      dominantCurrencyAmount([
+        { currency: 'BTC', amount: '0.123456789012345678' },
+        { currency: 'USD', amount: '900.5' },
+        { currency: 'USD', amount: '0.000000000000000001' },
+        { currency: 'EUR', amount: '100' },
+      ]),
+    ).toEqual({ value: 901, valueExact: '900.500000000000000001', currencyCode: 'USD' })
+    expect(dominantCurrencyAmount([])).toEqual({ value: 0, valueExact: '0', currencyCode: null })
+  })
+
+  it('averages exactly and rounds to the amount precision', () => {
+    expect(averageAmountExact('100', 3, 4)).toBe('33.3333')
+    expect(averageAmountExact('2', 3, 18)).toBe('0.666666666666666667')
+    expect(averageAmountExact('12345678901234.123456789', 1, 4)).toBe('12345678901234.1235')
+    expect(averageAmountExact('100', 0, 4)).toBe('0')
   })
 })
 
@@ -207,14 +264,15 @@ describe('customers deals summary route', () => {
 
     // Pipeline value: 1000 USD + 100*1.20 EUR = 1120 (GBP excluded).
     expect(body.pipelineValue.value).toBe(1120)
+    expect(body.pipelineValue.valueExact).toBe('1120')
     // Inflow delta: 600 vs 300 → +100% up.
     expect(body.pipelineValue.delta).toEqual({ value: 100, direction: 'up' })
     // Per-stage breakdown (qualification = 1000 + 120; proposal = GBP excluded → 0).
-    const stages = body.pipelineValue.stages as Array<{ stage: string | null; count: number; value: number }>
+    const stages = body.pipelineValue.stages as Array<{ stage: string | null; count: number; value: number; valueExact: string }>
     const qualification = stages.find((s) => s.stage === 'qualification')
     const proposal = stages.find((s) => s.stage === 'proposal')
-    expect(qualification).toEqual({ stage: 'qualification', count: 3, value: 1120 })
-    expect(proposal).toEqual({ stage: 'proposal', count: 1, value: 0 })
+    expect(qualification).toEqual({ stage: 'qualification', count: 3, value: 1120, valueExact: '1120' })
+    expect(proposal).toEqual({ stage: 'proposal', count: 1, value: 0, valueExact: '0' })
 
     // Active deals: total open count = 2 + 1 + 1 = 4; distinct owners = 2.
     expect(body.activeDeals.value).toBe(4)
@@ -232,6 +290,8 @@ describe('customers deals summary route', () => {
     expect(body.wonThisQuarter.value).toBe(800)
     expect(body.wonThisQuarter.dealsClosed).toBe(2)
     expect(body.wonThisQuarter.avgDeal).toBe(400)
+    expect(body.wonThisQuarter.valueExact).toBe('800')
+    expect(body.wonThisQuarter.avgDealExact).toBe('400')
     expect(body.wonThisQuarter.delta).toEqual({ value: 100, direction: 'up' })
 
     // Win rate: current 3/(3+1)=75%; previous 1/(1+1)=50%; deltaPp = +25 up.
@@ -283,11 +343,77 @@ describe('customers deals summary route', () => {
     expect(body.convertedAll).toBe(false)
     // Dominant currency total (USD 900, larger than EUR 100).
     expect((body.pipelineValue as { value: number }).value).toBe(900)
+    expect((body.pipelineValue as { valueExact: string }).valueExact).toBe('900')
     // getRates not consulted without a base currency.
     expect(getRatesMock).not.toHaveBeenCalled()
     // Win rate degrades to 0 with no closed deals.
     expect((body.winRate as { value: number }).value).toBe(0)
     expect((body.winRate as { direction: string }).direction).toBe('unchanged')
+  })
+
+  it('returns exact *Exact siblings beyond float precision while keeping the rounded KPI numbers', async () => {
+    getRatesMock.mockResolvedValue(
+      new Map([
+        ['EUR/USD', { rates: [rate('1.123456789012345678')], fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', requestedDate: new Date(), actualDate: new Date() }],
+      ]),
+    )
+    executeMock
+      .mockResolvedValueOnce([
+        { stage: 'qualification', currency: 'USD', total: '98765432109876.987654321', count: '1', owner_user_id: ownerA },
+        { stage: 'proposal', currency: 'EUR', total: '0.000000000000000001', count: '1', owner_user_id: ownerB },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { currency: 'USD', current_total: '12345678901234.123456789012', current_count: '2', previous_total: '0', previous_count: '0' },
+        { currency: 'EUR', current_total: '10', current_count: '1', previous_total: '0', previous_count: '0' },
+      ])
+      .mockResolvedValueOnce([{ current_won: '3', current_lost: '0', previous_won: '0', previous_lost: '0' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      pipelineValue: { value: number; valueExact: string; stages: Array<{ stage: string; value: number; valueExact: string }> }
+      wonThisQuarter: { value: number; valueExact: string; avgDeal: number; avgDealExact: string; dealsClosed: number }
+    }
+
+    expect(body.pipelineValue.valueExact).toBe('98765432109876.987654321000000001123456789012345678')
+    expect(body.pipelineValue.value).toBe(98765432109877)
+    expect(body.pipelineValue.stages).toEqual([
+      { stage: 'qualification', count: 1, value: 98765432109877, valueExact: '98765432109876.987654321' },
+      { stage: 'proposal', count: 1, value: 0, valueExact: '0.000000000000000001123456789012345678' },
+    ])
+
+    expect(body.wonThisQuarter.valueExact).toBe('12345678901245.35802467913545678')
+    expect(body.wonThisQuarter.value).toBe(12345678901245)
+    expect(body.wonThisQuarter.dealsClosed).toBe(3)
+    expect(body.wonThisQuarter.avgDeal).toBe(4115226300415)
+    expect(body.wonThisQuarter.avgDealExact).toBe('4115226300415.1193')
+  })
+
+  it('keeps the dominant currency exact sum and its precision when no base currency is configured', async () => {
+    resolveBaseCurrencyMock.mockResolvedValueOnce({ status: 'missing' })
+    executeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { currency: 'USD', current_total: '1.5', current_count: '1', previous_total: '0', previous_count: '0' },
+        { currency: 'EUR', current_total: '100.000000001', current_count: '2', previous_total: '0', previous_count: '0' },
+      ])
+      .mockResolvedValueOnce([{ current_won: '3', current_lost: '0', previous_won: '0', previous_lost: '0' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      wonThisQuarter: { value: number; valueExact: string; avgDeal: number; avgDealExact: string }
+    }
+    expect(body.wonThisQuarter.value).toBe(100)
+    expect(body.wonThisQuarter.valueExact).toBe('100.000000001')
+    expect(body.wonThisQuarter.avgDeal).toBe(33)
+    expect(body.wonThisQuarter.avgDealExact).toBe('33.3333')
   })
 
   it('excludes terminal (non-open) stuck deals from need-attention via the open-status intersection', async () => {

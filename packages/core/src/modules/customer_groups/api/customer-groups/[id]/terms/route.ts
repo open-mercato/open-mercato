@@ -22,6 +22,7 @@ import {
   type CustomerGroupTermsCreateInput,
   type CustomerGroupTermsUpdateInput,
 } from '../../../../data/validators'
+import { decimalToString, parseDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('customer_groups')
 
@@ -91,9 +92,16 @@ async function loadGroupOrThrow(
 // Mirrors `toNumericString` in `catalog/commands/shared.ts` — this module has no
 // shared equivalent yet, so a small module-local copy follows the same established
 // pattern rather than introducing a new cross-module dependency for one line.
-function toNumericString(value: number | null | undefined): string | null {
-  if (value === undefined || value === null) return null
-  return value.toString()
+function toNumericString(value: number | string | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
+}
+
+const TERMS_MONEY_FIELDS = ['defaultCreditLimit', 'approvalRequiredAbove', 'minOrderValue'] as const
+
+function exactTermsAmount(input: object, field: (typeof TERMS_MONEY_FIELDS)[number]): number | string | null | undefined {
+  const values = input as Record<string, number | string | null | undefined>
+  return values[`${field}Exact`] ?? values[field]
 }
 
 function toNumberOrNull(value: string | null | undefined): number | null {
@@ -112,9 +120,12 @@ function serializeTerms(terms: CustomerGroupTerms) {
     paymentTermsDays: terms.paymentTermsDays ?? null,
     allowPurchaseOnAccount: terms.allowPurchaseOnAccount ?? null,
     defaultCreditLimit: toNumberOrNull(terms.defaultCreditLimit),
+    defaultCreditLimitExact: toNumericString(terms.defaultCreditLimit),
     creditCurrencyCode: terms.creditCurrencyCode ?? null,
     approvalRequiredAbove: toNumberOrNull(terms.approvalRequiredAbove),
+    approvalRequiredAboveExact: toNumericString(terms.approvalRequiredAbove),
     minOrderValue: toNumberOrNull(terms.minOrderValue),
+    minOrderValueExact: toNumericString(terms.minOrderValue),
     assortmentScope: terms.assortmentScope ?? null,
     metadata: terms.metadata ?? null,
     createdAt: terms.createdAt.toISOString(),
@@ -174,10 +185,10 @@ function toEntityData(input: CustomerGroupTermsCreateInput): CustomerGroupTermsE
     priceKindId: input.priceKindId ?? null,
     paymentTermsDays: input.paymentTermsDays ?? null,
     allowPurchaseOnAccount: input.allowPurchaseOnAccount ?? null,
-    defaultCreditLimit: toNumericString(input.defaultCreditLimit),
+    defaultCreditLimit: toNumericString(exactTermsAmount(input, 'defaultCreditLimit')),
     creditCurrencyCode: input.creditCurrencyCode ?? null,
-    approvalRequiredAbove: toNumericString(input.approvalRequiredAbove),
-    minOrderValue: toNumericString(input.minOrderValue),
+    approvalRequiredAbove: toNumericString(exactTermsAmount(input, 'approvalRequiredAbove')),
+    minOrderValue: toNumericString(exactTermsAmount(input, 'minOrderValue')),
     assortmentScope: input.assortmentScope ?? null,
     metadata: input.metadata ?? null,
   }
@@ -194,10 +205,10 @@ function applyTermsUpdate(entity: CustomerGroupTerms, input: CustomerGroupTermsU
   if (hasOwn(input, 'priceKindId')) entity.priceKindId = input.priceKindId ?? null
   if (hasOwn(input, 'paymentTermsDays')) entity.paymentTermsDays = input.paymentTermsDays ?? null
   if (hasOwn(input, 'allowPurchaseOnAccount')) entity.allowPurchaseOnAccount = input.allowPurchaseOnAccount ?? null
-  if (hasOwn(input, 'defaultCreditLimit')) entity.defaultCreditLimit = toNumericString(input.defaultCreditLimit)
+  if (hasOwn(input, 'defaultCreditLimit')) entity.defaultCreditLimit = toNumericString(exactTermsAmount(input, 'defaultCreditLimit'))
   if (hasOwn(input, 'creditCurrencyCode')) entity.creditCurrencyCode = input.creditCurrencyCode ?? null
-  if (hasOwn(input, 'approvalRequiredAbove')) entity.approvalRequiredAbove = toNumericString(input.approvalRequiredAbove)
-  if (hasOwn(input, 'minOrderValue')) entity.minOrderValue = toNumericString(input.minOrderValue)
+  if (hasOwn(input, 'approvalRequiredAbove')) entity.approvalRequiredAbove = toNumericString(exactTermsAmount(input, 'approvalRequiredAbove'))
+  if (hasOwn(input, 'minOrderValue')) entity.minOrderValue = toNumericString(exactTermsAmount(input, 'minOrderValue'))
   if (hasOwn(input, 'assortmentScope')) entity.assortmentScope = input.assortmentScope ?? null
   if (hasOwn(input, 'metadata')) entity.metadata = input.metadata ?? null
 }
@@ -255,12 +266,16 @@ export async function PUT(req: Request, context: RouteContext) {
         current: existing.updatedAt,
         request: req,
       })
-      const parsed = customerGroupTermsUpdateSchema.parse({ ...scopedPayload, id: existing.id })
+      const parsed = withExactAmounts(
+        customerGroupTermsUpdateSchema.parse({ ...scopedPayload, id: existing.id }),
+        payload,
+        TERMS_MONEY_FIELDS,
+      )
       await assertPriceKindAllowed(parsed.priceKindId)
       applyTermsUpdate(existing, parsed)
       terms = existing
     } else {
-      const parsed = customerGroupTermsCreateSchema.parse(scopedPayload)
+      const parsed = withExactAmounts(customerGroupTermsCreateSchema.parse(scopedPayload), payload, TERMS_MONEY_FIELDS)
       await assertPriceKindAllowed(parsed.priceKindId)
       terms = em.create(CustomerGroupTerms, toEntityData(parsed))
       em.persist(terms)
@@ -317,9 +332,12 @@ const termsItemSchema = z.object({
   paymentTermsDays: z.number().int().nullable(),
   allowPurchaseOnAccount: z.boolean().nullable(),
   defaultCreditLimit: z.number().nullable(),
+  defaultCreditLimitExact: z.string().nullable(),
   creditCurrencyCode: z.string().nullable(),
   approvalRequiredAbove: z.number().nullable(),
+  approvalRequiredAboveExact: z.string().nullable(),
   minOrderValue: z.number().nullable(),
+  minOrderValueExact: z.string().nullable(),
   assortmentScope: assortmentScopeSchema,
   metadata: z.record(z.string(), z.unknown()).nullable(),
   createdAt: z.string(),

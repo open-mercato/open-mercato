@@ -1,5 +1,11 @@
 import { computeHeaderRollups } from './stateMachine'
 import type { WarrantyClaimLineStatus } from '../data/validators'
+import {
+  FX_DECIMAL_PLACES,
+  divideDecimals,
+  multiplyDecimals,
+  roundDecimal,
+} from '@open-mercato/shared/lib/decimal'
 
 type AmountValue = number | string | null | undefined
 
@@ -91,16 +97,29 @@ function parseRecoveryRatePct(value: number | string | null | undefined): number
   return Number.isFinite(parsed) ? parsed : null
 }
 
-function formatMoney(value: number): string {
-  if (!Number.isFinite(value)) return '0.00'
-  return (Math.round(value * 100) / 100).toFixed(2)
+const DEFAULT_RECOVERY_DECIMAL_PLACES = 2
+
+function resolveRecoveryDecimalPlaces(currencyDecimalPlaces: number | null | undefined): number {
+  if (typeof currencyDecimalPlaces !== 'number' || !Number.isInteger(currencyDecimalPlaces) || currencyDecimalPlaces < 0) {
+    return DEFAULT_RECOVERY_DECIMAL_PLACES
+  }
+  return currencyDecimalPlaces
 }
 
-function estimateRecovery(line: VendorRecoveryLineInput, policy: VendorPolicyRecoveryInput): string | null {
+/**
+ * The recovery estimate is rounded to the claim currency's own decimal places
+ * (2 when the currency precision is unknown).
+ */
+function estimateRecovery(
+  line: VendorRecoveryLineInput,
+  policy: VendorPolicyRecoveryInput,
+  decimalPlaces: number,
+): string | null {
   const rate = parseRecoveryRatePct(policy.recoveryRatePct)
   if (rate === null) return null
-  const approvedAmount = computeHeaderRollups([line]).totalApprovedAmount
-  return formatMoney(approvedAmount * (rate / 100))
+  const approvedAmount = computeHeaderRollups([line]).totalApprovedAmountExact
+  const recovery = divideDecimals(multiplyDecimals(approvedAmount, rate), 100, FX_DECIMAL_PLACES)
+  return roundDecimal(recovery, decimalPlaces).toFixed(decimalPlaces)
 }
 
 function selectMatchingPolicy(
@@ -134,12 +153,14 @@ export function findVendorRecoveryMatches(input: {
   policies: readonly VendorPolicyRecoveryInput[]
   autoOnly?: boolean
   requireWarrantyResolved?: boolean
+  currencyDecimalPlaces?: number | null
 }): VendorRecoveryMatch[] {
   if (input.requireWarrantyResolved === true && !isWarrantyClaimResolvedForVendorRecovery(input.claim)) {
     return []
   }
   const reasonCode = normalizeText(input.claim.reasonCode)
   const claimVendorName = normalizeText(input.claim.vendorName)
+  const decimalPlaces = resolveRecoveryDecimalPlaces(input.currencyDecimalPlaces)
   const matches: VendorRecoveryMatch[] = []
   for (const line of input.lines) {
     if (line.lineStatus !== 'resolved') continue
@@ -149,7 +170,7 @@ export function findVendorRecoveryMatches(input: {
     matches.push({
       line,
       policy,
-      estimatedRecovery: estimateRecovery(line, policy),
+      estimatedRecovery: estimateRecovery(line, policy, decimalPlaces),
       causalFault: normalizeText(line.faultCode) ?? reasonCode,
     })
   }

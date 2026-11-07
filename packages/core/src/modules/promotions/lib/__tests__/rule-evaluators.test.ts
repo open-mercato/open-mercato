@@ -154,6 +154,16 @@ describe('order_value rule', () => {
     const ctx = context({ items: [item({ quantity: '2', unitPriceNet: '10.00' })] })
     expect(evaluateGroup(g, ctx)).toBe(false)
   })
+
+  it('compares totals exactly, beyond float precision', () => {
+    const g = group({
+      rules: [rule('order_value', { value: '0.000000000000000003', operator: 'gte', taxInclusive: false, limitToCategory: null })],
+    })
+    const below = context({ items: [item({ quantity: '2', unitPriceNet: '0.000000000000000001' })] })
+    const met = context({ items: [item({ quantity: '3', unitPriceNet: '0.000000000000000001' })] })
+    expect(evaluateGroup(g, below)).toBe(false)
+    expect(evaluateGroup(g, met)).toBe(true)
+  })
 })
 
 describe('order_date rule', () => {

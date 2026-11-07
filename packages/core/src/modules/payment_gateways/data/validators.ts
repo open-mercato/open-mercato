@@ -1,4 +1,14 @@
 import { z } from 'zod'
+import { decimalToNumber, isDecimalInput, toDecimal } from '@open-mercato/shared/lib/decimal'
+
+/**
+ * A positive amount sent as a JSON number or as a decimal string. The parsed value stays a
+ * `number` (float copy); routes keep the exact digits through `withExactAmounts`.
+ */
+const positiveAmountSchema = z
+  .union([z.number(), z.string()])
+  .refine((value) => isDecimalInput(value) && toDecimal(value).gt(0) && decimalToNumber(value) > 0, { message: 'payment_gateways.errors.amountMustBePositive' })
+  .transform((value) => decimalToNumber(value))
 
 const unifiedPaymentStatusSchema = z.enum([
   'pending',
@@ -17,7 +27,7 @@ export const createSessionSchema = z.object({
   providerKey: z.string().min(1),
   paymentMethodId: z.string().uuid().optional(),
   orderId: z.string().uuid().optional(),
-  amount: z.number().positive(),
+  amount: positiveAmountSchema,
   currencyCode: z.string().min(3).max(3),
   captureMethod: z.enum(['automatic', 'manual']).default('automatic'),
   description: z.string().max(500).optional(),
@@ -35,7 +45,7 @@ export type CreateSessionPayload = z.infer<typeof createSessionSchema>
 
 export const captureSchema = z.object({
   transactionId: z.string().uuid(),
-  amount: z.number().positive().optional(),
+  amount: positiveAmountSchema.optional(),
   operationId: z.string().trim().min(1).max(200).optional(),
 })
 
@@ -43,7 +53,7 @@ export type CapturePayload = z.infer<typeof captureSchema>
 
 export const refundSchema = z.object({
   transactionId: z.string().uuid(),
-  amount: z.number().positive().optional(),
+  amount: positiveAmountSchema.optional(),
   reason: z.string().max(200).optional(),
   operationId: z.string().trim().min(1).max(200).optional(),
 })

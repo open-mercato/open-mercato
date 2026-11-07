@@ -1,3 +1,21 @@
+import {
+  absDecimal,
+  compareDecimals,
+  decimalsEqual,
+  divideDecimals,
+  isZeroDecimal,
+  minDecimal,
+  multiplyDecimals,
+  negateDecimal,
+  padDecimalPlaces,
+  parseDecimal,
+  resolveIsoCurrencyDecimalPlaces,
+  roundDecimal,
+  sumDecimals,
+  toDecimal,
+  type DecimalInput,
+  type DecimalValue,
+} from '@open-mercato/shared/lib/decimal'
 import { selectUnits } from './unit-selection'
 import type {
   AddFreeItemEffect,
@@ -44,8 +62,12 @@ function readNullableNumber(value: unknown): number | null {
   return typeof value === 'number' ? value : null
 }
 
-function readNullableDecimalNumber(value: unknown): number | null {
-  return typeof value === 'string' && value.length > 0 ? Number(value) : null
+function readNullableDecimal(value: unknown): DecimalValue | null {
+  return typeof value === 'string' && value.length > 0 ? parseDecimal(value) : null
+}
+
+function readDecimal(value: string): DecimalValue {
+  return parseDecimal(value) ?? toDecimal(0)
 }
 
 function readLabels(value: unknown): Record<string, string> {
@@ -74,28 +96,17 @@ function readTiers(value: unknown): TierElement[] {
 // `currencyFractionDigits` is optional on `EvaluationContext` (see `lib/types.ts`) because
 // the pure evaluation engine never resolves a currency's fraction digits itself — a later
 // step (the `promotionsService` facade) looks it up from `currencies.Currency.decimalPlaces`
-// and passes it down. Absent, this file defaults to 2 (the ISO 4217 default for the
-// overwhelming majority of currencies).
+// and passes it down. Absent, this file uses the currency's ISO 4217 minor units, then 2.
 function getCurrencyFractionDigits(context: EvaluationContext): number {
-  return context.currencyFractionDigits ?? 2
+  return context.currencyFractionDigits ?? resolveIsoCurrencyDecimalPlaces(context.currency) ?? 2
 }
 
-// D-R4-10: "rounded once, half-up, at the currency's fraction digits in integer minor
-// units". `Math.round` rounds half-away-from-zero only for positive numbers in JS — every
-// discount amount here is negative, so a literal `Math.round(amount * factor) / factor`
-// would round `-2.5` to `-2` (towards +Infinity), not the `-3` true half-up demands. Round
-// the absolute value half-up, then reapply the sign, and format from the resulting integer
-// minor-units value directly (never re-divide a float and `toFixed()` it) so no float
-// reconversion error can creep back in after the rounding step already removed it.
-function roundHalfUpToMinorUnits(amount: number, fractionDigits: number): string {
-  const factor = 10 ** fractionDigits
-  const absMinorUnits = Math.floor(Math.abs(amount) * factor + 0.5)
-  const isNegative = amount < 0 && absMinorUnits !== 0
-  const digits = absMinorUnits.toString().padStart(fractionDigits + 1, '0')
-  const wholePart = fractionDigits === 0 ? digits : digits.slice(0, -fractionDigits)
-  const fractionPart = fractionDigits === 0 ? '' : digits.slice(-fractionDigits)
-  const formatted = fractionDigits === 0 ? wholePart : `${wholePart}.${fractionPart}`
-  return isNegative ? `-${formatted}` : formatted
+// D-R4-10: "rounded once, half-up, at the currency's fraction digits". Exact decimal
+// rounding is half away from zero, so `-2.5` rounds to `-3`; the result is padded to the
+// fraction digits (`-2.50`) and a rounded zero is unsigned.
+function roundHalfUpToMinorUnits(amount: DecimalInput, fractionDigits: number): string {
+  const rounded = roundDecimal(amount, fractionDigits)
+  return padDecimalPlaces(isZeroDecimal(rounded) ? 0 : rounded, fractionDigits)
 }
 
 // Raw (unrounded) signed discount amount for one side (net or gross). Percentage scales
@@ -106,23 +117,31 @@ function roundHalfUpToMinorUnits(amount: number, fractionDigits: number): string
 // benefit (`product_discount`/`buy_x_get_y`/`tiered_discount` under `line`/`unit`), where
 // `value` reads as a per-unit fixed amount off each covered unit — a judgment call neither
 // config table spells out explicitly, resolved the same way for both for consistency.
-function computeDiscountAmount(discountType: DiscountType, value: string, baseAmount: number, quantity: number): number {
-  const raw = discountType === 'percentage' ? -(baseAmount * Number(value) / 100) : -(Number(value) * quantity)
+function computeDiscountAmount(discountType: DiscountType, value: string, baseAmount: DecimalValue, quantity: number): DecimalValue {
+  const raw = discountType === 'percentage'
+    ? negateDecimal(divideDecimals(multiplyDecimals(baseAmount, readDecimal(value)), 100))
+    : negateDecimal(multiplyDecimals(readDecimal(value), quantity))
   // A percentage value is capped at 100 at the validation boundary (`data/validators.ts`),
   // but a `fixed` value has no such ceiling there — it is a plain amount the admin typed,
   // and nothing stops it from exceeding the line/cart total it discounts. Clamp the
   // magnitude to `baseAmount` here so one benefit invocation can never discount more than
   // its own base is worth (review finding — a review found no clamp on this side).
-  const clampedMagnitude = Math.min(Math.abs(raw), Math.abs(baseAmount))
-  return raw < 0 ? -clampedMagnitude : clampedMagnitude
+  const clampedMagnitude = minDecimal(absDecimal(raw), absDecimal(baseAmount))
+  return raw.lt(0) ? negateDecimal(clampedMagnitude) : clampedMagnitude
 }
 
-type RawAmountPair = { rawNet: number; rawGross: number }
+type RawAmountPair = { rawNet: DecimalValue; rawGross: DecimalValue }
 
 // Net and gross are computed independently from the item's own `unitPriceNet`/
 // `unitPriceGross` — never derived from one another — per the Invariants list ("cart
 // always consumes amountNet/amountGross, never re-derives one from the other").
-function computeRawAmountPair(discountType: DiscountType, value: string, baseNet: number, baseGross: number, quantity: number): RawAmountPair {
+function computeRawAmountPair(
+  discountType: DiscountType,
+  value: string,
+  baseNet: DecimalValue,
+  baseGross: DecimalValue,
+  quantity: number,
+): RawAmountPair {
   return {
     rawNet: computeDiscountAmount(discountType, value, baseNet, quantity),
     rawGross: computeDiscountAmount(discountType, value, baseGross, quantity),
@@ -137,28 +156,22 @@ function computeRawAmountPair(discountType: DiscountType, value: string, baseNet
 // amount is scaled down by the SAME ratio so no single line absorbs the whole cut while
 // the others stay at their uncapped raw value — `appliedQuantity` is never touched here
 // (TC-PROM-065(b): the cap reduces the amount granted, not the units covered).
-function applyMaxDiscountCap(entries: RawAmountPair[], maxDiscount: number | null): RawAmountPair[] {
+function applyMaxDiscountCap(entries: RawAmountPair[], maxDiscount: DecimalValue | null): RawAmountPair[] {
   if (maxDiscount === null) return entries
-  const totalAbsNet = entries.reduce((sum, entry) => sum + Math.abs(entry.rawNet), 0)
-  if (totalAbsNet === 0 || totalAbsNet <= maxDiscount) return entries
-  const ratio = maxDiscount / totalAbsNet
-  return entries.map((entry) => ({ rawNet: entry.rawNet * ratio, rawGross: entry.rawGross * ratio }))
+  const totalAbsNet = sumDecimals(entries.map((entry) => absDecimal(entry.rawNet)))
+  if (isZeroDecimal(totalAbsNet) || totalAbsNet.lte(maxDiscount)) return entries
+  const ratio = divideDecimals(maxDiscount, totalAbsNet)
+  return entries.map((entry) => ({
+    rawNet: multiplyDecimals(entry.rawNet, ratio),
+    rawGross: multiplyDecimals(entry.rawGross, ratio),
+  }))
 }
 
-// Integer-minor-units sum, same money-math discipline as this module's own
-// `roundHalfUpToMinorUnits`/`lib/promotion-usage-service.ts`'s `toMinorUnits`: each item's
-// `quantity * unitPrice` is rounded to one integer minor-units value, then every item is
-// SUMMED as an integer. A cart with many lines previously summed raw float products first
-// and rounded once at the very end — the accumulated float drift across terms could land a
-// cart total a cent off its true value, which `resolveTieredDiscount`'s `<=` threshold
-// comparison (below) could then miss at an exact boundary (review finding).
-function sumQuantityPriceMinorUnits(items: EnrichedEvaluateItem[], field: 'unitPriceNet' | 'unitPriceGross', fractionDigits: number): number {
-  const factor = 10 ** fractionDigits
-  return items.reduce((sum, item) => sum + Math.round(Number(item.quantity) * Number(item[field]) * factor), 0)
-}
-
-function sumQuantityPrice(items: EnrichedEvaluateItem[], field: 'unitPriceNet' | 'unitPriceGross', fractionDigits: number): number {
-  return sumQuantityPriceMinorUnits(items, field, fractionDigits) / 10 ** fractionDigits
+// Exact sum of every item's `quantity * unitPrice`, rounded only where an effect amount is
+// produced (D-R4-10), so a long cart cannot drift and a threshold comparison against it is
+// exact at the boundary.
+function sumQuantityPrice(items: EnrichedEvaluateItem[], field: 'unitPriceNet' | 'unitPriceGross'): DecimalValue {
+  return sumDecimals(items.map((item) => multiplyDecimals(readDecimal(item.quantity), readDecimal(item[field]))))
 }
 
 // Shared by `product_discount`, the partial-discount branch of `buy_x_get_y`, and
@@ -170,7 +183,7 @@ function buildLineDiscountEffects(
   lines: UnitSelection['lines'],
   discountType: DiscountType,
   value: string,
-  maxDiscount: number | null,
+  maxDiscount: DecimalValue | null,
   appliesTo: 'order' | 'line' | 'unit',
   labels: Record<string, string>,
   currency: string,
@@ -179,8 +192,8 @@ function buildLineDiscountEffects(
   if (lines.length === 0) return []
 
   const rawEntries = lines.map((line) => {
-    const baseNet = Number(line.unitPriceNet) * line.appliedQuantity
-    const baseGross = Number(line.unitPriceGross) * line.appliedQuantity
+    const baseNet = multiplyDecimals(readDecimal(line.unitPriceNet), line.appliedQuantity)
+    const baseGross = multiplyDecimals(readDecimal(line.unitPriceGross), line.appliedQuantity)
     return computeRawAmountPair(discountType, value, baseNet, baseGross, line.appliedQuantity)
   })
   const cappedEntries = applyMaxDiscountCap(rawEntries, maxDiscount)
@@ -212,12 +225,12 @@ function resolveCartDiscount(benefit: NormalizedBenefit, context: EvaluationCont
   const config = benefit.config
   const discountType = readDiscountType(config.discountType)
   const value = readString(config.value, '0')
-  const maxDiscount = readNullableDecimalNumber(config.maxDiscount)
+  const maxDiscount = readNullableDecimal(config.maxDiscount)
   const labels = readLabels(config.labels)
   const fractionDigits = getCurrencyFractionDigits(context)
 
-  const baseNet = sumQuantityPrice(context.items, 'unitPriceNet', fractionDigits)
-  const baseGross = sumQuantityPrice(context.items, 'unitPriceGross', fractionDigits)
+  const baseNet = sumQuantityPrice(context.items, 'unitPriceNet')
+  const baseGross = sumQuantityPrice(context.items, 'unitPriceGross')
   const raw = computeRawAmountPair(discountType, value, baseNet, baseGross, 1)
   const [capped] = applyMaxDiscountCap([raw], maxDiscount)
 
@@ -237,7 +250,7 @@ function resolveProductDiscount(benefit: NormalizedBenefit, context: EvaluationC
   const config = benefit.config
   const discountType = readDiscountType(config.discountType)
   const value = readString(config.value, '0')
-  const maxDiscount = readNullableDecimalNumber(config.maxDiscount)
+  const maxDiscount = readNullableDecimal(config.maxDiscount)
   const labels = readLabels(config.labels)
   const fractionDigits = getCurrencyFractionDigits(context)
 
@@ -310,7 +323,7 @@ function resolveBuyXGetY(benefit: NormalizedBenefit, context: EvaluationContext,
   const value = readString(config.value, '0')
   const labels = readLabels(config.labels)
 
-  if (discountType === 'percentage' && Number(value) === 100) {
+  if (discountType === 'percentage' && decimalsEqual(readDecimal(value), 100)) {
     const effect: AddFreeItemEffect = {
       type: 'ADD_FREE_ITEM',
       appliesTo: 'order',
@@ -343,7 +356,7 @@ function resolveBuyXGetY(benefit: NormalizedBenefit, context: EvaluationContext,
   // just emit no effect rather than inventing a line.
   if (trimmedLines.length === 0) return []
 
-  const maxDiscount = readNullableDecimalNumber(config.maxDiscount)
+  const maxDiscount = readNullableDecimal(config.maxDiscount)
   const fractionDigits = getCurrencyFractionDigits(context)
   return buildLineDiscountEffects(trimmedLines, discountType, value, maxDiscount, benefit.appliesTo, labels, context.currency, fractionDigits)
 }
@@ -359,28 +372,23 @@ function resolveTieredDiscount(benefit: NormalizedBenefit, context: EvaluationCo
   const config = benefit.config
   const limitToCategoryId = readNullableString(config.limitToCategoryId)
   const tiers = readTiers(config.tiers)
-  const maxDiscount = readNullableDecimalNumber(config.maxDiscount)
+  const maxDiscount = readNullableDecimal(config.maxDiscount)
   const labels = readLabels(config.labels)
   const fractionDigits = getCurrencyFractionDigits(context)
 
   const qualifyingItems =
     limitToCategoryId === null ? context.items : context.items.filter((item) => item.categoryIds.includes(limitToCategoryId))
-  const baseForThresholdMinorUnits = sumQuantityPriceMinorUnits(qualifyingItems, 'unitPriceNet', fractionDigits)
-  const baseForThreshold = baseForThresholdMinorUnits / 10 ** fractionDigits
+  const baseForThreshold = sumQuantityPrice(qualifyingItems, 'unitPriceNet')
 
-  // Compared in integer minor units, not as floats: `tier.threshold` is itself a decimal
-  // string over the same `numeric(16,2)`-style column family, so converting both sides to
-  // the same integer unit before comparing removes any float boundary-miss risk at an exact
-  // threshold (review finding).
   let winningTier: TierElement | null = null
   for (const tier of tiers) {
-    const thresholdMinorUnits = Math.round(Number(tier.threshold) * 10 ** fractionDigits)
-    if (thresholdMinorUnits <= baseForThresholdMinorUnits) winningTier = tier
+    const threshold = parseDecimal(tier.threshold)
+    if (threshold !== null && compareDecimals(threshold, baseForThreshold) <= 0) winningTier = tier
   }
   if (winningTier === null) return []
 
   if (benefit.appliesTo === 'order') {
-    const baseGross = sumQuantityPrice(qualifyingItems, 'unitPriceGross', fractionDigits)
+    const baseGross = sumQuantityPrice(qualifyingItems, 'unitPriceGross')
     const raw = computeRawAmountPair(winningTier.discountType, winningTier.value, baseForThreshold, baseGross, 1)
     const [capped] = applyMaxDiscountCap([raw], maxDiscount)
     const effect: CartDiscountEffect = {

@@ -8,6 +8,10 @@ import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-merc
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { autoColorFromName } from '../../timesheets-ui/colors'
+import { staffTimeEntryUpdateSchema } from '../../../data/validators'
+import { entryAmountExact } from '../../time-tracking/cost'
+import { formatCurrency } from '@open-mercato/ui/utils/format'
+import { resolveIsoCurrencyDecimalPlaces } from '@open-mercato/shared/lib/decimal'
 import { TimeEntryDialog } from '../TimeEntryDialog'
 
 const TASK_ID = '11111111-1111-4111-8111-111111111111'
@@ -409,6 +413,63 @@ beforeEach(() => {
   ;(window as unknown as { open: jest.Mock }).open = jest.fn()
 })
 
+describe('TimeEntryDialog - exact rate overrides', () => {
+  const exactRate = '98.765432109876543212'
+
+  function installPreciseEntry() {
+    entryRows = [{
+      id: ENTRY_ID,
+      date: '2026-07-20',
+      duration_minutes: 60,
+      description: 'Original description',
+      task_id: TASK_ID,
+      time_project_id: PROJECT_ID,
+      is_billable: true,
+      rate_override_amount: exactRate,
+      updated_at: VERSION,
+      tags: [],
+    }]
+  }
+
+  it('preserves every rate digit when only the description is edited', async () => {
+    installPreciseEntry()
+    renderDialog({ entryId: ENTRY_ID })
+    const rateInput = await screen.findByTestId('entry-dialog-rate')
+    await waitFor(() => expect(rateInput).toHaveValue(exactRate))
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Updated description' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().description).toBe('Updated description')
+    expect(lastWriteBody().rateOverrideAmount).toBe(exactRate)
+    expect(mockWithScopedHeaders).toHaveBeenCalledWith(
+      { [OPTIMISTIC_LOCK_HEADER_NAME]: VERSION },
+      expect.any(Function),
+    )
+  })
+
+  it('submits a comma-separated precise rate edit exactly', async () => {
+    installPreciseEntry()
+    renderDialog({ entryId: ENTRY_ID })
+    const rateInput = await screen.findByTestId('entry-dialog-rate')
+    await waitFor(() => expect(rateInput).toHaveValue(exactRate))
+    fireEvent.change(rateInput, { target: { value: '98,765432109876543213' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().rateOverrideAmount).toBe('98.765432109876543213')
+  })
+
+  it('keeps an oversized rate invalid at the API boundary instead of clearing it', async () => {
+    installPreciseEntry()
+    renderDialog({ entryId: ENTRY_ID })
+    const rateInput = await screen.findByTestId('entry-dialog-rate')
+    fireEvent.change(rateInput, { target: { value: '1e305' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().rateOverrideAmount).toBe('1e305')
+    expect(staffTimeEntryUpdateSchema.safeParse({ ...lastWriteBody(), id: ENTRY_ID }).success).toBe(false)
+  })
+})
+
 describe('TimeEntryDialog — 2-of-3 arithmetic', () => {
   it('derives the end from a start plus a duration and badges the derived field', async () => {
     renderDialog()
@@ -567,6 +628,104 @@ describe('TimeEntryDialog — money', () => {
     expect(cost.value).toContain('400')
   })
 
+  function installCurrencyEntry(
+    currencyCode: string,
+    rate: string | null,
+    configuredCurrencies: Array<{ code: string; decimalPlaces: number }>,
+    projectRate?: string,
+  ) {
+    entryRows = [{
+      id: ENTRY_ID,
+      date: '2026-07-20',
+      duration_minutes: 60,
+      description: 'Precise cost',
+      task_id: TASK_ID,
+      time_project_id: PROJECT_ID,
+      is_billable: true,
+      rate_override_amount: rate,
+      updated_at: VERSION,
+      tags: [],
+    }]
+    const route = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/timesheets/time-projects')) {
+        const rows = projectRows.map((row) => ({
+          ...row,
+          currency_code: currencyCode,
+          ...(projectRate === undefined ? {} : { hourly_rate: projectRate }),
+        }))
+        return ok({ items: rows, total: rows.length }) as never
+      }
+      if (url.includes('/api/currencies/currencies')) {
+        const code = new URLSearchParams(url.slice(url.indexOf('?') + 1)).get('code')
+        const items = configuredCurrencies.filter((item) => item.code === code)
+        return ok({ items, total: items.length }) as never
+      }
+      return route!(input, init)
+    })
+  }
+
+  async function renderedCost(): Promise<HTMLInputElement> {
+    renderDialog({ entryId: ENTRY_ID })
+    const cost = (await screen.findByTestId('entry-dialog-cost')) as HTMLInputElement
+    await waitFor(() => expect(cost.value).not.toBe(''))
+    return cost
+  }
+
+  it('previews a micro-rate cost at the configured 18 decimals instead of 0', async () => {
+    installCurrencyEntry('ETH', '0.00000001', [{ code: 'ETH', decimalPlaces: 18 }])
+    const saved = entryAmountExact(
+      { isBillable: true, roundedMinutes: 60, rateOverrideAmount: '0.00000001' },
+      null,
+      null,
+      18,
+    )
+    expect(saved).toBe('0.00000001')
+
+    const cost = await renderedCost()
+
+    await waitFor(() => expect(cost.value).toContain('0.00000001'))
+    expect(cost.value).toBe(formatCurrency(saved, 'ETH', undefined, 18))
+    expect(mockApiCall).toHaveBeenCalledWith(
+      expect.stringContaining('/api/currencies/currencies?code=ETH'),
+      expect.anything(),
+    )
+  })
+
+  it('previews a zero-decimal currency cost the way the server saves it', async () => {
+    installCurrencyEntry('JPY', '0.4996', [])
+    const saved = entryAmountExact(
+      { isBillable: true, roundedMinutes: 60, rateOverrideAmount: '0.4996' },
+      null,
+      null,
+      resolveIsoCurrencyDecimalPlaces('JPY') ?? 2,
+    )
+    expect(saved).toBe('0')
+
+    const cost = await renderedCost()
+
+    await waitFor(() => expect(cost.value).toBe(formatCurrency(saved, 'JPY', undefined, 0)))
+    expect(cost.value).toBe(formatCurrency('0', 'JPY'))
+    expect(cost.value).not.toBe(formatCurrency('1', 'JPY'))
+  })
+
+  it('previews the cost from the exact project rate when no override is set', async () => {
+    installCurrencyEntry('KWD', null, [{ code: 'KWD', decimalPlaces: 3 }], '1.234499999999999999')
+    const saved = entryAmountExact(
+      { isBillable: true, roundedMinutes: 60, rateOverrideAmount: null },
+      { hourlyRate: '1.234499999999999999' },
+      null,
+      3,
+    )
+    expect(saved).toBe('1.234')
+
+    const cost = await renderedCost()
+
+    await waitFor(() => expect(cost.value).toBe(formatCurrency(saved, 'KWD', undefined, 3)))
+    expect(cost.value).not.toBe(formatCurrency('1.235', 'KWD', undefined, 3))
+  })
+
   it('hides rates and cost without staff.timesheets.rates.view', async () => {
     mockUseBackendChrome.mockReturnValue({
       payload: { grantedFeatures: ['staff.timesheets.manage_own'] },
@@ -640,6 +799,47 @@ describe('TimeEntryDialog — saving', () => {
     const call = mockApiCallOrThrow.mock.calls[0]
     expect((call?.[1] as RequestInit).method).toBe('PUT')
     expect(lastWriteBody().id).toBe(ENTRY_ID)
+  })
+
+  it('sends the exact stored override rate back when only the description changes', async () => {
+    const preciseRate = '98.765432109876543212'
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        started_at: '2026-07-20T09:00:00.000Z',
+        ended_at: '2026-07-20T10:00:00.000Z',
+        duration_minutes: 60,
+        description: 'Analiza planów zapytań',
+        task_id: TASK_ID,
+        time_project_id: PROJECT_ID,
+        is_billable: true,
+        rate_override_amount: preciseRate,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID })
+
+    await waitFor(() => expect((screen.getByTestId('entry-dialog-rate') as HTMLInputElement).value).toBe(preciseRate))
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Nowy opis' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(expect.objectContaining({ description: 'Nowy opis', rateOverrideAmount: preciseRate }))
+  })
+
+  it('sends a typed decimal-comma override rate as an exact string', async () => {
+    renderDialog()
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Custom rate for this entry' }))
+    fireEvent.change(await screen.findByTestId('entry-dialog-rate'), { target: { value: '123,123456789012345678' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().rateOverrideAmount).toBe('123.123456789012345678')
   })
 
   it('asks for the entry by `ids`, the parameter the list schema actually reads', async () => {

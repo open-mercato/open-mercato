@@ -226,7 +226,7 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
     expect(netAmountsFor(prices, sale!.id)).toEqual([0]);
   });
 
-  test('keeps rejecting negative and malformed prices', async ({ page, request }) => {
+  test('rejects negative and malformed prices and keeps precise ones exact', async ({ page, request }) => {
     await openCreateForm(page, `QA Decimal Invalid ${uniqueStamp()}`);
     await openVariantsStep(page, [regular!]);
     const input = await priceInput(page, regular!, 0);
@@ -245,28 +245,12 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
     });
     expect(underflow, 'min=0 still blocks negative values natively').toEqual({ rangeUnderflow: true, valid: false });
 
-    const productPosts: string[] = [];
-    page.on('request', (outgoing) => {
-      if (outgoing.method() === 'POST' && /\/api\/catalog\/products(\?|$)/.test(outgoing.url())) {
-        productPosts.push(outgoing.url());
-      }
-    });
-    await fillPrice(input, '1.23456');
-    await page
-      .locator('button[type="submit"]')
-      .filter({ hasText: /^Create product$/ })
-      .first()
-      .click();
-    await expect(page.getByText('Provide a valid non-negative price.').first()).toBeVisible({ timeout: 10_000 });
-    await expect(page).toHaveURL(/\/backend\/catalog\/products\/create$/);
-    expect(productPosts, 'over-precise price is rejected before anything is created').toEqual([]);
-
     const productId = await createProductFixture(request, token!, {
       title: `QA Decimal Invalid API ${uniqueStamp()}`,
       sku: `QA-DEC-INV-${Date.now()}`,
     });
     productIds.push(productId);
-    for (const unitPriceNet of [-1, 'abc', '1.23456']) {
+    for (const unitPriceNet of [-1, 'abc', '1,5']) {
       const response = await apiRequest(request, 'POST', PRICES_PATH, {
         token: token!,
         data: { productId, priceKindId: regular!.id, currencyCode: 'USD', unitPriceNet },
@@ -274,6 +258,14 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
       expect(response.status(), `price ${String(unitPriceNet)} should be rejected`).toBe(400);
     }
     expect(await listProductPrices(request, token!, productId)).toEqual([]);
+
+    const precise = await apiRequest(request, 'POST', PRICES_PATH, {
+      token: token!,
+      data: { productId, priceKindId: regular!.id, currencyCode: 'USD', unitPriceNet: '1.23456' },
+    });
+    expect(precise.status(), 'a price with more than 4 decimals is accepted').toBe(201);
+    const stored = await listProductPrices(request, token!, productId);
+    expect(stored.map((price) => price.unit_price_net), 'the entered price round-trips unchanged').toEqual(['1.23456']);
   });
 
   test('variant edit page still updates an existing price to a decimal', async ({ page, request }) => {

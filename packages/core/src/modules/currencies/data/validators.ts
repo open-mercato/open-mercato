@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isDecimalInput, toDecimal } from '@open-mercato/shared/lib/decimal'
 
 /**
  * Truncates a Date object to minute precision (zeroing seconds and milliseconds).
@@ -10,6 +11,8 @@ export function truncateToMinute(date: Date): Date {
   truncated.setSeconds(0, 0)
   return truncated
 }
+
+export const MAX_CURRENCY_DECIMAL_PLACES = 50
 
 // Currency Code validation (ISO 4217 format)
 const currencyCodeSchema = z
@@ -29,6 +32,32 @@ const sourceSchema = z
 // Rate type validation schema
 const rateTypeSchema = z.enum(['buy', 'sell']).nullable().optional()
 
+const RATE_PATTERN = /^\d+(\.\d+)?$/
+
+const rateSchema = z.string().trim().regex(RATE_PATTERN, 'Rate must be a positive decimal number')
+
+function isPositiveRate(rate: string): boolean {
+  return isDecimalInput(rate) && toDecimal(rate).gt(0)
+}
+
+export const EXCHANGE_RATE_METADATA_MAX_BYTES = 16 * 1024
+
+export function isExchangeRateMetadataWithinLimit(metadata: unknown): boolean {
+  if (metadata === null || metadata === undefined) return true
+  try {
+    const serialized = JSON.stringify(metadata)
+    return new TextEncoder().encode(serialized).length <= EXCHANGE_RATE_METADATA_MAX_BYTES
+  } catch {
+    return false
+  }
+}
+
+const exchangeRateMetadataSchema = z
+  .record(z.string(), z.unknown())
+  .nullable()
+  .optional()
+  .refine(isExchangeRateMetadataWithinLimit, { message: 'exchangeRates.form.errors.metadataTooLarge' })
+
 // Currency validators
 export const currencyCreateSchema = z.object({
   organizationId: z.uuid(),
@@ -36,7 +65,7 @@ export const currencyCreateSchema = z.object({
   code: currencyCodeSchema,
   name: z.string().min(1).max(200),
   symbol: z.string().max(10).nullable().optional(),
-  decimalPlaces: z.number().int().min(0).max(8).optional(),
+  decimalPlaces: z.number().int().min(0).max(MAX_CURRENCY_DECIMAL_PLACES).optional(),
   thousandsSeparator: z.string().max(5).nullable().optional(),
   decimalSeparator: z.string().max(5).nullable().optional(),
   isBase: z.boolean().optional(),
@@ -50,7 +79,7 @@ export const currencyUpdateSchema = z.object({
   code: currencyCodeSchema.optional(),
   name: z.string().min(1).max(200).optional(),
   symbol: z.string().max(10).nullable().optional(),
-  decimalPlaces: z.number().int().min(0).max(8).optional(),
+  decimalPlaces: z.number().int().min(0).max(MAX_CURRENCY_DECIMAL_PLACES).optional(),
   thousandsSeparator: z.string().max(5).nullable().optional(),
   decimalSeparator: z.string().max(5).nullable().optional(),
   isBase: z.boolean().optional(),
@@ -70,17 +99,18 @@ export const exchangeRateCreateSchema = z
     tenantId: z.uuid(),
     fromCurrencyCode: currencyCodeSchema,
     toCurrencyCode: currencyCodeSchema,
-    rate: z.string().regex(/^\d+(\.\d{1,8})?$/, 'Rate must be a positive decimal number'),
+    rate: rateSchema,
     date: z.coerce.date().transform(truncateToMinute),
     source: sourceSchema,
     type: rateTypeSchema,
+    metadata: exchangeRateMetadataSchema,
     isActive: z.boolean().optional(),
   })
   .refine((data) => data.fromCurrencyCode !== data.toCurrencyCode, {
     message: 'From and To currencies must be different',
     path: ['toCurrencyCode'],
   })
-  .refine((data) => parseFloat(data.rate) > 0, {
+  .refine((data) => isPositiveRate(data.rate), {
     message: 'Rate must be greater than zero',
     path: ['rate'],
   })
@@ -92,10 +122,11 @@ export const exchangeRateUpdateSchema = z
     tenantId: z.uuid().optional(),
     fromCurrencyCode: currencyCodeSchema.optional(),
     toCurrencyCode: currencyCodeSchema.optional(),
-    rate: z.string().regex(/^\d+(\.\d{1,8})?$/).optional(),
+    rate: rateSchema.optional(),
     date: z.coerce.date().transform(truncateToMinute).optional(),
     source: sourceSchema.optional(),
     type: rateTypeSchema,
+    metadata: exchangeRateMetadataSchema,
     isActive: z.boolean().optional(),
   })
   .refine(
@@ -114,7 +145,7 @@ export const exchangeRateUpdateSchema = z
   .refine(
     (data) => {
       if (data.rate) {
-        return parseFloat(data.rate) > 0
+        return isPositiveRate(data.rate)
       }
       return true
     },

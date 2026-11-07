@@ -51,7 +51,7 @@ test('compatibility cases fit their exact required files without broad read or i
 test('OMH-057 accommodates the measured compatibility footprint without broader access', () => {
   const record = cases.find(record => record.id === 'OMH-057')
   assert.ok(record)
-  const measuredRequiredBytes = 115086
+  const measuredRequiredBytes = 123363
   assert.ok(record.maxTotalContextBytes >= measuredRequiredBytes)
   assert.ok(record.maxTotalContextBytes - measuredRequiredBytes <= 4096)
   assert.equal(record.maxInitialContextBytes, 40960)

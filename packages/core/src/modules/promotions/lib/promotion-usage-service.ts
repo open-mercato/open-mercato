@@ -2,6 +2,14 @@ import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import {
+  absDecimal,
+  addDecimals,
+  compareDecimals,
+  padDecimalPlaces,
+  sumDecimals,
+  type DecimalInput,
+} from '@open-mercato/shared/lib/decimal'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Promotion, PromotionUsage } from '../data/entities'
 import { emitPromotionsEvent } from '../events'
@@ -25,31 +33,20 @@ export type PromotionsUsageScope = { tenantId: string; organizationId: string }
 
 const usageLogger = createLogger('promotions').child({ component: 'usage' })
 
-// ---------------------------------------------------------------------------
-// Decimal-as-string money math. `total_discount_amount`/`max_budget` are
-// `numeric(16,2)` columns (§Data Models) — always 2 fraction digits — so minor-units
-// (cent) integer math avoids float reconversion error without pulling in a decimal
-// library, same spirit as `lib/effect-resolvers.ts`'s `roundHalfUpToMinorUnits` (this
-// module's own established convention for decimal-string arithmetic).
-// ---------------------------------------------------------------------------
-
+// Exact decimal-string money math. Budget amounts keep at least two decimals (the
+// historical `numeric(16,2)` format) and never lose digits a currency carries beyond that.
 const MONEY_FRACTION_DIGITS = 2
-const MONEY_MINOR_UNIT_FACTOR = 10 ** MONEY_FRACTION_DIGITS
 
-function toMinorUnits(value: string): number {
-  return Math.round(Number(value) * MONEY_MINOR_UNIT_FACTOR)
-}
-
-function formatMinorUnits(value: number): string {
-  return (value / MONEY_MINOR_UNIT_FACTOR).toFixed(MONEY_FRACTION_DIGITS)
+function formatMoney(value: DecimalInput): string {
+  return padDecimalPlaces(value, MONEY_FRACTION_DIGITS)
 }
 
 function addDecimalStrings(a: string, b: string): string {
-  return formatMinorUnits(toMinorUnits(a) + toMinorUnits(b))
+  return formatMoney(addDecimals(a, b))
 }
 
 function exceedsLimit(total: string, limit: string): boolean {
-  return toMinorUnits(total) > toMinorUnits(limit)
+  return compareDecimals(total, limit) > 0
 }
 
 // §Data Models rev — budget-accounting rule: "Sum of |amountNet| across every
@@ -57,12 +54,8 @@ function exceedsLimit(total: string, limit: string): boolean {
 // effects carry no amount and never contribute to this sum." Every other Release-4
 // effect variant (`LINE_DISCOUNT`/`CART_DISCOUNT`/`DELIVERY_DISCOUNT`) carries `amountNet`.
 function computeTotalDiscountAmount(effects: ResolvedEffect[]): string {
-  let totalMinorUnits = 0
-  for (const effect of effects) {
-    if (effect.type === 'ADD_FREE_ITEM') continue
-    totalMinorUnits += Math.abs(toMinorUnits(effect.amountNet))
-  }
-  return formatMinorUnits(totalMinorUnits)
+  const amounts = effects.flatMap((effect) => (effect.type === 'ADD_FREE_ITEM' ? [] : [absDecimal(effect.amountNet)]))
+  return formatMoney(sumDecimals(amounts))
 }
 
 async function emitRegisteredEvent(promotionId: string, orderId: string, scope: PromotionsUsageScope): Promise<void> {
@@ -126,9 +119,7 @@ export class PromotionUsageService {
       currency,
       revertedAt: null,
     })
-    let totalMinorUnits = 0
-    for (const row of rows) totalMinorUnits += toMinorUnits(row.totalDiscountAmount)
-    return formatMinorUnits(totalMinorUnits)
+    return formatMoney(sumDecimals(rows.map((row) => row.totalDiscountAmount)))
   }
 
   /**

@@ -3,6 +3,7 @@ import {
   staffLeaveRequestCreateSchema,
   staffTeamMemberCreateSchema,
   staffTeamRoleCreateSchema,
+  staffTimeEntryCreateSchema,
   staffTimeProjectCreateSchema,
   staffTimeProjectUpdateSchema,
 } from '../validators'
@@ -111,9 +112,35 @@ describe('Staff time project billing validators', () => {
     expect(staffTimeProjectCreateSchema.parse(projectCreateInput({ hourlyRate: null })).hourlyRate).toBeNull()
   })
 
-  test('create rejects a negative rate and an over-precise amount', () => {
+  test('create rejects a negative rate and keeps any precision exactly', () => {
     expect(() => staffTimeProjectCreateSchema.parse(projectCreateInput({ hourlyRate: -1 }))).toThrow()
-    expect(() => staffTimeProjectCreateSchema.parse(projectCreateInput({ hourlyRate: '10.123456' }))).toThrow()
+    expect(staffTimeProjectCreateSchema.parse(projectCreateInput({ hourlyRate: '10.123456789012345678' })).hourlyRate).toBe(
+      '10.123456789012345678',
+    )
+  })
+
+  test('rejects an oversized rate or budget as a validation issue instead of throwing', () => {
+    const tooManyDigits = `1${'2'.repeat(1000)}`
+    const tooManyIntegerDigits = '9'.repeat(301)
+    for (const value of [tooManyDigits, tooManyIntegerDigits, 1e305]) {
+      const rate = staffTimeProjectCreateSchema.safeParse(projectCreateInput({ hourlyRate: value }))
+      expect(rate.success).toBe(false)
+      const budget = staffTimeProjectCreateSchema.safeParse(
+        projectCreateInput({ budgetKind: 'amount', budgetValue: value }),
+      )
+      expect(budget.success).toBe(false)
+    }
+  })
+
+  test('rejects an oversized entry rate override instead of storing a cut value', () => {
+    const tooManyDigits = `1${'2'.repeat(1000)}`
+    for (const value of [tooManyDigits, 1e305]) {
+      const result = staffTimeEntryCreateSchema.safeParse({ rateOverrideAmount: value })
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error.issues.some((issue) => issue.path[0] === 'rateOverrideAmount')).toBe(true)
+      }
+    }
   })
 
   test('create defaults budgetKind to none and billable stays optional', () => {

@@ -333,6 +333,7 @@
   "catalog.prices.select.customer.placeholder": "Search customers…",
   "catalog.prices.select.priceKind.placeholder": "Select a price kind…",
   "catalog.prices.select.product.placeholder": "Search products…",
+  "catalog.prices.validation.amountInvalid": "Price must be a valid non-negative amount.",
   "catalog.prices.validation.quantityRange": "Maximum quantity must be greater than or equal to the minimum quantity.",
   "catalog.prices.validation.validityWindow": "End date must be after the start date.",
   "catalog.pricing.list.title": "Price Lists",

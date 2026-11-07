@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import type { ProjectBudgetKind } from './budgetBurn'
 
 export type TimeProjectBudgetState = {
@@ -10,6 +11,7 @@ export type TimeProjectBudgetState = {
   budgetWarnAtPercent: number | null
   budgetAlertedAtPercent: number | null
   hourlyRate: number | null
+  hourlyRateExact?: string | null
   currencyCode: string | null
 }
 
@@ -37,6 +39,11 @@ function toNullableNumber(value: string | number | null | undefined): number | n
   if (value === null || value === undefined) return null
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function toNullableExact(value: string | number | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
 }
 
 function toBudgetKind(value: string | null | undefined): ProjectBudgetKind {
@@ -93,6 +100,7 @@ export async function loadTimeProjectBudgetStateForEntry(
     budgetWarnAtPercent: toNullableNumber(row.budget_warn_at_percent),
     budgetAlertedAtPercent: toNullableNumber(row.budget_alerted_at_percent),
     hourlyRate: toNullableNumber(row.hourly_rate),
+    hourlyRateExact: toNullableExact(row.hourly_rate),
     currencyCode: row.currency_code ?? null,
   }
 }

@@ -333,6 +333,7 @@
   "catalog.prices.select.customer.placeholder": "Szukaj klientów…",
   "catalog.prices.select.priceKind.placeholder": "Wybierz rodzaj ceny…",
   "catalog.prices.select.product.placeholder": "Szukaj produktów…",
+  "catalog.prices.validation.amountInvalid": "Cena musi być prawidłową, nieujemną kwotą.",
   "catalog.prices.validation.quantityRange": "Maksymalna ilość musi być większa lub równa ilości minimalnej.",
   "catalog.prices.validation.validityWindow": "Data zakończenia musi być późniejsza niż data rozpoczęcia.",
   "catalog.pricing.list.title": "Cenniki",

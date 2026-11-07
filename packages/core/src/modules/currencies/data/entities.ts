@@ -1,4 +1,5 @@
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 
 @Entity({ tableName: 'currencies' })
 @Index({
@@ -87,8 +88,8 @@ export class ExchangeRate {
   @Property({ name: 'to_currency_code', type: 'text' })
   toCurrencyCode!: string
 
-  // Rate value (high precision for crypto/forex)
-  @Property({ type: 'numeric', precision: 18, scale: 8 })
+  // Rate value (unconstrained precision for crypto/forex)
+  @Property({ type: ExactDecimalType, columnType: 'numeric' })
   rate!: string
 
   // Date and time when the rate applies (stored as timestamptz)
@@ -102,6 +103,9 @@ export class ExchangeRate {
   // Rate type from bank's perspective (nullable for backward compatibility)
   @Property({ type: 'text', nullable: true })
   type?: string | null
+
+  @Property({ type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
