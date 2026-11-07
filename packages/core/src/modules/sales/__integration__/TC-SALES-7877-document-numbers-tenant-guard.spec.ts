@@ -158,10 +158,15 @@ test.describe('TC-SALES-7877: document-numbers tenant guard through the real dis
     } finally {
       if (foreignTenantId && foreignOrganizationId) {
         await withClient(async (client) => {
-          await client.query(
-            'delete from sales_document_sequences where tenant_id = $1 and organization_id = $2',
+          const removedSequences = await client.query<{ id: string }>(
+            'delete from sales_document_sequences where tenant_id = $1 and organization_id = $2 returning id',
             [foreignTenantId, foreignOrganizationId],
           )
+          for (const sequence of removedSequences.rows) {
+            const sequenceName = `sales_docseq_${sequence.id.replace(/-/g, '').toLowerCase()}`
+            expect(sequenceName).toMatch(/^sales_docseq_[0-9a-f]{32}$/)
+            await client.query(`drop sequence if exists "${sequenceName}"`)
+          }
         })
       }
       await deleteGeneralEntityIfExists(
