@@ -1539,6 +1539,78 @@ migration and the rollback is unrecoverable — users must reopen their chat win
 same one-time-TTL (120-minute) cost paid by any session mid-flight at rollback, not an ongoing
 state.
 
+### Workflows: a user-task deadline can be an absolute `at` — new additive deadline/config types (#7181)
+
+A `USER_TASK` deadline (`userTaskConfig.deadline`) now takes exactly one of `duration` (anchored to
+task creation, as before) or `at` (an ISO date or an ISO datetime with `Z` or an offset, usually
+interpolated from the run context, e.g. `{{context.dueDate}}`). Every definition that was valid before
+still parses and runs unchanged, with one exception: a deadline declaring both `duration` and an `at`
+key, whose `at` used to be stripped silently, is now refused on save.
+
+**No exported contract changes.** These keep their exact shape, with `deadline.duration` a required
+`string` (compile-guarded by `packages/core/src/modules/workflows/data/task-primitives.typecheck.tsx`):
+
+- `taskDeadlineSchema` / `TaskDeadline` (`data/task-primitives`, re-exported from `data/validators`);
+- `userTaskConfigSchema` / `UserTaskConfig` (`data/validators`) — `deadline?: TaskDeadline`;
+- `TaskDeadlinePersistence` and `resolveTaskDeadlinePersistence(config, edited)`
+  (`lib/task-inspector-config`) — same signature, same return type, same behavior;
+- every schema result that nests them: `workflowStepSchema`, `workflowDefinitionDataSchema`,
+  `createWorkflowDefinitionSchema`, `updateWorkflowDefinitionSchema`,
+  `createWorkflowDefinitionInputSchema` and `updateWorkflowDefinitionInputSchema` with their
+  `…CheckedSchema` variants, the inferred `CreateWorkflowDefinitionInput`,
+  `UpdateWorkflowDefinitionInput`, `CreateWorkflowDefinitionApiInput` and
+  `UpdateWorkflowDefinitionApiInput`, and the response schemas in `api/openapi`
+  (`workflowDefinitionResponseSchema` and its list/detail/mutation/reset wrappers).
+
+The absolute form lives on NEW, additive exports, each a strict superset of its legacy counterpart:
+
+| Legacy (unchanged, duration-only) | Extended (new, `duration` or `at`) |
+|---|---|
+| `taskDeadlineSchema` / `TaskDeadline` | `taskDeadlineSpecSchema` / `TaskDeadlineSpec` |
+| `userTaskConfigSchema` / `UserTaskConfig` | `userTaskConfigSpecSchema` / `UserTaskConfigSpec` |
+| `TaskDeadlinePersistence` | `TaskDeadlineSpecPersistence` |
+| `resolveTaskDeadlinePersistence` | `resolveTaskDeadlineSpecPersistence` |
+| `workflowStepSchema` | `workflowStepSpecSchema` / `WorkflowStepSpec` |
+| `workflowDefinitionDataSchema` | `workflowDefinitionDataSpecSchema` / `WorkflowDefinitionDataSpec` |
+| `createWorkflowDefinitionInputSchema` / `…CheckedSchema` / `CreateWorkflowDefinitionApiInput` | `createWorkflowDefinitionInputSpecSchema` / `…SpecCheckedSchema` / `CreateWorkflowDefinitionSpecApiInput` |
+| `updateWorkflowDefinitionInputSchema` / `…CheckedSchema` / `UpdateWorkflowDefinitionApiInput` | `updateWorkflowDefinitionInputSpecSchema` / `…SpecCheckedSchema` / `UpdateWorkflowDefinitionSpecApiInput` |
+| `workflowDefinitionResponseSchema` and its list/detail/mutation/reset wrappers | `workflowDefinitionSpecResponseSchema` and its list/detail/mutation/reset wrappers |
+
+The definition API, the engine, the Studio, the AI authoring tools and the code-workflow registry
+validate with the extended schemas, and the definition routes' OpenAPI documents them.
+`readTaskDeadlineDraft`, `resolveTaskDeadlineDuration` and `resolveTaskDeadline` accept either config
+(a widened parameter).
+
+**Behavior of the legacy schemas:** exactly what it was before this feature — they refuse an `at`
+deadline. `workflowDefinitionDataSchema.parse()` therefore throws on a stored definition authored with
+`at`, where before this feature such a definition could not exist. The bundled workflow templates also
+stay duration-only: `workflowTemplateFileSchema` and `workflowTemplateSchema` are unchanged.
+
+**Migration:** none required for code that keeps using the legacy exports. Those exports are not
+deprecated and have no removal window — they stay the duration-only view. Code that reads or validates
+a stored definition and must also handle an absolute deadline switches to the extended schema and types
+in the table above, and checks which of `deadline.duration` / `deadline.at` is set.
+
+The deadline validation messages carry i18n keys (`workflows.validation.taskDeadline.*`) and are
+localized in the definition API's `details[]` and the Studio Problems / Code view. The English text in
+`details[].message` is unchanged when no locale dictionary is available.
+
+A value that only fails at runtime (`dueDate: 'soon'`) keeps its English `errorMessage` for logs and
+failure grouping, and additionally carries `errorDetails.i18n = { key, params }` (also on the step's
+`errorData.details`). The run detail, mobile overview, step inspector and failure queue render it in
+the reader's locale, the instance-advance route answers it localized with the same `details`, and API
+clients can do the same from that key. A synchronous sub-workflow failing this way hands the key to its
+parent. `ExecutionResult.errorDetails`, `StepExecutionResult.details`, `TransitionExecutionResult.details`
+and `CodeStepDefinition.userTaskConfig.deadline` are new and optional. `instance.errorDetails` is now written
+as `null`, instead of being left untouched, when a failure carries no details, so a message can never
+pair with the details of an earlier failure.
+
+**Known limit:** the run fails closed when the executor's own loop enters the step: on start, and after
+an automated step. A step failure reached any other way behaves as it always has for every step type,
+including a bad `duration`: entering the task from a completed task, an SLA-breach route or an async
+resume marks the STEP failed and logs it, but does not fail the instance. Check `deadline.at` inputs
+before the step that reads them when that step follows another task.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:

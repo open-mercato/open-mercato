@@ -146,6 +146,7 @@ Role queues are matched by **role name**, so renaming a role orphans assignments
 
 - **Priority** — Low / Medium / High / Extreme. Drives the inbox ordering.
 - **Deadline** — an ISO 8601 duration from task creation (`PT30M` = 30 minutes, `P2D` = 2 days). It becomes the task's due date.
+- **Absolute deadline** — when the due date is computed elsewhere (for example "event date + 5 working days"), set `userTaskConfig.deadline` to `{ "at": "{{context.dueDate}}" }` in the definition JSON (Code view) instead of a duration. The value is read from the run context when the task is created and must be an ISO date (`2026-10-20`, meaning the end of that day in UTC) or an ISO datetime with a timezone (`2026-10-20T17:00:00+02:00`). A deadline has either a `duration` or an `at`, never both. If the value is missing or not a valid date, the step fails with an error naming the value rather than creating a task with a wrong due date. The inspector's deadline field edits durations only; it leaves an `at` deadline untouched on save.
 - **Reminders** — one or more offsets *before* the deadline (`PT10M`). Each fires a notification to the people the task is offered to. A reminder whose moment has already passed when the task is created is skipped rather than fired immediately.
 - **When the deadline passes** — nothing, **Notify**, **Reassign** (to a user id or a role), or **Follow a route**.
 

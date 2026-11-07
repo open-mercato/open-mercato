@@ -66,6 +66,21 @@ describe('resolveFailureMessage', () => {
 })
 
 describe('groupFailures', () => {
+  test('labels a group in the reader\'s locale but keys it on the persisted text', () => {
+    const [group] = groupFailures([
+      instance({ id: 'a', errorMessage: 'Bad "x"', localizedErrorMessage: 'Po polsku "x"' }),
+      instance({ id: 'b', errorMessage: 'Bad "y"', localizedErrorMessage: 'Po polsku "y"' }),
+    ])
+    expect(group).toMatchObject({ key: 'Bad {value}', label: 'Po polsku "x"', count: 2 })
+  })
+
+  test('a blank localized or persisted message never becomes the label', () => {
+    expect(groupFailures([instance({ id: 'a', errorMessage: 'Bad', localizedErrorMessage: '  ' })])[0].label).toBe('Bad')
+    expect(groupFailures([instance({ id: 'b', errorMessage: '  ', localizedErrorMessage: '  ' })])[0].label).toBe(
+      'No error message recorded',
+    )
+  })
+
   test('collapses a batch of the same failure into one row', () => {
     const groups = groupFailures([
       instance({ id: 'a', errorMessage: 'Order 11111111-1111-4111-8111-111111111111 not found' }),

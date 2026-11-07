@@ -17,7 +17,7 @@ import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/di
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { WorkflowDefinition } from '../../../../data/entities'
 import { serializeWorkflowDefinition } from '../../serialize'
-import { workflowDefinitionMutationResponseSchema, workflowErrorSchema } from '../../../openapi'
+import { workflowDefinitionSpecMutationResponseSchema, workflowErrorSchema } from '../../../openapi'
 import { getCodeWorkflow } from '../../../../lib/code-registry'
 import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -188,7 +188,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition customized successfully',
-          schema: workflowDefinitionMutationResponseSchema,
+          schema: workflowDefinitionSpecMutationResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',

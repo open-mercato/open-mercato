@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { workflowDefinitionDataSchema, workflowDefinitionDraftDataSchema } from '../data/validators'
+import {
+  workflowDefinitionDataSchema,
+  workflowDefinitionDataSpecSchema,
+  workflowDefinitionDraftDataSchema,
+} from '../data/validators'
 
 export const workflowsTag = 'Workflows'
 
@@ -451,6 +455,32 @@ export const workflowDefinitionMutationResponseSchema = z.object({
 
 export const workflowDefinitionResetResponseSchema = z.object({
   data: workflowDefinitionResponseSchema.nullable(),
+  message: z.string(),
+})
+
+// The responses the definition routes actually document (#7181): a stored
+// USER_TASK deadline may be an absolute `at`. The schemas above stay the
+// duration-only result.
+export const workflowDefinitionSpecResponseSchema = workflowDefinitionResponseSchema.extend({
+  definition: workflowDefinitionDataSpecSchema,
+})
+
+export const workflowDefinitionSpecListResponseSchema = z.object({
+  data: z.array(workflowDefinitionSpecResponseSchema),
+  pagination: paginationSchema,
+})
+
+export const workflowDefinitionSpecDetailResponseSchema = z.object({
+  data: workflowDefinitionSpecResponseSchema,
+})
+
+export const workflowDefinitionSpecMutationResponseSchema = z.object({
+  data: workflowDefinitionSpecResponseSchema,
+  message: z.string(),
+})
+
+export const workflowDefinitionSpecResetResponseSchema = z.object({
+  data: workflowDefinitionSpecResponseSchema.nullable(),
   message: z.string(),
 })
 

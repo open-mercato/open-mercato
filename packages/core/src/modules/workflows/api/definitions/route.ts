@@ -17,13 +17,14 @@ import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } fro
 import { WorkflowDefinition } from '../../data/entities'
 import {
   createWorkflowDefinitionInputSchema,
-  createWorkflowDefinitionInputCheckedSchema,
-  type CreateWorkflowDefinitionApiInput,
+  createWorkflowDefinitionInputSpecSchema,
+  createWorkflowDefinitionInputSpecCheckedSchema,
+  type CreateWorkflowDefinitionSpecApiInput,
 } from '../../data/validators'
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from './serialize'
 import {
-  workflowDefinitionListResponseSchema,
-  workflowDefinitionMutationResponseSchema,
+  workflowDefinitionSpecListResponseSchema,
+  workflowDefinitionSpecMutationResponseSchema,
   workflowErrorSchema,
 } from '../openapi'
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
@@ -256,18 +257,19 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     // Validate input
-    const validation = createWorkflowDefinitionInputCheckedSchema.safeParse(body)
+    const validation = createWorkflowDefinitionInputSpecCheckedSchema.safeParse(body)
     if (!validation.success) {
+      const { translate } = await resolveTranslations()
       return NextResponse.json(
         {
           error: 'Validation failed',
-          details: normalizeDefinitionValidationIssues(validation.error),
+          details: normalizeDefinitionValidationIssues(validation.error, translate),
         },
         { status: 400 }
       )
     }
 
-    const input: CreateWorkflowDefinitionApiInput = validation.data
+    const input: CreateWorkflowDefinitionSpecApiInput = validation.data
     const { translate } = await resolveTranslations()
     const mappingMessage = translate(UNSAFE_MAPPING_TARGET_MESSAGE_KEY, UNSAFE_MAPPING_TARGET_MESSAGE)
     const mappingIssues = mappingTargetIssuesForApi(input.definition, ['definition'], mappingMessage)
@@ -392,7 +394,7 @@ export const openApi = {
         {
           status: 200,
           description: 'List of workflow definitions with pagination',
-          schema: workflowDefinitionListResponseSchema,
+          schema: workflowDefinitionSpecListResponseSchema,
           example: {
             data: [
               {
@@ -456,7 +458,7 @@ export const openApi = {
       description: 'Create a new workflow definition. The definition must include at least START and END steps with at least one transition connecting them.',
       tags: ['Workflows'],
       requestBody: {
-        schema: createWorkflowDefinitionInputSchema,
+        schema: createWorkflowDefinitionInputSpecSchema,
         example: {
           workflowId: 'checkout-flow',
           workflowName: 'Checkout Flow',
@@ -530,7 +532,7 @@ export const openApi = {
         {
           status: 201,
           description: 'Workflow definition created successfully',
-          schema: workflowDefinitionMutationResponseSchema,
+          schema: workflowDefinitionSpecMutationResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',

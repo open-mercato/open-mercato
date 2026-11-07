@@ -1,5 +1,5 @@
 import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals'
-import { applyParallelJoinOutputMapping, openFork, resumeBranchAfterActivities } from '../parallel-handler'
+import { advanceBranches, applyParallelJoinOutputMapping, openFork, resumeBranchAfterActivities } from '../parallel-handler'
 import { WorkflowBranchInstance, WorkflowEvent, WorkflowInstance } from '../../data/entities'
 
 jest.mock('../step-handler', () => ({
@@ -304,5 +304,29 @@ describe('resumeBranchAfterActivities', () => {
     expect(result).toEqual({ continueExecution: false })
     expect(branch.status).toBe('WAITING_FOR_ACTIVITIES')
     expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('advanceBranches', () => {
+  test('a failed branch hands its error details to the instance', async () => {
+    const { em } = makeEmStub()
+    const errorDetails = { i18n: { key: 'workflows.some.key', params: {} } }
+    em.find = async () => [
+      {
+        id: 'branch-1',
+        branchKey: 'a',
+        status: 'FAILED',
+        errorMessage: 'English',
+        errorDetails,
+        forkStepId: 'fork',
+      },
+    ]
+    const instance = { ...makeInstance(), status: 'RUNNING', activeForkStepId: 'fork' }
+
+    const result = await advanceBranches(em, {} as never, instance as never, { definition: { steps: [], transitions: [] } } as never, {
+      workflowContext: {},
+    } as never)
+
+    expect(result).toEqual({ outcome: 'failed', error: 'English', details: errorDetails })
   })
 })

@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -20,6 +21,7 @@ import { WorkflowInstance } from '../../../../data/entities'
 import * as workflowExecutor from '../../../../lib/workflow-executor'
 import * as stepHandler from '../../../../lib/step-handler'
 import * as transitionHandler from '../../../../lib/transition-handler'
+import { localizeRuntimeErrorMessage } from '../../../../lib/runtime-error-message'
 import { z } from 'zod'
 import {
   workflowsTag,
@@ -226,10 +228,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
     )
 
     if (!transitionResult.success) {
+      const { translate } = await resolveTranslations()
       return NextResponse.json(
         {
           error: 'Transition failed',
-          reason: transitionResult.error || 'Unknown error',
+          reason: localizeRuntimeErrorMessage(
+            transitionResult.error || 'Unknown error',
+            transitionResult.details,
+            translate,
+          ),
+          ...(transitionResult.details !== undefined ? { details: transitionResult.details } : {}),
         },
         { status: 400 }
       )
