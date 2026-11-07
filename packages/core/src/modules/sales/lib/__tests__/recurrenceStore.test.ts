@@ -10,8 +10,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SalesOrder, SalesOrderRecurrence } from '../../data/entities'
 import {
   orderRecurrenceChanges,
-  persistNewOrderRecurrence,
+  persistOrderRecurrence,
   restoreOrderRecurrence,
+  retireOrderRecurrence,
   sameRecurrenceState,
   writeOrderRecurrence,
   writeQuoteRecurrence,
@@ -31,6 +32,11 @@ function buildEm(existing: Record<string, unknown> | null = null) {
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
     persist: jest.fn((entity: Record<string, unknown>) => persisted.push(entity)),
     remove: jest.fn((entity: unknown) => removed.push(entity)),
+    nativeUpdate: jest.fn(async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+      if (!existing || (where.deletedAt === null && existing.deletedAt)) return 0
+      Object.assign(existing, data)
+      return 1
+    }),
   }
   return { em: em as unknown as EntityManager, mock: em, persisted, removed }
 }
@@ -136,12 +142,30 @@ describe('orderRecurrenceChanges', () => {
   })
 })
 
-describe('persistNewOrderRecurrence', () => {
+describe('persistOrderRecurrence', () => {
   it('creates the recurrence without querying', () => {
     const { em, mock, persisted } = buildEm()
-    persistNewOrderRecurrence(em, order, { frequency: 'weekly', startsOn: '2027-01-04', periodCount: 2 })
+    persistOrderRecurrence(em, order, { frequency: 'weekly', startsOn: '2027-01-04', periodCount: 2 })
     expect(mock.findOne).not.toHaveBeenCalled()
     expect(persisted[0]).toMatchObject({ endsOn: '2027-01-17', nextInvoiceOn: '2027-01-04', status: 'scheduled' })
+  })
+
+  it('reuses the removed row of a deleted order with the next schedule version', () => {
+    const removed: Record<string, unknown> = { frequency: 'monthly', scheduleVersion: 3, deletedAt: new Date(), cancelResult: { ok: true } }
+    const { em, persisted } = buildEm()
+    persistOrderRecurrence(em, order, { frequency: 'weekly', startsOn: '2027-01-04' }, removed as unknown as SalesOrderRecurrence)
+    expect(persisted).toHaveLength(0)
+    expect(removed).toMatchObject({ frequency: 'weekly', scheduleVersion: 4, deletedAt: null, cancelResult: null })
+  })
+})
+
+describe('retireOrderRecurrence', () => {
+  it('marks only the live recurrence of the order removed, within the order scope', async () => {
+    const row: Record<string, unknown> = { scheduleVersion: 2, deletedAt: null }
+    const { em, mock } = buildEm(row)
+    await retireOrderRecurrence(em, order)
+    expect(mock.nativeUpdate.mock.calls[0][1]).toEqual({ orderId: 'order-1', tenantId: 'ten-1', organizationId: 'org-1', deletedAt: null })
+    expect(row).toMatchObject({ scheduleVersion: 2, deletedAt: expect.any(Date) })
   })
 })
 
@@ -201,7 +225,22 @@ describe('restoreOrderRecurrence', () => {
     expect(row.deletedAt).toBeNull()
   })
 
-  it('recreates the recurrence of an order that has no recurrence row with its recorded version', async () => {
+  it('never reuses a schedule version across whole-order delete, undo and redo', async () => {
+    const row: Record<string, unknown> = { ...snapshot, scheduleVersion: 4, deletedAt: null }
+    const { em, persisted } = buildEm(row)
+    const seen = [row.scheduleVersion as number]
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      const deleteSnapshot = { ...snapshot, scheduleVersion: row.scheduleVersion as number }
+      await retireOrderRecurrence(em, order)
+      await restoreOrderRecurrence(em, order, deleteSnapshot)
+      expect(row.scheduleVersion as number).toBeGreaterThan(Math.max(...seen))
+      seen.push(row.scheduleVersion as number)
+    }
+    expect(persisted).toHaveLength(0)
+    expect(row.deletedAt).toBeNull()
+  })
+
+  it('recreates a recurrence that has no row at all with its recorded version', async () => {
     const { em, persisted } = buildEm()
     await restoreOrderRecurrence(em, order, { ...snapshot, scheduleVersion: 4 })
     expect(persisted[0]).toMatchObject({ frequency: 'monthly', scheduleVersion: 4, deletedAt: null })
@@ -216,7 +255,7 @@ describe('restoreOrderRecurrence', () => {
   it('looks the recurrence up within the order scope', async () => {
     const { em, mock } = buildEm()
     await restoreOrderRecurrence(em, order, snapshot)
-    expect(mock.findOne.mock.calls[0][1]).toEqual({ order: 'order-1', tenantId: 'ten-1', organizationId: 'org-1' })
+    expect(mock.findOne.mock.calls[0][1]).toEqual({ orderId: 'order-1', tenantId: 'ten-1', organizationId: 'org-1' })
   })
 })
 

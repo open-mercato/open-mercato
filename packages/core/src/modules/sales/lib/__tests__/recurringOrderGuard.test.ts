@@ -99,7 +99,7 @@ describe('assertRecurringOrderStatusAllowed', () => {
     it('looks up only the live recurrence', async () => {
       const { em, mock } = buildEm({ recurrence: null })
       await assertRecurringOrderStatusAllowed(em, order, 'canceled')
-      expect(mock.findOne.mock.calls[0][1]).toEqual({ order: 'order-1', tenantId: 'ten-1', organizationId: 'org-1', deletedAt: null })
+      expect(mock.findOne.mock.calls[0][1]).toEqual({ orderId: 'order-1', tenantId: 'ten-1', organizationId: 'org-1', deletedAt: null })
     })
   })
 })
@@ -115,7 +115,7 @@ describe('assertRecurringOrderDeletable', () => {
     const { em, mock } = buildEm({ recurrence: { status: 'scheduled' }, periods: 0 })
     await assertRecurringOrderDeletable(em, order)
     const scope = { tenantId: 'ten-1', organizationId: 'org-1' }
-    expect(mock.findOne.mock.calls[0][1]).toEqual({ order: 'order-1', ...scope })
+    expect(mock.findOne.mock.calls[0][1]).toEqual({ orderId: 'order-1', ...scope })
     expect(mock.find.mock.calls[0][1]).toEqual({ order: 'order-1', ...scope })
   })
 

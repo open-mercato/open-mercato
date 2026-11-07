@@ -2059,7 +2059,7 @@ export class SalesQuoteRecurrence {
 @Entity({ tableName: 'sales_order_recurrences' })
 @Index({ name: 'sales_order_recurrences_org_status_idx', properties: ['organizationId', 'status'] })
 @Index({ name: 'sales_order_recurrences_due_idx', properties: ['status', 'nextInvoiceOn'] })
-@Unique({ name: 'sales_order_recurrences_order_unique', properties: ['order'] })
+@Unique({ name: 'sales_order_recurrences_order_unique', properties: ['orderId'] })
 export class SalesOrderRecurrence {
   [OptionalProps]?: 'createdAt' | 'updatedAt' | 'nextPeriodIndex' | 'status' | 'scheduleVersion'
 
@@ -2072,8 +2072,8 @@ export class SalesOrderRecurrence {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @ManyToOne(() => SalesOrder, { fieldName: 'order_id', deleteRule: 'cascade' })
-  order!: SalesOrder
+  @Property({ name: 'order_id', type: 'uuid' })
+  orderId!: string
 
   @Property({ name: 'frequency', type: 'text' })
   frequency!: SalesRecurrenceFrequency

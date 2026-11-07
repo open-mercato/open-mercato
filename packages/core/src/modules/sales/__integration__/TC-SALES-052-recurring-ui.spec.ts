@@ -7,7 +7,7 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 
 /**
- * TC-SALES-047 — recurring billing UI (spec 2026-10-21-sales-recurring-orders, phase 1 step 4).
+ * TC-SALES-052 — recurring billing UI (spec 2026-10-21-sales-recurring-orders, phase 1 step 4).
  *
  * The create form previews the calculated dates, the order detail page shows the schedule
  * and edits it through the recurrence dialog, and the public quote page shows the schedule.
@@ -44,9 +44,9 @@ async function createDocument(
   return (await readJson(response)).id as string
 }
 
-const line = { currencyCode: 'USD', name: 'QA TC-SALES-047 service', quantity: 1, unitPriceNet: 100, unitPriceGross: 123, taxRate: 23 }
+const line = { currencyCode: 'USD', name: 'QA TC-SALES-052 service', quantity: 1, unitPriceNet: 100, unitPriceGross: 123, taxRate: 23 }
 
-test.describe('TC-SALES-047 recurring billing UI', () => {
+test.describe('TC-SALES-052 recurring billing UI', () => {
   test('the create form previews the first invoice and end date of a monthly schedule', async ({ page }) => {
     test.slow()
     await login(page, 'admin')

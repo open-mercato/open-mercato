@@ -12,7 +12,6 @@ export class Migration20261026120000_sales_recurring_orders extends Migration {
     this.addSql(`create index "sales_order_recurrences_org_status_idx" on "sales_order_recurrences" ("organization_id", "status");`);
     this.addSql(`create index "sales_order_recurrences_due_idx" on "sales_order_recurrences" ("status", "next_invoice_on");`);
     this.addSql(`alter table "sales_order_recurrences" add constraint "sales_order_recurrences_order_unique" unique ("order_id");`);
-    this.addSql(`alter table "sales_order_recurrences" add constraint "sales_order_recurrences_order_id_foreign" foreign key ("order_id") references "sales_orders" ("id") on update cascade on delete cascade;`);
 
     this.addSql(`create table "sales_recurring_periods" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "order_id" uuid not null, "period_index" int not null, "period_start" date not null, "period_end" date not null, "invoice_id" uuid null, "billed_factor" numeric(5,4) not null default '1', "credit_memo_id" uuid null, "credited_factor" numeric(5,4) null, "events_emitted_at" timestamptz null, "created_at" timestamptz not null, "updated_at" timestamptz not null, constraint "sales_recurring_periods_pkey" primary key ("id"));`);
     this.addSql(`create index "sales_recurring_periods_scope_idx" on "sales_recurring_periods" ("organization_id", "tenant_id");`);

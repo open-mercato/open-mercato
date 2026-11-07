@@ -59,7 +59,6 @@ import {
   SalesDocumentTagAssignment,
   SalesReturn,
   SalesQuoteRecurrence,
-  SalesOrderRecurrence,
   SalesRecurringPeriod,
   type SalesLineKind,
   type SalesAdjustmentKind,
@@ -132,11 +131,13 @@ import {
 } from "./payments";
 import { resolveConvertedOrderFeeTotals } from "../lib/convertedOrderTotals";
 import {
+  findOrderRecurrenceRow,
   loadOrderRecurrenceSnapshot,
   loadQuoteRecurrenceSnapshot,
   orderRecurrenceChanges,
-  persistNewOrderRecurrence,
+  persistOrderRecurrence,
   restoreOrderRecurrence,
+  retireOrderRecurrence,
   restoreQuoteRecurrence,
   sameRecurrenceState,
   writeOrderRecurrence,
@@ -6993,7 +6994,7 @@ const createOrderCommand: CommandHandler<
           },
         );
         if (!order) return;
-        await tx.nativeDelete(SalesOrderRecurrence, { order: order.id });
+        await retireOrderRecurrence(tx, order);
         await tx.nativeDelete(SalesOrderAdjustment, { order: order.id });
         await tx.nativeDelete(SalesOrderLine, { order: order.id });
         tx.remove(order);
@@ -7109,7 +7110,7 @@ const deleteOrderCommand: CommandHandler<
             documentId: order.id,
             documentKind: "order",
           });
-          await em.nativeDelete(SalesOrderRecurrence, { order: order.id });
+          await retireOrderRecurrence(em, lockedOrder);
           await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
           await em.nativeDelete(SalesOrderLine, { order: order.id });
           em.remove(lockedOrder);
@@ -7258,6 +7259,22 @@ const convertQuoteToOrderCommand: CommandHandler<
           ),
         });
       }
+      const orderScope = {
+        id: orderId,
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+      };
+      if (snapshot.recurrence) {
+        await assertRecurringOrderStatusAllowed(
+          em,
+          orderScope,
+          normalizeStatusValue(snapshot.quote.status),
+          snapshot.recurrence,
+        );
+      }
+      const existingRecurrence = snapshot.recurrence
+        ? await findOrderRecurrenceRow(em, orderScope)
+        : null;
 
       const generator = ctx.container.resolve(
         "salesDocumentNumberGenerator",
@@ -7553,7 +7570,7 @@ const convertQuoteToOrderCommand: CommandHandler<
       }
 
       if (snapshot.recurrence) {
-        persistNewOrderRecurrence(em, order, snapshot.recurrence);
+        persistOrderRecurrence(em, order, snapshot.recurrence, existingRecurrence);
         await em.nativeDelete(SalesQuoteRecurrence, { quote: snapshot.quote.id });
       }
       await em.nativeDelete(SalesQuoteAdjustment, { quote: snapshot.quote.id });
@@ -7640,7 +7657,7 @@ const convertQuoteToOrderCommand: CommandHandler<
             documentId: orderId,
             documentKind: "order",
           });
-          await em.nativeDelete(SalesOrderRecurrence, { order: orderId });
+          await retireOrderRecurrence(em, existingOrder);
           await em.nativeDelete(SalesOrderAdjustment, { order: orderId });
           await em.nativeDelete(SalesOrderLine, { order: orderId });
           em.remove(existingOrder);

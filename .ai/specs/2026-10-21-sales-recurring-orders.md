@@ -39,7 +39,7 @@ Settled with the maintainer (2026-10-21):
 | R7 | Quotes carry the recurrence; `sales.quotes.convert_to_order` copies it. A recurring quote whose start date has passed cannot be accepted or converted — a new quote is needed. |
 | R8 | Customers pay per invoice. For a recurring order, the order's paid and outstanding amounts are derived from its issued invoices, credit memos and payments; payment gateways charge the oldest unpaid invoice. |
 | R9 | Order-level adjustments (discounts, surcharges, shipping) apply to every period's invoice. |
-| R10 | Only *Cancel recurring order* stops a recurring order: setting an active recurring order to the canceled or on-hold status is refused, with a pointer to the cancel action. There is no pause. |
+| R10 | Only *Cancel recurring order* stops a recurring order: setting an active recurring order to the canceled or on-hold status is refused, and so is converting a canceled or on-hold recurring quote. Until the cancel action ships in phase 3, the refusal asks to remove the schedule first. There is no pause. |
 
 ## 📝 Problem Statement
 
@@ -89,13 +89,13 @@ cancel ──▶ sales.orders.recurrence.cancel ──▶ record effective date 
 
 ## 📝 Data Model
 
-All new tables carry `organization_id`, `tenant_id`, `created_at`, `updated_at`; existing tables gain only one additive `sales_settings` column. The new tables have no `deleted_at`: recurrences are owned child rows deleted with (or kept by) their document, and the period ledger is append-only.
+All new tables carry `organization_id`, `tenant_id`, `created_at`, `updated_at`; existing tables gain only one additive `sales_settings` column. Order recurrences carry `deleted_at` (below); the other new tables have no `deleted_at`: quote recurrences are owned child rows deleted with their quote, and the period ledger is append-only.
 
 ### SalesQuoteRecurrence (`sales_quote_recurrences`)
 `quote_id` (unique, `on delete cascade`), `frequency` (`weekly|monthly|quarterly|yearly`), `starts_on` (date), `anchor_day` (int 1–31, nullable = day of `starts_on`), `period_count` (int ≥ 1, null = open-ended). Removed inside `convert_to_order`'s transaction when the quote is deleted.
 
 ### SalesOrderRecurrence (`sales_order_recurrences`)
-`order_id` (unique), `frequency`, `starts_on`, `anchor_day`, `period_count`, `ends_on` (derived; null when open-ended), `next_period_index` (0-based), `next_invoice_on`, `status` (`scheduled|active|cancelling|completed|cancelled`), `schedule_version` (int, the optimistic-lock token for schedule actions), cancellation fields — `cancel_requested_at`, `cancel_effective_on`, `cancel_settlement` (`prorate|credit_full|keep`), `cancelled_by_user_id`, `cancel_idempotency_key`, `cancel_result` (json: credit memo ids), `deleted_at`. Removing a recurrence sets `deleted_at` instead of deleting the row, so `schedule_version` keeps counting when a recurrence is added back or an undo restores it, and a consumed version is never current again. Every read filters `deleted_at is null`; the invoicing scan must too. Index `(status, next_invoice_on)` for the system-wide scan, and `(organization_id, status)`.
+`order_id` (unique), `frequency`, `starts_on`, `anchor_day`, `period_count`, `ends_on` (derived; null when open-ended), `next_period_index` (0-based), `next_invoice_on`, `status` (`scheduled|active|cancelling|completed|cancelled`), `schedule_version` (int, the optimistic-lock token for schedule actions), cancellation fields — `cancel_requested_at`, `cancel_effective_on`, `cancel_settlement` (`prorate|credit_full|keep`), `cancelled_by_user_id`, `cancel_idempotency_key`, `cancel_result` (json: credit memo ids), `deleted_at`. Removing a recurrence, or deleting its order, sets `deleted_at` instead of deleting the row, so `schedule_version` keeps counting when a recurrence is added back or an undo restores it (including an undone order delete), and a consumed version is never current again. `order_id` is a plain column with no foreign key and no ORM relation for that reason: the removed row outlives a hard-deleted order, and removing the order does not touch it. Orders are deleted only through the sales commands, which mark the row removed. `Migration20261107120000_sales_order_recurrences_drop_order_fk` drops the cascading `order_id` foreign key that early builds of the recurring-orders migration created; on other databases it is a no-op. Every read filters `deleted_at is null`; the invoicing scan must too. Removed rows are kept, one per deleted recurring order at most; Phase 2 purges removed rows whose order no longer exists once the undo window has passed. Index `(status, next_invoice_on)` for the system-wide scan, and `(organization_id, status)`.
 
 Order lines and order-level adjustments describe **one period's charge**; the order's own totals are therefore the per-period amount, labelled "per month" (etc.) on the order. What the customer owes overall lives on the invoices (R8).
 
@@ -217,6 +217,7 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
 2. Worker, system schedule (registered on worker start), CLI. *Integration:* a monthly order whose start was two anniversaries ago at creation time (created through the internal command, bypassing the quote guard) gets two invoices issued today, each with its period in metadata; a second run issues nothing; two concurrent runs issue each period once; order adjustments appear on every invoice; totals equal `salesCalculationService`'s.
 3. Money: derived order totals, credit memos reduce invoice outstanding, resolver, analytics. *Integration:* after month 1 is paid, the amount due is month 2's invoice; a credit memo reduces its invoice's outstanding; analytics count invoiced amounts.
 4. Events, re-emission, completion. *Integration:* a 3-period order is `completed` after its third period ends; a crash between commit and events re-emits `invoice_issued` once.
+5. Retention of removed order recurrences: the worker purges removed rows whose order no longer exists after the undo window. *Integration:* a purged row's order delete can no longer be undone with its schedule; a row inside the window is kept.
 
 ### Phase 3
 1. `sales.orders.recurrence.cancel`. *Integration:* today + prorate → credit memo for the remainder; past date → later issued periods credited in full; **future date** + prorate → billing continues, the final period is issued prorated, then `cancelled`; future + `credit_full` → the final period is not issued; moving a pending cancellation earlier re-settles; **boundaries** — `effectiveOn` equal to a period start with `keep` issues nothing for that period and no credit for the one before it, and `effectiveOn` the day after a period's last day behaves the same; a repeat call with the same idempotency key returns the stored result; a stale `scheduleVersion` → `409`; without `sales.credit_memos.manage` → `403`.
@@ -257,7 +258,7 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
   - Deferred to Phase 2: `GET /api/sales/orders/{id}/recurrence`, the orders-list *Recurring* column and filter, and the missing-scheduler banner.
   - Until Phase 3, an unbilled recurring order cannot be set to canceled or on hold; the way out is removing its recurrence or deleting the order.
   - Line references in this spec to `documents.ts` are approximate: `convert_to_order` handles `ctx.transactionalEm` at `const callerEm = ctx.transactionalEm` (~6814) and `return runConversion(callerEm)` (~7168) as of this phase.
-  - Integration coverage: TC-SALES-045 (create, update, convert and the start-date guards), TC-SALES-046 (locks and status guards), TC-SALES-047 (UI).
+  - Integration coverage: TC-SALES-045 (create, update, convert and the start-date guards), TC-SALES-046 (locks and status guards), TC-SALES-052 (UI).
 
 ### 2026-10-29
 - From the review of #8008:
@@ -281,4 +282,13 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
   - Removing an order recurrence marks the row deleted (`deleted_at`) instead of deleting it. Adding it back, and undo, continue from the stored `schedule_version`, so remove → undo → redo never makes a used version current again.
   - `POST /api/sales/quotes/send` locks the quote row, re-reads the quote, and checks the recurrence and line count inside the transaction that stores the send state.
   - An order update that sends back the current schedule is not treated as a recurrence change, so it is accepted on a locked order.
-  - TC-SALES-049 covers the combined payloads, coordinated two-writer races for payment, shipment and quote send (the test holds the row lock, commits the competing write while the request waits, then checks the refusal), and schedule versions across remove, undo and redo. TC-SALES-046 covers the echoed schedule.
+  - TC-SALES-053 covers the combined payloads, coordinated two-writer races for payment, shipment and quote send (the test holds the row lock, commits the competing write while the request waits, then checks the refusal), and schedule versions across remove, undo and redo. TC-SALES-046 covers the echoed schedule.
+
+### 2026-11-07
+- Merged `main`. From pkarw's and haxiorz's re-reviews and the QA run on #8008 (issues #8963–#8965):
+  - `sales.quotes.convert_to_order` checks the status and recurrence of the order it would create, under the quote lock and before anything is written, so a canceled or on-hold recurring quote is refused with `409 recurring_order_use_cancel` and stays as it was. Conversion of quotes without a schedule is unchanged.
+  - The `recurring_order_use_cancel` message no longer points to *Cancel recurring order*, which phase 1 does not have. It says a canceled or on-hold order cannot keep a schedule and asks to remove the schedule first. The code is unchanged.
+  - Deleting an order, and undoing an order create or a conversion, mark the order recurrence removed instead of deleting it, and `order_id` loses its foreign key (edited in the unreleased migration) and becomes a plain `orderId` column on the entity, so removing an order never rewrites the loaded recurrence. Undo of an order delete therefore continues from the stored `schedule_version`, and conversion reuses a removed row of the same order id.
+  - The `recurring_order_invoiced` message no longer ends with "Cancel it instead.": cancelling is refused for an order with issued invoices until the Phase 3 cancel action ships. The code is unchanged.
+  - `Migration20261107120000_sales_order_recurrences_drop_order_fk` drops the order foreign key on databases that ran an early build of the recurring-orders migration (such as the QA environment), so retired rows survive there too. TC-SALES-048 checks it is a no-op without the key and drops it when present.
+  - The integration specs were renumbered because `main` added its own TC-SALES-047 and TC-SALES-049: the recurring UI spec is now TC-SALES-052, the integrity spec TC-SALES-053. TC-SALES-053 adds the canceled-quote conversion, the repeated order delete → undo → redo and the quote conversion → undo → redo regressions; TC-SALES-046 expects the removed row after an order delete.

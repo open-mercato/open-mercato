@@ -13,8 +13,8 @@ import {
  * TC-SALES-046 — recurring order locks and status guards (spec 2026-10-21-sales-recurring-orders, R5/R10).
  *
  * Once a recurring order has an issued period, nothing that changes what is billed can be
- * edited and the order cannot be deleted. Only *Cancel recurring order* may stop an
- * unfinished recurring order, so canceled / on-hold statuses are refused. Periods are
+ * edited and the order cannot be deleted. An unfinished recurring order cannot be
+ * canceled or put on hold while it keeps its schedule, so those statuses are refused. Periods are
  * inserted directly into the ledger: the invoicing worker ships in phase 2.
  */
 
@@ -193,18 +193,19 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
     }
   })
 
-  test('deletes an unbilled recurring order together with its recurrence', async ({ request }) => {
+  test('deletes an unbilled recurring order and keeps its recurrence only as a removed row', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const orderId = await createRecurringOrder(request, token, isoDayFromToday(10))
     const deletion = await apiRequest(request, 'DELETE', `/api/sales/orders?id=${encodeURIComponent(orderId)}`, { token })
     expect(deletion.status()).toBe(200)
     const remaining = await withClient(async (client) => {
-      const result = await client.query('select count(*)::int as count from sales_order_recurrences where order_id = $1', [
-        orderId,
-      ])
-      return result.rows[0].count as number
+      const result = await client.query(
+        'select count(*) filter (where deleted_at is null)::int as live, count(*)::int as total from sales_order_recurrences where order_id = $1',
+        [orderId],
+      )
+      return result.rows[0] as { live: number; total: number }
     })
-    expect(remaining).toBe(0)
+    expect(remaining, 'the removed row keeps the schedule version for an undo').toEqual({ live: 0, total: 1 })
   })
 
   test('refuses returns that would change a locked order', async ({ request }) => {

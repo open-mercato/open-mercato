@@ -8,12 +8,14 @@ import {
   deleteSalesEntityIfExists,
 } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { Migration20261026120000_sales_recurring_orders } from '../migrations/Migration20261026120000_sales_recurring_orders'
+import { Migration20261107120000_sales_order_recurrences_drop_order_fk } from '../migrations/Migration20261107120000_sales_order_recurrences_drop_order_fk'
 
 /**
  * TC-SALES-048 — the recurring-orders migration rolls forward and back (spec 2026-10-21-sales-recurring-orders).
  *
  * The migration runs in a throwaway schema that copies the structure of the sales tables it
  * references, holding real sales rows created for this test. Nothing in the shared schema changes.
+ * The follow-up migration drops the order foreign key that early builds of the first one created.
  */
 
 type DbClient = Parameters<Parameters<typeof withClient>[0]>[0]
@@ -22,7 +24,6 @@ const REFERENCED_TABLES = ['sales_quotes', 'sales_orders', 'sales_invoices', 'sa
 const NEW_TABLES = ['sales_order_recurrences', 'sales_quote_recurrences', 'sales_recurring_periods']
 
 const EXPECTED_CONSTRAINTS = [
-  ['sales_order_recurrences', 'sales_order_recurrences_order_id_foreign', 'FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON UPDATE CASCADE ON DELETE CASCADE'],
   ['sales_order_recurrences', 'sales_order_recurrences_order_unique', 'UNIQUE (order_id)'],
   ['sales_quote_recurrences', 'sales_quote_recurrences_quote_id_foreign', 'FOREIGN KEY (quote_id) REFERENCES sales_quotes(id) ON UPDATE CASCADE ON DELETE CASCADE'],
   ['sales_quote_recurrences', 'sales_quote_recurrences_quote_unique', 'UNIQUE (quote_id)'],
@@ -32,8 +33,17 @@ const EXPECTED_CONSTRAINTS = [
   ['sales_recurring_periods', 'sales_recurring_periods_order_period_unique', 'UNIQUE (order_id, period_index)'],
 ]
 
-async function runMigration(client: DbClient, direction: 'up' | 'down'): Promise<void> {
-  const migration = new Migration20261026120000_sales_recurring_orders(undefined as never, undefined as never)
+const MIGRATIONS = {
+  recurringOrders: Migration20261026120000_sales_recurring_orders,
+  dropOrderForeignKey: Migration20261107120000_sales_order_recurrences_drop_order_fk,
+}
+
+async function runMigration(
+  client: DbClient,
+  direction: 'up' | 'down',
+  name: keyof typeof MIGRATIONS = 'recurringOrders',
+): Promise<void> {
+  const migration = new MIGRATIONS[name](undefined as never, undefined as never)
   await migration[direction]()
   for (const sql of migration.getQueries()) await client.query(String(sql))
 }
@@ -123,7 +133,8 @@ test.describe('TC-SALES-048 recurring orders migration', () => {
             values ($1, $2, $3, 'monthly', current_date, current_date, now(), now())`
           await client.query(orderRecurrence, [organizationId, tenantId, orderId])
           await expectSqlError(client, orderRecurrence, [organizationId, tenantId, orderId], '23505', 'one recurrence per order')
-          await expectSqlError(client, orderRecurrence, [organizationId, tenantId, quoteId], '23503', 'a recurrence needs an existing order')
+          const outlived = await client.query(orderRecurrence, [organizationId, tenantId, quoteId])
+          expect(outlived.rowCount, 'order_id has no foreign key, so a retired recurrence row outlives its deleted order').toBe(1)
 
           const period = `insert into sales_recurring_periods
               (organization_id, tenant_id, order_id, period_index, period_start, period_end, created_at, updated_at)
@@ -138,6 +149,17 @@ test.describe('TC-SALES-048 recurring orders migration', () => {
 
           await runMigration(client, 'up')
           expect(await listConstraints(client, schema), 'the migration can be applied again after rollback').toEqual(EXPECTED_CONSTRAINTS)
+
+          await runMigration(client, 'up', 'dropOrderForeignKey')
+          expect(await listConstraints(client, schema), 'the follow-up migration is a no-op without the foreign key').toEqual(EXPECTED_CONSTRAINTS)
+          await client.query(
+            `alter table sales_order_recurrences add constraint sales_order_recurrences_order_id_foreign
+               foreign key (order_id) references sales_orders (id) on update cascade on delete cascade`,
+          )
+          await runMigration(client, 'up', 'dropOrderForeignKey')
+          expect(await listConstraints(client, schema), 'the follow-up migration drops the early order foreign key').toEqual(EXPECTED_CONSTRAINTS)
+          await runMigration(client, 'down', 'dropOrderForeignKey')
+          expect(await listConstraints(client, schema), 'rolling back the follow-up migration changes nothing').toEqual(EXPECTED_CONSTRAINTS)
         } finally {
           await client.query('set search_path to default')
           await client.query(`drop schema if exists "${schema}" cascade`)

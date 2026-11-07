@@ -334,7 +334,7 @@ export const attachRecurrences = async (
   const byDocument = new Map<string, Record<string, unknown>>()
   if (kind === 'order') {
     const [recurrences, periods] = await Promise.all([
-      findWithDecryption(em, SalesOrderRecurrence, { order: { $in: ids }, ...scoped, deletedAt: null }, undefined, scope),
+      findWithDecryption(em, SalesOrderRecurrence, { orderId: { $in: ids }, ...scoped, deletedAt: null }, undefined, scope),
       findWithDecryption(
         em,
         SalesRecurringPeriod,
@@ -345,7 +345,7 @@ export const attachRecurrences = async (
     ])
     const invoiced = new Set(periods.map((period) => period.order.id))
     recurrences.forEach((recurrence) => {
-      const orderId = recurrence.order.id
+      const orderId = recurrence.orderId
       byDocument.set(orderId, {
         ...toRecurrenceResponse(snapshotOrderRecurrence(recurrence)),
         locked: invoiced.has(orderId),

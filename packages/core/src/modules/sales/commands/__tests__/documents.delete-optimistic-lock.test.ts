@@ -54,6 +54,7 @@ function setup(expectedVersion: string | null, editBeforeTransaction = false) {
     }),
     find: jest.fn(async () => []),
     nativeDelete: jest.fn(async () => 0),
+    nativeUpdate: jest.fn(async () => 0),
     remove: jest.fn(),
     flush: jest.fn(async () => undefined),
     begin: jest.fn(async () => {
@@ -99,6 +100,7 @@ describe('sales.orders.delete optimistic locking', () => {
       { id: ORDER_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
       { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
     expect(em.nativeDelete).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
     expect(em.remove).not.toHaveBeenCalled()
     expect(em.commit).not.toHaveBeenCalled()
     expect(em.rollback).toHaveBeenCalledTimes(1)
@@ -132,6 +134,7 @@ describe('sales.orders.delete optimistic locking', () => {
     expect(em.begin).toHaveBeenCalledTimes(1)
     expect(em.rollback).toHaveBeenCalledTimes(1)
     expect(em.nativeDelete).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
     expect(em.remove).not.toHaveBeenCalled()
     expect(em.commit).not.toHaveBeenCalled()
     expect(emitCrudSideEffects).not.toHaveBeenCalled()

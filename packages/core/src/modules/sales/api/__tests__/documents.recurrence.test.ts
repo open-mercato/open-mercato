@@ -17,7 +17,7 @@ jest.mock('../../commands/returns', () => ({
 import { attachRecurrences } from '../documents/factory'
 
 const orderRecurrence = {
-  order: { id: 'order-1' },
+  orderId: 'order-1',
   frequency: 'monthly',
   startsOn: '2026-11-01',
   anchorDay: null,
@@ -51,7 +51,7 @@ function buildCtx(rows: Record<string, unknown[]>) {
 describe('attachRecurrences', () => {
   it('adds the order schedule with its derived fields and marks invoiced orders locked', async () => {
     const { ctx, calls } = buildCtx({
-      SalesOrderRecurrence: [orderRecurrence, { ...orderRecurrence, order: { id: 'order-2' } }],
+      SalesOrderRecurrence: [orderRecurrence, { ...orderRecurrence, orderId: 'order-2' }],
       SalesRecurringPeriod: [{ id: 'period-1', order: { id: 'order-2' } }],
     })
     const payload = { items: [{ id: 'order-1' }, { id: 'order-2' }, { id: 'order-3' }] as Array<Record<string, unknown>> }

@@ -138,7 +138,7 @@ export function findOrderRecurrence(em: EntityManager, order: DocumentScope) {
   return findOneWithDecryption(
     em,
     SalesOrderRecurrence,
-    { order: order.id, ...scopeOf(order), deletedAt: null },
+    { orderId: order.id, ...scopeOf(order), deletedAt: null },
     undefined,
     scopeOf(order),
   )
@@ -146,14 +146,14 @@ export function findOrderRecurrence(em: EntityManager, order: DocumentScope) {
 
 /**
  * The order's recurrence row, including one that was removed. A removed recurrence is only
- * marked deleted, so its `scheduleVersion` survives and a recurrence added back later keeps
- * counting from it.
+ * marked deleted, even when its order is deleted, so its `scheduleVersion` survives and a
+ * recurrence added back later keeps counting from it.
  */
-function findOrderRecurrenceRow(em: EntityManager, order: DocumentScope) {
+export function findOrderRecurrenceRow(em: EntityManager, order: DocumentScope) {
   return findOneWithDecryption(
     em,
     SalesOrderRecurrence,
-    { order: order.id, ...scopeOf(order) },
+    { orderId: order.id, ...scopeOf(order) },
     undefined,
     scopeOf(order),
   )
@@ -247,14 +247,7 @@ export async function writeOrderRecurrence(
     return
   }
   if (isLive(existing) && schedulesEqual(existing, input)) return
-  if (existing) {
-    Object.assign(existing, deriveOrderSchedule(input), CLEARED_CANCELLATION, {
-      scheduleVersion: existing.scheduleVersion + 1,
-      deletedAt: null,
-    })
-    return
-  }
-  persistNewOrderRecurrence(em, order, input)
+  persistOrderRecurrence(em, order, input, existing)
 }
 
 /**
@@ -284,23 +277,46 @@ function deriveOrderSchedule(input: RecurrenceSchedule) {
 }
 
 /**
- * Persists a recurrence for an order that has none yet, without querying — safe to call
- * between mutations and the flush (e.g. while `convert_to_order` builds a new order).
+ * Persists `input` as the order's recurrence without querying — safe to call between mutations
+ * and the flush (e.g. while `convert_to_order` builds a new order). `existing` is the order's
+ * recurrence row from `findOrderRecurrenceRow`, live or removed; it is reused with the next
+ * `scheduleVersion` instead of inserting a second row for the order.
  */
-export function persistNewOrderRecurrence(
+export function persistOrderRecurrence(
   em: EntityManager,
   order: SalesOrder,
   input: RecurrenceSchedule,
+  existing: SalesOrderRecurrence | null = null,
 ): SalesOrderRecurrence {
+  if (existing) {
+    Object.assign(existing, deriveOrderSchedule(input), CLEARED_CANCELLATION, {
+      scheduleVersion: existing.scheduleVersion + 1,
+      deletedAt: null,
+    })
+    return existing
+  }
   const entity = em.create(SalesOrderRecurrence, {
     organizationId: order.organizationId,
     tenantId: order.tenantId,
-    order,
+    orderId: order.id,
     ...deriveOrderSchedule(input),
     scheduleVersion: 1,
   })
   em.persist(entity)
   return entity
+}
+
+/**
+ * Marks the order's recurrence removed when the order itself is deleted. The row outlives the
+ * order so that restoring the order (undo) continues from its `scheduleVersion`.
+ */
+export async function retireOrderRecurrence(em: EntityManager, order: DocumentScope): Promise<void> {
+  const now = new Date()
+  await em.nativeUpdate(
+    SalesOrderRecurrence,
+    { orderId: order.id, ...scopeOf(order), deletedAt: null },
+    { deletedAt: now, updatedAt: now },
+  )
 }
 
 /**
@@ -351,7 +367,7 @@ export async function restoreOrderRecurrence(
     em.create(SalesOrderRecurrence, {
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      order,
+      orderId: order.id,
       ...fields,
     }),
   )

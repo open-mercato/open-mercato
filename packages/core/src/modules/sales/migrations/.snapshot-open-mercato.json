@@ -5346,20 +5346,7 @@
         }
       ],
       "checks": [],
-      "foreignKeys": {
-        "sales_order_recurrences_order_id_foreign": {
-          "columnNames": [
-            "order_id"
-          ],
-          "constraintName": "sales_order_recurrences_order_id_foreign",
-          "localTableName": "public.sales_order_recurrences",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.sales_orders",
-          "deleteRule": "cascade"
-        }
-      },
+      "foreignKeys": {},
       "comment": null
     },
     {
