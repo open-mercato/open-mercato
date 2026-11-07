@@ -124,12 +124,23 @@ describe('wms setup role mappings', () => {
   })
 
   it('maps only known acl feature ids for custom roles', () => {
+    const catalogReadForVariantPickers = new Set(['catalog.products.view'])
     for (const roleName of WMS_CUSTOM_ROLE_NAMES) {
       const roleFeatures = setup.defaultRoleFeatures?.[roleName] ?? []
       for (const feature of roleFeatures) {
-        expect(ACL_FEATURE_IDS).toContain(feature)
+        expect(ACL_FEATURE_IDS.includes(feature) || catalogReadForVariantPickers.has(feature)).toBe(true)
       }
     }
+  })
+
+  it('gives supervisors catalog read for the ASN variant picker and no catalog writes', () => {
+    const supervisorFeatures = setup.defaultRoleFeatures?.[WMS_SUPERVISOR_ROLE] ?? []
+    const operatorFeatures = setup.defaultRoleFeatures?.[WMS_OPERATOR_ROLE] ?? []
+
+    expect(supervisorFeatures).toContain('catalog.products.view')
+    expect(supervisorFeatures).not.toContain('catalog.products.manage')
+    expect(supervisorFeatures).not.toContain('catalog.variants.manage')
+    expect(operatorFeatures).not.toContain('catalog.products.view')
   })
 
   it('keeps built-in admin and employee grants', () => {

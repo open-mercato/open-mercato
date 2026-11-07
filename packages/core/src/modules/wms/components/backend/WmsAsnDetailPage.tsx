@@ -45,11 +45,7 @@ import {
 } from './inboundStatusUi'
 import { ReceiveAsnLineDialog, type ReceiveAsnLineTarget } from './ReceiveAsnLineDialog'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
-import {
-  resolveCatalogVariantLabel,
-  resolveLocationLabel,
-  resolveWarehouseLabel,
-} from './inventoryMutationLoaders'
+import { useAsnDetailLabelCache } from './useAsnDetailLabelCache'
 
 const asnIdSchema = z.string().uuid()
 
@@ -71,6 +67,8 @@ type AsnRow = {
 }
 
 type ReceivingLineRow = AsnReceivingLineRow
+
+const EMPTY_LABEL_LINES: ReceivingLineRow[] = []
 
 function toNumber(value: string | number | null | undefined): number {
   const parsed = Number(value ?? 0)
@@ -97,7 +95,6 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
   const [receiveOpen, setReceiveOpen] = React.useState(false)
   const [activeLine, setActiveLine] = React.useState<ReceiveAsnLineTarget | null>(null)
   const [closeWhenShort, setCloseWhenShort] = React.useState(false)
-  const [labelCache, setLabelCache] = React.useState<Record<string, string>>({})
   const asnCompleteLockRef = React.useRef<string | null>(null)
   // Fresh ASN If-Match across receives — query refetch is async after onSuccess.
   const asnReceiveLockRef = React.useRef<string | null>(null)
@@ -144,7 +141,11 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
   })
 
   const asn = asnQuery.data
-  const lines = linesQuery.data ?? []
+  const lines = linesQuery.data ?? EMPTY_LABEL_LINES
+  const labelCache = useAsnDetailLabelCache({
+    warehouseId: asn?.warehouse_id,
+    lines,
+  })
 
   React.useEffect(() => {
     if (typeof asn?.updated_at !== 'string' || !asn.updated_at.trim()) return
@@ -154,40 +155,6 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
       asnReceiveLockRef.current = fromQuery
     }
   }, [asn?.updated_at])
-
-  React.useEffect(() => {
-    const ids = new Set<string>()
-    if (asn?.warehouse_id) ids.add(asn.warehouse_id)
-    for (const line of lines) {
-      if (line.catalog_variant_id) ids.add(line.catalog_variant_id)
-      if (line.target_staging_location_id) ids.add(line.target_staging_location_id)
-    }
-    const missing = [...ids].filter((id) => !labelCache[id])
-    if (missing.length === 0) return
-    let cancelled = false
-    void Promise.all(
-      missing.map(async (id) => {
-        const [warehouse, variant, location] = await Promise.all([
-          resolveWarehouseLabel(id),
-          resolveCatalogVariantLabel(id),
-          resolveLocationLabel(id),
-        ])
-        return [id, warehouse || variant || location] as const
-      }),
-    ).then((entries) => {
-      if (cancelled) return
-      setLabelCache((prev) => {
-        const next = { ...prev }
-        for (const [id, label] of entries) {
-          if (label) next[id] = label
-        }
-        return next
-      })
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [asn?.warehouse_id, labelCache, lines])
 
   const discrepancyLines = lines.filter((line) =>
     lineHasDiscrepancy(line.expected_qty, line.received_qty),
@@ -214,6 +181,11 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
       variantLabel: line.catalog_variant_id
         ? labelCache[line.catalog_variant_id] ?? line.catalog_variant_id
         : null,
+      qcStatus:
+        line.qc_status === 'passed' || line.qc_status === 'failed' || line.qc_status === 'pending'
+          ? line.qc_status
+          : 'pending',
+      rejectionReason: line.rejection_reason ?? null,
       updatedAt: line.updated_at ?? null,
       asnUpdatedAt: resolveAsnReceiveLockToken(asnReceiveLockRef, asn?.updated_at),
     })
@@ -461,8 +433,8 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
     t('wms.backend.asns.detail.untitled', 'ASN {id}', { id: asn.id.slice(0, 8) })
 
   return (
-    <Page>
-      <PageBody className="space-y-6">
+    <Page className="min-w-0 max-w-full">
+      <PageBody className="min-w-0 max-w-full space-y-6">
         <PageHeader
           title={title}
           description={t(
@@ -575,12 +547,12 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
           </Alert>
         ) : null}
 
-        <section className="rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
-          <div className="mb-4 flex items-start gap-3">
+        <section className="min-w-0 max-w-full rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
+          <div className="mb-4 flex min-w-0 items-start gap-3">
             <div className="rounded-md border bg-muted/40 p-2 text-muted-foreground">
               <PackageCheck className="size-5" />
             </div>
-            <div className="space-y-1">
+            <div className="min-w-0 space-y-1">
               <h2 className="text-xl font-semibold">
                 {t('wms.backend.asns.detail.linesTitle', 'Receiving lines')}
               </h2>
@@ -592,6 +564,7 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
               </p>
             </div>
           </div>
+          <div className="min-w-0 overflow-x-auto" data-testid="asn-detail-lines">
           <DataTable
             embedded
             columns={columns}
@@ -607,6 +580,7 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
               />
             }
           />
+          </div>
         </section>
       </PageBody>
 

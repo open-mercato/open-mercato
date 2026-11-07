@@ -8,9 +8,36 @@ import {
   fetchBalanceAvailable,
   fetchBalanceOnHand,
   loadLotOptionsForBalanceLocation,
+  resolveCatalogVariantLabel,
 } from '../inventoryMutationLoaders'
 
 const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
+
+describe('resolveCatalogVariantLabel', () => {
+  beforeEach(() => {
+    mockApiCall.mockReset()
+  })
+
+  it('opts out of the global access-denied banner and falls back to null on 403', async () => {
+    mockApiCall.mockResolvedValue({ ok: false, status: 403, result: { error: 'Forbidden' } } as any)
+
+    await expect(resolveCatalogVariantLabel('variant-1')).resolves.toBeNull()
+
+    expect(mockApiCall).toHaveBeenCalledWith(
+      expect.stringContaining('/api/catalog/variants?'),
+      expect.objectContaining({ headers: { 'x-om-forbidden-redirect': '0' } }),
+    )
+  })
+
+  it('returns the SKU when the variant is readable', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      result: { items: [{ id: 'variant-1', sku: 'SKU-1', name: 'Variant' }] },
+    } as any)
+
+    await expect(resolveCatalogVariantLabel('variant-1')).resolves.toBe('SKU-1')
+  })
+})
 
 describe('fetchBalanceOnHand', () => {
   beforeEach(() => {

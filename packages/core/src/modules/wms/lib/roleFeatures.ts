@@ -28,6 +28,7 @@ export const WMS_SUPERVISOR_FEATURES = [
   ...WMS_OPERATOR_FEATURES,
   'wms.import',
   ...WMS_MANAGE_FEATURES,
+  'catalog.products.view',
 ] as const
 
 export type WmsOperatorFeature = (typeof WMS_OPERATOR_FEATURES)[number]

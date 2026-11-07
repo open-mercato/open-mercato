@@ -52,6 +52,22 @@ export type ReceiveAsnLineTarget = {
   variantLabel?: string | null
   updatedAt?: string | null
   asnUpdatedAt?: string | null
+  qcStatus?: 'pending' | 'passed' | 'failed' | null
+  rejectionReason?: string | null
+}
+
+export function initialReceiveQcDecision(
+  current: string | null | undefined,
+): 'passed' | 'failed' {
+  return current === 'failed' ? 'failed' : 'passed'
+}
+
+export function allowedReceiveQcDecisions(
+  current: string | null | undefined,
+): Array<'passed' | 'failed'> {
+  if (current === 'failed') return ['failed']
+  if (current === 'passed') return ['passed']
+  return ['passed', 'failed']
 }
 
 export function parseReceiveSerialNumbers(value: string): string[] {
@@ -60,6 +76,71 @@ export function parseReceiveSerialNumbers(value: string): string[] {
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
 }
+
+async function reloadReceivingLineQty(lineId: string): Promise<number | null> {
+  const call = await apiCall<{
+    items?: Array<{ received_qty?: string | number | null }>
+  }>(`/api/wms/receiving-lines?ids=${encodeURIComponent(lineId)}&page=1&pageSize=1`)
+  if (!call.ok) return null
+  const raw = call.result?.items?.[0]?.received_qty
+  if (raw == null || raw === '') return null
+  const parsed = typeof raw === 'number' ? raw : Number(raw)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+type QcOutcomeSelectProps = {
+  id?: string
+  disabled?: boolean
+  'aria-describedby'?: string
+  'aria-invalid'?: boolean
+  'aria-required'?: boolean
+  value: 'passed' | 'failed'
+  onValueChange: (value: 'passed' | 'failed') => void
+  options: Array<{ value: 'passed' | 'failed'; label: string }>
+}
+
+const QcOutcomeSelect = React.forwardRef<HTMLButtonElement, QcOutcomeSelectProps>(
+  function QcOutcomeSelect(
+    {
+      id,
+      disabled,
+      value,
+      onValueChange,
+      options,
+      'aria-describedby': ariaDescribedBy,
+      'aria-invalid': ariaInvalid,
+      'aria-required': ariaRequired,
+    },
+    ref,
+  ) {
+    return (
+      <Select
+        value={value}
+        onValueChange={(next) => onValueChange(next as 'passed' | 'failed')}
+        disabled={disabled}
+      >
+        <SelectTrigger
+          ref={ref}
+          id={id}
+          disabled={disabled}
+          aria-describedby={ariaDescribedBy}
+          aria-invalid={ariaInvalid}
+          aria-required={ariaRequired}
+          data-testid="receive-asn-qc"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    )
+  },
+)
 
 type ReceiveAsnLineDialogProps = {
   open: boolean
@@ -130,6 +211,11 @@ export function ReceiveAsnLineDialog({
   const [lockUpdatedAt, setLockUpdatedAt] = React.useState<string | null>(null)
   /** Fresh If-Match after 409; ref so guarded retry reads latest without re-seed. */
   const lockUpdatedAtRef = React.useRef<string | null>(null)
+  /** Server received qty. A 409 reload writes this before a retry rebuilds the absolute target. */
+  const baselineReceivedQtyRef = React.useRef(line?.receivedQty ?? 0)
+  const intendedDeltaRef = React.useRef(0)
+  /** Set when a 409 could not reload the line, so a later no-op must not look like a new receipt. */
+  const receiptNeedsReconcileRef = React.useRef(false)
 
   const closeDialog = React.useCallback(() => {
     if (submitting) return
@@ -138,16 +224,19 @@ export function ReceiveAsnLineDialog({
 
   React.useEffect(() => {
     if (!open || !line) return
+    baselineReceivedQtyRef.current = line.receivedQty
+    receiptNeedsReconcileRef.current = false
     setBaselineReceivedQty(line.receivedQty)
     setReceivedQty(remaining > 0 ? remaining : 1)
-    setQcStatus('passed')
+    const nextQcStatus = initialReceiveQcDecision(line.qcStatus)
+    setQcStatus(nextQcStatus)
     setTargetStagingLocationId(line.targetStagingLocationId?.trim() || '')
     setLotNumber(line.lotNumber?.trim() || '')
     const storedSerials = (line.serialNumbers ?? []).map((value) => value.trim()).filter(Boolean)
     // After a partial receipt the field is this batch only. Planned serials still
     // prefill the first receipt, when nothing has been received yet.
     setSerialNumbersText(line.receivedQty > 0 ? '' : storedSerials.join('\n'))
-    setRejectionReason('')
+    setRejectionReason(nextQcStatus === 'failed' ? line.rejectionReason?.trim() || '' : '')
     setFieldErrors({})
     setSubmitting(false)
     const seed = line.asnUpdatedAt ?? line.updatedAt ?? null
@@ -213,36 +302,52 @@ export function ReceiveAsnLineDialog({
 
       setSubmitting(true)
       setFieldErrors({})
-      const targetReceivedQty = baselineReceivedQty + parsed.data.receivedQty
-      const payload: Record<string, unknown> = {
-        organizationId: access.organizationId,
-        tenantId: access.tenantId,
-        lineId: line.lineId,
-        receivedQty: parsed.data.receivedQty,
-        targetReceivedQty,
+      intendedDeltaRef.current = parsed.data.receivedQty
+      const attemptFields = {
         qcStatus: parsed.data.qcStatus,
-        performedBy: access.userId,
+        targetStagingLocationId: parsed.data.targetStagingLocationId,
+        lotNumber: parsed.data.lotNumber,
+        rejectionReason: parsed.data.rejectionReason,
+        serialNumbers,
       }
-      if (parsed.data.targetStagingLocationId) {
-        payload.targetStagingLocationId = parsed.data.targetStagingLocationId
-      }
-      if (parsed.data.lotNumber) payload.lotNumber = parsed.data.lotNumber
-      if (serialNumbers.length > 0) payload.serialNumbers = serialNumbers
-      if (parsed.data.rejectionReason) payload.rejectionReason = parsed.data.rejectionReason
 
       try {
         let conflictHandled = false
+        let deltaApplied = false
         let mutationResult: {
           ok?: boolean
           receivedQty?: number
           asnUpdatedAt?: string
+          movementIds?: string[]
         } = {}
         await runMutation({
           operation: async () => {
+            const delta = intendedDeltaRef.current
+            const baseline = baselineReceivedQtyRef.current
+            const targetReceivedQty = baseline + delta
+            const payload: Record<string, unknown> = {
+              organizationId: access.organizationId,
+              tenantId: access.tenantId,
+              lineId: line.lineId,
+              receivedQty: delta,
+              targetReceivedQty,
+              qcStatus: attemptFields.qcStatus,
+              performedBy: access.userId,
+            }
+            if (attemptFields.targetStagingLocationId) {
+              payload.targetStagingLocationId = attemptFields.targetStagingLocationId
+            }
+            if (attemptFields.lotNumber) payload.lotNumber = attemptFields.lotNumber
+            if (attemptFields.serialNumbers.length > 0) {
+              payload.serialNumbers = attemptFields.serialNumbers
+            }
+            if (attemptFields.rejectionReason) payload.rejectionReason = attemptFields.rejectionReason
+
             const call = await apiCall<{
               ok?: boolean
               receivedQty?: number
               asnUpdatedAt?: string
+              movementIds?: string[]
             }>(
               `/api/wms/asns/${encodeURIComponent(asnId)}/receive`,
               {
@@ -273,6 +378,14 @@ export function ReceiveAsnLineDialog({
                 })
               ) {
                 refreshLockFromConflict()
+                const reconciled = await reloadReceivingLineQty(line.lineId)
+                if (reconciled == null) {
+                  receiptNeedsReconcileRef.current = true
+                } else {
+                  receiptNeedsReconcileRef.current = false
+                  baselineReceivedQtyRef.current = reconciled
+                  setBaselineReceivedQty(reconciled)
+                }
                 conflictHandled = true
                 return {}
               }
@@ -282,18 +395,53 @@ export function ReceiveAsnLineDialog({
               )
             }
             mutationResult = call.result ?? {}
+            const serverQty =
+              typeof mutationResult.receivedQty === 'number'
+                ? mutationResult.receivedQty
+                : targetReceivedQty
+            const movementIds = mutationResult.movementIds
+            const noNewMovement = !Array.isArray(movementIds) || movementIds.length === 0
+            const reachedTarget = serverQty + 0.000001 >= targetReceivedQty
+            // A lost response replays the same absolute target and still reaches it.
+            // After a failed reload, that same shape is a stale no-op, not a new receipt.
+            const staleNoOp =
+              receiptNeedsReconcileRef.current &&
+              noNewMovement &&
+              Math.abs(serverQty - targetReceivedQty) <= 0.000001
+            deltaApplied = reachedTarget && !staleNoOp
+            if (deltaApplied) {
+              receiptNeedsReconcileRef.current = false
+            } else {
+              baselineReceivedQtyRef.current = serverQty
+              setBaselineReceivedQty(serverQty)
+            }
             return mutationResult
           },
           context: mutationContext,
-          mutationPayload: payload,
+          mutationPayload: {
+            lineId: line.lineId,
+            receivedQty: parsed.data.receivedQty,
+            qcStatus: parsed.data.qcStatus,
+          },
         })
 
         if (conflictHandled) return
+        if (!deltaApplied) {
+          flash(
+            t(
+              'wms.backend.asns.receive.flash.reconciled',
+              'The received quantity changed in the meantime. Nothing new was recorded — review the line and submit again.',
+            ),
+            'warning',
+          )
+          return
+        }
 
         const nextReceivedQty =
           typeof mutationResult.receivedQty === 'number'
             ? mutationResult.receivedQty
-            : targetReceivedQty
+            : baselineReceivedQtyRef.current + intendedDeltaRef.current
+        baselineReceivedQtyRef.current = nextReceivedQty
         setBaselineReceivedQty(nextReceivedQty)
         if (mutationResult.asnUpdatedAt) {
           setLockUpdatedAt(mutationResult.asnUpdatedAt)
@@ -328,7 +476,6 @@ export function ReceiveAsnLineDialog({
     [
       access,
       asnId,
-      baselineReceivedQty,
       closeDialog,
       line,
       lockUpdatedAt,
@@ -403,6 +550,7 @@ export function ReceiveAsnLineDialog({
             <FormField
               label={t('wms.backend.asns.receive.form.receivedQty', 'Received quantity')}
               required
+              disabled={submitting}
               error={fieldErrors.receivedQty}
             >
               <Input
@@ -411,7 +559,6 @@ export function ReceiveAsnLineDialog({
                 step="any"
                 value={receivedQty}
                 onChange={(event) => setReceivedQty(Number(event.target.value))}
-                disabled={submitting}
                 data-testid="receive-asn-qty"
               />
             </FormField>
@@ -419,31 +566,27 @@ export function ReceiveAsnLineDialog({
             <FormField
               label={t('wms.backend.asns.receive.form.qcStatus', 'QC outcome')}
               required
+              disabled={submitting}
               error={fieldErrors.qcStatus}
             >
-              <Select
+              <QcOutcomeSelect
                 value={qcStatus}
-                onValueChange={(value) => setQcStatus(value as 'passed' | 'failed')}
-                disabled={submitting}
-              >
-                <SelectTrigger data-testid="receive-asn-qc">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="passed">
-                    {t('wms.backend.asns.qc.passed', 'Passed')}
-                  </SelectItem>
-                  <SelectItem value="failed">
-                    {t('wms.backend.asns.qc.failed', 'Failed')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+                onValueChange={setQcStatus}
+                options={allowedReceiveQcDecisions(line.qcStatus).map((value) => ({
+                  value,
+                  label: t(
+                    value === 'passed' ? 'wms.backend.asns.qc.passed' : 'wms.backend.asns.qc.failed',
+                    value === 'passed' ? 'Passed' : 'Failed',
+                  ),
+                }))}
+              />
             </FormField>
 
             {qcStatus === 'passed' ? (
               <FormField
                 label={t('wms.backend.asns.receive.form.staging', 'Staging location')}
                 required
+                disabled={submitting || !warehouseId}
                 error={fieldErrors.targetStagingLocationId}
               >
                 <ComboboxInput
@@ -458,19 +601,18 @@ export function ReceiveAsnLineDialog({
                     'Select staging or dock',
                   )}
                   allowCustomValues={false}
-                  disabled={submitting || !warehouseId}
                 />
               </FormField>
             ) : (
               <FormField
                 label={t('wms.backend.asns.receive.form.rejectionReason', 'Rejection reason')}
                 required
+                disabled={submitting}
                 error={fieldErrors.rejectionReason}
               >
                 <Textarea
                   value={rejectionReason}
                   onChange={(event) => setRejectionReason(event.target.value)}
-                  disabled={submitting}
                   rows={3}
                   data-testid="receive-asn-rejection"
                 />
@@ -479,6 +621,7 @@ export function ReceiveAsnLineDialog({
 
             <FormField
               label={t('wms.backend.asns.receive.form.serialNumbers', 'Serial numbers')}
+              disabled={submitting}
               error={fieldErrors.serialNumbers}
               description={t(
                 'wms.backend.asns.receive.form.serialNumbersHint',
@@ -488,7 +631,6 @@ export function ReceiveAsnLineDialog({
               <Textarea
                 value={serialNumbersText}
                 onChange={(event) => setSerialNumbersText(event.target.value)}
-                disabled={submitting}
                 rows={3}
                 placeholder={t(
                   'wms.backend.asns.receive.form.serialNumbersPlaceholder',
@@ -500,12 +642,12 @@ export function ReceiveAsnLineDialog({
 
             <FormField
               label={t('wms.backend.asns.receive.form.lotNumber', 'Lot number')}
+              disabled={submitting}
               error={fieldErrors.lotNumber}
             >
               <Input
                 value={lotNumber}
                 onChange={(event) => setLotNumber(event.target.value)}
-                disabled={submitting}
               />
             </FormField>
           </div>

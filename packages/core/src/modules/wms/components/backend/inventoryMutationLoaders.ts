@@ -43,8 +43,11 @@ export async function resolveCatalogVariantLabel(catalogVariantId: string): Prom
   const id = catalogVariantId.trim()
   if (!id) return null
   const params = buildQuery({ page: 1, pageSize: 1, id })
+  // Labels are best-effort: without catalog read access the caller falls back to the id,
+  // so a 403 must not raise the global access-denied banner.
   const call = await apiCall<PagedResponse<{ id?: string | null; name?: string | null; sku?: string | null }>>(
     `/api/catalog/variants?${params}`,
+    { headers: { 'x-om-forbidden-redirect': '0' } },
   )
   if (!call.ok) return null
   const item = call.result?.items?.[0]
