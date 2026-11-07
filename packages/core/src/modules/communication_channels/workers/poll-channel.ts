@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -8,7 +9,7 @@ import {
   type IngestInboundMessageInput,
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
-import { preservePushState } from '../lib/push-state'
+import { PUSH_STATE_KEYS, preservePushState } from '../lib/push-state'
 import { isHubPolledChannel } from '../lib/polling-eligibility'
 import { writeIngestDeadLetter } from '../lib/dead-letter'
 import { classifyOutboundError, computeBackoffMs, isReauthError } from '../lib/error-classification'
@@ -81,7 +82,8 @@ type CredentialsServiceLike = {
  *   4. Call `adapter.fetchHistory({ channelId, credentials, since: lastPolledAt })`.
  *   5. For each normalized message, dispatch `ingest_inbound_message` (idempotent on
  *      `(channel_id, external_message_id)`).
- *   6. Update `channel.lastPolledAt = NOW()` on success.
+ *   6. On success, update `channel.lastPolledAt = NOW()` and the cursor under a row lock,
+ *      unless a concurrent poll already moved the sync cursor this job started from.
  *   7. On error: classify, set `channel.status` accordingly, set `last_error`, emit
  *      `channel.requires_reauth` after failed 401 recovery, retry transient failures up to MAX.
  *
@@ -183,6 +185,7 @@ export default async function handle(
   let normalized: NormalizedInboundMessage[] = []
   let nextCursor: string | undefined
   let hasMore = false
+  const startingSyncCursor = syncCursorKey(channel.channelState)
   const fetchHistory = adapter.fetchHistory.bind(adapter)
   const fetchPage = (withCredentials: Record<string, unknown>) =>
     fetchHistory({
@@ -297,38 +300,17 @@ export default async function handle(
     return
   }
 
-  // Update poll cursor + clear any stale error state.
-  channel.lastPolledAt = new Date()
-  if (channel.lastError) channel.lastError = null
-  // Recover the channel from any prior non-fatal error state. The previous
-  // poll(s) may have set status='error' after exhausting transient-retry
-  // attempts, but a fresh successful poll means the upstream is healthy
-  // again — flip it back to 'connected' so the scheduler keeps it in
-  // rotation and the user doesn't have to manually reconnect.
-  // We DON'T touch 'requires_reauth' here (that lifecycle state is owned
-  // by the credential-refresh / OAuth flow) or 'disconnected' (owned by
-  // the cascade-on-user-delete subscriber).
-  if (channel.status === 'error') {
-    channel.status = 'connected'
-  }
   // Providers encode their cursor as base64-encoded JSON in `nextCursor`; we
   // decode it back to an object so the next tick can pass it straight into
   // `fetchHistory` as `channelState`. Decode failures fall back to the prior
   // state (next tick bootstraps from there).
-  //
-  // Push-delivery state (Spec C) — watch/subscription identifiers and expiry — is
-  // owned by the push register/renew commands, not the sync cursor. A provider's
-  // `fetchHistory` returns only sync-cursor fields, so persisting the decoded
-  // cursor as a full replace would silently wipe push state and stop
-  // `gmail-renew-watch` from renewing it. Carry
-  // the hub-owned push keys forward whenever the new cursor omits them.
-  if (typeof nextCursor === 'string' && nextCursor.length > 0) {
-    const decoded = decodeChannelStateCursor(nextCursor)
-    if (decoded) {
-      channel.channelState = preservePushState(channel.channelState, decoded)
-    }
+  const decodedCursor =
+    typeof nextCursor === 'string' && nextCursor.length > 0 ? decodeChannelStateCursor(nextCursor) : null
+  const committed = await commitPollProgress(em, channel.id, scope, startingSyncCursor, decodedCursor)
+  if (!committed) {
+    logger.info('poll progress not committed (sync cursor moved, or channel inactive or deleted); discarding this page', { channelId: channel.id })
+    return
   }
-  await em.flush()
 
   // Drain contract (review H1, 2026-05-26): adapters that have additional
   // pages beyond this tick's batch (large mailboxes, mid-deltaLink walks,
@@ -364,6 +346,60 @@ function decodeChannelStateCursor(cursor: string): Record<string, unknown> | nul
   } catch {
     return null
   }
+}
+
+function sortObjectKeys(_key: string, value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+  return Object.fromEntries(keys.map((key) => [key, record[key]]))
+}
+
+function syncCursorKey(state: unknown): string {
+  const record =
+    state && typeof state === 'object' && !Array.isArray(state) ? (state as Record<string, unknown>) : {}
+  const pushStateKeys: readonly string[] = PUSH_STATE_KEYS
+  const syncCursor = Object.fromEntries(Object.entries(record).filter(([key]) => !pushStateKeys.includes(key)))
+  return JSON.stringify(syncCursor, sortObjectKeys)
+}
+
+/**
+ * Commit a successful poll under a row lock, only when the sync cursor (push keys excluded)
+ * still equals the one this job started from. Push-delivery keys are carried over from the
+ * locked row because the register/renew commands own them. A non-fatal `error` status is
+ * flipped back to `connected`; `requires_reauth` and `disconnected` belong to the credential
+ * and disconnect flows and are left untouched.
+ */
+async function commitPollProgress(
+  em: EntityManager,
+  channelId: string,
+  scope: PollChannelJobPayload['scope'],
+  startingSyncCursor: string,
+  decodedCursor: Record<string, unknown> | null,
+): Promise<boolean> {
+  return em.fork({ clear: true, useContext: false }).transactional(async (tx) => {
+    const locked = await findOneWithDecryption(
+      tx,
+      CommunicationChannel,
+      {
+        id: channelId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId ?? null,
+        deletedAt: null,
+      },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      scope,
+    )
+    if (!locked || !locked.isActive) return false
+    if (syncCursorKey(locked.channelState) !== startingSyncCursor) return false
+    locked.lastPolledAt = new Date()
+    if (locked.status === 'connected' || locked.status === 'error') {
+      locked.status = 'connected'
+      if (locked.lastError) locked.lastError = null
+    }
+    if (decodedCursor) locked.channelState = preservePushState(locked.channelState, decodedCursor)
+    return true
+  })
 }
 
 async function handlePollError(

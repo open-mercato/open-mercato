@@ -78,6 +78,8 @@ describe('poll-channel worker behaviour', () => {
       flush: jest.fn(async () => undefined),
       create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
       persist: jest.fn(),
+      fork: jest.fn((): unknown => em),
+      transactional: jest.fn(async (work: (tx: unknown) => Promise<unknown>) => work(em)),
     }
     const ctx = {
       jobId: 'job-1',
@@ -561,5 +563,207 @@ describe('poll-channel worker behaviour', () => {
     expect(channel.lastError).toBe('transient_ingest_failure')
     expect(channel.lastPolledAt).toBe(beforePoll)
     expect(channel.channelState).toBeNull()
+  })
+})
+
+describe('poll-channel concurrent jobs for the same channel', () => {
+  type Row = Record<string, unknown>
+
+  const tenantId = '22222222-2222-2222-2222-222222222222'
+  const organizationId = '33333333-3333-3333-3333-333333333333'
+  const channelId = '11111111-1111-1111-1111-111111111111'
+
+  beforeEach(() => {
+    enqueueMock.mockClear()
+  })
+
+  function encode(state: Record<string, unknown>): string {
+    return Buffer.from(JSON.stringify(state)).toString('base64')
+  }
+
+  function makeRow(channelState: Record<string, unknown> | null): Row {
+    return {
+      id: channelId,
+      tenantId,
+      organizationId,
+      isActive: true,
+      status: 'connected',
+      providerKey: 'imap',
+      channelType: 'email',
+      capabilities: { realtimePush: false },
+      lastError: null,
+      lastPolledAt: new Date('2026-01-01T00:00:00.000Z'),
+      channelState,
+    }
+  }
+
+  function makeDatabaseEm(dbRow: Row, commitError?: Error) {
+    const loaded: Array<{ entity: Row; original: Row }> = []
+    const em = {
+      fork: jest.fn(() => makeDatabaseEm(dbRow, commitError)),
+      findOne: jest.fn(async () => {
+        const entity = structuredClone(dbRow)
+        loaded.push({ entity, original: structuredClone(dbRow) })
+        return entity
+      }),
+      flush: jest.fn(async () => {
+        for (const tracked of loaded) {
+          for (const [key, value] of Object.entries(tracked.entity)) {
+            if (JSON.stringify(value) !== JSON.stringify(tracked.original[key])) {
+              dbRow[key] = structuredClone(value)
+              tracked.original[key] = structuredClone(value)
+            }
+          }
+        }
+      }),
+      transactional: jest.fn(async (work: (tx: unknown) => Promise<unknown>) => {
+        const result = await work(em)
+        if (commitError) throw commitError
+        await em.flush()
+        return result
+      }),
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+      persist: jest.fn(),
+    }
+    return em
+  }
+
+  function makeJobCtx(dbRow: Row, fetchHistory: () => Promise<unknown>, commitError?: Error) {
+    const adapter = { providerKey: 'imap', fetchHistory }
+    return {
+      jobId: 'job',
+      attemptNumber: 1,
+      queueName: 'communication-channels-poll',
+      resolve: ((name: string) => {
+        if (name === 'em') return makeDatabaseEm(dbRow, commitError)
+        if (name === 'channelAdapterRegistry') return { get: () => adapter }
+        if (name === 'commandBus') return { execute: jest.fn(async () => ({ result: {}, logEntry: null })) }
+        if (name === 'integrationCredentialsService') return { resolve: async () => ({}) }
+        return null
+      }) as <T>(name: string) => T,
+    }
+  }
+
+  function makeJob(): QueuedJob<PollChannelJobPayload> {
+    return {
+      id: 'job',
+      createdAt: new Date().toISOString(),
+      payload: { channelId, scope: { tenantId, organizationId }, attempt: 1 },
+    }
+  }
+
+  it('does not let a job that started from an older cursor overwrite a cursor another job already advanced', async () => {
+    const dbRow = makeRow({ uidValidity: 7, uidNext: 5 })
+    let releaseSlowFetch: () => void = () => undefined
+    const slowFetchGate = new Promise<void>((resolve) => {
+      releaseSlowFetch = resolve
+    })
+    let slowFetchStarted: () => void = () => undefined
+    const slowFetchStartedSignal = new Promise<void>((resolve) => {
+      slowFetchStarted = resolve
+    })
+
+    const slowJob = handler(
+      makeJob(),
+      makeJobCtx(dbRow, async () => {
+        slowFetchStarted()
+        await slowFetchGate
+        return { messages: [], nextCursor: encode({ uidValidity: 7, uidNext: 10 }), hasMore: true }
+      }),
+    )
+    await slowFetchStartedSignal
+
+    await handler(
+      makeJob(),
+      makeJobCtx(dbRow, async () => ({
+        messages: [],
+        nextCursor: encode({ uidValidity: 7, uidNext: 999 }),
+        hasMore: false,
+      })),
+    )
+    expect(dbRow.channelState).toEqual({ uidValidity: 7, uidNext: 999 })
+
+    releaseSlowFetch()
+    await slowJob
+
+    expect(dbRow.channelState).toEqual({ uidValidity: 7, uidNext: 999 })
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps push-delivery keys written while the poll was fetching', async () => {
+    const dbRow = makeRow({ uidValidity: 7, uidNext: 5, pushStatus: 'active', watchExpirationMs: 1000 })
+    await handler(
+      makeJob(),
+      makeJobCtx(dbRow, async () => {
+        dbRow.channelState = { uidValidity: 7, uidNext: 5, pushStatus: 'active', watchExpirationMs: 2000 }
+        return { messages: [], nextCursor: encode({ uidValidity: 7, uidNext: 8 }), hasMore: true }
+      }),
+    )
+
+    expect(dbRow.channelState).toEqual({ uidValidity: 7, uidNext: 8, pushStatus: 'active', watchExpirationMs: 2000 })
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a requires_reauth status and its error set while the page was fetched', async () => {
+    const dbRow = { ...makeRow({ uidValidity: 7, uidNext: 5 }), status: 'error', lastError: 'ETIMEDOUT' }
+    await handler(
+      makeJob(),
+      makeJobCtx(dbRow, async () => {
+        dbRow.status = 'requires_reauth'
+        dbRow.lastError = 'invalid_grant'
+        return { messages: [], nextCursor: encode({ uidValidity: 7, uidNext: 8 }), hasMore: false }
+      }),
+    )
+
+    expect(dbRow.status).toBe('requires_reauth')
+    expect(dbRow.lastError).toBe('invalid_grant')
+    expect(dbRow.channelState).toEqual({ uidValidity: 7, uidNext: 8 })
+  })
+
+  it('discards the page when the channel was deactivated while the page was fetched', async () => {
+    const dbRow = makeRow({ uidValidity: 7, uidNext: 5 })
+    const lastPolledAt = dbRow.lastPolledAt
+    await handler(
+      makeJob(),
+      makeJobCtx(dbRow, async () => {
+        dbRow.isActive = false
+        return { messages: [], nextCursor: encode({ uidValidity: 7, uidNext: 8 }), hasMore: true }
+      }),
+    )
+
+    expect(dbRow.channelState).toEqual({ uidValidity: 7, uidNext: 5 })
+    expect(dbRow.lastPolledAt).toEqual(lastPolledAt)
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('recovers an error channel to connected and clears its error on a successful poll', async () => {
+    const dbRow = { ...makeRow({ uidValidity: 7, uidNext: 5 }), status: 'error', lastError: 'ETIMEDOUT' }
+    await handler(
+      makeJob(),
+      makeJobCtx(dbRow, async () => ({ messages: [], nextCursor: encode({ uidValidity: 7, uidNext: 8 }), hasMore: false })),
+    )
+
+    expect(dbRow.status).toBe('connected')
+    expect(dbRow.lastError).toBeNull()
+    expect(dbRow.channelState).toEqual({ uidValidity: 7, uidNext: 8 })
+  })
+
+  it('leaves the channel untouched and enqueues nothing when the commit transaction fails', async () => {
+    const dbRow = makeRow({ uidValidity: 7, uidNext: 5 })
+    const lastPolledAt = dbRow.lastPolledAt
+    await expect(
+      handler(
+        makeJob(),
+        makeJobCtx(
+          dbRow,
+          async () => ({ messages: [], nextCursor: encode({ uidValidity: 7, uidNext: 8 }), hasMore: true }),
+          new Error('could not serialize access'),
+        ),
+      ),
+    ).rejects.toThrow('could not serialize access')
+
+    expect(dbRow.channelState).toEqual({ uidValidity: 7, uidNext: 5 })
+    expect(dbRow.lastPolledAt).toEqual(lastPolledAt)
+    expect(enqueueMock).not.toHaveBeenCalled()
   })
 })
