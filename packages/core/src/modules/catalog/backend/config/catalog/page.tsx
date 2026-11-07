@@ -2,6 +2,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { PriceKindSettings } from '../../../components/PriceKindSettings'
 import { UnitPriceDisplaySettings } from '../../../components/UnitPriceDisplaySettings'
 import { OmnibusSettings } from '../../../components/OmnibusSettings'
+import { AiCategorizationSettings } from '../../../components/AiCategorizationSettings'
 
 export default function CatalogConfigurationPage() {
   return (
@@ -10,6 +11,7 @@ export default function CatalogConfigurationPage() {
         <PriceKindSettings />
         <UnitPriceDisplaySettings />
         <OmnibusSettings />
+        <AiCategorizationSettings />
       </PageBody>
     </Page>
   )

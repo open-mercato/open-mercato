@@ -1,0 +1,143 @@
+export {}
+
+const tenantId = '11111111-1111-4111-8111-111111111111'
+const organizationId = '22222222-2222-4222-8222-222222222222'
+const suggestionId = '33333333-3333-4333-8333-333333333333'
+const productId = '44444444-4444-4444-8444-444444444444'
+const overrideCategoryId = '55555555-5555-4555-8555-555555555555'
+
+const getStatusMock = jest.fn()
+const executeMock = jest.fn()
+const findOneMock = jest.fn()
+const registeredGuards: import('@open-mercato/shared/lib/crud/mutation-guard-registry').MutationGuard[] = []
+
+let authValue: Record<string, unknown> | null = { tenantId, orgId: organizationId, sub: 'user-1' }
+
+const container = {
+  resolve: jest.fn((name: string) => {
+    if (name === 'catalogCategorizationService') return { getStatus: getStatusMock }
+    if (name === 'commandBus') return { execute: executeMock }
+    if (name === 'em') return { fork: () => ({ findOne: findOneMock }) }
+    if (name === 'rbacService') return { getGrantedFeatures: jest.fn(async () => []) }
+    throw new Error(`Unexpected resolve: ${name}`)
+  }),
+}
+
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: jest.fn(async () => container),
+}))
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
+  getAuthFromRequest: jest.fn(async () => authValue),
+}))
+jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
+  getAllMutationGuardInstances: jest.fn(() => registeredGuards),
+}))
+jest.mock('@open-mercato/shared/lib/crud/mutation-guard-registry', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/crud/mutation-guard-registry')
+  return { ...actual, bridgeLegacyGuard: jest.fn(() => null) }
+})
+
+import { POST } from '../route'
+
+function makeRequest(body: Record<string, unknown> = {}) {
+  return new Request(`http://localhost/api/catalog/category-suggestions/${suggestionId}/accept`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+function makeRawRequest(rawBody: string) {
+  return new Request(`http://localhost/api/catalog/category-suggestions/${suggestionId}/accept`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: rawBody,
+  })
+}
+
+describe('catalog category-suggestions accept route', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    registeredGuards.length = 0
+    authValue = { tenantId, orgId: organizationId, sub: 'user-1' }
+    getStatusMock.mockResolvedValue({ available: true, enabled: true, effective: true, settings: {} })
+    executeMock.mockResolvedValue({
+      result: { suggestionId, product: { id: productId, categoryIds: ['cat-1'], updatedAt: '2026-01-01T00:00:00.000Z' } },
+    })
+    findOneMock.mockResolvedValue({
+      id: suggestionId,
+      product: productId,
+      organizationId,
+      tenantId,
+      outcome: 'suggested',
+      categoryId: 'cat-1',
+      categoryPathIds: ['cat-1'],
+      confidence: '0.9000',
+      levels: [],
+      status: 'accepted',
+      trigger: 'manual',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    })
+  })
+
+  it('rejects unauthenticated requests', async () => {
+    authValue = null
+    const response = await POST(makeRequest(), { params: { id: suggestionId } })
+    expect(response.status).toBe(401)
+  })
+
+  it('returns 409 when AI categorization is not effective', async () => {
+    getStatusMock.mockResolvedValue({ available: false, reason: 'credentials_missing', enabled: true, effective: false, settings: {} })
+    const response = await POST(makeRequest(), { params: { id: suggestionId } })
+    expect(response.status).toBe(409)
+    expect(executeMock).not.toHaveBeenCalled()
+  })
+
+  it('dispatches the accept command with categoryId and makeMain, and returns the serialized result', async () => {
+    const response = await POST(makeRequest({ categoryId: overrideCategoryId, makeMain: true }), { params: { id: suggestionId } })
+    expect(response.status).toBe(200)
+    expect(executeMock).toHaveBeenCalledWith('catalog.category_suggestions.accept', expect.objectContaining({
+      input: { id: suggestionId, categoryId: overrideCategoryId, makeMain: true },
+    }))
+    const body = await response.json() as { suggestion: { status: string }; product: { categoryIds: string[] } }
+    expect(body.suggestion.status).toBe('accepted')
+    expect(body.product.categoryIds).toEqual(['cat-1'])
+  })
+
+  it('propagates a structured error from the command (e.g. 409 suggestion_not_pending)', async () => {
+    const { CrudHttpError } = await import('@open-mercato/shared/lib/crud/errors')
+    executeMock.mockRejectedValue(new CrudHttpError(409, { code: 'suggestion_not_pending' }))
+    const response = await POST(makeRequest(), { params: { id: suggestionId } })
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({ code: 'suggestion_not_pending' })
+  })
+
+  it('rejects malformed JSON with 400 instead of silently falling back to defaults', async () => {
+    const response = await POST(makeRawRequest('{not valid json'), { params: { id: suggestionId } })
+    expect(response.status).toBe(400)
+    expect(executeMock).not.toHaveBeenCalled()
+  })
+
+  it('accepts a genuinely empty body as "use the suggested category"', async () => {
+    const response = await POST(makeRawRequest(''), { params: { id: suggestionId } })
+    expect(response.status).toBe(200)
+    expect(executeMock).toHaveBeenCalledWith('catalog.category_suggestions.accept', expect.objectContaining({
+      input: { id: suggestionId, categoryId: undefined, makeMain: false },
+    }))
+  })
+
+  it('merges a transforming guard payload without crashing on the carried-forward null categoryId', async () => {
+    registeredGuards.push({
+      id: 'test.force-make-main',
+      targetEntity: '*',
+      operations: ['update'],
+      validate: async () => ({ ok: true, modifiedPayload: { makeMain: true } }),
+    })
+    const response = await POST(makeRequest({ makeMain: false }), { params: { id: suggestionId } })
+    expect(response.status).toBe(200)
+    expect(executeMock).toHaveBeenCalledWith('catalog.category_suggestions.accept', expect.objectContaining({
+      input: { id: suggestionId, categoryId: undefined, makeMain: true },
+    }))
+  })
+})

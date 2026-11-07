@@ -94,6 +94,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/user-entities",
         "user-guide/system-status",
         "user-guide/products-and-sales-channels",
+        "user-guide/ai-category-suggestions",
         "user-guide/price-kinds",
         "user-guide/attachments",
         "user-guide/cache-management",
