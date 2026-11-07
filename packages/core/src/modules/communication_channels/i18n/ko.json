@@ -67,6 +67,7 @@
   "communication_channels.profile.actions.setPrimary": "기본으로 설정",
   "communication_channels.profile.actions.setPrimaryFailed": "기본으로 설정하지 못했습니다",
   "communication_channels.profile.actions.setPrimarySuccess": "기본으로 표시되었습니다.",
+  "communication_channels.profile.alerts.automaticSyncOff": "자동 동기화가 꺼져 있습니다. 채널을 폴링하는 예약 작업이 없어 \"지금 폴링\"을 클릭할 때만 새 메시지가 도착합니다. 관리자에게 스케줄러 모듈을 활성화하고 일정을 생성해 달라고 요청하세요.",
   "communication_channels.profile.alerts.requiresReauth": "{count}개 채널을 다시 연결해야 합니다. 아래 해당 채널에서 \"다시 연결\"을 클릭하세요.",
   "communication_channels.profile.columns.lastPolled": "마지막 동기화",
   "communication_channels.profile.columns.primary": "기본",

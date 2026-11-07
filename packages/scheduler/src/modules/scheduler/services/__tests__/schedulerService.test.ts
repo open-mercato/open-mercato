@@ -353,6 +353,25 @@ describe('SchedulerService', () => {
     })
   })
 
+  describe('isActive', () => {
+    it('counts only enabled, non-deleted schedules', async () => {
+      mockEm.count.mockResolvedValue(1)
+
+      const result = await service.isActive('test-1')
+
+      expect(result).toBe(true)
+      expect(mockEm.count).toHaveBeenCalledWith(ScheduledJob, { id: 'test-1', deletedAt: null, isEnabled: true })
+    })
+
+    it('returns false when the schedule is missing, disabled, or soft-deleted', async () => {
+      mockEm.count.mockResolvedValue(0)
+
+      const result = await service.isActive('test-1')
+
+      expect(result).toBe(false)
+    })
+  })
+
   describe('update', () => {
     it('should update schedule fields', async () => {
       const schedule = {
