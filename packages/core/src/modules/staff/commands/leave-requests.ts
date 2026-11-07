@@ -8,6 +8,7 @@ import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges } from '@ope
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -89,6 +90,20 @@ function parseUuidCandidate(value: string | null | undefined): string | null {
 function resolveAuthUserId(ctx: { auth?: { sub?: string | null; isApiKey?: boolean } | null }): string | null {
   if (!ctx.auth || ctx.auth.isApiKey) return null
   return parseUuidCandidate(ctx.auth.sub ?? null)
+}
+
+async function requireLeaveDecisionPermission(ctx: CommandRuntimeContext): Promise<void> {
+  const auth = ctx.auth
+  const tenantId = auth?.tenantId ?? null
+  const organizationId = ctx.selectedOrganizationId ?? auth?.orgId ?? null
+  if (auth?.sub && tenantId && organizationId) {
+    const rbac = ctx.container.resolve<RbacService | null>('rbacService')
+    if (rbac && await rbac.userHasAllFeatures(auth.sub, ['staff.leave_requests.manage'], { tenantId, organizationId })) {
+      return
+    }
+  }
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(403, { error: translate('staff.leaveRequests.errors.forbidden', 'Forbidden') })
 }
 
 function formatDateKey(value: Date): string {
@@ -662,6 +677,7 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
 const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, { requestId: string; ruleIds: string[] }> = {
   id: 'staff.leave-requests.accept',
   async execute(rawInput, ctx) {
+    await requireLeaveDecisionPermission(ctx)
     const parsed = staffLeaveRequestDecisionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
@@ -873,6 +889,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
 const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, { requestId: string }> = {
   id: 'staff.leave-requests.reject',
   async execute(rawInput, ctx) {
+    await requireLeaveDecisionPermission(ctx)
     const parsed = staffLeaveRequestDecisionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
