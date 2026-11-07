@@ -1,11 +1,15 @@
 import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
 
+// The portal account lives on its own person tab (#7499 follow-up): as a
+// CrudForm group it either forced the narrow two-column form layout or sat as
+// a stray card under the personal data, and it is not part of editing a person.
 const accountStatusWidget = {
   widgetId: 'customer_accounts.injection.account-status',
-  kind: 'group',
-  column: 2,
-  groupLabel: 'customer_accounts.widgets.accountStatus',
-  priority: 200,
+  kind: 'tab',
+  groupId: 'portal-account',
+  groupLabel: 'customer_accounts.widgets.portalAccountTab',
+  // Negative: after the person's built-in tabs (#8020 ordering contract).
+  priority: -50,
 } as const
 
 // Column 1 on purpose (#4400): any column-2 group makes CrudForm switch the
@@ -20,8 +24,7 @@ const companyUsersWidget = {
 } as const
 
 export const injectionTable: ModuleInjectionTable = {
-  'customers.person': [accountStatusWidget],
-  'crud-form:customers.person': [accountStatusWidget],
+  'detail:customers.person:tabs': [accountStatusWidget],
   'customers.company': [companyUsersWidget],
   'crud-form:customers.company': [companyUsersWidget],
   // Step 4.10 — Portal AiChat injection example.
