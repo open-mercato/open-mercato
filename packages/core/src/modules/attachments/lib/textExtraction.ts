@@ -3,6 +3,7 @@ import path from 'path'
 import { createRequire } from 'module'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveMaxOcrPages, resolvePdfPageIterationLimit } from './ocrLimits'
+import { extractSpreadsheetText } from './spreadsheetText'
 
 const logger = createLogger('attachments').child({ component: 'text-extraction' })
 
@@ -48,6 +49,20 @@ function isDocx(mimeType: string, ext: string): boolean {
     mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     || ext === '.docx'
   )
+}
+
+const SPREADSHEET_MIME_TYPES = new Set([
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+  'application/vnd.ms-excel.sheet.macroenabled.12',
+  'application/vnd.ms-excel.template.macroenabled.12',
+])
+
+const SPREADSHEET_EXTENSIONS = new Set(['.xlsx', '.xlsm', '.xltx', '.xltm'])
+
+function isSpreadsheet(mimeType: string, ext: string): boolean {
+  // Open XML workbooks only; macros are never read or executed.
+  return SPREADSHEET_MIME_TYPES.has(mimeType) || SPREADSHEET_EXTENSIONS.has(ext)
 }
 
 async function extractPlainText(filePath: string): Promise<string | null> {
@@ -139,7 +154,11 @@ export async function extractAttachmentContent(params: ExtractParams): Promise<s
     return extractDocxText(filePath)
   }
 
-  // XLSX, PPTX, MSG and other Office formats: no safe pure-JS extractor available yet.
+  if (isSpreadsheet(normalized, ext)) {
+    return extractSpreadsheetText(filePath)
+  }
+
+  // Legacy XLS/XLSB, ODS, PPTX, MSG and other Office formats: no safe pure-JS extractor available yet.
   // Return null rather than shelling out to an external binary.
   return null
 }
