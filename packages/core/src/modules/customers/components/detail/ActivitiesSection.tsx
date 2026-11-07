@@ -5,14 +5,23 @@ import { Clock, Search } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type { SectionAction, TabEmptyStateConfig } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Kbd } from '@open-mercato/ui/primitives/kbd'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
 import { resolveAuthorUserNames } from './authorUserLookup'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customers')
 
@@ -39,7 +48,15 @@ export type ActivitiesSectionProps = {
   onEditActivity?: (activity: InteractionSummary) => void
   /** Interaction type hidden from the timeline by default ('task' unless overridden); pass null to show every type. */
   excludeInteractionType?: string | null
+  /** Sends the search term and a sort choice to the interactions API, shows the sort control and surfaces failed interaction loads as an error with retry. Callers that omit it keep the local filter over loaded rows. */
+  serverHistoryControls?: boolean
 }
+
+type HistorySortMode = 'recent' | 'title-asc' | 'title-desc'
+
+type CanonicalInteractionsResponse = { items?: InteractionSummary[]; nextCursor?: string }
+
+const SEARCH_DEBOUNCE_MS = 300
 
 function toDateOnly(value: string | null | undefined): string {
   if (!value) return ''
@@ -106,6 +123,40 @@ function sortTimelineActivities(items: InteractionSummary[]): InteractionSummary
   })
 }
 
+function sortHistoryActivities(items: InteractionSummary[], sortMode: HistorySortMode): InteractionSummary[] {
+  if (sortMode === 'recent') return sortTimelineActivities(items)
+  return [...items].sort((left, right) => {
+    const leftTitle = (left.title ?? left.body ?? left.interactionType ?? '').toLowerCase()
+    const rightTitle = (right.title ?? right.body ?? right.interactionType ?? '').toLowerCase()
+    return sortMode === 'title-asc'
+      ? leftTitle.localeCompare(rightTitle)
+      : rightTitle.localeCompare(leftTitle)
+  })
+}
+
+function matchesLoadedActivity(activity: InteractionSummary, lowercaseTerm: string): boolean {
+  const haystack = [
+    activity.title,
+    activity.body,
+    activity.authorName,
+    activity.dealTitle,
+    activity.interactionType,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .join(' ')
+    .toLowerCase()
+  return haystack.includes(lowercaseTerm)
+}
+
+function dedupeActivitiesById(items: InteractionSummary[]): InteractionSummary[] {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false
+    seen.add(item.id)
+    return true
+  })
+}
+
 export function ActivitiesSection({
   entityId,
   entityName,
@@ -118,17 +169,22 @@ export function ActivitiesSection({
   onEditActivity,
   runGuardedMutation,
   excludeInteractionType = 'task',
+  serverHistoryControls = false,
 }: ActivitiesSectionProps) {
   const t = useT()
   const [filterTypes, setFilterTypes] = React.useState<string[]>([])
   const [filterDateFrom, setFilterDateFrom] = React.useState('')
   const [filterDateTo, setFilterDateTo] = React.useState('')
   const [searchTerm, setSearchTerm] = React.useState('')
+  const [serverSearchTerm, setServerSearchTerm] = React.useState('')
+  const [sortMode, setSortMode] = React.useState<HistorySortMode>('recent')
+  const [loadFailed, setLoadFailed] = React.useState(false)
   const [activities, setActivities] = React.useState<InteractionSummary[]>([])
   const [loading, setLoading] = React.useState(false)
   const [hasMore, setHasMore] = React.useState(false)
   const [loadedPages, setLoadedPages] = React.useState(1)
   const searchInputRef = React.useRef<HTMLInputElement>(null)
+  const loadSequenceRef = React.useRef(0)
 
   React.useEffect(() => {
     if (!entityId) return
@@ -142,23 +198,22 @@ export function ActivitiesSection({
     return () => window.removeEventListener('keydown', handleShortcut)
   }, [entityId])
 
+  React.useEffect(() => {
+    if (!serverHistoryControls) return
+    const nextTerm = searchTerm.trim()
+    if (nextTerm === serverSearchTerm) return
+    const timeout = window.setTimeout(() => {
+      setServerSearchTerm(nextTerm)
+      setLoadedPages(1)
+    }, SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(timeout)
+  }, [searchTerm, serverHistoryControls, serverSearchTerm])
+
   const visibleActivities = React.useMemo(() => {
-    const term = searchTerm.trim().toLowerCase()
+    const term = serverHistoryControls ? '' : searchTerm.trim().toLowerCase()
     if (!term) return activities
-    return activities.filter((activity) => {
-      const haystack = [
-        activity.title,
-        activity.body,
-        activity.authorName,
-        activity.dealTitle,
-        activity.interactionType,
-      ]
-        .filter((value): value is string => typeof value === 'string' && value.length > 0)
-        .join(' ')
-        .toLowerCase()
-      return haystack.includes(term)
-    })
-  }, [activities, searchTerm])
+    return activities.filter((activity) => matchesLoadedActivity(activity, term))
+  }, [activities, searchTerm, serverHistoryControls])
 
   React.useEffect(() => {
     onActionChange?.(null)
@@ -170,8 +225,14 @@ export function ActivitiesSection({
   }, [loading, onLoadingChange])
 
   const loadActivities = React.useCallback(async () => {
+    const loadSequence = loadSequenceRef.current + 1
+    loadSequenceRef.current = loadSequence
+    const isStale = () => loadSequence !== loadSequenceRef.current
+
+    setLoadFailed(false)
     if (!entityId) {
       setActivities([])
+      setLoading(false)
       return
     }
 
@@ -182,8 +243,8 @@ export function ActivitiesSection({
       const canonicalParams = new URLSearchParams({
         entityId,
         limit: '50',
-        sortField: 'occurredAt',
-        sortDir: 'desc',
+        sortField: sortMode === 'recent' ? 'occurredAt' : 'title',
+        sortDir: sortMode === 'title-asc' ? 'asc' : 'desc',
       })
       // Hide the configured type (tasks by default — they have their own tab)
       // from the activity timeline, but lift the exclusion when the user
@@ -195,24 +256,48 @@ export function ActivitiesSection({
       if (filterDateFrom) canonicalParams.set('from', filterDateFrom)
       if (filterDateTo) canonicalParams.set('to', filterDateTo)
 
-      const canonicalItems: InteractionSummary[] = []
-      let canonicalCursor: string | undefined
-      let canonicalHasMore = false
-      let pageIndex = 0
-      do {
-        const params = new URLSearchParams(canonicalParams)
-        if (canonicalCursor) params.set('cursor', canonicalCursor)
-        const canonicalPayload = await readApiResultOrThrow<{ items?: InteractionSummary[]; nextCursor?: string }>(
-          `/api/customers/interactions?${params.toString()}`,
-        ).catch(() => ({ items: [] as InteractionSummary[], nextCursor: undefined }))
-        canonicalItems.push(...(Array.isArray(canonicalPayload?.items) ? canonicalPayload.items : []))
-        canonicalCursor = typeof canonicalPayload?.nextCursor === 'string' ? canonicalPayload.nextCursor : undefined
-        canonicalHasMore = Boolean(canonicalCursor)
-        pageIndex += 1
-      } while (canonicalCursor && pageIndex < loadedPages)
+      const surfaceCanonicalFailure = useCanonicalInteractions || serverHistoryControls
+      const fetchCanonicalPages = async (search?: string) => {
+        const items: InteractionSummary[] = []
+        let cursor: string | undefined
+        let pageIndex = 0
+        do {
+          const params = new URLSearchParams(canonicalParams)
+          if (search) params.set('search', search)
+          if (cursor) params.set('cursor', cursor)
+          const request = readApiResultOrThrow<CanonicalInteractionsResponse>(
+            `/api/customers/interactions?${params.toString()}`,
+          )
+          const payload: CanonicalInteractionsResponse = await (surfaceCanonicalFailure
+            ? request
+            : request.catch(() => ({ items: [] as InteractionSummary[], nextCursor: undefined })))
+          if (isStale()) return { items, hasMore: false }
+          items.push(...(Array.isArray(payload?.items) ? payload.items : []))
+          cursor = typeof payload?.nextCursor === 'string' ? payload.nextCursor : undefined
+          pageIndex += 1
+        } while (cursor && pageIndex < loadedPages)
+        return { items, hasMore: Boolean(cursor) }
+      }
+
+      // The API search covers title and body. It never covers author, deal or type, so
+      // the rows of the unsearched pages are matched here as well, and those pages keep
+      // "Load more" able to reach such matches.
+      const lowercaseSearchTerm = serverSearchTerm.toLowerCase()
+      const [browsedPages, searchedPages] = await Promise.all([
+        fetchCanonicalPages(),
+        serverSearchTerm ? fetchCanonicalPages(serverSearchTerm) : Promise.resolve(null),
+      ])
+      if (isStale()) return
+      const canonicalItems = searchedPages
+        ? dedupeActivitiesById([
+            ...searchedPages.items,
+            ...browsedPages.items.filter((item) => matchesLoadedActivity(item, lowercaseSearchTerm)),
+          ])
+        : browsedPages.items
+      const canonicalHasMore = browsedPages.hasMore || Boolean(searchedPages?.hasMore)
 
       if (useCanonicalInteractions) {
-        setActivities(sortTimelineActivities(canonicalItems))
+        setActivities(sortHistoryActivities(canonicalItems, sortMode))
         setHasMore(canonicalHasMore)
         return
       }
@@ -236,6 +321,7 @@ export function ActivitiesSection({
           ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 }))
         }),
       )
+      if (isStale()) return
       // Merge in page order so timeline ordering stays stable regardless of
       // which request settles first.
       const legacyItems: InteractionSummary[] = []
@@ -250,6 +336,7 @@ export function ActivitiesSection({
         if ((filterDateFrom || filterDateTo) && !dateOnly) return false
         if (filterDateFrom && dateOnly < filterDateFrom) return false
         if (filterDateTo && dateOnly > filterDateTo) return false
+        if (lowercaseSearchTerm && !matchesLoadedActivity(entry, lowercaseSearchTerm)) return false
         return true
       })
 
@@ -262,17 +349,19 @@ export function ActivitiesSection({
           merged.push(item)
         }
       }
-      setActivities(sortTimelineActivities(merged))
+      setActivities(sortHistoryActivities(merged, sortMode))
       setHasMore(canonicalHasMore || legacyTotalPages > loadedPages)
     } catch (error) {
+      if (isStale()) return
       logger.error('customers.activities.history failed', { err: error })
-      flash(t('customers.activities.loadFailed', 'Failed to load activities.'), 'error')
+      getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.activity_history_load_failed' })
+      setLoadFailed(true)
       setActivities([])
       setHasMore(false)
     } finally {
-      setLoading(false)
+      if (!isStale()) setLoading(false)
     }
-  }, [dealId, entityId, excludeInteractionType, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey, t])
+  }, [dealId, entityId, excludeInteractionType, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey, serverHistoryControls, serverSearchTerm, sortMode])
 
   React.useEffect(() => {
     setLoadedPages(1)
@@ -393,12 +482,43 @@ export function ActivitiesSection({
           setFilterDateFrom('')
           setFilterDateTo('')
         }}
+        sortControl={serverHistoryControls ? (
+          <Select
+            value={sortMode}
+            onValueChange={(value) => {
+              setSortMode(value as HistorySortMode)
+              setLoadedPages(1)
+            }}
+          >
+            <SelectTrigger
+              size="sm"
+              aria-label={t('customers.activityLog.filters.sortLabel', 'Sort order')}
+              className="w-auto"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="recent">{t('customers.activityLog.sort.recent', 'Sort: newest')}</SelectItem>
+              <SelectItem value="title-asc">{t('customers.activityLog.sort.titleAsc', 'Sort: Name A-Z')}</SelectItem>
+              <SelectItem value="title-desc">{t('customers.activityLog.sort.titleDesc', 'Sort: Name Z-A')}</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : undefined}
       />
 
       {loading && totalCount === 0 ? (
         <div className="rounded-lg border border-dashed border-border/70 px-4 py-8 text-sm text-muted-foreground">
           {t('customers.people.detail.activities.loading', 'Loading activities…')}
         </div>
+      ) : loadFailed ? (
+        <ErrorMessage
+          label={t('customers.activities.loadFailed', 'Failed to load activities.')}
+          action={(
+            <Button type="button" variant="outline" size="sm" onClick={() => { void loadActivities() }}>
+              {t('customers.activities.retry', 'Retry')}
+            </Button>
+          )}
+        />
       ) : (
         <>
           <ActivityTimeline
@@ -406,7 +526,7 @@ export function ActivitiesSection({
             onEdit={onEditActivity}
             onMarkDone={handleMarkDone}
           />
-          {totalCount > 0 ? (
+          {totalCount > 0 || hasMore ? (
             <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
               <span className="text-xs text-muted-foreground">
                 {searchTerm.trim()

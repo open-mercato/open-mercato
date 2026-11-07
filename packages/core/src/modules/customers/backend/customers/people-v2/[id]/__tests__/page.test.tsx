@@ -254,6 +254,35 @@ describe('PersonDetailV2Page', () => {
     })
   })
 
+  it('renders the deal-style activity layout scoped to the person (#7494)', async () => {
+    activeTabParam = 'activities'
+    renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
+
+    await waitFor(() => expect(screen.getByText('composer')).toBeInTheDocument())
+    const composer = screen.getByText('composer')
+    const planned = screen.getByText('planned')
+    const timeline = screen.getByText('activities')
+    expect(composer.compareDocumentPosition(planned) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(planned.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    await waitFor(() => {
+      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/customers/interactions?entityId=person-123&excludeStatus='),
+      )
+    })
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(expect.stringContaining('dealId='))
+  })
+
+  it('sends no interactions request while a non-activity tab is open (#7494)', async () => {
+    activeTabParam = 'addresses'
+    renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
+
+    await waitFor(() => expect(screen.getByText('addresses-section')).toBeInTheDocument())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/api/customers/interactions'),
+    )
+  })
+
   it('renders the AddressesSection when the addresses tab is active', async () => {
     activeTabParam = 'addresses'
     renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)

@@ -55,15 +55,16 @@ const PL_DICT = {
 // formatScheduledDate at all.
 const FIXED_NOW = new Date(2026, 3, 10, 9, 0, 0)
 
-// The leaf cells rendering the generic `Day, D Mon · HH:MM` form. Matching on the
-// separator rather than on locale-formatted day and month names keeps this
-// independent of whichever locale the runtime resolves `toLocaleDateString` to.
+// The leaf cells rendering the generic `Day, D Mon, HH:MM` form. Matching on the
+// comma before the time rather than on locale-formatted day and month names keeps
+// this independent of whichever locale the runtime resolves `toLocaleDateString` to
+// (the "Tomorrow HH:MM" form carries no comma before its time).
 function genericDateCells(): HTMLElement[] {
   return screen.getAllByText(
     (_content, element) =>
       element?.tagName === 'SPAN' &&
       element.children.length === 0 &&
-      (element.textContent ?? '').includes(' · '),
+      /, \d{1,2}:\d{2}/.test(element.textContent ?? ''),
   )
 }
 
@@ -170,5 +171,28 @@ describe('PlannedActivitiesSection', () => {
     expect(genericDateCells()).toHaveLength(2)
     expect(screen.queryByText(/^Jutro /)).toBeNull()
     expect(screen.queryByText(/Tomorrow/)).toBeNull()
+  })
+
+  describe('load failure', () => {
+    it('shows the error and retry when nothing has loaded', () => {
+      const onRetryLoad = jest.fn()
+      renderWithProviders(<PlannedActivitiesSection activities={[]} loadFailed onRetryLoad={onRetryLoad} />)
+      expect(screen.getByRole('alert')).toHaveTextContent('Failed to load planned activities.')
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(onRetryLoad).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the loaded rows under the error', () => {
+      renderWithProviders(
+        <PlannedActivitiesSection activities={[makeActivity({ id: 'int-1', title: 'Kept row' })]} loadFailed onRetryLoad={() => {}} />,
+      )
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+      expect(screen.getByText('Kept row')).toBeInTheDocument()
+    })
+
+    it('renders nothing for an empty list that loaded fine', () => {
+      const { container } = renderWithProviders(<PlannedActivitiesSection activities={[]} />)
+      expect(container).toBeEmptyDOMElement()
+    })
   })
 })

@@ -39,7 +39,7 @@ import { useDealsAccess } from '../../../../components/detail/useDealsAccess'
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
-import { useInteractionMutations } from '../../../../components/detail/hooks/useInteractionMutations'
+import { usePlannedActivities } from '../../../../components/detail/hooks/usePlannedActivities'
 import {
   buildCompanyEditPayload,
   createCompanyEditFields,
@@ -109,7 +109,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   ], [t])
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
-  const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
   const [dealCount, setDealCount] = React.useState(0)
 
   const currentCompanyId = data?.company?.id ?? null
@@ -176,15 +175,9 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setDealCount(data?.counts?.deals ?? 0)
   }, [data?.counts?.deals])
 
-  const handleActivityCreated = React.useCallback(() => {
-    setActivityRefreshKey((k) => k + 1)
+  const reloadAfterActivityChange = React.useCallback(() => {
     loadData().catch((err) => logger.warn('reload after activity failed', { component: 'companies-v2', err }))
   }, [loadData])
-
-  // Planned activities for the activity-log tab
-  const plannedActivities = React.useMemo(() => {
-    return data?.plannedActivitiesPreview ?? []
-  }, [data?.plannedActivitiesPreview])
 
   // Injection context for UMES
   const injectionContext = React.useMemo(
@@ -211,11 +204,26 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     [injectionContext, runMutation],
   )
 
-  const { completeInteraction: handleMarkDone, cancelInteraction: handleCancelActivity } = useInteractionMutations({
+  const {
+    plannedActivities,
+    plannedLoadFailed,
+    activityRefreshKey,
+    loadPlannedActivities,
+    handleActivityCreated,
+    handleMarkDone,
+    handleCancelActivity,
+  } = usePlannedActivities({
+    scope: { entityId: currentCompanyId ?? id ?? '' },
     runMutationWithContext,
-    onAfterChange: handleActivityCreated,
     logContext: 'customers.companies-v2',
+    onAfterChange: reloadAfterActivityChange,
   })
+
+  const isActivityTabActive = activeTab === 'activity-log'
+  React.useEffect(() => {
+    if (!isActivityTabActive) return
+    void loadPlannedActivities({ cache: true })
+  }, [isActivityTabActive, loadPlannedActivities])
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `customers.company` + id
@@ -275,27 +283,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   const openNewScheduleDialog = React.useCallback(() => {
     setScheduleEditData(null)
-    setScheduleDialogOpen(true)
-  }, [])
-
-  const handleAddActivity = React.useCallback((kind: 'meeting' | 'call' | 'task' | 'email') => {
-    setScheduleEditData({
-      id: '',
-      interactionType: kind,
-      title: null,
-      body: null,
-      scheduledAt: null,
-      durationMinutes: null,
-      location: null,
-      allDay: null,
-      recurrenceRule: null,
-      recurrenceEnd: null,
-      participants: null,
-      reminderMinutes: null,
-      visibility: null,
-      linkedEntities: null,
-      guestPermissions: null,
-    })
     setScheduleDialogOpen(true)
   }, [])
 
@@ -582,11 +569,14 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
                 {activeTab === 'activity-log' && (
                   <ActivityLogTab
+                    entityType="company"
                     entityId={companyId}
+                    entityName={companyName}
                     plannedActivities={plannedActivities}
-                    onActivityCreated={handleActivityCreated}
+                    plannedLoadFailed={plannedLoadFailed}
+                    onRetryPlannedLoad={() => { void loadPlannedActivities() }}
+                    onActivityCreated={() => { void handleActivityCreated() }}
                     onScheduleRequested={openNewScheduleDialog}
-                    onAddActivity={handleAddActivity}
                     onMarkDone={handleMarkDone}
                     onEditActivity={handleEditActivity}
                     onCancelActivity={handleCancelActivity}
@@ -628,7 +618,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             entityId={companyId}
             entityName={companyName}
             entityType="company"
-            onActivityCreated={handleActivityCreated}
+            onActivityCreated={() => { void handleActivityCreated() }}
             editData={scheduleEditData}
           />
           {ConfirmDialogElement}
