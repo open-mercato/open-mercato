@@ -1563,6 +1563,7 @@ Two-row primitive (input on top, chips below) for collecting a flat list of free
 - **Click ×** on chip — removes that tag.
 - **`maxTags` reached** — input becomes `disabled`; further typing is blocked.
 - **`validate`** — `(tag) => true | false | string`. Return `false` to silently reject; return a string to surface as inline error.
+- **`inputValue` / `onInputValueChange`** — optional control of the text typed but not yet committed. Use when a submit action has to commit or reject that text, because the primitive does not commit on blur.
 
 ### Usage
 

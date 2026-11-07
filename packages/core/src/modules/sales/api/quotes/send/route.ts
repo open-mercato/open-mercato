@@ -7,6 +7,7 @@ import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/di
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations, detectLocale } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -19,8 +20,9 @@ import { SalesQuote } from '../../../data/entities'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
-import { QuoteSentEmail } from '../../../emails/QuoteSentEmail'
+import { QuoteSentEmail, type QuoteSentEmailCopy } from '../../../emails/QuoteSentEmail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('sales')
 
@@ -61,23 +63,76 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
   return { ctx }
 }
 
-function resolveQuoteEmail(quote: SalesQuote): string | null {
-  const normalizeRecord = (value: unknown): Record<string, unknown> | null => {
-    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
-    if (typeof value !== 'string') return null
-    const parsed = parseDecryptedFieldValue(value)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : null
+function normalizeRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value !== 'string') return null
+  const parsed = parseDecryptedFieldValue(value)
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null
+}
+
+/** Lower-cased, de-duplicated CC list without the primary recipient (#8460). */
+function resolveCcRecipients(requested: string[], primary: string): string[] {
+  const primaryKey = primary.trim().toLowerCase()
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const entry of requested) {
+    const key = entry.trim().toLowerCase()
+    if (!key || key === primaryKey || seen.has(key)) continue
+    seen.add(key)
+    result.push(entry.trim())
   }
+  return result
+}
+
+/**
+ * Mails each CC recipient their own copy of the quote details. The acceptance link is a
+ * bearer capability reserved for the main recipient, so these copies never carry it, and
+ * a copy that fails must not turn a delivered quote into a reported failure.
+ */
+async function sendCcCopies(
+  quote: SalesQuote,
+  recipients: string[],
+  subject: string,
+  copy: QuoteSentEmailCopy,
+): Promise<void> {
+  for (const recipient of recipients) {
+    try {
+      await sendEmail({
+        to: recipient,
+        subject,
+        react: QuoteSentEmail({ copy }),
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+      })
+    } catch (err) {
+      logger.error('sales.quotes.send CC copy failed', { err, quoteId: quote.id })
+      try {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'sales',
+          code: 'sales.quote_cc_copy_failed',
+          attributes: { quoteId: quote.id },
+        })
+      } catch (reportingErr) {
+        logger.warn('sales.quotes.send CC copy failure could not be reported', { err: reportingErr, quoteId: quote.id })
+      }
+    }
+  }
+}
+
+function resolveQuoteEmail(quote: SalesQuote): string | null {
   const snapshot = normalizeRecord(quote.customerSnapshot)
   const metadata = normalizeRecord(quote.metadata)
   const contact = snapshot?.contact as Record<string, unknown> | undefined
   const customer = snapshot?.customer as Record<string, unknown> | undefined
+  // The document's own "Send to" address is the user's explicit choice (#8459); the
+  // snapshot contact and the customer's primary e-mail are fallbacks for documents
+  // saved without one.
   const candidate =
+    (typeof metadata?.customerEmail === 'string' && metadata.customerEmail.trim()) ||
     (typeof contact?.email === 'string' && contact.email.trim()) ||
     (typeof customer?.primaryEmail === 'string' && customer.primaryEmail.trim()) ||
-    (typeof metadata?.customerEmail === 'string' && metadata.customerEmail.trim()) ||
     null
   if (!candidate) return null
   const parsed = z.string().email().safeParse(candidate)
@@ -90,7 +145,7 @@ export async function POST(req: Request) {
     const { translate } = await resolveTranslations()
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
-    const input = quoteSendSchema.parse(scoped)
+    let input = quoteSendSchema.parse(scoped)
     const guardResult = await runRouteMutationGuards({
       container: ctx.container,
       req,
@@ -108,6 +163,9 @@ export async function POST(req: Request) {
     })
     if (!guardResult.ok) {
       return guardResult.response
+    }
+    if (guardResult.modifiedPayload) {
+      input = quoteSendSchema.parse({ ...input, ...guardResult.modifiedPayload })
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -130,6 +188,7 @@ export async function POST(req: Request) {
     if (!email) {
       throw new CrudHttpError(400, { error: translate('sales.quotes.send.missingEmail', 'Customer email is required to send a quote.') })
     }
+    const cc = resolveCcRecipients(input.cc, email)
 
     const now = new Date()
     const validUntil = new Date(now)
@@ -150,9 +209,20 @@ export async function POST(req: Request) {
         organizationId: quote.organizationId,
         value: 'sent',
       })
+      quote.metadata = { ...(normalizeRecord(quote.metadata) ?? {}), recipients: { cc } }
       quote.updatedAt = now
       tx.persist(quote)
     })
+
+    // The quotes list is served from the CRUD GET cache; a custom route has to flush it
+    // itself, or the list keeps reporting the quote as unsent until the entry expires.
+    await invalidateCrudCache(
+      ctx.container,
+      'sales.quote',
+      { id: quote.id, tenantId: quote.tenantId, organizationId: quote.organizationId },
+      quote.tenantId ?? null,
+      'updated',
+    )
 
     const appUrl = process.env.APP_URL || ''
     const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${rawAcceptanceToken}` : `/quote/${rawAcceptanceToken}`
@@ -164,7 +234,7 @@ export async function POST(req: Request) {
       day: 'numeric',
     })
 
-    const copy = {
+    const copy: QuoteSentEmailCopy = {
       preview: translate('sales.quotes.email.preview', 'Quote {quoteNumber} is ready for review', { quoteNumber: quote.quoteNumber }),
       heading: translate('sales.quotes.email.heading', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
       total: translate('sales.quotes.email.total', 'Total: {amount} {currency}', {
@@ -176,14 +246,22 @@ export async function POST(req: Request) {
       footer: translate('sales.quotes.email.footer', 'Open Mercato'),
     }
 
+    const subject = translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber })
+
     // Side effect after commit: an email failure must not roll back the send state.
     await sendEmail({
       to: email,
-      subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
+      subject,
       react: QuoteSentEmail({ url, copy }),
       tenantId: quote.tenantId,
       organizationId: quote.organizationId,
     })
+
+    const ccNotice = translate(
+      'sales.quotes.email.ccNotice',
+      'You are receiving this copy for your information. The main recipient can review and accept the quote.',
+    )
+    await sendCcCopies(quote, cc, subject, { ...copy, preview: ccNotice, notice: ccNotice })
 
     await guardResult.runAfterSuccess()
 
