@@ -149,3 +149,30 @@ test('standalone ds checker keeps the shared oracle pattern family aligned', () 
     assert.ok(oracle.includes(`/${pattern}/`), `shared writable oracle is missing ${pattern}`)
   }
 })
+
+
+test('standalone ds checker distinguishes shared Alert appearances from DOM inline styles', () => {
+  const root = createFixture({
+    'src/modules/example/backend/page.tsx': `import { Alert as StatusAlert } from '@open-mercato/ui/primitives/alert'
+      export const Page = () => <><StatusAlert style="stroke">Ready</StatusAlert><div style={{ color: 'red' }}>Invalid</div><StatusAlert style={{ margin: 1 }}>Invalid</StatusAlert></>`,
+  })
+  try {
+    const findings = scanDesignSystem(root).findings
+    assert.deepEqual(findings.map((finding) => finding.rule), ['inline-style', 'inline-style'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+
+test('standalone ds checker accepts all documented shared Alert styles without exempting lowercase DOM tags', () => {
+  const root = createFixture({
+    'src/modules/example/backend/page.tsx': `import { Alert } from '@open-mercato/ui/primitives/alert'
+      export const Page = () => <><Alert style="light" /><Alert style="lighter" /><Alert style="filled" /><Alert style="stroke" /><alert style="stroke" /></>`,
+  })
+  try {
+    assert.deepEqual(scanDesignSystem(root).findings.map((finding) => finding.rule), ['inline-style'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})

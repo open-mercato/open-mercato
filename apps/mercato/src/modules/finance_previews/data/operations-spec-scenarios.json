@@ -1,0 +1,150 @@
+[
+  {
+    "id": "operations-asset",
+    "title": "Środek trwały: OT i amortyzacja",
+    "role": "Księgowa",
+    "goal": "Przyjmij środek do używania i zaksięguj miesięczny odpis.",
+    "stories": [],
+    "steps": [
+      {
+        "screen": "s48",
+        "task": "Sprawdź dane nabycia, konta i podgląd harmonogramu."
+      },
+      {
+        "screen": "s48",
+        "task": "Potwierdź OT, następnie nalicz raty do końca września."
+      },
+      {
+        "screen": "s48",
+        "task": "Sprawdź wartość netto oraz dekret; ponów naliczenie i sprawdź brak duplikatu."
+      }
+    ],
+    "resetKeys": [
+      "finance-preview-operations-asset-v1"
+    ]
+  },
+  {
+    "id": "operations-asset-lifecycle",
+    "title": "Środek trwały: zmiana planu, odpis i sprzedaż",
+    "role": "Księgowa",
+    "goal": "Przeprowadź zmianę okresu, utratę wartości, częściowe odwrócenie i sprzedaż z kontrolą wartości netto.",
+    "stories": [],
+    "steps": [
+      {
+        "screen": "s48",
+        "task": "Przyjmij serwer za 60 000 PLN do używania i nalicz wrzesień: wartość netto wynosi 59 000 PLN."
+      },
+      {
+        "screen": "s48",
+        "task": "Zmień pozostały okres na 29 miesięcy, podaj uzasadnienie i sprawdź zachowaną ratę wrześniową."
+      },
+      {
+        "screen": "s48",
+        "task": "Zapisz utratę wartości do 50 000 PLN. Spróbuj odwrócić 10 000 PLN (blokada), a następnie odwróć 1 000 PLN."
+      },
+      {
+        "screen": "s48",
+        "task": "Wycofaj środek przez sprzedaż za 45 000 PLN: sprawdź wartość netto 51 000 PLN i stratę 6 000 PLN. Zatwierdź i sprawdź historię po odświeżeniu."
+      }
+    ],
+    "resetKeys": [
+      "finance-preview-operations-asset-v1"
+    ]
+  },
+  {
+    "id": "operations-cost",
+    "title": "Koszt rozliczany w czasie",
+    "role": "Księgowa",
+    "goal": "Sprawdź proponowany harmonogram kosztu i rozliczenie miesięczne.",
+    "stories": [],
+    "steps": [
+      {
+        "screen": "s49",
+        "task": "Zapisz okres świadczenia i sprawdź raty."
+      },
+      {
+        "screen": "s49",
+        "task": "Zatwierdź harmonogram i nalicz ratę wrześniową."
+      },
+      {
+        "screen": "s49",
+        "task": "Sprawdź pozostałe saldo konta 640."
+      }
+    ],
+    "resetKeys": [
+      "finance-preview-operations-cost-v1"
+    ]
+  },
+  {
+    "id": "operations-revenue",
+    "title": "Przychody przyszłych okresów",
+    "role": "Księgowa",
+    "goal": "Rozlicz zaksięgowaną licencję w czasie.",
+    "stories": [],
+    "steps": [
+      {
+        "screen": "s50",
+        "task": "Sprawdź źródłową fakturę i harmonogram."
+      },
+      {
+        "screen": "s50",
+        "task": "Zatwierdź przeksięgowanie na RMP i nalicz ratę wrześniową."
+      },
+      {
+        "screen": "s50",
+        "task": "Sprawdź przerwanie: potwierdź politykę i kwotę rozpoznawaną natychmiast."
+      }
+    ],
+    "resetKeys": [
+      "finance-preview-operations-revenue-v1"
+    ]
+  },
+  {
+    "id": "operations-fx",
+    "title": "Wycena walutowa na zamknięcie",
+    "role": "Księgowa",
+    "goal": "Przeprowadź wycenę i sprawdź odwrócenie w następnym okresie.",
+    "stories": [],
+    "steps": [
+      {
+        "screen": "s51",
+        "task": "Przelicz otwarte należności i zobowiązania według kursu tabeli A."
+      },
+      {
+        "screen": "s51",
+        "task": "Zaksięguj wycenę razem z odwróceniem."
+      },
+      {
+        "screen": "s51",
+        "task": "Przygotuj kolejną wycenę i sprawdź zastąpienie poprzedniego wyniku."
+      }
+    ],
+    "resetKeys": [
+      "finance-preview-operations-fx-v1"
+    ]
+  },
+  {
+    "id": "operations-bank",
+    "title": "Wyciąg: wpłata, nadpłata i rozbieżność",
+    "role": "Księgowa",
+    "goal": "Dopasuj pozycje wyciągu i sprawdź różne skutki księgowe.",
+    "stories": [],
+    "steps": [
+      {
+        "screen": "s52",
+        "task": "Zatwierdź wyciąg po kontroli salda."
+      },
+      {
+        "screen": "s52",
+        "task": "Rozlicz częściową wpłatę w EUR i wpłatę PLN z nadpłatą."
+      },
+      {
+        "screen": "s52",
+        "task": "Dopasuj opłatę i przelew własny. Jeśli nie ma wysłanej paczki, otwórz Paczkę płatności, wybierz fakturę jednego dostawcy, sprawdź rachunek i zarejestruj wysłanie. Wróć do wyciągu, dołącz paczkę, ponownie sprawdź salda i dopasuj ją bez drugiego dekretu."
+      }
+    ],
+    "resetKeys": [
+      "finance-preview-operations-bank-v1"
+    ]
+  }
+]

@@ -1,0 +1,174 @@
+[
+  {
+    "id": "close",
+    "title": "Zamknięcie miesiąca",
+    "role": "Księgowa główna",
+    "goal": "Wyjaśnij różnicę bankową, sprawdź zapisy i zablokuj okres po zatwierdzeniu.",
+    "stories": [1, 2, 9, 10, 12],
+    "steps": [
+      {
+        "screen": "s6",
+        "task": "Sprawdź saldo próbne i zaksięguj zapisy cykliczne."
+      },
+      {
+        "screen": "s16",
+        "task": "Otwórz uzgodnienie i zaimportuj przykładowy wyciąg."
+      },
+      {
+        "screen": "s17",
+        "task": "Znajdź niedopasowaną opłatę bankową."
+      },
+      {
+        "screen": "s18",
+        "task": "Utwórz korektę dla opłaty 42 zł."
+      },
+      {
+        "screen": "s3",
+        "task": "Sprawdź dekret Wn/Ma i zaksięguj korektę."
+      },
+      {
+        "screen": "s17",
+        "task": "Sprawdź ponownie i zatwierdź uzgodnienie."
+      },
+      {
+        "screen": "s6",
+        "task": "Wróć do zamknięcia, potwierdź korekty i wygeneruj sprawozdania."
+      },
+      {
+        "screen": "s39",
+        "task": "Otwórz podgląd i zatwierdź sprawozdania."
+      },
+      {
+        "screen": "s6",
+        "task": "Wróć do listy kontroli i zamknij okres."
+      }
+    ],
+    "resetKeys": ["finance-preview-bank-close-v1"]
+  },
+  {
+    "id": "vendor",
+    "title": "Faktura dostawcy i dopasowanie",
+    "role": "Księgowa zobowiązań",
+    "goal": "Wprowadź fakturę, porównaj ją z zamówieniem i odbiorem, rozstrzygnij rozbieżność oraz przygotuj płatność.",
+    "stories": [3, 4, 8, 17],
+    "steps": [
+      {
+        "screen": "s43",
+        "task": "Wprowadź fakturę dostawcy i zapisz szkic."
+      },
+      {
+        "screen": "s8",
+        "task": "Wybierz zamówienie i odbiór, a następnie potwierdź zgodność lub zgłoś różnicę."
+      },
+      {
+        "screen": "s9",
+        "task": "Jeśli występuje różnica, uzasadnij ją i podejmij decyzję akceptującego."
+      },
+      {
+        "screen": "s10",
+        "task": "Otwórz paczkę z tą fakturą, przygotuj ją, zatwierdź i wyślij do banku."
+      }
+    ],
+    "resetKeys": ["open-mercato-finance-preview-accountant-scenarios-v2"]
+  },
+  {
+    "id": "payment",
+    "title": "Rozliczenie wpłaty klienta",
+    "role": "Księgowa należności",
+    "goal": "Przypisz częściową wpłatę do faktur, sprawdź saldo i dalszy krok windykacyjny.",
+    "stories": [6],
+    "steps": [
+      {
+        "screen": "s12",
+        "task": "Sprawdź fakturę i otwórz rozliczenie wpłaty."
+      },
+      {
+        "screen": "s13",
+        "task": "Przypisz 3 000 EUR do faktur i potwierdź rozliczenie."
+      },
+      {
+        "screen": "s14",
+        "task": "Otwórz monitoring i sprawdź pozostałe saldo klienta."
+      }
+    ],
+    "resetKeys": ["open-mercato-finance-preview-accountant-scenarios-v2"]
+  },
+  {
+    "id": "currency",
+    "title": "Faktura walutowa i różnica kursowa",
+    "role": "Księgowa należności",
+    "goal": "Ustal kurs, wystaw fakturę w EUR i sprawdź różnicę kursową po wpłacie.",
+    "stories": [5, 15],
+    "steps": [
+      {
+        "screen": "s42",
+        "task": "Wprowadź fakturę w EUR, sprawdź kurs i wystaw dokument."
+      },
+      {
+        "screen": "s25",
+        "task": "Przejdź do rozliczenia, uzupełnij kwotę i kurs wpłaty, następnie ją zaksięguj."
+      },
+      {
+        "screen": "s25",
+        "task": "Otwórz zapis wpłaty i porównaj dekret z obliczoną różnicą kursową."
+      }
+    ],
+    "resetKeys": ["finance-preview-currency-v1"]
+  },
+  {
+    "id": "bank",
+    "title": "Import i uzgodnienie banku",
+    "role": "Księgowa bankowa",
+    "goal": "Zaimportuj wyciąg, dopasuj pozycje i wyjaśnij opłatę bez pary.",
+    "stories": [7, 12],
+    "steps": [
+      {
+        "screen": "s16",
+        "task": "Wybierz konto, zakres dat i przykładowy plik. Zaimportuj wyciąg."
+      },
+      {
+        "screen": "s17",
+        "task": "Przejdź do uzgodnienia i wyjaśnij opłatę bez pary."
+      },
+      {
+        "screen": "s18",
+        "task": "Utwórz korektę dla opłaty bankowej."
+      },
+      {
+        "screen": "s3",
+        "task": "Sprawdź dekret 42 zł i zaksięguj korektę."
+      },
+      {
+        "screen": "s17",
+        "task": "Sprawdź ponownie i zatwierdź uzgodnienie przy różnicy 0 zł."
+      }
+    ],
+    "resetKeys": ["finance-preview-bank-close-v1"]
+  },
+  {
+    "id": "budget",
+    "title": "Kontrola budżetu",
+    "role": "Kontrolerka finansowa",
+    "goal": "Sprawdź wykorzystanie budżetu, wyślij wniosek o środki i rozstrzygnij przekroczenie.",
+    "stories": [16, 18],
+    "steps": [
+      {
+        "screen": "s27",
+        "task": "Sprawdź wykorzystanie budżetu IT i otwórz wniosek."
+      },
+      {
+        "screen": "s28",
+        "task": "Uzupełnij zakup i uzasadnienie, następnie wyślij wniosek do akceptacji."
+      },
+      {
+        "screen": "s28",
+        "task": "Otwórz decyzję dyrektora i zatwierdź przekroczenie albo odrzuć je z komentarzem."
+      },
+      {
+        "screen": "s27",
+        "task": "Wróć do budżetu i sprawdź zobowiązania po decyzji."
+      }
+    ],
+    "resetKeys": ["finance-preview-budget-v1"]
+  }
+]

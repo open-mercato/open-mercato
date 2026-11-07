@@ -1,0 +1,2003 @@
+[
+  {
+    "id": "s1",
+    "area": "Pulpit",
+    "title": "Pulpit finansowy",
+    "subtitle": "Najważniejsze decyzje, płynność i wyniki · wrzesień 2026",
+    "kind": "dashboard",
+    "refs": [
+      "§11–12",
+      "US-01"
+    ],
+    "next": "s2"
+  },
+  {
+    "id": "s2",
+    "area": "Księga główna",
+    "title": "Zapisy księgowe",
+    "subtitle": "Dziennik zapisów, korekty i ścieżka audytu",
+    "kind": "list",
+    "refs": [
+      "§1",
+      "UC-01"
+    ],
+    "next": "s3",
+    "action": "Nowy zapis",
+    "columns": [
+      "Numer",
+      "Data",
+      "Opis",
+      "Wn / Ma",
+      "Status"
+    ],
+    "rows": [
+      [
+        {
+          "text": "PK/2026/0925",
+          "to": "s4"
+        },
+        "25 wrz 2026",
+        "Korekta opłaty bankowej",
+        "42,00 zł",
+        {
+          "text": "Zaksięgowano",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "FV/2026/0988",
+          "to": "s4"
+        },
+        "24 wrz 2026",
+        "Faktura usług IT",
+        "12 300,00 zł",
+        {
+          "text": "Zaksięgowano",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "PK/2026/0923",
+          "to": "s4"
+        },
+        "23 wrz 2026",
+        "Rezerwa kosztowa",
+        "8 600,00 zł",
+        {
+          "text": "Szkic",
+          "tone": "neutral",
+          "icon": "draft"
+        }
+      ],
+      [
+        {
+          "text": "WB/2026/0412",
+          "to": "s4"
+        },
+        "22 wrz 2026",
+        "Wpływ od klienta",
+        "18 900,00 zł",
+        {
+          "text": "Do przeglądu",
+          "tone": "warning"
+        }
+      ]
+    ],
+    "metrics": [
+      [
+        "Zapisy w okresie",
+        "248",
+        "+18 od sierpnia"
+      ],
+      [
+        "Do przeglądu",
+        "7",
+        "Wymaga działania"
+      ],
+      [
+        "Bilans dziennika",
+        "0,00 zł",
+        "Wn = Ma"
+      ]
+    ],
+    "links": [
+      [
+        "Plan kont",
+        "s5"
+      ],
+      [
+        "Zamknięcie okresu",
+        "s6"
+      ]
+    ],
+    "actionTarget": "s3"
+  },
+  {
+    "id": "s3",
+    "area": "Księga główna",
+    "title": "Nowy zapis księgowy",
+    "subtitle": "Uzupełnij dekret i sprawdź bilans stron Wn oraz Ma",
+    "kind": "journal",
+    "refs": [
+      "§1",
+      "UC-01"
+    ],
+    "next": "s4"
+  },
+  {
+    "id": "s4",
+    "area": "Księga główna",
+    "title": "Zapis PK/2026/0925",
+    "subtitle": "Korekta opłaty bankowej · 25 września 2026",
+    "kind": "detail",
+    "refs": [
+      "§1",
+      "§13"
+    ],
+    "next": "s2",
+    "status": {
+      "text": "Zaksięgowano",
+      "tone": "info",
+      "icon": "completed"
+    },
+    "facts": [
+      [
+        "Kwota",
+        "42,00 zł"
+      ],
+      [
+        "Okres",
+        "Wrzesień 2026"
+      ],
+      [
+        "Źródło",
+        "Wyciąg WB/2026/0412"
+      ],
+      [
+        "Utworzył",
+        "Anna Nowak"
+      ]
+    ],
+    "related": [
+      [
+        "Wn 402-01",
+        "Opłaty bankowe",
+        "42,00 zł"
+      ],
+      [
+        "Ma 130-01",
+        "Rachunek główny",
+        "42,00 zł"
+      ]
+    ],
+    "action": "Pobierz dekret",
+    "actionKind": "download",
+    "links": [
+      [
+        "Dziennik audytu",
+        "s41"
+      ],
+      [
+        "Pozycja wyciągu",
+        "s18"
+      ]
+    ]
+  },
+  {
+    "id": "s5",
+    "area": "Księga główna",
+    "title": "Plan kont",
+    "subtitle": "Struktura kont i ich powiązanie z raportami",
+    "kind": "list",
+    "refs": [
+      "§1"
+    ],
+    "next": "s3",
+    "action": "Dodaj konto",
+    "columns": [
+      "Konto",
+      "Nazwa",
+      "Rodzaj",
+      "Saldo",
+      "Status"
+    ],
+    "rows": [
+      [
+        {
+          "text": "130-01",
+          "to": "s4"
+        },
+        "Rachunek główny",
+        "Aktywa",
+        "824 180,00 zł",
+        {
+          "text": "Aktywne",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "201-01",
+          "to": "s4"
+        },
+        "Rozrachunki z dostawcami",
+        "Pasywa",
+        "186 400,00 zł",
+        {
+          "text": "Aktywne",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "202-01",
+          "to": "s4"
+        },
+        "Rozrachunki z odbiorcami",
+        "Aktywa",
+        "242 780,00 zł",
+        {
+          "text": "Aktywne",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "402-01",
+          "to": "s4"
+        },
+        "Opłaty bankowe",
+        "Koszty",
+        "9 420,00 zł",
+        {
+          "text": "Aktywne",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ]
+    ],
+    "links": [
+      [
+        "Nowy zapis",
+        "s3"
+      ],
+      [
+        "Raport bilansu",
+        "s39"
+      ]
+    ]
+  },
+  {
+    "id": "s6",
+    "area": "Księga główna",
+    "title": "Zamknięcie okresu",
+    "subtitle": "Wrzesień 2026 · lista kontrolna przed zamknięciem",
+    "kind": "workflow",
+    "refs": [
+      "§1",
+      "§13"
+    ],
+    "next": "s2",
+    "steps": [
+      "Uzgodnij bank",
+      "Sprawdź zapisy",
+      "Potwierdź podatki",
+      "Zamknij okres"
+    ],
+    "status": {
+      "text": "2 z 4 gotowe",
+      "tone": "warning"
+    },
+    "checks": [
+      [
+        "Bank",
+        "1 pozycja bez pary",
+        "s18"
+      ],
+      [
+        "Księga",
+        "7 zapisów do przeglądu",
+        "s2"
+      ],
+      [
+        "VAT",
+        "Rejestr gotowy",
+        "s36"
+      ],
+      [
+        "Uprawnienia",
+        "Zatwierdzenie wymagane",
+        "s40"
+      ]
+    ],
+    "action": "Uruchom kontrolę"
+  },
+  {
+    "id": "s7",
+    "area": "Zobowiązania",
+    "title": "Faktury dostawców",
+    "subtitle": "Kontrola, akceptacja i płatności",
+    "kind": "list",
+    "refs": [
+      "§2",
+      "UC-02"
+    ],
+    "next": "s8",
+    "action": "Dodaj fakturę",
+    "columns": [
+      "Faktura",
+      "Dostawca",
+      "Termin",
+      "Kwota",
+      "Status"
+    ],
+    "rows": [
+      [
+        {
+          "text": "FZ/09/2026/088",
+          "to": "s8"
+        },
+        "TechNova sp. z o.o.",
+        "30 wrz 2026",
+        "12 300,00 zł",
+        {
+          "text": "Do kontroli",
+          "tone": "warning"
+        }
+      ],
+      [
+        {
+          "text": "FZ/09/2026/083",
+          "to": "s9"
+        },
+        "Studio Forma",
+        "28 wrz 2026",
+        "6 200,00 zł",
+        {
+          "text": "Różnica",
+          "tone": "error"
+        }
+      ],
+      [
+        {
+          "text": "FZ/09/2026/076",
+          "to": "s8"
+        },
+        "Polstar Logistyka",
+        "29 wrz 2026",
+        "18 900,00 zł",
+        {
+          "text": "Do akceptacji",
+          "tone": "info",
+          "icon": "pending"
+        }
+      ],
+      [
+        {
+          "text": "FZ/09/2026/071",
+          "to": "s8"
+        },
+        "Cloudspace Polska",
+        "10 paź 2026",
+        "2 460,00 zł",
+        {
+          "text": "Zatwierdzona",
+          "tone": "success",
+          "icon": "completed"
+        }
+      ]
+    ],
+    "metrics": [
+      [
+        "Do kontroli",
+        "2",
+        "Przejdź do kolejki"
+      ],
+      [
+        "Do akceptacji",
+        "3",
+        "Oczekują na decyzję"
+      ],
+      [
+        "Do zapłaty",
+        "37 400 zł",
+        "W tym miesiącu"
+      ]
+    ],
+    "links": [
+      [
+        "Paczki płatności",
+        "s10"
+      ],
+      [
+        "Zasady akceptacji",
+        "s40"
+      ]
+    ],
+    "actionTarget": "s43"
+  },
+  {
+    "id": "s8",
+    "area": "Zobowiązania",
+    "title": "Kontrola faktury",
+    "subtitle": "FZ/09/2026/088 · TechNova sp. z o.o.",
+    "kind": "invoice",
+    "refs": [
+      "§2",
+      "UC-02"
+    ],
+    "next": "s9",
+    "status": {
+      "text": "Weryfikacja",
+      "tone": "info",
+      "icon": "pending"
+    },
+    "mismatch": false
+  },
+  {
+    "id": "s9",
+    "area": "Zobowiązania",
+    "title": "Różnica ponad tolerancję",
+    "subtitle": "FZ/09/2026/083 · kwota różnicy wymaga decyzji",
+    "kind": "invoice",
+    "refs": [
+      "§2",
+      "UC-02"
+    ],
+    "next": "s10",
+    "status": {
+      "text": "Wymaga decyzji",
+      "tone": "warning"
+    },
+    "mismatch": true
+  },
+  {
+    "id": "s10",
+    "area": "Zobowiązania",
+    "title": "Paczka płatności",
+    "subtitle": "Przelewy na 30 września 2026",
+    "kind": "workflow",
+    "refs": [
+      "§2"
+    ],
+    "next": "s7",
+    "steps": [
+      "Wybierz faktury",
+      "Sprawdź rachunki",
+      "Zatwierdź",
+      "Wyślij do banku"
+    ],
+    "status": {
+      "text": "Szkic",
+      "tone": "neutral",
+      "icon": "draft"
+    },
+    "checks": [
+      [
+        "FZ/09/2026/076",
+        "Polstar Logistyka · 18 900,00 zł",
+        "s8"
+      ],
+      [
+        "FZ/09/2026/071",
+        "Cloudspace Polska · 2 460,00 zł",
+        "s8"
+      ],
+      [
+        "Suma paczki",
+        "21 360,00 zł",
+        "s7"
+      ]
+    ],
+    "action": "Przygotuj paczkę"
+  },
+  {
+    "id": "s11",
+    "area": "Należności",
+    "title": "Należności",
+    "subtitle": "Faktury, wpłaty i monitoring płatności",
+    "kind": "list",
+    "refs": [
+      "§3",
+      "UC-03"
+    ],
+    "next": "s12",
+    "action": "Nowa faktura",
+    "columns": [
+      "Faktura",
+      "Klient",
+      "Termin",
+      "Pozostało",
+      "Status"
+    ],
+    "rows": [
+      [
+        {
+          "text": "FS/2026/094",
+          "to": "s12"
+        },
+        "Nord GmbH",
+        "25 wrz 2026",
+        "6 400,00 EUR",
+        {
+          "text": "Częściowo opłacona",
+          "tone": "info"
+        }
+      ],
+      [
+        {
+          "text": "FS/2026/087",
+          "to": "s12"
+        },
+        "Nord GmbH",
+        "24 wrz 2026",
+        "1 250,00 EUR",
+        {
+          "text": "Po terminie",
+          "tone": "warning"
+        }
+      ],
+      [
+        {
+          "text": "FS/2026/082",
+          "to": "s12"
+        },
+        "Alto Retail",
+        "30 wrz 2026",
+        "18 900,00 zł",
+        {
+          "text": "Wysłano",
+          "tone": "success",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "FS/2026/078",
+          "to": "s12"
+        },
+        "Novum Labs",
+        "28 wrz 2026",
+        "0,00 zł",
+        {
+          "text": "Rozliczona",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ]
+    ],
+    "metrics": [
+      [
+        "Przeterminowane",
+        "21 800 zł",
+        "5 faktur"
+      ],
+      [
+        "Oczekujące",
+        "241 000 zł",
+        "Bieżący portfel"
+      ],
+      [
+        "Wpłaty",
+        "84 100 zł",
+        "Ostatnie 30 dni"
+      ]
+    ],
+    "links": [
+      [
+        "Rozlicz wpłatę",
+        "s13"
+      ],
+      [
+        "Monitoring",
+        "s14"
+      ]
+    ],
+    "actionTarget": "s42"
+  },
+  {
+    "id": "s12",
+    "area": "Należności",
+    "title": "Faktura FS/2026/094",
+    "subtitle": "Nord GmbH · sprzedaż licencji i wsparcia",
+    "kind": "detail",
+    "refs": [
+      "§3"
+    ],
+    "next": "s13",
+    "status": {
+      "text": "Częściowo opłacona",
+      "tone": "info"
+    },
+    "facts": [
+      [
+        "Wartość",
+        "9 400,00 EUR"
+      ],
+      [
+        "Wpłacono",
+        "3 000,00 EUR"
+      ],
+      [
+        "Pozostało",
+        "6 400,00 EUR"
+      ],
+      [
+        "Termin",
+        "25 września 2026"
+      ]
+    ],
+    "related": [
+      [
+        "Pozycja 1",
+        "Licencja roczna",
+        "8 000,00 EUR"
+      ],
+      [
+        "Pozycja 2",
+        "Wsparcie",
+        "1 400,00 EUR"
+      ]
+    ],
+    "action": "Rozlicz wpłatę",
+    "actionTarget": "s13",
+    "links": [
+      [
+        "Kurs waluty",
+        "s24"
+      ],
+      [
+        "Historia kontaktu",
+        "s14"
+      ]
+    ]
+  },
+  {
+    "id": "s13",
+    "area": "Należności",
+    "title": "Wpłata częściowa",
+    "subtitle": "Nord GmbH · przelew 3 000 EUR",
+    "kind": "allocation",
+    "refs": [
+      "§3",
+      "UC-03"
+    ],
+    "next": "s12"
+  },
+  {
+    "id": "s14",
+    "area": "Należności",
+    "title": "Monitoring należności",
+    "subtitle": "Priorytety kontaktu i historia przypomnień",
+    "kind": "list",
+    "refs": [
+      "§3"
+    ],
+    "next": "s12",
+    "action": "Nowe przypomnienie",
+    "columns": [
+      "Klient",
+      "Faktura",
+      "Opóźnienie",
+      "Kwota",
+      "Następny krok"
+    ],
+    "rows": [
+      [
+        {
+          "text": "Nord GmbH",
+          "to": "s12"
+        },
+        "FS/2026/087",
+        "1 dzień",
+        "1 250,00 EUR",
+        {
+          "text": "Wyślij przypomnienie",
+          "tone": "warning"
+        }
+      ],
+      [
+        {
+          "text": "Alto Retail",
+          "to": "s12"
+        },
+        "FS/2026/071",
+        "8 dni",
+        "10 800,00 zł",
+        {
+          "text": "Kontakt telefoniczny",
+          "tone": "info"
+        }
+      ],
+      [
+        {
+          "text": "Biuro Nova",
+          "to": "s12"
+        },
+        "FS/2026/055",
+        "20 dni",
+        "4 600,00 zł",
+        {
+          "text": "Decyzja opiekuna",
+          "tone": "error"
+        }
+      ]
+    ],
+    "links": [
+      [
+        "Wszystkie należności",
+        "s11"
+      ]
+    ]
+  },
+  {
+    "id": "s15",
+    "area": "Bank",
+    "title": "Konta bankowe",
+    "subtitle": "Salda, wyciągi i uzgodnienia",
+    "kind": "list",
+    "refs": [
+      "§4",
+      "UC-04"
+    ],
+    "next": "s16",
+    "action": "Importuj wyciąg",
+    "columns": [
+      "Konto",
+      "Bank",
+      "Waluta",
+      "Saldo",
+      "Uzgodnienie"
+    ],
+    "rows": [
+      [
+        {
+          "text": "Rachunek główny",
+          "to": "s17"
+        },
+        "Bank Północny",
+        "PLN",
+        "824 180,00 zł",
+        {
+          "text": "1 różnica",
+          "tone": "warning"
+        }
+      ],
+      [
+        {
+          "text": "Rachunek EUR",
+          "to": "s17"
+        },
+        "Bank Północny",
+        "EUR",
+        "61 400,00 EUR",
+        {
+          "text": "Uzgodnione",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "Rachunek pomocniczy",
+          "to": "s17"
+        },
+        "Bank Zachodni",
+        "PLN",
+        "24 620,00 zł",
+        {
+          "text": "Uzgodnione",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ]
+    ],
+    "metrics": [
+      [
+        "Łączne saldo",
+        "1,11 mln zł",
+        "Po przeliczeniu"
+      ],
+      [
+        "Niezgodne",
+        "42,00 zł",
+        "1 pozycja"
+      ],
+      [
+        "Nowe wyciągi",
+        "2",
+        "Do importu"
+      ]
+    ],
+    "links": [
+      [
+        "Uzgodnij bank",
+        "s17"
+      ],
+      [
+        "Prognoza gotówki",
+        "s19"
+      ]
+    ],
+    "actionTarget": "s16"
+  },
+  {
+    "id": "s16",
+    "area": "Bank",
+    "title": "Import wyciągu",
+    "subtitle": "Sprawdź format i wybierz konto docelowe",
+    "kind": "form",
+    "refs": [
+      "§4"
+    ],
+    "next": "s17",
+    "action": "Przejdź do podglądu",
+    "fields": [
+      [
+        "Konto",
+        "Rachunek główny",
+        "select",
+        "Rachunek główny|Rachunek EUR|Rachunek pomocniczy"
+      ],
+      [
+        "Format",
+        "MT940",
+        "select",
+        "MT940|CAMT.053|CSV"
+      ],
+      [
+        "Data od",
+        "2026-09-01",
+        "date"
+      ],
+      [
+        "Data do",
+        "2026-09-30",
+        "date"
+      ]
+    ],
+    "summary": [
+      [
+        "Wykryte transakcje",
+        "128"
+      ],
+      [
+        "Potencjalne duplikaty",
+        "2"
+      ],
+      [
+        "Status walidacji",
+        "Gotowe do przeglądu"
+      ]
+    ]
+  },
+  {
+    "id": "s17",
+    "area": "Bank",
+    "title": "Uzgodnienie banku",
+    "subtitle": "Rachunek główny · wyciąg WB/2026/0412",
+    "kind": "reconcile",
+    "refs": [
+      "§4",
+      "UC-04"
+    ],
+    "next": "s18"
+  },
+  {
+    "id": "s18",
+    "area": "Bank",
+    "title": "Brak dopasowania",
+    "subtitle": "Opłata bankowa 42,00 zł · wyciąg WB/2026/0412",
+    "kind": "unmatched",
+    "refs": [
+      "§4",
+      "UC-04"
+    ],
+    "next": "s17"
+  },
+  {
+    "id": "s19",
+    "area": "Bank",
+    "title": "Prognoza gotówki",
+    "subtitle": "Wpływy, wydatki i planowane saldo",
+    "kind": "analytics",
+    "refs": [
+      "§4",
+      "§12"
+    ],
+    "next": "s15",
+    "metrics": [
+      [
+        "Dzisiaj",
+        "824 180 zł",
+        "Saldo operacyjne"
+      ],
+      [
+        "Za 30 dni",
+        "918 000 zł",
+        "Scenariusz bazowy"
+      ],
+      [
+        "Minimum",
+        "738 400 zł",
+        "14 października"
+      ]
+    ],
+    "series": [
+      61,
+      65,
+      58,
+      72,
+      79,
+      74,
+      87,
+      93,
+      86,
+      96,
+      102,
+      109
+    ],
+    "links": [
+      [
+        "Konta bankowe",
+        "s15"
+      ],
+      [
+        "Scenariusze budżetu",
+        "s29"
+      ]
+    ]
+  },
+  {
+    "id": "s20",
+    "area": "Środki trwałe",
+    "title": "Rejestr środków trwałych",
+    "subtitle": "Wartość, amortyzacja i zdarzenia w cyklu życia",
+    "kind": "list",
+    "refs": [
+      "§5"
+    ],
+    "next": "s21",
+    "action": "Dodaj środek",
+    "columns": [
+      "Numer",
+      "Nazwa",
+      "Kategoria",
+      "Wartość netto",
+      "Status"
+    ],
+    "rows": [
+      [
+        {
+          "text": "ST/2026/041",
+          "to": "s21"
+        },
+        "Serwer aplikacyjny",
+        "IT",
+        "48 000,00 zł",
+        {
+          "text": "Aktywny",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "ST/2026/032",
+          "to": "s21"
+        },
+        "Samochód dostawczy",
+        "Transport",
+        "92 400,00 zł",
+        {
+          "text": "Aktywny",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "ST/2026/019",
+          "to": "s21"
+        },
+        "Wyposażenie biura",
+        "Wyposażenie",
+        "8 600,00 zł",
+        {
+          "text": "Do likwidacji",
+          "tone": "warning"
+        }
+      ]
+    ],
+    "metrics": [
+      [
+        "Wartość netto",
+        "4,18 mln zł",
+        "122 aktywa"
+      ],
+      [
+        "Amortyzacja / mies.",
+        "82 400 zł",
+        "Wrzesień 2026"
+      ]
+    ],
+    "links": [
+      [
+        "Harmonogram amortyzacji",
+        "s22"
+      ]
+    ]
+  },
+  {
+    "id": "s21",
+    "area": "Środki trwałe",
+    "title": "Karta środka trwałego",
+    "subtitle": "ST/2026/041 · serwer aplikacyjny",
+    "kind": "detail",
+    "refs": [
+      "§5"
+    ],
+    "next": "s22",
+    "status": {
+      "text": "Aktywny",
+      "tone": "info",
+      "icon": "completed"
+    },
+    "facts": [
+      [
+        "Wartość początkowa",
+        "60 000,00 zł"
+      ],
+      [
+        "Wartość netto",
+        "48 000,00 zł"
+      ],
+      [
+        "Metoda",
+        "Liniowa, 20%"
+      ],
+      [
+        "Centrum kosztów",
+        "IT"
+      ]
+    ],
+    "related": [
+      [
+        "01.09.2026",
+        "Amortyzacja miesięczna",
+        "1 000,00 zł"
+      ],
+      [
+        "01.08.2026",
+        "Amortyzacja miesięczna",
+        "1 000,00 zł"
+      ]
+    ],
+    "action": "Pokaż harmonogram",
+    "actionTarget": "s22",
+    "links": [
+      [
+        "Rejestr aktywów",
+        "s20"
+      ],
+      [
+        "Centra kosztów",
+        "s30"
+      ]
+    ]
+  },
+  {
+    "id": "s22",
+    "area": "Środki trwałe",
+    "title": "Amortyzacja",
+    "subtitle": "Harmonogram i wynik naliczenia za wrzesień 2026",
+    "kind": "workflow",
+    "refs": [
+      "§5"
+    ],
+    "next": "s20",
+    "steps": [
+      "Wybierz okres",
+      "Sprawdź aktywa",
+      "Przelicz",
+      "Zaksięguj"
+    ],
+    "status": {
+      "text": "Gotowe do przeglądu",
+      "tone": "info"
+    },
+    "checks": [
+      [
+        "Aktywa kwalifikowane",
+        "120 z 122",
+        "s20"
+      ],
+      [
+        "Planowana kwota",
+        "82 400,00 zł",
+        "s21"
+      ],
+      [
+        "Wyłączenia",
+        "2 aktywa w likwidacji",
+        "s20"
+      ]
+    ],
+    "action": "Pokaż symulację"
+  },
+  {
+    "id": "s23",
+    "area": "Waluty",
+    "title": "Kursy walut",
+    "subtitle": "Pary walutowe i zmiany kursów · źródło NBP",
+    "kind": "fx",
+    "refs": [
+      "§6"
+    ],
+    "next": "s24"
+  },
+  {
+    "id": "s24",
+    "area": "Waluty",
+    "title": "Historia EUR/PLN",
+    "subtitle": "Kurs średni NBP · ostatnie 30 dni",
+    "kind": "analytics",
+    "refs": [
+      "§6"
+    ],
+    "next": "s25",
+    "metrics": [
+      [
+        "Kurs aktualny",
+        "4,3400",
+        "25 września"
+      ],
+      [
+        "Zmiana 30 dni",
+        "+1,2%",
+        "Względem 25 sierpnia"
+      ],
+      [
+        "Źródło",
+        "NBP A",
+        "Tabela 187/A/NBP/2026"
+      ]
+    ],
+    "series": [
+      55,
+      60,
+      58,
+      71,
+      65,
+      72,
+      77,
+      68,
+      82,
+      79,
+      88,
+      92
+    ],
+    "links": [
+      [
+        "Wszystkie kursy",
+        "s23"
+      ],
+      [
+        "Różnice kursowe",
+        "s25"
+      ]
+    ]
+  },
+  {
+    "id": "s25",
+    "area": "Waluty",
+    "title": "Różnice kursowe",
+    "subtitle": "Rozliczenie wpłaty do FS/2026/091",
+    "kind": "detail",
+    "refs": [
+      "§6"
+    ],
+    "next": "s23",
+    "status": {
+      "text": "Do zaksięgowania",
+      "tone": "warning"
+    },
+    "facts": [
+      [
+        "Kwota faktury",
+        "8 000,00 EUR"
+      ],
+      [
+        "Kurs faktury",
+        "4,2800 PLN"
+      ],
+      [
+        "Kurs wpłaty",
+        "4,3400 PLN"
+      ],
+      [
+        "Zysk kursowy",
+        "480,00 zł"
+      ]
+    ],
+    "related": [
+      [
+        "Faktura",
+        "FS/2026/091",
+        "34 240,00 zł"
+      ],
+      [
+        "Wpłata",
+        "WB/2026/0412",
+        "34 720,00 zł"
+      ]
+    ],
+    "action": "Zaksięguj różnicę",
+    "actionKind": "confirm",
+    "links": [
+      [
+        "Historia kursu",
+        "s24"
+      ],
+      [
+        "Zapis księgowy",
+        "s4"
+      ]
+    ]
+  },
+  {
+    "id": "s26",
+    "area": "Budżety",
+    "title": "Budżety",
+    "subtitle": "Wersje planu i poziom wykorzystania środków",
+    "kind": "list",
+    "refs": [
+      "§7"
+    ],
+    "next": "s27",
+    "action": "Nowa wersja",
+    "columns": [
+      "Budżet",
+      "Okres",
+      "Plan",
+      "Wykonanie",
+      "Status"
+    ],
+    "rows": [
+      [
+        {
+          "text": "Budżet operacyjny 2026",
+          "to": "s27"
+        },
+        "2026",
+        "8 400 000 zł",
+        "6 120 000 zł",
+        {
+          "text": "Aktywny",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "IT · IV kwartał 2026",
+          "to": "s27"
+        },
+        "Paź–gru 2026",
+        "480 000 zł",
+        "362 000 zł",
+        {
+          "text": "Aktywny",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "Marketing · IV kwartał 2026",
+          "to": "s27"
+        },
+        "Paź–gru 2026",
+        "240 000 zł",
+        "260 000 zł",
+        {
+          "text": "Przekroczony",
+          "tone": "warning"
+        }
+      ]
+    ],
+    "metrics": [
+      [
+        "Plan roczny",
+        "8,4 mln zł",
+        "Wersja aktywna"
+      ],
+      [
+        "Wykorzystanie",
+        "73%",
+        "Do 25 września"
+      ],
+      [
+        "Wnioski",
+        "4",
+        "Do decyzji"
+      ]
+    ],
+    "links": [
+      [
+        "Wniosek o środki",
+        "s28"
+      ],
+      [
+        "Analiza odchyleń",
+        "s29"
+      ]
+    ],
+    "actionTarget": "s27"
+  },
+  {
+    "id": "s27",
+    "area": "Budżety",
+    "title": "Edytor budżetu",
+    "subtitle": "IT · IV kwartał 2026 · wersja robocza",
+    "kind": "budget",
+    "refs": [
+      "§7"
+    ],
+    "next": "s28"
+  },
+  {
+    "id": "s28",
+    "area": "Budżety",
+    "title": "Wniosek o dodatkowe środki",
+    "subtitle": "ZK/2026/221 · zakup usług IT",
+    "kind": "request",
+    "refs": [
+      "§7",
+      "§13"
+    ],
+    "next": "s29"
+  },
+  {
+    "id": "s29",
+    "area": "Budżety",
+    "title": "Odchylenia i scenariusze",
+    "subtitle": "Plan, wykonanie i wpływ zmian na prognozę",
+    "kind": "analytics",
+    "refs": [
+      "§7"
+    ],
+    "next": "s26",
+    "metrics": [
+      [
+        "Plan",
+        "480 000 zł",
+        "IT · IV kwartał 2026"
+      ],
+      [
+        "Wykonanie",
+        "362 000 zł",
+        "75% planu"
+      ],
+      [
+        "Prognoza",
+        "514 600 zł",
+        "+34 600 zł ponad plan"
+      ]
+    ],
+    "series": [
+      47,
+      52,
+      56,
+      58,
+      64,
+      68,
+      76,
+      73,
+      81,
+      89,
+      94,
+      101
+    ],
+    "links": [
+      [
+        "Edytuj budżet",
+        "s27"
+      ],
+      [
+        "Wniosek o środki",
+        "s28"
+      ]
+    ]
+  },
+  {
+    "id": "s30",
+    "area": "Koszty",
+    "title": "Centra kosztów",
+    "subtitle": "Struktura organizacyjna kosztów i właściciele",
+    "kind": "list",
+    "refs": [
+      "§8"
+    ],
+    "next": "s31",
+    "action": "Dodaj centrum",
+    "columns": [
+      "Kod",
+      "Nazwa",
+      "Właściciel",
+      "Koszt od początku roku",
+      "Status"
+    ],
+    "rows": [
+      [
+        {
+          "text": "CC-IT",
+          "to": "s31"
+        },
+        "IT",
+        "Marta Krawiec",
+        "1 240 000 zł",
+        {
+          "text": "Aktywne",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "CC-SALES",
+          "to": "s31"
+        },
+        "Sprzedaż",
+        "Piotr Lis",
+        "960 000 zł",
+        {
+          "text": "Aktywne",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "CC-OPS",
+          "to": "s31"
+        },
+        "Operacje",
+        "Iga Borkowska",
+        "1 580 000 zł",
+        {
+          "text": "Aktywne",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ]
+    ],
+    "links": [
+      [
+        "Reguły alokacji",
+        "s31"
+      ],
+      [
+        "Rentowność",
+        "s32"
+      ]
+    ]
+  },
+  {
+    "id": "s31",
+    "area": "Koszty",
+    "title": "Reguły alokacji",
+    "subtitle": "Rozdzielanie kosztów wspólnych między centra",
+    "kind": "form",
+    "refs": [
+      "§8"
+    ],
+    "next": "s32",
+    "action": "Pokaż podgląd",
+    "fields": [
+      [
+        "Źródło",
+        "CC-OPS",
+        "select",
+        "CC-OPS|CC-IT|CC-SALES"
+      ],
+      [
+        "Metoda",
+        "Udział przychodów",
+        "select",
+        "Udział przychodów|Liczba etatów|Kwota stała"
+      ],
+      [
+        "Okres",
+        "Wrzesień 2026",
+        "select",
+        "Wrzesień 2026|Sierpień 2026|Październik 2026"
+      ],
+      [
+        "Udział IT (%)",
+        "45",
+        "number"
+      ],
+      [
+        "Udział Sprzedaż (%)",
+        "55",
+        "number"
+      ]
+    ],
+    "summary": [
+      [
+        "Koszt do rozdzielenia",
+        "84 000,00 zł"
+      ],
+      [
+        "Przypisano",
+        "100%"
+      ],
+      [
+        "Wariant",
+        "Roboczy"
+      ]
+    ],
+    "actionTarget": "s32"
+  },
+  {
+    "id": "s32",
+    "area": "Koszty",
+    "title": "Wynik alokacji i rentowność",
+    "subtitle": "Koszty po alokacji · wrzesień 2026",
+    "kind": "analytics",
+    "refs": [
+      "§8"
+    ],
+    "next": "s30",
+    "metrics": [
+      [
+        "Koszt alokowany",
+        "84 000 zł",
+        "2 centra docelowe"
+      ],
+      [
+        "Marża IT",
+        "34,8%",
+        "Po alokacji"
+      ],
+      [
+        "Marża Sprzedaż",
+        "27,2%",
+        "Po alokacji"
+      ]
+    ],
+    "series": [
+      41,
+      46,
+      51,
+      48,
+      57,
+      61,
+      66,
+      68,
+      73,
+      77,
+      80,
+      85
+    ],
+    "links": [
+      [
+        "Centra kosztów",
+        "s30"
+      ],
+      [
+        "Reguły alokacji",
+        "s31"
+      ]
+    ]
+  },
+  {
+    "id": "s33",
+    "area": "Grupa",
+    "title": "Spółki i rozrachunki grupowe",
+    "subtitle": "Powiązane jednostki, salda i transakcje wewnątrzgrupowe",
+    "kind": "list",
+    "refs": [
+      "§9"
+    ],
+    "next": "s34",
+    "action": "Dodaj transakcję IC",
+    "columns": [
+      "Spółka",
+      "Transakcje",
+      "Należności",
+      "Zobowiązania",
+      "Status"
+    ],
+    "rows": [
+      [
+        {
+          "text": "Mercato Polska",
+          "to": "s34"
+        },
+        "32",
+        "248 000 zł",
+        "104 000 zł",
+        {
+          "text": "2 różnice",
+          "tone": "warning"
+        }
+      ],
+      [
+        {
+          "text": "Mercato Czechy",
+          "to": "s34"
+        },
+        "18",
+        "92 000 zł",
+        "214 000 zł",
+        {
+          "text": "Dopasowane",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "Mercato Niemcy",
+          "to": "s34"
+        },
+        "24",
+        "186 000 zł",
+        "208 000 zł",
+        {
+          "text": "Dopasowane",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ]
+    ],
+    "links": [
+      [
+        "Dopasowanie IC",
+        "s34"
+      ],
+      [
+        "Konsolidacja",
+        "s35"
+      ]
+    ]
+  },
+  {
+    "id": "s34",
+    "area": "Grupa",
+    "title": "Dopasowanie transakcji wewnątrzgrupowych",
+    "subtitle": "Mercato Polska ↔ Mercato Czechy",
+    "kind": "reconcile",
+    "refs": [
+      "§9"
+    ],
+    "next": "s35",
+    "group": true
+  },
+  {
+    "id": "s35",
+    "area": "Grupa",
+    "title": "Konsolidacja",
+    "subtitle": "Grupa Mercato · wrzesień 2026",
+    "kind": "workflow",
+    "refs": [
+      "§9"
+    ],
+    "next": "s33",
+    "steps": [
+      "Zbierz dane",
+      "Dopasuj IC",
+      "Eliminuj",
+      "Zatwierdź"
+    ],
+    "status": {
+      "text": "1 różnica do wyjaśnienia",
+      "tone": "warning"
+    },
+    "checks": [
+      [
+        "Mercato Polska",
+        "Dane zaimportowane",
+        "s33"
+      ],
+      [
+        "Mercato Czechy",
+        "Dane zaimportowane",
+        "s33"
+      ],
+      [
+        "Eliminacje IC",
+        "1 różnica 2 400 zł",
+        "s34"
+      ],
+      [
+        "Raport grupy",
+        "Wersja robocza",
+        "s39"
+      ]
+    ],
+    "action": "Przelicz konsolidację"
+  },
+  {
+    "id": "s36",
+    "area": "Podatki",
+    "title": "VAT i JPK",
+    "subtitle": "Deklaracje, rejestr zakupów i walidacja",
+    "kind": "tax",
+    "refs": [
+      "§10"
+    ],
+    "next": "s37"
+  },
+  {
+    "id": "s37",
+    "area": "Podatki",
+    "title": "Deklaracja JPK_V7M",
+    "subtitle": "Wrzesień 2026 · wersja robocza",
+    "kind": "workflow",
+    "refs": [
+      "§10"
+    ],
+    "next": "s36",
+    "steps": [
+      "Zbierz rejestr",
+      "Waliduj",
+      "Wygeneruj XML",
+      "Wyślij"
+    ],
+    "status": {
+      "text": "Wygenerowano",
+      "tone": "info",
+      "icon": "completed"
+    },
+    "checks": [
+      [
+        "Sprzedaż VAT",
+        "124 dokumenty",
+        "s36"
+      ],
+      [
+        "Zakup VAT",
+        "86 dokumentów",
+        "s36"
+      ],
+      [
+        "Błędy krytyczne",
+        "0",
+        "s36"
+      ],
+      [
+        "Ostrzeżenia",
+        "2 do przeglądu",
+        "s36"
+      ]
+    ],
+    "action": "Sprawdź deklarację"
+  },
+  {
+    "id": "s38",
+    "area": "Raporty",
+    "title": "Raporty finansowe",
+    "subtitle": "Gotowe widoki i raporty własne",
+    "kind": "list",
+    "refs": [
+      "§11–12"
+    ],
+    "next": "s39",
+    "action": "Nowy raport",
+    "columns": [
+      "Raport",
+      "Zakres",
+      "Ostatnia aktualizacja",
+      "Właściciel",
+      "Status"
+    ],
+    "rows": [
+      [
+        {
+          "text": "Rachunek zysków i strat",
+          "to": "s39"
+        },
+        "Mercato Polska",
+        "25 wrz 2026",
+        "Finanse",
+        {
+          "text": "Aktualny",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "Bilans",
+          "to": "s39"
+        },
+        "Mercato Polska",
+        "25 wrz 2026",
+        "Finanse",
+        {
+          "text": "Aktualny",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        {
+          "text": "Przepływy pieniężne",
+          "to": "s39"
+        },
+        "Grupa Mercato",
+        "24 wrz 2026",
+        "Kontroling",
+        {
+          "text": "Do odświeżenia",
+          "tone": "warning"
+        }
+      ],
+      [
+        {
+          "text": "Rentowność projektów",
+          "to": "s39"
+        },
+        "Mercato Polska",
+        "25 wrz 2026",
+        "Kontroling",
+        {
+          "text": "Aktualny",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ]
+    ],
+    "links": [
+      [
+        "Prognoza gotówki",
+        "s19"
+      ],
+      [
+        "Konsolidacja",
+        "s35"
+      ]
+    ],
+    "actionTarget": "s39"
+  },
+  {
+    "id": "s39",
+    "area": "Raporty",
+    "title": "Kreator raportu",
+    "subtitle": "Rachunek zysków i strat · Mercato Polska",
+    "kind": "report",
+    "refs": [
+      "§11–12"
+    ],
+    "next": "s38"
+  },
+  {
+    "id": "s40",
+    "area": "Kontrola",
+    "title": "Ścieżki akceptacji",
+    "subtitle": "Reguły decyzji i odpowiedzialność",
+    "kind": "approvals",
+    "refs": [
+      "§13"
+    ],
+    "next": "s41"
+  },
+  {
+    "id": "s41",
+    "area": "Kontrola",
+    "title": "Dziennik audytu",
+    "subtitle": "Zmiany i decyzje w module finansowym",
+    "kind": "list",
+    "refs": [
+      "§13"
+    ],
+    "next": "s40",
+    "action": "Eksportuj dziennik",
+    "columns": [
+      "Czas",
+      "Użytkownik",
+      "Zdarzenie",
+      "Obiekt",
+      "Wynik"
+    ],
+    "rows": [
+      [
+        "25 wrz · 14:26",
+        "Anna Nowak",
+        "Zaksięgowano różnicę kursową",
+        {
+          "text": "PK/2026/0925",
+          "to": "s4"
+        },
+        {
+          "text": "Sukces",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        "25 wrz · 11:08",
+        "Piotr Lis",
+        "Potwierdzono kontrolę faktury",
+        {
+          "text": "FZ/09/2026/088",
+          "to": "s8"
+        },
+        {
+          "text": "Sukces",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ],
+      [
+        "24 wrz · 16:44",
+        "Marta Krawiec",
+        "Wysłano wniosek o środki",
+        {
+          "text": "ZK/2026/221",
+          "to": "s28"
+        },
+        {
+          "text": "Oczekuje",
+          "tone": "warning"
+        }
+      ],
+      [
+        "24 wrz · 10:12",
+        "Anna Nowak",
+        "Zmieniono regułę alokacji",
+        {
+          "text": "REG/2026/017",
+          "to": "s31"
+        },
+        {
+          "text": "Sukces",
+          "tone": "info",
+          "icon": "completed"
+        }
+      ]
+    ],
+    "links": [
+      [
+        "Ścieżki akceptacji",
+        "s40"
+      ]
+    ]
+  },
+  {
+    "id": "s42",
+    "area": "Należności",
+    "title": "Nowa faktura sprzedaży",
+    "subtitle": "Dane stron, pozycje, płatność i przygotowanie do KSeF",
+    "kind": "invoice-form",
+    "refs": [
+      "§3",
+      "§10"
+    ],
+    "next": "s12",
+    "invoiceType": "sales"
+  },
+  {
+    "id": "s43",
+    "area": "Zobowiązania",
+    "title": "Nowa faktura dostawcy",
+    "subtitle": "Dokument zakupu, VAT i powiązanie z zamówieniem",
+    "kind": "invoice-form",
+    "refs": [
+      "§2",
+      "§10"
+    ],
+    "next": "s8",
+    "invoiceType": "purchase"
+  }
+]

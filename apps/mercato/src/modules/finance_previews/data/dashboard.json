@@ -1,0 +1,95 @@
+{
+  "copy": {
+    "balance": "Środki na rachunkach",
+    "asOf": "25 wrz 2026",
+    "month": "we wrześniu",
+    "balanceTrend": "Saldo rachunków od stycznia",
+    "overdue": "Zaległe zobowiązania",
+    "dueSoon": "Do zapłaty w 7 dni",
+    "incomeMonth": "Wpływy we wrześniu",
+    "expenseMonth": "Wydatki we wrześniu",
+    "netMonth": "Bilans września",
+    "accounts": "Rachunki i salda",
+    "tasks": "Do zrobienia",
+    "cashflow": "Przepływy pieniężne",
+    "chartRange": "Zakres wykresu przepływów",
+    "chartDescription": "Miesięczne wpływy i wydatki w tysiącach złotych",
+    "income": "Wpływy",
+    "expense": "Wydatki",
+    "unit": "Kwoty w tys. zł",
+    "emptyChart": "Brak przepływów w wybranym okresie",
+    "recent": "Ostatnie operacje",
+    "viewBank": "Zobacz bank",
+    "operationTitle": "Szczegóły operacji bankowej",
+    "document": "Dokument",
+    "amount": "Kwota operacji",
+    "date": "Data operacji",
+    "account": "Rachunek",
+    "accountName": "Rachunek operacyjny · PLN",
+    "close": "Zamknij",
+    "goBank": "Otwórz uzgodnienie banku",
+    "details": "Pokaż szczegóły operacji"
+  },
+  "balance": 1284360,
+  "change": 61000,
+  "overdue": 218450,
+  "dueSoon": 342870,
+  "tasks": [
+    { "count": 2, "label": "Sprawdź faktury", "target": "s8" },
+    { "count": 3, "label": "Zaakceptuj płatności", "target": "s10" },
+    { "count": 1, "label": "Uzgodnij operację", "target": "s18" }
+  ],
+  "shortcuts": [
+    { "label": "Nowy zapis", "target": "s3", "icon": "entry" },
+    { "label": "Faktury", "target": "s7", "icon": "invoice" },
+    { "label": "Płatności", "target": "s10", "icon": "payment" },
+    { "label": "Uzgodnij bank", "target": "s17", "icon": "bank" },
+    { "label": "Raporty", "target": "s38", "icon": "report" }
+  ],
+  "ranges": [
+    { "id": "year", "label": "2026 do września", "months": 9 },
+    { "id": "half", "label": "Ostatnie 6 miesięcy", "months": 6 },
+    { "id": "quarter", "label": "III kwartał 2026", "months": 3 }
+  ],
+  "months": [
+    { "month": "sty", "income": 225, "expense": 190 },
+    { "month": "lut", "income": 250, "expense": 205 },
+    { "month": "mar", "income": 265, "expense": 220 },
+    { "month": "kwi", "income": 230, "expense": 210 },
+    { "month": "maj", "income": 280, "expense": 225 },
+    { "month": "cze", "income": 295, "expense": 235 },
+    { "month": "lip", "income": 320, "expense": 250 },
+    { "month": "sie", "income": 329, "expense": 230 },
+    { "month": "wrz", "income": 286, "expense": 225 }
+  ],
+  "operations": [
+    {
+      "id": "bank-091",
+      "title": "Wpłata od klienta",
+      "reference": "FS/2026/091",
+      "amount": 34720,
+      "date": "2026-09-25"
+    },
+    {
+      "id": "bank-088",
+      "title": "Zapłata za usługi IT",
+      "reference": "FV/88/09/2026",
+      "amount": -12300,
+      "date": "2026-09-25"
+    },
+    {
+      "id": "bank-8400",
+      "title": "Wpłata od klienta",
+      "reference": "FS/2026/088",
+      "amount": 8400,
+      "date": "2026-09-24"
+    },
+    {
+      "id": "bank-fee",
+      "title": "Opłata bankowa",
+      "reference": "Rachunek operacyjny",
+      "amount": -42,
+      "date": "2026-09-23"
+    }
+  ]
+}
