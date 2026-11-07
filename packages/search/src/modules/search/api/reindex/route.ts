@@ -15,11 +15,13 @@ import {
   acquireReindexLock,
   clearReindexLock,
   getReindexLockStatus,
+  isReindexLockDrained,
+  setReindexLockTotal,
 } from '../../lib/reindex-lock'
 import {
   completeReindexProgress,
-  ensureReindexProgressJob,
   failReindexProgress,
+  startReindexProgressJob,
 } from '../../lib/reindex-progress'
 import { reindexOpenApi } from '../openapi'
 
@@ -167,6 +169,20 @@ export async function POST(req: Request) {
 
       let result
       const orgId = typeof auth.orgId === 'string' ? auth.orgId : null
+      const progressScope = {
+        tenantId,
+        organizationId: auth.orgId ?? null,
+        userId: auth.sub ?? null,
+      }
+      const progressJobId = await startReindexProgressJob({
+        em,
+        progressService,
+        type: 'fulltext',
+        ...progressScope,
+        description: entityId
+          ? `Reindex ${entityId} (${useQueue ? 'queued' : 'sync'})`
+          : `Reindex all entities (${useQueue ? 'queued' : 'sync'})`,
+      })
 
       // Debug: List enabled entities
       const enabledEntities = searchIndexer.listEnabledEntities()
@@ -309,20 +325,12 @@ export async function POST(req: Request) {
         }
       }
 
-      await ensureReindexProgressJob({
-        em,
-        progressService,
-        type: 'fulltext',
-        tenantId,
-        organizationId: auth.orgId ?? null,
-        userId: auth.sub ?? null,
-        totalCount: result.recordsIndexed,
-        description: entityId
-          ? `Reindex ${entityId} (${useQueue ? 'queued' : 'sync'})`
-          : `Reindex all entities (${useQueue ? 'queued' : 'sync'})`,
-      })
+      await progressService.updateProgress(progressJobId, { totalCount: result.recordsIndexed }, progressScope)
       const jobsEnqueued = result.jobsEnqueued ?? 0
-      if (useQueue && jobsEnqueued > 0) {
+      const lockCounts = useQueue && jobsEnqueued > 0
+        ? await setReindexLockTotal(db, tenantId, 'fulltext', result.recordsIndexed, auth.orgId ?? null)
+        : null
+      if (useQueue && jobsEnqueued > 0 && !isReindexLockDrained(lockCounts)) {
         keepLockForQueuedWorkers = true
       } else if (!result.success) {
         await failReindexProgress({

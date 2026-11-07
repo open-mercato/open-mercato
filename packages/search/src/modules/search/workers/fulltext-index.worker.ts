@@ -10,8 +10,12 @@ import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
-import { clearReindexLock, updateReindexProgress } from '../lib/reindex-lock'
-import { hasActiveReindexProgress, incrementReindexProgress } from '../lib/reindex-progress'
+import { clearReindexLock, isReindexLockDrained, updateReindexProgress } from '../lib/reindex-lock'
+import {
+  completeReindexProgress,
+  hasActiveReindexProgress,
+  incrementReindexProgress,
+} from '../lib/reindex-progress'
 
 // Worker metadata for auto-discovery
 const DEFAULT_CONCURRENCY = 2
@@ -49,11 +53,11 @@ async function advanceFulltextReindexProgress(params: {
       return
     }
 
-    if (params.db) {
-      await updateReindexProgress(params.db, params.tenantId, 'fulltext', params.delta, params.organizationId ?? null)
-    }
+    const lockCounts = params.db
+      ? await updateReindexProgress(params.db, params.tenantId, 'fulltext', params.delta, params.organizationId ?? null)
+      : null
 
-    const completed = await incrementReindexProgress({
+    let completed = await incrementReindexProgress({
       em: params.em,
       progressService: params.progressService,
       type: 'fulltext',
@@ -61,6 +65,17 @@ async function advanceFulltextReindexProgress(params: {
       organizationId: params.organizationId ?? null,
       delta: params.delta,
     })
+    if (!completed && lockCounts && isReindexLockDrained(lockCounts)) {
+      await completeReindexProgress({
+        em: params.em,
+        progressService: params.progressService,
+        type: 'fulltext',
+        tenantId: params.tenantId,
+        organizationId: params.organizationId ?? null,
+        resultSummary: { ...lockCounts },
+      })
+      completed = true
+    }
     if (completed && params.db) {
       await clearReindexLock(params.db, params.tenantId, 'fulltext', params.organizationId ?? null)
     }

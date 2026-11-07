@@ -26,18 +26,21 @@ jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
 const mockGetReindexLockStatus = jest.fn().mockResolvedValue(null)
 const mockAcquireReindexLock = jest.fn().mockResolvedValue({ acquired: true })
 const mockClearReindexLock = jest.fn().mockResolvedValue(undefined)
+const mockSetReindexLockTotal = jest.fn()
 jest.mock('../../lib/reindex-lock', () => ({
   getReindexLockStatus: (...args: unknown[]) => mockGetReindexLockStatus(...args),
   acquireReindexLock: (...args: unknown[]) => mockAcquireReindexLock(...args),
   clearReindexLock: (...args: unknown[]) => mockClearReindexLock(...args),
+  setReindexLockTotal: (...args: unknown[]) => mockSetReindexLockTotal(...args),
+  isReindexLockDrained: jest.requireActual('../../lib/reindex-lock').isReindexLockDrained,
 }))
 
-const mockEnsureReindexProgressJob = jest.fn().mockResolvedValue('progress-1')
+const mockStartReindexProgressJob = jest.fn().mockResolvedValue('progress-1')
 const mockCompleteReindexProgress = jest.fn().mockResolvedValue(undefined)
 const mockFailReindexProgress = jest.fn().mockResolvedValue(undefined)
 const mockCancelReindexProgress = jest.fn().mockResolvedValue(undefined)
 jest.mock('../../lib/reindex-progress', () => ({
-  ensureReindexProgressJob: (...args: unknown[]) => mockEnsureReindexProgressJob(...args),
+  startReindexProgressJob: (...args: unknown[]) => mockStartReindexProgressJob(...args),
   completeReindexProgress: (...args: unknown[]) => mockCompleteReindexProgress(...args),
   failReindexProgress: (...args: unknown[]) => mockFailReindexProgress(...args),
   cancelReindexProgress: (...args: unknown[]) => mockCancelReindexProgress(...args),
@@ -50,6 +53,8 @@ import { SearchService } from '../../../../service'
 import { FullTextSearchStrategy } from '../../../../strategies/fulltext.strategy'
 import type { FullTextSearchDriver } from '../../../../fulltext/types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+
+const mockProgressService = { updateProgress: jest.fn().mockResolvedValue(undefined) }
 
 function mockAuth() {
   mockGetAuthFromRequest.mockResolvedValue({
@@ -73,6 +78,10 @@ describe('POST /api/search/reindex', () => {
     mockGetReindexLockStatus.mockResolvedValue(null)
     mockAcquireReindexLock.mockResolvedValue({ acquired: true })
     mockClearReindexLock.mockResolvedValue(undefined)
+    mockSetReindexLockTotal.mockImplementation(async (_db: unknown, _tenantId: string, _type: string, totalCount: number) => ({
+      processedCount: 0,
+      totalCount,
+    }))
   })
 
   test('clears the fulltext lock when no indexable strategy is configured', async () => {
@@ -81,7 +90,7 @@ describe('POST /api/search/reindex', () => {
     const mockContainer = {
       resolve: jest.fn((name: string) => {
         if (name === 'em') return mockEm
-        if (name === 'progressService') return { progress: true }
+        if (name === 'progressService') return mockProgressService
         if (name === 'searchStrategies') return []
         throw new Error(`Unknown service: ${name}`)
       }),
@@ -118,7 +127,7 @@ describe('POST /api/search/reindex', () => {
     const mockContainer = {
       resolve: jest.fn((name: string) => {
         if (name === 'em') return mockEm
-        if (name === 'progressService') return { progress: true }
+        if (name === 'progressService') return mockProgressService
         if (name === 'searchStrategies') return [mockStrategy]
         if (name === 'searchIndexer') return mockSearchIndexer
         throw new Error(`Unknown service: ${name}`)
@@ -148,13 +157,17 @@ describe('POST /api/search/reindex', () => {
         useQueue: true,
       }),
     )
-    expect(mockEnsureReindexProgressJob).toHaveBeenCalledWith(
+    expect(mockStartReindexProgressJob).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'fulltext',
         tenantId: 'tenant-123',
         organizationId: 'org-456',
-        totalCount: 0,
       }),
+    )
+    expect(mockProgressService.updateProgress).toHaveBeenCalledWith(
+      'progress-1',
+      { totalCount: 0 },
+      expect.objectContaining({ tenantId: 'tenant-123', organizationId: 'org-456' }),
     )
     expect(mockCompleteReindexProgress).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -199,7 +212,7 @@ describe('POST /api/search/reindex', () => {
     const mockContainer = {
       resolve: jest.fn((name: string) => {
         if (name === 'em') return mockEm
-        if (name === 'progressService') return { progress: true }
+        if (name === 'progressService') return mockProgressService
         if (name === 'searchStrategies') return [strategy]
         if (name === 'searchIndexer') return searchIndexer
         throw new Error(`Unknown service: ${name}`)
@@ -270,7 +283,7 @@ describe('POST /api/search/reindex', () => {
     const mockContainer = {
       resolve: jest.fn((name: string) => {
         if (name === 'em') return mockEm
-        if (name === 'progressService') return { progress: true }
+        if (name === 'progressService') return mockProgressService
         if (name === 'searchStrategies') return [strategy]
         if (name === 'searchIndexer') return searchIndexer
         throw new Error(`Unknown service: ${name}`)
@@ -293,7 +306,9 @@ describe('POST /api/search/reindex', () => {
       jobType: 'batch-index',
       records: [{ entityId: 'test:customer', recordId: 'c-1' }],
     }))
-    expect(mockEnsureReindexProgressJob).toHaveBeenCalledWith(expect.objectContaining({ totalCount: 1 }))
+    expect(mockStartReindexProgressJob.mock.invocationCallOrder[0]).toBeLessThan(enqueue.mock.invocationCallOrder[0])
+    expect(mockProgressService.updateProgress).toHaveBeenCalledWith('progress-1', { totalCount: 1 }, expect.anything())
+    expect(mockSetReindexLockTotal).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 1, 'org-456')
     expect(mockFailReindexProgress).not.toHaveBeenCalled()
     expect(mockCompleteReindexProgress).not.toHaveBeenCalled()
     expect(mockClearReindexLock).not.toHaveBeenCalled()
@@ -307,7 +322,64 @@ describe('POST /api/search/reindex', () => {
     expect(retry.status).toBe(409)
     expect(mockAcquireReindexLock).toHaveBeenCalledTimes(1)
     expect(enqueue).toHaveBeenCalledTimes(1)
-    expect(mockEnsureReindexProgressJob).toHaveBeenCalledTimes(1)
+    expect(mockStartReindexProgressJob).toHaveBeenCalledTimes(1)
+  })
+
+  test('starts progress before enqueueing and settles a queued reindex whose batches drained before the request finished', async () => {
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    mockSetReindexLockTotal.mockResolvedValue({ processedCount: 2, totalCount: 2 })
+    const driver: FullTextSearchDriver = {
+      id: 'meilisearch',
+      ensureReady: jest.fn(async () => {}),
+      isHealthy: jest.fn(async () => true),
+      search: jest.fn(async () => []),
+      index: jest.fn(async () => {}),
+      delete: jest.fn(async () => {}),
+      bulkIndex: jest.fn(async () => {}),
+      purge: jest.fn(async () => {}),
+      recreateIndex: jest.fn(async () => {}),
+    }
+    const strategy = new FullTextSearchStrategy(driver)
+    const queryEngine = {
+      query: jest.fn(async () => ({
+        items: [{ id: 'p-1', organization_id: 'org-456' }, { id: 'p-2', organization_id: 'org-456' }],
+        total: 2,
+      })),
+    } as unknown as QueryEngine
+    const enqueue = jest.fn(async () => 'job-1')
+    const searchIndexer = new SearchIndexer(
+      new SearchService({ strategies: [strategy] }),
+      [{ entities: [{ entityId: 'test:product', enabled: true }] }],
+      { queryEngine, fulltextQueue: { enqueue } as unknown as SearchIndexerOptions['fulltextQueue'] },
+    )
+    const mockContainer = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return mockEm
+        if (name === 'progressService') return mockProgressService
+        if (name === 'searchStrategies') return [strategy]
+        if (name === 'searchIndexer') return searchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    }
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await fulltextReindexPost(makeRequest({ action: 'reindex' }))
+    const body = await res.json()
+
+    expect(body.ok).toBe(true)
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(mockStartReindexProgressJob.mock.invocationCallOrder[0]).toBeLessThan(enqueue.mock.invocationCallOrder[0])
+    expect(mockSetReindexLockTotal).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 2, 'org-456')
+    expect(mockCompleteReindexProgress).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'fulltext',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      resultSummary: expect.objectContaining({ recordsIndexed: 2, jobsEnqueued: 1 }),
+    }))
+    expect(mockFailReindexProgress).not.toHaveBeenCalled()
+    expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
   })
 
   test('cancel removes only current tenant and organization fulltext queue jobs', async () => {
