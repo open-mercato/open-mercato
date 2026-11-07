@@ -66,6 +66,7 @@ import {
   computeDefinitionContextLedger,
   warmContextLedgerResolvers,
 } from '../../../lib/definition-context-schema'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { evaluateWorkflowDefinition } from '../../../lib/definition-evaluation'
 import { listWorkflowFunctions } from '../../../lib/workflow-function-registry'
 import { listWorkflowSafeCommands } from '../../../lib/workflow-safe-commands'
@@ -292,7 +293,8 @@ export async function POST(request: NextRequest) {
     }
 
     const ledger = await tryComputeLedger(container, interpreted.definition)
-    const evaluation = evaluateWorkflowDefinition(interpreted.definition, { ledger })
+    const { translate } = await resolveTranslations()
+    const evaluation = evaluateWorkflowDefinition(interpreted.definition, { ledger, translate })
 
     // Nothing above wrote a row, and nothing below does either — this route
     // never resolves an EntityManager, so a future write would be an obvious

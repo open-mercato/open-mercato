@@ -46,6 +46,10 @@ write time.
   an ambient transaction pass `{ flush: false }`, commit the returned database
   removal first, and invoke the returned provider cleanup only after commit;
   never delete provider bytes before a transaction can still roll back.
+- Rows MAY share a stored object (`partition_code` + `storage_path`). Any other
+  code deleting a row with its bytes MUST use `removeAttachmentRecord`
+  (`lib/storageReferences.ts`, outside a transaction) and delete the bytes only
+  when it returns `releaseStorage: true`.
 - **MUST call `assertAttachmentScopeInvariant({ tenantId, organizationId })` from
   `lib/access.ts` before persisting any new `Attachment` row.** It throws on a
   partial-null scope and accepts both fully-scoped and fully-global rows. The
@@ -55,16 +59,19 @@ write time.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.
-- **An owning module that protects writes to its own entities MUST register a
-  mutation guard** (`data/guards.ts`, `targetEntity: E.attachments.attachment`,
-  `operations: ['create']`) rather than asking `attachments` to special-case it.
-  `api/route.ts` runs the shared registry (`runMutationGuards`/
-  `getAllMutationGuardInstances`) against the normalized primary owner and every
-  `assignments` entry before any quota reservation or storage write — see
-  `packages/documents/src/modules/documents/data/guards.ts` for the reference
-  implementation (#8891). The trusted `attachmentService.createScoped()` path used
-  by a module's own dedicated upload route never reaches this guard; it only
-  covers the generic HTTP route.
+- **An owning module that protects its entities from being chosen as an
+  attachment owner declares a resolver in its own `data/attachment-access.ts`**
+  (the #6726/#6829 owner-access framework; see `lib/access-types.ts`,
+  `lib/access-registry.ts`, `lib/access-runner.ts`) rather than asking
+  `attachments` to special-case it. `api/route.ts` evaluates the normalized
+  primary owner and every `assignments` entry against `action: 'create'` right
+  after the upload's partition is resolved — before any quota reservation or
+  storage write — in addition to the existing `read`/`render`/`metadata`/
+  `reassign`/`delete`/`export` actions; see
+  `packages/documents/src/modules/documents/data/attachment-access.ts` for the
+  reference resolver (#8891). The trusted `attachmentService.createScoped()`
+  path used by a module's own dedicated upload route never reaches this check;
+  it only covers the generic HTTP route.
 
 ## Never
 

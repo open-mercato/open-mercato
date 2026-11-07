@@ -32,6 +32,10 @@ import {
   type StorefrontFixtureTracker,
 } from './storefrontCatalogHelpers';
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * TC-ECOM-006: store admin UI (SPEC-029 Phases 2–3 gate).
  * Source: .ai/specs/SPEC-029-2026-02-17-ecommerce-storefront-module.md §16 "UI paths" — store
@@ -324,7 +328,7 @@ test.describe('TC-ECOM-006: store admin UI', () => {
       await page.getByRole('button', { name: 'Add domain binding' }).first().click();
       let dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible({ timeout: UI_TIMEOUT });
-      await selectRadixOption(page, crudField(dialog, 'domainMappingId').getByRole('combobox'), new RegExp(`^${activeHost.replace(/\./g, '\\.')}`));
+      await selectRadixOption(page, crudField(dialog, 'domainMappingId').getByRole('combobox'), new RegExp(`^${escapeRegExp(activeHost)}`));
       await expect(dialog.getByText(/Only an active domain serves, so the store does not answer/)).toHaveCount(0);
       await dialog.getByRole('button', { name: 'Add binding' }).click();
       await expect(page.getByText('Domain binding added').first()).toBeVisible({ timeout: UI_TIMEOUT });
@@ -333,7 +337,7 @@ test.describe('TC-ECOM-006: store admin UI', () => {
       await page.getByRole('button', { name: 'Add domain binding' }).first().click();
       dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible({ timeout: UI_TIMEOUT });
-      await selectRadixOption(page, crudField(dialog, 'domainMappingId').getByRole('combobox'), new RegExp(`^${verifiedHost.replace(/\./g, '\\.')}`));
+      await selectRadixOption(page, crudField(dialog, 'domainMappingId').getByRole('combobox'), new RegExp(`^${escapeRegExp(verifiedHost)}`));
       await expect(
         dialog.getByText(`Only an active domain serves, so the store does not answer at ${verifiedHost} yet.`, { exact: false }),
       ).toBeVisible({ timeout: UI_TIMEOUT });
@@ -342,10 +346,10 @@ test.describe('TC-ECOM-006: store admin UI', () => {
       await dialog.getByRole('button', { name: 'Add binding' }).click();
       await expect(dialog).toBeHidden({ timeout: UI_TIMEOUT });
 
-      await expect(page.getByRole('row', { name: new RegExp(activeHost.replace(/\./g, '\\.')) })).toBeVisible({
+      await expect(page.getByRole('row', { name: new RegExp(escapeRegExp(activeHost)) })).toBeVisible({
         timeout: UI_TIMEOUT,
       });
-      const verifiedRow = page.getByRole('row', { name: new RegExp(verifiedHost.replace(/\./g, '\\.')) });
+      const verifiedRow = page.getByRole('row', { name: new RegExp(escapeRegExp(verifiedHost)) });
       await expect(verifiedRow).toBeVisible({ timeout: UI_TIMEOUT });
       await expect(verifiedRow.getByText(/Only an active domain serves/)).toBeVisible();
       await attachScreenshot(page, 'domain-bindings-table');
