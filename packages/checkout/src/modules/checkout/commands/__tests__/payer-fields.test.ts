@@ -47,7 +47,7 @@ import '../links'
 import '../templates'
 
 const mockEm = {
-  flush: jest.fn(async () => {
+  flush: jest.fn(async (): Promise<void> => {
     throw new Error(FLUSH_SENTINEL)
   }),
 }
@@ -135,6 +135,28 @@ describe.each([
       .rejects.toMatchObject(payerFieldsRejection)
     expect(mockEm.flush).not.toHaveBeenCalled()
   })
+
+  if (commandId === 'checkout.link.update') {
+    it('allows status-only deactivation of a misconfigured active link', async () => {
+      const link = storedRecord(recordId, { status: 'active', collectCustomerDetails: false })
+      mockFindOneWithDecryption.mockResolvedValue(link)
+      mockEm.flush.mockResolvedValueOnce(undefined)
+      await expect(runUpdate(commandId, { id: recordId, status: 'inactive' })).resolves.toEqual({ ok: true, slug: 'record' })
+      expect(link.status).toBe('inactive')
+      expect(link.collectCustomerDetails).toBe(false)
+      expect(mockEm.flush).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+      { status: 'active' },
+      { status: 'inactive', name: 'Renamed' },
+      { status: 'inactive', collectCustomerDetails: false },
+    ])('keeps payer validation for updates other than status-only deactivation: %j', async (patch) => {
+      mockFindOneWithDecryption.mockResolvedValue(storedRecord(recordId, { collectCustomerDetails: false }))
+      await expect(runUpdate(commandId, { id: recordId, ...patch })).rejects.toMatchObject(payerFieldsRejection)
+      expect(mockEm.flush).not.toHaveBeenCalled()
+    })
+  }
 
   it('rejects an unrelated patch while the stored record is still misconfigured', async () => {
     mockFindOneWithDecryption.mockResolvedValue(storedRecord(recordId, {
