@@ -39,7 +39,7 @@ Sales reps and managers plan around *when* deals close. The Deals area shows tha
 
 1. **A timeline endpoint**, `GET /api/customers/deals/timeline`. It is a custom read-only sibling of `api/deals/map` and `api/deals/summary`, using the same scaffold. It:
    - validates the deals-list filter subset, reusing `dealListQuerySchema`/`buildDealListFilters`, plus the grid parameters (`bucket`, `from`, `columns`, `groupBy`, `perCell`);
-   - runs one **light pass per column** (ids, lane key, close date and sort keys only, through the query engine), each capped at `TIMELINE_COLUMN_CAP`, and groups the results in memory into lane cells. `buildDealListFilters` runs **once** per request and its result is reused for every pass. Each column's `total` is exact (the engine's total, itself bounded by `OM_LIST_COUNT_CAP`); in a capped column only the lane split is partial, and the column is flagged `truncated`. The light pass sorts by `expected_close_at` and `id` only (no encrypted fields), so it never triggers the engine's plaintext-sort decryption path;
+   - runs one **light pass per column** (ids, lane key, close date and sort keys only, through the query engine): a single internal query with `pageSize = TIMELINE_COLUMN_CAP`, so each column costs one COUNT and one SELECT. Column passes run two at a time, and the results are grouped in memory into lane cells. `buildDealListFilters` runs **once** per request and its result is reused for every pass. Each column's `total` is the engine's total; in a capped column only the lane split is partial, and the column is flagged `truncated`. When the engine's own count cap (`OM_LIST_COUNT_CAP`) is hit, the total is a floor and the column's `countCapped` flag is set. The light pass sorts by `expected_close_at` and `id` only (no encrypted fields), so it never triggers the engine's plaintext-sort decryption path;
    - runs a **page-bounded heavy pass** that loads the deal rows (`title` is encrypted) and the primary company and primary person labels through `findWithDecryption`, for at most `perCell` deals per cell;
    - returns owner lanes as ids only. Names are resolved on the client the way the Kanban, List and Map already do (`fetchAssignableStaffMembers`, gated on `customers.roles.view`), so no names or emails reach users outside that gate;
    - adds the side data the view needs: overdue deals before the window, the undated count, and the nearest matching deals before and after the window;
@@ -129,7 +129,7 @@ The approved story map in `.ai/prototypes/deals-close-timeline/REQUIREMENTS.md` 
 /api/customers/deals/timeline  (custom GET route)
   ├─ zod (route-local, derived from dealListQuerySchema): filter subset + grid params
   ├─ buildDealListFilters(query, ctx) + per-column [from, to) window
-  ├─ light pass per column (queryEngine, minimal fields, ≤ TIMELINE_COLUMN_CAP rows, exact total)
+  ├─ light pass per column (queryEngine, one query of ≤ TIMELINE_COLUMN_CAP rows, two columns at a time)
   ├─ in-memory grouping → lane cells → top perCell ids per cell
   ├─ heavy pass (deal rows + primary company and person labels via findWithDecryption)
   ├─ owner lanes as ids (names resolved client-side) · stage lanes (metadata gated on customers.pipelines.view)
@@ -188,7 +188,7 @@ No new entities and no migrations.
   - **Dropped params:** `dealListQuerySchema` is `.passthrough()`, so the route builds the object passed to `buildDealListFilters` from the parsed subset above only. Close-date params (`expectedCloseAtFrom`/`To`, `hasExpectedCloseAt`), `isOverdue`, and the advanced-filter tree (`filter[...]`) never reach the builder; the window bounds close dates.
   - **Merging with the builder's output:** `buildDealListFilters` can already set `filters.expected_close_at` and `filters.status`. The per-column `[from, to)` window (`$gte`/`$lt`) and the `excludeClosed` `$nin` are **merged** into the existing operator objects for those keys (or wrapped in `$and` when an operator would collide), never assigned over them. A unit test asserts that a `status` filter from the builder survives `excludeClosed` and that the window doesn't replace a builder-set `expected_close_at` condition.
   - **`bucket`:** `'week' | 'month' | 'quarter'`, default `'week'`.
-  - **`from`:** `YYYY-MM-DD`. Defaults to the start of the bucket before the current one: last week, the current month, or the current quarter. Any value is aligned down to its bucket start.
+  - **`from`:** `YYYY-MM-DD`. Defaults to the start of last week for week columns, and to the start of the current month or quarter for month and quarter columns. Any value is aligned down to its bucket start.
   - **`columns`:** integer 1–8, default 5 for weeks and 4 for months and quarters.
   - **`groupBy`:** `'owner' | 'stage'`, default `'owner'`.
   - **`perCell`:** integer 1–10, default 3.
@@ -201,7 +201,8 @@ No new entities and no migrations.
   "bucket": "week", "groupBy": "owner", "weekStartsOn": 1,
   "from": "2026-10-19", "to": "2026-11-23",          // to = exclusive end
   "columns": [{ "index": 0, "from": "2026-10-19", "to": "2026-10-26", "isCurrent": false,
-                "total": 14, "truncated": false }],   // total exact; truncated = lane split partial
+                "total": 14, "truncated": false,       // truncated = lane split partial
+                "countCapped": false }],               // total hit OM_LIST_COUNT_CAP and is a floor
   "lanes": [{
     "key": "uuid | __unassigned | __nostage:<pipelineId>", // ownerUserId or pipelineStageId
     "kind": "owner",                                  // 'owner' | 'stage'
@@ -215,24 +216,29 @@ No new entities and no migrations.
         "id": "uuid", "title": "LIMS migration", "status": "open",
         "valueAmount": 91000, "valueCurrency": "EUR", "probability": 65, // valueAmount: number | null
         "expectedCloseAt": "2026-11-02",              // UTC calendar date
-        "pipelineId": "uuid", "pipelineStageId": "uuid",
+        "pipelineId": "uuid", "pipelineStageId": "uuid", "pipelineStage": "Qualified", // pipelineStage: the deal's stage label text, string | null
         "ownerUserId": "uuid|null", "updatedAt": "2026-10-23T09:12:44.120Z",
         "primaryCompany": { "id": "uuid", "label": "Veridian Labs" }, // or null
         "primaryPerson": { "id": "uuid", "label": "Ingrid Malmberg" }   // or null; first linked person
       }]
     }]
   }],
-  "overdueBefore": { "count": 3, "latestExpectedCloseAt": "2026-10-14" }, // open deals before `from` and before today
+  "overdueBefore": { "count": 3, "latestExpectedCloseAt": "2026-10-14", // open deals before `before`
+                    "before": "2026-10-19",            // the earlier of the window start and today
+                    "countCapped": false },
   "undatedCount": 12,                                  // matching deals with expected_close_at IS NULL
+  "undatedCountCapped": false,
   "adjacent": { "previous": "2026-10-14", "next": null }, // nearest matching close dates outside the window
   "scopeHasDeals": true,                               // any non-deleted deal in scope, ignoring filters and window
   "truncated": false,                                  // any column hit TIMELINE_COLUMN_CAP (300)
-  "cardsTruncated": false                              // heavy pass hit TIMELINE_RESPONSE_CARD_CAP (240)
+  "cardsTruncated": false,                             // heavy pass hit TIMELINE_RESPONSE_CARD_CAP (240)
+  "countsCapped": false                                // any of the counts above hit OM_LIST_COUNT_CAP
 }
 ```
 
-- **`scopeHasDeals`:** one `LIMIT 1` existence query on `customer_deals` with only the org/tenant scope and soft delete applied. It lets the page tell a new organization (first-run state) apart from one whose deals are all closed, undated, outside the window or filtered out.
-- **Cell-mode response:** `{ "lane": "uuid|__unassigned|__nostage:<pipelineId>", "column": 1, "items": [ /* same item shape */ ], "total": 5, "page": 1, "pageSize": 50, "totalPages": 1 }`. The items use the same ordering as the grid.
+- **`scopeHasDeals`:** one 1-row query on `customer_deals` with only the org/tenant scope and soft delete applied. The query engine always runs its capped count probe first (up to `OM_LIST_COUNT_CAP` + 1 rows) and then the 1-row select; the engine has no option to skip the probe. It lets the page tell a new organization (first-run state) apart from one whose deals are all closed, undated, outside the window or filtered out.
+- **Cell-mode response:** `{ "lane": "uuid|__unassigned|__nostage:<pipelineId>", "column": 1, "items": [ /* same item shape */ ], "total": 5, "page": 1, "pageSize": 50, "totalPages": 1, "countsCapped": false }`. The items use the same ordering as the grid.
+- **Capped counts:** each count carries its own flag (`columns[].countCapped`, `overdueBefore.countCapped`, `undatedCountCapped`), so one capped count never marks the others as floors. `countsCapped` is the aggregate.
 
 - **Lane rules:**
   - **Owner lanes:** owners with at least one matching deal in the window, plus every owner explicitly selected in the `ownerUserId` filter (even with zero deals). The client sorts them by resolved name; owners it can't resolve (beyond the staff lookup's 100-member page, or without `customers.roles.view`) show a generic "Owner" label with initials from the id and sort last, before `__unassigned`, which always comes last. In a truncated column, an owner whose deals all fall beyond the cap has no lane until the filters are narrowed; the truncation alert says so.
@@ -454,8 +460,8 @@ The timeline is a **close-date planning view** for CRM deals. It is not a foreca
 3. **Schemas:** `dealTimelineSavedViewSchema` in `data/validators.ts`. The timeline query schema lives in the route file, derived from `dealListQuerySchema`. Unit tests cover defaults, bounds, alignment of `from`, `excludeClosed` defaulting, and cell-mode pairing (`cellLane` without `cellColumn` → `400`, checked in the handler).
 4. **`api/deals/timeline/route.ts`:**
    - metadata, auth and scope scaffold (copied from `api/deals/map`);
-   - `buildDealListFilters` called once, then one light pass per column with a half-open `[from, to)` filter and the `excludeClosed` condition, using internal query-engine paging (`pageSize` 100) up to `TIMELINE_COLUMN_CAP` (300), sorted by `expected_close_at` and `id`, with the engine's `total` as the column total;
-   - grouping, then the heavy pass for the top `perCell` ids per cell, filled lane by lane in display order up to `TIMELINE_RESPONSE_CARD_CAP` (240): deal rows and company labels (link `orderBy: { createdAt: 'asc', id: 'asc' }`) through `findWithDecryption`;
+   - `buildDealListFilters` called once, then one light pass per column with a half-open `[from, to)` filter and the `excludeClosed` condition, as one internal query with `pageSize = TIMELINE_COLUMN_CAP` (300; a deliberate internal exception to the `pageSize ≤ 100` rule, which applies to user-facing paging — no query engine enforces a maximum), sorted by `expected_close_at` and `id`, with the engine's `total` as the column total; column passes run two at a time;
+   - grouping, then the heavy pass for the top `perCell` ids per cell, allotted round-robin (one more card per cell per round, lanes in display order, cells in column order) up to `TIMELINE_RESPONSE_CARD_CAP` (240), so no lane is starved: deal rows and company labels (link `orderBy: { createdAt: 'asc', id: 'asc' }`) through `findWithDecryption`;
    - stage lanes, with the metadata gated in-route via `rbacService.userHasAllFeatures` (wildcard-aware) on `customers.pipelines.view` and tones from `customer_dictionary_entries.color`, plus per-pipeline `__nostage:<pipelineId>` lanes;
    - side queries (`overdueBefore`, `undatedCount`, `adjacent`) using the helpers' closed-set exclusion and the UTC date;
    - cell mode;
@@ -542,6 +548,11 @@ The timeline is a **close-date planning view** for CRM deals. It is not a foreca
 
 The specs are self-contained Playwright tests. Fixtures come from `packages/core/src/helpers/integration/crmFixtures.ts` (`createDealFixture` already forwards `expectedCloseAt`, `ownerUserId` and `status`, per the deals list redesign), plus `authFixtures`. Each spec cleans up in `finally` and relies on no seeded data. Dates are computed relative to the test run's "today" in UTC.
 
+**As implemented** (`packages/core/src/modules/customers/__integration__/TC-CRM-TL-00{1,2,3}.spec.ts`, 25 tests, fixtures in `__integration__/helpers/timelineFixtures.ts`). All scenarios below are covered, with these additions and deviations:
+- **TL-001** (4 tests): adds a cross-organization **cell-mode** probe, an empty `cellColumn=` → `400`, and the list `400` for `hasExpectedCloseAt=false` + a close-date range (`code: undated_with_close_date_range`).
+- **TL-002** (11 tests): adds "two controls changed in quick succession keep both in the URL" and "`?deal=` with an unknown id keeps the drawer closed and drops the param". §7 sets the new close date through `PUT /api/customers/deals` (with the lock header) instead of the deal form's date picker; navigation from the List to the deal page is still UI. §8 "Open in List" is checked through the `buildDealsListHref({ closeDateRange })` URL, because the alert that links there needs more than 300 deals in a column. §11 schedules the follow-up with the dialog's default date and asserts `dealId`, a matching `scheduledAt` and the count increase.
+- **TL-003** (10 tests): adds "destination behind +N more opens that cell's popover with the deal focused", "two quick moves never write with a stale version" (the first save is held with `page.route`; the card is locked until it lands), and "a drawer opened while a drag is saving stays locked, then writes with the fresh version". Blocked drags (read-only, won) assert that no `PUT` is sent within 3 s. Drags scroll the card into view and check the pointer lands on it before pressing, so a card pushed below the fold (for example by the last-operation banner) can't turn the drag into a text selection.
+
 **TC-CRM-TL-001: `GET /api/customers/deals/timeline` (API)**
 1. Returns `401` without a token and `403` for a role without `customers.deals.view`.
 2. With four deals for one owner in a week window (three in one week, one in the next), `perCell=2`: the busy cell has `total: 3` and two items ordered by date then id, and the lane `total` is 4.
@@ -570,7 +581,7 @@ The specs are self-contained Playwright tests. Fixtures come from `packages/core
 2. Keyboard path: focus the card, Enter opens the drawer (Escape closes it and focus returns to the card); choose Change close date in the drawer, enter an exact date, press Cmd/Ctrl+Enter, and the card lands in the matching column.
 3. Destination not visible: change a date to one outside the window; the view stays, focus is on the flash's Show deal action, and Show deal moves the window to the card. Repeat for a date whose cell already holds `perCell` cards: Show deal opens that cell's popover with the deal focused.
 4. "+N more": from a busy cell's popover, Change close date on a hidden deal reschedules it without leaving the timeline.
-5. Drawer: Change close date from an open drawer moves the card; the drawer shows the new date. With the drawer open, dragging the same deal updates the drawer's date, and a following Mark won from the drawer succeeds (no stale-version 409).
+5. Drawer: Change close date from an open drawer moves the card; the drawer shows the new date. The drawer is modal, so the board can't be dragged while it is open: dragging the same deal right after closing the drawer, then Mark won from the reopened drawer, succeeds (no stale-version 409). Two quick moves of the same card never write with a stale version: the second is blocked while the first is in flight, or succeeds with the fresh version.
 6. Conflict: after the deal is updated through the API behind the page's back, a drag shows the record-conflict bar, the card returns to its origin, and its `aria-label` names the original date.
 7. A user without `customers.deals.manage` sees no drag affordance and no Change close date action, and Enter opens the drawer with no mutating actions.
 8. Closed deals: under All deals, a won deal has no drag affordance, and its drawer has no Change close date, Change stage, Mark won or Mark lost, only Schedule follow-up. The deal's `updatedAt` from the API is unchanged after a follow-up is scheduled from its drawer. Regression: the CRM summary's won count for the current quarter is unchanged after the page is used to reschedule an open deal next to it.
@@ -590,7 +601,7 @@ Every pass and side query goes through the Map route's scope resolution. Company
 There are no migrations; the routes and the param are additive. Rolling back means removing the page and route, and saved timeline perspectives become inert rows.
 
 ### Operational Risks
-Endpoint cost: the filter build runs once. Each column is up to 3 OFFSET pages of 100, and each page re-runs the engine's count probe, so the worst case is 8 columns × 6 queries = 48 light queries. The default (5 week columns over open deals) is typically 5 pages and 5 count probes. On top of that come the heavy pass, stage lookups and three small side queries. Lanes are unbounded, so `lanes × columns × perCell` is bounded only by the light-pass cap: the heavy pass is capped at `TIMELINE_RESPONSE_CARD_CAP` (240 = 8 columns × 3 × 10) decrypted cards per response. Cells beyond the cap return `items: []` with their exact `total`, render as "+N more" and load through cell mode, and the response sets `cardsTruncated: true`. Without the cap the worst case would be 8 × 300 = 2,400 decrypted rows and rendered cards (for example stage grouping across all pipelines). Cell mode costs one paged query. Phase 1 profiles the worst case on a seeded 10k-deal tenant (`OM_PROFILE=customers.*`). If it exceeds the deals-list p95, the follow-up is a grouped count through the query engine, not a raised cap.
+Endpoint cost: the filter build runs once. Each column is one light query of up to 300 rows plus its count probe, so the worst case is 8 columns × 2 = 16 light statements, run two columns at a time. After the column passes come five side queries (overdue, undated, previous, next, scope), also two at a time, so at most two queries are in flight per request. Each side query is the engine's capped count probe plus a 1-row select, so they add about ten statements; the probes visit at most `OM_LIST_COUNT_CAP` + 1 rows each. On top of that come the heavy pass and the stage lookups. Lanes are unbounded, so `lanes × columns × perCell` is bounded only by the light-pass cap: the heavy pass is capped at `TIMELINE_RESPONSE_CARD_CAP` (240 = 8 columns × 3 × 10) decrypted cards per response. Cells beyond the cap return `items: []` with their exact `total`, render as "+N more" and load through cell mode, and the response sets `cardsTruncated: true`. Without the cap the worst case would be 8 × 300 = 2,400 decrypted rows and rendered cards (for example stage grouping across all pipelines). Cell mode costs one paged query. Phase 1 profiles the worst case on a seeded 10k-deal tenant (`OM_PROFILE=customers.*`). If it exceeds the deals-list p95, the follow-up is a grouped count through the query engine, not a raised cap.
 
 ### Risk Register
 
@@ -664,18 +675,38 @@ Endpoint cost: the filter build runs once. Each column is up to 3 OFFSET pages o
 | core AGENTS.md | ACL boundaries respected | Compliant | Stage and pipeline metadata gated on `customers.pipelines.view`; degraded lanes otherwise |
 | core AGENTS.md | No cross-module ORM relations | Compliant | Customers-only, plus the perspectives HTTP API |
 | root AGENTS.md | `apiCall`/`readApiResultOrThrow`, no raw `fetch` | Compliant | Specified for all client calls |
-| root AGENTS.md | No hard-coded strings; `pageSize ≤ 100` | Compliant | i18n ×5; popover and light-pass paging at 100 |
+| root AGENTS.md | No hard-coded strings; `pageSize ≤ 100` | Compliant | i18n ×5; user-facing paging (the cell popover) at most 100; the light pass reads up to 300 rows per column in one internal query, a deliberate internal exception documented under API Contracts |
 | DS rules | Status tokens; no arbitrary values or `dark:` overrides | Compliant | Tone maps from `Lane.tsx`; prototype verified token-only |
 | Dialog rules | Cmd/Ctrl+Enter submit, Escape cancel | Compliant | `ChangeCloseDateDialog` |
 | BACKWARD_COMPATIBILITY.md | Additive changes only | Compliant | Route, page, param, union widening; UPGRADE note |
 | specs AGENTS.md | Integration coverage for all new API and UI paths | Compliant | TC-CRM-TL-001/002/003 |
 
 ### Verdict
-Draft, ready for review. No non-compliant items.
+Implemented (Phases 1 and 2, 2026-11-05) and revised through four code-review rounds. No non-compliant items.
 
 ## Implementation Status
-- [ ] Phase 1: read-only timeline
-- [ ] Phase 2: rescheduling
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — read-only timeline | Done | 2026-11-05 | Steps 1–10 implemented; unit tests and TC-CRM-TL-001/002 passing |
+| Phase 2 — rescheduling | Done | 2026-11-05 | Steps 11–15 implemented; TC-CRM-TL-003 passing |
+
+### Detailed Progress
+- [x] 1. `lib/dealsTimeline.ts` UTC bucket library (+ unit tests)
+- [x] 2. `hasExpectedCloseAt` list filter, contradiction `400` in the list handler (+ tests)
+- [x] 3. `dealTimelineSavedViewSchema` and the tolerant parser `lib/dealsTimelineSavedView.ts` (+ tests)
+- [x] 4. `GET /api/customers/deals/timeline` with grid and cell mode (+ route tests)
+- [x] 5. `ViewTabsRow` gains `timeline`; `BACKWARD_COMPATIBILITY.md` and UPGRADE_NOTES entries
+- [x] 6. Page, board, lanes, card, popover, controls, URL state, edge states, `TimelineDealDrawer`
+- [x] 7. Saved views on perspectives (`customers.deals.timeline`)
+- [x] 8. `buildDealsListHref` and the List's "No close date" chip (+ round-trip tests)
+- [x] 9. i18n in `en`, `pl`, `de`, `es`, `ko`
+- [x] 10. TC-CRM-TL-001 (API) and TC-CRM-TL-002 (UI read-only)
+- [x] 11. `@dnd-kit/core` declared in `packages/core`; drag between cells of one lane
+- [x] 12. `useRescheduleDeal` (optimistic move, per-deal rollback, conflict routing)
+- [x] 13. `ChangeCloseDateDialog`, keyboard navigation, Show deal focus rule, live `aria-label`
+- [x] 14. Read-only and closed-deal affordances
+- [x] 15. TC-CRM-TL-003 (UI rescheduling), review pass, verification gate
 
 ## Changelog
 
@@ -765,3 +796,24 @@ Draft, ready for review. No non-compliant items.
   - **4:** Hide closed deals and Status can't contradict each other: a closed status switches to All deals, Hide closed deals prunes closed statuses, Today and Prev/Next keep filters, Clear filters resets, saved views load normalized.
   - **5:** Open in List keeps the half-open period (`between` plus `is_before to`); a deal at exactly the next period's start is excluded and tested.
   - **6 (suggestion, adopted):** the drawer leads with the close date and Change close date, then a compact summary with Change stage beside the stage, activity with Schedule follow-up, and Mark won/lost in a separate section at the bottom. The prototype follows.
+
+### 2026-11-05
+- Implemented Phases 1 and 2 (branch `feat/deals-close-date-timeline`). Deviations and additions found during implementation:
+  - **Perspectives payload:** `maybeMigrateLegacyFilterValues` (perspectives module) erased any `settings.filters` that wasn't a v2 advanced-filter tree on read, so `filters.timeline` never survived. It now passes through records whose every entry is a versioned (`{ v: number }`) namespaced payload; the legacy flat shape is still dropped. This is a small change outside the customers module.
+  - **Response additions (additive):** items carry `pipelineStage` (the stage label for stage lanes without `customers.pipelines.view`), and `overdueBefore.before` is the date the overdue count is bounded by (the earlier of the window start and today), which the "{count} overdue before {date}" label shows.
+  - **List 400s:** the `hasExpectedCloseAt` contradiction response carries a translated `error` and a `code` (`undated_with_close_date_range`, `undated_with_overdue`).
+  - **Lane count** is pluralised (`customers.deals.timeline.lane.count.{one,few,many,other}`).
+  - **Keyboard drag** drops with Space only; Enter always opens the drawer.
+  - **No-stage lanes** come back with an empty `stage.label`; the client labels them "No stage" from the `__nostage:` key.
+
+- Browser QA pass (Chrome, local dev). Fixes:
+  - **Undated link** is pluralised (`customers.deals.timeline.undated.{one,few,many,other}`), as the lane count is.
+  - **Drawer owner** uses the same team-member name as the lane header, falling back to the deal's `owner.name`.
+  - **Card value** is never truncated: at the minimum column width the value/date row wraps instead of cutting the amount.
+  - **Drag announcements** name the deal and the column (`customers.deals.timeline.reschedule.announce.*`) instead of dnd-kit's English defaults with raw ids.
+  - **Integration cleanup:** TC-CRM-TL fixtures delete stages and pipelines by body (`deleteEntityByBody`); those routes ignore `?id=`, so the old cleanup leaked a pipeline per run.
+  - **Dialogs above the drawer:** the shared `Drawer` sits on `z-popover` (45) and `Dialog` on `z-modal` (40), so Schedule follow-up, Change close date, Change stage and Mark lost opened underneath it. `TimelineDealDrawer` now sets its content to `var(--z-index-modal)`, so dialogs opened from it stack on top and popovers stay above both. The shared primitive is unchanged; aligning `Drawer` with `Dialog` app-wide is a separate UI-package decision.
+- Code-review fix round: explicit sort comparator in saved views; module-facts budgets re-measured; capped counts surfaced as `countsCapped` and rendered as "{n}+"; one count per column with bounded query concurrency; translated timeline route errors; round-robin card cap; parsed-date contradiction check documented in OpenAPI; in-flight reschedule lock; functional URL-state updates; `closed` status in the drawer; app-locale formatting. Integration coverage closed the review gaps: Show deal focus without a manual focus, Show deal opening a full cell's popover, real drag attempts for read-only users and closed deals, a follow-up on a won deal leaving its `updatedAt` unchanged, the summary won-count regression, two quick moves without a stale-version conflict, the cross-org cell-mode probe, the search token carried by the undated link, and `?deal=` with an unknown id.
+- Code-review round 2: per-count capped flags (`columns[].countCapped`, `overdueBefore.countCapped`, `undatedCountCapped`; `countsCapped` stays the aggregate) so one capped count no longer marks every count as a floor; saved views are validated before saving (`validateDealTimelineSavedViewForSave`, the same bounds the loader applies, plus status and search length); the Architecture and cost paragraphs describe the single-query light pass, round-robin card allotment and two-at-a-time side queries; the list 400 docs say `needsAttention` "is not `true`".
+- Code-review round 3: optimistic and rollback cache writes keep the query's `dataUpdatedAt`, and write locks settle at the write's wall-clock time, so a later drag or another window's older cache can no longer release an earlier deal's lock before fetched data lands; a drawer re-read that fails shows Retry and keeps its writes disabled; URL updates made while a history back is pending wait for it to land (with a timeout fallback); saved-view save errors name the field that failed, and URL search and status values are capped at the saved-view bounds; the spec describes `scopeHasDeals` and the side-query cost as the engine runs them.
+- Code-review round 4: the drawer remembers which deal it pushed onto history (not a boolean), so reopening a different deal while a back is pending still closes with history back, and the closing deal stays hidden instead of flashing; a URL replace that lands while a back is pending no longer flushes the deferred update early; the timeline search is limited to 200 characters in the input; the saved-view Status error covers both too many and too-long values. A failed refetch keeps a deal's write lock on purpose (the cached `updatedAt` is still pre-write); the next successful fetch releases it. The intermittent TC-CRM-TL-003 drag failure was test-side: the card's centre sat below the 720 px viewport once the last-operation banner appeared, so the press missed it; drags now scroll into view and verify the hit target first.

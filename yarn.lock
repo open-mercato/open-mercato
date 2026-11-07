@@ -9132,6 +9132,7 @@ __metadata:
   resolution: "@open-mercato/core@workspace:packages/core"
   dependencies:
     "@dagrejs/dagre": "npm:^3.0.0"
+    "@dnd-kit/core": "npm:^6.3.1"
     "@mikro-orm/core": "npm:^7.1.14"
     "@mikro-orm/decorators": "npm:^7.1.14"
     "@mikro-orm/postgresql": "npm:^7.1.14"

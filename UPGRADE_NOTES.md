@@ -1,5 +1,25 @@
 # Upgrade Notes
 
+## Deals timeline view tab
+
+The Deals area gains a fourth view, **Timeline** (`/backend/customers/deals/timeline`),
+backed by the new read-only `GET /api/customers/deals/timeline` route. This is
+informational; no migration or configuration is required.
+
+- `KanbanView` and `DEALS_VIEWS` (exported from the deals `ViewTabsRow`) now include
+  `'timeline'`, appended after `'map'`. The union is additive-only, so code that keys a
+  `Record<KanbanView, …>` must add a `timeline` entry when it upgrades.
+- Deployments that override `section:customers.deals.viewTabs` with an explicit
+  `visibleViews` list keep showing exactly the views they list, so the Timeline tab stays
+  hidden until `'timeline'` is added. The page route stays published either way; disable
+  it through `entry.overrides.pages` if it is not wanted.
+- `GET /api/customers/deals` accepts an optional `hasExpectedCloseAt` boolean
+  (`false` = no close date). Combining `hasExpectedCloseAt=false` with a close-date range,
+  or with `isOverdue` while `needsAttention` is not `true`, returns `400`.
+- Perspectives keep saved `settings.filters` payloads whose every entry is a versioned
+  namespaced object (for example `{ timeline: { v: 1, ... } }`) instead of dropping them as a
+  legacy flat filter record on read; other legacy flat records are still dropped.
+
 ## Starter reuse and optional AI
 
 `yarn setup` can continue with pre-existing services after an explicit interactive confirmation. It shows port owners and restart/health states and then leaves those containers untouched, using the URLs already configured in `.env`. Declining shows `yarn om stop` guidance for the original checkout. Non-interactive users must explicitly pass `--no-infra` to use external services.

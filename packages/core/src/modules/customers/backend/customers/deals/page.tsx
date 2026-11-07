@@ -10,7 +10,12 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { createEmptyTree, makeRuleTree, makeMultiRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
-import { deserializeTree, deserializeAdvancedFilter, flatToTree, mapDictionaryColorToTone, serializeTree, type FilterFieldDef, type FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
+import { mapDictionaryColorToTone, serializeTree, type FilterFieldDef, type FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
+import {
+  extractDealListIdsFromParams,
+  readDealListFilterTreeFromParams,
+  readHasExpectedCloseAtParam,
+} from '../../../lib/dealsListHref'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -147,33 +152,6 @@ type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
 type DictionaryKey = Extract<CustomerDictionaryKind, 'deal-statuses' | 'pipeline-stages'>
 
 const PAGE_SIZE = 20
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
-function isUuid(value: string | null | undefined): value is string {
-  if (!value) return false
-  return UUID_REGEX.test(value.trim())
-}
-
-function normalizeIdCandidates(raw: Array<string>): string[] {
-  const set = new Set<string>()
-  raw.forEach((candidate) => {
-    candidate
-      .split(',')
-      .map((part) => part.trim())
-      .filter((part) => part.length > 0)
-      .forEach((part) => {
-        if (isUuid(part)) set.add(part)
-      })
-  })
-  return Array.from(set)
-}
-
-function extractIdsFromParams(params: URLSearchParams | null | undefined, key: string): string[] {
-  if (!params) return []
-  const values = params.getAll(key)
-  return normalizeIdCandidates(values)
-}
-
 function formatDateValue(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback
   const date = new Date(value)
@@ -240,23 +218,16 @@ export default function CustomersDealsPage() {
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
   const [pendingDuplicateId, setPendingDuplicateId] = React.useState<string | null>(null)
   const [needsAttentionOnly, setNeedsAttentionOnly] = React.useState(() => searchParams?.get('needsAttention') === 'true')
+  const [hasExpectedCloseAt, setHasExpectedCloseAt] = React.useState<boolean | null>(() => readHasExpectedCloseAtParam(searchParams))
   // One-shot URL hydration used as the hook's initial value. The hook is the
   // single source of truth from this point on — the page MUST NOT keep a
   // parallel `useState<AdvancedFilterTree>` (see spec "Migration & Backward
   // Compatibility" → state ownership).
-  const initialFilterTree = React.useMemo<AdvancedFilterTree>(() => {
-    if (!searchParams) return createEmptyTree()
-    const record: Record<string, string> = {}
-    searchParams.forEach((value, key) => {
-      if (key.startsWith('filter[')) record[key] = value
-    })
-    const v2 = deserializeTree(record)
-    if (v2) return v2
-    const flat = deserializeAdvancedFilter(record)
-    if (flat) return flatToTree(flat)
-    return createEmptyTree()
+  const initialFilterTree = React.useMemo<AdvancedFilterTree>(
+    () => readDealListFilterTreeFromParams(searchParams),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    [],
+  )
   // `filterPanel` lives at the top of the component so derived state below
   // (URL params, data fetch, export config) can read `filterPanel.appliedTree`
   // directly. Real `FilterFieldDef[]` arrives later from `useAutoDiscoveredFields`
@@ -280,11 +251,11 @@ export default function CustomersDealsPage() {
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
 
   const initialPersonIds = React.useMemo(
-    () => extractIdsFromParams(searchParams, 'personId'),
+    () => extractDealListIdsFromParams(searchParams, 'personId'),
     [searchParams],
   )
   const initialCompanyIds = React.useMemo(
-    () => extractIdsFromParams(searchParams, 'companyId'),
+    () => extractDealListIdsFromParams(searchParams, 'companyId'),
     [searchParams],
   )
 
@@ -372,12 +343,13 @@ export default function CustomersDealsPage() {
     if (selectedPersonIds.length) params.set('personId', selectedPersonIds.join(','))
     if (selectedCompanyIds.length) params.set('companyId', selectedCompanyIds.join(','))
     if (needsAttentionOnly) params.set('needsAttention', 'true')
+    if (hasExpectedCloseAt !== null) params.set('hasExpectedCloseAt', hasExpectedCloseAt ? 'true' : 'false')
     const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
     return params.toString()
-  }, [advancedFilterState, needsAttentionOnly, page, pageSize, search, selectedCompanyIds, selectedPersonIds, sorting])
+  }, [advancedFilterState, hasExpectedCloseAt, needsAttentionOnly, page, pageSize, search, selectedCompanyIds, selectedPersonIds, sorting])
 
   const currentParams = React.useMemo(
     () => Object.fromEntries(new URLSearchParams(queryParams)),
@@ -453,6 +425,7 @@ export default function CustomersDealsPage() {
     if (selectedPersonIds.length) selectedPersonIds.forEach((id) => params.append('personId', id))
     if (selectedCompanyIds.length) selectedCompanyIds.forEach((id) => params.append('companyId', id))
     if (needsAttentionOnly) params.set('needsAttention', 'true')
+    if (hasExpectedCloseAt !== null) params.set('hasExpectedCloseAt', hasExpectedCloseAt ? 'true' : 'false')
     if (page > 1) params.set('page', String(page))
     const advancedParams = serializeTree(advancedFilterState)
     for (const [key, val] of Object.entries(advancedParams)) {
@@ -462,7 +435,7 @@ export default function CustomersDealsPage() {
     if (queryRef.current === next) return
     queryRef.current = next
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
-  }, [pathname, router, page, search, selectedPersonIds, selectedCompanyIds, needsAttentionOnly, advancedFilterState])
+  }, [pathname, router, page, search, selectedPersonIds, selectedCompanyIds, needsAttentionOnly, hasExpectedCloseAt, advancedFilterState])
 
   const handleRefresh = React.useCallback(() => {
     void Promise.all([
@@ -609,6 +582,15 @@ export default function CustomersDealsPage() {
 
   const handleNeedsAttentionClear = React.useCallback(() => {
     setNeedsAttentionOnly(false)
+    setPage(1)
+  }, [])
+
+  const closeDatePresenceLabel = hasExpectedCloseAt
+    ? t('customers.deals.list.filters.hasCloseDate', 'Has close date')
+    : t('customers.deals.list.filters.noCloseDate', 'No close date')
+
+  const handleCloseDatePresenceClear = React.useCallback(() => {
+    setHasExpectedCloseAt(null)
     setPage(1)
   }, [])
 
@@ -1360,27 +1342,47 @@ export default function CustomersDealsPage() {
           }}
           activeFilterChips={(
             <>
-              {needsAttentionOnly ? (
+              {needsAttentionOnly || hasExpectedCloseAt !== null ? (
                 <div
                   className="flex items-center gap-2 overflow-x-auto border-b border-border bg-background px-4 py-2"
                   data-testid="active-filter-chips"
                 >
-                  <div
-                    className="inline-flex items-center gap-1"
-                    data-testid="active-filter-chip"
-                    aria-label={t('customers.deals.list.filters.needsAttention')}
-                  >
-                    <Tag variant="warning" dot>{t('customers.deals.list.filters.needsAttention')}</Tag>
-                    <IconButton
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      aria-label={t('customers.deals.list.filters.needsAttentionRemove')}
-                      onClick={handleNeedsAttentionClear}
+                  {needsAttentionOnly ? (
+                    <div
+                      className="inline-flex items-center gap-1"
+                      data-testid="active-filter-chip"
+                      aria-label={t('customers.deals.list.filters.needsAttention')}
                     >
-                      <X className="size-3" />
-                    </IconButton>
-                  </div>
+                      <Tag variant="warning" dot>{t('customers.deals.list.filters.needsAttention')}</Tag>
+                      <IconButton
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        aria-label={t('customers.deals.list.filters.needsAttentionRemove')}
+                        onClick={handleNeedsAttentionClear}
+                      >
+                        <X className="size-3" />
+                      </IconButton>
+                    </div>
+                  ) : null}
+                  {hasExpectedCloseAt !== null ? (
+                    <div
+                      className="inline-flex items-center gap-1"
+                      data-testid="active-filter-chip-close-date-presence"
+                      aria-label={closeDatePresenceLabel}
+                    >
+                      <Tag variant="neutral">{closeDatePresenceLabel}</Tag>
+                      <IconButton
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        aria-label={t('customers.deals.list.filters.closeDatePresenceRemove', 'Remove the close date filter')}
+                        onClick={handleCloseDatePresenceClear}
+                      >
+                        <X className="size-3" />
+                      </IconButton>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               <ActiveFilterChips
@@ -1400,18 +1402,23 @@ export default function CustomersDealsPage() {
             </>
           )}
           filterAwareEmptyState={{
-            active: needsAttentionOnly || associationFilterTree.root.children.length > 0 || advancedFilterState.root.children.length > 0,
+            active: needsAttentionOnly || hasExpectedCloseAt !== null || associationFilterTree.root.children.length > 0 || advancedFilterState.root.children.length > 0,
             entityNamePlural: t('customers.deals.entityPlural', 'deals'),
-            canRemoveLast: needsAttentionOnly || associationFilterTree.root.children.length > 0 || filterPanel.tree.root.children.length > 0,
+            canRemoveLast: needsAttentionOnly || hasExpectedCloseAt !== null || associationFilterTree.root.children.length > 0 || filterPanel.tree.root.children.length > 0,
             onClearAll: () => {
               handleAdvancedFilterClear()
               setSelectedPersonIds([])
               setSelectedCompanyIds([])
               setNeedsAttentionOnly(false)
+              setHasExpectedCloseAt(null)
             },
             onRemoveLast: () => {
               if (needsAttentionOnly) {
                 handleNeedsAttentionClear()
+                return
+              }
+              if (hasExpectedCloseAt !== null) {
+                handleCloseDatePresenceClear()
                 return
               }
               if (selectedCompanyIds.length > 0) {

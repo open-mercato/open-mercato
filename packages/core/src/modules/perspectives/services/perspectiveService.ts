@@ -148,6 +148,18 @@ function isPerspectivesState(value: unknown): value is PerspectivesState {
   return true
 }
 
+function isVersionedNamespacedFilters(record: Record<string, unknown>): boolean {
+  const entries = Object.values(record)
+  if (entries.length === 0) return false
+  return entries.every(
+    (entry) =>
+      !!entry
+      && typeof entry === 'object'
+      && !Array.isArray(entry)
+      && typeof (entry as Record<string, unknown>).v === 'number',
+  )
+}
+
 /**
  * Defensive migration for legacy filter state shapes captured before the
  * advanced-filter tree (SPEC-048). Existing perspectives only store either
@@ -157,6 +169,9 @@ function isPerspectivesState(value: unknown): value is PerspectivesState {
  * if old saved-view JSON were imported.
  *
  * - Tree-shaped state (`v:2` or `root` key) is passed through unchanged.
+ * - Versioned namespaced view payloads (every entry an object with a numeric
+ *   `v`, e.g. `{ timeline: { v: 1, ... } }` from the deals timeline) are passed
+ *   through unchanged.
  * - Undefined / null filters are passed through unchanged.
  * - Legacy `FilterValues`-shaped records are dropped (set to `undefined`)
  *   because there is no reliable mapping back to the new operator model;
@@ -168,6 +183,7 @@ export function maybeMigrateLegacyFilterValues(settings: PerspectiveSettings): P
   const record = filters as Record<string, unknown>
   if ('v' in record && record.v === 2) return settings
   if ('root' in record) return settings
+  if (isVersionedNamespacedFilters(record)) return settings
   logger.warn('Dropping legacy filterValues shape; please re-create the perspective with the new filter UI.')
   return { ...settings, filters: undefined }
 }

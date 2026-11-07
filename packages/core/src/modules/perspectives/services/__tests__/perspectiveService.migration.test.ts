@@ -62,6 +62,21 @@ describe('maybeMigrateLegacyFilterValues', () => {
     warnSpy.mockRestore()
   })
 
+  it('passes through versioned namespaced view payloads unchanged', () => {
+    const s: any = {
+      filters: { timeline: { v: 1, groupBy: 'stage', bucket: 'month', status: [] } },
+      searchValue: 'acme',
+    }
+    expect(maybeMigrateLegacyFilterValues(s)).toEqual(s)
+  })
+
+  it('still drops legacy records that mix versioned and plain values', () => {
+    const s: any = {
+      filters: { timeline: { v: 1 }, status: ['open'] },
+    }
+    expect(maybeMigrateLegacyFilterValues(s).filters).toBeUndefined()
+  })
+
   it('passes through undefined filters', () => {
     const s: any = {}
     expect(maybeMigrateLegacyFilterValues(s)).toEqual(s)

@@ -888,3 +888,28 @@ export const personCompanyLinkDeleteSchema = scopedSchema
 export type PersonCompanyLinkCreateInput = z.infer<typeof personCompanyLinkCreateSchema>
 export type PersonCompanyLinkUpdateInput = z.infer<typeof personCompanyLinkUpdateSchema>
 export type PersonCompanyLinkDeleteInput = z.infer<typeof personCompanyLinkDeleteSchema>
+
+export const DEAL_TIMELINE_SAVED_VIEW_VERSION = 1 as const
+
+export const DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES = 100
+
+export const DEAL_TIMELINE_SAVED_VIEW_MAX_STATUS_LENGTH = 100
+
+export const DEAL_TIMELINE_SAVED_VIEW_MAX_SEARCH_LENGTH = 200
+
+export const dealTimelineSavedViewSchema = z.object({
+  v: z.literal(DEAL_TIMELINE_SAVED_VIEW_VERSION),
+  status: z
+    .array(z.string().min(1).max(DEAL_TIMELINE_SAVED_VIEW_MAX_STATUS_LENGTH))
+    .max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES)
+    .default([]),
+  pipelineId: uuid().nullable().default(null),
+  ownerUserId: z.array(uuid()).max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES).default([]),
+  personId: z.array(uuid()).max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES).default([]),
+  companyId: z.array(uuid()).max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES).default([]),
+  excludeClosed: z.boolean().default(true),
+  groupBy: z.enum(['owner', 'stage']).default('owner'),
+  bucket: z.enum(['week', 'month', 'quarter']).default('week'),
+})
+
+export type DealTimelineSavedViewPayload = z.infer<typeof dealTimelineSavedViewSchema>
