@@ -13,11 +13,20 @@ jest.mock('../../events', () => ({
   emitPushNotificationsEvent: jest.fn(async () => undefined),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: jest.fn(
+    async (em: { find: (...args: unknown[]) => Promise<unknown[]> }, entity: unknown, where: unknown, options: unknown) =>
+      em.find(entity, where, options),
+  ),
+}))
+
 const TENANT = '00000000-0000-0000-0000-000000000001'
 const NOW = new Date('2026-07-01T12:00:00.000Z')
 // Default receipt window is [now-60m, now-15m]. This is old enough to have a receipt, still in window.
 const IN_WINDOW = new Date(NOW.getTime() - 20 * 60 * 1000)
 const TOO_FRESH = new Date(NOW.getTime() - 5 * 60 * 1000)
+const CURRENT_TOKEN = 'ExponentPushToken[aaaaaaaaaaaa0001]'
+const ROTATED_TOKEN = 'ExponentPushToken[bbbbbbbbbbbb0002]'
 
 function makeRow(overrides: Partial<PushNotificationDelivery> = {}): PushNotificationDelivery {
   return {
@@ -31,14 +40,37 @@ function makeRow(overrides: Partial<PushNotificationDelivery> = {}): PushNotific
     attempts: 1,
     lastError: null,
     sentAt: IN_WINDOW,
+    tokenSnapshot: CURRENT_TOKEN.slice(-8),
     providerResponse: { externalMessageId: 'ticket-1' },
     ...overrides,
   } as PushNotificationDelivery
 }
 
+type DeviceRow = {
+  id: string
+  tenantId: string
+  organizationId: string | null
+  userId: string
+  pushToken: string | null
+  deletedAt: Date | null
+}
+
+function makeDevice(overrides: Partial<DeviceRow> = {}): DeviceRow {
+  return {
+    id: 'device-1',
+    tenantId: TENANT,
+    organizationId: 'org-1',
+    userId: 'user-1',
+    pushToken: CURRENT_TOKEN,
+    deletedAt: null,
+    ...overrides,
+  }
+}
+
 // EM stub: `find` models the real query — status + sentAt-window filter, the SQL `workableRow`
 // predicate (non-empty ticket id AND not already receipt-checked), plus `ORDER BY sent_at ASC` and
-// the batch `limit`. `findOne` returns the configured channel; `flush` is a no-op (rows mutate in place).
+// the batch `limit`. A `UserDevice` find returns the active devices matching the `$in` id list. `findOne`
+// returns the configured channel; `flush` is a no-op (rows mutate in place).
 function ticketOf(row: PushNotificationDelivery): string {
   const id = (row.providerResponse as { externalMessageId?: unknown } | null | undefined)?.externalMessageId
   return typeof id === 'string' ? id : ''
@@ -46,9 +78,17 @@ function ticketOf(row: PushNotificationDelivery): string {
 function alreadyChecked(row: PushNotificationDelivery): boolean {
   return (row.providerResponse as { receiptChecked?: unknown } | null | undefined)?.receiptChecked === true
 }
-function makeEm(rows: PushNotificationDelivery[], channel: Record<string, unknown> | null) {
+function makeEm(
+  rows: PushNotificationDelivery[],
+  channel: Record<string, unknown> | null,
+  devices: DeviceRow[] = [makeDevice()],
+) {
   return {
-    find: jest.fn(async (_entity: unknown, where: Record<string, unknown>, options?: { limit?: number }) => {
+    find: jest.fn(async (entity: unknown, where: Record<string, unknown>, options?: { limit?: number }) => {
+      if (entity === 'UserDevice') {
+        const ids = (where.id as { $in: string[] }).$in
+        return devices.filter((d) => ids.includes(d.id) && d.tenantId === where.tenantId && d.deletedAt === null)
+      }
       const window = where.sentAt as { $gte: Date; $lte: Date }
       const matched = rows
         .filter(
@@ -89,6 +129,8 @@ function makeResolve(options: {
           return commandBus
         case 'CommunicationChannel':
           return 'CommunicationChannel'
+        case 'UserDevice':
+          return 'UserDevice'
         case 'integrationCredentialsService':
           return options.credentialsService
         default:
@@ -102,7 +144,9 @@ function makeResolve(options: {
 describe('checkPushReceipts', () => {
   it('soft-deletes the device on a DeviceNotRegistered receipt via devices.deactivate and marks the row', async () => {
     const row = makeRow({ id: 'dead-1', userDeviceId: 'dev-dead' })
-    const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null })
+    const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null }, [
+      makeDevice({ id: 'dev-dead' }),
+    ])
     const { resolve, commandBus } = makeResolve({
       checkReceipts: async () => [{ ticketId: 'ticket-1', unregistered: true }],
     })
@@ -119,6 +163,120 @@ describe('checkPushReceipts', () => {
     expect((row.providerResponse as Record<string, unknown>).receiptChecked).toBe(true)
     expect((row.providerResponse as Record<string, unknown>).unregistered).toBe(true)
     expect(row.lastError).toBe('device_unregistered')
+  })
+
+  it('keeps a device that re-registered a fresh push token after the stale delivery was sent', async () => {
+    const row = makeRow({ id: 'stale-1', userDeviceId: 'dev-rotated', tokenSnapshot: CURRENT_TOKEN.slice(-8) })
+    const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null }, [
+      makeDevice({ id: 'dev-rotated', pushToken: ROTATED_TOKEN }),
+    ])
+    const { resolve, commandBus } = makeResolve({
+      checkReceipts: async () => [{ ticketId: 'ticket-1', unregistered: true }],
+    })
+
+    const result = await checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)
+
+    expect(result).toEqual({ checked: 1, unregistered: 0 })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect((row.providerResponse as Record<string, unknown>).receiptChecked).toBe(true)
+    expect((row.providerResponse as Record<string, unknown>).unregistered).toBe(true)
+    expect(row.lastError).toBe('device_unregistered')
+  })
+
+  it('does not dispatch a deactivation for a device that is already soft-deleted', async () => {
+    const row = makeRow({ id: 'gone-1', userDeviceId: 'dev-gone' })
+    const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null }, [
+      makeDevice({ id: 'dev-gone', deletedAt: new Date('2026-07-01T11:50:00.000Z') }),
+    ])
+    const { resolve, commandBus } = makeResolve({
+      checkReceipts: async () => [{ ticketId: 'ticket-1', unregistered: true }],
+    })
+
+    const result = await checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)
+
+    expect(result).toEqual({ checked: 1, unregistered: 0 })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect((row.providerResponse as Record<string, unknown>).receiptChecked).toBe(true)
+  })
+
+  it('never treats an empty current token as matching an empty snapshot', async () => {
+    const row = makeRow({ id: 'empty-1', userDeviceId: 'dev-empty', tokenSnapshot: '' })
+    const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null }, [
+      makeDevice({ id: 'dev-empty', pushToken: '' }),
+    ])
+    const { resolve, commandBus } = makeResolve({
+      checkReceipts: async () => [{ ticketId: 'ticket-1', unregistered: true }],
+    })
+
+    const result = await checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)
+
+    expect(result).toEqual({ checked: 1, unregistered: 0 })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('deactivates a device once when several of its tickets report DeviceNotRegistered for its current token', async () => {
+    const first = makeRow({ id: 'dup-1', userDeviceId: 'dev-dup', providerResponse: { externalMessageId: 'ticket-1' } })
+    const second = makeRow({ id: 'dup-2', userDeviceId: 'dev-dup', providerResponse: { externalMessageId: 'ticket-2' } })
+    const em = makeEm([first, second], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null }, [
+      makeDevice({ id: 'dev-dup' }),
+    ])
+    const { resolve, commandBus } = makeResolve({
+      checkReceipts: async (ids) => ids.map((ticketId) => ({ ticketId, unregistered: true })),
+    })
+
+    const result = await checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)
+
+    expect(result).toEqual({ checked: 2, unregistered: 1 })
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'devices.user_devices.deactivate',
+      expect.objectContaining({ input: { id: 'dev-dup', tenantId: TENANT, userId: 'user-1', organizationId: 'org-1' } }),
+    )
+  })
+
+  it('a stale ticket for a device does not suppress the deactivation owed to its current-token ticket', async () => {
+    const stale = makeRow({
+      id: 'mix-stale',
+      userDeviceId: 'dev-mix',
+      tokenSnapshot: ROTATED_TOKEN.slice(-8),
+      providerResponse: { externalMessageId: 'ticket-1' },
+    })
+    const current = makeRow({
+      id: 'mix-current',
+      userDeviceId: 'dev-mix',
+      tokenSnapshot: CURRENT_TOKEN.slice(-8),
+      providerResponse: { externalMessageId: 'ticket-2' },
+    })
+    const em = makeEm([stale, current], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null }, [
+      makeDevice({ id: 'dev-mix' }),
+    ])
+    const { resolve, commandBus } = makeResolve({
+      checkReceipts: async (ids) => ids.map((ticketId) => ({ ticketId, unregistered: true })),
+    })
+
+    const result = await checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)
+
+    expect(result).toEqual({ checked: 2, unregistered: 1 })
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the rows unchecked for the next tick when the device lookup fails', async () => {
+    const row = makeRow({ id: 'lookup-fail-1' })
+    const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null })
+    const baseFind = em.find.getMockImplementation()
+    em.find.mockImplementation(async (entity: unknown, where: Record<string, unknown>, options?: { limit?: number }) => {
+      if (entity === 'UserDevice') throw new Error('db down')
+      return baseFind ? baseFind(entity, where, options) : []
+    })
+    const { resolve, commandBus } = makeResolve({
+      checkReceipts: async () => [{ ticketId: 'ticket-1', unregistered: true }],
+    })
+
+    await expect(checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)).rejects.toThrow('db down')
+
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect((row.providerResponse as Record<string, unknown>).receiptChecked).toBeUndefined()
   })
 
   it('keeps the device on a transient receipt (MessageRateExceeded) but marks the row checked', async () => {
