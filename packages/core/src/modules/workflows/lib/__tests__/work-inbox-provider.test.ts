@@ -36,6 +36,10 @@ import {
 import { listClaimableWorkInbox, listWorkInbox } from '../work-inbox/service'
 import { UserTask } from '../../data/entities'
 import { makeTaskVisibilityContext } from './helpers/taskVisibilityContext'
+import {
+  clearTaskEntityRegistrationsForTests,
+  registerTaskEntityLinkBuilders,
+} from '../task-entity-registry'
 
 const TENANT_ID = '11111111-2222-4333-8444-aaaaaaaaaaaa'
 const ORG_ID = '11111111-2222-4333-8444-bbbbbbbbbbbb'
@@ -372,6 +376,34 @@ describe('user_task row projection', () => {
     expect(row.priority).toBe('high')
     expect(row.entityTypes).toEqual(['sales:order'])
     expect(row.entityBindings).toHaveLength(2)
+    expect(row.entityBindings.map((binding) => binding.href)).toEqual([
+      '/backend/sales/orders/order-1',
+      '/backend/sales/orders/order-2',
+    ])
+  })
+
+  test('links a registered app entity through its builder and leaves an unregistered one unlinked', () => {
+    registerTaskEntityLinkBuilders([
+      { entityId: 'notary:notary_case', buildHref: (recordId) => `/backend/notary/cases/${recordId}` },
+    ])
+    try {
+      const row = toUserTaskWorkInboxRow(
+        makeTask({
+          entityBindings: [
+            { entityType: 'notary:notary_case', entityId: 'case-1' },
+            { entityType: 'notary:notary_deed', entityId: 'deed-1' },
+          ],
+        }),
+        NOW,
+      )
+
+      expect(row.entityBindings).toEqual([
+        { entityType: 'notary:notary_case', entityId: 'case-1', label: null, href: '/backend/notary/cases/case-1' },
+        { entityType: 'notary:notary_deed', entityId: 'deed-1', label: null, href: null },
+      ])
+    } finally {
+      clearTaskEntityRegistrationsForTests()
+    }
   })
 
   test('ignores malformed bindings instead of surfacing them', () => {

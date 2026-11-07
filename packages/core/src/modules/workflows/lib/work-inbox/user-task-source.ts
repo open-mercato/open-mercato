@@ -13,6 +13,7 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/core'
 import { UserTask } from '../../data/entities'
 import { serializeUserTask, USER_TASK_INBOX_KIND } from '../../api/tasks/serialize'
+import { resolveEntityRecordHref } from './entity-links'
 import {
   WORK_INBOX_TERMINAL_STATUSES,
   deriveWorkInboxOverdue,
@@ -82,7 +83,7 @@ function asBindings(value: unknown): WorkInboxEntityBinding[] {
     const entityId = record.entityId
     if (typeof entityType !== 'string' || typeof entityId !== 'string') continue
     const label = typeof record.label === 'string' ? record.label : null
-    bindings.push({ entityType, entityId, label })
+    bindings.push({ entityType, entityId, label, href: resolveEntityRecordHref(entityType, entityId) })
   }
   return bindings
 }

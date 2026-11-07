@@ -340,6 +340,20 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - Widening a request schema needs no deprecation window: payloads rejected before are accepted
   now, and nothing previously accepted changes. MUST NOT be re-tightened without one.
 
+## Task Entity Registration (app-owned bindings)
+
+- **`lib/task-entity-registry.ts` (PURE) is the seam** for tasks bound to entities the core
+  `ENTITY_ACL_REQUIREMENTS` table does not list: the owning module calls
+  `registerTaskEntityAclRequirements([{ entityId, view }])` and optionally
+  `registerTaskEntityLinkBuilders([{ entityId, buildHref }])` from its `workflows.ts`.
+- **Fail closed, never broadened.** `task-entity-access.ts` consults a registration ONLY for a
+  `system` entity with no core entry; core entries (and `platformOnly`) always win, an empty `view`
+  is refused at registration, and an unregistered type stays `unavailable`. MUST NOT feed the
+  registry into `entities/lib/entityAcl.ts` — that would widen the entities records API too.
+- **Links resolve server-side** (`resolveEntityRecordHref`, same-origin paths only) and travel as
+  `entityBindings[].href` on the work-inbox rows and task detail; clients fall back to
+  `buildEntityRecordHref`. Spec: `.ai/specs/2026-10-11-workflows-task-entity-registration.md`.
+
 ## Route Kinds (the handle ↔ `kind` round trip)
 
 - **`lib/route-kinds.ts` (PURE) is the ONE place a non-normal route kind is registered.** It answers
