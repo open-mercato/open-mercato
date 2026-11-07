@@ -1143,7 +1143,11 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     navigationConfirmPendingRef.current = true
     try {
       const confirmed = await confirm({
-        title: t('ui.forms.confirmUnsavedChanges', 'You have unsaved changes. Are you sure you want to leave?'),
+        title: t('ui.forms.unsavedChangesTitle', 'Discard unsaved changes?'),
+        description: t('ui.forms.unsavedChangesDescription', 'Your edits will be lost if you leave now.'),
+        confirmText: t('ui.forms.unsavedChangesDiscard', 'Discard changes'),
+        cancelText: t('ui.forms.unsavedChangesKeep', 'Keep editing'),
+        variant: 'destructive',
       })
       if (confirmed) allowNextNavigation()
       return confirmed
