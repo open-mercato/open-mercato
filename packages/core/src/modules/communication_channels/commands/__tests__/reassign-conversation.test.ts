@@ -491,6 +491,14 @@ describe('reassignConversationCommand undo', () => {
       { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
       expect.anything(),
     )
+    expect(mockFindOne).toHaveBeenNthCalledWith(
+      4,
+      em,
+      expect.anything(),
+      { id: 'conv-1', tenantId: TENANT },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      expect.anything(),
+    )
   })
 
   it('restores an unassigned thread when the action being undone assigned it', async () => {
