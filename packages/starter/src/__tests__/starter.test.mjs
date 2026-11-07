@@ -205,7 +205,7 @@ test('resolveSpawnCommand rejects cmd metacharacters instead of degrading into i
 })
 
 function quietCtx(overrides = {}) {
-  return { assertDatabaseWriteAllowedImpl: async () => ({ remote: false }), log: () => {}, flags: {}, company: { steps: { disable: [], extra: [] } }, ...overrides }
+  return { assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }), assertDatabaseWriteAllowedImpl: async () => ({ remote: false }), log: () => {}, flags: {}, company: { steps: { disable: [], extra: [] } }, ...overrides }
 }
 
 test('runSteps skips satisfied steps, applies unsatisfied ones, and stops on StepBlocked with guidance', async () => {

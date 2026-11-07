@@ -192,6 +192,7 @@ test('database setup does not mark pending or failed migrations as complete', as
   const ctx = {
     repoRoot, env: {}, flags: { noInfra: true }, log() {},
     assertDatabaseWriteAllowedImpl: async () => ({ remote: false }),
+    assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }),
     dbMigrationsMarker: 'db-migrations-test', dbMarker: 'db-initialized-test', migrationsFingerprint: 'fingerprint',
     runStreamingImpl: async (_command, args) => { invocations.push(args[0]); return migration.promise },
   }
@@ -212,6 +213,7 @@ test('database setup records successful migration but never a failed initializat
   const ctx = {
     repoRoot, env: {}, flags: { noInfra: true }, log() {},
     assertDatabaseWriteAllowedImpl: async () => ({ remote: false }),
+    assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }),
     dbMigrationsMarker: 'db-migrations-test', dbMarker: 'db-initialized-test', migrationsFingerprint: 'fingerprint',
     runStreamingImpl: async (_command, args) => args[0] === 'db:migrate' ? 0 : 3,
   }
