@@ -129,3 +129,65 @@ describe('CustomerRbacService feature policy', () => {
     ])
   })
 })
+
+describe('CustomerRbacService cache tenant boundaries', () => {
+  it('invalidates an ACL read by a portal request when a staff request changes its roles', async () => {
+    const { createCacheService, runWithCacheTenant } = await import('@open-mercato/cache')
+    const tenantId = 'customer-rbac-cache-tenant'
+    const scope = { tenantId, organizationId: 'customer-rbac-cache-org' }
+    const userId = 'customer-rbac-cache-user'
+    const em = createMockEm()
+    const cache = createCacheService({ strategy: 'memory' })
+    let features = ['portal.account.view']
+    em.findOne.mockResolvedValue(null)
+    em.find.mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserRole) return [{ role: { id: 'role-cache' } }]
+      if (entity === CustomerRoleAcl) return [{ isPortalAdmin: false, featuresJson: features }]
+      return []
+    })
+    const service = new CustomerRbacService(em as unknown as import('@mikro-orm/postgresql').EntityManager, cache)
+
+    expect(await runWithCacheTenant(null, () => service.loadAcl(userId, scope)))
+      .toEqual({ isPortalAdmin: false, features: ['portal.account.view'] })
+    features = ['portal.account.manage']
+    await runWithCacheTenant(tenantId, () => service.invalidateUserCache(userId))
+
+    expect(await runWithCacheTenant(null, () => service.loadAcl(userId, scope)))
+      .toEqual({ isPortalAdmin: false, features: ['portal.account.manage'] })
+  })
+})
+
+describe('CustomerRbacService explicit cache invalidation scope', () => {
+  it.each(['user', 'role', 'tenant'] as const)('invalidates %s cache entries without clearing another tenant', async (invalidation) => {
+    const { createCacheService, getCurrentCacheTenant, runWithCacheTenant } = await import('@open-mercato/cache')
+    const scope = { tenantId: 'explicit-cache-tenant', organizationId: 'explicit-cache-org' }
+    const userId = 'explicit-cache-user'
+    const em = createMockEm()
+    const cache = createCacheService({ strategy: 'memory' })
+    let features = ['portal.account.view']
+    em.findOne.mockResolvedValue(null)
+    em.find.mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserRole) return [{ role: { id: 'explicit-cache-role' } }]
+      if (entity === CustomerRoleAcl) return [{ isPortalAdmin: false, featuresJson: features }]
+      return []
+    })
+    const service = new CustomerRbacService(em as unknown as import('@mikro-orm/postgresql').EntityManager, cache)
+    await runWithCacheTenant('ambient-other-tenant', async () => {
+      await service.loadAcl(userId, scope)
+      expect(getCurrentCacheTenant()).toBe('ambient-other-tenant')
+    })
+    expect(await runWithCacheTenant(scope.tenantId, () => cache.keys())).toHaveLength(1)
+    await runWithCacheTenant('unrelated-tenant', () => cache.set('sentinel', 'retained', {
+      tags: ['customer_rbac:all', `customer_rbac:user:${userId}`, `customer_rbac:tenant:${scope.tenantId}`],
+    }))
+    features = ['portal.account.manage']
+    await runWithCacheTenant(null, async () => {
+      if (invalidation === 'user') await service.invalidateUserCache(userId, scope.tenantId)
+      else if (invalidation === 'role') await service.invalidateRoleCache('explicit-cache-role', scope.tenantId)
+      else await service.invalidateTenantCache(scope.tenantId)
+      expect(getCurrentCacheTenant()).toBeNull()
+    })
+    expect(await service.loadAcl(userId, scope)).toEqual({ isPortalAdmin: false, features })
+    expect(await runWithCacheTenant('unrelated-tenant', () => cache.get('sentinel'))).toBe('retained')
+  })
+})

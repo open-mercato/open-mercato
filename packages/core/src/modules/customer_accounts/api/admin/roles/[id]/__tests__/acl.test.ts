@@ -145,13 +145,13 @@ describe('customer role ACL PUT — optimistic locking + mutation guard (#3194)'
       { id: roleId },
       expect.objectContaining({ updatedAt: expect.any(Date) }),
     )
-    expect(invalidateRoleCacheMock).toHaveBeenCalledWith(roleId)
+    expect(invalidateRoleCacheMock).toHaveBeenCalledWith(roleId, tenantId)
   })
 
   it('succeeds without a version header (strictly additive — plain API consumers keep working)', async () => {
     const res = await PUT(makeRequest(['portal.orders.view'], null), { params: { id: roleId } })
     expect(res.status).toBe(200)
-    expect(invalidateRoleCacheMock).toHaveBeenCalledWith(roleId)
+    expect(invalidateRoleCacheMock).toHaveBeenCalledWith(roleId, tenantId)
   })
 
   it('blocks the write when the generic mutation guard rejects it', async () => {

@@ -97,7 +97,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   })
   if (assignmentError) return assignmentError
 
-  await customerRbacService.invalidateUserCache(targetUser.id)
+  await customerRbacService.invalidateUserCache(targetUser.id, auth.tenantId)
 
   return NextResponse.json({ ok: true })
 }

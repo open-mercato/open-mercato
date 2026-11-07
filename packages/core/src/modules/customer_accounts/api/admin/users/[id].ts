@@ -255,7 +255,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   if (rolesChanged) {
     const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
-    await customerRbacService.invalidateUserCache(user.id)
+    await customerRbacService.invalidateUserCache(user.id, user.tenantId)
   }
 
   void emitCustomerAccountsEvent('customer_accounts.user.updated', {
