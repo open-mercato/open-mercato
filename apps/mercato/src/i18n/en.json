@@ -1024,6 +1024,7 @@
   "ui.inputs.tagsInput.placeholder": "Add tag and press Enter",
   "ui.inputs.tagsInput.removeTag": "Remove {label}",
   "ui.inputs.websiteInput.placeholder": "www.example.com",
+  "ui.lookupSelect.change": "Change",
   "ui.lookupSelect.clearSelection": "Clear selection",
   "ui.lookupSelect.minQueryHint": "Type at least {minQuery} characters or paste an id to search.",
   "ui.lookupSelect.noResults": "No results",
