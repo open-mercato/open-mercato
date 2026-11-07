@@ -201,12 +201,12 @@ export function InputParametersTab(props: InputParametersTabProps) {
             )
           })}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Input
             value={localeDraft}
             placeholder={t('forms.studio.parameters.locales.add_placeholder')}
             aria-label={t('forms.studio.parameters.locales.add')}
-            className="h-8 font-mono text-xs"
+            className="h-8 min-w-0 flex-1 basis-20 font-mono text-xs"
             onChange={(event) => setLocaleDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
