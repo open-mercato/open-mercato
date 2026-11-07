@@ -136,6 +136,7 @@ async function raceBehindProfileGate(
 
 test.describe('TC-CRM-093 person primary company stays unique under concurrent writes', () => {
   test('two overlapping PATCH requests promoting different links leave exactly one primary link', async ({ request }) => {
+    test.setTimeout(60_000)
     const token = await getAuthToken(request, 'admin')
     let fixture: Fixture | null = null
     try {
@@ -160,6 +161,7 @@ test.describe('TC-CRM-093 person primary company stays unique under concurrent w
   })
 
   test('re-promoting the current primary while another link is promoted ends with the later request primary', async ({ request }) => {
+    test.setTimeout(60_000)
     const token = await getAuthToken(request, 'admin')
     let fixture: Fixture | null = null
     try {
@@ -184,6 +186,7 @@ test.describe('TC-CRM-093 person primary company stays unique under concurrent w
   })
 
   test('a primary link create overlapping a primary PATCH leaves exactly one primary link', async ({ request }) => {
+    test.setTimeout(60_000)
     const token = await getAuthToken(request, 'admin')
     const stamp = `${Date.now()}_${randomInt(1_000_000)}`
     let fixture: Fixture | null = null

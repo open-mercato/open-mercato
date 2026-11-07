@@ -622,7 +622,7 @@ describe('customers.personCompanyLinks — one primary link per person under con
       ],
       COMPANY_A_ID,
     )
-    onPersonRowLock(fixtures, () => {
+    const lockCalls = onPersonRowLock(fixtures, () => {
       fixtures.linkRows.get(LINK_A_ID)!.isPrimary = false
       fixtures.linkRows.get(LINK_B_ID)!.isPrimary = true
     })
@@ -630,7 +630,32 @@ describe('customers.personCompanyLinks — one primary link per person under con
 
     await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, linkId: LINK_C_ID, isPrimary: true }, makeCtx(fixtures.em))
 
+    expect(lockCalls).toHaveBeenCalledTimes(1)
     expect(primaryLinkIds(fixtures)).toEqual([LINK_C_ID])
+  })
+
+  it('refuses the promotion with 404 when the person is gone by the time it is locked', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+    const baseImplementation = mockFindOneWithDecryption.getMockImplementation()!
+    mockFindOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const [, ctor, , options] = args as [unknown, unknown, unknown, { lockMode?: LockMode } | undefined]
+      if (ctor === CustomerEntity && options?.lockMode === LockMode.PESSIMISTIC_WRITE) return null
+      return baseImplementation(...args)
+    })
+    const handler = commandRegistry.get('customers.personCompanyLinks.update') as CommandHandler
+
+    await expect(
+      handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, linkId: LINK_B_ID, isPrimary: true }, makeCtx(fixtures.em)),
+    ).rejects.toMatchObject({ status: 404 })
+    expect(fixtures.em.nativeUpdate).not.toHaveBeenCalled()
+    expect(primaryLinkIds(fixtures)).toEqual([LINK_A_ID])
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
   })
 
   it('keeps the target primary when its in-memory flag is stale after a concurrent promotion', async () => {
