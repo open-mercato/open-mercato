@@ -45,7 +45,7 @@ export function ClaimStageProgress({ status }: ClaimStageProgressProps) {
               {index > 0 ? <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" /> : null}
               <span
                 className={cn(
-                  'relative z-10 flex size-6 items-center justify-center rounded-full border text-xs font-semibold',
+                  'flex size-6 items-center justify-center rounded-full border text-xs font-semibold',
                   completed && 'border-status-success-icon bg-status-success-icon text-status-success-bg',
                   active && 'border-accent-indigo bg-accent-indigo text-primary-foreground',
                   !completed && !active && 'border-border bg-background text-muted-foreground',
