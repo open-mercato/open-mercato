@@ -15,16 +15,17 @@ One coupled dependency group: root manifest, shared yarn.lock and focused synthe
 2.2 Independent review and PR evidence; retain draft when verification incomplete.
 
 ## Risks
-/tmp is quota-exhausted; use /var/tmp/om-06e3151a. Existing claimed PRs 8971,8946,8857,8809,8778,8747 cover 15 source alerts. Skip their claims. Blocked groups: 508 deepmerge has no patch; 413 KaTeX patched version exceeds Mermaid range; 541 glob and 543 minimatch require incompatible major/parent upgrades, requiring maintainer approval under AGENTS.md. No issues, merges, alerts dismissed, settings/workflows changed or advisories published. No finding is declared fixed on main by a PR.
+/tmp is quota-exhausted; use /var/tmp/om-06e3151a. Existing claimed PRs 8971,8946,8857,8809,8778,8747 cover 17 source alerts. Skip their claims. Blocked groups: 508 deepmerge has no patch; 413 KaTeX patched version exceeds Mermaid range; 541 glob and 543 minimatch require incompatible major/parent upgrades, requiring maintainer approval under AGENTS.md. No issues, merges, alerts dismissed, settings/workflows changed or advisories published. No finding is declared fixed on main by a PR.
 
 ## Progress
+PR: #8982
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Dependency remediation
 
-- [ ] 1.1 Add exploit and ordinary-use regressions; demonstrate baseline failure
-- [ ] 1.2 Generate minimal compatible dependency updates and verify target removal
+- [x] 1.1 Add exploit and ordinary-use regressions; demonstrate baseline failure — 5c3153666
+- [x] 1.2 Generate minimal compatible dependency updates and verify target removal — 5c3153666
 
 ### Phase 2: Verification and review
 
