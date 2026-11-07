@@ -6,7 +6,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { formatTimeRangeLabel } from '../../lib/calendar/format'
+import { formatTimeLabel, formatTimeRangeLabel } from '../../lib/calendar/format'
 import type { CalendarItem, CalendarPlatform } from './types'
 
 const SHOW_TIME_MIN_HEIGHT_PX = 44
@@ -25,12 +25,19 @@ export type EventTone = {
   surfaceClassName: string
   titleClassName: string
   subClassName: string
+  /** Saturated type color for the leading accent bar; null falls back to the neutral token. */
+  accentColor: string | null
   style?: React.CSSProperties
 }
 
+// 18% of the type color: enough fill to read the block against the grid (the
+// previous 10% tint washed out on light surfaces) while the title stays legible.
+const TINT_ALPHA_HEX = '2E'
+const TINT_MIX_PERCENT = 18
+
 function softTintStyle(color: string): React.CSSProperties {
-  if (/^#[0-9a-fA-F]{6}$/.test(color)) return { backgroundColor: `${color}1A` }
-  return { backgroundColor: `color-mix(in srgb, ${color} 10%, transparent)` }
+  if (/^#[0-9a-fA-F]{6}$/.test(color)) return { backgroundColor: `${color}${TINT_ALPHA_HEX}` }
+  return { backgroundColor: `color-mix(in srgb, ${color} ${TINT_MIX_PERCENT}%, transparent)` }
 }
 
 export function resolveEventTone(item: CalendarItem, nowMs: number): EventTone {
@@ -39,6 +46,7 @@ export function resolveEventTone(item: CalendarItem, nowMs: number): EventTone {
       surfaceClassName: 'bg-muted/60',
       titleClassName: 'text-muted-foreground line-through',
       subClassName: 'text-muted-foreground/70',
+      accentColor: null,
     }
   }
   if (item.status === 'done' || item.end.getTime() < nowMs) {
@@ -46,6 +54,7 @@ export function resolveEventTone(item: CalendarItem, nowMs: number): EventTone {
       surfaceClassName: 'bg-muted',
       titleClassName: 'text-muted-foreground',
       subClassName: 'text-muted-foreground',
+      accentColor: null,
     }
   }
   if (item.color) {
@@ -53,6 +62,7 @@ export function resolveEventTone(item: CalendarItem, nowMs: number): EventTone {
       surfaceClassName: '',
       titleClassName: 'text-foreground',
       subClassName: 'text-muted-foreground',
+      accentColor: item.color,
       style: softTintStyle(item.color),
     }
   }
@@ -60,7 +70,21 @@ export function resolveEventTone(item: CalendarItem, nowMs: number): EventTone {
     surfaceClassName: 'bg-muted/60',
     titleClassName: 'text-foreground',
     subClassName: 'text-muted-foreground',
+    accentColor: null,
   }
+}
+
+type AccentBarProps = { color: string | null }
+
+/** Leading type-color bar shared by the time-grid blocks and the overflow stack. */
+export function EventAccentBar({ color }: AccentBarProps) {
+  return (
+    <span
+      aria-hidden
+      className={cn('absolute inset-y-1 start-0 w-1 rounded-full', !color && 'bg-muted-foreground/60')}
+      style={color ? { backgroundColor: color } : undefined}
+    />
+  )
 }
 
 export function formatTimeRange(locale: string, start: Date, end: Date): string {
@@ -117,6 +141,8 @@ export type EventBlockProps = {
   highlighted: boolean
   selected?: boolean
   nowMs: number
+  /** Narrow packed slot: tighter padding and the start time alone instead of the full range. */
+  compact?: boolean
 } & Omit<React.ComponentProps<typeof Button>, 'style' | 'children'>
 
 export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(function EventBlock(
@@ -130,6 +156,7 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
     highlighted,
     selected,
     nowMs,
+    compact = false,
     className,
     ...buttonProps
   },
@@ -140,6 +167,7 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
   const tone = resolveEventTone(item, nowMs)
   const title = item.title || t('customers.calendar.grid.untitled', 'Untitled')
   const timeRange = formatTimeRange(locale, item.start, item.end)
+  const visibleTime = compact ? formatTimeLabel(locale, item.start) : timeRange
   const showTime = height >= SHOW_TIME_MIN_HEIGHT_PX
   const wrapTitle = height >= WRAP_TITLE_MIN_HEIGHT_PX
   const hasMetaContent = item.participants.length > 0 || (item.location !== null && item.locationKind !== null)
@@ -154,11 +182,12 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
       variant="ghost"
       aria-label={`${title}, ${timeRange}`}
       className={cn(
-        'pointer-events-auto absolute h-auto flex-col items-start justify-start gap-1 whitespace-normal overflow-hidden rounded-md px-1.5 text-start outline-none hover:bg-muted/70 sm:px-3',
+        'pointer-events-auto absolute h-auto flex-col items-start justify-start gap-0.5 whitespace-normal overflow-hidden rounded-md ps-3 pe-1.5 text-start outline-none hover:bg-muted/70',
+        !compact && 'sm:gap-1 sm:ps-4 sm:pe-3',
         height >= SHOW_TIME_MIN_HEIGHT_PX ? 'py-1 sm:py-2' : 'py-0.5 sm:py-1',
         tone.surfaceClassName,
         conflicted && 'ring-1 ring-status-warning-icon',
-        selected && 'shadow-md ring-2 ring-foreground',
+        selected && 'shadow-md ring-2 ring-primary/40',
         highlighted && 'motion-safe:animate-pulse',
         conflicted || highlighted || selected ? 'z-30' : 'z-10',
         'focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-ring',
@@ -167,12 +196,13 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
       style={{ top, height, insetInlineStart, width, ...tone.style }}
       {...buttonProps}
     >
-      <span className={cn('w-full text-xs font-medium leading-4', wrapTitle ? 'line-clamp-2' : 'truncate', tone.titleClassName)}>
+      <EventAccentBar color={tone.accentColor} />
+      <span className={cn('w-full text-xs font-semibold leading-4', wrapTitle || compact ? 'line-clamp-2' : 'truncate', tone.titleClassName)}>
         {title}
       </span>
       {showTime ? (
-        <span className={cn('w-full truncate text-overline uppercase tracking-wide', tone.subClassName)}>
-          {timeRange}
+        <span className={cn('w-full truncate text-overline tracking-wide', tone.subClassName)}>
+          {visibleTime}
         </span>
       ) : null}
       {showMeta ? (

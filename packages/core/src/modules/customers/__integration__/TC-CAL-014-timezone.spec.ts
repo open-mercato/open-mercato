@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -19,6 +19,17 @@ async function readInteraction(request: APIRequestContext, token: string, person
   const interaction = body.items.find((item) => item.id === interactionId)
   expect(interaction).toBeTruthy()
   return interaction!
+}
+
+// The click can scroll the grid to reach a block, and the scroll closes a peek that just opened,
+// so opening the peek and pressing Edit are retried together until the editor shows.
+async function openEventEditor(page: Page, title: string) {
+  const timeZone = page.getByRole('dialog').getByRole('combobox', { name: 'Time zone', exact: true })
+  await expect(async () => {
+    await page.getByRole('button', { name: gridBlockName(title) }).click({ timeout: 5_000 })
+    await page.getByRole('button', { name: 'Edit', exact: true }).click({ timeout: 3_000 })
+    await expect(timeZone).toBeVisible({ timeout: 3_000 })
+  }).toPass({ timeout: 30_000 })
 }
 
 test.describe('TC-CAL-014: explicit event timezone persistence and calendar rendering', () => {
@@ -101,8 +112,7 @@ test.describe('TC-CAL-014: explicit event timezone persistence and calendar rend
       await page.goto('/backend/calendar')
       await waitForCalendarLoaded(page)
       await page.locator('[data-calendar-search]').fill(title)
-      await page.getByRole('button', { name: gridBlockName(title) }).click()
-      await page.getByRole('button', { name: 'Edit', exact: true }).click()
+      await openEventEditor(page, title)
       const editor = page.getByRole('dialog')
       await expect(editor.getByRole('combobox', { name: 'Time zone', exact: true })).toHaveText('Europe/Warsaw')
       await expect(editor.getByRole('combobox', { name: 'Starts', exact: true })).toContainText('09:15')
@@ -114,8 +124,7 @@ test.describe('TC-CAL-014: explicit event timezone persistence and calendar rend
       expect(await readInteraction(request, token, personId, interactionId)).toMatchObject({
         scheduledAt: '2026-09-29T09:15:00.000Z', timezone: 'UTC',
       })
-      await page.getByRole('button', { name: gridBlockName(title) }).click()
-      await page.getByRole('button', { name: 'Edit', exact: true }).click()
+      await openEventEditor(page, title)
       await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Time zone', exact: true })).toHaveText('UTC')
       await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Starts', exact: true })).toContainText('09:15')
     } finally {

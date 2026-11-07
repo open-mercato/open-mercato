@@ -346,6 +346,8 @@
   "customers.calendar.grid.nextDay": "Día siguiente",
   "customers.calendar.grid.nonWorking": "Día no laborable",
   "customers.calendar.grid.onPlatform": "en {platform}",
+  "customers.calendar.grid.overflowAria": "{count} eventos más, {range}",
+  "customers.calendar.grid.overflowTitle": "{count} eventos superpuestos",
   "customers.calendar.grid.previousDay": "Día anterior",
   "customers.calendar.grid.untitled": "Sin título",
   "customers.calendar.grid.venue": "Lugar: {name}",

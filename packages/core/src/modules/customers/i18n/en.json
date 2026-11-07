@@ -346,6 +346,8 @@
   "customers.calendar.grid.nextDay": "Next day",
   "customers.calendar.grid.nonWorking": "Non-working day",
   "customers.calendar.grid.onPlatform": "on {platform}",
+  "customers.calendar.grid.overflowAria": "{count} more events, {range}",
+  "customers.calendar.grid.overflowTitle": "{count} overlapping events",
   "customers.calendar.grid.previousDay": "Previous day",
   "customers.calendar.grid.untitled": "Untitled",
   "customers.calendar.grid.venue": "Venue: {name}",
