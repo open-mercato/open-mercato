@@ -144,6 +144,12 @@ export function buildRetryFailureMessage(
       'The stored run parameters are no longer valid for this integration. Start a new run from the Data Sync dashboard.',
     )
   }
+  if (failure?.code === 'integrationDisabled') {
+    return t(
+      'data_sync.runs.detail.retryIntegrationDisabled',
+      'The integration is disabled. Enable it before retrying this run.',
+    )
+  }
   return t('data_sync.runs.detail.retryError', 'Failed to retry sync run')
 }
 

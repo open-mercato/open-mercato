@@ -3,8 +3,10 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
 import { readJson, uniqueIntegrationId } from './helpers/support'
 import {
   decodeTokenScope,
+  deleteIntegrationStatesByIntegration,
   deleteSyncCursorsByIntegration,
   deleteSyncRunsByIntegration,
+  seedIntegrationStates,
   seedSyncCursors,
   seedSyncRuns,
 } from './helpers/db'
@@ -81,6 +83,8 @@ test.describe('TC-DS-013: Data sync retry from the beginning vs. resume', () => 
     ])
 
     try {
+      await seedIntegrationStates([{ ...scope, integrationId, isEnabled: true }])
+
       // Both null-cursor runs get the SAME shared-cursor state, so the only
       // difference between the two retries below is the request body. This is
       // the realistic shape: an earlier walk left a shared position, and the
@@ -153,6 +157,7 @@ test.describe('TC-DS-013: Data sync retry from the beginning vs. resume', () => 
       }
       await deleteSyncCursorsByIntegration(integrationId)
       await deleteSyncRunsByIntegration(integrationId)
+      await deleteIntegrationStatesByIntegration(integrationId)
     }
   })
 })

@@ -184,7 +184,8 @@ values through `normalizeRunParameters` against the *current* declaration:
 parameters you have since removed or re-scoped fall away, and a value that no
 longer satisfies its declaration fails the retry with a 422 instead of reaching
 the adapter. An adapter therefore never receives a set the run API would reject
-today — tighten a bound freely.
+today — tighten a bound freely. Retry also refuses with 409 `integrationDisabled`
+while the integration is disabled, like the run route.
 
 The integration detail page's schedule table also starts runs, but has no room
 for a parameter form: it submits the declared defaults and refuses the run when
