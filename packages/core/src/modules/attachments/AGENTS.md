@@ -55,6 +55,16 @@ write time.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.
+- **An owning module that protects writes to its own entities MUST register a
+  mutation guard** (`data/guards.ts`, `targetEntity: E.attachments.attachment`,
+  `operations: ['create']`) rather than asking `attachments` to special-case it.
+  `api/route.ts` runs the shared registry (`runMutationGuards`/
+  `getAllMutationGuardInstances`) against the normalized primary owner and every
+  `assignments` entry before any quota reservation or storage write — see
+  `packages/documents/src/modules/documents/data/guards.ts` for the reference
+  implementation (#8891). The trusted `attachmentService.createScoped()` path used
+  by a module's own dedicated upload route never reaches this guard; it only
+  covers the generic HTTP route.
 
 ## Never
 

@@ -1,4 +1,7 @@
 /** @jest-environment node */
+import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
     attachments: { attachment: 'attachments:attachment' },
@@ -751,5 +754,95 @@ describe('attachments API', () => {
       expect.objectContaining({ organizationId: 'selected-org' }),
       expect.any(Object),
     )
+  })
+})
+
+// Owning modules (e.g. `documents`) deny an attach to a protected owner the
+// caller cannot edit by registering a `data/guards.ts` guard targeting
+// `attachments:attachment`/`create`. These tests exercise the generic route's
+// side of that contract — collecting and running registered guards before any
+// quota reservation or storage write — without importing `documents` (#8891).
+describe('attachments API mutation guard wiring (#8891)', () => {
+  afterEach(() => {
+    registerMutationGuards([])
+  })
+
+  it('blocks an upload to a protected owner before any quota reservation or storage write', async () => {
+    const denyGuard: MutationGuard = {
+      id: 'test.deny-documents-owner',
+      targetEntity: 'attachments:attachment',
+      operations: ['create'],
+      async validate(input) {
+        const payload = input.mutationPayload as { entityId?: string } | null
+        if (payload?.entityId === 'documents:document') {
+          return { ok: false, status: 403, message: 'Forbidden' }
+        }
+        return { ok: true }
+      },
+    }
+    registerMutationGuards([{ moduleId: 'test', guards: [denyGuard] }])
+
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const fd = fdWith(file)
+    fd.set('entityId', 'documents:document')
+    fd.set('recordId', 'doc-1')
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fd as any })
+    const res = await upload(req)
+
+    expect(res.status).toBe(403)
+    expect(mockEm.create).not.toHaveBeenCalled()
+    expect(fsp.writeFile).not.toHaveBeenCalled()
+  })
+
+  it('passes the normalized primary owner and merged assignments to registered guards', async () => {
+    const seenPayloads: unknown[] = []
+    const recordingGuard: MutationGuard = {
+      id: 'test.record-payload',
+      targetEntity: 'attachments:attachment',
+      operations: ['create'],
+      async validate(input) {
+        seenPayloads.push(input.mutationPayload)
+        return { ok: true }
+      },
+    }
+    registerMutationGuards([{ moduleId: 'test', guards: [recordingGuard] }])
+
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const fd = fdWith(file)
+    fd.set('assignments', JSON.stringify([{ type: 'catalog.products', id: 'prod-1' }]))
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fd as any })
+    const res = await upload(req)
+
+    expect(res.status).toBe(200)
+    expect(seenPayloads).toEqual([
+      {
+        entityId: 'example:todo',
+        recordId: 'r1',
+        assignments: expect.arrayContaining([
+          { type: 'catalog.products', id: 'prod-1' },
+          { type: 'example:todo', id: 'r1' },
+        ]),
+      },
+    ])
+  })
+
+  it('still succeeds when every registered guard approves the upload', async () => {
+    const approveGuard: MutationGuard = {
+      id: 'test.approve',
+      targetEntity: 'attachments:attachment',
+      operations: ['create'],
+      async validate() {
+        return { ok: true }
+      },
+    }
+    registerMutationGuards([{ moduleId: 'test', guards: [approveGuard] }])
+
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(200)
   })
 })

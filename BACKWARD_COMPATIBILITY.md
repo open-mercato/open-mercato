@@ -576,3 +576,27 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## Discord AI Proposals (2026-10-13)
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
+
+## Attachment Upload Authorizes Protected Documents Owners (2026-11-07)
+
+`POST /api/attachments` let a caller attach to any `documents:document` owner (as the primary owner or
+a secondary assignment) without the Documents module's own edit check, bypassing the authorization its
+dedicated upload route already enforces ([#8891](https://github.com/open-mercato/open-mercato/issues/8891)).
+It now runs the shared mutation-guard registry (`runMutationGuards`/`getAllMutationGuardInstances`,
+already a stable extension point — see §9 DI Service Names and the `data/guards.ts` convention in §1)
+against the normalized owner and every assignment before any quota reservation or storage write; the
+`documents` module registers a guard denying a caller below `editor` access, a missing/archived owner,
+or an out-of-scope owner.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| `POST /api/attachments` URL, method, request/response shape | Unchanged | ✓ n/a |
+| `POST /api/attachments` behavior | New `403` when the normalized owner or any assignment is a `documents:document` the caller cannot edit | ⚠️ Narrow tightening: this write previously succeeded (UPGRADE_NOTES.md) |
+| `documents` `data/guards.ts` | New guard `documents.attachment-owner-authorization`, additive per the `data/guards.ts` convention | ✓ No existing guard changed |
+| Documents' own upload route (`POST /api/documents/[id]/attachments`), `attachmentService.createScoped` | Unchanged — a separate trusted path this guard does not reach | ✓ n/a |
+| Read access to existing attachments, Documents UI | Unchanged — out of scope; tracked separately (#6726/#6829/#7989/#8760/#8763) | ✓ n/a |
+| Database schema, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: none required. A module that relied on the generic upload
+route to attach files to a document on behalf of a caller without `documents.edit`-equivalent access
+must switch to Documents' own upload route, or an authorized server-side command, instead.

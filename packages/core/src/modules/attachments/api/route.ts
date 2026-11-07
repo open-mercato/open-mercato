@@ -49,6 +49,8 @@ import type { AttachmentQuotaService } from '../lib/quota-service'
 import { resolveAttachmentsUploadRateLimitConfig } from '../lib/ocrLimits'
 import { checkRateLimit, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
+import type { AwilixContainer } from 'awilix'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 
 const logger = createLogger('attachments')
 
@@ -271,6 +273,61 @@ export async function GET(req: Request) {
   })
 }
 
+/**
+ * Merge the explicit `assignments` payload with the upload's primary owner
+ * (`entityId`/`recordId`) into the one normalized list that gets persisted on
+ * the attachment AND authorized by `authorizeAttachmentOwnerMutation` — a
+ * single source of truth so the authorization check can never see a
+ * different owner set than the one that ends up stored (#8891).
+ */
+function buildAttachmentOwnerAssignments(
+  entityId: string,
+  recordId: string,
+  assignmentsFromForm: AttachmentAssignment[],
+): AttachmentAssignment[] {
+  let assignments = assignmentsFromForm.slice()
+  if (entityId !== LIBRARY_ENTITY_ID) {
+    assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
+  }
+  return assignments
+}
+
+/**
+ * Runs the shared mutation-guard registry for the normalized primary owner and
+ * every assignment before any quota reservation or storage write. Owning
+ * modules (e.g. `documents`) register a guard targeting
+ * `E.attachments.attachment`/`create` in their own `data/guards.ts` to deny an
+ * attach to a protected owner the caller cannot edit — without this route, or
+ * `attachments`, importing that module's ORM entities.
+ */
+async function authorizeAttachmentOwnerMutation(params: {
+  container: AwilixContainer
+  req: Request
+  userId: string
+  tenantId: string
+  organizationId: string
+  entityId: string
+  recordId: string
+  assignments: AttachmentAssignment[]
+}): Promise<{ ok: true } | { ok: false; response: Response }> {
+  const guardResult = await runRouteMutationGuards({
+    container: params.container,
+    req: params.req,
+    auth: { userId: params.userId, tenantId: params.tenantId, organizationId: params.organizationId },
+    input: {
+      resourceKind: E.attachments.attachment,
+      operation: 'create',
+      mutationPayload: {
+        entityId: params.entityId,
+        recordId: params.recordId,
+        assignments: params.assignments,
+      },
+    },
+  })
+  if (!guardResult.ok) return { ok: false, response: guardResult.response }
+  return { ok: true }
+}
+
 export async function POST(req: Request) {
   const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
@@ -287,6 +344,9 @@ export async function POST(req: Request) {
     }, { status: 400 })
   }
   const tenantId = auth.tenantId
+  const principal = typeof auth.sub === 'string' && auth.sub.length > 0
+    ? auth.sub
+    : (typeof auth.userId === 'string' && auth.userId.length > 0 ? auth.userId : null)
 
   const container = await createRequestContainer()
   let rateLimiterService: RateLimiterService | null = null
@@ -297,9 +357,6 @@ export async function POST(req: Request) {
     logger.warn('Attachment upload rate limiter unavailable; throttle skipped', { err: error })
   }
   if (rateLimiterService) {
-    const principal = typeof auth.sub === 'string' && auth.sub.length > 0
-      ? auth.sub
-      : (typeof auth.userId === 'string' && auth.userId.length > 0 ? auth.userId : null)
     if (!principal) {
       logger.warn('Attachment upload rate limit skipped: missing authenticated principal')
     } else {
@@ -373,6 +430,21 @@ export async function POST(req: Request) {
   if (uploadScope.denied) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const orgId = uploadScope.organizationId
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!principal) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const ownerAssignments = buildAttachmentOwnerAssignments(entityId, recordId, assignmentsFromForm)
+  const ownerAuthorization = await authorizeAttachmentOwnerMutation({
+    container,
+    req,
+    userId: principal,
+    tenantId,
+    organizationId: orgId,
+    entityId,
+    recordId,
+    assignments: ownerAssignments,
+  })
+  if (!ownerAuthorization.ok) return ownerAuthorization.response
+
   await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
@@ -577,11 +649,7 @@ export async function POST(req: Request) {
     }
   }
 
-  let assignments = assignmentsFromForm.slice()
-  if (entityId !== LIBRARY_ENTITY_ID) {
-    assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
-  }
-  const metadata = mergeAttachmentMetadata(null, { assignments, tags })
+  const metadata = mergeAttachmentMetadata(null, { assignments: ownerAssignments, tags })
   const attachmentId = randomUUID()
   assertAttachmentScopeInvariant({ tenantId: auth.tenantId, organizationId: orgId })
   const att = em.create(Attachment, {

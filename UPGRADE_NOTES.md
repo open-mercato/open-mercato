@@ -353,6 +353,28 @@ quota. Now:
 media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
 after the first sync.
 
+### `POST /api/attachments` now authorizes a Documents owner before creating the attachment (#8891)
+
+The generic upload route let any caller with `attachments.manage` set the primary `entityId`/`recordId`
+or a secondary `assignments` entry to a `documents:document` owner without checking whether they could
+edit that document — bypassing the authorization the Documents module's own upload route
+(`POST /api/documents/[id]/attachments`) already enforces. It now runs the shared mutation-guard
+registry (`runMutationGuards`/`getAllMutationGuardInstances`) against the normalized owner and every
+assignment before any quota reservation or storage write, and the `documents` module registers a guard
+(`packages/documents/src/modules/documents/data/guards.ts`) that answers `403` when:
+
+- the referenced document does not exist, is archived, or is outside the caller's tenant/organization scope;
+- the caller holds less than `editor` access to it (no share, a `viewer`/`commenter` share, or a revoked share).
+
+An authorized editor, the document's owner, and a `documents.manage` holder are unaffected. Uploads
+targeting any other owner type are unaffected — the guard only inspects `documents:document` targets.
+This closes a write-side authorization gap; it does not change what an already-authorized upload can
+read or who can read an existing attachment (tracked separately in #6726/#6829/#7989/#8760/#8763).
+
+**Action for API clients:** a generic upload that previously succeeded against a document the caller
+cannot edit now answers `403`. Use the Documents module's own upload route for document attachments —
+it already enforces this and is unaffected.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
