@@ -28,8 +28,14 @@ PR: #8970
 
 ### Phase 1: Baseline and verification
 - [x] 1.1 Audit current main CI and confirm full shard coverage.
-- [ ] 1.2 Open draft stabilization PR and verify its full suite; fix demonstrated failures.
+- [x] 1.2 Open draft stabilization PR and verify its full suite; fix demonstrated failures. — b5554d615
 
 ### Phase 2: Review and handoff
-- [ ] 2.1 Obtain independent final review and resolve actionable findings.
-- [ ] 2.2 Record green CI evidence and apply automerge only after approval and green checks.
+- [x] 2.1 Obtain independent final review and resolve actionable findings. — b5554d615; [APPROVE, no findings](https://github.com/open-mercato/open-mercato/pull/8970#pullrequestreview-5808314209)
+- [x] 2.2 Record green CI evidence and apply automerge only after approval and green checks. — [15/15 shards and coverage passed](https://github.com/open-mercato/open-mercato/actions/runs/42310114713) on b5554d615; automerge remains conditional on all checks passing at the final bookkeeping head.
+
+## Verification outcome
+
+Runner: GitHub Actions. The configured build/generate/rebuild/i18n/typecheck/unit/app gates passed on b5554d615, along with all 15 integration shards, timezone, multi-instance, lint, Docker build and coverage merge. Dependency audit, mutation and backport jobs were conditionally skipped. Independent final review approved the exact test fix with no findings. GitHub rejected native self-approval; the explicit independent verdict is recorded as a review comment, and a distinct identity is still needed if branch protection requires native approval.
+
+The final bookkeeping commit changes only this record. Confirm its reported checks are green before making the PR ready or applying automerge. No merge is authorized by this run.
