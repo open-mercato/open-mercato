@@ -10,6 +10,7 @@ type OperationStatus = 'in_progress' | 'succeeded' | 'failed'
 
 const OPERATION_LEASE_MS = 10 * 60 * 1000
 const OPERATION_UNIQUE_CONSTRAINT = 'gateway_payment_operations_scope_operation_unique'
+const SETTLED_STATUS_KEY = '__settledTransactionStatus'
 
 export type ClaimedPaymentOperation = {
   record: GatewayPaymentOperation
@@ -18,8 +19,13 @@ export type ClaimedPaymentOperation = {
 }
 
 export type PreparedPaymentOperation =
-  | { kind: 'completed'; result: Record<string, unknown> }
+  | { kind: 'completed'; result: Record<string, unknown>; settledStatus: string | null }
   | { kind: 'claimed'; claim: ClaimedPaymentOperation }
+
+export type PaymentOperationSettlement = {
+  statusChanged: boolean
+  settledStatus: string
+}
 
 type PreparePaymentOperationInput = {
   em: EntityManager
@@ -85,6 +91,11 @@ function claimFields(now: Date) {
   }
 }
 
+function readStoredResult(stored: Record<string, unknown>) {
+  const { [SETTLED_STATUS_KEY]: settledStatus, ...result } = stored
+  return { result, settledStatus: typeof settledStatus === 'string' ? settledStatus : null }
+}
+
 async function resolveExistingOperation(
   em: EntityManager,
   existing: GatewayPaymentOperation,
@@ -105,7 +116,7 @@ async function resolveExistingOperation(
     )
   }
   if (existing.status === 'succeeded' && existing.result) {
-    return { kind: 'completed', result: existing.result }
+    return { kind: 'completed', ...readStoredResult(existing.result) }
   }
 
   const now = new Date()
@@ -201,9 +212,9 @@ export async function completePaymentOperation<T extends Record<string, unknown>
   em: EntityManager,
   claim: ClaimedPaymentOperation,
   result: T,
-  applyResult: (tx: EntityManager) => Promise<boolean>,
+  applyResult: (tx: EntityManager) => Promise<PaymentOperationSettlement>,
 ): Promise<boolean> {
-  const statusChanged = await em.transactional(async (tx) => {
+  return em.transactional(async (tx) => {
     const completed = await tx.nativeUpdate(
       GatewayPaymentOperation,
       { id: claim.record.id, status: 'in_progress', attemptToken: claim.attemptToken },
@@ -216,12 +227,20 @@ export async function completePaymentOperation<T extends Record<string, unknown>
         'Payment operation claim is no longer active',
       )
     }
-    const changed = await applyResult(tx)
+    const settlement = await applyResult(tx)
+    let stored: Record<string, unknown> = result
+    if (settlement.settledStatus !== result.status) {
+      stored = { ...result, [SETTLED_STATUS_KEY]: settlement.settledStatus }
+      await tx.nativeUpdate(
+        GatewayPaymentOperation,
+        { id: claim.record.id, status: 'succeeded', attemptToken: claim.attemptToken },
+        { result: stored },
+      )
+    }
+    Object.assign(claim.record, { status: 'succeeded', result: stored, leaseExpiresAt: null })
     await tx.flush()
-    return changed
+    return settlement.statusChanged
   })
-  Object.assign(claim.record, { status: 'succeeded', result, leaseExpiresAt: null })
-  return statusChanged
 }
 
 export async function failPaymentOperation(
