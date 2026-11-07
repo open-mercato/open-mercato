@@ -2287,9 +2287,12 @@ declaring these maps in one of its own modules' `encryption.ts` will now fail to
 **Action for app authors:** delete any app-side `defaultEncryptionMaps` entries for the three
 `ai_assistant:*` entity ids. To keep a different field set, replace the shipped map through
 `overrides.encryption.maps['ai_assistant:ai_chat_message']` (and the other two ids) on a
-`src/modules.ts` entry instead of redeclaring it. Existing tenants pick the new maps up with
-`yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]`; rows written
-before that stay plaintext (still readable) until rewritten, or until
+`src/modules.ts` entry instead of redeclaring it. Migration
+`Migration20261108000000_ai_assistant_encryption_backfill` automatically installs the three maps
+for existing active encryption scopes during the normal migrate-before-deploy upgrade (#7644).
+It preserves custom field rules, skips scopes without active encryption maps, and is forward-only.
+It does not rewrite historical data: rows written before the maps existed stay plaintext
+(still readable) until rewritten, or until
 `yarn mercato entities rotate-encryption-key --tenant <tenantId>` encrypts them.
 
 ### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
