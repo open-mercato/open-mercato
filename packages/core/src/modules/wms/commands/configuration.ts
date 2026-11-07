@@ -645,6 +645,11 @@ async function restoreDemotedPrimaryWarehouses(
     if (!record) continue
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    if (snapshot.isPrimary) {
+      if (record.deletedAt || !record.isActive) continue
+      const currentPrimaries = await loadDemotedPrimarySnapshots(em, record.organizationId, record.tenantId, record.id)
+      if (currentPrimaries.length > 0) continue
+    }
     record.isPrimary = snapshot.isPrimary
   }
 }
@@ -875,14 +880,27 @@ const createWarehouseCommand: CommandHandler<
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    record.deletedAt = new Date()
-    await em.flush()
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => {
+            record.deletedAt = new Date()
+          },
+          async () => {
+            await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
+          },
+        ],
+        { transaction: true, label: 'wms.warehouses.create.undo' },
+      )
+    } catch (err) {
+      if (isUniqueViolation(err, WMS_WAREHOUSE_PRIMARY_UNIQUE_CONSTRAINT)) {
+        await rejectPrimaryWarehouseConflict()
+      }
+      throw err
+    }
     await persistWarehouseCustomFields(ctx, after, buildCustomFieldResetMap(undefined, after.custom ?? undefined))
     await emitWarehouseCrudSideEffects(ctx, 'deleted', record, 'undo')
-    if (payload.demotedPrimariesBefore?.length) {
-      await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
-      await em.flush()
-    }
   },
 }
 
@@ -998,58 +1016,82 @@ const updateWarehouseCommand: CommandHandler<
     const before = payload?.before
     if (!before) return
     const em = resolveEm(ctx)
-    let record = await findOneWithDecryption(
+    const record = await findOneWithDecryption(
       em,
       Warehouse,
       { id: before.id },
       undefined,
       resolveScope(ctx, { tenantId: before.tenantId, organizationId: before.organizationId }),
     )
-    if (!record) {
-      record = em.create(Warehouse, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        name: before.name,
-        code: before.code,
-        isActive: before.isActive,
-        isPrimary: before.isPrimary,
-        addressLine1: before.addressLine1,
-        city: before.city,
-        postalCode: before.postalCode,
-        country: before.country,
-        timezone: before.timezone,
-        metadata: before.metadata,
-        createdAt: new Date(before.createdAt),
-        updatedAt: new Date(before.updatedAt),
-      })
-      em.persist(record)
-    } else {
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
-      record.name = before.name
-      record.code = before.code
-      record.isActive = before.isActive
-      record.isPrimary = before.isPrimary
-      record.addressLine1 = before.addressLine1
-      record.city = before.city
-      record.postalCode = before.postalCode
-      record.country = before.country
-      record.timezone = before.timezone
-      record.metadata = before.metadata
-      record.deletedAt = null
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
+    const primaryFlagUnchanged = payload.after?.isPrimary === before.isPrimary
+    const restoredPrimary = primaryFlagUnchanged
+      ? !!record && record.isPrimary && !record.deletedAt && before.isActive
+      : before.isPrimary
+    const target = record ?? em.create(Warehouse, {
+      id: before.id,
+      organizationId: before.organizationId,
+      tenantId: before.tenantId,
+      name: before.name,
+      code: before.code,
+      isActive: before.isActive,
+      isPrimary: false,
+      addressLine1: before.addressLine1,
+      city: before.city,
+      postalCode: before.postalCode,
+      country: before.country,
+      timezone: before.timezone,
+      metadata: before.metadata,
+      createdAt: new Date(before.createdAt),
+      updatedAt: new Date(before.updatedAt),
+    })
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => {
+            if (!record) {
+              em.persist(target)
+              return
+            }
+            record.name = before.name
+            record.code = before.code
+            record.isActive = before.isActive
+            record.isPrimary = false
+            record.addressLine1 = before.addressLine1
+            record.city = before.city
+            record.postalCode = before.postalCode
+            record.country = before.country
+            record.timezone = before.timezone
+            record.metadata = before.metadata
+            record.deletedAt = null
+          },
+          async () => {
+            if (!restoredPrimary) return
+            await enforcePrimaryWarehouse(em, before.organizationId, before.tenantId, before.id)
+          },
+          () => {
+            target.isPrimary = restoredPrimary
+          },
+          async () => {
+            await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
+          },
+        ],
+        { transaction: true, label: 'wms.warehouses.update.undo' },
+      )
+    } catch (err) {
+      if (isUniqueViolation(err, WMS_WAREHOUSE_PRIMARY_UNIQUE_CONSTRAINT)) {
+        await rejectPrimaryWarehouseConflict()
+      }
+      throw err
     }
-    await em.flush()
     await persistWarehouseCustomFields(
       ctx,
       before,
       buildCustomFieldResetMap(before.custom ?? undefined, payload.after?.custom ?? undefined),
     )
-    await emitWarehouseCrudSideEffects(ctx, 'updated', record, 'undo')
-    if (payload.demotedPrimariesBefore?.length) {
-      await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
-      await em.flush()
-    }
+    await emitWarehouseCrudSideEffects(ctx, 'updated', target, 'undo')
   },
 }
 
