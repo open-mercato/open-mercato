@@ -684,7 +684,7 @@ describe('customers.personCompanyLinks — one primary link per person under con
     await handler.undo!({
       logEntry: { payload: { undo: { before: makeLinkSnapshot(LINK_A_ID, COMPANY_A_ID, true) } } },
       ctx: makeCtx(fixtures.em),
-    } as any)
+    } as unknown as Parameters<NonNullable<CommandHandler['undo']>>[0])
 
     expect(lockCalls).toHaveBeenCalledWith(0)
     expect(primaryLinkIds(fixtures)).toEqual([LINK_A_ID])

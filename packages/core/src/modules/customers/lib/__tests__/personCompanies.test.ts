@@ -87,7 +87,13 @@ describe('personCompanies primary-company invariants', () => {
     const person = { organizationId, tenantId }
     const profile = { company: firstLink.company }
 
-    await syncLegacyPrimaryCompanyLink(em as any, person as any, profile as any, 'company-second')
+    type SyncArgs = Parameters<typeof syncLegacyPrimaryCompanyLink>
+    await syncLegacyPrimaryCompanyLink(
+      em as unknown as SyncArgs[0],
+      person as unknown as SyncArgs[1],
+      profile as unknown as SyncArgs[2],
+      'company-second',
+    )
 
     expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
     expect(em.nativeUpdate).toHaveBeenCalledWith(

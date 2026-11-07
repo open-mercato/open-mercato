@@ -13,16 +13,21 @@ async function createFixture(request: APIRequestContext, token: string, stamp: s
     firstName: 'PrimaryRace', lastName: stamp, displayName: `PrimaryRace ${stamp}`,
   })
   const fixture: Fixture = { personId, companyIds: [], linkIds: [] }
-  for (let index = 0; index < companyCount; index += 1) {
-    const companyId = await createCompanyFixture(request, token, `PrimaryRace Co${index} ${stamp}`)
-    fixture.companyIds.push(companyId)
-    const linked = await apiRequest(request, 'POST', `/api/customers/people/${personId}/companies`, {
-      token, data: { companyId, isPrimary: index === 0 },
-    })
-    expect(linked.status(), await linked.text()).toBe(200)
-    const body = await readJsonSafe<{ result?: { id?: string } }>(linked)
-    expect(body?.result?.id).toBeTruthy()
-    fixture.linkIds.push(body?.result?.id as string)
+  try {
+    for (let index = 0; index < companyCount; index += 1) {
+      const companyId = await createCompanyFixture(request, token, `PrimaryRace Co${index} ${stamp}`)
+      fixture.companyIds.push(companyId)
+      const linked = await apiRequest(request, 'POST', `/api/customers/people/${personId}/companies`, {
+        token, data: { companyId, isPrimary: index === 0 },
+      })
+      expect(linked.status(), await linked.text()).toBe(200)
+      const body = await readJsonSafe<{ result?: { id?: string } }>(linked)
+      expect(body?.result?.id).toBeTruthy()
+      fixture.linkIds.push(body?.result?.id as string)
+    }
+  } catch (error) {
+    await cleanupFixture(request, token, fixture)
+    throw error
   }
   return fixture
 }

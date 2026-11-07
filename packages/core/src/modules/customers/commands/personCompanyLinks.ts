@@ -279,7 +279,7 @@ async function claimPrimaryCompanyLink(
   await findOneWithDecryption(
     em,
     CustomerPersonProfile,
-    { entity: person },
+    { entity: person, ...scope },
     { populate: ['company'], refresh: true },
     scope,
   )
