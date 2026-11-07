@@ -648,3 +648,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## Attachment upload owner access (2026-11-07, #8891)
+
+`POST /api/attachments` enforces the #6726/#6829 check via a new `'create'` action; narrows an uneditable `documents:document` owner to the existing `404`. [Migration](UPGRADE_NOTES.md#attachment-owner-access-covers-upload-8891).

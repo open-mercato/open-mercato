@@ -1,7 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 
-export type AttachmentAccessAction = 'read' | 'render' | 'metadata' | 'reassign' | 'delete' | 'export'
+export type AttachmentAccessAction = 'read' | 'render' | 'metadata' | 'reassign' | 'delete' | 'export' | 'create'
 
 export type AttachmentAccessTarget = Readonly<{
   entityId: string

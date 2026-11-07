@@ -12,7 +12,7 @@ export const attachmentStorageScopeSchema = z.object({
   organizationId: z.string(),
 }).refine((scope) => Boolean(scope.tenantId.trim()) === Boolean(scope.organizationId.trim()))
 
-export const attachmentAccessActionSchema = z.enum(['read', 'render', 'metadata', 'reassign', 'delete', 'export'])
+export const attachmentAccessActionSchema = z.enum(['read', 'render', 'metadata', 'reassign', 'delete', 'export', 'create'])
 export const attachmentAccessSubjectFeaturesSchema = z.array(z.string())
 export const attachmentAccessSelectorSchema = z.string().min(1).max(200).regex(/^(?:\*|[^*\s]+(?:\.\*)?)$/)
 const resolverIdSchema = z.string().min(3).max(200).regex(/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_.-]+$/)

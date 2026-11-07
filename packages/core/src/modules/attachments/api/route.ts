@@ -387,6 +387,10 @@ async function uploadAttachment(req: Request) {
   if (uploadScope.denied) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const orgId = uploadScope.organizationId
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Owner-access checks (below) must authorize against the scope the attachment
+  // is actually created under, not the uploader's raw home org (#3765) — the
+  // delete handler builds the same scopedAuth for the identical reason.
+  const scopedAuth = { ...auth, orgId }
   if (getAttachmentStoragePolicy() === 'legacy') await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
@@ -474,6 +478,32 @@ async function uploadAttachment(req: Request) {
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
   }
   await ensureAttachmentPartitionProtection(em, partition)
+  // Authorize the normalized primary owner and every assignment before any
+  // quota reservation or storage write (#8891). Reuse the same merged
+  // assignments list below when persisting, so the authorized owner set can
+  // never drift from the stored one.
+  let assignments = assignmentsFromForm.slice()
+  if (entityId !== LIBRARY_ENTITY_ID) {
+    assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
+  }
+  const attachmentId = randomUUID()
+  await assertAttachmentOwnerAccess({
+    em,
+    context: createAttachmentAccessContext(container),
+    auth: scopedAuth,
+    attachment: {
+      id: attachmentId,
+      entityId,
+      recordId,
+      partitionCode: partition.code,
+      tenantId: auth.tenantId ?? null,
+      organizationId: orgId,
+      fileName: safeName,
+      mimeType: fileMimeType,
+      storageMetadata: { assignments },
+    },
+    action: 'create',
+  })
   const requestedPublicOverride =
     typeof partitionOverride === 'string' &&
     partitionOverride.length > 0 &&
@@ -594,12 +624,7 @@ async function uploadAttachment(req: Request) {
     }
   }
 
-  let assignments = assignmentsFromForm.slice()
-  if (entityId !== LIBRARY_ENTITY_ID) {
-    assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
-  }
   const metadata = mergeAttachmentMetadata(null, { assignments, tags })
-  const attachmentId = randomUUID()
   assertAttachmentScopeInvariant({ tenantId: auth.tenantId, organizationId: orgId })
   const att = em.create(Attachment, {
     id: attachmentId,

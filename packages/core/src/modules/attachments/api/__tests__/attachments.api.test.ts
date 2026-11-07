@@ -1,4 +1,7 @@
 /** @jest-environment node */
+import { registerAttachmentAccessResolvers } from '@open-mercato/core/modules/attachments/lib/access-registry'
+import type { AttachmentAccessResolver } from '@open-mercato/core/modules/attachments/lib/access-types'
+
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
     attachments: { attachment: 'attachments:attachment' },
@@ -73,6 +76,11 @@ let mockRateLimiterService: {
   trustProxyDepth: number
 } | null = null
 
+const mockRbacService = {
+  loadAcl: async () => ({ isSuperAdmin: false, organizations: null }),
+  getEffectiveFeatures: async () => [] as string[],
+}
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (k: string) => {
@@ -81,6 +89,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (k === 'attachmentQuotaService') return mockAttachmentQuotaService
       if (k === 'attachmentQuotaRecoveryScheduler') return mockAttachmentQuotaRecoveryScheduler
       if (k === 'rateLimiterService') return mockRateLimiterService
+      if (k === 'rbacService') return mockRbacService
       return null
     },
   }),
@@ -915,4 +924,121 @@ describe('attachments API', () => {
     })
   })
 
+  // Owning modules (e.g. `documents`) deny an attach to a protected owner the
+  // caller cannot edit by registering a resolver in their own
+  // `data/attachment-access.ts` (the #6726/#6829 owner-access framework).
+  // These tests exercise the generic upload route's side of that contract —
+  // running `action: 'create'` against the normalized owner and every
+  // assignment before any quota reservation or storage write — without
+  // importing `documents`, using a fixture resolver the same way
+  // `owner-access.mutations.test.ts` does (#8891). Nested inside the outer
+  // describe so the shared `beforeEach` (mock reset) applies here too.
+  describe('owner-access wiring for uploads (#8891)', () => {
+  afterEach(() => {
+    registerAttachmentAccessResolvers([])
+  })
+
+  it('blocks an upload to a protected owner before any quota reservation or storage write', async () => {
+    const denyResolver: AttachmentAccessResolver = {
+      id: 'test.deny-documents-owner',
+      targetPartition: '*',
+      targetEntity: 'documents:document',
+      actions: ['create'],
+      async resolve() {
+        return { ok: false, status: 403, reason: 'test_denied' }
+      },
+    }
+    registerAttachmentAccessResolvers([{ moduleId: 'test', resolvers: [denyResolver] }])
+
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const fd = fdWith(file)
+    fd.set('entityId', 'documents:document')
+    fd.set('recordId', 'doc-1')
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fd as any })
+    const res = await upload(req)
+
+    expect(res.status).toBe(403)
+    expect(mockEm.create).not.toHaveBeenCalled()
+    expect(fsp.writeFile).not.toHaveBeenCalled()
+  })
+
+  it('does not authorize a create action against a resolver that opted out of it', async () => {
+    const readOnlyResolver: AttachmentAccessResolver = {
+      id: 'test.read-only-owner',
+      targetPartition: '*',
+      targetEntity: 'documents:document',
+      actions: ['read'],
+      async resolve() {
+        return { ok: false, status: 403, reason: 'test_denied' }
+      },
+    }
+    registerAttachmentAccessResolvers([{ moduleId: 'test', resolvers: [readOnlyResolver] }])
+
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const fd = fdWith(file)
+    fd.set('entityId', 'documents:document')
+    fd.set('recordId', 'doc-1')
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fd as any })
+    const res = await upload(req)
+
+    // No resolver matches 'create' and no durable requirement is registered,
+    // so the generic upload path is unaffected — matching how an unrelated
+    // owner type is never scanned against this registry.
+    expect(res.status).toBe(200)
+  })
+
+  it('passes the normalized primary owner and merged assignments as targets to registered resolvers', async () => {
+    const seenTargets: unknown[] = []
+    const recordingResolver: AttachmentAccessResolver = {
+      id: 'test.record-targets',
+      targetPartition: '*',
+      targetEntity: 'catalog.products',
+      actions: ['create'],
+      async resolve(input) {
+        seenTargets.push(input.targets)
+        return { ok: true }
+      },
+    }
+    registerAttachmentAccessResolvers([{ moduleId: 'test', resolvers: [recordingResolver] }])
+
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const fd = fdWith(file)
+    fd.set('assignments', JSON.stringify([{ type: 'catalog.products', id: 'prod-1' }]))
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fd as any })
+    const res = await upload(req)
+
+    expect(res.status).toBe(200)
+    expect(seenTargets).toEqual([
+      expect.arrayContaining([
+        { entityId: 'example:todo', recordId: 'r1', origin: 'primary' },
+        { entityId: 'catalog.products', recordId: 'prod-1', origin: 'assignment' },
+      ]),
+    ])
+  })
+
+  it('still succeeds when every registered resolver approves the upload', async () => {
+    const approveResolver: AttachmentAccessResolver = {
+      id: 'test.approve',
+      targetPartition: '*',
+      targetEntity: 'documents:document',
+      actions: ['create'],
+      async resolve() {
+        return { ok: true }
+      },
+    }
+    registerAttachmentAccessResolvers([{ moduleId: 'test', resolvers: [approveResolver] }])
+
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const fd = fdWith(file)
+    fd.set('entityId', 'documents:document')
+    fd.set('recordId', 'doc-1')
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fd as any })
+    const res = await upload(req)
+    expect(res.status).toBe(200)
+  })
+  })
 })

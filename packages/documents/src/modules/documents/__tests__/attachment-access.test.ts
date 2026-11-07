@@ -52,11 +52,14 @@ beforeEach(() => {
 it('uses actual sharing permission for reads but requires the attachment edit capability for mutations', async () => {
   expect(await resolve(input())).toEqual({ ok: true })
   expect(await resolve(input({ action: 'delete' }))).toMatchObject({ ok: false, status: 404 })
+  expect(await resolve(input({ action: 'create' }))).toMatchObject({ ok: false, status: 404 })
   jest.mocked(findWithDecryption).mockResolvedValue([{ permission: 'editor' }] as never)
   expect(await resolve(input({ action: 'delete' }))).toEqual({ ok: true })
   expect(await resolve(input({ action: 'reassign' }))).toEqual({ ok: true })
+  expect(await resolve(input({ action: 'create' }))).toEqual({ ok: true })
   archived = true
   expect(await resolve(input({ action: 'delete' }))).toMatchObject({ ok: false })
+  expect(await resolve(input({ action: 'create' }))).toMatchObject({ ok: false })
 })
 
 it('denies unshared callers including attachments managers and observes revocation in the next request', async () => {
@@ -83,7 +86,7 @@ it('allows bytes through one visible document but requires every owner for metad
     { entityId: 'documents:document', recordId: otherId, origin: 'assignment' },
   ] })
   expect(await resolve(value)).toEqual({ ok: true })
-  for (const action of ['metadata', 'export', 'delete', 'reassign'] as const) {
+  for (const action of ['metadata', 'export', 'delete', 'reassign', 'create'] as const) {
     expect(await resolve({ ...value, action })).toMatchObject({ ok: false, status: 404 })
   }
 })

@@ -59,6 +59,19 @@ write time.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.
+- **An owning module that protects its entities from being chosen as an
+  attachment owner declares a resolver in its own `data/attachment-access.ts`**
+  (the #6726/#6829 owner-access framework; see `lib/access-types.ts`,
+  `lib/access-registry.ts`, `lib/access-runner.ts`) rather than asking
+  `attachments` to special-case it. `api/route.ts` evaluates the normalized
+  primary owner and every `assignments` entry against `action: 'create'` right
+  after the upload's partition is resolved — before any quota reservation or
+  storage write — in addition to the existing `read`/`render`/`metadata`/
+  `reassign`/`delete`/`export` actions; see
+  `packages/documents/src/modules/documents/data/attachment-access.ts` for the
+  reference resolver (#8891). The trusted `attachmentService.createScoped()`
+  path used by a module's own dedicated upload route never reaches this check;
+  it only covers the generic HTTP route.
 
 ## Never
 

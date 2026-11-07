@@ -68,7 +68,7 @@ export const attachmentAccessResolvers: AttachmentAccessResolver[] = [{
     let visible = false
     for (const target of targets) {
       const capabilities = await capabilitiesForDocument(input, target.recordId)
-      const allowed = input.action === 'delete' || input.action === 'reassign'
+      const allowed = input.action === 'delete' || input.action === 'reassign' || input.action === 'create'
         ? capabilities?.canEdit === true
         : capabilities?.canView === true
       if (!allowed && requireEvery) return { ok: false, status: 404, reason: 'document_not_found' }
