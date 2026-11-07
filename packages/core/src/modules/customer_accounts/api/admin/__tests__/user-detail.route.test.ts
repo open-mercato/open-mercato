@@ -20,6 +20,7 @@ const mockRevokeAllUserSessions = jest.fn()
 const mockEmit = jest.fn(async () => undefined)
 
 const mockEm: Record<string, unknown> = {
+  transactional: jest.fn(async <Result>(work: (manager: typeof mockEm) => Promise<Result>): Promise<Result> => work(mockEm)),
   find: mockEmFind,
   findOne: mockEmFindOne,
   create: mockEmCreate,

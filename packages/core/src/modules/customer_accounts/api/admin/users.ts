@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import { NextResponse } from 'next/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
@@ -286,34 +287,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'A user with this email already exists' }, { status: 409 })
   }
 
-  // Resolve roles up front, scoped to the caller's tenant AND organization, and
-  // reject the request if any requested role is missing from the scoped set.
-  // CustomerRole is org-scoped, so omitting organizationId here would let an
-  // admin in org A link roles from org B in the same tenant — a cross-org
-  // privilege grant (#2693). Invalid IDs must be rejected, not silently dropped.
-  let resolvedRoles: Array<{ id: string }> = []
-  if (parsed.data.roleIds && parsed.data.roleIds.length > 0) {
-    const requestedRoleIds = parsed.data.roleIds
-    const validRoles = await findWithDecryption(
-      em,
-      CustomerRole,
-      {
-        id: { $in: requestedRoleIds } as any,
-        tenantId: auth.tenantId,
-        organizationId,
-        deletedAt: null,
-      } as any,
-      undefined,
-      { tenantId: auth.tenantId, organizationId },
-    )
-    if (validRoles.length !== requestedRoleIds.length) {
-      const foundIds = new Set(validRoles.map((role) => role.id))
-      const missingId = requestedRoleIds.find((roleId) => !foundIds.has(roleId))
-      return NextResponse.json({ ok: false, error: `Role ${missingId} not found` }, { status: 400 })
-    }
-    resolvedRoles = validRoles
-  }
-
   // Reject a customerEntityId the caller does not own. Without this check a
   // mislinked company FK persists indefinitely and cross-links the user into
   // another org/company's portal context (#2693).
@@ -327,18 +300,41 @@ export async function POST(req: Request) {
     }
   }
 
-  const user = await customerUserService.createUser(
-    parsed.data.email,
-    parsed.data.password,
-    parsed.data.displayName,
-    { tenantId: auth.tenantId!, organizationId },
-  )
-  user.emailVerifiedAt = new Date()
-
   // Persist the user, its company association, and its role links in one
   // transaction so a flush failure on the role loop cannot leave a roleless
   // user committed (privilege gap).
-  await em.transactional(async (tx) => {
+  const creationResult = await em.transactional(async (tx) => {
+    let resolvedRoles: Array<{ id: string }> = []
+    if (parsed.data.roleIds && parsed.data.roleIds.length > 0) {
+      const requestedRoleIds = parsed.data.roleIds
+      const validRoles = await findWithDecryption(
+        tx,
+        CustomerRole,
+        {
+          id: { $in: requestedRoleIds } as any,
+          tenantId: auth.tenantId,
+          organizationId,
+          deletedAt: null,
+        } as any,
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true, orderBy: { id: 'asc' } },
+        { tenantId: auth.tenantId, organizationId },
+      )
+      if (validRoles.length !== requestedRoleIds.length) {
+        const foundIds = new Set(validRoles.map((role) => role.id))
+        const missingId = requestedRoleIds.find((roleId) => !foundIds.has(roleId))
+        return NextResponse.json({ ok: false, error: `Role ${missingId} not found` }, { status: 400 })
+      }
+      resolvedRoles = validRoles
+    }
+
+    const user = await customerUserService.createUser(
+      parsed.data.email,
+      parsed.data.password,
+      parsed.data.displayName,
+      { tenantId: auth.tenantId!, organizationId },
+    )
+    user.emailVerifiedAt = new Date()
+
     tx.persist(user)
     await tx.flush()
 
@@ -354,7 +350,10 @@ export async function POST(req: Request) {
       } as any)
       tx.persist(userRole)
     }
+    return { user }
   })
+  if (creationResult instanceof Response) return creationResult
+  const { user } = creationResult
 
   void emitCustomerAccountsEvent('customer_accounts.user.created', {
     id: user.id,

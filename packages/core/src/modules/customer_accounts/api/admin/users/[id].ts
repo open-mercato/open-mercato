@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
@@ -212,40 +213,43 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   let rolesChanged = false
   if (parsed.data.roleIds !== undefined) {
     const requestedRoleIds = parsed.data.roleIds
-    // Scope role resolution to the caller's organization too — CustomerRole is
-    // org-scoped, so a tenant-only filter would let an admin link roles from
-    // another org in the same tenant (#2693).
-    const validRoles = requestedRoleIds.length > 0
-      ? await findWithDecryption(
-          em,
-          CustomerRole,
-          {
-            id: { $in: requestedRoleIds } as any,
-            tenantId: auth.tenantId,
-            organizationId: auth.orgId,
-            deletedAt: null,
-          } as any,
-          undefined,
-          { tenantId: auth.tenantId, organizationId: auth.orgId },
-        )
-      : []
-    if (validRoles.length !== requestedRoleIds.length) {
-      const foundIds = new Set(validRoles.map((role) => role.id))
-      const missingId = requestedRoleIds.find((roleId) => !foundIds.has(roleId))
-      return NextResponse.json({ ok: false, error: `Role ${missingId} not found` }, { status: 400 })
-    }
+    const assignmentError = await em.transactional(async (tx) => {
+      // Scope role resolution to the caller's organization too — CustomerRole is
+      // org-scoped, so a tenant-only filter would let an admin link roles from
+      // another org in the same tenant (#2693).
+      const validRoles = requestedRoleIds.length > 0
+        ? await findWithDecryption(
+            tx,
+            CustomerRole,
+            {
+              id: { $in: requestedRoleIds } as any,
+              tenantId: auth.tenantId,
+              organizationId: auth.orgId,
+              deletedAt: null,
+            } as any,
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true, orderBy: { id: 'asc' } },
+            { tenantId: auth.tenantId, organizationId: auth.orgId },
+          )
+        : []
+      if (validRoles.length !== requestedRoleIds.length) {
+        const foundIds = new Set(validRoles.map((role) => role.id))
+        const missingId = requestedRoleIds.find((roleId) => !foundIds.has(roleId))
+        return NextResponse.json({ ok: false, error: `Role ${missingId} not found` }, { status: 400 })
+      }
 
-    await em.nativeDelete(CustomerUserRole, { user: user.id } as Record<string, unknown>)
+      await tx.nativeDelete(CustomerUserRole, { user: user.id } as Record<string, unknown>)
 
-    for (const role of validRoles) {
-      const userRole = em.create(CustomerUserRole, {
-        user,
-        role,
-        createdAt: new Date(),
-      } as any)
-      em.persist(userRole)
-    }
-    await em.flush()
+      for (const role of validRoles) {
+        const userRole = tx.create(CustomerUserRole, {
+          user,
+          role,
+          createdAt: new Date(),
+        } as any)
+        tx.persist(userRole)
+      }
+      await tx.flush()
+    })
+    if (assignmentError) return assignmentError
     rolesChanged = true
   }
 

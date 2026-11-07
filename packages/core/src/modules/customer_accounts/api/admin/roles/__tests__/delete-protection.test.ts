@@ -8,6 +8,7 @@ const ROLE_ID = '123e4567-e89b-12d3-a456-426614174080'
 const mockGetAuthFromRequest = jest.fn()
 
 const mockEm = {
+  transactional: jest.fn(async <Result>(work: (manager: typeof mockEm) => Promise<Result>): Promise<Result> => work(mockEm)),
   findOne: jest.fn(),
   count: jest.fn(async () => 0),
   nativeUpdate: jest.fn(async () => undefined),
@@ -102,4 +103,27 @@ describe('customer_accounts admin role deletion (#3556)', () => {
     expect(body.error).toMatch(/assigned user/i)
     expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
   })
+
+  it('waits for an in-flight assignment before deciding whether the role has holders (#8736)', async () => {
+    let releaseAssignment!: () => void
+    const assignment = new Promise<void>((resolve) => { releaseAssignment = resolve })
+    const role = { id: ROLE_ID, name: 'Viewer', slug: 'viewer', isDefault: false, updatedAt: null }
+    mockEm.findOne.mockImplementation(async (_entity: unknown, _where: unknown, options?: { lockMode?: number }) => {
+      if (options?.lockMode) await assignment
+      return role
+    })
+    const deletion = DELETE(deleteRequest(), params)
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(mockEm.count).not.toHaveBeenCalled()
+      expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+      mockEm.count.mockResolvedValue(1)
+    } finally {
+      releaseAssignment()
+    }
+    const response = await deletion
+    expect(response.status).toBe(400)
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
 })

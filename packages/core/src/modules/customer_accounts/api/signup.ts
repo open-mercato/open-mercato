@@ -1,3 +1,5 @@
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { LockMode } from '@mikro-orm/core'
 import { NextResponse } from 'next/server'
 import { compare as bcryptCompare } from 'bcryptjs'
 import { z } from 'zod'
@@ -155,21 +157,23 @@ export async function POST(req: Request) {
 
   const user = await customerUserService.createUser(email, password, displayName, { tenantId, organizationId })
 
-  const defaultRole = await em.findOne(CustomerRole, {
-    tenantId,
-    isDefault: true,
-    deletedAt: null,
-  })
-  if (defaultRole) {
-    const userRole = em.create(CustomerUserRole, {
-      user,
-      role: defaultRole,
-      createdAt: new Date(),
-    } as any)
-    em.persist(userRole)
-  }
+  await em.transactional(async (tx) => {
+    const defaultRole = await findOneWithDecryption(tx, CustomerRole, {
+      tenantId,
+      isDefault: true,
+      deletedAt: null,
+    }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }, { tenantId, organizationId })
+    if (defaultRole) {
+      const userRole = tx.create(CustomerUserRole, {
+        user,
+        role: defaultRole,
+        createdAt: new Date(),
+      } as any)
+      tx.persist(userRole)
+    }
 
-  await em.persist(user).flush()
+    await tx.persist(user).flush()
+  })
 
   const verificationToken = await customerTokenService.createEmailVerification(user.id, tenantId)
   let verifyUrl = resolvePortalVerifyUrl(baseUrl, verificationToken, orgRow.slug)

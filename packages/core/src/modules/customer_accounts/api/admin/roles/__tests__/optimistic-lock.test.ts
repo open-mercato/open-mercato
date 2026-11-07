@@ -13,6 +13,7 @@ const STALE_VERSION = '2026-06-01T09:00:00.000Z'
 const mockGetAuthFromRequest = jest.fn()
 
 const mockEm = {
+  transactional: jest.fn(async <Result>(work: (manager: typeof mockEm) => Promise<Result>): Promise<Result> => work(mockEm)),
   findOne: jest.fn(),
   count: jest.fn(async () => 0),
   nativeUpdate: jest.fn(async () => undefined),
@@ -98,6 +99,30 @@ describe('customer_accounts admin role optimistic locking', () => {
     expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
   })
 
+  it('GET exposes creation time as the stable version for a legacy null-version role', async () => {
+    mockEm.findOne.mockResolvedValue({ id: ROLE_ID, createdAt: new Date(CURRENT_VERSION), updatedAt: null })
+    const response = await GET(request('GET', null), params)
+    expect(response.status).toBe(200)
+    expect((await response.json()).updatedAt).toBe(CURRENT_VERSION)
+  })
+
+  it.each(['PUT', 'DELETE'] as const)('%s refuses a stale legacy-role version before writing', async (method) => {
+    mockEm.findOne.mockResolvedValue({ id: ROLE_ID, createdAt: new Date(CURRENT_VERSION), updatedAt: null })
+    const response = method === 'PUT'
+      ? await PUT(request('PUT', STALE_VERSION, { name: 'Stale' }), params)
+      : await DELETE(request('DELETE', STALE_VERSION), params)
+    expect(response.status).toBe(409)
+    expect((await response.json()).currentUpdatedAt).toBe(CURRENT_VERSION)
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('PUT accepts a matching legacy-role creation version and returns its next version', async () => {
+    mockEm.findOne.mockResolvedValue({ id: ROLE_ID, createdAt: new Date(CURRENT_VERSION), updatedAt: null })
+    const response = await PUT(request('PUT', CURRENT_VERSION, { name: 'Fresh' }), params)
+    expect(response.status).toBe(200)
+    expect((await response.json()).updatedAt).not.toBe(CURRENT_VERSION)
+  })
+
   it.each([
     ['GET', () => GET(request('GET', null), params)],
     ['PUT', () => PUT(request('PUT', null, { name: 'Renamed' }), params)],
@@ -120,15 +145,12 @@ describe('customer_accounts admin role optimistic locking', () => {
     const res = await invoke()
 
     expect(res.status).toBe(404)
-    expect(mockEm.findOne).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
+    expect(mockEm.findOne.mock.calls[0][1]).toEqual(expect.objectContaining({
         id: ROLE_ID,
         tenantId: TENANT_ID,
         organizationId: ORGANIZATION_ID,
         deletedAt: null,
-      }),
-    )
+      }))
     expect(mockEm.count).not.toHaveBeenCalled()
     expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
   })

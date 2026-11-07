@@ -65,7 +65,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     enforceCommandOptimisticLock({
       resourceKind: ROLE_RESOURCE_KIND,
       resourceId: role.id,
-      current: role.updatedAt ?? null,
+      current: role.updatedAt ?? role.createdAt,
       request: req,
     })
   } catch (err) {
