@@ -1032,7 +1032,12 @@ export async function run(argv = process.argv) {
         delete process.env.OM_INIT_REINSTALL
       }
       const skipIfInitialized = initArgs.includes('--skip-if-initialized')
-      const credentials = skipIfInitialized && !reinstall ? undefined : resolveInitSuperadminCredentials(initArgs)
+      // Only --reinstall needs credentials resolved up front, since it drops every table
+      // before this point is reached. Ordinary init (with or without --skip-if-initialized)
+      // defers credential resolution until after the existing-users check below, so a
+      // preserved production database without its init marker still reaches the recoverable
+      // "existing user(s)" abort instead of failing on a missing/placeholder password first.
+      const credentials = reinstall ? resolveInitSuperadminCredentials(initArgs) : undefined
       const skipExamples = initArgs.includes('--no-examples')
       const skipDemoUsers = initArgs.includes('--no-demo-users')
       const stressTestEnabled =
