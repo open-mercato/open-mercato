@@ -27,6 +27,7 @@
   "communication_channels.errors.loadList": "Failed to load channels",
   "communication_channels.errors.messageNotFound": "Message not found",
   "communication_channels.errors.missingChannelId": "No channel selected.",
+  "communication_channels.errors.pollNowAlreadyQueued": "A poll is already queued or running for this channel. Try again in a moment.",
   "communication_channels.errors.pollNowPushDriven": "Channel is push-driven — polling does not apply. Inbound messages arrive through the provider push connection.",
   "communication_channels.errors.reactionFailed": "Reaction failed",
   "communication_channels.errors.reactionNotFound": "Reaction not found",

@@ -1,4 +1,5 @@
 import handler, { metadata, type PollTickPayload } from '../poll-tick'
+import { pollLeaseCacheKey } from '../../lib/poll-lease'
 import type { QueuedJob } from '@open-mercato/queue'
 
 const enqueueMock = jest.fn(async () => 'next-job')
@@ -9,6 +10,20 @@ jest.mock('../../lib/queue', () => {
     getCommunicationChannelsQueue: jest.fn(() => ({ enqueue: enqueueMock })),
   }
 })
+
+/** In-memory fake matching the `has`/`set` subset of `CacheStrategy` used by the poll lease. */
+function createFakeCache() {
+  const entries = new Map<string, number | null>()
+  return {
+    entries,
+    async has(key: string) {
+      return entries.has(key)
+    },
+    async set(key: string, _value: unknown, _options?: { ttl?: number; tags?: string[] }) {
+      entries.set(key, 1)
+    },
+  }
+}
 
 describe('poll-tick worker metadata', () => {
   it('targets the poll-tick queue with concurrency 1 (single-flight)', () => {
@@ -280,5 +295,168 @@ describe('poll-tick worker enumeration', () => {
     enqueueMock.mockClear()
     await handler(makeJob(), ctx)
     expect(enqueueMock).not.toHaveBeenCalled()
+  })
+})
+
+// Regression for #8713 — the tick used to enqueue a poll-channel job for
+// every due channel with no visibility into whether a job for that channel
+// was already queued/running (e.g. a concurrent `poll-now` call). These
+// cover the enqueue-time dedupe guard at this call site.
+describe('poll-tick worker — enqueue-time dedupe guard (#8713)', () => {
+  beforeEach(() => enqueueMock.mockClear())
+
+  function makeJob(): QueuedJob<PollTickPayload> {
+    return {
+      id: 'tick-1',
+      createdAt: new Date().toISOString(),
+      payload: {
+        scope: {
+          tenantId: '22222222-2222-2222-2222-222222222222',
+          organizationId: '33333333-3333-3333-3333-333333333333',
+        },
+      },
+    }
+  }
+
+  function makeCtxWithCache(
+    connectedChannels: any[],
+    errorChannels: any[],
+    cache: ReturnType<typeof createFakeCache>,
+  ) {
+    let callCount = 0
+    const em = {
+      find: jest.fn(async () => {
+        const result = callCount === 0 ? connectedChannels : errorChannels
+        callCount += 1
+        return result
+      }),
+      flush: jest.fn(async () => undefined),
+    }
+    return {
+      jobId: 'tick-1',
+      attemptNumber: 1,
+      queueName: 'communication-channels-poll-tick',
+      resolve: ((name: string) => {
+        if (name === 'em') return { fork: () => em }
+        if (name === 'cache') return cache
+        return null
+      }) as <T>(name: string) => T,
+    }
+  }
+
+  it('skips enqueueing a due connected channel whose poll lease is already held', async () => {
+    const channel = {
+      id: 'c1',
+      pollIntervalSeconds: 60,
+      lastPolledAt: null,
+      tenantId: 't1',
+      organizationId: 'o1',
+    }
+    const cache = createFakeCache()
+    cache.entries.set(pollLeaseCacheKey('t1', 'c1'), 1)
+
+    await handler(makeJob(), makeCtxWithCache([channel], [], cache))
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('still enqueues a due connected channel with no lease held, and records one', async () => {
+    const channel = {
+      id: 'c1',
+      pollIntervalSeconds: 60,
+      lastPolledAt: null,
+      tenantId: 't1',
+      organizationId: 'o1',
+    }
+    const cache = createFakeCache()
+
+    await handler(makeJob(), makeCtxWithCache([channel], [], cache))
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    expect(cache.entries.has(pollLeaseCacheKey('t1', 'c1'))).toBe(true)
+  })
+
+  it('skips an error-recovery channel whose lease is already held and does not bump lastPolledAt', async () => {
+    const channel = {
+      id: 'c-err',
+      pollIntervalSeconds: 60,
+      lastPolledAt: new Date(Date.now() - 60 * 60 * 1000),
+      status: 'error',
+      tenantId: 't1',
+      organizationId: 'o1',
+    }
+    const cache = createFakeCache()
+    cache.entries.set(pollLeaseCacheKey('t1', 'c-err'), 1)
+    const originalLastPolledAt = channel.lastPolledAt
+
+    await handler(makeJob(), makeCtxWithCache([], [channel], cache))
+    expect(enqueueMock).not.toHaveBeenCalled()
+    expect(channel.lastPolledAt).toBe(originalLastPolledAt)
+  })
+
+  it('does not let a cache resolve failure (no DI cache registered) block polling', async () => {
+    const channel = {
+      id: 'c1',
+      pollIntervalSeconds: 60,
+      lastPolledAt: null,
+      tenantId: 't1',
+      organizationId: 'o1',
+    }
+    let callCount = 0
+    const em = {
+      find: jest.fn(async () => {
+        const result = callCount === 0 ? [channel] : []
+        callCount += 1
+        return result
+      }),
+      flush: jest.fn(async () => undefined),
+    }
+    const ctx = {
+      jobId: 'tick-1',
+      attemptNumber: 1,
+      queueName: 'communication-channels-poll-tick',
+      resolve: ((name: string) => {
+        if (name === 'em') return { fork: () => em }
+        if (name === 'cache') throw new Error('cache not registered')
+        return null
+      }) as <T>(name: string) => T,
+    }
+
+    await handler(makeJob(), ctx)
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+  })
+
+  // Regression for the cache-I/O failure path flagged in review: a cache that
+  // IS registered via DI but rejects at I/O time (e.g. a Redis outage) must
+  // also fail open — and, critically, must not abort the enumeration loop so
+  // later connected/recovery channels still get enqueued.
+  it('does not let a rejecting cache abort the tick — later channels are still enqueued', async () => {
+    const connected = [
+      { id: 'c1', pollIntervalSeconds: 60, lastPolledAt: null, tenantId: 't1', organizationId: 'o1' },
+      { id: 'c2', pollIntervalSeconds: 60, lastPolledAt: null, tenantId: 't1', organizationId: 'o1' },
+    ]
+    const originalLastPolledAt = new Date(Date.now() - 60 * 60 * 1000)
+    const errorChannel = {
+      id: 'c-err',
+      pollIntervalSeconds: 60,
+      lastPolledAt: originalLastPolledAt,
+      status: 'error',
+      tenantId: 't1',
+      organizationId: 'o1',
+    }
+    const rejectingCache = {
+      has: jest.fn(async () => {
+        throw new Error('redis connection reset')
+      }),
+      set: jest.fn(async () => {}),
+    }
+
+    await handler(makeJob(), makeCtxWithCache(connected, [errorChannel], rejectingCache))
+
+    expect(enqueueMock).toHaveBeenCalledTimes(3)
+    expect(enqueueMock.mock.calls.map((call) => call[0].channelId).sort()).toEqual([
+      'c-err',
+      'c1',
+      'c2',
+    ])
+    expect(errorChannel.lastPolledAt.getTime()).toBeGreaterThan(originalLastPolledAt.getTime())
   })
 })
