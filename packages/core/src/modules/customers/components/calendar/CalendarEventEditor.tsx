@@ -5,6 +5,7 @@ import { Calendar, X } from 'lucide-react'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -101,18 +102,21 @@ type EditorBodyProps = Pick<CrudFormGroupComponentProps, 'values' | 'errors' | '
   catalogItems: readonly ScopedCalendarEventType[]
   catalogReady: boolean
   catalogError: boolean
+  customFieldsError: boolean
   onRetryCatalog(): void
   onSelectedTypeChange(key: string): void
 }
 
-function CatalogStatusAlert({ error, onRetry }: { error: boolean; onRetry(): void }) {
+function CatalogStatusAlert({ error, customFieldsError, onRetry }: { error: boolean; customFieldsError?: boolean; onRetry(): void }) {
   const t = useT()
   return (
     <Alert status={error ? 'error' : 'information'} className="rounded-lg lg:col-span-2">
       <AlertDescription>
-        {error
-          ? t('customers.calendar.editor.catalogLoadFailed')
-          : t('customers.calendar.editor.catalogLoading')}
+        {customFieldsError
+          ? t('customers.calendar.editor.customFieldsLoadFailed')
+          : error
+            ? t('customers.calendar.editor.catalogLoadFailed')
+            : t('customers.calendar.editor.catalogLoading')}
       </AlertDescription>
       {error ? (
         <Button type="button" variant="outline" onClick={onRetry}>
@@ -174,6 +178,7 @@ const EditorBody = React.memo(function EditorBody({
   catalogItems,
   catalogReady,
   catalogError,
+  customFieldsError,
   onRetryCatalog,
   onSelectedTypeChange,
 }: EditorBodyProps) {
@@ -248,7 +253,7 @@ const EditorBody = React.memo(function EditorBody({
         </Alert>
       ) : null}
       {!catalogReady ? (
-        <CatalogStatusAlert error={catalogError} onRetry={onRetryCatalog} />
+        <CatalogStatusAlert error={catalogError || customFieldsError} customFieldsError={customFieldsError && !catalogError} onRetry={onRetryCatalog} />
       ) : null}
       {catalogReady && (definition.historical || catalogItems.some((item) => item.key === selectedType && !item.selectable)) ? (
         <Alert status="warning" className="rounded-lg lg:col-span-2">
@@ -288,20 +293,18 @@ const EditorBody = React.memo(function EditorBody({
           />
         </Field>
       </div>
-      {catalogReady ? (
-        <div className="lg:col-span-2">
-          <EventTypePanel
-            definition={definition}
-            panelKey={definition.panelKey}
-            mode={isEdit ? 'edit' : 'create'}
-            values={values}
-            errors={errors}
-            disabled={saving}
-            capabilities={capabilities}
-            setValue={setValue}
-          />
-        </div>
-      ) : null}
+      <div className="lg:col-span-2">
+        <EventTypePanel
+          definition={definition}
+          panelKey={definition.panelKey}
+          mode={isEdit ? 'edit' : 'create'}
+          values={values}
+          errors={errors}
+          disabled={saving}
+          capabilities={capabilities}
+          setValue={setValue}
+        />
+      </div>
       <Field label={t('customers.calendar.editor.description', 'Description')} className="lg:col-span-2">
         <Textarea
           value={form.description}
@@ -376,7 +379,8 @@ export function CalendarEventEditor({
   const catalog = useEventTypeCatalog(open)
   const { items: catalogItems, status: catalogStatus, retry: retryCatalog } = catalog
   const [selectedTypeKey, setSelectedTypeKey] = React.useState(() => isEdit && item ? item.interactionType : 'meeting')
-  const autoSelectedCreateType = !isEdit && catalog.status === 'ready' && !isSelectableEventType(catalog.items, 'meeting')
+  const catalogDisplayable = catalog.status === 'ready' || catalog.status === 'stale'
+  const autoSelectedCreateType = !isEdit && catalogDisplayable && !isSelectableEventType(catalog.items, 'meeting')
     ? catalog.items.find((entry) => entry.selectable && !entry.historical) ?? null
     : null
 
@@ -427,7 +431,16 @@ export function CalendarEventEditor({
   const customFields = useCalendarCustomFields(open, E.customers.customer_interaction, selectedDefinition.behavior.customFieldsetIds)
   const injectionWidgets = useInjectionWidgets(INTERACTION_INJECTION_SPOT)
   const canCreateType = isSelectableEventType(catalog.items, selectedTypeKey)
-  const formReady = isEdit || catalog.status === 'ready'
+  // Mount the form only once everything that shapes its fields has loaded, so
+  // the dialog does not paint a short form and then grow when the selected
+  // type's fields and the custom-field group arrive.
+  const formReady = catalogDisplayable && customFields.status !== 'loading'
+  const { status: customFieldsStatus, retry: retryCustomFields } = customFields
+  const customFieldsFailed = customFieldsStatus === 'stale' || customFieldsStatus === 'error'
+  const retryFailedReads = React.useCallback(() => {
+    if (catalogStatus !== 'ready') retryCatalog()
+    if (customFieldsStatus !== 'ready') retryCustomFields()
+  }, [catalogStatus, customFieldsStatus, retryCatalog, retryCustomFields])
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
@@ -593,16 +606,17 @@ export function CalendarEventEditor({
             staffEnabled={staffEnabled !== false}
             saving={saving}
             catalogItems={catalogItems}
-            catalogReady={catalogStatus === 'ready'}
-            catalogError={catalogStatus === 'error'}
-            onRetryCatalog={retryCatalog}
+            catalogReady={catalogStatus === 'ready' && !customFieldsFailed}
+            catalogError={catalogStatus === 'error' || catalogStatus === 'stale'}
+            customFieldsError={customFieldsFailed}
+            onRetryCatalog={retryFailedReads}
             onSelectedTypeChange={setSelectedTypeKey}
           />
         ),
       },
       ...(customFields.fields.length ? [{ id: 'customFields', title: t('entities.customFields.title'), fields: customFields.fields.map((field) => field.id) }] : []),
     ],
-    [open, isEdit, item, conflictScope, currentUserId, resourcesEnabled, staffEnabled, saving, catalogItems, catalogStatus, retryCatalog, customFields.fields, t],
+    [open, isEdit, item, conflictScope, currentUserId, resourcesEnabled, staffEnabled, saving, catalogItems, catalogStatus, customFieldsFailed, retryFailedReads, customFields.fields, t],
   )
 
   const handleKeyDown = useDialogKeyHandler({
@@ -681,8 +695,12 @@ export function CalendarEventEditor({
                 injectionSpotId={INTERACTION_INJECTION_SPOT}
                 onSubmit={handleSubmit}
               />
+            ) : catalog.status === 'error' ? (
+              <CatalogStatusAlert error onRetry={catalog.retry} />
             ) : (
-              <CatalogStatusAlert error={catalog.status === 'error'} onRetry={catalog.retry} />
+              <div className="flex min-h-80 items-center justify-center">
+                <LoadingMessage label={t('customers.calendar.editor.catalogLoading')} />
+              </div>
             )}
           </div>
         </div>
