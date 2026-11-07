@@ -85,22 +85,22 @@ async function raceBehindProfileGate(
   const functionName = `om_pcl_primary_gate_${stamp}`
   const triggerName = `om_pcl_primary_gate_trigger_${stamp}`
   const gateKey = randomInt(1, 2_147_483_647)
-  await withClient(async (client) => {
-    await client.query(
-      `create function "${functionName}"() returns trigger language plpgsql as $$
-       begin
-         perform pg_advisory_xact_lock(${gateKey});
-         return new;
-       end
-       $$`,
-    )
-    await client.query(
-      `create trigger "${triggerName}" before update on customer_people
-         for each row when (old.entity_id = '${personId}'::uuid)
-         execute function "${functionName}"()`,
-    )
-  })
   try {
+    await withClient(async (client) => {
+      await client.query(
+        `create function "${functionName}"() returns trigger language plpgsql as $$
+         begin
+           perform pg_advisory_xact_lock(${gateKey});
+           return new;
+         end
+         $$`,
+      )
+      await client.query(
+        `create trigger "${triggerName}" before update on customer_people
+           for each row when (old.entity_id = '${personId}'::uuid)
+           execute function "${functionName}"()`,
+      )
+    })
     return await withCredentialIsolatedRequest(async (firstRequest) => (
       withCredentialIsolatedRequest(async (secondRequest) => (
         withClient(async (blocker) => (

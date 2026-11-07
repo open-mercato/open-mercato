@@ -39,6 +39,34 @@ describe('personCompanies primary-company invariants', () => {
     expect(profile.company).toBe(secondaryLink.company)
   })
 
+  it('keeps the fallback primary when demoting one of two primary links', async () => {
+    const firstLink = createLink('link-first', 'company-first', 'First Co', true)
+    const secondLink = createLink('link-second', 'company-second', 'Second Co', true)
+    const em = {
+      find: jest.fn().mockResolvedValue([firstLink, secondLink]),
+      nativeUpdate: jest.fn().mockResolvedValue(1),
+    }
+    const person = { organizationId, tenantId }
+    const profile = { company: firstLink.company }
+
+    type UpdateArgs = Parameters<typeof updatePersonCompanyLink>
+    await updatePersonCompanyLink(
+      em as unknown as UpdateArgs[0],
+      person as unknown as UpdateArgs[1],
+      profile as unknown as UpdateArgs[2],
+      'link-first',
+      { isPrimary: false },
+    )
+
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ isPrimary: true, id: { $ne: 'link-second' } }),
+      { isPrimary: false },
+    )
+    expect(firstLink.isPrimary).toBe(false)
+    expect(profile.company).toBe(secondLink.company)
+  })
+
   it('clears the legacy primary company when demoting the only linked company', async () => {
     const primaryLink = createLink('link-primary', 'company-primary', 'Primary Co', true)
     const em = {

@@ -276,7 +276,7 @@ export async function promoteFallbackPrimaryLink(
     return
   }
 
-  await clearPrimaryFlags(em, person)
+  await clearPrimaryFlags(em, person, nextPrimary.id)
   nextPrimary.isPrimary = true
   const nextCompany = resolveLinkedCompany(nextPrimary)
   if (nextCompany) {
