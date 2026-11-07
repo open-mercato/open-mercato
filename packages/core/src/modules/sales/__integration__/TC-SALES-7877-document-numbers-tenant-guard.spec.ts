@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   deleteGeneralEntityIfExists,
   expectId,
@@ -116,6 +117,7 @@ test.describe('TC-SALES-7877: document-numbers tenant guard through the real dis
       })
       expect(attackResponse.status(), 'an over-budget foreign-tenant body must still be rejected').toBe(403)
       const attackBody = await readJsonSafe<NumberResponse>(attackResponse)
+      expect(attackBody?.error).toBe('You are not allowed to target this tenant.')
       expect(attackBody?.number, 'a rejected request must never return a generated number').toBeUndefined()
 
       // Verify: the foreign tenant's own next number continues right after the baseline —
@@ -154,6 +156,14 @@ test.describe('TC-SALES-7877: document-numbers tenant guard through the real dis
       })
       expect(missingFeatureResponse.status(), 'missing sales.documents.number.edit must deny').toBe(403)
     } finally {
+      if (foreignTenantId && foreignOrganizationId) {
+        await withClient(async (client) => {
+          await client.query(
+            'delete from sales_document_sequences where tenant_id = $1 and organization_id = $2',
+            [foreignTenantId, foreignOrganizationId],
+          )
+        })
+      }
       await deleteGeneralEntityIfExists(
         request,
         superadminToken,
