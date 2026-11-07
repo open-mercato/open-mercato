@@ -51,6 +51,7 @@ export default function RelatedDocumentsWidget({ context, data, disabled }: Inje
   return (
     <section className="rounded-lg border border-border bg-card p-4">
       <SectionHeader
+        className="flex-wrap gap-2"
         title={t('documents.relatedDocuments.title')}
         count={related.items.length}
         action={actions.canLink || actions.canCreate ? <>

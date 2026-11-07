@@ -181,7 +181,7 @@ export function InlineActivityComposer({
   return (
     <div className="rounded-2xl border border-border/70 bg-card p-5" onKeyDown={handleKeyDown}>
       {/* Header: title + save button */}
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
           <SquarePen className="size-4" />
           {t('customers.activityComposer.title', 'Log activity')}
