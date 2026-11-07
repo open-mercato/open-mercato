@@ -648,3 +648,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## #7672 2026-11-03
+
+STABLE `POST /api/attachments/transfer` rejects over 100 `attachmentIds` (400); no bridge, as unbounded arrays are the resource exhaustion. [Migrate](UPGRADE_NOTES.md#issue-7672)

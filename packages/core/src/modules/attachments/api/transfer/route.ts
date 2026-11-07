@@ -13,6 +13,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { mergeAttachmentMetadata, readAttachmentMetadata } from '../../lib/metadata'
+import { ATTACHMENT_TRANSFER_MAX_IDS } from '../../lib/transferLimits'
 import {
   attachmentsTag,
   transferAttachmentsRequestSchema,
@@ -22,7 +23,7 @@ import {
 
 const transferSchema = z.object({
   entityId: z.string().min(1),
-  attachmentIds: z.array(z.string().uuid()).min(1),
+  attachmentIds: z.array(z.string().uuid()).min(1).max(ATTACHMENT_TRANSFER_MAX_IDS),
   fromRecordId: z.string().min(1).optional(),
   toRecordId: z.string().min(1),
 })

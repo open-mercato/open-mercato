@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ATTACHMENT_TRANSFER_MAX_IDS } from '../lib/transferLimits'
 
 export const attachmentsTag = 'Attachments'
 
@@ -115,7 +116,11 @@ export const partitionResponseSchema = z.object({
 
 export const transferAttachmentsRequestSchema = z.object({
   entityId: z.string().min(1).describe('Entity type identifier'),
-  attachmentIds: z.array(z.string().uuid()).min(1).describe('Array of attachment IDs to transfer'),
+  attachmentIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(ATTACHMENT_TRANSFER_MAX_IDS)
+    .describe(`Array of attachment IDs to transfer (max ${ATTACHMENT_TRANSFER_MAX_IDS})`),
   fromRecordId: z.string().min(1).optional().describe('Optional source record ID'),
   toRecordId: z.string().min(1).describe('Target record ID'),
 })
