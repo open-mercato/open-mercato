@@ -297,6 +297,7 @@
   "entityMissing": "Entity is missing.",
   "error": "Error",
   "errors.invalid_input": "Nieprawidłowe dane wejściowe",
+  "errors.unique_violation": "Rekord z takimi samymi unikalnymi wartościami już istnieje",
   "example.admin.page.description": "Zasoby demonstracyjne dla modułu przykładowego.",
   "example.admin.page.resources": "Zasoby",
   "example.admin.page.title": "Panel przykładowy",

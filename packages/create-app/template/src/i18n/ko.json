@@ -297,6 +297,7 @@
   "entityMissing": "엔터티가 없습니다.",
   "error": "오류",
   "errors.invalid_input": "잘못된 입력입니다",
+  "errors.unique_violation": "동일한 고유 값을 가진 레코드가 이미 존재합니다",
   "example.admin.page.description": "Example 모듈의 데모 리소스입니다.",
   "example.admin.page.resources": "리소스",
   "example.admin.page.title": "Example 관리",

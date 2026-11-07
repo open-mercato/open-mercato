@@ -297,6 +297,7 @@
   "entityMissing": "Entity is missing.",
   "error": "Error",
   "errors.invalid_input": "Ungültige Eingabe",
+  "errors.unique_violation": "Ein Datensatz mit denselben eindeutigen Werten existiert bereits",
   "example.admin.page.description": "Demo-Ressourcen für das Beispielmodul.",
   "example.admin.page.resources": "Ressourcen",
   "example.admin.page.title": "Beispiel-Admin",
