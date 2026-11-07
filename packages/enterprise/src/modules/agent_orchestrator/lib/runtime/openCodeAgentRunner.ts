@@ -27,12 +27,14 @@ import type { AgentWorkspaceLease, AgentWorkspaceManager } from './agentWorkspac
 import { collectArtifacts } from './artifactCollector'
 import { extractFileInput } from './fileInput'
 import { stageAttachments, type StagedInput } from './attachmentStager'
+import { isAttachmentStorageConfigurationError } from '@open-mercato/core/modules/attachments'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { withAuditedCommand } from '../identity/agentWriteScope'
 import type { IngestTraceCommandInput } from '../../commands/trace'
 import type { IngestTraceResult } from '../trace/traceIngestionService'
 import type { TraceSpanIngest } from '../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'opencode-agent-runner' })
 
@@ -307,9 +309,19 @@ export class OpenCodeAgentRunner {
             inDir: workspace.inDir,
             tenantId: ctx.tenantId,
             organizationId: ctx.organizationId,
+            userId: ctx.userId,
           })
         } catch (err) {
-          const detail = err instanceof Error ? err.message : String(err)
+          if (isAttachmentStorageConfigurationError(err)) {
+            await failRun(this.commandBus, commandCtx, { runId, errorMessage: `${err.code}: ${err.reason}` })
+            throw err
+          }
+          logger.warn('attachment staging failed', { agentId, runId, error: err instanceof Error ? err.message : String(err) })
+          getTelemetryRuntime()?.reportError(err, {
+            module: 'agent_orchestrator', code: 'agent_orchestrator.attachment_staging_failed',
+            attributes: { agentId, runId },
+          })
+          const detail = 'attachment input unavailable'
           await failRun(this.commandBus, commandCtx, { runId, errorMessage: `attachment staging failed: ${detail}` })
           throw new OpenCodeRunFailedError(agentId, `attachment staging failed: ${detail}`)
         }

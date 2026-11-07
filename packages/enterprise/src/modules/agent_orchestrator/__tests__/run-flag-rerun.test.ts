@@ -2,8 +2,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { AttachmentStorageConfigurationError } from '@open-mercato/core/modules/attachments'
 import { AgentRun } from '../data/entities'
 import { withRerunOf, getRerunOfRunId } from '../lib/runtime/rerunContext'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({
+  t: (key: string, fallback?: string) => key === 'attachments.errors.storageConfigurationInvalid' ? 'Localized storage unavailable' : fallback ?? key,
+}) }))
 
 jest.mock('../events', () => ({
   emitAgentOrchestratorEvent: jest.fn(async () => {}),
@@ -272,6 +277,19 @@ describe('POST /api/agent_orchestrator/runs/:id/rerun', () => {
       expect.objectContaining({ rerunOfRunId: RUN_ID, tenantId: TENANT, organizationId: ORG }),
       expect.objectContaining({ orderBy: { createdAt: 'desc' } }),
     )
+  })
+
+  it.each(['partition_missing', 'invalid_config'] as const)('maps typed storage %s to a redacted localized 503', async (reason) => {
+    const { run, findOne } = await setup({
+      id: RUN_ID, tenantId: TENANT, organizationId: ORG, agentId: 'deals.health_check', input: SOURCE_INPUT,
+    })
+    run.mockRejectedValueOnce(new AttachmentStorageConfigurationError(reason))
+    const response = await rerunPost(makeRequest(), { params })
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({
+      error: 'Localized storage unavailable', code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason,
+    })
+    expect(findOne).not.toHaveBeenCalled()
   })
 
   it('404s an unknown or cross-org run without invoking the runtime', async () => {
