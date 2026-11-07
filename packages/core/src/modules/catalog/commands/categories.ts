@@ -12,6 +12,7 @@ import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogProductCategory } from '../data/entities'
 import {
@@ -22,7 +23,7 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
-import { rebuildCategoryHierarchyForOrganization } from '../lib/categoryHierarchy'
+import { findCategoryParentCycle, rebuildCategoryHierarchyForOrganization } from '../lib/categoryHierarchy'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '#generated/entities.ids.generated'
@@ -138,6 +139,35 @@ async function assertParentScope(
   }
   if (parent.id === parentId) return parent.id
   return String(parent.id)
+}
+
+const PARENT_CYCLE_ERROR = {
+  status: 400,
+  key: 'catalog.categories.errors.parentCycle',
+  fallback: "A category can't be moved under itself or one of its subcategories.",
+} as const
+
+const REPLAY_CYCLE_ERROR = {
+  status: 409,
+  key: 'catalog.categories.errors.replayCycle',
+  fallback: "The category hierarchy changed since this action, so it can't be reverted without making a category its own ancestor.",
+} as const
+
+async function assertCategoryParentKeepsTreeAcyclic(
+  em: EntityManager,
+  record: CatalogProductCategory,
+  error: typeof PARENT_CYCLE_ERROR | typeof REPLAY_CYCLE_ERROR,
+): Promise<void> {
+  const categories = await findWithDecryption(
+    em,
+    CatalogProductCategory,
+    { organizationId: record.organizationId, tenantId: record.tenantId, deletedAt: null },
+    undefined,
+    { tenantId: record.tenantId, organizationId: record.organizationId },
+  )
+  if (!findCategoryParentCycle(categories, [String(record.id)])) return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(error.status, { error: translate(error.key, error.fallback), code: error.key })
 }
 
 function normalizeSlug(slug?: string | null): string | null {
@@ -367,7 +397,8 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
 
     if (parsed.parentId !== undefined) {
       const requestedParent = parsed.parentId ? String(parsed.parentId) : null
-      const safeParent = requestedParent && requestedParent !== record.id ? requestedParent : null
+      const safeParent =
+        requestedParent && requestedParent.toLowerCase() !== String(record.id).toLowerCase() ? requestedParent : null
       record.parentId = await assertParentScope(em, safeParent, record.organizationId, record.tenantId)
     }
 
@@ -375,11 +406,13 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
       record.isActive = parsed.isActive
     }
 
+    const parentReassigned = !!record.parentId && record.parentId !== previousParentId
     await withAtomicFlush(
       em,
       [
         () => em.flush(),
         async () => {
+          if (parentReassigned) await assertCategoryParentKeepsTreeAcyclic(em, record, PARENT_CYCLE_ERROR)
           await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
         },
       ],
@@ -437,6 +470,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductCategory, { id: before.id })
+    const currentParentId = record?.parentId ?? null
     if (!record) {
       record = em.create(CatalogProductCategory, {
         id: before.id,
@@ -473,11 +507,14 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
       record.isActive = before.isActive
       record.deletedAt = null
     }
+    const restoredRecord = record
+    const parentRestored = !!restoredRecord.parentId && restoredRecord.parentId !== currentParentId
     await withAtomicFlush(
       em,
       [
         () => em.flush(),
         async () => {
+          if (parentRestored) await assertCategoryParentKeepsTreeAcyclic(em, restoredRecord, REPLAY_CYCLE_ERROR)
           await rebuildCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
         },
       ],
