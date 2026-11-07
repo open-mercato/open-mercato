@@ -66,15 +66,21 @@ test.describe('TC-ADMIN-001: Create API Key', () => {
     } finally {
       // Cleanup: try to delete the API key via API (best effort)
       if (token) {
-        const listResponse = await apiRequest(request, 'GET', '/api/auth/api-keys', { token });
+        const listResponse = await apiRequest(request, 'GET', `/api/api_keys/keys?search=${encodeURIComponent(keyName)}&pageSize=50`, { token });
+        if (!listResponse.ok()) {
+          console.warn(`[TC-ADMIN-001] cleanup: listing API keys failed with ${listResponse.status()}`);
+        }
         const listData = await listResponse.json().catch(() => null);
-        if (listData && Array.isArray(listData.items)) {
-          const keyToDelete = listData.items.find((item: Record<string, unknown>) =>
-            item.name === keyName,
-          );
-          if (keyToDelete && typeof keyToDelete.id === 'string') {
-            await apiRequest(request, 'DELETE', `/api/auth/api-keys?id=${keyToDelete.id}`, { token }).catch(() => {});
+        const keyToDelete = listData && Array.isArray(listData.items)
+          ? listData.items.find((item: Record<string, unknown>) => item.name === keyName)
+          : undefined;
+        if (keyToDelete && typeof keyToDelete.id === 'string') {
+          const deleteResponse = await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${encodeURIComponent(keyToDelete.id)}`, { token }).catch(() => null);
+          if (!deleteResponse?.ok()) {
+            console.warn(`[TC-ADMIN-001] cleanup: deleting API key ${keyName} failed with ${deleteResponse?.status() ?? 'network error'}`);
           }
+        } else {
+          console.warn(`[TC-ADMIN-001] cleanup: API key ${keyName} not found, skipping delete`);
         }
       }
     }
