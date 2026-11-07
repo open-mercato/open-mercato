@@ -3,6 +3,11 @@ import { isSystemEmailTransportConfigured, sendSystemEmail } from '../system-ema
 import type { ChannelAdapter } from '../adapter'
 import { registerSystemEmailProviderConfigResolver } from '../system-email-provider-config'
 
+const enqueueSystemEmailDeliveryMock = jest.fn(async () => 'delivery-1')
+jest.mock('../system-email-queue', () => ({
+  enqueueSystemEmailDelivery: (...args: unknown[]) => enqueueSystemEmailDeliveryMock(...args),
+}))
+
 type ContainerOptions = {
   fork: Record<string, unknown>
   sendMessage: jest.Mock
@@ -492,6 +497,53 @@ describe('sendSystemEmail', () => {
         organizationId: 'org-1',
       })).rejects.toThrow('SYSTEM_EMAIL_CHANNEL_UNAVAILABLE')
       expect(sendMessage).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('queued delivery mode', () => {
+    beforeEach(() => {
+      enqueueSystemEmailDeliveryMock.mockClear()
+    })
+
+    it('renders the body and enqueues instead of sending when queued mode is on', async () => {
+      process.env.OM_SYSTEM_EMAIL_DELIVERY = 'queued'
+      const sendMessage = jest.fn()
+      const container = buildContainer({ fork: {}, sendMessage, credentials: null })
+
+      await sendSystemEmail(container as never, {
+        to: 'user@example.com',
+        subject: 'Hello',
+        from: 'from@example.com',
+        react: React.createElement('div', null, 'Hello'),
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+
+      expect(sendMessage).not.toHaveBeenCalled()
+      expect(enqueueSystemEmailDeliveryMock).toHaveBeenCalledWith(
+        container,
+        expect.objectContaining({ to: 'user@example.com', tenantId: 'tenant-1' }),
+        expect.objectContaining({ bodyFormat: 'html', html: expect.stringContaining('<div>Hello</div>') }),
+      )
+    })
+
+    it('keeps a per-call sync override synchronous', async () => {
+      process.env.OM_SYSTEM_EMAIL_DELIVERY = 'queued'
+      const sendMessage = jest.fn().mockResolvedValue({ externalMessageId: 'email-1', status: 'sent' })
+      const container = buildContainer({ fork: { findOne: jest.fn().mockResolvedValue(null) }, sendMessage, credentials: null })
+
+      await sendSystemEmail(container as never, {
+        to: 'user@example.com',
+        subject: 'Hello',
+        from: 'from@example.com',
+        text: 'Hello',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        delivery: 'sync',
+      })
+
+      expect(enqueueSystemEmailDeliveryMock).not.toHaveBeenCalled()
+      expect(sendMessage).toHaveBeenCalledTimes(1)
     })
   })
 
