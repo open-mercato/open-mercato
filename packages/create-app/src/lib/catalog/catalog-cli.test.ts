@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { main, maybeRunCatalogStep, parseArgs, type CatalogStepRunner } from '../../index.ts'
+import { main, maybeRunCatalogStep, parseArgs, shouldOfferModulePicker, type CatalogStepRunner } from '../../index.ts'
 import { CATALOG_SELECTION_FILE } from './selection.js'
 import type { CatalogStepOptions } from './catalog-step.js'
 
@@ -79,13 +79,30 @@ async function runMain(argv: string[], catalog: () => unknown = catalogForThisVe
   return { cwd, requests, output }
 }
 
-test('parseArgs reads --modules and --module-picker', () => {
+test('parseArgs reads --modules, --module-picker and --no-module-picker', () => {
   assert.equal(parseArgs(['my-app', '--modules', 'a,b']).options.modules, 'a,b')
   assert.equal(parseArgs(['my-app', '--module-picker']).options.modulePicker, true)
+  assert.equal(parseArgs(['my-app', '--no-module-picker']).options.modulePicker, false)
+  assert.equal(parseArgs(['my-app', '--module-picker', '--no-module-picker']).options.modulePicker, false, 'the last flag wins')
   const plain = parseArgs(['my-app'])
   assert.equal(plain.appName, 'my-app')
   assert.equal(plain.options.modules, undefined)
-  assert.equal(plain.options.modulePicker, false)
+  assert.equal(plain.options.modulePicker, undefined, 'no flag leaves the choice to shouldOfferModulePicker')
+})
+
+test('shouldOfferModulePicker offers the picker in a terminal when no --preset or --modules is given', () => {
+  const readyApp = { kind: 'github', owner: 'some-agency', repo: 'ready-app-marketplace' } as unknown as Parameters<typeof shouldOfferModulePicker>[1]
+  const offer = (argv: string[], interactive: boolean, source: Parameters<typeof shouldOfferModulePicker>[1] = null) =>
+    shouldOfferModulePicker(parseArgs(['my-app', ...argv]).options, source, interactive)
+  assert.equal(offer([], true), true)
+  assert.equal(offer([], false), false, 'never without a terminal')
+  assert.equal(offer(['--preset', 'classic'], true), false, 'a preset on the command line keeps the old flow')
+  assert.equal(offer(['--preset', 'crm'], true), false)
+  assert.equal(offer(['--modules', 'x'], true), false, '--modules already says what to add')
+  assert.equal(offer([], true, readyApp), false, 'ready apps keep their own module set')
+  assert.equal(offer(['--no-module-picker'], true), false)
+  assert.equal(offer(['--module-picker', '--preset', 'crm'], true), true, '--module-picker still works with a preset')
+  assert.equal(offer(['--module-picker'], false), true, 'an explicit --module-picker without a terminal warns in the catalog step')
 })
 
 test('parseArgs refuses --modules without a value', () => {
@@ -110,7 +127,9 @@ test('main refuses the catalog flags with --app and --app-url before scaffolding
   }
 })
 
-test('main never fetches the module catalog without --modules or --module-picker', async () => {
+test('main never fetches the module catalog without a terminal, --modules or --module-picker', async () => {
+  // node --test runs without a terminal, so the picker is not offered by default here.
+  assert.ok(!(process.stdin.isTTY && process.stdout.isTTY), 'this test needs a run without a terminal')
   const { cwd, requests, output } = await runMain(['plain-app', '--agents', 'none', '--no-init-git'])
   assert.deepEqual(requests, [])
   assert.ok(existsSync(join(cwd, 'plain-app', 'package.json')))

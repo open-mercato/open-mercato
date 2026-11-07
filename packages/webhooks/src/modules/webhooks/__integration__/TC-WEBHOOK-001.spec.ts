@@ -70,4 +70,32 @@ test.describe('TC-WEBHOOK-001: Webhook configuration CRUD', () => {
       await deleteWebhookIfExists(request, token, webhookId);
     }
   });
+
+  test('PUT /api/webhooks/webhooks (the documented makeCrudRoute alias) updates by body id like PUT /api/webhooks/:id (#7504)', async ({ request }) => {
+    const token = await getAuthToken(request);
+    let webhookId: string | null = null;
+
+    try {
+      const created = await createWebhookFixture(request, token, {
+        name: `Webhook Alias PUT ${Date.now()}`,
+        url: 'https://example.com/webhook-alias-put',
+        subscribedEvents: ['sales.quote.created'],
+      });
+      webhookId = created.id;
+
+      const renamedName = `Webhook Alias PUT Renamed ${Date.now()}`;
+      const aliasUpdateResponse = await apiRequest(request, 'PUT', '/api/webhooks/webhooks', {
+        token,
+        data: { id: created.id, name: renamedName },
+      });
+      expect(aliasUpdateResponse.status()).toBe(200);
+      const aliasUpdated = await readJsonSafe<{ success: true }>(aliasUpdateResponse);
+      expect(aliasUpdated).toEqual({ success: true });
+
+      const detail = await getWebhookDetail(request, token, created.id);
+      expect(detail.name).toBe(renamedName);
+    } finally {
+      await deleteWebhookIfExists(request, token, webhookId);
+    }
+  });
 });
