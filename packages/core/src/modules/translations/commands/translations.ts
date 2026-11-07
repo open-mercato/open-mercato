@@ -3,8 +3,10 @@ import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { type Kysely, sql } from 'kysely'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { isDeepStrictEqual } from 'node:util'
 import { emitTranslationsEvent } from '../events'
 
 type TranslationSnapshot = {
@@ -66,6 +68,24 @@ async function loadTranslationSnapshot(
     organizationId: row.organization_id ?? null,
     tenantId: row.tenant_id,
   }
+}
+
+async function throwTranslationUndoConflict(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'translations.errors.undoConflict',
+      'These translations changed after the action you are undoing. Undo was refused.',
+    ),
+    code: 'translations.errors.undoConflict',
+  })
+}
+
+function sameTranslations(
+  current: TranslationSnapshot['translations'] | undefined,
+  expected: TranslationSnapshot['translations'] | undefined,
+): boolean {
+  return isDeepStrictEqual(current ?? null, expected ?? null)
 }
 
 const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
@@ -166,49 +186,39 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
   async undo({ logEntry, ctx }) {
     const payload = extractUndoPayload<TranslationUndoPayload>(logEntry)
     const before = payload?.before ?? null
+    const after = payload?.after ?? null
+    if (!after) return throwTranslationUndoConflict()
     const db = resolveDb(ctx) as any
 
-    if (!before || !before.translations) {
-      // Was a create — delete the record
-      const resourceId = logEntry?.resourceId
-      if (resourceId) {
-        await db.deleteFrom('entity_translations').where('id', '=', resourceId).execute()
-      }
-    } else {
-      // Was an update — restore previous translations
-      const existing = await db
+    await db.transaction().execute(async (trx: any) => {
+      const current = await trx
         .selectFrom('entity_translations')
-        .select(['id'])
-        .where('entity_type', '=', before.entityType)
-        .where('entity_id', '=', before.entityId)
-        .where(sql<boolean>`tenant_id is not distinct from ${before.tenantId}`)
-        .where(sql<boolean>`organization_id is not distinct from ${before.organizationId}`)
-        .executeTakeFirst() as { id: string } | undefined
+        .selectAll()
+        .where('entity_type', '=', after.entityType)
+        .where('entity_id', '=', after.entityId)
+        .where(sql<boolean>`tenant_id is not distinct from ${after.tenantId}`)
+        .where(sql<boolean>`organization_id is not distinct from ${after.organizationId}`)
+        .forUpdate()
+        .executeTakeFirst() as Record<string, any> | undefined
 
-      if (existing) {
-        await db
-          .updateTable('entity_translations')
-          .set({
-            translations: sql`${JSON.stringify(before.translations)}::jsonb`,
-            updated_at: sql`now()`,
-          } as any)
-          .where('id', '=', existing.id)
-          .execute()
-      } else {
-        await db
-          .insertInto('entity_translations')
-          .values({
-            entity_type: before.entityType,
-            entity_id: before.entityId,
-            organization_id: before.organizationId,
-            tenant_id: before.tenantId,
-            translations: sql`${JSON.stringify(before.translations)}::jsonb`,
-            created_at: sql`now()`,
-            updated_at: sql`now()`,
-          } as any)
-          .execute()
+      if (!current || current.id !== after.id || !sameTranslations(current.translations, after.translations)) {
+        return throwTranslationUndoConflict()
       }
-    }
+
+      if (!before || !before.translations) {
+        await trx.deleteFrom('entity_translations').where('id', '=', current.id).execute()
+        return
+      }
+
+      await trx
+        .updateTable('entity_translations')
+        .set({
+          translations: sql`${JSON.stringify(before.translations)}::jsonb`,
+          updated_at: sql`now()`,
+        } as any)
+        .where('id', '=', current.id)
+        .execute()
+    })
   },
 }
 
@@ -268,17 +278,23 @@ const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean }
 
     const existing = await db
       .selectFrom('entity_translations')
-      .select(['id'])
+      .select(['id', 'translations'])
       .where('entity_type', '=', before.entityType)
       .where('entity_id', '=', before.entityId)
       .where(sql<boolean>`tenant_id is not distinct from ${before.tenantId}`)
       .where(sql<boolean>`organization_id is not distinct from ${before.organizationId}`)
-      .executeTakeFirst() as { id: string } | undefined
+      .executeTakeFirst() as { id: string; translations: TranslationSnapshot['translations'] } | undefined
 
-    if (!existing) {
+    if (existing) {
+      if (sameTranslations(existing.translations, before.translations)) return
+      return throwTranslationUndoConflict()
+    }
+
+    try {
       await db
         .insertInto('entity_translations')
         .values({
+          ...(before.id ? { id: before.id } : {}),
           entity_type: before.entityType,
           entity_id: before.entityId,
           organization_id: before.organizationId,
@@ -288,6 +304,9 @@ const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean }
           updated_at: sql`now()`,
         } as any)
         .execute()
+    } catch (err) {
+      if (isUniqueViolation(err, 'entity_translations_scope_uq')) return throwTranslationUndoConflict()
+      throw err
     }
   },
 }

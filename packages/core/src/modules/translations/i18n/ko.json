@@ -1,5 +1,6 @@
 {
   "translations.config.nav.title": "번역",
+  "translations.errors.undoConflict": "되돌리려는 작업 이후에 이 번역이 변경되었습니다. 되돌리기가 거부되었습니다.",
   "translations.locales.add": "추가",
   "translations.locales.addPlaceholder": "예: fr, it, ja...",
   "translations.locales.alwaysServed": "{{locale}}은(는) 기본 언어로 항상 제공되므로 제거할 수 없습니다.",
