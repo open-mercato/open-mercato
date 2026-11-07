@@ -115,7 +115,7 @@ test.describe('TC-CRM-5117: sparse saved view keeps meta.hidden columns hidden',
       await twitterSwitch.click();
       await autosaveResponse;
 
-      await page.getByRole('button', { name: 'Close', exact: true }).filter({ hasText: /^Views$/ }).click();
+      await page.getByRole('button', { name: 'Close', exact: true }).and(page.locator('[data-slot="button"]')).click();
       await expect(searchInput).not.toBeVisible();
       await expect(headerButton('Twitter')).toBeVisible();
 
