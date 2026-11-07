@@ -315,6 +315,58 @@ describe('Documents API peer-module availability gates', () => {
     expect(mockGetVisibleDocumentPage).not.toHaveBeenCalled()
   })
 
+  it('loads document backlinks through local viewer access when the HTTP lookup is unavailable', async () => {
+    const ctx = context()
+    mockResolveDocumentsContext.mockResolvedValue(ctx)
+    mockIsDocumentEntityRegistryModuleEnabled.mockReturnValue(true)
+    mockVerifyEntityRegistryTargetAccess.mockRejectedValue({
+      status: 503,
+      body: { error: 'documents.links.targetUnavailable' },
+    })
+    const { GET } = await import('../api/route')
+
+    const response = await GET(new Request(
+      `http://localhost/api/documents?entityType=document&entityId=${DOCUMENT_ID}`,
+    ))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ items: [], total: 0 })
+    expect(mockAssertTier).toHaveBeenCalledWith(ctx.em, DOCUMENT_ID, ctx.auth, 'viewer')
+    expect(mockVerifyEntityRegistryTargetAccess).not.toHaveBeenCalled()
+    expect(mockGetVisibleDocumentPage).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      relationFilter: { entityType: 'document', entityId: DOCUMENT_ID },
+    }))
+  })
+
+  it('rejects document backlinks before querying when the local viewer guard denies access', async () => {
+    mockIsDocumentEntityRegistryModuleEnabled.mockReturnValue(true)
+    mockAssertTier.mockRejectedValue({ status: 403, body: { error: 'Forbidden' } })
+    const { GET } = await import('../api/route')
+
+    const response = await GET(new Request(
+      `http://localhost/api/documents?entityType=document&entityId=${DOCUMENT_ID}`,
+    ))
+
+    expect(response.status).toBe(403)
+    expect(mockVerifyEntityRegistryTargetAccess).not.toHaveBeenCalled()
+    expect(mockGetVisibleDocumentPage).not.toHaveBeenCalled()
+  })
+
+  it('keeps the module availability gate before local document backlink access', async () => {
+    const { GET } = await import('../api/route')
+
+    const response = await GET(new Request(
+      `http://localhost/api/documents?entityType=document&entityId=${DOCUMENT_ID}`,
+    ))
+
+    expect(response.status).toBe(403)
+    expect(mockAssertTier).not.toHaveBeenCalled()
+    expect(mockVerifyEntityRegistryTargetAccess).not.toHaveBeenCalled()
+    expect(mockGetVisibleDocumentPage).not.toHaveBeenCalled()
+  })
+
   it('rejects a relation filter before querying when the exact peer record is restricted or missing', async () => {
     mockIsDocumentEntityRegistryModuleEnabled.mockReturnValue(true)
     mockVerifyEntityRegistryTargetAccess.mockRejectedValue({
@@ -347,6 +399,7 @@ describe('Documents API peer-module availability gates', () => {
       entityType: 'product',
       entityId: PRODUCT_ID,
     })
+    expect(mockAssertTier).not.toHaveBeenCalled()
     expect(mockGetVisibleDocumentPage).toHaveBeenCalledWith(expect.objectContaining({
       relationFilter: { entityType: 'product', entityId: PRODUCT_ID },
     }))

@@ -45,7 +45,7 @@ export function DocumentCanvas({
   title: TitleModel
   readOnly: boolean
   outlineOpen: boolean
-  notice: string | null
+  notice: React.ReactNode
   onOpenLink: () => void
   onComment?: (anchor: CommentAnchor) => void
 }) {
