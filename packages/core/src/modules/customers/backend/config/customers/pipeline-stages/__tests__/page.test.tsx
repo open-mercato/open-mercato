@@ -73,7 +73,9 @@ describe('PipelineStagesPage controls', () => {
     })
 
     await waitFor(() => expect(screen.getByText('Set as default pipeline')).toBeInTheDocument())
-    const checkbox = screen.getByRole('checkbox')
+    const checkbox = screen.getByRole('checkbox', { name: 'Set as default pipeline' })
     expect(checkbox).toHaveAttribute('id', 'pipeline-is-default')
+    const stageProbabilitiesCheckbox = screen.getByRole('checkbox', { name: 'Use default stage probabilities' })
+    expect(stageProbabilitiesCheckbox).toHaveAttribute('id', 'pipeline-stage-probabilities')
   })
 })

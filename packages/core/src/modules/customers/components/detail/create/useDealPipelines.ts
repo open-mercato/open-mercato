@@ -7,12 +7,14 @@ export type PipelineOption = {
   id: string
   name: string
   isDefault: boolean
+  stageProbabilitiesEnabled?: boolean
 }
 
 export type PipelineStageOption = {
   id: string
   label: string
   order: number
+  defaultProbability?: number | null
 }
 
 export type UseDealPipelinesResult = {
