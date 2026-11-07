@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { isMfaPendingJwtPayload, verifyJwt } from './jwt'
 import { isMfaPendingAccessAllowed } from './mfaPendingAccess'
 import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
+import { ApiKeyVerificationRateLimitError } from './apiKeyVerificationRateLimit'
 import { isTransientDbError } from '@open-mercato/shared/lib/db/pg-errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
@@ -44,6 +45,7 @@ type AuthResolutionStatus = 'authenticated' | 'missing' | 'invalid' | 'error'
 type AuthResolution = {
   auth: AuthContext
   status: AuthResolutionStatus
+  retryAfterMs?: number
 }
 
 // Thrown by `resolveCanonicalInteractiveAuthContext` when the canonical auth
@@ -350,6 +352,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     }
     return auth
   } catch (err) {
+    if (err instanceof ApiKeyVerificationRateLimitError) throw err
     // A transient DB failure (pool exhausted, `max_connections` reached, DB
     // restarting) means we could not confirm the key — NOT that it is invalid.
     // Surface it so callers return a retryable 503 instead of masking it as an
@@ -485,6 +488,9 @@ export async function resolveAuthFromRequestDetailed(req: Request): Promise<Auth
   try {
     apiAuth = await resolveApiKeyAuth(apiKey)
   } catch (err) {
+    if (err instanceof ApiKeyVerificationRateLimitError) {
+      return { auth: null, status: 'error', retryAfterMs: err.retryAfterMs }
+    }
     // Only a transient canonical-resolution failure maps to 'error' (retryable
     // 503), mirroring the interactive-token path above. Anything else is an
     // unexpected bug — rethrow so it surfaces as a 500 rather than being masked

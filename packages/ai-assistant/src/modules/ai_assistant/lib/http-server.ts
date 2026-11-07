@@ -1,3 +1,4 @@
+import { authenticateHttpApiKey } from './http-api-key-auth'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -16,7 +17,7 @@ import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
-import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
 
 const logger = createLogger('ai_assistant').child({ component: 'mcp-http' })
@@ -511,12 +512,8 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
 
     // Validate API key against database (prefix lookup + bcrypt verify + expiry check)
     const em = container.resolve<EntityManager>('em')
-    const apiKeyRecord = await findApiKeyBySecret(em, providedApiKey)
-    if (!apiKeyRecord) {
-      res.writeHead(401, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'Invalid or expired API key' }))
-      return
-    }
+    const apiKeyRecord = await authenticateHttpApiKey(em, providedApiKey, res)
+    if (!apiKeyRecord) return
 
     if (config.debug) {
       logger.debug('Server-level auth passed', { method: req.method, keyPrefix: apiKeyRecord.keyPrefix })

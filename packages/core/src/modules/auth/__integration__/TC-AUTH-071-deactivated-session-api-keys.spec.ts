@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
-import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken, retryApiKeyVerification, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture,
   createRoleFixture,
@@ -73,9 +73,9 @@ test.describe('TC-AUTH-071: session API keys require a live owner in the origina
           const authenticate = (secret: string) => isolated.post('/api/auth/feature-check', {
             headers: { 'x-api-key': secret }, data: { features: [] },
           })
-          expect((await authenticate(secrets[0])).status(), 'active session owner must authenticate').toBe(200)
+          expect((await retryApiKeyVerification(() => authenticate(secrets[0]))).status(), 'active session owner must authenticate').toBe(200)
           expect((await authenticate(secrets[0])).status(), 'session key cache must be warm').toBe(200)
-          expect((await authenticate(secrets[2])).status(), 'regular key control must authenticate').toBe(200)
+          expect((await retryApiKeyVerification(() => authenticate(secrets[2]))).status(), 'regular key control must authenticate').toBe(200)
 
           if (change === 'deactivated') {
             const response = await apiRequest(request, 'PUT', '/api/auth/users', {
@@ -89,7 +89,7 @@ test.describe('TC-AUTH-071: session API keys require a live owner in the origina
           }
 
           expect((await authenticate(secrets[0])).status(), 'prewarmed session key must fail immediately').toBe(401)
-          expect((await authenticate(secrets[1])).status(), 'cold session key must fail too').toBe(401)
+          expect((await retryApiKeyVerification(() => authenticate(secrets[1]))).status(), 'cold session key must fail too').toBe(401)
           if (change === 'deactivated') {
             expect((await authenticate(secrets[2])).status(), 'regular key policy must remain unchanged').toBe(200)
           }

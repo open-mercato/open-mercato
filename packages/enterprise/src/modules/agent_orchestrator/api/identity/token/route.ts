@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { API_KEY_VERIFICATION_THROTTLE_HEADER, ApiKeyVerificationRateLimitError } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -10,7 +11,7 @@ import {
   oauthTokenResponseSchema,
 } from '../../../data/validators'
 import { enforcePublicEndpointRateLimit } from '../../../lib/guardrails/publicEndpointRateLimit'
-import { issueAgentToken } from '../../../lib/identity/agentTokenService'
+import { issueAgentToken, type IssueAgentTokenResult } from '../../../lib/identity/agentTokenService'
 
 /**
  * OAuth 2.0 client-credentials token endpoint (RFC 6749 §4.4) for EXTERNAL agents
@@ -23,8 +24,7 @@ import { issueAgentToken } from '../../../lib/identity/agentTokenService'
  * → a single minimal 401 (`invalid_client`), never revealing whether the client id
  * exists. No secret is ever echoed; credentials are never logged.
  *
- * Rate-limited per client IP BEFORE any credential work: every request against a
- * live client id costs one bcrypt compare per candidate secret, so an unmetered
+ * Rate-limited per client IP BEFORE any credential work: each admitted request costs at most one bcrypt compare, so an unmetered
  * caller gets both a credential-guessing oracle and a CPU-amplification lever.
  */
 export const metadata = {
@@ -56,11 +56,20 @@ export async function POST(req: Request) {
     )
   }
 
-  const result = await issueAgentToken(container, {
-    clientId: parsed.data.client_id,
-    clientSecret: parsed.data.client_secret,
-    requestedScope: parsed.data.scope,
-  })
+  let result: IssueAgentTokenResult | null
+  try {
+    result = await issueAgentToken(container, {
+      clientId: parsed.data.client_id,
+      clientSecret: parsed.data.client_secret,
+      requestedScope: parsed.data.scope,
+    })
+  } catch (error) {
+    if (!(error instanceof ApiKeyVerificationRateLimitError)) throw error
+    return NextResponse.json(
+      { error: 'temporarily_unavailable' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(error.retryAfterMs / 1000)), [API_KEY_VERIFICATION_THROTTLE_HEADER]: '1' } },
+    )
+  }
 
   if (!result) {
     // Minimal error — never reveal whether the client id exists.
@@ -94,7 +103,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Malformed request or unsupported grant_type', schema: oauthErrorSchema },
         { status: 401, description: 'Invalid client credentials or inactive grant', schema: oauthErrorSchema },
-        { status: 429, description: 'Too many token requests from this client IP', schema: rateLimitErrorSchema },
+        { status: 429, description: 'Client IP quota or bcrypt verification capacity exhausted', schema: rateLimitErrorSchema },
         { status: 503, description: 'Rate limiter unavailable — the request is refused rather than left uncounted', schema: rateLimitErrorSchema },
       ],
     },

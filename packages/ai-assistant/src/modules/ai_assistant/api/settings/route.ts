@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { API_KEY_VERIFICATION_THROTTLE_HEADER, ApiKeyVerificationRateLimitError } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
@@ -76,7 +77,10 @@ export const openApi: OpenApiRouteDoc = {
   tag: 'AI Assistant',
   summary: 'AI assistant settings',
   methods: {
-    GET: { summary: 'Get AI provider configuration' },
+    GET: {
+      summary: 'Get AI provider configuration',
+      errors: [{ status: 429, description: 'MCP key verification capacity is exhausted; retry after the Retry-After interval.' }],
+    },
     PUT: {
       summary: 'Upsert per-tenant AI runtime override',
       description:
@@ -192,7 +196,13 @@ export async function GET(req: NextRequest) {
           const keyEm = keyContainer.resolve<EntityManager>('em')
           mcpKeyConfigured = !!(await findApiKeyBySecret(keyEm, fileSecret))
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof ApiKeyVerificationRateLimitError) {
+          return NextResponse.json(
+            { error: 'MCP key verification is temporarily rate limited' },
+            { status: 429, headers: { 'Retry-After': String(Math.ceil(error.retryAfterMs / 1000)), [API_KEY_VERIFICATION_THROTTLE_HEADER]: '1' } },
+          )
+        }
         mcpKeyConfigured = false
       }
     }

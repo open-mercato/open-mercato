@@ -1,4 +1,4 @@
-import { request as playwrightRequest, type APIRequestContext } from '@playwright/test';
+import { request as playwrightRequest, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { DEFAULT_CREDENTIALS, type Role } from './auth';
 
 const BASE_URL = process.env.BASE_URL?.trim() || null;
@@ -172,4 +172,18 @@ export async function withCredentialIsolatedRequest<T>(
   } finally {
     await context.dispose();
   }
+}
+
+/** Retry only explicit capacity overload; authorization failures and races stay observable. */
+export async function retryApiKeyVerification(send: () => Promise<APIResponse>): Promise<APIResponse> {
+  let response = await send();
+  for (let attempt = 0; response.status() === 429 && attempt < 4; attempt += 1) {
+    const retryAfter = Number(response.headers()['retry-after']);
+    if (!Number.isFinite(retryAfter) || retryAfter <= 0) {
+      throw new Error('API-key capacity overload must include positive Retry-After');
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+    response = await send();
+  }
+  return response;
 }

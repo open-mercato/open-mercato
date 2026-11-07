@@ -130,7 +130,7 @@ describe('verifyClientCredentials timing equalization', () => {
     expect(result).toBeNull()
     expect(verifyApiKey).toHaveBeenCalledTimes(1)
     expect(verifyApiKey.mock.calls[0][0]).toBe(CLIENT_SECRET)
-    expect(verifyApiKey.mock.calls[0][1]).toMatch(/^\$2[aby]\$10\$/)
+    expect(verifyApiKey.mock.calls[0][1]).toMatch(/^\$2[aby]\$12\$/)
     expect(verifyApiKey.mock.calls[0][1]).not.toBe(REAL_KEY_HASH)
   })
 
@@ -146,7 +146,7 @@ describe('verifyClientCredentials timing equalization', () => {
 
     expect(result).toBeNull()
     expect(verifyApiKey).toHaveBeenCalledTimes(1)
-    expect(verifyApiKey.mock.calls[0][1]).toMatch(/^\$2[aby]\$10\$/)
+    expect(verifyApiKey.mock.calls[0][1]).toMatch(/^\$2[aby]\$12\$/)
   })
 
   it('runs a bcrypt compare when every stored client secret has expired', async () => {

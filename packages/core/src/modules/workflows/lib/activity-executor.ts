@@ -1,3 +1,4 @@
+import { fetchWithApiKeyVerificationRetry } from '@open-mercato/shared/lib/auth/apiKeyVerificationFetch'
 /**
  * Workflows Module - Activity Executor Service
  *
@@ -2049,7 +2050,7 @@ async function fetchCallApiWithGuardedRedirects(
   let { method, headers, body } = init
 
   for (let redirects = 0; ; redirects++) {
-    const response = await fetch(url.href, {
+    const response = await fetchWithApiKeyVerificationRetry(url.href, {
       method,
       headers,
       body,

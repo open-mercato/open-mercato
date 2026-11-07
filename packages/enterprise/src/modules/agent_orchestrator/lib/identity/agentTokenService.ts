@@ -30,13 +30,13 @@ export const AGENT_TOKEN_ISSUER = 'open-mercato'
 /** Default agent token TTL — minutes, deliberately short so revocation is felt fast. */
 const DEFAULT_AGENT_TOKEN_TTL_SECONDS = 5 * 60
 
-// A fixed, valid bcrypt hash (cost 10 — the cost `api_keys` hashes real client
+// A fixed, valid bcrypt hash (cost 12 — the cost `api_keys` hashes real client
 // secrets with) of a throwaway random value no presented secret can match.
 // `verifyClientCredentials` compares against it on every path that would
-// otherwise return without hashing, so a rejected request spends the same bcrypt
-// CPU whether or not the client id exists. Mirrors the auth module's
+// otherwise return without hashing, matching the work factor of newly issued
+// credentials. Legacy hashes retain their encoded cost. Mirrors the auth module's
 // TIMING_EQUALIZER_PASSWORD_HASH.
-const TIMING_EQUALIZER_CLIENT_SECRET_HASH = '$2b$10$jVPjlEnNpST8EYUcWNehsuCwaVhZ2uKefzNvagzMIqN14XKRisVRe'
+const TIMING_EQUALIZER_CLIENT_SECRET_HASH = '$2b$12$uohHegV1RdNRgBx7WbcnUuCTyKqqWRknCVWtQGXkVoAGlHIpqVH8O'
 
 /** The `api_keys.name` marker that scopes a row to an external agent principal's client secret. */
 function clientSecretKeyName(agentPrincipalId: string): string {
@@ -95,8 +95,9 @@ export async function provisionAgentClientSecret(
  * and in the RESPONSE TIMING: every rejection runs at least one bcrypt compare via
  * the hardened `api_keys` verification, against a live candidate hash where one
  * exists and against a fixed dummy hash otherwise, so an unknown/disabled client id
- * and a wrong secret for a real one cost the same. The dummy compare's result is
- * discarded, so it can never authenticate anyone.
+ * and a wrong secret for a newly issued cost-12 credential perform comparable work.
+ * Legacy hashes retain their encoded work factor and can have different timings.
+ * The dummy compare's result is discarded, so it can never authenticate anyone.
  */
 async function verifyClientCredentials(
   em: EntityManager,
@@ -114,24 +115,18 @@ async function verifyClientCredentials(
     return null
   }
 
-  // Candidate client-secret rows for this principal (live, non-expired), scoped to
-  // the principal's own agent user + org. bcrypt compare each until one matches.
-  const candidates = await em.find(ApiKey, {
+  const candidate = await em.findOne(ApiKey, {
     name: clientSecretKeyName(principal.id),
     createdBy: principal.userId,
     organizationId: principal.organizationId,
+    keyPrefix: clientSecret.slice(0, 12),
     deletedAt: null,
   })
-  const now = Date.now()
-  let compared = false
-  for (const candidate of candidates) {
-    if (candidate.expiresAt && candidate.expiresAt.getTime() < now) continue
-    compared = true
+  if (candidate && (!candidate.expiresAt || candidate.expiresAt.getTime() >= Date.now())) {
     if (await verifyApiKey(clientSecret, candidate.keyHash)) return principal
+  } else {
+    await verifyApiKey(clientSecret, TIMING_EQUALIZER_CLIENT_SECRET_HASH)
   }
-  // A principal with no live candidate secret must not answer faster than one
-  // whose secret simply did not match.
-  if (!compared) await verifyApiKey(clientSecret, TIMING_EQUALIZER_CLIENT_SECRET_HASH)
   return null
 }
 

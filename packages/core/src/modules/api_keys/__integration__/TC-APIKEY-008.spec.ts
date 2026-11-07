@@ -78,7 +78,13 @@ test.describe('TC-APIKEY-008: Reject unusable organization-scoped API keys', () 
         expect(body?.organizationId?.toLowerCase() ?? null).toBe(organizationId?.toLowerCase() ?? null)
         const secret = expectId(body?.secret, 'Creation must return a usable secret')
         await withCredentialIsolatedRequest(async (keyRequest) => {
-          const authenticated = await keyRequest.get('/api/api_keys/keys', { headers: { 'x-api-key': secret } })
+          let authenticated = await keyRequest.get('/api/api_keys/keys', { headers: { 'x-api-key': secret } })
+          for (let attempt = 0; authenticated.status() === 429 && attempt < 4; attempt++) {
+            const retryAfter = Number(authenticated.headers()['retry-after'])
+            expect(retryAfter, 'Capacity overload must include retry guidance').toBeGreaterThan(0)
+            await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000))
+            authenticated = await keyRequest.get('/api/api_keys/keys', { headers: { 'x-api-key': secret } })
+          }
           expect(authenticated.status(), 'The issued key should authenticate without a session').toBe(200)
         })
       }
