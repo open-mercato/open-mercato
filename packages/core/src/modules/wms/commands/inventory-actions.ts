@@ -22,7 +22,6 @@
 // The audit log still captures the full before/after via `buildLog`, so any
 // reversing counter-action is fully traceable.
 // =============================================================================
-import { LockMode } from '@mikro-orm/core'
 import { randomUUID } from 'crypto'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -43,7 +42,6 @@ import {
   ProductInventoryProfile,
   Warehouse,
   WarehouseLocation,
-  type InventoryStrategy,
 } from '../data/entities'
 import {
   inventoryAdjustSchema,
@@ -61,52 +59,52 @@ import {
   type InventoryReservationCreateInput,
   type InventoryReservationReleaseInput,
 } from '../data/validators'
-import {
-  evaluateLowStock,
-  isBalanceLocationReservable,
-  isLotEligible,
-  resolveReservationStrategyFromProfile,
-  sortBucketsForStrategy,
-  type InventoryStrategyBucket,
-} from '../lib/inventoryPolicy'
+import { evaluateLowStock } from '../lib/inventoryPolicy'
 import { enforceInventoryTrackingRequirements } from '../lib/inventoryTrackingValidation'
+import { buildMovementIdempotencyKey } from '../lib/inventoryIdempotency'
+// A1 extraction (`.ai/specs/analysis/ANALYSIS-2026-10-26-availability-release-5.md`):
+// the reserve/release core logic now lives in `wmsReservationService` so a
+// future in-process caller (`availability`, Phase 2) can run it inside its
+// OWN transaction instead of composing these commands (which fork their own
+// `EntityManager` and therefore their own transaction — the bug the
+// extraction exists to fix). `allocate` still needs a few reservation/balance
+// helpers the service now owns; it imports them back from there rather than
+// duplicating them.
 import {
-  buildMovementIdempotencyKey,
-  buildReservationIdempotencyKey,
-} from '../lib/inventoryIdempotency'
+  extractReservationMetadata,
+  findReservationBucketBalance,
+  requireReservation,
+  WmsReservationService,
+  type AllocationBucket,
+} from '../lib/wmsReservationService'
 import {
   ensureOrganizationScope,
   ensureTenantScope,
+  findExactBalanceForUpdate,
+  getAvailableQuantity,
   inventoryBalanceCrudEvents,
   inventoryBalanceCrudIndexer,
   inventoryMovementCrudEvents,
   inventoryMovementCrudIndexer,
   inventoryReservationCrudEvents,
   inventoryReservationCrudIndexer,
+  isUniqueConstraintError,
+  loadProfileForVariant,
   requireId,
+  requireWarehouse,
+  resolveScope,
+  runInTransaction,
+  setNumeric,
+  toNumber,
   toNumericString,
+  type Scope,
   WMS_INVENTORY_BALANCE_RESOURCE,
   WMS_INVENTORY_MOVEMENT_RESOURCE,
   WMS_INVENTORY_RESERVATION_RESOURCE,
 } from './shared'
 
-type Scope = { tenantId: string; organizationId: string }
-type AllocationBucket = {
-  balanceId: string
-  locationId: string
-  lotId: string | null
-  serialNumber: string | null
-  quantity: number
-}
-
-type ReservationMetadata = {
-  allocatedBuckets?: AllocationBucket[]
-  allocationState?: 'reserved' | 'allocated'
-  strategy?: InventoryStrategy
-  releasedReason?: string
-  releasedAt?: string
-  allocatedAt?: string
-  [key: string]: unknown
+function resolveReservationService(ctx: CommandRuntimeContext): WmsReservationService {
+  return ctx.container.resolve('wmsReservationService') as WmsReservationService
 }
 
 type ReservationCommandResult = {
@@ -191,47 +189,8 @@ async function emitInventorySideEffects(
   }
 }
 
-function resolveScope(ctx: CommandRuntimeContext, fallback?: { tenantId?: string | null; organizationId?: string | null }): Scope {
-  const tenantId = fallback?.tenantId ?? ctx.auth?.tenantId ?? null
-  const organizationId = fallback?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  if (!tenantId || !organizationId) {
-    throw new CrudHttpError(400, { error: 'Tenant and organization scope are required.' })
-  }
-  return { tenantId, organizationId }
-}
-
 function resolveEm(ctx: CommandRuntimeContext): EntityManager {
   return (ctx.container.resolve('em') as EntityManager).fork()
-}
-
-async function runInTransaction<TResult>(
-  em: EntityManager,
-  operation: (trx: EntityManager) => Promise<TResult>,
-): Promise<TResult> {
-  const transactionalEm = em as EntityManager & {
-    transactional?: (callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
-  }
-  if (typeof transactionalEm.transactional === 'function') {
-    return transactionalEm.transactional((trx) => operation(trx))
-  }
-  return operation(em)
-}
-
-function toNumber(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  return 0
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
-  const code = (error as { code?: string }).code
-  if (code === '23505') return true
-  const name = (error as { name?: string }).name
-  return name === 'UniqueConstraintViolationException'
 }
 
 async function findExistingMovementByIdempotencyKey(
@@ -252,75 +211,6 @@ async function findExistingMovementByIdempotencyKey(
   )
 }
 
-async function findExistingActiveReservationByIdempotencyKey(
-  em: EntityManager,
-  scope: Scope,
-  idempotencyKey: string,
-): Promise<InventoryReservation | null> {
-  return findOneWithDecryption(
-    em,
-    InventoryReservation,
-    {
-      organizationId: scope.organizationId,
-      idempotencyKey,
-      status: 'active',
-      deletedAt: null,
-    },
-    undefined,
-    scope,
-  )
-}
-
-function resolveLotFromBalance(balance: InventoryBalance): InventoryLot | null {
-  const lotRaw = balance.lot ?? null
-  if (!lotRaw || typeof lotRaw === 'string') return null
-  return lotRaw
-}
-
-function balanceHasEligibleLot(balance: InventoryBalance, now: Date): boolean {
-  const lot = resolveLotFromBalance(balance)
-  return isLotEligible(lot, now)
-}
-
-function setNumeric(target: { [key: string]: unknown }, key: string, value: number) {
-  target[key] = toNumericString(value)
-}
-
-function getAvailableQuantity(balance: InventoryBalance): number {
-  return toNumber(balance.quantityOnHand) - toNumber(balance.quantityReserved) - toNumber(balance.quantityAllocated)
-}
-
-function extractReservationMetadata(reservation: InventoryReservation): ReservationMetadata {
-  if (!reservation.metadata || typeof reservation.metadata !== 'object' || Array.isArray(reservation.metadata)) {
-    return {}
-  }
-  return { ...(reservation.metadata as Record<string, unknown>) }
-}
-
-function buildBucketKey(input: {
-  warehouseId: string
-  locationId: string
-  catalogVariantId: string
-  lotId: string | null
-  serialNumber: string | null
-}): string {
-  return [
-    input.warehouseId,
-    input.locationId,
-    input.catalogVariantId,
-    input.lotId ?? '',
-    input.serialNumber ?? '',
-  ].join('::')
-}
-
-function serializeAllocationBuckets(buckets: AllocationBucket[]): Array<{ locationId: string; lotId: string | null; quantity: string }> {
-  return buckets.map((bucket) => ({
-    locationId: bucket.locationId,
-    lotId: bucket.lotId,
-    quantity: toNumericString(bucket.quantity),
-  }))
-}
-
 async function buildMutationLog(input: MutationLogInput) {
   const { translate } = await resolveTranslations()
   const aliases = Array.from(
@@ -338,21 +228,6 @@ async function buildMutationLog(input: MutationLogInput) {
   }
 }
 
-async function requireWarehouse(em: EntityManager, ctx: CommandRuntimeContext, warehouseId: string, scope?: Scope) {
-  const resolvedScope = scope ?? resolveScope(ctx)
-  const warehouse = await findOneWithDecryption(
-    em,
-    Warehouse,
-    { id: warehouseId, deletedAt: null },
-    undefined,
-    resolvedScope,
-  )
-  if (!warehouse) throw new CrudHttpError(404, { error: 'Warehouse not found.' })
-  ensureTenantScope(ctx, warehouse.tenantId)
-  ensureOrganizationScope(ctx, warehouse.organizationId)
-  return warehouse
-}
-
 async function requireLocation(em: EntityManager, ctx: CommandRuntimeContext, locationId: string, scope?: Scope) {
   const resolvedScope = scope ?? resolveScope(ctx)
   const location = await findOneWithDecryption(
@@ -366,41 +241,6 @@ async function requireLocation(em: EntityManager, ctx: CommandRuntimeContext, lo
   ensureTenantScope(ctx, location.tenantId)
   ensureOrganizationScope(ctx, location.organizationId)
   return location
-}
-
-async function requireReservation(em: EntityManager, ctx: CommandRuntimeContext, reservationId: string, scope?: Scope, lock = false) {
-  const resolvedScope = scope ?? resolveScope(ctx)
-  const reservation = await findOneWithDecryption(
-    em,
-    InventoryReservation,
-    { id: reservationId, deletedAt: null },
-    lock ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined,
-    resolvedScope,
-  )
-  if (!reservation) throw new CrudHttpError(404, { error: 'Inventory reservation not found.' })
-  ensureTenantScope(ctx, reservation.tenantId)
-  ensureOrganizationScope(ctx, reservation.organizationId)
-  return reservation
-}
-
-async function loadProfileForVariant(
-  em: EntityManager,
-  ctx: CommandRuntimeContext,
-  catalogVariantId: string,
-  scope?: Scope,
-) {
-  const resolvedScope = scope ?? resolveScope(ctx)
-  const profile = await findOneWithDecryption(
-    em,
-    ProductInventoryProfile,
-    { catalogVariantId, deletedAt: null },
-    undefined,
-    resolvedScope,
-  )
-  if (!profile) return null
-  ensureTenantScope(ctx, profile.tenantId)
-  ensureOrganizationScope(ctx, profile.organizationId)
-  return profile
 }
 
 async function loadEffectiveProfileForVariant(
@@ -494,47 +334,6 @@ async function resolveReceiveLotId(
   return lot.id
 }
 
-async function listCandidateBalances(
-  em: EntityManager,
-  ctx: CommandRuntimeContext,
-  input: {
-    warehouseId: string
-    catalogVariantId: string
-    lotId?: string
-    serialNumber?: string
-  },
-  scope: Scope,
-) {
-  const where: Record<string, unknown> = {
-    warehouse: input.warehouseId,
-    catalogVariantId: input.catalogVariantId,
-    deletedAt: null,
-  }
-  if (input.lotId) where.lot = input.lotId
-  if (input.serialNumber) where.serialNumber = input.serialNumber
-  const balances = await findWithDecryption(
-    em,
-    InventoryBalance,
-    where,
-    {
-      populate: ['lot', 'location'],
-      lockMode: LockMode.PESSIMISTIC_WRITE,
-      orderBy: { createdAt: 'asc', id: 'asc' },
-    },
-    scope,
-  )
-  const reservable: InventoryBalance[] = []
-  for (const balance of balances) {
-    ensureTenantScope(ctx, balance.tenantId)
-    ensureOrganizationScope(ctx, balance.organizationId)
-    // Staging/dock are inbound holding locations — not pick/reserve candidates
-    // (Phase 2: ASN receive must not reserve staging stock and block putaway).
-    if (!isBalanceLocationReservable(balance)) continue
-    reservable.push(balance)
-  }
-  return reservable
-}
-
 async function listBalancesForVariant(
   em: EntityManager,
   ctx: CommandRuntimeContext,
@@ -581,162 +380,6 @@ async function emitLowStockEventIfNeeded(
     state: lowStock.state,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
-  })
-}
-
-async function loadReceivedAtByBucket(
-  em: EntityManager,
-  balances: InventoryBalance[],
-  scope: Scope,
-): Promise<Map<string, Date>> {
-  if (balances.length === 0) return new Map()
-  const locationIds = Array.from(
-    new Set(
-      balances.map((balance) => (typeof balance.location === 'string' ? balance.location : balance.location.id)),
-    ),
-  )
-  const warehouseId = typeof balances[0].warehouse === 'string' ? balances[0].warehouse : balances[0].warehouse.id
-  const catalogVariantId = balances[0].catalogVariantId
-  const movements = await findWithDecryption(
-    em,
-    InventoryMovement,
-    {
-      warehouse: warehouseId,
-      catalogVariantId,
-      deletedAt: null,
-      $or: [
-        { locationFrom: { $in: locationIds } },
-        { locationTo: { $in: locationIds } },
-      ],
-    },
-    {
-      orderBy: { receivedAt: 'asc' },
-    },
-    scope,
-  )
-  const map = new Map<string, Date>()
-  for (const movement of movements) {
-    const locationIdRaw = movement.locationTo ?? movement.locationFrom ?? null
-    const locationId =
-      typeof locationIdRaw === 'string'
-        ? locationIdRaw
-        : locationIdRaw?.id ?? null
-    if (!locationId) continue
-    const lotIdRaw = movement.lot ?? null
-    const lotId = typeof lotIdRaw === 'string' ? lotIdRaw : lotIdRaw?.id ?? null
-    const key = buildBucketKey({
-      warehouseId,
-      locationId,
-      catalogVariantId: movement.catalogVariantId,
-      lotId,
-      serialNumber: movement.serialNumber ?? null,
-    })
-    if (!map.has(key)) {
-      map.set(key, movement.receivedAt)
-    }
-  }
-  return map
-}
-
-type BalanceSortRow = InventoryStrategyBucket & { balance: InventoryBalance }
-
-function sortBalancesForStrategy(
-  balances: InventoryBalance[],
-  strategy: InventoryStrategy,
-  receiptMap: Map<string, Date>,
-): InventoryBalance[] {
-  const rows: BalanceSortRow[] = balances.map((balance) => {
-    const warehouseId = typeof balance.warehouse === 'string' ? balance.warehouse : balance.warehouse.id
-    const locationId = typeof balance.location === 'string' ? balance.location : balance.location.id
-    const lotIdRaw = balance.lot ?? null
-    const lotId = typeof lotIdRaw === 'string' ? lotIdRaw : lotIdRaw?.id ?? null
-    const lot = typeof balance.lot === 'string' ? null : balance.lot
-    return {
-      balance,
-      warehouseId,
-      locationId,
-      catalogVariantId: balance.catalogVariantId,
-      createdAt: balance.createdAt,
-      lotId,
-      lotExpiresAt: lot?.expiresAt ?? null,
-      serialNumber: balance.serialNumber ?? null,
-    }
-  })
-  const sorted = sortBucketsForStrategy(rows, strategy, receiptMap)
-  return sorted.map((row) => row.balance)
-}
-
-async function resolveReservationStrategy(
-  em: EntityManager,
-  ctx: CommandRuntimeContext,
-  input: InventoryReservationCreateInput,
-  scope: Scope,
-): Promise<InventoryStrategy> {
-  const profile = await loadProfileForVariant(em, ctx, input.catalogVariantId, scope)
-  return resolveReservationStrategyFromProfile(profile, input.strategy)
-}
-
-function requireSufficientAvailability(remaining: number) {
-  if (remaining > 0.000001) {
-    throw new CrudHttpError(409, { error: 'insufficient_stock' })
-  }
-}
-
-async function findExactBalanceForUpdate(
-  em: EntityManager,
-  scope: Scope,
-  input: {
-    warehouseId: string
-    locationId: string
-    catalogVariantId: string
-    lotId?: string
-    serialNumber?: string
-  },
-) {
-  return findOneWithDecryption(
-    em,
-    InventoryBalance,
-    {
-      warehouse: input.warehouseId,
-      location: input.locationId,
-      catalogVariantId: input.catalogVariantId,
-      lot: input.lotId ?? null,
-      serialNumber: input.serialNumber ?? null,
-      deletedAt: null,
-    },
-    { lockMode: LockMode.PESSIMISTIC_WRITE },
-    scope,
-  )
-}
-
-async function findReservationBucketBalance(
-  em: EntityManager,
-  scope: Scope,
-  reservation: InventoryReservation,
-  bucket: AllocationBucket,
-) {
-  const warehouseId =
-    typeof reservation.warehouse === 'string'
-      ? reservation.warehouse
-      : reservation.warehouse.id
-
-  if (typeof bucket.balanceId === 'string' && bucket.balanceId.length > 0) {
-    const balance = await findOneWithDecryption(
-      em,
-      InventoryBalance,
-      { id: bucket.balanceId, deletedAt: null },
-      { lockMode: LockMode.PESSIMISTIC_WRITE },
-      scope,
-    )
-    if (balance) return balance
-  }
-
-  return findExactBalanceForUpdate(em, scope, {
-    warehouseId,
-    locationId: bucket.locationId,
-    catalogVariantId: reservation.catalogVariantId,
-    lotId: bucket.lotId ?? undefined,
-    serialNumber: bucket.serialNumber ?? undefined,
   })
 }
 
@@ -922,192 +565,28 @@ async function persistMovementWithIdempotency(
   }
 }
 
-async function emitBalanceDriftIfNeeded(
-  balance: InventoryBalance,
-  field: 'quantityReserved' | 'quantityAllocated',
-  attemptedValue: number,
-  scope: Scope,
-  reservationId: string,
-) {
-  if (attemptedValue >= -0.000001) return
-  await emitWmsEvent('wms.inventory.balance_drift', {
-    id: balance.id,
-    balanceId: balance.id,
-    reservationId,
-    field,
-    attemptedValue: toNumericString(attemptedValue),
-    clampedValue: '0',
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  }).catch(() => undefined)
-}
-
-function enforceNonNegativeBalance(
-  balance: InventoryBalance,
-  field: 'quantityReserved' | 'quantityAllocated',
-  nextValue: number,
-  reservationId: string,
-  scope: Scope,
-) {
-  if (nextValue < -0.000001) {
-    void emitBalanceDriftIfNeeded(balance, field, nextValue, scope, reservationId)
-    throw new CrudHttpError(409, { error: 'balance_integrity_violation' })
-  }
-  setNumeric(balance as unknown as Record<string, unknown>, field, nextValue)
-}
-
 const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, ReservationCommandResult> = {
   id: 'wms.inventory.reserve',
   // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
   isUndoable: false,
   async execute(rawInput, ctx) {
     const input = inventoryReservationCreateSchema.parse(rawInput ?? {})
+    // A16: `'checkout'` is a system-only source written only by
+    // `wmsReservationService.reserveLinesForCheckout`/`convertInTransaction`
+    // (`availability`'s reserve/commit, called in-process, never through this command).
+    // Reject it here so the public route — and any other command-bus caller — can never
+    // create one by hand; the expiry sweep would otherwise release a hand-made row.
+    if (input.sourceType === 'checkout') {
+      throw new CrudHttpError(400, { error: 'checkout_reservation_is_system_only' })
+    }
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = resolveEm(ctx)
-    const result = await runInTransaction(em, async (trx) => {
-      const scope = resolveScope(ctx, input)
-      await requireWarehouse(trx, ctx, input.warehouseId, scope)
-      const reservationIdempotencyKey = buildReservationIdempotencyKey({
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        catalogVariantId: input.catalogVariantId,
-        warehouseId: input.warehouseId,
-        quantity: input.quantity,
-      })
-      const existingReservation = await findExistingActiveReservationByIdempotencyKey(
-        trx,
-        scope,
-        reservationIdempotencyKey,
-      )
-      if (existingReservation) {
-        const metadata = extractReservationMetadata(existingReservation)
-        const buckets = Array.isArray(metadata.allocatedBuckets)
-          ? (metadata.allocatedBuckets as AllocationBucket[])
-          : []
-        return {
-          reservationId: existingReservation.id,
-          allocatedBuckets: serializeAllocationBuckets(buckets),
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          warehouseId: input.warehouseId,
-          catalogVariantId: input.catalogVariantId,
-          quantity: input.quantity,
-          reservationEntity: existingReservation,
-          touchedBalances: [] as InventoryBalance[],
-          idempotentReplay: true,
-        }
-      }
-      const strategy = await resolveReservationStrategy(trx, ctx, input, scope)
-      const balances = await listCandidateBalances(trx, ctx, input, scope)
-      const receiptMap = await loadReceivedAtByBucket(trx, balances, scope)
-      const now = new Date()
-      const ordered = sortBalancesForStrategy(
-        balances.filter(
-          (balance) => balanceHasEligibleLot(balance, now) && getAvailableQuantity(balance) > 0,
-        ),
-        strategy,
-        receiptMap,
-      )
-      let remaining = input.quantity
-      const buckets: AllocationBucket[] = []
-      const touchedBalances: InventoryBalance[] = []
-      for (const balance of ordered) {
-        if (remaining <= 0) break
-        const available = getAvailableQuantity(balance)
-        if (available <= 0) continue
-        const quantity = Math.min(available, remaining)
-        const locationId = typeof balance.location === 'string' ? balance.location : balance.location.id
-        const lotIdRaw = balance.lot ?? null
-        const lotId = typeof lotIdRaw === 'string' ? lotIdRaw : lotIdRaw?.id ?? null
-        const persistedBalance = await findExactBalanceForUpdate(trx, scope, {
-          warehouseId: input.warehouseId,
-          locationId,
-          catalogVariantId: input.catalogVariantId,
-          lotId: lotId ?? undefined,
-          serialNumber: balance.serialNumber ?? undefined,
-        })
-        if (!persistedBalance) {
-          throw new CrudHttpError(409, { error: 'invalid_tracking_state' })
-        }
-        setNumeric(
-          persistedBalance as unknown as Record<string, unknown>,
-          'quantityReserved',
-          toNumber(persistedBalance.quantityReserved) + quantity,
-        )
-        touchedBalances.push(persistedBalance)
-        buckets.push({
-          balanceId: persistedBalance.id,
-          locationId,
-          lotId,
-          serialNumber: balance.serialNumber ?? null,
-          quantity,
-        })
-        remaining -= quantity
-      }
-      requireSufficientAvailability(remaining)
-      let reservation: InventoryReservation
-      try {
-        reservation = trx.create(InventoryReservation, {
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
-          warehouse: trx.getReference(Warehouse, input.warehouseId),
-          catalogVariantId: input.catalogVariantId,
-          lot: buckets.length === 1 && buckets[0].lotId ? trx.getReference(InventoryLot, buckets[0].lotId) : null,
-          serialNumber: buckets.length === 1 ? buckets[0].serialNumber : null,
-          quantity: toNumericString(input.quantity),
-          sourceType: input.sourceType,
-          sourceId: input.sourceId,
-          expiresAt: input.expiresAt ?? null,
-          status: 'active',
-          idempotencyKey: reservationIdempotencyKey,
-          metadata: {
-            ...(input.metadata ?? {}),
-            allocatedBuckets: buckets,
-            allocationState: 'reserved',
-            strategy,
-          },
-        })
-        trx.persist(reservation)
-        await trx.flush()
-      } catch (error) {
-        if (!isUniqueConstraintError(error)) throw error
-        const raced = await findExistingActiveReservationByIdempotencyKey(
-          trx,
-          scope,
-          reservationIdempotencyKey,
-        )
-        if (!raced) throw error
-        const metadata = extractReservationMetadata(raced)
-        const racedBuckets = Array.isArray(metadata.allocatedBuckets)
-          ? (metadata.allocatedBuckets as AllocationBucket[])
-          : []
-        return {
-          reservationId: raced.id,
-          allocatedBuckets: serializeAllocationBuckets(racedBuckets),
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          warehouseId: input.warehouseId,
-          catalogVariantId: input.catalogVariantId,
-          quantity: input.quantity,
-          reservationEntity: raced,
-          touchedBalances: [] as InventoryBalance[],
-          idempotentReplay: true,
-        }
-      }
-      return {
-        reservationId: reservation.id,
-        allocatedBuckets: serializeAllocationBuckets(buckets),
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        warehouseId: input.warehouseId,
-        catalogVariantId: input.catalogVariantId,
-        quantity: input.quantity,
-        reservationEntity: reservation,
-        touchedBalances,
-        idempotentReplay: false,
-      }
-    })
+    // A1 extraction: the lock/allocation/idempotency logic itself now lives in
+    // `wmsReservationService.reserveInTransaction` so a future in-process
+    // caller can run it inside its OWN transaction. This wrapper still forks
+    // its own `em` exactly as before, so behaviour is unchanged.
+    const result = await resolveReservationService(ctx).reserveInTransaction(em, ctx, input)
     if (!result.idempotentReplay) {
       await emitInventorySideEffects(ctx, {
         reservations: [{ entity: result.reservationEntity, action: 'created' }],
@@ -1159,57 +638,13 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = resolveEm(ctx)
-    const result = await runInTransaction(em, async (trx) => {
-      const scope = resolveScope(ctx, input)
-      const reservation = await requireReservation(trx, ctx, input.reservationId, scope, true)
-      const metadata = extractReservationMetadata(reservation)
-      const buckets = Array.isArray(metadata.allocatedBuckets) ? (metadata.allocatedBuckets as AllocationBucket[]) : []
-      const allocationState = metadata.allocationState ?? 'reserved'
-      const touchedBalances: InventoryBalance[] = []
-      for (const bucket of buckets) {
-        const balance = await findReservationBucketBalance(
-          trx,
-          scope,
-          reservation,
-          bucket,
-        )
-        if (!balance) continue
-        if (allocationState === 'allocated') {
-          enforceNonNegativeBalance(
-            balance,
-            'quantityAllocated',
-            toNumber(balance.quantityAllocated) - bucket.quantity,
-            reservation.id,
-            scope,
-          )
-        } else {
-          enforceNonNegativeBalance(
-            balance,
-            'quantityReserved',
-            toNumber(balance.quantityReserved) - bucket.quantity,
-            reservation.id,
-            scope,
-          )
-        }
-        touchedBalances.push(balance)
-      }
-      reservation.status = 'released'
-      reservation.metadata = {
-        ...metadata,
-        releasedReason: input.reason,
-        releasedAt: new Date().toISOString(),
-      }
-      await trx.flush()
-      return {
-        reservationId: reservation.id,
-        warehouseId: typeof reservation.warehouse === 'string' ? reservation.warehouse : reservation.warehouse.id,
-        catalogVariantId: reservation.catalogVariantId,
-        quantity: reservation.quantity,
-        tenantId: reservation.tenantId,
-        organizationId: reservation.organizationId,
-        reservationEntity: reservation,
-        touchedBalances,
-      }
+    // A1 extraction — see the matching comment on `wms.inventory.reserve`. `'checkout'` rows
+    // are system-owned by `availability`'s own lifecycle (same A16 rule `wms.inventory.reserve`
+    // enforces on create) — this command, and the public route behind it, must never release
+    // one directly: that would desync the `availability_reservations` hold that still thinks
+    // it owns this row.
+    const result = await resolveReservationService(ctx).releaseInTransaction(em, ctx, input, {
+      rejectSourceTypes: ['checkout'],
     })
     await emitInventorySideEffects(ctx, {
       reservations: [{ entity: result.reservationEntity, action: 'updated' }],

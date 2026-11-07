@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { BaseCurrencyService } from '../baseCurrencyService'
 
 function createService(rowsOrError: Array<Record<string, unknown>> | Error) {
@@ -9,9 +9,7 @@ function createService(rowsOrError: Array<Record<string, unknown>> | Error) {
     if (rowsOrError instanceof Error) throw rowsOrError
     return rowsOrError
   })
-  const em = {
-    getConnection: () => ({ execute }),
-  } as unknown as EntityManager
+  const em = { execute } as unknown as EntityManager
   return { service: new BaseCurrencyService(em), execute }
 }
 

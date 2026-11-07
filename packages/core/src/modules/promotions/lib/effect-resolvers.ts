@@ -2,6 +2,7 @@ import { selectUnits } from './unit-selection'
 import type {
   AddFreeItemEffect,
   CartDiscountEffect,
+  DeliveryDiscountEffect,
   EnrichedEvaluateItem,
   EvaluationContext,
   LineDiscountEffect,
@@ -14,9 +15,10 @@ import type {
 // Engine Data Flow Pass 3, §Data Models "Benefit"/"Quantity caps", §API Contracts
 // "Resolved Effect Types"/"Invariants", §Amendment — 2026-09-07 B.1-B.6, D-R4-7, D-R4-10).
 // Pure: no DB access, no system-clock reads, no catalog lookups. Dispatches on
-// `benefit.type` to one handler per Release 4 shipped benefit type; an unrecognized type
-// (including the hidden `delivery_discount`, D-R4-14) produces no effect rather than
-// throwing, so one malformed/unsupported benefit never aborts the rest of the promotion.
+// `benefit.type` to one handler per shipped benefit type (Release 4's five plus
+// `delivery_discount`, un-hidden in Release 5 by D-R5-17, amending D-R4-14); an
+// unrecognized type produces no effect rather than throwing, so one malformed/unsupported
+// benefit never aborts the rest of the promotion.
 
 type DiscountType = 'percentage' | 'fixed'
 
@@ -408,6 +410,45 @@ function resolveTieredDiscount(benefit: NormalizedBenefit, context: EvaluationCo
   )
 }
 
+// D-R5-17 (amends D-R4-14): un-hidden in Release 5 — reachable once the caller (checkout)
+// supplies `context.deliveryMethodCode`/`deliveryCost`. `appliesTo` is always `'order'`
+// (the only allowed value, `data/validators.ts`'s `benefitEnvelope` call), so there is no
+// quantity-cap/`selectUnits` dimension here, matching `resolveCartDiscount`'s own shape.
+// No effect resolves — not even a zero-amount one — when the caller's delivery context is
+// absent or names a different delivery method than this benefit is configured for; this
+// is the "no-op" D-R4-14 left unconditional, now conditioned on real context instead.
+// `deliveryCost` is the one base amount a delivery charge has — no net/gross split is
+// documented anywhere in SPEC-055 for it (§Data Models "delivery_discount"), so both sides
+// of the effect read the same figure, same precedent as this file's own `cart_discount`
+// net/gross-independent computation for any other amount that has no tax-split source.
+function resolveDeliveryDiscount(benefit: NormalizedBenefit, context: EvaluationContext): ResolvedEffect[] {
+  if (context.deliveryMethodCode == null || context.deliveryCost == null) return []
+
+  const config = benefit.config
+  const deliveryMethodCode = readNullableString(config.deliveryMethodCode)
+  if (deliveryMethodCode === null || deliveryMethodCode !== context.deliveryMethodCode) return []
+
+  const discountType = readDiscountType(config.discountType)
+  const value = readString(config.value, '0')
+  const labels = readLabels(config.labels)
+  const fractionDigits = getCurrencyFractionDigits(context)
+  const baseAmount = Number(context.deliveryCost)
+
+  const raw = computeRawAmountPair(discountType, value, baseAmount, baseAmount, 1)
+
+  const effect: DeliveryDiscountEffect = {
+    type: 'DELIVERY_DISCOUNT',
+    appliesTo: 'order',
+    currency: context.currency,
+    label: labels,
+    deliveryMethodCode,
+    amountNet: roundHalfUpToMinorUnits(raw.rawNet, fractionDigits),
+    amountGross: roundHalfUpToMinorUnits(raw.rawGross, fractionDigits),
+    basis: 'net',
+  }
+  return [effect]
+}
+
 export function resolveEffects(benefits: NormalizedBenefit[], context: EvaluationContext, promotionId: string): ResolvedEffect[] {
   const effects: ResolvedEffect[] = []
 
@@ -429,8 +470,7 @@ export function resolveEffects(benefits: NormalizedBenefit[], context: Evaluatio
         effects.push(...resolveTieredDiscount(benefit, context))
         break
       case 'delivery_discount':
-        // D-R4-14: hidden from the admin tree builder; no rule tree in Release 4 can ever
-        // select it into a live promotion. Defensive no-op rather than throwing.
+        effects.push(...resolveDeliveryDiscount(benefit, context))
         break
       default:
         // An unrecognized benefit type produces no effect and never aborts the rest of

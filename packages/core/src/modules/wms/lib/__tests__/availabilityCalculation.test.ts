@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { computeAvailability } from '../availabilityCalculation'
+import { computeAvailability, loadBalanceAggregates } from '../availabilityCalculation'
 import type { AvailabilityQuery } from '@open-mercato/shared/lib/availability'
 
 const TENANT = 'tenant-1'
@@ -186,6 +186,96 @@ describe('computeAvailability — product-level rollup', () => {
     ]))
     expect(result.byItem['p1:'].availableQuantity).toBe(15)
     expect(result.byItem['p1:'].state).toBe('in_stock')
+  })
+})
+
+describe('computeAvailability — Phase 2 alignment (A2)', () => {
+  it('a variant query does NOT fall back to the product-level pool row for safety stock (fixes the pre-A2 bug)', async () => {
+    // Before the A2 fix, `findProfile` fell back to the product-level pool
+    // row whenever a variant had no profile row of its own, so this single
+    // variant query would have wrongly subtracted the WHOLE shared pool
+    // (safety_stock 5) from itself: 20 - 5 = 15. The pool is only ever
+    // meaningful at the product rollup, never for a single variant.
+    const { em } = makeEm({
+      balanceRows: [{ catalog_variant_id: 'v1', aggregate_available: '20' }],
+      profileRows: [{ catalog_product_id: 'p1', catalog_variant_id: null, safety_stock: '5', reorder_point: null }],
+    })
+    const resolveMany = jest.fn().mockResolvedValue([overlay()])
+    const result = await computeAvailability(em, makeContainer(resolveMany), makeQuery([
+      { catalogProductId: 'p1', catalogVariantId: 'v1', quantity: 1 },
+    ]))
+    expect(result.byItem['p1:v1'].availableQuantity).toBe(20)
+    expect(result.byItem['p1:v1'].state).toBe('in_stock')
+  })
+
+  it('subtracts the product-level pool exactly once at rollup, on top of each variant own sellable', async () => {
+    // Before the A2 fix, rollup never subtracted the pool at all: this would
+    // have reported 15 (10 + 5) instead of 11 (10 + 5 - 4).
+    const { em } = makeEm({
+      variantRows: [
+        { id: 'v1', product_id: 'p1' },
+        { id: 'v2', product_id: 'p1' },
+      ],
+      balanceRows: [
+        { catalog_variant_id: 'v1', aggregate_available: '10' },
+        { catalog_variant_id: 'v2', aggregate_available: '5' },
+      ],
+      profileRows: [{ catalog_product_id: 'p1', catalog_variant_id: null, safety_stock: '4', reorder_point: null }],
+    })
+    const resolveMany = jest.fn().mockResolvedValue([overlay()])
+    const result = await computeAvailability(em, makeContainer(resolveMany), makeQuery([
+      { catalogProductId: 'p1', catalogVariantId: null, quantity: 1 },
+    ]))
+    expect(result.byItem['p1:'].availableQuantity).toBe(11)
+    expect(result.byItem['p1:'].state).toBe('in_stock')
+  })
+
+  it('a product-level pool does not reduce a sibling variant own per-variant safety stock subtraction', async () => {
+    // Each variant keeps subtracting its OWN safety_stock row (never the
+    // pool); the pool only ever applies once, at the rollup (prior test).
+    const { em } = makeEm({
+      balanceRows: [{ catalog_variant_id: 'v1', aggregate_available: '10' }],
+      profileRows: [
+        { catalog_product_id: 'p1', catalog_variant_id: 'v1', safety_stock: '2', reorder_point: null },
+        { catalog_product_id: 'p1', catalog_variant_id: null, safety_stock: '4', reorder_point: null },
+      ],
+    })
+    const resolveMany = jest.fn().mockResolvedValue([overlay()])
+    const result = await computeAvailability(em, makeContainer(resolveMany), makeQuery([
+      { catalogProductId: 'p1', catalogVariantId: 'v1', quantity: 1 },
+    ]))
+    expect(result.byItem['p1:v1'].availableQuantity).toBe(8)
+  })
+
+  it('excludes a quarantined or expired lot from the balance aggregation SQL (lot eligibility)', async () => {
+    const { em, execute } = makeEm({ balanceRows: [{ catalog_variant_id: 'v1', aggregate_available: '7' }] })
+    const resolveMany = jest.fn().mockResolvedValue([overlay()])
+    await computeAvailability(em, makeContainer(resolveMany), makeQuery([
+      { catalogProductId: 'p1', catalogVariantId: 'v1', quantity: 1 },
+    ]))
+    const balanceCall = execute.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('wms_inventory_balances'))
+    expect(balanceCall).toBeDefined()
+    const sql = balanceCall?.[0] as string
+    expect(sql).toMatch(/left join wms_inventory_lots/i)
+    expect(sql).toMatch(/l\.status = 'available'/)
+    expect(sql).toMatch(/l\.expires_at is null or l\.expires_at > now\(\)/)
+  })
+
+  it('locationIds keeps its shipped meaning (D-R5-31): filters b.location_id, no warehouse clause when omitted', async () => {
+    const { em, execute } = makeEm({ balanceRows: [{ catalog_variant_id: 'v1', aggregate_available: '7' }] })
+    await loadBalanceAggregates(em, 'tenant-1', 'org-1', ['v1'], ['loc-1'])
+    const [sql, params] = execute.mock.calls[0]
+    expect(sql).toMatch(/b\.location_id in/i)
+    expect(sql).not.toMatch(/b\.warehouse_id in/i)
+    expect(params).toContain('loc-1')
+  })
+
+  it('an additive warehouseIds filter works on the exported shared SQL builder — ready for the future reservation gate', async () => {
+    const { em, execute } = makeEm({ balanceRows: [{ catalog_variant_id: 'v1', aggregate_available: '7' }] })
+    await loadBalanceAggregates(em, 'tenant-1', 'org-1', ['v1'], null, ['wh-1'])
+    const [sql, params] = execute.mock.calls[0]
+    expect(sql).toMatch(/b\.warehouse_id in/i)
+    expect(params).toContain('wh-1')
   })
 })
 

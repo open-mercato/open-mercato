@@ -7995,6 +7995,22 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "approval_requirement": {
+          "name": "approval_requirement",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "billing_address_id": {
           "name": "billing_address_id",
           "type": "uuid",
@@ -8849,6 +8865,17 @@
           "composite": true,
           "constraint": false,
           "keyName": "sales_quotes_status_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "external_reference"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "sales_quotes_tenant_external_reference_idx",
           "primary": false,
           "unique": false
         }

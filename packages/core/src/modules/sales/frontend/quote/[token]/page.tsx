@@ -94,7 +94,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       setAcceptedOrder(call.result ?? null)
     } catch (err) {
       logger.error('sales.quotes.accept', { err })
-      setError(t('sales.quotes.public.acceptFailed'))
+      setError(err instanceof Error && err.message && !err.message.startsWith('[internal]') ? err.message : t('sales.quotes.public.acceptFailed'))
     } finally {
       setAccepting(false)
     }

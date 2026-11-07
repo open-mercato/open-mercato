@@ -131,7 +131,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid request body' },
         { status: 404, description: 'No `X-Cart-Token` header, the token does not resolve a cart, or no merge exists to undo for this cart' },
-        { status: 409, description: 'Optimistic-lock conflict, or `merge_undo_window_expired` (the 15-minute window has passed)' },
+        { status: 409, description: 'Optimistic-lock conflict, `merge_undo_window_expired` (the 15-minute window has passed), or `merge_undo_not_supported_for_proposal` (rev 10 — D-R5-25: the merge being undone was a proposal acceptance)' },
         { status: 429, description: 'Rate limited' },
         { status: 503, description: 'No store context resolvable for this request (§6a.1a)' },
       ],

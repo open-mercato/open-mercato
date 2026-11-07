@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse } from 'next/server.js'
 import { verifyAudienceJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'

@@ -7,6 +7,13 @@ import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type { CommandHandler, CommandRuntimeContext } from "@open-mercato/shared/lib/commands";
 import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
 import {
+  buildQuoteApprovalRequirement,
+  extractPendingApprovalClaim,
+  isTrustedSystemCommandContext,
+  omitPendingApprovalMetadata,
+} from "../lib/quoteApprovalRequirement";
+import { createQuoteApprovalLookup } from "../lib/quoteApprovalLookup";
+import {
   buildChanges,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
@@ -283,6 +290,7 @@ type QuoteGraphSnapshot = {
     deliveryWindowSnapshot: Record<string, unknown> | null;
     paymentMethodSnapshot: Record<string, unknown> | null;
     metadata: Record<string, unknown> | null;
+    approvalRequirement?: Record<string, unknown> | null;
     customFieldSetId: string | null;
     customFields: Record<string, unknown> | null;
     subtotalNetAmount: string;
@@ -1242,7 +1250,10 @@ async function applyDocumentUpdate({
     entity.customerSnapshot = input.customerSnapshot ?? null;
   }
   if (input.metadata !== undefined) {
-    entity.metadata = input.metadata ?? null;
+    entity.metadata =
+      kind === "quote"
+        ? omitPendingApprovalMetadata(input.metadata ?? null)
+        : (input.metadata ?? null);
   }
   if (input.externalReference !== undefined) {
     const normalized =
@@ -1790,6 +1801,9 @@ async function loadQuoteSnapshot(
         ? cloneJson(quote.paymentMethodSnapshot)
         : null,
       metadata: quote.metadata ? cloneJson(quote.metadata) : null,
+      approvalRequirement: quote.approvalRequirement
+        ? cloneJson(quote.approvalRequirement)
+        : null,
       customFieldSetId: quote.customFieldSetId ?? null,
       customFields: quoteCustomFields[quote.id]
         ? cloneJson(quoteCustomFields[quote.id])
@@ -4283,6 +4297,9 @@ async function restoreQuoteGraph(
       metadata: snapshot.quote.metadata
         ? cloneJson(snapshot.quote.metadata)
         : null,
+      approvalRequirement: snapshot.quote.approvalRequirement
+        ? cloneJson(snapshot.quote.approvalRequirement)
+        : null,
       channelId: snapshot.quote.channelId ?? null,
       customFieldSetId: snapshot.quote.customFieldSetId ?? null,
       subtotalNetAmount: snapshot.quote.subtotalNetAmount,
@@ -4701,6 +4718,7 @@ async function undoOrderGraph(
 ): Promise<void> {
   ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
   let restored: SalesOrder | undefined;
+  let previousStatus: string | null = null;
   await withVerifiedOrderGraph(
     ctx,
     after,
@@ -4711,7 +4729,9 @@ async function undoOrderGraph(
     },
     async (tx, exists) => {
       if (!exists && after) await throwDocumentUndoStale("order");
-      restored = await restoreOrderGraph(tx, before, exists ? after : null);
+      const result = await restoreOrderGraph(tx, before, exists ? after : null);
+      restored = result.order;
+      previousStatus = result.previousStatus;
       await tx.flush();
     },
   );
@@ -4728,13 +4748,18 @@ async function undoOrderGraph(
     },
     indexer: { entityType: E.sales.sales_order },
   });
+  // #8404: undo only restored the row — it never re-emitted the lifecycle events `execute()`
+  // fires for the same transition (`sales.order.confirmed`/`.cancelled`), so an undone
+  // cancellation left a live, confirmed order with no re-reserved stock or credit. Mirrors
+  // `execute()`'s own call to the SAME function right after its own status write.
+  emitOrderLifecycleEventsForTransition({ order: restored, previousStatus });
 }
 
 async function restoreOrderGraph(
   em: EntityManager,
   snapshot: OrderGraphSnapshot,
   verified: OrderGraphSnapshot | null = null,
-): Promise<SalesOrder> {
+): Promise<{ order: SalesOrder; previousStatus: string | null }> {
   let order = await findOneWithDecryption(
     em,
     SalesOrder,
@@ -4842,6 +4867,13 @@ async function restoreOrderGraph(
     });
     em.persist(order);
   }
+  // Captured BEFORE `applyOrderSnapshot` overwrites `order.status` below — the status the
+  // order actually had right before this restore (e.g. `canceled`, being undone back to
+  // `confirmed`). For a from-scratch recreate (order didn't exist), `order.status` here
+  // already equals the snapshot's own status (set by `em.create` above), so this correctly
+  // comes out equal to the restored status and no lifecycle event fires below (#8404: there
+  // is no real prior live order to resume stock/credit reservations for).
+  const previousStatus = order.status ?? null;
   applyOrderSnapshot(order, snapshot.order);
   await em.flush();
   const existingAdjustments = await em.find(
@@ -5094,7 +5126,7 @@ async function restoreOrderGraph(
     await restorePaymentSnapshot(em, payment);
   }
 
-  return order;
+  return { order, previousStatus };
 }
 
 const createQuoteCommand: CommandHandler<
@@ -5138,12 +5170,26 @@ const createQuoteCommand: CommandHandler<
       parsed.statusEntryId ?? null,
       { tenantId: parsed.tenantId },
     );
+    const pendingApprovalClaim = extractPendingApprovalClaim(parsed.metadata);
+    const approvalRequirement =
+      pendingApprovalClaim && isTrustedSystemCommandContext(ctx)
+        ? await buildQuoteApprovalRequirement({
+            claim: pendingApprovalClaim,
+            buyerCustomerEntityId: parsed.customerEntityId ?? null,
+            lookupApproval: createQuoteApprovalLookup(ctx.container, {
+              tenantId: parsed.tenantId,
+              organizationId: parsed.organizationId,
+            }),
+          })
+        : null;
     const quoteId = randomUUID();
     const quote = em.create(SalesQuote, {
       id: quoteId,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       quoteNumber: ensuredQuoteNumber,
+      externalReference: parsed.externalReference ?? null,
+      customerReference: parsed.customerReference ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       status: quoteStatus,
       customerEntityId: parsed.customerEntityId ?? null,
@@ -5240,7 +5286,12 @@ const createQuoteCommand: CommandHandler<
                   : null,
             }
           : null,
-      metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      metadata: parsed.metadata
+        ? cloneJson(omitPendingApprovalMetadata(parsed.metadata))
+        : null,
+      approvalRequirement: approvalRequirement
+        ? (approvalRequirement as unknown as Record<string, unknown>)
+        : null,
       channelId: parsed.channelId ?? null,
       customFieldSetId: parsed.customFieldSetId ?? null,
       subtotalNetAmount: "0",

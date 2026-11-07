@@ -8,11 +8,13 @@
 // `commands/rule-tree.ts` `planRuleGroupTree`), the same convention
 // `packages/ui/src/backend/filters/treeReducer.ts` documents for its own tree.
 //
-// Only the EIGHT Release 4 shipped rule types and FIVE shipped benefit types are
-// offered here — `RELEASE_4_SHIPPED_RULE_TYPES`/`RELEASE_4_SHIPPED_BENEFIT_TYPES` are
-// imported directly from `data/validators.ts` so this file cannot silently drift from
-// the write-path allow-list (the hidden types, including `delivery_discount`, are never
-// referenced here).
+// Only the shipped rule/benefit types are offered here — `RELEASE_4_SHIPPED_RULE_TYPES`/
+// `RELEASE_4_SHIPPED_BENEFIT_TYPES` are imported directly from `data/validators.ts` so
+// this file cannot silently drift from the write-path allow-list. Release 4 shipped eight
+// rule types and five benefit types; Release 5 (D-R5-17, amends D-R4-14) un-hid
+// `delivery_method`/`delivery_discount` now that checkout exists as their data source,
+// growing the two sets to nine and six — the remaining hidden types are still never
+// referenced here.
 
 import {
   RELEASE_4_SHIPPED_RULE_TYPES,
@@ -44,6 +46,9 @@ export const BENEFIT_APPLIES_TO: Record<BenefitTypeId, { allowed: AppliesToId[];
   free_product: { allowed: ['order'], default: 'order' },
   buy_x_get_y: { allowed: ['line', 'unit'], default: 'unit' },
   tiered_discount: { allowed: ['order', 'line', 'unit'], default: 'order' },
+  // D-R5-17: `delivery_discount`'s `benefitEnvelope` call in `data/validators.ts` only
+  // ever allows `appliesTo: 'order'` — a delivery charge has no line/unit dimension.
+  delivery_discount: { allowed: ['order'], default: 'order' },
 }
 
 // `data/validators.ts` keeps its own `discountTypeValues` module-local (not exported) —
@@ -126,6 +131,8 @@ export function buildDefaultRuleConfig(ruleType: RuleTypeId): Record<string, unk
       return { customerGroupId: '' }
     case 'code':
       return { codeId: '' }
+    case 'delivery_method':
+      return { deliveryMethodCode: '' }
     default:
       return {}
   }
@@ -159,6 +166,8 @@ export function buildDefaultBenefitConfig(benefitType: BenefitTypeId): Record<st
       }
     case 'tiered_discount':
       return { limitToCategoryId: null, tiers: [{ threshold: '0', discountType: 'percentage', value: '0' }], maxDiscount: null }
+    case 'delivery_discount':
+      return { deliveryMethodCode: '', discountType: 'percentage', value: '0' }
     default:
       return {}
   }

@@ -455,6 +455,7 @@
   "checkout.validation.common.invalidCurrencyCode": "Gib einen gueltigen 3-stelligen Waehrungscode ein.",
   "checkout.validation.common.invalidFieldsetCode": "Gib einen gueltigen Feldsatz-Code ein.",
   "checkout.validation.common.invalidNumber": "Gib eine gueltige Zahl ein.",
+  "checkout.validation.common.invalidReturnPath": "Gib einen relativen Pfad ein, der mit einem einzelnen Schrägstrich beginnt.",
   "checkout.validation.common.invalidUrl": "Gib eine gueltige URL ein.",
   "checkout.validation.common.invalidUuid": "Gib eine gueltige Kennung ein.",
   "checkout.validation.common.nonNegativeInteger": "Gib eine ganze Zahl groesser oder gleich 0 ein.",

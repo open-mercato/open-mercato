@@ -10,6 +10,7 @@ import {
   ProductInventoryProfile,
   Warehouse,
 } from '../../data/entities'
+import { WmsReservationService } from '../../lib/wmsReservationService'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -67,12 +68,23 @@ function createEm() {
   return em
 }
 
+// A1 extraction (`.ai/specs/analysis/ANALYSIS-2026-10-26-availability-release-5.md`):
+// `wms.inventory.reserve`/`.release` now resolve their core logic from the
+// `wmsReservationService` DI token (`commands/inventory-actions.ts`'s thin
+// wrappers) instead of running it inline, so the fake container here must be
+// able to resolve it too — same shape as the existing `em`/`dataEngine` stubs.
+// A real `WmsReservationService` instance is used (not a mock) because this
+// suite's whole point is to exercise that service's reserve/release logic
+// through the command, unchanged.
+const wmsReservationService = new WmsReservationService()
+
 function createCtx(em: ReturnType<typeof createEm>) {
   return {
     container: {
       resolve: (name: string) => {
         if (name === 'em') return em
         if (name === 'dataEngine') return {}
+        if (name === 'wmsReservationService') return wmsReservationService
         throw new Error(`Unexpected resolve: ${name}`)
       },
     },
@@ -174,6 +186,24 @@ describe('wms inventory reserve command', () => {
     expect(result).toMatchObject({ reservationId: expect.any(String) })
     expect(em.persist).toHaveBeenCalled()
     expect(em.flush).toHaveBeenCalled()
+  })
+
+  // Release 5 Phase 3 (A16, Step 2.2, `.ai/specs/2026-08-14-availability-contract.md` §4.4):
+  // `'checkout'` is a system-only source written only by `wmsReservationService
+  // .reserveLinesForCheckout` (`availability`'s own reserve). The public command — and so
+  // the public `POST /api/wms/inventory/reserve` route, which validates with the SAME
+  // schema and calls this SAME command — must reject it before touching any balance, so a
+  // tenant can never hand-create a `'checkout'` row the expiry sweep would later release.
+  it('rejects sourceType "checkout" with 400 and writes nothing (A16)', async () => {
+    const em = createEm()
+
+    const handler = commandRegistry.get('wms.inventory.reserve')
+    await expect(
+      handler!.execute!(makeReserveInput({ sourceType: 'checkout' }), createCtx(em)),
+    ).rejects.toMatchObject({ status: 400, body: { error: 'checkout_reservation_is_system_only' } })
+
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('throws insufficient_stock when no available quantity exists', async () => {
@@ -620,5 +650,78 @@ describe('wms inventory release command', () => {
       'wms.inventory.balance_drift',
       expect.objectContaining({ balanceId: BALANCE_ID, field: 'quantityReserved' }),
     )
+  })
+
+  // A16-style guard, symmetric with the reserve command's own rejection above: a
+  // `'checkout'` row is system-owned by `availability`'s reserve/release/commit lifecycle.
+  // The public route/command must never release one directly — that would desync the
+  // `availability_reservations` hold, which still believes it owns the row.
+  it('rejects releasing a "checkout"-sourced reservation with 400 and leaves it untouched', async () => {
+    const em = createEm()
+    const reservation = makeReservation({ sourceType: 'checkout', sourceId: 'checkout-session-1' })
+    const balance = makeBalance({ quantityReserved: '5' })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return reservation
+      if (entity === InventoryBalance) {
+        if (where?.id === BALANCE_ID || where?.location === LOCATION_A) return balance
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.inventory.release')
+    await expect(
+      handler!.execute!(
+        {
+          organizationId: ORG,
+          tenantId: TENANT,
+          reservationId: RESERVATION_ID,
+          reason: 'manual_release',
+          performedBy: USER_ID,
+        },
+        createCtx(em),
+      ),
+    ).rejects.toMatchObject({ status: 400, body: { error: 'checkout_reservation_is_system_only' } })
+
+    expect(reservation.status).toBe('active')
+    expect(Number(balance.quantityReserved)).toBe(5)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  // Overselling guard: the expiry sweep, reconciliation, `availability.release`, and this
+  // command can all reach the SAME wms reservation row for the same logical release (TTL
+  // expiry racing a manual release, etc). A second release must not decrement
+  // `quantityReserved` again — that would free stock another order already holds.
+  it('is idempotent on an already-released reservation — does not double-decrement the balance', async () => {
+    const em = createEm()
+    const releasedReservation = makeReservation({ status: 'released' })
+    const balance = makeBalance({ quantityReserved: '0' })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return releasedReservation
+      if (entity === InventoryBalance) {
+        if (where?.id === BALANCE_ID || where?.location === LOCATION_A) return balance
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.inventory.release')
+    const result = await handler!.execute!(
+      {
+        organizationId: ORG,
+        tenantId: TENANT,
+        reservationId: RESERVATION_ID,
+        reason: 'second_release_attempt',
+        performedBy: USER_ID,
+      },
+      createCtx(em),
+    )
+
+    expect(result).toMatchObject({ reservationId: RESERVATION_ID })
+    // No bucket was read/decremented and nothing was flushed — the guard short-circuited
+    // before any balance mutation.
+    expect(Number(balance.quantityReserved)).toBe(0)
+    expect(releasedReservation.status).toBe('released')
+    expect(em.flush).not.toHaveBeenCalled()
   })
 })

@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CART_MARK_ABANDONED_QUEUE } from '../lib/queues'
-import { sweepAbandonedCarts } from '../lib/sweepers'
+import { sweepAbandonedCarts, type CartCodeServiceLike } from '../lib/sweepers'
 
 const logger = createLogger('cart')
 
@@ -36,8 +36,12 @@ export default async function handle(job: QueuedJob<CartSweepTickPayload>, ctx: 
   }
 
   const em = (ctx.resolve('em') as EntityManager).fork()
+  // K11: `promotionCodeService` is `promotions`' own frozen DI token
+  // (`promotions/di.ts`, §Release 4 Contract Freeze) — resolved here, not imported
+  // statically, so this module never takes a hard dependency on `promotions`' entities.
+  const codeService = ctx.resolve<CartCodeServiceLike>('promotionCodeService')
   try {
-    const result = await sweepAbandonedCarts(em, { tenantId })
+    const result = await sweepAbandonedCarts(em, { tenantId }, codeService)
     if (result.transitioned > 0) {
       logger.info('cart:mark-abandoned swept carts', { tenantId, transitioned: result.transitioned })
     }

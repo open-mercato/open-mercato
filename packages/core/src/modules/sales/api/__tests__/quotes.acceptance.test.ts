@@ -12,6 +12,7 @@ import { createSalesDocumentLockKyselyFixture } from '../../commands/__tests__/s
 
 const mockCommandBus = { execute: jest.fn() }
 const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
+const mockApprovalService = { getApproval: jest.fn() }
 const mockEm: Record<string, jest.Mock> = {
   fork: jest.fn(),
   findOne: jest.fn(),
@@ -29,12 +30,25 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
 }))
 
+let approvalServiceAvailable = true
+const approvalFactoryEms: unknown[] = []
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
     resolve: (token: string) => {
       if (token === 'commandBus') return mockCommandBus
       if (token === 'em') return mockEm
       if (token === 'accessLogService') return null
+      if (token === 'customerPurchaseApprovalService') {
+        throw new Error('[test] the request-root approval service must not be used by quote acceptance')
+      }
+      if (token === 'customerPurchaseApprovalServiceFactory') {
+        if (!approvalServiceAvailable) return null
+        return (em: unknown) => {
+          approvalFactoryEms.push(em)
+          return mockApprovalService
+        }
+      }
       return null
     },
   })),
@@ -877,5 +891,211 @@ describe('accept - always uses em.transactional (no fallback)', () => {
       expect.anything(),
       expect.not.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE })
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Regression: an over-threshold quote (checkout's `purpose: 'quote'` lock, D-R5-23)
+// must not bypass the B2B approval gate just by being self-accepted via this public
+// token route — the gate's own verdict, snapshotted onto `quote.metadata
+// .pendingApproval` at quote-creation time, is re-checked here before conversion.
+// ---------------------------------------------------------------------------
+
+describe('accept - re-checks the approval gate for a quote flagged by checkout (D-R5-23 bypass fix)', () => {
+  const ACCEPTANCE_TOKEN = '00000000-0000-4000-8000-0000000d23a0'
+  const APPROVAL_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const CART_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+  const COMPANY_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const BUYER_ENTITY_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+
+  function makeRequirement(overrides: Record<string, unknown> = {}) {
+    return {
+      required: true,
+      approvalId: APPROVAL_ID,
+      approvalSubjectType: 'cart',
+      approvalSubjectId: CART_ID,
+      approvalCustomerId: COMPANY_ID,
+      buyerCustomerEntityId: BUYER_ENTITY_ID,
+      recordedAt: '2026-11-02T00:00:00.000Z',
+      ...overrides,
+    }
+  }
+
+  function makeApproval(overrides: Record<string, unknown> = {}) {
+    return {
+      id: APPROVAL_ID,
+      status: 'approved',
+      currencyCode: 'USD',
+      amountGross: '5000',
+      subjectType: 'cart',
+      subjectId: CART_ID,
+      customerId: COMPANY_ID,
+      ...overrides,
+    }
+  }
+
+  function makeFlaggedQuote(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-D-R5-23-1',
+      status: 'sent',
+      statusEntryId: null,
+      validUntil: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '5000',
+      customerEntityId: BUYER_ENTITY_ID,
+      metadata: { sourceModule: 'checkout' },
+      approvalRequirement: makeRequirement(),
+      ...overrides,
+    }
+  }
+
+  function mockConvertibleQuote(quote: Record<string, unknown>, orderId: string) {
+    mockEm.findOne.mockImplementation(async (cls: any) => {
+      if (cls === SalesQuote) return quote
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
+      if (cls === SalesOrder) return { id: orderId, orderNumber: `SO-${orderId}`, deletedAt: null }
+      return null
+    })
+    mockCommandBus.execute.mockResolvedValue({ result: { orderId } })
+  }
+
+  async function expectRefusedWithApproval(quote: Record<string, unknown>) {
+    mockEm.findOne.mockImplementation(async (cls: any) => (cls === SalesQuote ? quote : null))
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe('quote_requires_approval')
+    expect(quote.status).toBe('sent')
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  }
+
+  beforeEach(async () => {
+    jest.clearAllMocks()
+    approvalServiceAvailable = true
+    approvalFactoryEms.length = 0
+    mockEm.fork.mockReturnValue(mockEm)
+    mockRateLimiterService.consume.mockResolvedValue({ allowed: true, remainingPoints: 9, msBeforeNext: 0 })
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { getCachedRateLimiterService } = await import('@open-mercato/core/bootstrap')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue(null)
+    ;(getCachedRateLimiterService as jest.Mock).mockReturnValue(mockRateLimiterService)
+  })
+
+  test('refuses with 409 quote_requires_approval when no approval ever existed', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(null)
+    await expectRefusedWithApproval(makeFlaggedQuote())
+  })
+
+  test('refuses with 409 when the approval no longer qualifies (wrong currency)', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval({ currencyCode: 'EUR' }))
+    await expectRefusedWithApproval(makeFlaggedQuote())
+  })
+
+  test('refuses with 409 (fails closed) when customer_groups cannot be resolved at all', async () => {
+    approvalServiceAvailable = false
+    await expectRefusedWithApproval(makeFlaggedQuote())
+  })
+
+  test('refuses an approval that belongs to a different customer (wrong-customer proof)', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval({ customerId: 'a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0' }))
+    await expectRefusedWithApproval(makeFlaggedQuote())
+  })
+
+  test('refuses an approval issued for a different subject (wrong cart/quote subject)', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval({ subjectId: 'b0b0b0b0-b0b0-4b0b-8b0b-b0b0b0b0b0b0' }))
+    await expectRefusedWithApproval(makeFlaggedQuote())
+  })
+
+  test('refuses when the quote was re-targeted to another customer after the requirement was recorded', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval())
+    await expectRefusedWithApproval(makeFlaggedQuote({ customerEntityId: 'c0c0c0c0-c0c0-4c0c-8c0c-c0c0c0c0c0c0' }))
+  })
+
+  test('metadata tampering cannot clear the requirement: metadata.pendingApproval.required=false is ignored', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(null)
+    await expectRefusedWithApproval(
+      makeFlaggedQuote({ metadata: { sourceModule: 'checkout', pendingApproval: { required: false, approvalId: null } } }),
+    )
+  })
+
+  test('a legacy quote flagged only through metadata (no protected requirement) fails closed', async () => {
+    await expectRefusedWithApproval(
+      makeFlaggedQuote({
+        approvalRequirement: null,
+        metadata: { sourceModule: 'checkout', pendingApproval: { required: true, approvalId: APPROVAL_ID } },
+      }),
+    )
+  })
+
+  test('a malformed protected requirement fails closed', async () => {
+    await expectRefusedWithApproval(makeFlaggedQuote({ approvalRequirement: { required: 'no' } }))
+  })
+
+  test('reads the approval through the acceptance transaction EntityManager, never the request-root service', async () => {
+    const quote = makeFlaggedQuote()
+    mockConvertibleQuote(quote, 'order-d-r5-23-1')
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval())
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+
+    expect(res.status).toBe(200)
+    expect(approvalFactoryEms).toEqual([mockEm])
+    expect(quote.status).toBe('confirmed')
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'sales.quotes.convert_to_order',
+      expect.objectContaining({ input: { quoteId: quote.id } }),
+    )
+  })
+
+  test('does not run the gate for a quote with no recorded requirement (staff-authored quote)', async () => {
+    const quote = makeFlaggedQuote({ approvalRequirement: null, metadata: null })
+    mockConvertibleQuote(quote, 'order-d-r5-23-2')
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+
+    expect(res.status).toBe(200)
+    expect(mockApprovalService.getApproval).not.toHaveBeenCalled()
+  })
+
+  test('does not run the gate when the protected requirement says approval is not required', async () => {
+    const quote = makeFlaggedQuote({ approvalRequirement: makeRequirement({ required: false, approvalId: null }) })
+    mockConvertibleQuote(quote, 'order-d-r5-23-3')
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+
+    expect(res.status).toBe(200)
+    expect(mockApprovalService.getApproval).not.toHaveBeenCalled()
+  })
+
+  // #8818 / review Major 2: the approval is granted on the cart's goods-gross basis
+  // (delivery excluded, since a cart never carries a shipping adjustment), but checkout
+  // only adds the shipping adjustment once it creates the quote at submit. Comparing the
+  // approval against the quote's grand total (which now includes that shipping charge)
+  // therefore compares two different bases and can never be satisfied for a quote with a
+  // non-zero delivery charge.
+  test('accepts an approved over-threshold quote that carries a non-zero shipping adjustment', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval({ amountGross: '615.00' }))
+    const quote = makeFlaggedQuote({
+      grandTotalGrossAmount: '620.00',
+      totalsSnapshot: { shippingGrossAmount: 5 },
+    })
+    mockConvertibleQuote(quote, 'order-d-r5-23-4')
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+
+    expect(res.status).toBe(200)
+    expect(quote.status).toBe('confirmed')
+  })
+
+  test('still refuses when even the goods-only basis exceeds the approved amount', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval({ amountGross: '614.00' }))
+    await expectRefusedWithApproval(makeFlaggedQuote({
+      grandTotalGrossAmount: '620.00',
+      totalsSnapshot: { shippingGrossAmount: 5 },
+    }))
   })
 })

@@ -186,6 +186,57 @@ describe('evaluatePromotions — ordering, cumulativity, and tag exclusion acros
   })
 })
 
+// D-R5-17 (amends D-R4-14): a `delivery_method` rule gated promotion, end to end through
+// the real engine — both passes together, not mocked (Pass 1 match + Pass 3 resolve).
+function deliveryMatchingPromotion(overrides: Partial<NormalizedPromotion> = {}): NormalizedPromotion {
+  return promotion({
+    rootGroup: {
+      operator: 'and',
+      rules: [{ type: 'delivery_method', config: { deliveryMethodCode: 'standard' } }],
+      benefits: [
+        {
+          type: 'delivery_discount',
+          appliesTo: 'order',
+          config: { deliveryMethodCode: 'standard', discountType: 'percentage', value: '50', labels: { en: 'Free delivery' } },
+        },
+      ],
+      children: [],
+    },
+    ...overrides,
+  })
+}
+
+describe('evaluatePromotions — delivery promotions (D-R5-17, amends D-R4-14)', () => {
+  it('matches the delivery_method rule and resolves a DELIVERY_DISCOUNT effect when the caller supplies delivery context', () => {
+    const promo = deliveryMatchingPromotion()
+    const result = evaluatePromotions([promo], input({ deliveryMethodCode: 'standard', deliveryCost: '10.00' }))
+
+    expect(result.appliedPromotions).toHaveLength(1)
+    expect(result.appliedPromotions[0].effects).toEqual([
+      {
+        type: 'DELIVERY_DISCOUNT',
+        appliesTo: 'order',
+        currency: 'USD',
+        label: { en: 'Free delivery' },
+        deliveryMethodCode: 'standard',
+        amountNet: '-5.00',
+        amountGross: '-5.00',
+        basis: 'net',
+      },
+    ])
+  })
+
+  // Regression guard: every existing caller (cart's own reprice phase) calls `evaluate`
+  // with no delivery context at all — D-R4-14's cart-stage exclusion of delivery from
+  // totals must stay exactly as it was before D-R5-17 un-hid the rule/effect.
+  it('never matches the promotion at all when the caller omits delivery context (cart-stage regression guard)', () => {
+    const promo = deliveryMatchingPromotion()
+    const result = evaluatePromotions([promo], input())
+
+    expect(result.appliedPromotions).toEqual([])
+  })
+})
+
 describe('isPromotionEligible — excluded-tags check', () => {
   it('returns false when excludedTags intersects the running appliedTags set', () => {
     const eligible = isPromotionEligible(

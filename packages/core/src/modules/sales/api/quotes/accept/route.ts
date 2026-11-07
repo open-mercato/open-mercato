@@ -22,6 +22,8 @@ import { resolveEffectiveTenantId } from '../../../lib/publicQuoteTenantScope'
 import { QuoteAcceptedAdminEmail } from '../../../emails/QuoteAcceptedAdminEmail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { evaluateQuoteApprovalGate, extractPendingApprovalClaim } from '../../../lib/quoteApprovalRequirement'
+import { createQuoteApprovalLookup } from '../../../lib/quoteApprovalLookup'
 
 const logger = createLogger('sales')
 
@@ -112,6 +114,29 @@ export async function POST(req: Request) {
       if ((quote.status ?? null) !== 'sent') {
         throw new CrudHttpError(400, {
           error: translate('sales.quotes.accept.invalidStatus', 'This quote cannot be accepted in its current status.'),
+        })
+      }
+
+      // D-R5-23: checkout's `cart.lock` skips the over-threshold approval gate (K2) for
+      // `purpose: 'quote'` carts. The verdict is persisted server-side by the trusted
+      // creator in the protected `approvalRequirement` column (never in `metadata`, which any
+      // `sales.quotes.manage` actor can rewrite) together with the approval's subject and
+      // customer provenance. Acceptance re-verifies that proof against the approval row read
+      // through THIS transaction's EntityManager, and fails closed when it cannot.
+      const legacyMetadataRequiresApproval = extractPendingApprovalClaim(quote.metadata)?.required === true
+      const gate = await evaluateQuoteApprovalGate({
+        rawRequirement: quote.approvalRequirement ?? (legacyMetadataRequiresApproval ? { legacyUnboundRequirement: true } : null),
+        quote,
+        lookupApproval: createQuoteApprovalLookup(
+          container,
+          { tenantId: quote.tenantId, organizationId: quote.organizationId },
+          trx as EntityManager,
+        ),
+      })
+      if (gate === 'unsatisfied') {
+        throw new CrudHttpError(409, {
+          error: translate('sales.quotes.accept.requiresApproval', 'This quote requires approval before it can be accepted.'),
+          code: 'quote_requires_approval',
         })
       }
 
@@ -211,6 +236,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid or expired quote', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Cross-site request rejected', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Quote not found', schema: z.object({ error: z.string() }) },
+        { status: 409, description: 'Quote requires approval before it can be accepted', schema: z.object({ error: z.string(), code: z.literal('quote_requires_approval') }) },
         { status: 429, description: 'Too many requests', schema: rateLimitErrorSchema },
       ],
     },

@@ -191,6 +191,13 @@ All new modules live in `packages/core/src/modules/<module>/` and follow the sta
 
 **Consequence.** A checkout session references `cart_id`. Locking a cart for checkout is a `cart` state transition requested by `checkout`, not a status owned by `checkout`.
 
+**Consequence: soft dependencies and session transport (added 2026-10-26, Release 5).** `checkout` declares no new `requires` (D-R5-18). Session features resolve `cartService`, `customerCreditService`, `customerPurchaseApprovalService`, `availability`, `promotionsService` and `shippingCarrierService` through `tryResolve`:
+- without `cart`, `/api/checkout/sessions/*` answers `503 checkout_sessions_unavailable`;
+- without `customer_groups`, purchase on account and approvals are unavailable;
+- without `availability`, lines are `not_tracked` (D-R5-9).
+
+Pay links keep their Phase A path end to end. A session is addressed by an opaque token returned once by `POST /api/checkout/sessions` and sent as `X-Checkout-Session-Token`; only its `token_hash` is stored. A session on an identified cart also requires the matching customer session on every `/api/checkout/sessions/current/*` route, else `404` (D-R5-33). A cart-backed pay link seeds its cart through a trusted in-process context built from the link's own tenant and organization, never from request input, with lines only from the merchant's template (D-R5-19).
+
 **Open point for the child spec.** Whether the funnel's step machine uses the `workflows` module (SPEC-029's proposal, giving configurable per-store checkout steps) or a fixed state machine. Configurability has real B2B value (approval steps, PO number capture); the child spec decides and justifies.
 
 ---
@@ -229,6 +236,13 @@ Field names are `catalogProductId` / `catalogVariantId`, matching the `catalog_p
 
 **Consequence.** SPEC-029's three inline `availability` unions are replaced by this contract's `state`. `low_stock` and `preorder` are added; the storefront needs them and they cost nothing now.
 
+**Consequence: the reservation lifecycle (added 2026-10-26, Release 5).**
+- **Hold at submit, commit at document creation.** `availability.reserve` takes the authoritative hold at checkout submit, before the sales document exists. Checkout runs `availability.commit` right after document creation, before payment (D-R5-8). The checkout hold becomes an `order` reservation, which nothing expires. A failed or abandoned payment is compensated by cancelling the order, and `wms` releases `order` holds on `sales.order.cancelled`. A quote outcome releases the hold (D-R5-20). `commit` and the expiry sweep transition a hold by CAS on `status = 'active'`.
+- **Through `wms`'s transactional service.** `availability` writes through the additive `wmsReservationService` (`reserveInTransaction`, `releaseInTransaction`, `convertInTransaction`, `reserveLinesForCheckout`), never through `wms` entities.
+- **Per-line outcomes.** `reserve` returns an `outcome` per line: `held | not_tracked | preorder | backorder | shortfall`. A backorder-enabled line holds `min(requested, sellable)` and admits the rest as backorder with nothing held; only `shortfall` lines fail the reserve (D-R5-9).
+- **Not undoable.** `availability.reserve`, `.release` and `.commit` are registered with `isUndoable: false`, like `wms.inventory.reserve/release`; reversal is an explicit counter-action (D-R5-10).
+- **`locationIds` keeps its meaning** (locations); the reservation gate gets an additive `warehouseIds` filter (D-R5-31).
+
 ---
 
 ### ADR-5 — `ecommerce` binds hostnames, `customer_accounts` owns them
@@ -250,6 +264,13 @@ Field names are `catalogProductId` / `catalogVariantId`, matching the `catalog_p
 **Consequence.** This module ships before `cart`. Backward compatibility: the column stays a plain UUID with no FK constraint added in the first release, so existing rows carrying arbitrary ids keep working; a reconciliation report lists orphans. Adding the constraint is a later, separately-specified migration. Group tax treatment resolves through the same id in `sales` once the organization selects the `sales-tax-rates` provider named next (the default state of that roadmap, `product-rate`, consults no group). Which `SalesTaxRate` row applies by address, date and the row's other columns (channel, priority, compound, validity) is matched by the `sales-tax-rates` provider of the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`, its Spec 2, still to be written), which reads `sales_tax_rates.customer_group_id` as the plain UUID this decision keeps and takes the group set from `customerGroupsService.resolveGroups`. This suite's set-membership substitution (customer groups §7.2) and group precedence (customer groups §3.2) stay its rules; how they combine with the row's `priority` is that provider's specification to state.
 
 **Scope note.** Credit limit, credit exposure, payment terms and approval policy attach to the group and to `CustomerEntity`. `CustomerCompanyBilling` already carries `payment_terms` and is extended rather than replaced.
+
+**Consequence: credit and approval (added 2026-10-26, Release 5).**
+- **Services.** Credit is `customerCreditService` and approvals are `customerPurchaseApprovalService`, both in `customer_groups`; `customerGroupsService` gains no credit or approval methods. Credit accounts are created by an operator only (D-R5-5).
+- **Credit.** A reservation is serialized by a `PESSIMISTIC_WRITE` row lock on `CustomerCreditAccount` inside one transaction (customer groups G1). It reserves the caller's full payable total, before the order exists (D-R5-24). An order's unsettled reservation is released automatically on `sales.order.cancelled`; payments are settled manually through `/adjust` or by an integration calling `settleCredit` (D-R5-2).
+- **Approval policy.** A per-group, inherited term `approval_policy: buyer | merchant | both` (tenant default `buyer`), snapshotted on the request at creation; with `both` the two sides sign in any order, and one rejection ends the request (D-R5-1). The cart is the one approval subject; checkout reuses `Cart.approvalId` and creates no approval of its own. Only a total above the approved amount re-requests approval (D-R5-3). A request expires after 14 days by default (D-R5-27). Only `customer_groups` sends approval notifications (D-R5-6, D-R5-32).
+- **Gate.** The threshold and `min_order_value` are compared only in the new `terms_currency_code`; a cart in another currency always requires approval (D-R5-4). No channel is exempt (D-R5-29). A guest cart over the threshold is refused (D-R5-12). A quote request (`cart.lock` with `purpose: 'quote'`) skips the gate and `min_order_value` (D-R5-23).
+- **New terms**, nullable and inherited: `allow_quote_requests` (D-R5-20) and `requires_po_number` (D-R5-28).
 
 ---
 
@@ -309,6 +330,16 @@ The load-bearing member is the third one's `null`. In B2B the large majority of 
 **How `customerOverlayId` is computed.** `storeContextService.resolve()` runs one `EXISTS`-per-id query over `catalog_product_variant_prices` filtered by `customer_id IN customerIds`, served by the customer partial index in `pricing-engine.md` Phase 2b, and caches the result per customer id with invalidation on `catalog.price.created|updated|deleted` (amended 2026-10-05: the event IDs are singular, as declared in `catalog/events.ts`), bounded additionally by a TTL so a missed event cannot hold a stale value indefinitely. The overlay key is the subset of `customerIds` that has rows of its own, person first, `,`-joined; it is `null` when that subset is empty. It is a query, not a denormalized column: a stale `has_contract_prices` flag reading `false` would silently serve a contracted buyer their group's prices, which is the same class of disclosure R1 rates Critical, and a flag reading `true` where it should be `false` would quietly cost the sharing win this component exists to buy. One cached `EXISTS` on an index built for it is cheap enough not to trade correctness for.
 
 **Rejected alternative.** Separate `/api/ecommerce/b2b/*` endpoints. Doubles the API surface and the test matrix for what is one resolver difference.
+
+**Consequence: one trusted in-process exception (added 2026-10-26, Release 5, D-R5-22).** "Resolved once, at the edge" assumes a request from the buyer. Four callers act for a buyer without one:
+- assisted-selling proposal authoring;
+- pay-link cart seeding;
+- trusted `api`/`agent` carts with a customer;
+- checkout recovery re-locking a cart.
+
+They resolve the buyer through `storeContextService.resolveForBuyer({ tenantId, organizationId, storeId?, customerUserId?, customerId? })` (SPEC-029 §6.3). It is the same composition, with the identity taken from stored records. It is in-process only, never cached under the buyer's 60 s key, refuses a store outside the tenant and organization, and returns `assortmentScope` only when a store is given. No caller builds a buyer identity any other way. The command context these callers run under comes from one shared helper, `buildTrustedCommandContext` in `@open-mercato/shared/lib/commands/trustedContext` (cross-spec X10); its audit entries are marked system-initiated.
+
+**Consequence: identity is bound on buyer routes (added 2026-10-26, Release 5).** A token alone no longer re-identifies an identified basket. When a basket or checkout session has `customer_user_id`, every buyer route (`/api/cart/current/*`, `/api/cart/proposals/*`, the assisted-selling buyer thread routes, `/api/checkout/sessions/current/*`) requires, besides its token, the customer session whose `customerUserId` matches; otherwise `404` with the unknown-resource body (D-R5-13, D-R5-21, D-R5-33). Guest baskets stay token-only. This is a behaviour change against Release 4, recorded in `UPGRADE_NOTES.md`.
 
 **Consequence: `cart` applies the same rule to its own write path, not only to reads (added 2026-10-14, eComm Release 4, D-R4-1).** The pre-implementation analysis for Release 4 found `cart-module.md`'s first draft had the storefront route resolve `assortmentScope` for pricing and then pass it to `cart`'s commands as an ordinary, nullable request field — which a direct caller could simply supply as `null` to bypass the entire check, since `undefined` and `null` are different values of the same type. "Resolved once, at the edge" closes that by construction rather than by validation: `cart`'s own public routes resolve `storeContextService` themselves (soft DI, so no registration means no storefront carts rather than an unchecked write) and pass the result to the command as an internal, branded input that no request body can construct — every public request schema is `.strict()` and declares no `assortmentScope`/`channel`/`storeId` field at all. The edge that resolves `BuyerContext` is not only the storefront's read-side route; it is every route, in every module, that accepts a write gated by it. `cart-module.md` rev 9 §6a.1a is the write-side instance of this ADR.
 
@@ -372,6 +403,14 @@ It also settles `cart-module.md`'s Open Question 4 ("does an AI-proposed line co
 - **A merge into a scope-resolving cart must run an assortment re-visibility pass.** Without it, `cart-module.md` §6a.4's channel exemption composes with merge into a bypass of that spec's R11. This is a Critical defect in merge itself, independent of assisted selling, and it ships with `cart` Phase 3 rather than with this feature.
 - Two approval planes exist and MUST NOT be conflated. AI→employee is already implemented (`prepareMutation` + `AiPendingAction` + its confirm route) and is not re-specified; proposal→buyer is new. They are not merely conventionally separate: `getAuthFromRequest` (`packages/shared/src/lib/auth/server.ts:479`) rejects any request-path session whose `payload.type === 'customer'` (`:421`), so a buyer is structurally incapable of authenticating against the employee plane.
 
+**Consequence: Release 5 decisions (added 2026-10-26).**
+- **Binding.** The proposal routes and the assisted-selling buyer thread routes follow ADR-7's identity binding: an identified target basket needs the matching customer session as well as the cart token (D-R5-13, D-R5-21).
+- **Pricing identity.** Authoring resolves the target buyer through `resolveForBuyer` with the thread's store (D-R5-22).
+- **Re-author on merge.** When the target basket is merged at login, a live proposal is re-authored as its original author through `buildTrustedCommandContext`, re-running the authoring checks against the merged-into cart. If the author can no longer author, the proposal is superseded and the thread offers one-click re-propose (D-R5-14).
+- **No undo-merge.** `/current/undo-merge` refuses a merge whose source is a proposal with `409 merge_undo_not_supported_for_proposal` (D-R5-25). The 15-minute reversal named in the rationale above applies to buyer-to-buyer merges only.
+- **Attribution by line.** Checkout passes `lineMap` to `cart.markConverted` (`{ cartLineId, salesOrderLineId }` for an order, `{ cartLineId, salesQuoteLineId }` for a quote) and `cart.cart.converted` carries it (D-R5-16, D-R5-26). The order-level path stays as a degraded safety net.
+- **Mode.** In Release 5 `assistedSelling.mode` is limited to `rep | off`; the AI actor of corollary 2 ships later (D-R5-15).
+
 **Rejected alternative.** Letting staff edit the buyer's cart directly, with an audit log. It is what `cart-module.md` §10.2 already forbids, and the forbidding is right: the buyer did not agree to the change, and no amount of logging turns an unagreed mutation into a proposal. Also rejected: making the chat message the unit of acceptance, which forces the buyer to re-enter what was suggested and makes transcription error a pricing error.
 
 ---
@@ -415,7 +454,7 @@ Channel-agnostic because POS has the identical problem, today parked as an expli
 | 10 | `2026-08-14-storefront-app.md` | to write | `apps/storefront`, `@open-mercato/storefront-ui` | 4, 5, 7, 8 |
 | 11 | `2026-08-21-pricing-engine.md` | written | `catalog` (admin UI + resolver hardening), `pricing` (new, optional) | — (Phase 2 is a prerequisite for its own Phase 3 only) |
 | 12 | `2026-08-21-buyer-scoped-catalog-visibility.md` | written | `packages/shared`, `customer_groups`, `ecommerce`, `cart` | 1, 3, 5 (amends all three) |
-| 13 | `2026-09-22-assisted-selling.md` | written | `assisted_selling` (new), `cart` (seam), `ecommerce` (transport), `apps/storefront` (UI) | 5 (rev 8), 4, 9, 10 |
+| 13 | `2026-09-22-assisted-selling.md` | written | `assisted_selling` (new), `cart` (seam), `ecommerce` (`resolveForBuyer`, transport), `apps/storefront` (UI) | 5 (rev 8), 3 (`resolveForBuyer`, D-R5-22), 4, 9, 10 |
 | 14 | `2026-09-22-offline-field-mode.md` | written | `ecommerce` (two read endpoints, pack types), `apps/storefront` (client route subtree, outbox, reconciliation) | 1, 2, 4, 5, 10, 12 — amends 5 (§8.2 ordering, one sentence); POS (SPEC-022 §3) named as a second, non-suite consumer |
 
 POS's own offline/sync spec (`SPEC-022-2026-02-07-pos-module.md` §3, today a Phase 3 non-goal) is not part of this suite's numbered breakdown; it will consume spec 14's contract.
@@ -428,7 +467,7 @@ POS's own offline/sync spec (`SPEC-022-2026-02-07-pos-module.md` §3, today a Ph
 | 12 — Buyer-scoped visibility | Amends specs 1, 3 and 5 rather than defining a module of its own; its amendments are **applied in those documents**, not left pending. Owns the multi-group union algebra (a disjunction of conjunctions, not a merged scope object) and the write-side enforcement `cart` otherwise lacked |
 | 1 — Customer groups | Migration strategy for orphaned `customer_group_id` values; credit exposure calculation and its concurrency guarantee; approval policy model |
 | 2 — Availability | Fallback semantics when `wms` is absent; caching and staleness budget; the oversell window and who owns it |
-| 3 — `ecommerce` | Two-hop hostname resolution (`customer_accounts.domainMappingService`, then one `ecommerce` query) and its cache invalidation; `BuyerContext` resolver incl. the portal-token tenant/org binding (`401` on mismatch) and the person + company `customerIds` union; branding SSR without FOUC |
+| 3 — `ecommerce` | Two-hop hostname resolution (`customer_accounts.domainMappingService`, then one `ecommerce` query) and its cache invalidation; `BuyerContext` resolver incl. the portal-token tenant/org binding (`401` on mismatch) and the person + company `customerIds` union; the trusted in-process `resolveForBuyer` (ADR-7, D-R5-22); branding SSR without FOUC |
 | 4 — Public API | Buyer-context cache-key digest and private-response rules; facet cross-exclusion cost; rate limiting for unauthenticated traffic |
 | 5 — Cart | Price snapshot staleness policy and re-pricing triggers; guest→customer merge conflict rules; optimistic locking; TTL and abandonment events; B2B quantity-break re-evaluation |
 | 6 — Promotions | Realignment of the cart interaction API to the actual `cart` contract; code reservation under the cart's locking model |
@@ -472,6 +511,8 @@ Specs 8, 9, 10 and 13. Merchandising, customer account area, the storefront appl
 
 Spec 13 sits here because it consumes the storefront app (spec 10) it renders in, the public API (spec 4) it reads through, and the account surfaces (spec 9) an identified buyer reaches it from. Its own phasing is async-first: the proposal, the thread and polling ship before any real-time transport, so that "live" is provably a transport change and not a second model.
 
+**Release 5 exception (2026-10-26).** eComm Release 5 ships part of spec 13 with Phase 3, ahead of spec 10: its Phase 1 (with `mode` limited to `rep | off`), Phase 2 items 1, 2 (server side), 3 and 5, and Phase 4 attribution (D-R5-11, D-R5-15, D-R5-16). Its prerequisites are cart §7a and SPEC-029's `resolveForBuyer` (D-R5-22). The storefront tray (Phase 2 item 4), the AI actor (Phase 3) and live transport (Phase 5) stay here, behind spec 10.
+
 **Gate:** WCAG 2.2 AA audit passes; performance targets met; integration tests cover every API path and key UI path per `.ai/qa/AGENTS.md`; a proposal authored by a rep on a different price kind prices identically to the buyer's own resolution.
 
 ### Cross-cutting — specs 11 and 12
@@ -509,17 +550,17 @@ This umbrella defines no endpoints. It fixes the namespaces:
 |---|---|---|
 | `/api/ecommerce/storefront/*` | Public + optional buyer session | `ecommerce` |
 | `/api/ecommerce/*` | `requireAuth`, `ecommerce.*` features | `ecommerce` |
-| `/api/cart/*` | Public + optional buyer session, cart-token bound | `cart` |
-| `/api/checkout/*` | Public + optional buyer session, session bound | `@open-mercato/checkout` |
-| `/api/customer-groups/*` | `requireAuth` | `customer_groups` |
+| `/api/cart/*` | Public + optional buyer session, cart-token bound; an identified basket also needs the matching customer session (D-R5-21) | `cart` |
+| `/api/checkout/*` | Public + optional buyer session, session bound (`X-Checkout-Session-Token`); a session on an identified cart also needs the matching customer session (D-R5-33) | `@open-mercato/checkout` |
+| `/api/customer_groups/*` | `requireAuth`; portal approval routes under `/api/customer_groups/portal/*` use the customer session | `customer_groups` |
 | `/api/merchandising/*` | Admin `requireAuth`; read mirror under storefront namespace | `merchandising` |
-| `/api/assisted-selling/*` | `requireAuth`, `assisted_selling.*` features — staff and agent principals only | `assisted_selling` |
-| `/api/assisted-selling/storefront/*` | Public, **cart-token bound**, rate limited | `assisted_selling` |
+| `/api/assisted_selling/*` | `requireAuth`, `assisted_selling.*` features — staff and agent principals only | `assisted_selling` |
+| `/api/assisted_selling/storefront/*` | Public, **cart-token bound**, rate limited; an identified basket also needs the matching customer session (D-R5-21) | `assisted_selling` |
 
 The buyer's half is split across three namespaces, and the split is on purpose rather than accidental:
 
 - **Proposal read, preview, accept and reject stay under `/api/cart/*`.** They are cart operations on the buyer's own basket, defined by spec 5 §7a, and moving them would give `assisted_selling` a second way to mutate a cart.
-- **The thread itself is `/api/assisted-selling/storefront/*`** — public and cart-token bound, following the same `<module>/storefront/*` convention spec 4 uses for `ecommerce`. A guest buyer has no session, so the cart token is the only credential either half can present; the token is therefore the audience key for both.
+- **The thread itself is `/api/assisted_selling/storefront/*`** — public and cart-token bound, following the same `<module>/storefront/*` convention spec 4 uses for `ecommerce`. A guest buyer has no session, so the cart token is the only credential either half can present; the token is therefore the audience key for both. An identified buyer presents the matching customer session as well (D-R5-21).
 - **The real-time transport, when it lands, is `/api/ecommerce/storefront/*`.** It is a generic buyer-scoped signal channel, not an assisted-selling feature, and it belongs to the one namespace that already resolves `StoreContext` at the edge and is already rate-limited for unauthenticated traffic.
 
 Every public namespace MUST be rate limited and MUST include the buyer-context digest in its cache key.
@@ -534,8 +575,8 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 | R2 | Cart/order total divergence | **High** | `cart`, `sales` | Cart computes tax independently and shows 123,00 zł; the resulting invoice says 123,45 zł. Legal exposure under consumer pricing rules and Omnibus. | ADR-2 mandates `salesCalculationService`; Phase 2 gate requires byte-identical totals; property-based test over the tax matrix | Low |
 | R3 | Orphaned `customer_group_id` values | Medium | `catalog`, `sales` | Existing price rows and tax rates reference group ids with no group. After `CustomerGroup` lands, those rows silently never match, changing effective prices. | No FK constraint in the first release; reconciliation report enumerating orphans; admin surfaces unknown-group rows as invalid rather than hiding them | Medium — depends on tenants acting on the report |
 | R4 | Two checkout models diverge | **High** | `checkout`, `ecommerce` | SPEC-029 §19 is implemented by one team while Simple Checkout is implemented by another; two order-creation paths with different idempotency guarantees produce duplicate orders. | ADR-3 withdraws §19 explicitly; the SPEC-029 rewrite must state the withdrawal in its changelog | Low |
-| R5 | Oversell between browse and submit | Medium | `availability`, `cart`, `wms` | Availability is read without reservation; two buyers check out the last unit concurrently. | Availability at browse time is advisory; the authoritative check plus reservation happens at checkout submit inside the order transaction; the child specs define the reservation window | Medium — inherent to non-reserving carts; accepted, and the oversell window must be documented, not hidden |
-| R6 | Credit limit overshoot | **High** | `customer_groups`, `checkout` | Concurrent purchase-on-account orders each pass an optimistic credit check and jointly exceed the limit. | Credit exposure update inside a serializable transaction at submit, mirroring SPEC-055's budget-cap approach | Low |
+| R5 | Oversell between browse and submit | Medium | `availability`, `cart`, `wms` | Availability is read without reservation; two buyers check out the last unit concurrently. | Availability at browse time is advisory. The authoritative check is the `availability.reserve` hold at checkout submit, taken before the sales document is created. Checkout's steps commit their own transactions, so atomicity comes from compensation: a failure before the document releases the hold, a failure after it cancels the order, which releases the `order` hold. `commit` runs right after document creation (D-R5-8), so there is no unheld window from the hold until `commit` (availability A10). The child specs define the reservation window | Medium — inherent to non-reserving carts; accepted, and the oversell window must be documented, not hidden |
+| R6 | Credit limit overshoot | **High** | `customer_groups`, `checkout` | Concurrent purchase-on-account orders each pass an optimistic credit check and jointly exceed the limit. | `reserveCredit` takes a `PESSIMISTIC_WRITE` row lock on `CustomerCreditAccount` inside one transaction at submit (customer groups G1), for the full payable amount, before the order exists (D-R5-24) | Low |
 | R7 | Suite scope exceeds delivery capacity | Medium | all | Fourteen specs, eight new modules. Partial delivery leaves a storefront that browses but cannot sell. | Phase gating; Phases 0–3 are the minimum shippable set; Phase 4 spec 10 can slip without invalidating the API contract | Medium |
 | R8 | `packages/core` bundle growth | Low | `core` | Eight new modules in core means every tenant, including non-commerce ones, carries them. | Modules are opt-in via `modules.ts`; measure and report bundle delta at each phase gate | Low — revisit as a package split if the delta is material |
 
@@ -566,6 +607,17 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-10-26 (Release 5 spec revision)
+- Applies the eComm Release 5 owner decisions (`analysis/ANALYSIS-2026-10-26-ecommerce-release-5-decisions.md`) and the cross-spec review (`analysis/ANALYSIS-2026-10-26-ecommerce-release-5-cross-spec.md`). ADR-1, ADR-2, ADR-5, ADR-8, ADR-9 and ADR-11 are unchanged.
+- **ADR-3**: soft dependencies (D-R5-18), the `X-Checkout-Session-Token` transport with a stored hash only, session identity binding (D-R5-33), and the trusted pay-link cart seeding (D-R5-19).
+- **ADR-4**: the reservation lifecycle. Hold at submit, commit at document creation (D-R5-8), per-line outcomes (D-R5-9), `isUndoable: false` (D-R5-10), the `wmsReservationService` write path, and `warehouseIds` beside `locationIds` (D-R5-31).
+- **ADR-6**: credit and approval services, row-lock credit reservation for the full payable amount (D-R5-24), hybrid settlement (D-R5-2), operator-created accounts (D-R5-5), and the `approval_policy`, `terms_currency_code`, `allow_quote_requests` and `requires_po_number` terms (D-R5-1, D-R5-3, D-R5-4, D-R5-12, D-R5-20, D-R5-23, D-R5-27, D-R5-28, D-R5-29, D-R5-32).
+- **ADR-7**: the trusted in-process exception `storeContextService.resolveForBuyer` with an optional store (D-R5-22, SPEC-029 §6.3), the shared `buildTrustedCommandContext` helper (X10), and identity binding on every buyer route (D-R5-13, D-R5-21, D-R5-33).
+- **ADR-10**: identified-buyer binding (D-R5-13, D-R5-21), pricing through `resolveForBuyer` (D-R5-22), re-authoring as the original author (D-R5-14), no undo-merge of a proposal (D-R5-25), mandatory `lineMap` attribution for orders and quotes (D-R5-16, D-R5-26), and `mode` limited to `rep | off` (D-R5-15).
+- **R5** no longer says "inside the order transaction": the hold is taken at submit before the document, compensated on failure, with no unheld window until `commit` (availability A10, D-R5-8). **R6** uses the row lock instead of a serializable transaction (customer groups G1, D-R5-24).
+- **§6**: spec 13 depends on spec 3 (`resolveForBuyer`); §6.1's spec 3 row names it. **§7 Phase 4**: the Release 5 exception for spec 13 (D-R5-11, D-R5-15, D-R5-16).
+- **§9**: namespaces use the module router's real prefixes, `/api/customer_groups/*` and `/api/assisted_selling/*` (customer groups G17, assisted selling S4), and the buyer namespaces state the identity binding (D-R5-21, D-R5-33).
 
 ### 2026-10-12 (tax-providers pointers)
 - **ADR-2 and ADR-6 point at the tax-providers roadmap** (`2026-10-03-tax-providers-roadmap.md`, in review as #6918). ADR-2: a pluggable tax provider's result is a phase of the same totalling inside `salesCalculationService`, with a `sales`-owned resolution service for callers outside `sales`. ADR-6: which tax rate applies by address, date and the row's other columns is matched in `sales` by the `sales-tax-rates` provider of that roadmap (its Spec 2, still to be written) once the organization selects it; this suite's set-membership substitution (customer groups §7.2) and group precedence (customer groups §3.2) stay its rules.

@@ -36,6 +36,10 @@ export function evaluatePromotions(
       appliedTags,
       excludeFlags: promotion.excludeFlags,
       currencyFractionDigits: input.currencyFractionDigits,
+      // D-R5-17: absent on every existing (cart-stage) caller, so `evaluateDeliveryMethod`/
+      // `resolveDeliveryDiscount` both fail closed and this is a pure pass-through.
+      deliveryMethodCode: input.deliveryMethodCode,
+      deliveryCost: input.deliveryCost,
     }
 
     const matched = evaluateGroup(promotion.rootGroup, context)

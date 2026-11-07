@@ -6,7 +6,7 @@
 
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { releaseCodeCommand, reserveCodeCommand, useCodeCommand } from '../codes'
+import { releaseCodeCommand, reserveCodeCommand, revertCodeUseCommand, useCodeCommand } from '../codes'
 
 type Call = { method: string; args: unknown[] }
 
@@ -24,6 +24,10 @@ function fakePromotionCodeService() {
     useCode: async (...args: unknown[]) => {
       calls.push({ method: 'useCode', args })
       return { ok: true }
+    },
+    revertCodeUse: async (...args: unknown[]) => {
+      calls.push({ method: 'revertCodeUse', args })
+      return { ok: true, revertedCount: 1 }
     },
   }
 }
@@ -147,5 +151,32 @@ describe('promotions.code.use command', () => {
 
     expect(result).toEqual({ ok: true })
     expect(promotionCodeService.calls[0].method).toBe('useCode')
+  })
+})
+
+describe('promotions.code.use.revert command', () => {
+  it('parses the raw input and delegates to promotionCodeService.revertCodeUse with the resolved scope', async () => {
+    const promotionCodeService = fakePromotionCodeService()
+    const ctx = fakeCtx({ promotionCodeService })
+
+    const result = await revertCodeUseCommand.execute({ orderId: 'order-1' }, ctx)
+
+    expect(result).toEqual({ ok: true, revertedCount: 1 })
+    expect(promotionCodeService.calls[0].method).toBe('revertCodeUse')
+    expect(promotionCodeService.calls[0].args[1]).toEqual({ orderId: 'order-1' })
+    expect(promotionCodeService.calls[0].args[2]).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
+  })
+
+  it('fails closed with a 400 CrudHttpError when the actor carries no tenant/organization scope', async () => {
+    const promotionCodeService = fakePromotionCodeService()
+    const ctx = fakeCtx({ promotionCodeService, auth: { tenantId: null, orgId: null }, selectedOrganizationId: null })
+
+    expect.assertions(2)
+    try {
+      await revertCodeUseCommand.execute({ orderId: 'order-1' }, ctx)
+    } catch (err) {
+      expect(isCrudHttpError(err)).toBe(true)
+      expect(isCrudHttpError(err) && err.status).toBe(400)
+    }
   })
 })

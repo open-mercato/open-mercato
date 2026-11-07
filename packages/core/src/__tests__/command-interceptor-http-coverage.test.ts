@@ -121,6 +121,18 @@ const ROUTES_WITH_MODULE_LEVEL_MAPPER = [
   'cart/api/current/promotions/[id]/route.ts',
   'cart/api/current/merge/route.ts',
   'cart/api/current/undo-merge/route.ts',
+  // Release 5 (K4/§9a.4, §7a). Same `cart/lib/currentCartRoute.ts` mapper as the
+  // routes above — these three just shipped after the list was last written.
+  'cart/api/current/request-approval/route.ts',
+  'cart/api/proposals/[id]/accept/route.ts',
+  'cart/api/proposals/[id]/reject/route.ts',
+  // Release 5 assisted_selling (§6.2). `mapAssistedSellingBuyerRouteError`
+  // (`assisted_selling/lib/buyerIdentity.ts`) is the module's own equivalent of
+  // `cart`'s `mapRouteErrorToResponse` above — same cross-file boundary this
+  // guard's file-scoped AST walk cannot trace into. Verified instead by this
+  // module's own route tests.
+  'assisted_selling/api/storefront/thread/route.ts',
+  'assisted_selling/api/storefront/thread/messages/route.ts',
 ]
 
 type FunctionLike = ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction | ts.MethodDeclaration

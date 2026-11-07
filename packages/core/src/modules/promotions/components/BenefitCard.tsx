@@ -178,6 +178,7 @@ const BENEFIT_TYPE_LABEL_KEYS: Record<BenefitTypeId, { key: string; fallback: st
   free_product: { key: 'promotions.benefits.types.free_product', fallback: 'Free product' },
   buy_x_get_y: { key: 'promotions.benefits.types.buy_x_get_y', fallback: 'Buy X get Y' },
   tiered_discount: { key: 'promotions.benefits.types.tiered_discount', fallback: 'Tiered discount' },
+  delivery_discount: { key: 'promotions.benefits.types.delivery_discount', fallback: 'Delivery discount' },
 }
 
 const DISCOUNT_TYPE_LABEL_KEYS: Record<DiscountTypeId, string> = {

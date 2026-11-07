@@ -38,6 +38,60 @@ markers; those comparisons never enter agent context. No database migration or c
 purge is required. Credit to @AHKSammich for the finding/proof of concept in #7323;
 this implementation was written independently for the enterprise module.
 
+## eCommerce Release 5 — conversion (#8268)
+
+Two public surfaces widen as part of B2B checkout and cart proposals:
+
+- **Sales line validators** (`packages/core/src/modules/sales/data/validators.ts`):
+  several shared line fields (`quantityUnit`, `normalizedQuantity`, `unitPriceNet`,
+  `unitPriceGross`, `discountAmount`, `discountAmountBasis`, `discountPercent`,
+  `taxRate`, `taxAmount`, `totalNetAmount`, `totalGrossAmount`, `productId`,
+  `productVariantId`, `name`, `description`, `comment`, `configuration`,
+  `promotionCode`, `metadata`, `customFieldSetId`, `customFields`) changed from
+  `.optional()` to `.nullable().optional()`, so their inferred TypeScript types
+  gain `| null`. These fields live in `linePricingSchema`/`lineSharedSchema`,
+  which both `orderLineCreateSchema`/`orderLineUpdateSchema` **and**
+  `quoteLineCreateSchema`/`quoteLineUpdateSchema` extend, so the widening applies
+  to order lines and quote lines alike. This lets checkout's document creation
+  spread a `SalesLineSnapshot` (which already declares these as nullable)
+  straight into the schema. **Module authors:** code that narrowed these fields
+  to non-null-or-undefined will need an explicit `null` check; this is additive
+  at the schema level (every existing non-null payload still validates).
+- **`StoreContextService`** (`packages/core/src/modules/ecommerce/lib/storeContextService.ts`)
+  adds an optional `resolveForBuyer?(input): Promise<ResolveForBuyerResult>` method
+  to the DI-replaceable service interface. Existing `StoreContextService`
+  overrides keep compiling unchanged. **Module authors providing a custom
+  override** should implement `resolveForBuyer` to support trusted buyer
+  resolution (cart reprice, proposals, pay-link seeding); when it is absent,
+  callers treat the identity refresh as unavailable and fail closed (the
+  storefront assortment scope is not resolved and the operation is refused or
+  runs without a buyer-scoped refresh, as each caller documents). **Callers**
+  must check `service.resolveForBuyer` before invoking it.
+
+
+Checkout hardening in the same release:
+
+- **Gateway return URLs** (`POST /api/checkout/sessions/current/submit`): `successUrl` and
+  `cancelUrl` now accept only relative paths (no absolute, protocol-relative or
+  backslash forms). They are resolved against the server-pinned origin
+  (`CHECKOUT_ALLOWED_ORIGINS`, else `APP_URL` / `NEXT_PUBLIC_APP_URL`). **Storefronts**
+  that sent absolute URLs must send a path instead.
+- **Pay-link slots** are reserved when the buyer submits, not when the session is
+  created; abandoned anonymous sessions no longer hold a `maxCompletions` slot.
+- **`CartService.resolveBasketByToken`** (DI-replaceable) now requires the trusted
+  storefront scope (`tenantId`, `organizationId`, `storeId`) alongside `token`, and
+  returns `null` when the scope is missing or contradicts the basket. **Callers and
+  overrides** must pass the resolved scope.
+- **Credit adjustment idempotency keys** are stored namespaced (`adjust:client:<key>`);
+  a client retry of an adjustment made before this release no longer matches its stored
+  row. Amount parsing is strict: exponent, hex and empty strings are rejected with
+  `invalid_amount`.
+- **Rate limiting fails closed** for checkout routes declared fail-closed and for
+  assisted-selling buyer POST routes when no limiter is registered (HTTP 503).
+- **Quote approval** is recorded server-side in `sales_quotes.approval_requirement`;
+  `metadata.pendingApproval` is no longer trusted at acceptance. Legacy quotes flagged
+  only in metadata are rejected with `quote_requires_approval`.
+
 ## Production Content Security Policy (#7264)
 
 The main app and create-app template now use request nonces for scripts and style
@@ -1408,6 +1462,80 @@ the same check, for at most three hops. Any other redirect fails with
 **Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
+
+### An identified cart, checkout session or assisted-selling thread now requires its own buyer's session (D-R5-21)
+
+A cart token alone (`X-Cart-Token`) used to be sufficient to read and mutate ANY basket through
+`/api/cart/current/*`, including one already tied to a logged-in `CustomerUser`. A request without
+that buyer's own customer session (cookie or Bearer customer JWT, resolved the same way
+`getCustomerAuthFromRequest` already does) could silently **re-identify** an identified basket as
+anonymous — `applyCartRepriceTriggerFields` wrote `customerUserId = input.customerUserId ?? null`
+on every re-price trigger — after which the basket re-priced at list prices and, for a B2B buyer,
+exposed contract prices and any assisted-selling proposal to anyone holding the token. The most
+likely path was accidental (a shared workstation or kiosk keeping a token after logout), but a
+leaked token or an integrator storefront logging the header worked the same way.
+
+Every `/api/cart/current/*` route, every `/api/cart/proposals/*` route, the assisted-selling buyer
+thread routes (`/api/assisted_selling/storefront/thread/*`), and — new in this release —
+`/api/checkout/sessions/current/*` now require, in addition to the token, the matching customer
+session whenever the underlying basket or session carries a `customer_user_id`. A token presented
+without that session, or with a DIFFERENT customer's valid session, gets the same `404` body as an
+unknown token — there is no way to distinguish "wrong token" from "wrong session" from the response.
+**Guest baskets are completely unaffected**: a basket with no `customer_user_id` stays
+token-only, exactly as before. A logged-out storefront correctly starts a fresh guest cart; logging
+back in merges it into the buyer's basket the same way it always has.
+
+This mirrors Sylius API v2's `VisitorBasedExtension` model, where a token alone can reach only guest
+carts and a registered customer's cart answers `404` to anyone else.
+
+**Action for storefront and integration authors:** once a buyer logs in, forward their customer
+session (the cookie your integration already sets, or a Bearer customer JWT) alongside the cart
+token on every `/api/cart/current/*`, `/api/cart/proposals/*`, checkout session, and
+assisted-selling thread request. An integration that only ever stored and replayed the cart token
+for a logged-in buyer now gets `404` on those routes and must start sending the session too. No
+change is needed for guest-only carts, or for any integration that already forwards both.
+
+### `InventoryReservationSourceType` gains `'checkout'` (A16)
+
+`wms`'s `InventoryReservationSourceType` (and its matching zod enum) grows a new value,
+`'checkout'`, written only by `availability.reserve`/`.commit` for the new checkout-driven stock
+hold introduced in this release (never by the public `wms` reserve route, which refuses it with
+`400 checkout_reservation_is_system_only` — the same rejection a manual admin reservation attempt
+gets). The admin "manual reserve" dialog's source-type picker does not list it.
+
+This is additive to a shipped union type, but **an exhaustive `switch` or discriminated match over
+every `InventoryReservationSourceType` value in downstream code now has an unhandled case** at
+compile time (TypeScript) or silently falls through a `default` branch (runtime).
+
+**Action for module authors:** add a `'checkout'` case anywhere you exhaustively switch over
+`InventoryReservationSourceType` — typically alongside `'order'`, `'transfer'`, and `'manual'` in
+code that labels, filters, or reports on `wms` reservations. Treat it like `'order'` for display
+purposes (a system-held reservation backing a sale) unless you have a specific reason to show it
+differently.
+
+### `customer_groups` credit and purchase-approval methods move to their own DI keys, not `CustomerGroupsService` (G26)
+
+The new credit (`checkCredit`/`reserveCredit`/`releaseCredit`/`settleCredit`/
+`linkCreditReservationToOrder`) and purchase-approval (`requestApproval`/`getApproval`/
+`getActiveApprovalForSubject`/`withdrawApproval`/`decideApproval`) operations introduced in this
+release are **not** added to the existing `customerGroupsService` DI key's interface. They ship as
+two new, separately-registered DI keys: `customerCreditService` and
+`customerPurchaseApprovalService`, each with its own exported interface.
+`customerGroupsService` itself (`resolveGroups`/`resolveTerms`/`resolveAssortmentScope`) is
+unchanged.
+
+The alternative — adding these methods directly to `CustomerGroupsService` — would have been
+additive for callers but **breaking for any module that replaces `customerGroupsService` via
+`entry.overrides.di`**: its override object would no longer satisfy the grown interface, failing
+at either compile time or the first call to a method it never implemented. Splitting the surface
+into dedicated keys avoids that, and keeps transactional money/approval operations off a
+request-scoped resolver service that was never designed to hold them.
+
+**Action for module authors:** if you call into `customer_groups` for credit or approval
+operations, resolve `customerCreditService` / `customerPurchaseApprovalService` from the
+container — do not look for these methods on `customerGroupsService`. If you override
+`customerGroupsService` via `entry.overrides.di`, nothing changes for you: the interface you are
+implementing against has not grown.
 
 ### Staff time-entries totals cover the whole filtered set and render inside the table (#6990)
 

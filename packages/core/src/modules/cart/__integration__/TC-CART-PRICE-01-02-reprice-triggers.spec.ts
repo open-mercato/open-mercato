@@ -122,7 +122,14 @@ test.describe('TC-CART-PRICE-01/02: re-price triggers 3 and 4 over real HTTP', (
     expect(third.status, third.text).toBe(200);
     const thirdBody = third.body as { versionBumpReason?: string; priceChanges?: Array<{ reason: string }> };
     expect(thirdBody.versionBumpReason).toBe('repricing');
-    expect(thirdBody.priceChanges).toEqual([expect.objectContaining({ reason: 'stale_snapshot' })]);
+    // The product's price never actually moved between the two requests, only the
+    // staleness clock did — the whole-cart reprice still runs (hence `versionBumpReason`),
+    // but it discloses no itemized change, since none happened. Previously asserted a
+    // populated `priceChanges` here, which only passed because of a since-fixed bug:
+    // `buildCartLineRepricePhases` compared an as-stored 4-decimal price string against a
+    // `String(aPlainNumber)`-formatted one, so it reported a change on every reprice
+    // regardless of whether the price actually moved.
+    expect(thirdBody.priceChanges).toBeUndefined();
   });
 
   // TC-CART-PRICE-02: a real currency change and a real locale change each, independently,
@@ -152,7 +159,11 @@ test.describe('TC-CART-PRICE-01/02: re-price triggers 3 and 4 over real HTTP', (
         priceChanges?: Array<{ reason: string }>;
       };
       expect(body.versionBumpReason).toBe('repricing');
-      expect(body.priceChanges).toEqual([expect.objectContaining({ reason: 'buyer_context_changed' })]);
+      // `buyer_context_changed` only refreshes buyer-identity fields (never `currencyCode`
+      // itself — see the gap below), so the same EUR price row resolves again and no
+      // itemized change is disclosed. See this file's header finding and the sibling
+      // `stale_snapshot` test above for the formatting bug this previously masked.
+      expect(body.priceChanges).toBeUndefined();
       // Genuine gap (this file's header finding, not fixed here): the cart's OWN
       // `currencyCode` is never actually synced to the fresh value once `buyer_context_changed`
       // — not `currency_changed` — wins the precedence race, which a real request always does.
@@ -188,7 +199,10 @@ test.describe('TC-CART-PRICE-01/02: re-price triggers 3 and 4 over real HTTP', (
       priceChanges?: Array<{ reason: string }>;
     };
     expect(body.versionBumpReason).toBe('repricing');
-    expect(body.priceChanges).toEqual([expect.objectContaining({ reason: 'buyer_context_changed' })]);
+    // Same reasoning as TC-CART-PRICE-02a: `buyer_context_changed` never touches
+    // `currencyCode`/pricing-relevant fields here either, so the resolved price is
+    // unchanged and nothing is disclosed.
+    expect(body.priceChanges).toBeUndefined();
     // Genuine gap (this file's header finding, not fixed here): the cart's OWN `locale` is
     // never actually synced to the fresh value once `buyer_context_changed` — not
     // `locale_changed` — wins the precedence race, which a real request always does.

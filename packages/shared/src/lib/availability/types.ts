@@ -30,8 +30,19 @@ export type AvailabilityQuery = {
   /** Selects the policy chain. */
   storeId?: string | null
   channelId?: string | null
-  /** `null`/omitted → every in-scope location. */
+  /**
+   * wms LOCATION ids (`wms_locations.id`), as shipped. `null`/omitted →
+   * every in-scope location. Kept meaning locations rather than warehouses
+   * (D-R5-31) — see `warehouseIds` for the additive warehouse filter.
+   */
   locationIds?: string[] | null
+  /**
+   * Additive (D-R5-31): wms WAREHOUSE ids; `null`/omitted → every warehouse.
+   * Combined with `locationIds` by AND. Not wired by the `wms` read provider
+   * (`availabilityCalculation.ts`) today — consumed by the Phase 2
+   * reservation gate's locked variant of the shared sellable builder.
+   */
+  warehouseIds?: string[] | null
   /**
    * Additive, optional. When true, a provider MUST skip any internal read
    * cache and compute a live result — the §6 "cart re-validation" row.

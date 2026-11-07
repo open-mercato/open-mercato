@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { InitSetupContext } from '@open-mercato/shared/modules/setup'
 import { CHECKOUT_EXPIRY_QUEUE } from '../workers/transaction-expiry.worker'
+import { CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE } from '../workers/expire-awaiting-payment.worker'
 
 const ensureCheckoutFieldsetsAndDefinitions = jest.fn(async (..._args: unknown[]) => undefined)
 
@@ -68,13 +69,36 @@ describe('checkout setup schedules', () => {
     }))
   })
 
-  it('registers the schedule for a later organization without replaying tenant defaults', async () => {
+  it('registers one organization-scoped expire-awaiting-payment schedule (C1/§12)', async () => {
+    const { context, register } = createSetupContext({})
+
+    await seedDefaults(context)
+
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'organization-1',
+      tenantId: 'tenant-1',
+      scopeType: 'organization',
+      scheduleValue: '5m',
+      targetQueue: CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE,
+      targetPayload: { tenantId: 'tenant-1', organizationId: 'organization-1' },
+    }))
+  })
+
+  it('registers the same four schedules for a later organization without replaying tenant defaults', async () => {
     const { context, register } = createSetupContext({ organizationId: 'organization-2' })
     ensureCheckoutFieldsetsAndDefinitions.mockClear()
 
     await onOrganizationCreated(context)
 
-    expect(register).toHaveBeenCalledWith(expect.objectContaining({ organizationId: 'organization-2' }))
+    expect(register).toHaveBeenCalledTimes(4)
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'organization-2',
+      targetQueue: CHECKOUT_EXPIRY_QUEUE,
+    }))
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'organization-2',
+      targetQueue: CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE,
+    }))
     expect(ensureCheckoutFieldsetsAndDefinitions).not.toHaveBeenCalled()
   })
 

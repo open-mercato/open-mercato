@@ -27,6 +27,8 @@
   "availability.errors.unauthorized": "Brak autoryzacji",
   "availability.errors.variantNotFound": "Nie znaleziono wariantu",
   "availability.nav.group": "Dostępność",
+  "availability.notifications.stockLostAfterPayment.body": "Zamówienie {orderId} nie mogło zarezerwować zapasu po płatności: {sellableCount} pozycja/e przestały być dostępne.",
+  "availability.notifications.stockLostAfterPayment.title": "Utracono zapas po płatności",
   "availability.policies.create.title": "Utwórz politykę dostępności",
   "availability.policies.edit.notFound": "Nie znaleziono polityki dostępności",
   "availability.policies.edit.readOnly": "Ta polityka jest tylko do odczytu. Nie masz uprawnień do jej zmiany.",
@@ -89,5 +91,6 @@
   "availability.states.low_stock": "Niski stan",
   "availability.states.not_tracked": "Nie śledzony",
   "availability.states.out_of_stock": "Niedostępny",
-  "availability.states.preorder": "Przedsprzedaż"
+  "availability.states.preorder": "Przedsprzedaż",
+  "notifications.categories.availability": "Dostępność"
 }

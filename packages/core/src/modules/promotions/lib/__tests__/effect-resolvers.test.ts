@@ -6,6 +6,7 @@ import { resolveEffects } from '../effect-resolvers'
 import type {
   AddFreeItemEffect,
   CartDiscountEffect,
+  DeliveryDiscountEffect,
   EnrichedEvaluateItem,
   EvaluationContext,
   LineDiscountEffect,
@@ -378,10 +379,38 @@ describe('tiered_discount', () => {
   })
 })
 
-describe('delivery_discount and unrecognized types', () => {
-  it('delivery_discount always returns no effect (D-R4-14)', () => {
+describe('delivery_discount (D-R5-17, amends D-R4-14) and unrecognized types', () => {
+  it('returns no effect when the context carries no delivery method/cost (regression: every cart-stage caller omits both)', () => {
     const b = benefit('delivery_discount', 'order', { deliveryMethodCode: 'standard', discountType: 'percentage', value: '10', labels })
     expect(resolveEffects([b], context({ items: [] }), 'promo-1')).toEqual([])
+  })
+
+  it('returns no effect when the context delivery method does not match the benefit config', () => {
+    const b = benefit('delivery_discount', 'order', { deliveryMethodCode: 'standard', discountType: 'percentage', value: '10', labels })
+    const ctx = context({ items: [], deliveryMethodCode: 'express', deliveryCost: '20.00' })
+    expect(resolveEffects([b], ctx, 'promo-1')).toEqual([])
+  })
+
+  it('resolves a DELIVERY_DISCOUNT effect when the context delivery method matches and a cost is supplied', () => {
+    const b = benefit('delivery_discount', 'order', { deliveryMethodCode: 'standard', discountType: 'percentage', value: '10', labels })
+    const ctx = context({ items: [], deliveryMethodCode: 'standard', deliveryCost: '20.00' })
+    const effects = resolveEffects([b], ctx, 'promo-1')
+    expect(effects).toHaveLength(1)
+    const effect = effects[0] as DeliveryDiscountEffect
+    expect(effect.type).toBe('DELIVERY_DISCOUNT')
+    expect(effect.deliveryMethodCode).toBe('standard')
+    expect(effect.amountNet).toBe('-2.00')
+    expect(effect.amountGross).toBe('-2.00')
+  })
+
+  it('a fixed delivery_discount is clamped to the delivery cost, never exceeding it', () => {
+    const b = benefit('delivery_discount', 'order', { deliveryMethodCode: 'standard', discountType: 'fixed', value: '100', labels })
+    const ctx = context({ items: [], deliveryMethodCode: 'standard', deliveryCost: '9.99' })
+    const effects = resolveEffects([b], ctx, 'promo-1')
+    expect(effects).toHaveLength(1)
+    const effect = effects[0] as DeliveryDiscountEffect
+    expect(effect.amountNet).toBe('-9.99')
+    expect(effect.amountGross).toBe('-9.99')
   })
 
   it('an unrecognized benefit type returns no effect without throwing', () => {

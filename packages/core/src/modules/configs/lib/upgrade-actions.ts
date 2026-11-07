@@ -239,6 +239,21 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       await registerCodeReservationSweepSchedule(container, { tenantId, organizationId })
     },
   },
+  {
+    id: 'availability.register-reservation-sweep-schedules',
+    version: '0.10.0',
+    messageKey: 'configs.upgrades.availabilityReservationSweepSchedules.message',
+    ctaKey: 'configs.upgrades.availabilityReservationSweepSchedules.cta',
+    successKey: 'configs.upgrades.availabilityReservationSweepSchedules.success',
+    loadingKey: 'configs.upgrades.availabilityReservationSweepSchedules.loading',
+    requiredModules: ['availability'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerAvailabilityReservationSweeperSchedules } = await import(
+        '@open-mercato/core/modules/availability/lib/scheduling'
+      )
+      await registerAvailabilityReservationSweeperSchedules(container, { tenantId, organizationId })
+    },
+  },
 ]
 
 export function actionsUpToVersion(version: string): UpgradeActionDefinition[] {

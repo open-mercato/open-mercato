@@ -30,6 +30,8 @@ import type { CartLineSnapshot } from '../commands/lines'
 import type { CartMergeSummary } from '../commands/merge'
 import type { CartPriceChange } from './reprice'
 import { resolveCartWarningMessage } from './warningMessages'
+import { approvalQualifies, computeGoodsGrossAmount } from './approvalGate'
+import { tryResolveCustomerPurchaseApprovalService } from './adminCartScope'
 
 // Step 5.2 — PLAN.md's own plan-correction note: Step 4.5's `commands/cart.ts` deferred
 // building "the richer public `CartView` envelope (§10.1 ... that lands with the routes and
@@ -272,8 +274,17 @@ function buildNextTierView(resolved: ResolvedLinePrice, cart: Cart): CartLineNex
 // §10.1 response envelope
 // ---------------------------------------------------------------------------
 
-/** `{ id; status } | null` — §10.1's own shape. See `buildCartResponseEnvelope`'s doc comment for the `status` judgment call. */
-export type CartApprovalView = { id: string; status: string } | null
+/** §10.1's own shape: `{ id; status; amountGross; currencyCode; qualifies } | null`, read
+ * live through `customerPurchaseApprovalService.getApproval` (Step 3.2) — never
+ * denormalized onto the cart. See `buildCartResponseEnvelope`'s own call site for the
+ * soft-dependency degrade when that service is absent. */
+export type CartApprovalView = {
+  id: string
+  status: string
+  amountGross: string
+  currencyCode: string
+  qualifies: boolean
+} | null
 
 /**
  * §10.1's `promotions: AppliedPromotionView[]` — one entry per `CartPromotionApplication`
@@ -309,6 +320,7 @@ export type CartView = {
   promotions: AppliedPromotionView[]
   requiresApproval: boolean
   approval: CartApprovalView
+  awaitingApprovalSince: Date | null
   itemCount: number
   lineCount: number
   expiresAt: Date
@@ -422,12 +434,15 @@ export type BuildCartResponseEnvelopeParams = {
  * no cheaper path that still threads already-loaded data through.
  *
  * Judgment calls (documented here since no later step owns them):
- * - `approval`: `Cart.approvalId`/`requiresApproval` exist, but no approval ENTITY or status
- *   field exists anywhere in this worktree yet (`commands/cart.ts`'s own comment on
- *   `approvalId`: "not yet a real entity in this repo"). `status: 'pending'` is the only
- *   state reachable today — nothing can resolve or reject an approval yet — so it is the
- *   literal used whenever `approvalId` is non-null; `approval` is `null` otherwise, per
- *   §10.1's own `{ id; status } | null` shape (never omitted).
+ * - `approval` (Step 3.2 — `customer_groups.CustomerPurchaseApproval` now exists): read
+ *   LIVE through `customerPurchaseApprovalService.getApproval`, never denormalized, per
+ *   §9a.4's own text ("`CartView.approval` is read live in one batched call per request").
+ *   `qualifies` reuses the SAME formula `cart.lock`'s own gate check applies
+ *   (`lib/approvalGate.ts#approvalQualifies`) — one implementation, read by both the gate
+ *   and this display-only view. `null` with no error when `customer_groups`' approval
+ *   service cannot be resolved (soft dependency, same degrade `lib/adminCartScope.ts`'s own
+ *   doc comment documents for the admin detail route) — never thrown, since a read-only
+ *   envelope must not fail just because an optional peer happened to be unavailable.
  * - `itemCount`/`lineCount`: no storefront cart-like view in this worktree's `ecommerce`
  *   module to borrow a precedent from (checked). The obvious reading: `lineCount` is the
  *   number of non-deleted `CartLine` rows; `itemCount` sums their quantities (a cart with one
@@ -527,7 +542,21 @@ export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelop
 
   const lineCount = lineViews.length
   const itemCount = lines.reduce((sum, line) => sum + Number(line.quantity), 0)
-  const approval: CartApprovalView = cart.approvalId ? { id: cart.approvalId, status: 'pending' } : null
+
+  const approvalService = tryResolveCustomerPurchaseApprovalService(params.container)
+  const approvalRecord = cart.approvalId && approvalService
+    ? await approvalService.getApproval({ scope, approvalId: cart.approvalId })
+    : null
+  const goodsGrossAmount = computeGoodsGrossAmount(cart.totals)
+  const approval: CartApprovalView = approvalRecord
+    ? {
+        id: approvalRecord.id,
+        status: approvalRecord.status,
+        amountGross: approvalRecord.amountGross,
+        currencyCode: approvalRecord.currencyCode,
+        qualifies: approvalQualifies({ approval: approvalRecord, cartCurrencyCode: cart.currencyCode, goodsGrossAmount }),
+      }
+    : null
 
   const promotionApplications = (await findWithDecryption(
     em,
@@ -550,6 +579,7 @@ export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelop
     promotions,
     requiresApproval: cart.requiresApproval,
     approval,
+    awaitingApprovalSince: cart.awaitingApprovalSince ?? null,
     itemCount,
     lineCount,
     expiresAt: cart.expiresAt,

@@ -32,6 +32,11 @@ type Row = Record<string, unknown>
 function matchesWhere(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, condition]) => {
     const value = row[key]
+    if (condition && typeof condition === 'object' && !(condition instanceof Date) && '$ne' in (condition as Row)) {
+      const target = (condition as Row).$ne
+      if (target === null) return value !== null && value !== undefined
+      return value !== target
+    }
     if (condition === null) return value === null || value === undefined
     return value === condition
   })
@@ -138,6 +143,22 @@ function lineDiscountEffect(amountNet: string): ResolvedEffect {
     targetVariantId: null,
     lineQuantity: 1,
     appliedQuantity: 1,
+    amountNet,
+    amountGross: amountNet,
+    basis: 'net',
+  }
+}
+
+// D-R5-17 (amends D-R4-14): a DELIVERY_DISCOUNT effect, used to prove `registerUsage`
+// accounts for it exactly like any other amount-carrying effect type — nothing in this
+// file excludes it from `computeTotalDiscountAmount`'s sum.
+function deliveryDiscountEffect(amountNet: string): ResolvedEffect {
+  return {
+    type: 'DELIVERY_DISCOUNT',
+    appliesTo: 'order',
+    currency: 'USD',
+    label: {},
+    deliveryMethodCode: 'standard',
     amountNet,
     amountGross: amountNet,
     basis: 'net',
@@ -376,6 +397,63 @@ describe('PromotionUsageService.registerUsage', () => {
     const rows = tables.get(PromotionUsage) ?? []
     expect(rows.map((row) => row.promotionId)).toEqual([uncappedPromotion.id])
   })
+
+  // D-R5-17/C5: budget registration must treat a delivery discount exactly like any
+  // other discount type — no effect-type-specific exclusion anywhere in this service.
+  it('counts a DELIVERY_DISCOUNT effect into total_discount_amount the same as any other amount-carrying effect', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables)
+    const service = new PromotionUsageService()
+
+    const result = await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-1',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [deliveryDiscountEffect('-5.00')])],
+      },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, budgetExceeded: [] })
+    const rows = tables.get(PromotionUsage) ?? []
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ totalDiscountAmount: '5.00' })
+  })
+
+  it('blocks a DELIVERY_DISCOUNT-producing promotion once it would exceed max_budget, same as any other effect type', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables, { maxBudget: '5.00', budgetCurrency: 'USD' })
+    const service = new PromotionUsageService()
+
+    const first = await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-1',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [deliveryDiscountEffect('-5.00')])],
+      },
+      SCOPE,
+    )
+    expect(first).toEqual({ ok: true, budgetExceeded: [] })
+
+    const second = await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-2',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [deliveryDiscountEffect('-1.00')])],
+      },
+      SCOPE,
+    )
+    expect(second).toEqual({ ok: true, budgetExceeded: [promotion.id] })
+  })
 })
 
 describe('PromotionUsageService.revertUsage', () => {
@@ -445,6 +523,96 @@ describe('PromotionUsageService.revertUsage', () => {
     const result = await service.revertUsage(asEm(em), { orderId: 'no-such-order' } as RevertUsageInput, SCOPE)
 
     expect(result).toEqual({ ok: true, revertedCount: 0 })
+  })
+})
+
+// #8268 review Major 3 / #8817: `reinstateUsage` is the inverse of `revertUsage`, for an
+// undone order cancellation.
+describe('PromotionUsageService.reinstateUsage', () => {
+  it('clears reverted_at on every row this order\'s cancellation reverted', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables)
+    const service = new PromotionUsageService()
+    await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-1',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [lineDiscountEffect('-10.00')])],
+      },
+      SCOPE,
+    )
+    await service.revertUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+    emitPromotionsEvent.mockClear()
+
+    const result = await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 1 })
+    const rows = tables.get(PromotionUsage) ?? []
+    expect(rows).toHaveLength(1)
+    expect(rows[0].revertedAt).toBeNull()
+    expect(emitPromotionsEvent).toHaveBeenCalledWith(
+      'promotions.usage.registered',
+      expect.objectContaining({ promotionId: promotion.id, orderId: 'order-1' }),
+      expect.anything(),
+    )
+  })
+
+  it('is idempotent: a second reinstate call for the same order reinstates nothing further', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables)
+    const service = new PromotionUsageService()
+    await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-1',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [lineDiscountEffect('-10.00')])],
+      },
+      SCOPE,
+    )
+    await service.revertUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+
+    await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+    const second = await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+
+    expect(second).toEqual({ ok: true, reinstatedCount: 0 })
+    const rows = tables.get(PromotionUsage) ?? []
+    expect(rows).toHaveLength(1)
+  })
+
+  it('never reinstates a row that was never reverted (still-active usage)', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables)
+    const service = new PromotionUsageService()
+    await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-1',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [lineDiscountEffect('-10.00')])],
+      },
+      SCOPE,
+    )
+
+    const result = await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+  })
+
+  it('is a no-op success when no matching row exists', async () => {
+    const { em } = createFakeEm()
+    const service = new PromotionUsageService()
+
+    const result = await service.reinstateUsage(asEm(em), { orderId: 'no-such-order' } as RevertUsageInput, SCOPE)
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
   })
 })
 

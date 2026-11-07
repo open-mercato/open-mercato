@@ -455,6 +455,7 @@
   "checkout.validation.common.invalidCurrencyCode": "Wpisz prawidłowy 3-literowy kod waluty.",
   "checkout.validation.common.invalidFieldsetCode": "Wpisz prawidłowy kod zestawu pól.",
   "checkout.validation.common.invalidNumber": "Wpisz prawidłową liczbę.",
+  "checkout.validation.common.invalidReturnPath": "Wpisz ścieżkę względną zaczynającą się od pojedynczego ukośnika.",
   "checkout.validation.common.invalidUrl": "Wpisz prawidłowy URL.",
   "checkout.validation.common.invalidUuid": "Wpisz prawidłowy identyfikator.",
   "checkout.validation.common.nonNegativeInteger": "Wpisz liczbę całkowitą większą lub równą 0.",

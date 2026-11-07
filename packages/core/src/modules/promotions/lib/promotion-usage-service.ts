@@ -277,4 +277,48 @@ export class PromotionUsageService {
 
     return { ok: true, revertedCount: rows.length }
   }
+
+  /**
+   * Release 5 review fix (#8268 Major 3 / #8817): the inverse of `revertUsage` — restores
+   * every `PromotionUsage` row this order's cancellation reverted by clearing
+   * `revertedAt`, same shape as `customer_groups`'s own
+   * `order-confirmed-credit-reinstate.ts`. Never re-runs the budget check `registerUsage`
+   * performs at first use: a row that already exists proved the budget was available at
+   * the time of the original use, and a cancel/undo cycle must not let budget consumed by
+   * OTHER orders in between retroactively block reinstating this one's own prior grant.
+   *
+   * Idempotent: only rows that still carry a `revertedAt` are touched, so a redelivered
+   * event finds nothing left to reinstate on a second pass — same no-op-on-redelivery
+   * precedent as `revertUsage` above.
+   */
+  async reinstateUsage(
+    em: EntityManager,
+    input: RevertUsageInput,
+    scope: PromotionsUsageScope,
+  ): Promise<{ ok: true; reinstatedCount: number }> {
+    const rows = await em.find(PromotionUsage, {
+      orderId: input.orderId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      revertedAt: { $ne: null },
+    })
+    if (rows.length === 0) return { ok: true, reinstatedCount: 0 }
+
+    await withAtomicFlush(
+      em,
+      [
+        () => {
+          for (const row of rows) row.revertedAt = null
+        },
+      ],
+      { transaction: true, label: 'promotions.usage.reinstate' },
+    )
+
+    const distinctPromotionIds = Array.from(new Set(rows.map((row) => row.promotionId)))
+    for (const promotionId of distinctPromotionIds) {
+      await emitRegisteredEvent(promotionId, input.orderId, scope)
+    }
+
+    return { ok: true, reinstatedCount: rows.length }
+  }
 }

@@ -1,13 +1,17 @@
+import { LockMode } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
 import {
   Asn,
   InventoryBalance,
   InventoryMovement,
   InventoryReservation,
+  ProductInventoryProfile,
   PutawayTask,
   ReceivingLine,
   Warehouse,
@@ -19,6 +23,138 @@ export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string):
   if (currentTenant && currentTenant !== tenantId) {
     throw new CrudHttpError(403, { error: 'Forbidden' })
   }
+}
+
+// Scope + transaction/numeric helpers shared by every `wms` inventory command
+// (reserve/release/allocate/adjust/receive/move/cycleCount) AND by
+// `lib/wmsReservationService.ts` (A1 extraction). Living here — a neutral file
+// with no dependency on `commands/inventory-actions.ts` or the service — keeps
+// that pair's import graph acyclic: both import from `./shared`, neither
+// imports the other's module for these.
+export type Scope = { tenantId: string; organizationId: string }
+
+export function resolveScope(
+  ctx: CommandRuntimeContext,
+  fallback?: { tenantId?: string | null; organizationId?: string | null },
+): Scope {
+  const tenantId = fallback?.tenantId ?? ctx.auth?.tenantId ?? null
+  const organizationId = fallback?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  if (!tenantId || !organizationId) {
+    throw new CrudHttpError(400, { error: 'Tenant and organization scope are required.' })
+  }
+  return { tenantId, organizationId }
+}
+
+// Preserves the pre-A1 behaviour exactly: a caller that already forked its own
+// `EntityManager` (every command here via `resolveEm`) gets a fresh top-level
+// transaction on that fork. A caller that instead hands in an EntityManager
+// already inside a transaction (the composable path the A1 extraction exists
+// for — `availability`'s future reserve/release/commit, Phase 2) has
+// `em.transactional()` join that ambient transaction instead of opening a
+// second one, which is the actual MikroORM contract this helper relies on.
+export async function runInTransaction<TResult>(
+  em: EntityManager,
+  operation: (trx: EntityManager) => Promise<TResult>,
+): Promise<TResult> {
+  const transactionalEm = em as EntityManager & {
+    transactional?: (callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
+  }
+  if (typeof transactionalEm.transactional === 'function') {
+    return transactionalEm.transactional((trx) => operation(trx))
+  }
+  return operation(em)
+}
+
+export function toNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
+}
+
+export function setNumeric(target: { [key: string]: unknown }, key: string, value: number): void {
+  target[key] = toNumericString(value)
+}
+
+export function getAvailableQuantity(balance: InventoryBalance): number {
+  return toNumber(balance.quantityOnHand) - toNumber(balance.quantityReserved) - toNumber(balance.quantityAllocated)
+}
+
+export function isUniqueConstraintError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const code = (error as { code?: string }).code
+  if (code === '23505') return true
+  const name = (error as { name?: string }).name
+  return name === 'UniqueConstraintViolationException'
+}
+
+export async function findExactBalanceForUpdate(
+  em: EntityManager,
+  scope: Scope,
+  input: {
+    warehouseId: string
+    locationId: string
+    catalogVariantId: string
+    lotId?: string
+    serialNumber?: string
+  },
+): Promise<InventoryBalance | null> {
+  return findOneWithDecryption(
+    em,
+    InventoryBalance,
+    {
+      warehouse: input.warehouseId,
+      location: input.locationId,
+      catalogVariantId: input.catalogVariantId,
+      lot: input.lotId ?? null,
+      serialNumber: input.serialNumber ?? null,
+      deletedAt: null,
+    },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    scope,
+  )
+}
+
+export async function requireWarehouse(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  warehouseId: string,
+  scope?: Scope,
+): Promise<Warehouse> {
+  const resolvedScope = scope ?? resolveScope(ctx)
+  const warehouse = await findOneWithDecryption(
+    em,
+    Warehouse,
+    { id: warehouseId, deletedAt: null },
+    undefined,
+    resolvedScope,
+  )
+  if (!warehouse) throw new CrudHttpError(404, { error: 'Warehouse not found.' })
+  ensureTenantScope(ctx, warehouse.tenantId)
+  ensureOrganizationScope(ctx, warehouse.organizationId)
+  return warehouse
+}
+
+export async function loadProfileForVariant(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  catalogVariantId: string,
+  scope?: Scope,
+): Promise<ProductInventoryProfile | null> {
+  const resolvedScope = scope ?? resolveScope(ctx)
+  const profile = await findOneWithDecryption(
+    em,
+    ProductInventoryProfile,
+    { catalogVariantId, deletedAt: null },
+    undefined,
+    resolvedScope,
+  )
+  if (!profile) return null
+  ensureTenantScope(ctx, profile.tenantId)
+  ensureOrganizationScope(ctx, profile.organizationId)
+  return profile
 }
 
 export function requireId(id: string | null | undefined, label: string): string {

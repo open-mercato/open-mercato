@@ -54,6 +54,11 @@ describe('inventoryDisplayUi', () => {
     expect(inventoryReferenceTypeLabel('so', t)).toBe('Sales order')
     expect(inventoryReservationStatusLabel('active', t)).toBe('Active')
     expect(inventoryReservationSourceTypeLabel('order', t)).toBe('Sales order')
+    // Step 6.1 (A16 cosmetic gap-fill) — `checkout` is system-only on the public reserve
+    // route (Step 2.2), but a checkout-originated row still lands on this listing by its
+    // `sourceType`, same as every other row; it fell back to the raw `"checkout"` string
+    // before this fallback entry existed.
+    expect(inventoryReservationSourceTypeLabel('checkout', t)).toBe('Checkout')
   })
 
   it('formats reservation source without exposing raw UUIDs', () => {

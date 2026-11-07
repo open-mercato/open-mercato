@@ -27,6 +27,8 @@
   "availability.errors.unauthorized": "No autorizado",
   "availability.errors.variantNotFound": "No existe la variante",
   "availability.nav.group": "Disponibilidad",
+  "availability.notifications.stockLostAfterPayment.body": "El pedido {orderId} no pudo retener su stock tras el pago: {sellableCount} línea(s) dejaron de estar disponibles.",
+  "availability.notifications.stockLostAfterPayment.title": "Stock perdido tras el pago",
   "availability.policies.create.title": "Crear política de disponibilidad",
   "availability.policies.edit.notFound": "Política de disponibilidad no encontrada",
   "availability.policies.edit.readOnly": "Esta política es de solo lectura. No tienes permiso para modificarla.",
@@ -89,5 +91,6 @@
   "availability.states.low_stock": "Stock bajo",
   "availability.states.not_tracked": "Sin seguimiento",
   "availability.states.out_of_stock": "Agotado",
-  "availability.states.preorder": "Preventa"
+  "availability.states.preorder": "Preventa",
+  "notifications.categories.availability": "Disponibilidad"
 }
