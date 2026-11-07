@@ -91,6 +91,20 @@ Checkout hardening in the same release:
 - **Quote approval** is recorded server-side in `sales_quotes.approval_requirement`;
   `metadata.pendingApproval` is no longer trusted at acceptance. Legacy quotes flagged
   only in metadata are rejected with `quote_requires_approval`.
+- **Encryption maps for new sensitive fields are now backfilled for pre-existing
+  tenants** (#8893): `checkout:checkout_session` (`email`, `phone`, `shipping_address`,
+  `billing_address`), the `assisted_selling` module's message body, participant
+  `displayName` and proposal `rejectionReason`, and the `customer_groups` module's
+  credit `hold_reason`, ledger `note`, and purchase-approval `buyer_decision_note` /
+  `merchant_decision_note` are inserted into every tenant/organization scope that
+  already has active encryption maps, via forward-only migrations calling
+  `buildEncryptionMapBackfillSql`. Without this, any tenant that existed before this
+  release deployed would keep writing these fields as plaintext, since tenant
+  encryption maps are only seeded at tenant creation. Installing the map does not
+  retroactively encrypt rows written before the backfill runs; operators who already
+  deployed an earlier build of this release should run
+  `yarn mercato entities rotate-encryption-key --tenant <id>` afterwards to encrypt
+  any plaintext written in the gap.
 
 ## Production Content Security Policy (#7264)
 
