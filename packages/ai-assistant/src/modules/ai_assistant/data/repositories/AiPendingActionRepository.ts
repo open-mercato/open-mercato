@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { isDeepStrictEqual } from 'node:util'
 import {
   findOneWithDecryption,
   findWithDecryption,
@@ -138,7 +139,11 @@ export class AiPendingActionRepository {
           organizationId: ctx.organizationId ?? null,
         },
       )
-      if (existing && existing.status === 'pending') {
+      if (
+        existing &&
+        existing.status === 'pending' &&
+        isDeepStrictEqual(normalizePreview(existing), normalizePreview(input))
+      ) {
         return { row: existing, reused: true }
       }
       // A `confirmed`/`executing` row represents a mutation that already
@@ -172,14 +177,7 @@ export class AiPendingActionRepository {
       // (instead of deleting it) so a retry can always proceed: the stale
       // row's own card keeps resolving to its terminal/prior state via a
       // GET by id, rather than 404ing.
-      if (
-        existing &&
-        (existing.status === 'failed' ||
-          existing.status === 'cancelled' ||
-          existing.status === 'expired' ||
-          existing.status === 'confirmed' ||
-          existing.status === 'executing')
-      ) {
+      if (existing) {
         existing.idempotencyKey = `${existing.idempotencyKey}:superseded:${existing.id}`
         await tx.persist(existing).flush()
       }
@@ -365,6 +363,19 @@ export class AiPendingActionRepository {
     )
     return rows
   }
+}
+
+function normalizePreview(input: AiPendingActionCreateInput): unknown {
+  return JSON.parse(JSON.stringify({
+    targetEntityType: input.targetEntityType ?? null,
+    targetRecordId: input.targetRecordId ?? null,
+    recordVersion: input.recordVersion ?? null,
+    fieldDiff: [...(input.fieldDiff ?? [])].sort((left, right) => left.field.localeCompare(right.field)),
+    records: normalizeRecords(input.records)?.map((record) => ({
+      ...record,
+      fieldDiff: [...record.fieldDiff].sort((left, right) => left.field.localeCompare(right.field)),
+    })).sort((left, right) => left.recordId.localeCompare(right.recordId)) ?? null,
+  }))
 }
 
 const OWNER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
