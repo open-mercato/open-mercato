@@ -42,7 +42,7 @@ The Deals list is the mature CRM list page: a `DataTable` with a Kanban|List tab
 
 A hand-written route mirroring the established pattern in `packages/core/src/modules/customers/api/deals/aggregate/route.ts` (auth + organization scope + base-currency lookup + `exchangeRateService` conversion + raw-SQL aggregation + hand-written `openApi`). Guarded by `requireFeatures: ['customers.deals.view']` (same as list/aggregate).
 
-**Period model.** `period` = the current quarter by default (derived server-side from "today"); `previousPeriod` = the immediately preceding quarter. Deltas compare the metric over `period` vs `previousPeriod`. The window basis per metric is documented so the numbers are well-defined, not fabricated:
+**Period model.** `period` comes from `?range=quarter|3m|6m|12m`. `quarter` is the default (also for an absent or unknown value) and keeps the original contract: the current calendar quarter (derived server-side from "today") against the immediately preceding quarter. `3m`, `6m` and `12m` use the trailing calendar months including the current one against the same-length window before them; the KPI strip always sends one of these explicitly (default `6m`). Deltas compare the metric over `period` vs `previousPeriod`. The window basis per metric is documented so the numbers are well-defined, not fabricated:
 
 | KPI | Current value | Delta basis | In-card widget |
 |---|---|---|---|
@@ -55,18 +55,24 @@ A hand-written route mirroring the established pattern in `packages/core/src/mod
 
 **Currency.** Reuse the aggregate pattern exactly: look up the tenant/org base currency (`currencies.is_base`), sum per currency, convert non-base via `exchangeRateService.getRates({ pairs, date: today, scope, options:{ maxDaysBack:60, autoFetch:false } })`, and disclose `baseCurrencyCode`, `convertedAll`, `missingRateCurrencies`. If no base currency exists, return the dominant-currency total with `convertedAll:false` (mirrors aggregate's degraded path). The shared conversion + period helpers go in a small lib `packages/core/src/modules/customers/lib/dealsMetrics.ts` (used by the new endpoint; the existing aggregate route is left untouched to avoid regressing its shipped behavior + unit test — the minor duplication is pre-existing and out of scope).
 
+**Monthly series.** Every `series` array holds one point per month, oldest first, with missing months filled with 0. A trailing range returns one point per month of its window; `quarter` returns 6 trailing months. `pipelineValue.series` and `activeDeals.series` count all non-deleted deals by creation month, including deals closed later, so older months do not shrink as deals close. `wonThisQuarter.series` is won value by `updated_at` month, and `winRate.series` is the monthly win rate.
+
 **Response shape** (`DealsSummaryResponse`, zod-validated, all numbers in base currency unless noted):
 
 ```ts
 {
+  range: 'quarter' | '3m' | '6m' | '12m',
   baseCurrencyCode: string | null,
   convertedAll: boolean,
   missingRateCurrencies: string[],
   pipelineValue: { value: number, delta: { value: number, direction: 'up'|'down'|'unchanged' },
-                   stages: { id: string, label: string, color: string|null, count: number, value: number }[] },
+                   stages: { stage: string|null, count: number, value: number }[],
+                   series: { period: string, value: number }[] },
   activeDeals:   { value: number, delta: {…}, ownersCount: number, needAttention: number,
-                   owners: { id: string, count: number }[], ownersOverflow: number },  // ids only; labels resolved client-side
-  wonThisQuarter:{ value: number, delta: {…}, dealsClosed: number, avgDeal: number },
+                   owners: { id: string, count: number }[], ownersOverflow: number,  // ids only; labels resolved client-side
+                   series: { period: string, count: number }[] },
+  wonThisQuarter:{ value: number, delta: {…}, dealsClosed: number, avgDeal: number,
+                   series: { period: string, value: number }[] },
   winRate:       { value: number, deltaPp: number, direction: 'up'|'down'|'unchanged',
                    previousValue: number, series: { period: string, rate: number }[] },
 }
@@ -122,7 +128,7 @@ New flat dotted keys under `customers.deals.list.kpi.*` in all four locale files
 
 ## API contracts
 
-- **New:** `GET /api/customers/deals/summary` → `200 DealsSummaryResponse` (shape above); `401` when unauthenticated/scopeless; guarded `requireFeatures:['customers.deals.view']`. Hand-written `openApi` doc. Query params (optional, mirror list/aggregate for future filter-aware KPIs): none required for v1 (period derived server-side); accepts `pipelineId?` to scope the strip to a pipeline if present (cheap, mirrors aggregate) — **v1 may omit** if it complicates; default = all pipelines in scope.
+- **New:** `GET /api/customers/deals/summary` → `200 DealsSummaryResponse` (shape above); `401` when unauthenticated/scopeless; guarded `requireFeatures:['customers.deals.view']`. Hand-written `openApi` doc. Query params: `range` (optional, `quarter|3m|6m|12m`, default `quarter`; see the period model above). Further optional params (mirror list/aggregate for future filter-aware KPIs): accepts `pipelineId?` to scope the strip to a pipeline if present (cheap, mirrors aggregate) — **v1 may omit** if it complicates; default = all pipelines in scope.
 - **Unchanged:** `GET /api/customers/deals` (list), `…/deals/aggregate`, the deal CRUD routes, the perspective/`tableId`, `entityId`, `savedFilterStorageKey`.
 
 ## Backward compatibility (contract surfaces touched)
@@ -161,6 +167,7 @@ New flat dotted keys under `customers.deals.list.kpi.*` in all four locale files
 
 **UI paths**
 - `/backend/customers/deals` — **new/extended** Playwright spec (mirror `TC-CRM-071-create-deal-redesign.spec.ts`): log in, navigate, assert the **KPI strip** renders four cards with values + delta chips, the **STATUS badge**, **OWNER avatar+name**, **PEOPLE avatar stack** and **STAGE name** cells render, the table loads rows, and row selection / row-actions / advanced filter still work (no regression).
+- `/backend/customers/deals` KPI strip (`TC-CRM-083`, real charts): open and switch metric tabs, tab keyboard navigation (arrows, Home, End), line and bar rendering with the chart type kept per metric, a period refetch, collapse and reopen with the state kept across a reload, and recovery after a failed period refetch by re-selecting the period and by Retry.
 
 ## Final compliance report
 
@@ -180,3 +187,4 @@ Implemented 2026-06-08. Evidence:
 - 2026-06-08 — Implemented and verified: summary endpoint + lib, KpiCard/Sparkline/strip/cells, 4-locale i18n, unit + integration tests (incl. cross-org isolation). Full CI gate green; DS guardian CLEAN; fresh review PASS; preview pixel-faithful vs Figma 982:1658. Staged on `feat/deals-list-redesign`, awaiting PR.
 - 2026-06-08 — Post-preview review pass (user-requested): (1) **Row-actions kebab centering** — `DataTable` gained an additive opt-in `actionsColumnAlign?: 'right'|'center'` prop (default `'right'`, all other tables unchanged); deals list opts into `'center'` so the ⋮ centers under the Actions header (verified offset 0, was +9px right). (2) **KPI cards** re-verified to compute correctly from real data (pipeline/active/won/win-rate + stage breakdown match a direct deal-data computation). (3) **Advanced filters** verified on the redesigned page — simple, AND+numeric, OR+subgroup, and 3-level nesting all return correct rows; the Value column filter works (sends `value_amount`). (4) **Views / column visibility** verified — hide/show columns updates the table live. Out-of-scope pre-existing bug found + filed as a task: the shared `HybridQueryEngine` optimized-COUNT path returns 500 for any advanced-filter rule whose field id doesn't resolve to a real column (omits the `entity_indexes` join its fallback needs) — not reachable via normal deals-filter usage; not fixed here (shared-engine change).
 - 2026-06-08 — Second review pass (user-requested) — three fixes, all verified in preview: (1) **KPI plural correctness in all 4 locales** — `format()` has no ICU plurals, so `DealsKpiStrip` now selects plural category via `Intl.PluralRules(useLocale())` and composes count phrases from per-locale fragment keys (`customers.deals.list.kpi.frag.{activeDeals,pipelines,owners,needAttention,dealsClosed}.{one,few,many,other}`); fixes "1 deals"→"1 deal", "across 1 pipelines"→"across 1 pipeline" (incl. Polish one/few/many). (2) **Column header↔content alignment** — the sortable header `<Button>`'s `has-[>svg]:px-3` (triggered by the sort chevron) indented every sortable header label 12px past its cell content; added `has-[>svg]:px-0` to the header button in `DataTable.tsx` (DataTable-wide fix; verified header-text/cell-text delta 0). (3) **Kanban/List tab no longer jumps** — moved the Kanban page's `ViewTabsRow` to be the first `PageBody` child (matching the List page), so the tab strip sits at the same Y (97px) on both views.
+- 2026-11-03 — KPI strip redesign follow-up (#8537). The strip is one card of metric tabs over a trend chart instead of four `KpiCard`s. `GET /api/customers/deals/summary` gained `?range=quarter|3m|6m|12m` and monthly `series` on pipeline value, active deals and won (additive); an absent `range` keeps the quarter-over-quarter contract and the strip sends its range explicitly, default `6m`. Inflow series count all non-deleted deals by creation month. **Stage-colour decision:** the stage breakdown in `PipelineStageBar` no longer uses dictionary colours; rows are ordered by value and coloured by rank on one fixed indigo-to-teal chart ramp, so they read as a scale, not a mix of unrelated colours. This supersedes the "data-driven stage colours" note above for that breakdown only; the table's status and stage cells stay dictionary-driven. `PipelineStageBar`'s `formatValue` and `formatCount` props are optional so the exported component's original three-prop call shape keeps working: without them a row shows its plain count, no value, and a bar sized by count.

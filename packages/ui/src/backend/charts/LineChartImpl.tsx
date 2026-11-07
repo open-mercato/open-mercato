@@ -29,6 +29,9 @@ type ImplProps = Pick<
   | 'curveType'
   | 'connectNulls'
   | 'categoryLabels'
+  | 'animate'
+  | 'areaOpacity'
+  | 'accessibilityLayer'
 > & {
   valueFormatter: (value: number) => string
 }
@@ -45,6 +48,9 @@ export default function LineChartImpl({
   curveType = 'monotone',
   connectNulls = true,
   categoryLabels,
+  animate = true,
+  areaOpacity = 0.2,
+  accessibilityLayer = true,
 }: ImplProps) {
   const getLineColor = (idx: number): string => resolveChartColor(colors?.[idx], idx)
   const ChartComponent = showArea ? RechartsAreaChart : RechartsLineChart
@@ -54,6 +60,7 @@ export default function LineChartImpl({
       <ChartComponent
         data={data}
         margin={{ top: 5, right: 10, left: 10, bottom: 5 }}
+        accessibilityLayer={accessibilityLayer}
       >
         {showGridLines && (
           <CartesianGrid
@@ -95,9 +102,10 @@ export default function LineChartImpl({
                 dataKey={category}
                 stroke={getLineColor(idx)}
                 fill={getLineColor(idx)}
-                fillOpacity={0.2}
+                fillOpacity={areaOpacity}
                 strokeWidth={2}
                 connectNulls={connectNulls}
+                isAnimationActive={animate}
                 dot={false}
                 activeDot={{ r: 4, strokeWidth: 0 }}
               />
@@ -110,6 +118,7 @@ export default function LineChartImpl({
                 stroke={getLineColor(idx)}
                 strokeWidth={2}
                 connectNulls={connectNulls}
+                isAnimationActive={animate}
                 dot={false}
                 activeDot={{ r: 4, strokeWidth: 0 }}
               />

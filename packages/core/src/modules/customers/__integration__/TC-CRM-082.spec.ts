@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
  *
  * Verified-against-source contract (`api/deals/summary/route.ts`):
  * - Returns the four KPI cards (pipelineValue, activeDeals, wonThisQuarter, winRate) with
- *   quarter-over-quarter deltas, a per-stage open-pipeline breakdown, top owners, and a
+ *   period-over-period deltas (`?range=quarter|3m|6m|12m`, default quarter), a per-stage open-pipeline breakdown, top owners, and a
  *   6-month win-rate series. All money is converted to the tenant base currency where rates
  *   are available; partial conversions are disclosed via `convertedAll` / `missingRateCurrencies`.
  * - `activeDeals.value` / `pipelineValue.value` aggregate OPEN deals (status ∈ {open, in_progress}
@@ -39,6 +39,7 @@ const SUMMARY_PATH = '/api/customers/deals/summary';
 type SummaryDelta = { value: number; direction: 'up' | 'down' | 'unchanged' };
 
 type DealsSummaryResponse = {
+  range: 'quarter' | '3m' | '6m' | '12m';
   baseCurrencyCode: string | null;
   convertedAll: boolean;
   missingRateCurrencies: string[];
@@ -46,16 +47,18 @@ type DealsSummaryResponse = {
     value: number;
     delta: SummaryDelta;
     stages: { stage: string | null; count: number; value: number }[];
+    series: { period: string; value: number }[];
   };
   activeDeals: {
     value: number;
     delta: SummaryDelta;
+    series: { period: string; count: number }[];
     ownersCount: number;
     needAttention: number;
     owners: { id: string; count: number }[];
     ownersOverflow: number;
   };
-  wonThisQuarter: { value: number; delta: SummaryDelta; dealsClosed: number; avgDeal: number };
+  wonThisQuarter: { value: number; delta: SummaryDelta; dealsClosed: number; avgDeal: number; series: { period: string; value: number }[] };
   winRate: {
     value: number;
     deltaPp: number;
@@ -65,15 +68,17 @@ type DealsSummaryResponse = {
   };
 };
 
-async function fetchSummary(request: APIRequestContext, token: string): Promise<DealsSummaryResponse> {
-  const response = await apiRequest(request, 'GET', SUMMARY_PATH, { token });
-  expect(response.ok(), `GET ${SUMMARY_PATH} returned ${response.status()}`).toBeTruthy();
+async function fetchSummary(request: APIRequestContext, token: string, query = ''): Promise<DealsSummaryResponse> {
+  const path = `${SUMMARY_PATH}${query}`;
+  const response = await apiRequest(request, 'GET', path, { token });
+  expect(response.ok(), `GET ${path} returned ${response.status()}`).toBeTruthy();
   const body = await readJsonSafe<DealsSummaryResponse>(response);
   expect(body, 'summary response body should parse').toBeTruthy();
   return body as DealsSummaryResponse;
 }
 
 function assertSummaryShape(summary: DealsSummaryResponse): void {
+  expect(summary.range, 'an absent range keeps the calendar quarter contract').toBe('quarter');
   expect(typeof summary.convertedAll).toBe('boolean');
   expect(Array.isArray(summary.missingRateCurrencies)).toBe(true);
 
@@ -96,6 +101,13 @@ function assertSummaryShape(summary: DealsSummaryResponse): void {
   expect(typeof summary.winRate.deltaPp).toBe('number');
   expect(['up', 'down', 'unchanged']).toContain(summary.winRate.direction);
   expect(Array.isArray(summary.winRate.series)).toBe(true);
+
+  // Trailing-month series behind the metric tabs (#7494 follow-up, deals KPI redesign).
+  expect(summary.pipelineValue.series.length, 'pipelineValue.series should have 6 trailing-month points').toBe(6);
+  expect(summary.activeDeals.series.length, 'activeDeals.series should have 6 trailing-month points').toBe(6);
+  expect(summary.wonThisQuarter.series.length, 'wonThisQuarter.series should have 6 trailing-month points').toBe(6);
+  for (const point of summary.pipelineValue.series) expect(typeof point.value).toBe('number');
+  for (const point of summary.activeDeals.series) expect(typeof point.count).toBe('number');
 }
 
 test.describe('TC-CRM-082: Deals KPI summary endpoint', () => {
@@ -129,6 +141,7 @@ test.describe('TC-CRM-082: Deals KPI summary endpoint', () => {
       // Baseline first so the base currency is known before seeding.
       const before = await fetchSummary(request, token);
       assertSummaryShape(before);
+      const before3m = await fetchSummary(request, token, '?range=3m');
       const cur = before.baseCurrencyCode; // string | null
       const seedCurrency = cur ?? undefined; // when null, omit so deals use the system default
 
@@ -234,6 +247,23 @@ test.describe('TC-CRM-082: Deals KPI summary endpoint', () => {
 
         const stageValueDelta = stageEntry!.value;
         expect(stageValueDelta, 'the seeded stage value should be > 0 when seeds use the base currency').toBeGreaterThan(0);
+      }
+
+      // --- Explicit trailing range: one point per month, the seeded won deal lands in the current month ---
+      const after3m = await fetchSummary(request, token, '?range=3m');
+      expect(after3m.range).toBe('3m');
+      expect(after3m.pipelineValue.series.length, 'pipelineValue.series should have 3 points for range=3m').toBe(3);
+      expect(after3m.activeDeals.series.length, 'activeDeals.series should have 3 points for range=3m').toBe(3);
+      expect(after3m.wonThisQuarter.series.length, 'wonThisQuarter.series should have 3 points for range=3m').toBe(3);
+      expect(after3m.winRate.series.length, 'winRate.series should have 3 points for range=3m').toBe(3);
+      const currentMonthWon = after3m.wonThisQuarter.series[2]!;
+      const baselineMonthWon = before3m.wonThisQuarter.series.find((point) => point.period === currentMonthWon.period);
+      expect(baselineMonthWon, 'the baseline series should cover the current month').toBeTruthy();
+      if (cur) {
+        const monthDelta = currentMonthWon.value - baselineMonthWon!.value;
+        expect(Math.abs(monthDelta - WON), `current month of wonThisQuarter.series should increase by ~${WON} (got delta ${monthDelta})`).toBeLessThanOrEqual(1);
+      } else {
+        expect(currentMonthWon.value, 'current month of wonThisQuarter.series should include the seeded won deal').toBeGreaterThan(baselineMonthWon!.value);
       }
 
       // --- Scoping / auth: the endpoint must reject unauthenticated access ---
