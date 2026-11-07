@@ -580,3 +580,7 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 ## Scoped delegated authentication eligibility (2026-11-02, #8346)
 
 `AuthService.isUserSessionEligible({ userId, tenantId, organizationId, apiKeyId? })` is additive and optional for custom DI replacements. Without an API-key ID the core default permits existing behavior; with an ID it verifies live key ownership, scope, deletion and expiry, and SSO adds its scoped live deactivation policy. The internal auth context adds optional `sessionBoundApiKey` to distinguish delegated credentials from machine keys on cache hits. Existing import paths, signatures, HTTP payloads, and database schema remain unchanged. [Migration and operator guidance](UPGRADE_NOTES.md#scim-deactivation-blocks-fresh-sso-and-password-sign-in-7824).
+
+## #7809 2026-11-06
+
+STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).

@@ -124,6 +124,10 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/lib/__tests__/init-secrets.test.ts',
+        scans: 'starters/docker and packages/create-app/template full-app Compose defaults — production bootstrap credential safety (#7809)',
+      },
+      {
         path: 'src/lib/generators/__tests__/module-facts.bc-guard.test.ts',
         scans: 'every package module source — generator BC resolve guard',
       },

@@ -617,6 +617,209 @@ describe('init command failure output', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
+  function mockInitDependencies({
+    authSetup,
+  }: {
+    authSetup: jest.Mock
+  }) {
+    jest.doMock('child_process', () => ({
+      execSync: jest.fn(),
+    }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue({
+          rows: [{ org_id: 'org-1', tenant_id: 'tenant-1' }],
+        }),
+        end: jest.fn().mockResolvedValue(undefined),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/db', () => ({
+      dbMigrate: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
+        modules: [
+          {
+            id: 'configs',
+            cli: [{ command: 'restore-defaults', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+          {
+            id: 'auth',
+            cli: [
+              { command: 'setup', run: authSetup },
+              { command: 'seed-roles', run: jest.fn().mockResolvedValue(undefined) },
+            ],
+          },
+          {
+            id: 'entities',
+            cli: [{ command: 'seed-encryption', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+          {
+            id: 'query_index',
+            cli: [{ command: 'reindex', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+        ],
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/di/container', () => ({
+      createRequestContainer: jest.fn().mockResolvedValue({
+        resolve: jest.fn().mockReturnValue({}),
+      }),
+    }))
+    jest.doMock(
+      '@open-mercato/core/modules/auth/lib/setup-app',
+      () => ({
+        ensureCustomRoleAcls: jest.fn().mockResolvedValue(undefined),
+      }),
+      { virtual: true },
+    )
+  }
+
+  it.each(['--reinstall', '--no-demo-users'])('rejects unsafe production init before side effects with %s', async (flag) => {
+    const previousEnv = { ...process.env }
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+    process.env.NODE_ENV = 'production'
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'password'
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init', flag, '--skip-password-policy'])).toBe(1)
+      const { Client } = await import('pg')
+      const { generateEntityIds } = await import('../lib/generators')
+      const { dbMigrate } = await import('../lib/db')
+      if (flag === '--reinstall') expect(Client).not.toHaveBeenCalled()
+      expect(generateEntityIds).not.toHaveBeenCalled()
+      expect(dbMigrate).not.toHaveBeenCalled()
+      expect(authSetup).not.toHaveBeenCalled()
+    } finally {
+      process.env = previousEnv
+    }
+  })
+
+  it('passes valid production credentials to auth setup without bypassing policy', async () => {
+    const previousEnv = { ...process.env }
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+    process.env.NODE_ENV = 'production'
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'Unique-Owner-937!'
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init', '--no-demo-users', '--skip-password-policy'])).toBe(0)
+      expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--password', 'Unique-Owner-937!']))
+      expect(authSetup.mock.calls[0][0]).not.toContain('--skip-password-policy')
+    } finally {
+      process.env = previousEnv
+    }
+  })
+
+})
+
+describe('init on an already initialized database', () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    jest.resetModules()
+    process.env.DATABASE_URL = 'postgres://postgres:secret@db.example.com:6543/shop_a'
+  })
+
+  afterEach(() => {
+    jest.dontMock('child_process')
+    jest.dontMock('pg')
+    jest.dontMock('../lib/generators')
+    jest.dontMock('../lib/resolver')
+    jest.resetModules()
+  })
+
+  afterAll(() => {
+    process.env.DATABASE_URL = originalDatabaseUrl
+  })
+
+  function mockSeededDatabase(usersCount: string) {
+    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
+    jest.doMock('child_process', () => ({ execSync: jest.fn() }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        end: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockImplementation(async (sql: string) => {
+          if (sql.includes('pg_database')) return { rows: [{ exists: 1 }] }
+          if (sql.includes('to_regclass')) return { rows: [{ regclass: 'users' }] }
+          if (sql.includes('COUNT(*)')) return { rows: [{ count: usersCount }] }
+          return { rows: [] }
+        }),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds,
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({ getAppDir: () => '/tmp/test-app' }),
+    }))
+    return { generateEntityIds }
+  }
+
+  it('aborts without --skip-if-initialized and points at the explicit reinstall', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const { generateEntityIds } = mockSeededDatabase('2')
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(1)
+    const errors = consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(errors).toContain('Initialization aborted: found 2 existing user(s)')
+    expect(generateEntityIds).not.toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it.each([undefined, 'password', 'weak'])('preserves the existing-users abort before validating production password %s', async (password) => {
+    const previousEnv = { ...process.env }
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    const { generateEntityIds } = mockSeededDatabase('3')
+    process.env.NODE_ENV = 'production'
+    if (password === undefined) delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+    else process.env.OM_INIT_SUPERADMIN_PASSWORD = password
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init'])).toBe(1)
+      expect(consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n'))
+        .toContain('Initialization aborted: found 3 existing user(s)')
+      expect(generateEntityIds).not.toHaveBeenCalled()
+    } finally {
+      process.env = previousEnv
+    }
+  })
 })
 
 describe('seed:defaults command', () => {
