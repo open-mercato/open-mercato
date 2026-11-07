@@ -787,6 +787,26 @@ then re-run `yarn generate`. `apps/mercato/src/modules.ts` and the `create-app` 
 enable the full default module set, so this repo's own apps and freshly scaffolded apps are
 unaffected.
 
+### `yarn generate` reads `metadata.requires` without executing module code (#6239)
+
+The module dependency check described in
+[Module dependency graph](apps/docs/docs/architecture/module-dependencies.mdx) (see "`yarn generate`
+now enforces a module's declared `requires` dependencies" in the 0.8.0 → 0.9.0 section) collected
+`metadata.requires` by importing each module's `index` with `import()` and falling back to a static
+read when the import failed, so module side effects ran at generation time. The generator now reads
+`metadata.requires` purely syntactically from the module's `index.ts` (or the compiled `index.js`
+of a packaged module): the file is parsed and never executed, and only the exported `metadata`
+object counts. The complete enforced set is the edge list in the docs page above.
+
+**Action for app authors:** if `yarn generate` now stops with `Module dependency check failed`,
+enable the listed modules in `src/modules.ts` (or disable the module that requires them). Such a
+configuration was already broken — it typically surfaced later as
+`Metadata for entity … not found` during `mercato init`.
+
+**Action for module authors:** write `requires` as an array of string literals in the exported
+`metadata` object. A dynamically built or re-exported list is no longer evaluated: it is skipped
+with a `[generate] ⚠` warning naming the file, and that module's dependency check does not run.
+
 ### Portal form submissions are limited to the caller's own `customer` subject (#7224)
 
 `POST /api/forms/form-submissions` now answers `403 { error: "SUBJECT_FORBIDDEN" }` unless
