@@ -1,3 +1,4 @@
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
 import type { CommandHandler, CommandReplayAuthorizationArgs, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import {
@@ -334,8 +335,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
 
     let passwordHash: string | null = null
     if (parsed.password) {
-      const { hash } = await import('bcryptjs')
-      passwordHash = await hash(parsed.password, 10)
+      passwordHash = await getPasswordHasher().hash(parsed.password)
     }
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -756,8 +756,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     let hashed: string | null = null
     let emailHash: string | null = null
     if (parsed.password) {
-      const { hash } = await import('bcryptjs')
-      hashed = await hash(parsed.password, 10)
+      hashed = await getPasswordHasher().hash(parsed.password)
     }
     if (parsed.email !== undefined) {
       emailHash = computeEmailHash(parsed.email)

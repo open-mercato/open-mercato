@@ -8,6 +8,12 @@
  * comparison so the response cannot be used to enumerate accounts per tenant.
  */
 import { POST } from '@open-mercato/core/modules/customer_accounts/api/login'
+import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
+import {
+  PasswordHasherBusyError,
+  createPasswordHasher,
+  setPasswordHasher,
+} from '@open-mercato/shared/lib/auth/passwordHasher'
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/tenantEligibility', () => ({
   isCustomerTenantActive: jest.fn(async () => true),
@@ -21,6 +27,7 @@ const mockCheckLockout = jest.fn()
 const mockIncrementFailedAttempts = jest.fn()
 const mockResetFailedAttemptsUnlessLocked = jest.fn()
 const mockCreateSession = jest.fn()
+const mockRehashPasswordIfNeeded = jest.fn()
 const mockBcryptCompare = jest.fn()
 const mockEmitCustomerAccountsEvent = jest.fn()
 const mockReportError = jest.fn()
@@ -32,6 +39,7 @@ const mockCustomerUserService = {
   incrementFailedAttempts: mockIncrementFailedAttempts,
   resetFailedAttemptsUnlessLocked: mockResetFailedAttemptsUnlessLocked,
   updateLastLoginAt: jest.fn(async () => undefined),
+  rehashPasswordIfNeeded: mockRehashPasswordIfNeeded,
 }
 
 const mockContainer = {
@@ -237,6 +245,32 @@ describe('POST /api/customer_accounts/login — lockout under concurrent attempt
     expect(mockCreateSession).toHaveBeenCalledTimes(1)
     expect(mockIncrementFailedAttempts).not.toHaveBeenCalled()
   })
+
+  test('offers the password for an opportunistic rehash only after a successful login', async () => {
+    const user = { id: 'u1', isActive: true, passwordHash: 'hash', emailVerifiedAt: new Date() }
+    mockFindByEmail.mockResolvedValueOnce(user)
+    mockVerifyPassword.mockResolvedValueOnce(true)
+    mockResetFailedAttemptsUnlessLocked.mockResolvedValueOnce(true)
+    mockRehashPasswordIfNeeded.mockResolvedValueOnce(true)
+    mockCreateSession.mockResolvedValueOnce({ rawToken: 'raw-session-token', jwt: 'customer-jwt', session: { id: 's1' } })
+
+    const res = await POST(makeRequest(baseBody()))
+
+    expect(res.status).toBe(200)
+    expect(mockRehashPasswordIfNeeded).toHaveBeenCalledWith(user, 'Secret123!')
+  })
+
+  test('does not rehash when the password is wrong or the e-mail is unverified', async () => {
+    mockFindByEmail.mockResolvedValueOnce({ id: 'u1', isActive: true, passwordHash: 'hash', emailVerifiedAt: new Date() })
+    mockVerifyPassword.mockResolvedValueOnce(false)
+    expect((await POST(makeRequest(baseBody()))).status).toBe(401)
+
+    mockFindByEmail.mockResolvedValueOnce({ id: 'u1', isActive: true, passwordHash: 'hash', emailVerifiedAt: null })
+    mockVerifyPassword.mockResolvedValueOnce(true)
+    expect((await POST(makeRequest(baseBody()))).status).toBe(401)
+
+    expect(mockRehashPasswordIfNeeded).not.toHaveBeenCalled()
+  })
 })
 
 describe('POST /api/customer_accounts/login — login event failures are reported', () => {
@@ -262,5 +296,97 @@ describe('POST /api/customer_accounts/login — login event failures are reporte
       module: 'customer_accounts',
       code: 'customer_accounts.login_event_failed',
     })
+  })
+})
+
+describe('POST /api/customer_accounts/login — password work profile across rejections', () => {
+  const bcrypt = jest.requireActual<typeof import('bcryptjs')>('bcryptjs')
+  const realVerify = (user: unknown, password: string) =>
+    new CustomerUserService({} as never).verifyPassword(user as never, password)
+  let storedHash = ''
+
+  beforeAll(async () => {
+    storedHash = await bcrypt.hash('Secret123!', 4)
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockCheckAuthRateLimit.mockResolvedValue({ error: null, compoundKey: null })
+    mockResolveTenantContext.mockResolvedValue({ tenantId })
+    mockCheckLockout.mockReturnValue(false)
+    mockEmitCustomerAccountsEvent.mockResolvedValue(undefined)
+    mockBcryptCompare.mockImplementation((password: string, hashed: string) => bcrypt.compare(password, hashed))
+    mockVerifyPassword.mockImplementation(realVerify)
+    mockResetFailedAttemptsUnlessLocked.mockResolvedValue(true)
+  })
+
+  afterEach(() => {
+    mockVerifyPassword.mockReset()
+    mockBcryptCompare.mockReset()
+    setPasswordHasher(null)
+  })
+
+  async function profileOf(setup: () => void, password: string) {
+    const argon2 = {
+      hash: jest.fn(async () => '$argon2id$v=19$m=1024,t=1,p=1$AQEBAQEBAQEBAQEBAQEBAQ$AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI'),
+      verify: jest.fn(async () => false),
+    }
+    setPasswordHasher(createPasswordHasher(
+      { algorithm: 'argon2id', bcryptCost: 4, argon2id: { memoryCost: 1024, timeCost: 1, parallelism: 1 } },
+      { loadArgon2: async () => argon2 },
+    ))
+    mockBcryptCompare.mockClear()
+    setup()
+    const res = await POST(makeRequest(baseBody({ password })))
+    return {
+      status: res.status,
+      work: {
+        argon2Hash: argon2.hash.mock.calls.length,
+        argon2Verify: argon2.verify.mock.calls.length,
+        bcrypt: mockBcryptCompare.mock.calls.length,
+      },
+    }
+  }
+
+  const verifiedUser = () => ({ id: 'u1', isActive: true, passwordHash: storedHash, emailVerifiedAt: new Date() })
+
+  test('a correct password on an unverified or concurrently locked account costs the same as a wrong password', async () => {
+    const wrongPassword = await profileOf(() => {
+      mockFindByEmail.mockResolvedValueOnce(verifiedUser())
+    }, 'wrong-password')
+    const unverified = await profileOf(() => {
+      mockFindByEmail.mockResolvedValueOnce({ ...verifiedUser(), emailVerifiedAt: null })
+    }, 'Secret123!')
+    const concurrentLock = await profileOf(() => {
+      mockFindByEmail.mockResolvedValueOnce(verifiedUser())
+      mockResetFailedAttemptsUnlessLocked.mockResolvedValueOnce(false)
+    }, 'Secret123!')
+    const unknownAccount = await profileOf(() => {
+      mockFindByEmail.mockResolvedValueOnce(null)
+    }, 'Secret123!')
+    const inactive = await profileOf(() => {
+      mockFindByEmail.mockResolvedValueOnce({ ...verifiedUser(), isActive: false })
+    }, 'Secret123!')
+    const locked = await profileOf(() => {
+      mockFindByEmail.mockResolvedValueOnce(verifiedUser())
+      mockCheckLockout.mockReturnValueOnce(true)
+    }, 'Secret123!')
+
+    expect(wrongPassword).toEqual({ status: 401, work: { argon2Hash: 1, argon2Verify: 1, bcrypt: 1 } })
+    for (const rejected of [unverified, concurrentLock, unknownAccount, inactive, locked]) {
+      expect(rejected).toEqual(wrongPassword)
+    }
+    expect(mockCreateSession).not.toHaveBeenCalled()
+  })
+
+  test('answers a full password-hashing queue with a generic 503 and Retry-After', async () => {
+    mockFindByEmail.mockResolvedValueOnce(verifiedUser())
+    mockVerifyPassword.mockRejectedValueOnce(new PasswordHasherBusyError())
+    const res = await POST(makeRequest(baseBody()))
+    expect(res.status).toBe(503)
+    expect(res.headers.get('retry-after')).toBe('1')
+    expect(await res.json()).toEqual({ ok: false, error: 'Invalid email or password' })
+    expect(mockIncrementFailedAttempts).not.toHaveBeenCalled()
+    expect(mockCreateSession).not.toHaveBeenCalled()
   })
 })

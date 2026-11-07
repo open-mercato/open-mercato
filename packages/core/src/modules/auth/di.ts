@@ -3,6 +3,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import {
@@ -39,6 +40,13 @@ function resolveOptionalOrganizationHierarchyService(
 export function register(container: AppContainer) {
   // Register or override core auth service
   container.register({ authService: asClass(AuthService).scoped() })
+  // Password hashing (OM_PASSWORD_HASH). Resolves the process-wide hasher on every
+  // resolution so a hasher swapped in with `setPasswordHasher()` is always the one returned.
+  container.register({
+    passwordHasher: asFunction(function passwordHasherFactory() {
+      return getPasswordHasher()
+    }),
+  })
   container.register({
     authPrincipalService: asFunction(function authPrincipalServiceFactory(cradle: { em: EntityManager }) {
       return new DefaultAuthPrincipalService(

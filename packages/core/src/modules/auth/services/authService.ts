@@ -1,17 +1,14 @@
 import { EntityManager, type RequiredEntityData } from '@mikro-orm/postgresql'
-import { compare, hash } from 'bcryptjs'
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
 
-// A fixed, valid bcrypt hash (cost 10) of a throwaway value no real password
-// can match. verifyPassword compares against it whenever the user is missing or
-// has no password hash, so a failed login spends the same bcrypt CPU time
-// regardless of whether the account exists — closing the timing side channel
-// for account enumeration (issue #2242).
-const TIMING_EQUALIZER_PASSWORD_HASH = '$2b$10$OcZrhmZpIzJOjkfwUrk7d.Nl0eHNzOvalBcBlt5Ran.4lj8R3HZg6'
+const logger = createLogger('auth').child({ component: 'auth-service' })
 
 export class AuthService {
   constructor(private em: EntityManager) {}
@@ -58,11 +55,52 @@ export class AuthService {
 
   async verifyPassword(user: User | null, password: string) {
     const storedHash = user?.passwordHash ?? null
-    // Always run a bcrypt comparison — against a fixed dummy hash when the user
-    // is absent or has no password — so login latency does not reveal whether
-    // the account exists (timing-based enumeration, issue #2242).
-    const matched = await compare(password, storedHash ?? TIMING_EQUALIZER_PASSWORD_HASH)
-    return storedHash !== null && matched
+    const hasher = getPasswordHasher()
+    // Always run a password verification — a dummy one when the user is absent
+    // or has no password — so login latency does not reveal whether the account
+    // exists (timing-based enumeration, issue #2242).
+    if (storedHash === null) {
+      await hasher.equalizeTiming(password)
+      return false
+    }
+    return hasher.verify(password, storedHash)
+  }
+
+  /**
+   * After a successful login, replace a hash made with an outdated algorithm or
+   * parameters (`OM_PASSWORD_HASH`) with a fresh one. Best effort: a failure is
+   * logged and reported, never thrown, so it can not fail the login. The update
+   * is a compare-and-swap on the old hash, so a concurrent password change wins,
+   * and it leaves `updated_at` alone so it never causes an optimistic-lock 409.
+   */
+  async rehashPasswordIfNeeded(user: User, password: string): Promise<boolean> {
+    const storedHash = user.passwordHash ?? null
+    if (!storedHash) return false
+    const hasher = getPasswordHasher()
+    try {
+      if (!hasher.needsRehash(storedHash)) return false
+      const nextHash = await hasher.hash(password)
+      const affected = await this.em.nativeUpdate(
+        User,
+        {
+          id: user.id,
+          tenantId: user.tenantId ?? null,
+          organizationId: user.organizationId ?? null,
+          passwordHash: storedHash,
+        },
+        { passwordHash: nextHash },
+      )
+      if (affected === 0) return false
+      return true
+    } catch (error) {
+      logger.warn('Password rehash after login failed', { userId: String(user.id), err: error })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'auth',
+        code: 'auth.password_rehash_failed',
+        attributes: { userId: String(user.id) },
+      })
+      return false
+    }
   }
 
   async updateLastLoginAt(user: User) {
@@ -189,7 +227,7 @@ export class AuthService {
 
     const user = await findOneWithDecryption(this.em, User, { id: row.user.id, deletedAt: null })
     if (!user) return null
-    user.passwordHash = await hash(newPassword, 10)
+    user.passwordHash = await getPasswordHasher().hash(newPassword)
     await this.em.flush()
     await this.deleteAllUserSessions(String(user.id))
     return user

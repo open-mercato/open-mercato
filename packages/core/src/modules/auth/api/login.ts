@@ -143,8 +143,8 @@ async function handleLoginRequest(req: Request) {
     // guidance is delivered out-of-band via the activation/login link.
     user = users.length === 1 ? users[0] : null
   }
-  // Always verify the password — verifyPassword runs a constant-time bcrypt
-  // comparison even when the user is missing or has no hash — so unknown-email,
+  // Always verify the password — verifyPassword runs a password-hash
+  // verification even when the user is missing or has no hash — so unknown-email,
   // wrong-password, and multi-tenant cases return an identical 401 with
   // identical latency.
   const ok = await auth.verifyPassword(user, parsed.data.password)
@@ -171,6 +171,11 @@ async function handleLoginRequest(req: Request) {
     }
   }
   await auth.updateLastLoginAt(user)
+  // Upgrade an outdated password hash (OM_PASSWORD_HASH) while the plaintext is at hand; never
+  // fails the login. Guarded because apps may override `authService` with a class that predates it.
+  if (typeof auth.rehashPasswordIfNeeded === 'function') {
+    await auth.rehashPasswordIfNeeded(user, parsed.data.password)
+  }
   // Reset rate limit counter on successful login so legitimate users aren't penalized for prior typos
   if (rateLimitCompoundKey) {
     await resetAuthRateLimit(rateLimitCompoundKey, loginRateLimitConfig)
@@ -310,6 +315,7 @@ const loginMethodDoc: OpenApiMethodDoc = {
     { status: 401, description: 'Invalid credentials', schema: loginErrorSchema },
     { status: 403, description: 'User lacks required role, or the request was submitted cross-site', schema: loginErrorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
+    { status: 503, description: 'Password hashing capacity temporarily exhausted; retry after the Retry-After interval', schema: loginErrorSchema },
   ],
 }
 

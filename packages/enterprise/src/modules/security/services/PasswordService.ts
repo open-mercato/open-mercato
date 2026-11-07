@@ -1,11 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { compare, hash } from 'bcryptjs'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
 import { validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitSecurityEvent } from '../events'
-
-const BCRYPT_COST = 10
 
 export type PasswordPolicyValidation = {
   valid: boolean
@@ -37,7 +35,7 @@ export class PasswordService {
   async verifyPassword(userId: string, password: string): Promise<boolean> {
     const user = await this.findUserById(userId)
     if (!user?.passwordHash) return false
-    return compare(password, user.passwordHash)
+    return getPasswordHasher().verify(password, user.passwordHash)
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
@@ -49,7 +47,8 @@ export class PasswordService {
       throw new PasswordServiceError('Password authentication is not available for this user', 400)
     }
 
-    const currentPasswordValid = await compare(currentPassword, user.passwordHash)
+    const passwordHasher = getPasswordHasher()
+    const currentPasswordValid = await passwordHasher.verify(currentPassword, user.passwordHash)
     if (!currentPasswordValid) {
       throw new PasswordServiceError('Current password is invalid', 401)
     }
@@ -63,12 +62,12 @@ export class PasswordService {
       )
     }
 
-    const sameAsCurrent = await compare(newPassword, user.passwordHash)
+    const sameAsCurrent = await passwordHasher.verify(newPassword, user.passwordHash)
     if (sameAsCurrent) {
       throw new PasswordServiceError('New password must be different from current password', 400)
     }
 
-    user.passwordHash = await hash(newPassword, BCRYPT_COST)
+    user.passwordHash = await passwordHasher.hash(newPassword)
     await this.em.flush()
     const changedAt = new Date().toISOString()
     const eventPayload = {

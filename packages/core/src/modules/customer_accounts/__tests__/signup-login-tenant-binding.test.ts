@@ -49,14 +49,14 @@ describe('customer_accounts signup — organization lookup must bind tenantId', 
     expect(existingBranch).not.toMatch(/resolvePortalLoginUrl\s*\(\s*baseUrl\s*,\s*orgRow\.slug/)
   })
 
-  test('existing-account branch pays the bcrypt floor so the 202 response is not a timing oracle', () => {
-    expect(signupSource).toMatch(/from\s+['"]bcryptjs['"]/)
-    expect(signupSource).toMatch(/TIMING_EQUALIZATION_HASH\s*=\s*['"]\$2[aby]\$10\$/)
+  test('existing-account branch performs the same configured hash as new-account creation', () => {
+    expect(signupSource).toMatch(/from\s+['"]@open-mercato\/shared\/lib\/auth\/passwordHasher['"]/)
 
     const existingBranchMatch = signupSource.match(/if\s*\(\s*existing\s*\)\s*\{([\s\S]*?)\n\s{2}\}/)
     expect(existingBranchMatch).not.toBeNull()
     const existingBranch = existingBranchMatch?.[1] ?? ''
-    expect(existingBranch).toMatch(/await\s+bcryptCompare\s*\(\s*password\s*,\s*TIMING_EQUALIZATION_HASH\s*\)/)
+    expect(existingBranch).toMatch(/await\s+getPasswordHasher\(\)\.hash\(\s*password\s*\)/)
+    expect(existingBranch).not.toMatch(/equalizeTiming/)
   })
 })
 
@@ -90,15 +90,14 @@ describe('customer_accounts login — emailVerifiedAt gate blocks unverified acc
     expect(source).not.toMatch(/Please verify your email/i)
   })
 
-  test('inactive and locked branches pay the bcrypt floor so they are not a timing oracle (#2694)', () => {
-    expect(source).toMatch(/from\s+['"]bcryptjs['"]/)
-    expect(source).toMatch(/TIMING_EQUALIZATION_HASH\s*=\s*['"]\$2[aby]\$10\$/)
+  test('inactive and locked branches pay the password-hash floor so they are not a timing oracle (#2694)', () => {
+    expect(source).toMatch(/from\s+['"]@open-mercato\/shared\/lib\/auth\/passwordHasher['"]/)
 
     const inactiveBranch = source.match(/if\s*\(\s*!\s*user\.isActive\s*\)\s*\{([\s\S]*?)\n\s{2}\}/)?.[1] ?? ''
-    expect(inactiveBranch).toMatch(/await\s+bcryptCompare\s*\(\s*password\s*,\s*TIMING_EQUALIZATION_HASH\s*\)/)
+    expect(inactiveBranch).toMatch(/await\s+getPasswordHasher\(\)\.equalizeTiming\(\s*password\s*\)/)
 
     const lockoutBranch = source.match(/checkLockout\(user\)\s*\)\s*\{([\s\S]*?)\n\s{2}\}/)?.[1] ?? ''
-    expect(lockoutBranch).toMatch(/await\s+bcryptCompare\s*\(\s*password\s*,\s*TIMING_EQUALIZATION_HASH\s*\)/)
+    expect(lockoutBranch).toMatch(/await\s+getPasswordHasher\(\)\.equalizeTiming\(\s*password\s*\)/)
   })
 
   test('inactive and locked branches return the generic 401 body, never a distinct status or message (#2694)', () => {

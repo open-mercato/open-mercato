@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { compare as bcryptCompare } from 'bcryptjs'
+import { getPasswordHasher, isPasswordHasherBusyError } from '@open-mercato/shared/lib/auth/passwordHasher'
+import { passwordHasherBusyResponse } from '@open-mercato/core/modules/auth/api/routeError'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { loginSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
@@ -28,16 +29,20 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
-// Precomputed bcrypt cost-10 hash of an unknowable random 32-byte input; used to equalize
-// response latency between the real-account and unknown/inactive/locked/no-hash login branches
-// so account existence cannot be inferred from a timing side channel. Mirrors signup.ts.
-const TIMING_EQUALIZATION_HASH = '$2b$10$.F2A6UHFzk.d8trNdfqt4OLz05Nf3IOuMmN6VJKflhD4.rz.prR8i'
-
 function reportLoginEventError(error: unknown): void {
   getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.login_event_failed' })
 }
 
 export async function POST(req: Request) {
+  try {
+    return await handlePortalLoginRequest(req)
+  } catch (error) {
+    if (isPasswordHasherBusyError(error)) return passwordHasherBusyResponse('Invalid email or password')
+    throw error
+  }
+}
+
+async function handlePortalLoginRequest(req: Request) {
   if (isCrossSiteBrowserRequest(req)) {
     const { translate } = await resolveTranslations()
     return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
@@ -86,22 +91,23 @@ export async function POST(req: Request) {
   // Equalize response timing and error responses across every failed-login branch so an
   // attacker cannot enumerate which emails have an account in this tenant. Unknown,
   // password-less, inactive, locked, wrong-password, and unverified accounts all run a
-  // bcrypt comparison and return the same generic 401 — lockout/deactivation guidance is
+  // password-hash verification (`equalizeTiming` on branches without a usable hash, with the
+  // configured OM_PASSWORD_HASH algorithm) and return the same generic 401 — lockout/deactivation guidance is
   // conveyed out-of-band (e.g. email), never in the synchronous response.
   if (!user || !user.passwordHash || !(await isCustomerTenantActive(container.resolve('em') as EntityManager, tenantId))) {
-    await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
+    await getPasswordHasher().equalizeTiming(password)
     void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_credentials', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   if (!user.isActive) {
-    await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
+    await getPasswordHasher().equalizeTiming(password)
     void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'inactive', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   if (customerUserService.checkLockout(user)) {
-    await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
+    await getPasswordHasher().equalizeTiming(password)
     void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
@@ -127,6 +133,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
   await customerUserService.updateLastLoginAt(user)
+  // Upgrade an outdated password hash (OM_PASSWORD_HASH) while the plaintext is at hand; never
+  // fails the login. Guarded because apps may override `customerUserService` with a class that predates it.
+  if (typeof customerUserService.rehashPasswordIfNeeded === 'function') {
+    await customerUserService.rehashPasswordIfNeeded(user, password)
+  }
 
   if (compoundKey) {
     await resetAuthRateLimit(compoundKey, customerLoginRateLimitConfig)
@@ -209,6 +220,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 401, description: 'Invalid credentials', schema: errorSchema },
     { status: 403, description: 'Request was submitted cross-site', schema: errorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
+    { status: 503, description: 'Password hashing capacity temporarily exhausted; retry after the Retry-After interval', schema: errorSchema },
   ],
 }
 
