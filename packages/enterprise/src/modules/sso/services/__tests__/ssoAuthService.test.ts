@@ -29,8 +29,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 jest.mock('../../lib/oidc-provider', () => ({ OidcProvider: class { protocol = 'oidc' } }))
 
+const STORED_HASH = '$2b$10$abcdefghijklmnopqrstuuJ8m5c2wY2q4Q3f1y0a0b0c0d0e0f0g0'
 const user = {
-  id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', passwordHash: 'stored-hash',
+  id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', passwordHash: STORED_HASH,
 } as User
 const em = {} as EntityManager
 
@@ -49,7 +50,7 @@ describe('SSO-scoped password verification', () => {
     await expect(new SsoAuthService(em).verifyPassword(user, 'password')).resolves.toBe(verified)
 
     expect(compare).toHaveBeenCalledTimes(1)
-    expect(compare).toHaveBeenCalledWith('password', 'stored-hash')
+    expect(compare).toHaveBeenCalledWith('password', STORED_HASH)
     expect(findOneWithDecryption).toHaveBeenCalledTimes(4)
     expect(findOneWithDecryption).toHaveBeenNthCalledWith(
       1, em, SsoUserDeactivation,
@@ -72,7 +73,7 @@ describe('SSO-scoped password verification', () => {
 
     await expect(new SsoAuthService(em).verifyPassword(user, 'password')).resolves.toBe(false)
 
-    expect(compare).toHaveBeenCalledWith('password', 'stored-hash')
+    expect(compare).toHaveBeenCalledWith('password', STORED_HASH)
     expect(findOneWithDecryption).toHaveBeenCalledTimes(4)
     expect(findOneWithDecryption).toHaveBeenCalledWith(
       em, SsoUserDeactivation,
@@ -91,7 +92,7 @@ describe('SSO-scoped password verification', () => {
 
     await expect(new SsoAuthService(em).verifyPassword(user, 'password')).resolves.toBe(false)
 
-    expect(compare).toHaveBeenCalledWith('password', 'stored-hash')
+    expect(compare).toHaveBeenCalledWith('password', STORED_HASH)
     expect(findOneWithDecryption).toHaveBeenCalledTimes(4)
     expect(findOneWithDecryption).toHaveBeenNthCalledWith(
       1, em, SsoUserDeactivation,

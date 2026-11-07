@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { compare as bcryptCompare } from 'bcryptjs'
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -32,10 +32,6 @@ const logger = createLogger('customer_accounts').child({ component: 'signup' })
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
-// Precomputed bcrypt cost-10 hash of an unknowable random 32-byte input; used to equalize
-// response latency between the existing-user and new-user signup branches so the endpoint's
-// 202-for-both contract is not undone by a timing side channel.
-const TIMING_EQUALIZATION_HASH = '$2b$10$.F2A6UHFzk.d8trNdfqt4OLz05Nf3IOuMmN6VJKflhD4.rz.prR8i'
 function resolvePortalLoginUrl(baseUrl: string, organizationSlug?: string | null): string {
   return organizationSlug
     ? `${baseUrl}/${organizationSlug}/portal/login`
@@ -115,7 +111,9 @@ export async function POST(req: Request) {
 
   const existing = await customerUserService.findByEmail(email, tenantId)
   if (existing) {
-    await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
+    // Perform the same configured hash operation as CustomerUserService.createUser,
+    // then discard it so the endpoint's 202-for-both contract is not a timing oracle.
+    await getPasswordHasher().hash(password)
     const existingOrg = await findOrganizationInTenant(em, existing.organizationId, tenantId)
     // Prefer the org's active custom domain when available; fall back to the
     // platform login URL preserved by `resolvePortalLoginUrl`.

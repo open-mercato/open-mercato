@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isPasswordHasherBusyError } from '@open-mercato/shared/lib/auth/passwordHasher'
 
 const logger = createLogger('auth.api')
 
@@ -24,7 +25,21 @@ export type AuthRouteErrorOptions = {
  * responses must never let an unauthenticated caller distinguish one failure
  * from another.
  */
+export const PASSWORD_HASHER_BUSY_RETRY_AFTER_SECONDS = 1
+
+/** 503 for a full Argon2 work queue: the generic message keeps it indistinguishable per account. */
+export function passwordHasherBusyResponse(message: string): NextResponse {
+  return NextResponse.json(
+    { ok: false, error: message },
+    { status: 503, headers: { 'Retry-After': String(PASSWORD_HASHER_BUSY_RETRY_AFTER_SECONDS) } },
+  )
+}
+
 export function handleAuthRouteError(error: unknown, options: AuthRouteErrorOptions): NextResponse {
+  if (isPasswordHasherBusyError(error)) {
+    logger.warn('Password hashing capacity exhausted', { scope: options.scope })
+    return passwordHasherBusyResponse(options.message)
+  }
   logger.error('Unhandled auth route error', { err: error, scope: options.scope })
   return NextResponse.json({ ok: false, error: options.message }, { status: 500 })
 }
