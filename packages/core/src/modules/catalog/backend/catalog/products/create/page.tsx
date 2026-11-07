@@ -1345,7 +1345,7 @@ function ProductBuilder({
 
   return (
     <div className="space-y-6">
-      <nav className="flex gap-6 border-b pb-2 text-sm font-medium">
+      <nav className="flex flex-wrap gap-x-6 gap-y-2 border-b pb-2 text-sm font-medium">
         {steps.map((step, index) => (
           <Button
             key={step}
@@ -1618,7 +1618,7 @@ function ProductBuilder({
               value={(Array.isArray(values.variants) ? values.variants : []).find((v) => v.isDefault)?.id ?? ''}
               onValueChange={(next) => markDefaultVariant(next)}
             >
-            <div className="w-full overflow-x-auto">
+            <div className="relative w-full overflow-x-auto">
               <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
                 <thead className="bg-muted/50">
                   <tr>
