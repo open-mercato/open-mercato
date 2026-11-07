@@ -1746,6 +1746,7 @@ function StatusInlineEditor({
   loading,
   saveLabel,
   dictionaryMap,
+  appearance = 'plain',
 }: {
   label: string
   value: string | null | undefined
@@ -1758,6 +1759,7 @@ function StatusInlineEditor({
   loading: boolean
   saveLabel: string
   dictionaryMap: DictionaryMap
+  appearance?: 'plain' | 'dot' | 'icon'
 }) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -1847,7 +1849,6 @@ function StatusInlineEditor({
                 onChange={(next) => setDraft(next ?? undefined)}
                 fetchOptions={fetchStatusOptions}
                 allowInlineCreate={false}
-                allowAppearance
                 manageHref={manageHref}
                 sortOptions="none"
                 labels={labels}
@@ -1884,6 +1885,7 @@ function StatusInlineEditor({
               <DictionaryValue
                 value={value}
                 map={dictionaryMap}
+                appearance={appearance}
                 fallback={<span className="text-sm text-muted-foreground">{emptyLabel}</span>}
                 className="text-sm"
                 iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
@@ -4879,6 +4881,7 @@ export default function SalesDocumentDetailPage({
                   loading={statusLoading}
                   saveLabel={saveShortcutLabel}
                   dictionaryMap={statusDictionaryMap}
+                  appearance="dot"
                 />
               )
             }

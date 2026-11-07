@@ -25,6 +25,7 @@ import {
 import {
   DictionaryValue,
   ICON_SUGGESTIONS,
+  dictionaryValueAppearance,
   renderDictionaryColor,
   renderDictionaryIcon,
   type CustomerDictionaryKind,
@@ -304,10 +305,7 @@ export function InlineDictionaryEditor({
               value={currentValue}
               map={dictionaryMap}
               fallback={<span className="text-sm text-muted-foreground">{emptyLabel}</span>}
-              className="text-sm"
-              iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
-              iconClassName="h-4 w-4"
-              colorClassName="h-3 w-3 rounded-full"
+              appearance={dictionaryValueAppearance(kind)}
             />
           )
         }
