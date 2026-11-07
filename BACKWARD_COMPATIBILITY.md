@@ -648,3 +648,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## #8328 2026-11-01
+
+STABLE translations GET 404s soft-deleted owners; no bridge. [Migrate](https://github.com/open-mercato/open-mercato/pull/8329)

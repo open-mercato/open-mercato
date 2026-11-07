@@ -1,5 +1,6 @@
 {
   "translations.config.nav.title": "Übersetzungen",
+  "translations.errors.notFound": "Nicht gefunden",
   "translations.locales.add": "Hinzufügen",
   "translations.locales.addPlaceholder": "z.B. fr, it, ja...",
   "translations.locales.alwaysServed": "{{locale}} ist die Standardsprache und wird immer ausgeliefert, daher kann sie nicht entfernt werden.",

@@ -1,5 +1,6 @@
 {
   "translations.config.nav.title": "번역",
+  "translations.errors.notFound": "찾을 수 없음",
   "translations.locales.add": "추가",
   "translations.locales.addPlaceholder": "예: fr, it, ja...",
   "translations.locales.alwaysServed": "{{locale}}은(는) 기본 언어로 항상 제공되므로 제거할 수 없습니다.",
