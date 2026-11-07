@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { LockMode } from '@mikro-orm/core'
+import { LockMode, type FindOneOptions } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -582,12 +582,13 @@ async function requireScopedLine(
   em: EntityManager,
   lineId: string,
   scope: WarrantyClaimScope,
+  options: Pick<FindOneOptions<WarrantyClaimLine>, 'lockMode' | 'refresh'> = {},
 ): Promise<WarrantyClaimLine> {
   const line = await findOneWithDecryption(
     em,
     WarrantyClaimLine,
     { id: lineId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
-    { populate: ['claim'] },
+    { populate: ['claim'], ...options },
     scope,
   )
   if (!line) throw new CrudHttpError(404, { error: 'warranty_claims.errors.notFound' })
@@ -943,10 +944,8 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
     const input = parseCommandInput(claimLineReceiveSchema, rawInput)
     const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const line = await requireScopedLine(em, input.id, scope)
-    const claim = await requireScopedClaim(em, claimIdOf(line), scope)
-    assertReceivingStatus(claim)
-    await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
+    let line = await requireScopedLine(em, input.id, scope)
+    let claim = await requireScopedClaim(em, claimIdOf(line), scope)
 
     const grade: ConditionGrade = input.conditionGrade
     const effectiveSettings = await resolveEffectiveWarrantyClaimSettings(em, scope)
@@ -954,7 +953,10 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
 
     await withAtomicFlush(em, [
       async () => {
-        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        claim = await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        line = await requireScopedLine(em, input.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        assertReceivingStatus(claim)
+        await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
       },
       () => {
         line.conditionGrade = grade
@@ -1047,14 +1049,15 @@ const releaseClaimLineQuarantineCommand: CommandHandler<ClaimLineReleaseQuaranti
     const input = parseCommandInput(claimLineReleaseQuarantineSchema, rawInput)
     const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const line = await requireScopedLine(em, input.id, scope)
-    const claim = await requireScopedClaim(em, claimIdOf(line), scope)
-    assertReceivingStatus(claim)
-    await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
+    let line = await requireScopedLine(em, input.id, scope)
+    let claim = await requireScopedClaim(em, claimIdOf(line), scope)
 
     await withAtomicFlush(em, [
       async () => {
-        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        claim = await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        line = await requireScopedLine(em, input.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        assertReceivingStatus(claim)
+        await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
       },
       () => {
         line.quarantineStatus = 'released'
