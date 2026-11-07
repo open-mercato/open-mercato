@@ -13,6 +13,10 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
+import {
+  loadCustomerAuditRedactionContext,
+  redactCustomerAuditEntry,
+} from '@open-mercato/core/modules/customers/lib/auditRedaction'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -237,13 +241,23 @@ export async function GET(req: Request) {
   }
 
   const { translate } = await resolveTranslations()
+
+  // The CRM owns private-email visibility (customers/lib/visibilityFilter.ts); audit
+  // responses must never show MORE than a live CRM read would (#8887).
+  const auditRedactionContext = await loadCustomerAuditRedactionContext(
+    em,
+    { tenantId: auth.tenantId ?? '', organizationId: organizationId ?? null },
+    auth.sub,
+  )
+  const redactedItems = list.items.map((entry: any) => redactCustomerAuditEntry(entry, auditRedactionContext))
+
   const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: list.items.map((entry: any) => entry.actorUserId).filter((value: any): value is string => !!value),
-    tenantIds: list.items.map((entry: any) => entry.tenantId).filter((value: any): value is string => !!value),
-    organizationIds: list.items.map((entry: any) => entry.organizationId).filter((value: any): value is string => !!value),
+    userIds: redactedItems.map((entry: any) => entry.actorUserId).filter((value: any): value is string => !!value),
+    tenantIds: redactedItems.map((entry: any) => entry.tenantId).filter((value: any): value is string => !!value),
+    organizationIds: redactedItems.map((entry: any) => entry.organizationId).filter((value: any): value is string => !!value),
   }, { translate })
 
-  const items = list.items.map((entry: any) => ({
+  const items = redactedItems.map((entry: any) => ({
     id: entry.id,
     commandId: entry.commandId,
     actionLabel: entry.actionLabel,
