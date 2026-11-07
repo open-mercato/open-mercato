@@ -76,7 +76,12 @@ function createMockEm(overrides: Record<string, unknown> = {}): MockEm {
   } as unknown as MockEm
 }
 
-type DbRow = { id: string; status: string; processingStartedAt: Date | null }
+type DbRow = { id: string; status: string; processingStartedAt: Date | null; tenantId?: string | null }
+
+function sameValue(left: unknown, right: unknown) {
+  if (left instanceof Date && right instanceof Date) return left.getTime() === right.getTime()
+  return left === right
+}
 
 // EntityManager mock backed by a single persisted row. `nativeUpdate` honours the
 // status guard in its WHERE clause (so it returns 0 when the row has already moved
@@ -91,11 +96,12 @@ function createRowBackedEm(dbRow: DbRow, trackedEntity?: OnboardingRequest): Ent
   const nativeUpdate = jest.fn(
     async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
       const matches = Object.entries(where).every(
-        ([key, value]) => (dbRow as unknown as Record<string, unknown>)[key] === value,
+        ([key, value]) => sameValue((dbRow as unknown as Record<string, unknown>)[key] ?? null, value),
       )
       if (!matches) return 0
       if ('status' in data) dbRow.status = data.status as string
       if ('processingStartedAt' in data) dbRow.processingStartedAt = (data.processingStartedAt as Date | null) ?? null
+      if ('tenantId' in data) dbRow.tenantId = data.tenantId as string
       return 1
     },
   )
@@ -165,13 +171,45 @@ describe('OnboardingService', () => {
 
   describe('markCompleted', () => {
     it('sets status to completed and clears passwordHash', async () => {
-      const request = makeRequest({ passwordHash: 'secret' })
-      const em = createMockEm()
-      const service = new OnboardingService(em)
-      await service.markCompleted(request, { tenantId: 't', organizationId: 'o', userId: 'u' })
+      const claimedAt = new Date()
+      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: claimedAt }
+      const request = makeRequest({ passwordHash: 'secret', status: 'processing', processingStartedAt: claimedAt })
+      const service = new OnboardingService(createRowBackedEm(dbRow))
+
+      const completed = await service.markCompleted(request, { tenantId: 't', organizationId: 'o', userId: 'u' })
+
+      expect(completed).toBe(true)
+      expect(dbRow.status).toBe('completed')
+      expect(dbRow.processingStartedAt).toBeNull()
       expect(request.status).toBe('completed')
       expect(request.passwordHash).toBeNull()
-      expect(em.flush).toHaveBeenCalled()
+    })
+
+    it('does not complete a request whose processing lease moved to a newer run', async () => {
+      const staleLease = new Date(Date.now() - 20 * 60 * 1000)
+      const newerLease = new Date()
+      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: newerLease, tenantId: 't-new' }
+      const request = makeRequest({ status: 'processing', processingStartedAt: staleLease })
+      const service = new OnboardingService(createRowBackedEm(dbRow))
+
+      const completed = await service.markCompleted(request, { tenantId: 't-old', organizationId: 'o', userId: 'u' })
+
+      expect(completed).toBe(false)
+      expect(dbRow).toEqual({ id: 'req-1', status: 'processing', processingStartedAt: newerLease, tenantId: 't-new' })
+      expect(request.status).toBe('processing')
+      expect(request.passwordHash).toBe('hashed')
+    })
+
+    it('does not complete a request that was moved back to pending', async () => {
+      const heldSince = new Date()
+      const dbRow: DbRow = { id: 'req-1', status: 'pending', processingStartedAt: null }
+      const request = makeRequest({ status: 'processing', processingStartedAt: heldSince })
+      const service = new OnboardingService(createRowBackedEm(dbRow))
+
+      const completed = await service.markCompleted(request, { tenantId: 't', organizationId: 'o', userId: 'u' }, heldSince)
+
+      expect(completed).toBe(false)
+      expect(dbRow.status).toBe('pending')
     })
   })
 
@@ -196,6 +234,79 @@ describe('OnboardingService', () => {
     })
   })
 
+  describe('renewProcessing (provisioning lease)', () => {
+    it('renews the lease of a request that is still processing', async () => {
+      const claimedAt = new Date(Date.now() - 30_000)
+      const renewedAt = new Date()
+      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: claimedAt }
+      const request = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: claimedAt })
+      const service = new OnboardingService(createRowBackedEm(dbRow, request))
+
+      const renewed = await service.renewProcessing('req-1', new Date(claimedAt.getTime()), renewedAt)
+
+      expect(renewed).toBe(true)
+      expect(dbRow.status).toBe('processing')
+      expect(dbRow.processingStartedAt).toBe(renewedAt)
+      expect(request.processingStartedAt).toBe(claimedAt)
+    })
+
+    it('does not touch a request a concurrent worker already completed', async () => {
+      const dbRow: DbRow = { id: 'req-1', status: 'completed', processingStartedAt: null }
+      const service = new OnboardingService(createRowBackedEm(dbRow))
+
+      const renewed = await service.renewProcessing('req-1', new Date(), new Date())
+
+      expect(renewed).toBe(false)
+      expect(dbRow.status).toBe('completed')
+      expect(dbRow.processingStartedAt).toBeNull()
+    })
+
+    it('does not renew a request that a newer run reclaimed after a reset', async () => {
+      const staleLease = new Date(Date.now() - 20 * 60 * 1000)
+      const newerLease = new Date(Date.now() - 1000)
+      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: newerLease }
+      const service = new OnboardingService(createRowBackedEm(dbRow))
+
+      const renewed = await service.renewProcessing('req-1', staleLease, new Date())
+
+      expect(renewed).toBe(false)
+      expect(dbRow.processingStartedAt).toBe(newerLease)
+    })
+  })
+
+  describe('updateProvisioningIds', () => {
+    it('refreshes the provisioning lease in the same write that persists the ids', async () => {
+      const claimedAt = new Date(Date.now() - 10 * 60 * 1000)
+      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: claimedAt }
+      const request = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: claimedAt })
+      const service = new OnboardingService(createRowBackedEm(dbRow, request))
+      const before = Date.now()
+
+      const heldSince = await service.updateProvisioningIds(request, { tenantId: 't-1', organizationId: 'o-1', userId: 'u-1' })
+
+      expect(heldSince?.getTime()).toBeGreaterThanOrEqual(before)
+      expect(dbRow.processingStartedAt).toBe(heldSince)
+      expect(dbRow.tenantId).toBe('t-1')
+      expect(request.tenantId).toBe('t-1')
+      expect(request.processingStartedAt).toBe(heldSince)
+    })
+
+    it('does not record ids on a request a newer run reclaimed', async () => {
+      const staleLease = new Date(Date.now() - 20 * 60 * 1000)
+      const newerLease = new Date()
+      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: newerLease, tenantId: null }
+      const request = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: staleLease })
+      const service = new OnboardingService(createRowBackedEm(dbRow))
+
+      const heldSince = await service.updateProvisioningIds(request, { tenantId: 't-1', organizationId: 'o-1', userId: 'u-1' })
+
+      expect(heldSince).toBeNull()
+      expect(dbRow.tenantId).toBeNull()
+      expect(dbRow.processingStartedAt).toBe(newerLease)
+      expect(request.tenantId).toBeNull()
+    })
+  })
+
   describe('resetProcessing (conditional revert, #2742)', () => {
     it('does not revert a request a concurrent worker already completed', async () => {
       // A sibling worker already advanced the persisted row to 'completed'.
@@ -212,8 +323,9 @@ describe('OnboardingService', () => {
     })
 
     it('reverts a request that is still processing', async () => {
-      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: new Date() }
-      const request = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: new Date() })
+      const claimedAt = new Date()
+      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: claimedAt }
+      const request = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: new Date(claimedAt.getTime()) })
       const em = createRowBackedEm(dbRow, request)
       const service = new OnboardingService(em)
 
@@ -222,6 +334,19 @@ describe('OnboardingService', () => {
       expect(reverted).toBe(true)
       expect(dbRow.status).toBe('pending')
       expect(dbRow.processingStartedAt).toBeNull()
+    })
+
+    it('does not revert a request that a newer run reclaimed', async () => {
+      const newerLease = new Date()
+      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: newerLease }
+      const request = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: new Date(Date.now() - 60_000) })
+      const service = new OnboardingService(createRowBackedEm(dbRow))
+
+      const reverted = await service.resetProcessing(request)
+
+      expect(reverted).toBe(false)
+      expect(dbRow.status).toBe('processing')
+      expect(dbRow.processingStartedAt).toBe(newerLease)
     })
   })
 })

@@ -122,10 +122,22 @@ export class OnboardingService {
     return true
   }
 
-  async resetProcessing(request: OnboardingRequest): Promise<boolean> {
+  async renewProcessing(requestId: string, heldSince: Date, renewedAt: Date): Promise<boolean> {
+    const renewedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      { id: requestId, status: 'processing', processingStartedAt: heldSince },
+      { processingStartedAt: renewedAt, updatedAt: new Date() },
+    )
+    return renewedRows > 0
+  }
+
+  async resetProcessing(
+    request: OnboardingRequest,
+    heldSince: Date | null = request.processingStartedAt ?? null,
+  ): Promise<boolean> {
     const revertedRows = await this.em.nativeUpdate(
       OnboardingRequest,
-      { id: request.id, status: 'processing' },
+      { id: request.id, status: 'processing', processingStartedAt: heldSince },
       { status: 'pending', processingStartedAt: null, updatedAt: new Date() },
     )
     if (revertedRows === 0) return false
@@ -134,22 +146,51 @@ export class OnboardingService {
     return true
   }
 
-  async updateProvisioningIds(request: OnboardingRequest, data: { tenantId: string; organizationId: string; userId: string }) {
+  async updateProvisioningIds(
+    request: OnboardingRequest,
+    data: { tenantId: string; organizationId: string; userId: string },
+  ): Promise<Date | null> {
+    const renewedAt = new Date()
+    const updatedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      { id: request.id, status: 'processing', processingStartedAt: request.processingStartedAt ?? null },
+      { ...data, processingStartedAt: renewedAt, updatedAt: new Date() },
+    )
+    if (updatedRows === 0) return null
     request.tenantId = data.tenantId
     request.organizationId = data.organizationId
     request.userId = data.userId
-    await this.em.flush()
+    request.processingStartedAt = renewedAt
+    return renewedAt
   }
 
-  async markCompleted(request: OnboardingRequest, data: { tenantId: string; organizationId: string; userId: string }) {
+  async markCompleted(
+    request: OnboardingRequest,
+    data: { tenantId: string; organizationId: string; userId: string },
+    heldSince: Date | null = request.processingStartedAt ?? null,
+  ): Promise<boolean> {
+    const completedAt = new Date()
+    const completedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      { id: request.id, status: 'processing', processingStartedAt: heldSince },
+      {
+        ...data,
+        status: 'completed',
+        completedAt,
+        processingStartedAt: null,
+        passwordHash: null,
+        updatedAt: new Date(),
+      },
+    )
+    if (completedRows === 0) return false
     request.status = 'completed'
-    request.completedAt = new Date()
+    request.completedAt = completedAt
     request.tenantId = data.tenantId
     request.organizationId = data.organizationId
     request.userId = data.userId
     request.processingStartedAt = null
     request.passwordHash = null
-    await this.em.flush()
+    return true
   }
 
   async markReadyEmailSent(request: OnboardingRequest, sentAt: Date) {

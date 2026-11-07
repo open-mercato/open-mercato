@@ -12,6 +12,7 @@ import {
   runDeferredProvisioning,
 } from '@open-mercato/onboarding/modules/onboarding/lib/deferred-provisioning'
 import { isPreparationClaimActive } from '@open-mercato/onboarding/modules/onboarding/lib/preparation-claim'
+import { isProvisioningLeaseActive } from '@open-mercato/onboarding/modules/onboarding/lib/provisioning-lease'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const logger = createLogger('onboarding').child({ component: 'status' })
@@ -83,7 +84,11 @@ export async function GET(req: Request) {
   }
 
   const provisioningIds = resolveProvisioningIds(request)
-  if (provisioningIds && request.status === 'processing') {
+  if (
+    provisioningIds &&
+    request.status === 'processing' &&
+    !isProvisioningLeaseActive(request.processingStartedAt)
+  ) {
     await service.markCompleted(request, provisioningIds)
   }
   // Schedule deferred provisioning only while no runner holds a fresh claim —
