@@ -20,7 +20,7 @@ If assignment wins, deletion retains its existing assigned-user `400`. If deleti
 
 ## Migration & Backward Compatibility
 
-No schema, migrations, dependencies, exported signatures, routes, response shapes, defaults, startup commands or configuration change. This enforces existing sequential guards when requests overlap. Seeding keeps its fixtures and inputs; only its persistence transaction is serialized with runtime role deletion. No operator or client migration is required.
+No schema, migrations, dependencies, exported signatures, routes, startup commands or configuration change. Role creation now initializes its existing nullable updated_at version and returns the additive updatedAt field. List/detail and edit/delete/ACL guards consistently use created_at for historical null-version rows; successful writes replace that fallback with a normal updated_at version. Existing headerless callers remain supported. This enforces existing sequential guards when requests overlap. Seeding keeps its fixtures and inputs; only its persistence transaction is serialized with runtime role deletion. No operator or client migration is required.
 
 ## Validation
 
@@ -36,3 +36,5 @@ Same-role writers now wait for each other. Multi-role locks use ID order; exampl
 ## Changelog
 
 - 2026-11-05: Implemented transaction-scoped fresh role locking across deletion and all assignment writers; added race regression coverage for #8736.
+
+- 2026-11-07: Addressed QA follow-up #8846: initialize role versions and guard historical null versions consistently; added legacy guard units and self-contained two-actor browser/API stale-first-save, ACL/delete refusal and reload/retry coverage in TC-CACC-ROLE-INITIAL-VERSION-001.

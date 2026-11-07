@@ -62,7 +62,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     isSystem: role.isSystem,
     customerAssignable: role.customerAssignable,
     createdAt: role.createdAt,
-    updatedAt: role.updatedAt || null,
+    updatedAt: role.updatedAt ?? role.createdAt,
     features,
   })
 }
@@ -114,7 +114,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'customer_accounts.role',
       resourceId: role.id,
-      current: role.updatedAt ?? null,
+      current: role.updatedAt ?? role.createdAt,
       request: req,
     })
   } catch (err) {
@@ -185,7 +185,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
       await enforceCommandOptimisticLockWithGuards(container, {
         resourceKind: 'customer_accounts.role',
         resourceId: role.id,
-        current: role.updatedAt ?? null,
+        current: role.updatedAt ?? role.createdAt,
         request: req,
       })
     } catch (err) {
