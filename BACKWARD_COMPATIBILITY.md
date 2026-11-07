@@ -585,6 +585,8 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
 
+[Deal vocabulary](UPGRADE_NOTES.md#5546)
+
 ---
 
 ## OAuth2 Grant Lifecycle Core (2026-10-12)

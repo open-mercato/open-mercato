@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from 'react'
+import { useDealStatusVocabulary } from '@open-mercato/core/modules/customers/components/hooks/useDealStatusVocabulary'
+import type { DealStatusVocabulary } from '@open-mercato/core/modules/customers/lib/dealStatus'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
@@ -25,8 +27,8 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'pipeline-summary' })
 
-async function fetchPipelineData(settings: PipelineSummarySettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
-  return fetchWidgetData<WidgetDataResponse>(buildPipelineDataRequest(settings))
+async function fetchPipelineData(settings: PipelineSummarySettings, fetchWidgetData: WidgetDataFetcher, vocabulary: DealStatusVocabulary): Promise<WidgetDataResponse> {
+  return fetchWidgetData<WidgetDataResponse>(buildPipelineDataRequest(settings, vocabulary))
 }
 
 function formatStageLabel(stage: unknown, t: (key: string, fallback: string) => string): string {
@@ -49,6 +51,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
 }) => {
   const t = useT()
   const locale = useLocale()
+  const { vocabulary, isLoading: vocabularyLoading, isError: vocabularyError } = useDealStatusVocabulary()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<BarChartDataItem[]>([])
   const [currency, setCurrency] = React.useState<string | null>(null)
@@ -58,11 +61,12 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
 
   const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
+    if (vocabularyLoading || vocabularyError) return
     onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
-      const result = await fetchPipelineData(hydrated, fetchWidgetData)
+      const result = await fetchPipelineData(hydrated, fetchWidgetData, vocabulary)
       const chartData = result.data
         .filter((item) => item.groupKey != null && item.groupKey !== '' && String(item.groupKey) !== '0')
         .map((item) => ({
@@ -78,7 +82,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
       setLoading(false)
       onRefreshStateChange?.(false)
     }
-  }, [hydrated, fetchWidgetData, onRefreshStateChange, t])
+  }, [hydrated, fetchWidgetData, onRefreshStateChange, t, vocabulary, vocabularyLoading, vocabularyError])
 
   React.useEffect(() => {
     refresh().catch(() => {})
@@ -135,15 +139,15 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
           index="stage"
           categories={['Value']}
           categoryLabels={{ Value: t('dashboards.analytics.labels.value', 'Value') }}
-          loading={loading}
-          error={error}
+          loading={vocabularyLoading || (!vocabularyError && loading)}
+          error={vocabularyError ? t('customers.settings.dealStatusVocabulary.errorLoad', 'Failed to load deal status vocabulary.') : error}
           valueFormatter={money.formatCompact}
           colors={['violet']}
           showLegend={false}
           emptyMessage={t('dashboards.analytics.widgets.pipelineSummary.empty', 'No deal data for this period')}
         />
       </div>
-      <UnlabelledAmountNotice currency={currency} loading={loading} error={error} />
+      <UnlabelledAmountNotice currency={currency} loading={vocabularyLoading || (!vocabularyError && loading)} error={vocabularyError ? t('customers.settings.dealStatusVocabulary.errorLoad', 'Failed to load deal status vocabulary.') : error} />
     </div>
   )
 }

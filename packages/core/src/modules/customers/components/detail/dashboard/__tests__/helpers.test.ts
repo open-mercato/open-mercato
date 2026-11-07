@@ -82,3 +82,15 @@ describe('company dashboard helpers — deal status vocabulary (#4667)', () => {
     expect(computeDealTrend([CLOSED_WON_DEAL, OPEN_DEAL])).toBeDefined()
   })
 })
+
+
+it('uses a supplied vocabulary for dashboard totals, active rows and trends', () => {
+  const vocabulary = { won: ['signed'], lost: ['declined'], closed: ['archived'] }
+  const deals = [
+    { id: 'signed', title: 'Signed', status: 'SIGNED', valueAmount: 1000, createdAt: new Date().toISOString() },
+    { id: 'active', title: 'Active', status: 'negotiating', valueAmount: 300, createdAt: new Date().toISOString() },
+  ]
+  expect(sumActiveDeals(deals, vocabulary)).toBe(300)
+  expect(getActiveDeals(deals, vocabulary).map((deal) => deal.id)).toEqual(['active'])
+  expect(computeDealTrend(deals, vocabulary)).toEqual({ value: 10, direction: 'up' })
+})

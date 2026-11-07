@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Check } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { DealStatusVocabulary } from '../../lib/dealStatus'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
 
 type PipelineStageInfo = {
@@ -22,6 +23,7 @@ type StageTransitionInfo = {
 }
 
 type PipelineStepperProps = {
+  vocabulary?: DealStatusVocabulary
   stages: PipelineStageInfo[]
   transitions: StageTransitionInfo[]
   currentStageId: string | null
@@ -30,8 +32,8 @@ type PipelineStepperProps = {
   footer?: React.ReactNode
 }
 
-function isTerminalOutcomeStage(stage: PipelineStageInfo): boolean {
-  return isTerminalPipelineOutcomeLabel(stage.label)
+function isTerminalOutcomeStage(stage: PipelineStageInfo, vocabulary?: DealStatusVocabulary): boolean {
+  return isTerminalPipelineOutcomeLabel(stage.label, vocabulary)
 }
 
 function formatTransitionDate(value: string, t: ReturnType<typeof useT>): string {
@@ -57,6 +59,7 @@ function formatStageSubtitle(
 }
 
 export function PipelineStepper({
+  vocabulary,
   stages,
   transitions,
   currentStageId,
@@ -70,8 +73,8 @@ export function PipelineStepper({
     [stages],
   )
   const sortedStages = React.useMemo(
-    () => allStages.filter((stage) => !isTerminalOutcomeStage(stage)),
-    [allStages],
+    () => allStages.filter((stage) => !isTerminalOutcomeStage(stage, vocabulary)),
+    [allStages, vocabulary],
   )
   const transitionByStageId = React.useMemo(
     () => new Map(transitions.map((transition) => [transition.stageId, transition])),
@@ -86,12 +89,12 @@ export function PipelineStepper({
     const exactVisibleStage = sortedStages.find((stage) => stage.id === currentStageId) ?? null
     if (exactVisibleStage) return exactVisibleStage
     const currentStage = allStages.find((stage) => stage.id === currentStageId) ?? null
-    if (currentStage && isTerminalOutcomeStage(currentStage)) {
+    if (currentStage && isTerminalOutcomeStage(currentStage, vocabulary)) {
       const earlierVisibleStages = sortedStages.filter((stage) => stage.order < currentStage.order)
       return earlierVisibleStages[earlierVisibleStages.length - 1] ?? sortedStages[sortedStages.length - 1] ?? null
     }
     return lastVisibleTransitionStage
-  }, [allStages, currentStageId, lastVisibleTransitionStage, sortedStages])
+  }, [allStages, currentStageId, lastVisibleTransitionStage, sortedStages, vocabulary])
   const currentIndex = currentVisibleStage ? sortedStages.findIndex((stage) => stage.id === currentVisibleStage.id) : -1
   const compactStage = currentVisibleStage ?? sortedStages[0] ?? null
   const renderClosedProgress = closureOutcome !== null

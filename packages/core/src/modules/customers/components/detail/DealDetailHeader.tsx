@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primit
 import { ObjectHistoryButton } from './ObjectHistoryButton'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { formatFallbackLabel } from './utils'
+import type { DealStatusVocabulary } from '../../lib/dealStatus'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
 
 type DealAssociation = {
@@ -21,6 +22,7 @@ type DealAssociation = {
 }
 
 type DealDetailHeaderProps = {
+  vocabulary?: DealStatusVocabulary
   deal: {
     id: string
     title: string
@@ -98,12 +100,14 @@ function HeaderChip({
 }
 
 function StageActionButton({
+  vocabulary,
   stageOptions,
   currentStageId,
   onStageChange,
   disabled,
   isSaving,
 }: {
+  vocabulary?: DealStatusVocabulary
   stageOptions: Array<{ id: string; label: string; order: number }>
   currentStageId: string | null
   onStageChange: (stageId: string) => Promise<void> | void
@@ -115,9 +119,9 @@ function StageActionButton({
   const sortedStages = React.useMemo(
     () =>
       [...stageOptions]
-        .filter((stage) => !isTerminalPipelineOutcomeLabel(stage.label))
+        .filter((stage) => !isTerminalPipelineOutcomeLabel(stage.label, vocabulary))
         .sort((left, right) => left.order - right.order),
-    [stageOptions],
+    [stageOptions, vocabulary],
   )
   const currentStage = React.useMemo(
     () => sortedStages.find((stage) => stage.id === currentStageId) ?? null,
@@ -184,6 +188,7 @@ function StageActionButton({
 }
 
 export function DealDetailHeader({
+  vocabulary,
   deal,
   owner,
   people,
@@ -230,7 +235,7 @@ export function DealDetailHeader({
     return null
   }, [createdAtLabel, expectedCloseLabel, t])
   const statusLabel = statusEntry?.label ?? (deal.status ? formatFallbackLabel(deal.status) : null)
-  const showStatusChip = statusLabel && (!deal.closureOutcome || !isTerminalPipelineOutcomeLabel(deal.status))
+  const showStatusChip = statusLabel && (!deal.closureOutcome || !isTerminalPipelineOutcomeLabel(deal.status, vocabulary))
   const pipelineBadgeLabel = pipelineName ?? null
   const canMoveStage = stageOptions.length > 0 && !deal.closureOutcome && typeof onStageChange === 'function'
   const messageSubtitle = React.useMemo(() => (
@@ -275,7 +280,7 @@ export function DealDetailHeader({
                 {statusLabel}
               </HeaderChip>
             ) : null}
-            {deal.pipelineStage && !isTerminalPipelineOutcomeLabel(deal.pipelineStage) ? (
+            {deal.pipelineStage && !isTerminalPipelineOutcomeLabel(deal.pipelineStage, vocabulary) ? (
               <HeaderChip variant="warning">
                 {deal.pipelineStage}
               </HeaderChip>
@@ -310,6 +315,7 @@ export function DealDetailHeader({
         {actions}
         {canMoveStage ? (
           <StageActionButton
+            vocabulary={vocabulary}
             stageOptions={stageOptions}
             currentStageId={currentStageId}
             onStageChange={onStageChange}
