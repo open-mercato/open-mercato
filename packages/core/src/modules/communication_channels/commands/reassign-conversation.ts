@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -96,6 +97,9 @@ async function checkChannelAccess(
 }
 
 const THREAD_NOT_FOUND_FALLBACK = 'Thread not found'
+const REASSIGN_UNDO_CONFLICT_KEY = 'communication_channels.errors.reassignUndoConflict'
+const REASSIGN_UNDO_CONFLICT_FALLBACK =
+  'This conversation was reassigned again after this change. Undo was refused so the newer assignment is kept.'
 
 /**
  * The generic "not found" message used to mask an authorization refusal, so a
@@ -109,6 +113,21 @@ export async function resolveThreadNotFoundMessage(): Promise<string> {
   } catch {
     return THREAD_NOT_FOUND_FALLBACK
   }
+}
+
+/**
+ * Refuse an undo whose target owner has been superseded by a later change, so
+ * the newer assignment is never overwritten with the stale previous owner.
+ */
+async function throwReassignUndoConflict(): Promise<never> {
+  let message = REASSIGN_UNDO_CONFLICT_FALLBACK
+  try {
+    const { translate } = await resolveTranslations()
+    message = translate(REASSIGN_UNDO_CONFLICT_KEY, REASSIGN_UNDO_CONFLICT_FALLBACK)
+  } catch {
+    message = REASSIGN_UNDO_CONFLICT_FALLBACK
+  }
+  throw new CrudHttpError(409, { error: message, code: REASSIGN_UNDO_CONFLICT_KEY })
 }
 
 export type ReassignConversationResult =
@@ -207,8 +226,7 @@ const reassignConversationCommand: CommandHandler<
       return { status: 'access_denied', reason: denialReason }
     }
 
-    const previousAssignedUserId = mapping.assignedUserId ?? null
-    if (previousAssignedUserId === input.assignedUserId) {
+    if ((mapping.assignedUserId ?? null) === input.assignedUserId) {
       return { status: 'noop', reason: 'assigned user unchanged' }
     }
 
@@ -233,31 +251,57 @@ const reassignConversationCommand: CommandHandler<
       }
     }
 
-    const conversation = await findOneWithDecryption(
-      em,
-      ExternalConversation,
-      {
-        id: mapping.externalConversationId,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      },
-      undefined,
-      dscope,
-    )
-    if (!conversation) {
-      return {
-        status: 'no_channel_link',
-        reason: `no ExternalConversation for thread ${input.threadId}`,
+    const applied = await em.transactional(async (tem) => {
+      const lockedMapping = await findOneWithDecryption(
+        tem,
+        ChannelThreadMapping,
+        { id: mapping.id, tenantId: input.scope.tenantId },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        dscope,
+      )
+      if (!lockedMapping) {
+        return {
+          status: 'no_channel_link' as const,
+          reason: `no ChannelThreadMapping for thread ${input.threadId}`,
+        }
       }
-    }
+      const lockedPreviousAssignedUserId = lockedMapping.assignedUserId ?? null
+      if (lockedPreviousAssignedUserId === input.assignedUserId) {
+        return { status: 'noop' as const, reason: 'assigned user unchanged' }
+      }
+      const conversation = await findOneWithDecryption(
+        tem,
+        ExternalConversation,
+        {
+          id: lockedMapping.externalConversationId,
+          tenantId: input.scope.tenantId,
+          organizationId: input.scope.organizationId ?? null,
+        },
+        { refresh: true },
+        dscope,
+      )
+      if (!conversation) {
+        return {
+          status: 'no_channel_link' as const,
+          reason: `no ExternalConversation for thread ${input.threadId}`,
+        }
+      }
 
-    // `assignedUserId` is an advisory routing pointer, not a DB foreign key
-    // (modules don't share ORM relations). The assignee-existence check above
-    // and this write are not atomic, so a user deleted in between leaves a
-    // harmless dangling pointer — consistent with the module's no-FK design.
-    mapping.assignedUserId = input.assignedUserId
-    conversation.assignedUserId = input.assignedUserId
-    await em.flush()
+      // `assignedUserId` is an advisory routing pointer, not a DB foreign key
+      // (modules don't share ORM relations). The assignee-existence check above
+      // and this write are not atomic, so a user deleted in between leaves a
+      // harmless dangling pointer — consistent with the module's no-FK design.
+      lockedMapping.assignedUserId = input.assignedUserId
+      conversation.assignedUserId = input.assignedUserId
+      await tem.flush()
+      return {
+        status: 'applied' as const,
+        previousAssignedUserId: lockedPreviousAssignedUserId,
+        conversation,
+      }
+    })
+    if (applied.status !== 'applied') return applied
+    const { previousAssignedUserId, conversation } = applied
 
     try {
       await emitCommunicationChannelsEvent(
@@ -361,16 +405,32 @@ const reassignConversationCommand: CommandHandler<
     if (denialReason) {
       throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
     }
-    const conversation = await findOneWithDecryption(
-      em,
-      ExternalConversation,
-      { id: snapshot.conversationId, tenantId: snapshot.tenantId },
-      undefined,
-      dscope,
-    )
-    mapping.assignedUserId = snapshot.previousAssignedUserId
-    if (conversation) conversation.assignedUserId = snapshot.previousAssignedUserId
-    await em.flush()
+    await em.transactional(async (tem) => {
+      const lockedMapping = await findOneWithDecryption(
+        tem,
+        ChannelThreadMapping,
+        { id: snapshot.threadMappingId, tenantId: snapshot.tenantId },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        dscope,
+      )
+      if (!lockedMapping) {
+        throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
+      }
+      const conversation = await findOneWithDecryption(
+        tem,
+        ExternalConversation,
+        { id: snapshot.conversationId, tenantId: snapshot.tenantId },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        dscope,
+      )
+      const superseded =
+        (lockedMapping.assignedUserId ?? null) !== snapshot.newAssignedUserId ||
+        (conversation != null && (conversation.assignedUserId ?? null) !== snapshot.newAssignedUserId)
+      if (superseded) await throwReassignUndoConflict()
+      lockedMapping.assignedUserId = snapshot.previousAssignedUserId
+      if (conversation) conversation.assignedUserId = snapshot.previousAssignedUserId
+      await tem.flush()
+    })
   },
 }
 
