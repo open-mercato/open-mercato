@@ -279,6 +279,35 @@ const REQUESTY_PRESET: OpenAICompatiblePreset = {
 }
 
 /**
+ * Linkrra Synap - OpenAI-compatible endpoint serving open-weight models on
+ * dedicated GPUs. Model ids are unprefixed (e.g. `gpt-oss-20b`); the live
+ * catalog with per-model pricing is published at
+ * `https://synap.linkrra.com/v1/models`.
+ */
+const SYNAP_PRESET: OpenAICompatiblePreset = {
+  id: 'synap',
+  name: 'Linkrra Synap',
+  baseURL: 'https://synap.linkrra.com/v1',
+  baseURLEnvKeys: ['SYNAP_BASE_URL'],
+  envKeys: ['SYNAP_API_KEY'],
+  defaultModel: 'gpt-oss-20b',
+  defaultModels: [
+    {
+      id: 'gpt-oss-20b',
+      name: 'gpt-oss 20B',
+      contextWindow: 131072,
+      tags: ['budget'],
+    },
+    {
+      id: 'qwen3-coder-30b',
+      name: 'Qwen3 Coder 30B',
+      contextWindow: 262144,
+      tags: ['coding'],
+    },
+  ],
+}
+
+/**
  * LM Studio — local model server for development and offline use.
  * Default port 1234 can be overridden via `LM_STUDIO_BASE_URL`.
  * `defaultModel` is intentionally empty — LM Studio auto-detects
@@ -310,5 +339,6 @@ export const OPENAI_COMPATIBLE_PRESETS: readonly OpenAICompatiblePreset[] = [
   OLLAMA_PRESET,
   OPENROUTER_PRESET,
   REQUESTY_PRESET,
+  SYNAP_PRESET,
   LM_STUDIO_PRESET,
 ]
