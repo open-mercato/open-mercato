@@ -76,6 +76,8 @@ Known deferred drift: the monorepo's `starters/` directory (hybrid install/start
 
 One starter file IS mirrored: `packages/starter/src/infra-preflight.mjs` -> `template/scripts/dev-infra-preflight.mjs` (byte-for-byte via `yarn template:sync`, guarded by a starter test). It must stay Node-stdlib-only with no sibling imports. The template's own `scripts/infra.mjs` (`yarn infra:up` / `infra:down`, called by `scripts/setup.mjs`) is template-only and has no monorepo source.
 
+Note: `src/app/theme.css` is **user-owned** in scaffolded apps — the template ships an inert (comments-only) copy mirrored with `apps/mercato/src/app/theme.css`, but upgrade tooling and `om-auto-upgrade-*` migrations must never rewrite a user's `theme.css`; brand overrides live there precisely so `globals.css` can stay framework-owned.
+
 ## Dev Runtime Expectations
 
 - `yarn dev` is the compact runtime. It folds routine startup logs and lets the user press `d` to show or hide raw logs.

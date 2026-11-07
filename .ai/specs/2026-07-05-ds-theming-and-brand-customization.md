@@ -267,4 +267,6 @@ Impact on existing behavior: none. All risk is confined to apps that actively op
 
 ## Changelog
 
+- 2026-07-18 — Implemented: `packages/cli/src/lib/theme/` (normative WCAG 2.1 contrast math, sRGB↔OKLCH palette derivation with gamut mapping, deterministic safe-token `theme.css` emission), `mercato theme init` with the full flag surface (bootstrap-free, exit 0/1, dry-run, force, idempotent layout import insert), inert `theme.css` convention files in app + create-app template (byte-identical pair), "Brand your app" guide in apps/docs, UPGRADE_NOTES entry. 56 tests incl. WCAG fixtures and tmp-dir e2e. Deviations: brand token defaults follow repo canon (#B4F372 / #BC9AFF+#0C0C0C — the spec table's #D4F372/oklch values contradicted globals.css and ds-rules); the scaffolded comments-only theme.css is treated as inert and regenerable without --force; test:create-app smoke extension and the Verdaccio run deferred with template-sync + CLI e2e guarding parity instead; before/after screenshot pending manual QA.
+
 - **2026-07-05** — Initial spec: token contract docs page, `theme.css` override convention in create-app template + monorepo mirror, `mercato theme init` with OKLCH palette derivation and WCAG 2.1 contrast validation.
