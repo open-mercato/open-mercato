@@ -9,7 +9,7 @@ The CLI defaults to `secret`; starter and generated-app full-app Compose flows d
 ## Proposed Solution and Architecture
 Resolve credentials in the CLI's existing init-secrets helper. Normalize `NODE_ENV` with trimming and lowercase, consistent with derived-account secrets. Only `production` enables enforcement. Reject missing, blank, and known built-in placeholder passwords and apply `getPasswordPolicy` / `validatePassword`. Production never forwards either password-policy bypass alias; non-production retains existing defaults and explicit flags.
 
-Validate before database work for normal init and reinstall. For `--skip-if-initialized` without reinstall, allow the existing database preflight to return successfully without bootstrap credentials; validate before generators or account creation if initialization is needed. Operator diagnostics use locale dictionaries selected by LC_ALL, LC_MESSAGES, or LANG, with English fallback; the CLI build ships those dictionaries. Both full-app Compose distributions retain their development fallback, which the production guard rejects. The root compatibility duplicate stays aligned.
+On release/v0.9.x, validate before destructive database work for reinstall. For ordinary init, preserve the release existing-users abort before credential validation so full-app entrypoints can recover a missing marker without bootstrap credentials. On an empty database, validate before generators, migrations or account creation. This release does not add the newer --skip-if-initialized command. Operator diagnostics use locale dictionaries selected by LC_ALL, LC_MESSAGES, or LANG, with English fallback; the CLI build ships those dictionaries. Both full-app Compose distributions retain their development fallback, which the production guard rejects. The root compatibility duplicate stays aligned.
 
 ## Data Models and API Contracts
 No schema, API, ACL, event, or direct `mercato auth setup` contract changes. Existing accounts are not modified. No new dependencies or provider configuration.
@@ -38,3 +38,5 @@ Uses shared password-policy helpers, modifies no tenant data access, adds no dep
 
 ## Changelog
 - 2026-11-06: Production-only fix and regression tests prepared for #7809.
+
+- 2026-11-07: Resolve release-only cherry-pick conflicts without importing unrelated newer helpers/guards/tests; fix initialized-production restart ordering and add three regressions. Fresh protected QA is required for this delta.

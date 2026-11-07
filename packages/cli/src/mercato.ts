@@ -9,13 +9,7 @@ export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
-<<<<<<< HEAD
-import { resolveInitDerivedSecrets } from './lib/init-secrets'
-=======
-import { formatInitSummary } from './lib/init-summary'
 import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from './lib/init-secrets'
-import { decideExistingDatabase, formatSkipIfInitializedMessage } from './lib/init-existing-database'
->>>>>>> cd32bd84b (fix(cli): require secure superadmin credentials only in production (#7809) (#8896))
 import {
   resolveAutoSpawnWorkersMode,
   resolveLazySpawnMode,
@@ -956,11 +950,7 @@ export async function run(argv = process.argv) {
       } else if (process.env.OM_INIT_REINSTALL) {
         delete process.env.OM_INIT_REINSTALL
       }
-<<<<<<< HEAD
-=======
-      const skipIfInitialized = initArgs.includes('--skip-if-initialized')
-      const credentials = skipIfInitialized && !reinstall ? undefined : resolveInitSuperadminCredentials(initArgs)
->>>>>>> cd32bd84b (fix(cli): require secure superadmin credentials only in production (#7809) (#8896))
+      const credentials = reinstall ? resolveInitSuperadminCredentials(initArgs) : undefined
       const skipExamples = initArgs.includes('--no-examples')
       const stressTestEnabled =
         initArgs.includes('--stresstest') || initArgs.includes('--stress-test')
