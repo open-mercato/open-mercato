@@ -89,4 +89,26 @@ describe('InlineActivityComposer', () => {
     expect(localStorage.getItem('om:inline-composer:week-preview:deal')).toBeNull()
     expect(screen.getByTestId('mini-week-calendar')).toBeInTheDocument()
   })
+
+  // #8382: at a 390px viewport the header row (title + action buttons) must wrap
+  // instead of forcing the page to scroll horizontally — the Button primitive is
+  // `whitespace-nowrap shrink-0`, so only the row's own layout can resolve this.
+  // jsdom has no layout engine, so this pins intent via the classes rather than
+  // measured overflow (covered by the Playwright spec for #8382 in __integration__).
+  it('allows the header row and its action buttons to wrap at narrow widths', () => {
+    renderWithProviders(
+      <InlineActivityComposer
+        entityType="deal"
+        entityId="deal-1"
+        onScheduleRequested={() => {}}
+      />,
+    )
+
+    const saveButton = screen.getByRole('button', { name: /Save activity/i })
+    const buttonGroup = saveButton.parentElement as HTMLElement
+    expect(buttonGroup.className).toEqual(expect.stringContaining('flex-wrap'))
+
+    const headerRow = buttonGroup.parentElement as HTMLElement
+    expect(headerRow.className).toEqual(expect.stringContaining('flex-wrap'))
+  })
 })
