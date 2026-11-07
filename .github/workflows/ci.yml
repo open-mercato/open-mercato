@@ -819,6 +819,36 @@ jobs:
         # suite unconditionally here so template drift fails the PR, not main.
         run: yarn workspace create-mercato-app test
 
+      - name: Scaffold-and-lint DS module UI (always, unfiltered)
+        # Spec .ai/specs/2026-07-05-ds-module-ui-scaffold.md §Testing layer 3:
+        # scaffold a throwaway module with the real CLI, regenerate, DS-lint the
+        # generated pages with the repo eslint.ds config at --max-warnings 0,
+        # typecheck, then remove the module and require a clean tree. This
+        # exercises the real repo wiring (path aliases, tsconfig, lint:ds
+        # surface) that the temp-dir golden/contract tests cannot. The probe
+        # uses --target packages/core because the backend-page rules in
+        # eslint.ds.config.mjs scope their `files` globs to packages/**, so an
+        # apps-target probe would skip them.
+        run: |
+          trap 'rm -rf packages/core/src/modules/scaffold_ci' EXIT
+          yarn mercato module scaffold scaffold_ci --entity ci_probe --fields "name:text:required,status:select(open|closed),notes:textarea" --with-ui --target packages/core
+          yarn generate
+          node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/eslint.js --config eslint.ds.config.mjs packages/core/src/modules/scaffold_ci --max-warnings 0
+          yarn typecheck
+          rm -rf packages/core/src/modules/scaffold_ci
+          # The probe's create page uses the `plus` icon string, which the ui
+          # build adds to the committed icon registry. Restore it so the check
+          # below only fails on files the scaffold itself left behind.
+          git checkout -- packages/ui/src/backend/icons/lucideRegistry.generated.tsx
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Scaffold CI probe left the tree dirty:"
+            git status --porcelain
+            exit 1
+          fi
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
       - name: Run repo-wide audit guards (always, unfiltered)
         # Same class as the create-app parity step above, generalized (#4534). A handful of
         # tests are repo-wide AUDITS rather than package unit tests: they deliberately scan
