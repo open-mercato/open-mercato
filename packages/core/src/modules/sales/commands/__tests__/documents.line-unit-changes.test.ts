@@ -82,6 +82,22 @@ function buildLine(overrides: Partial<PersistedLine> & { id: string }): Persiste
 
 type ProductRow = { id: string; defaultUnit: string | null; defaultSalesUnit: string | null }
 type ConversionRow = { id: string; unitCode: string; toBaseFactor: string }
+type UnitWorld = {
+  quote: Record<string, unknown>
+  order: Record<string, unknown>
+  lines: PersistedLine[]
+  products: ProductRow[]
+  conversions: Record<string, ConversionRow[]>
+  units: string[]
+}
+
+const worldHolder = globalThis as typeof globalThis & { __serviceLinesWorld?: UnitWorld }
+
+function readWorld(): UnitWorld {
+  const world = worldHolder.__serviceLinesWorld
+  if (!world) throw new Error('[internal] unit test world is not set')
+  return world
+}
 
 function setWorld(
   lines: PersistedLine[],
@@ -105,12 +121,12 @@ function setWorld(
     updatedAt: new Date('2026-09-07T00:00:00.000Z'),
   }
   const order = { ...document, id: ORDER_ID }
-  ;(globalThis as any).__serviceLinesWorld = { quote: document, order, lines, products, conversions, units: KNOWN_UNITS }
+  worldHolder.__serviceLinesWorld = { quote: document, order, lines, products, conversions, units: KNOWN_UNITS }
 }
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: jest.fn(async (_em: unknown, entityClass: unknown, where: Record<string, any>) => {
-    const world = (globalThis as any).__serviceLinesWorld
+  findOneWithDecryption: jest.fn(async (_em: unknown, entityClass: unknown, where: Record<string, unknown>) => {
+    const world = readWorld()
     if (entityClass === SalesQuote) return world.quote
     if (entityClass === SalesOrder) return world.order
     const entityName = (entityClass as { name?: string })?.name ?? ''
@@ -118,17 +134,17 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
       return { id: 'unit-dictionary', organizationId: where.organizationId, tenantId: where.tenantId }
     }
     if (entityName === 'DictionaryEntry') {
-      const candidates = (where.$or ?? []).flatMap((entry: Record<string, unknown>) => Object.values(entry))
+      const candidates = ((where.$or as Array<Record<string, unknown>> | undefined) ?? []).flatMap((entry: Record<string, unknown>) => Object.values(entry))
       const known = candidates.some((value: unknown) => typeof value === 'string' && world.units.includes(value.toLowerCase()))
       return known ? { id: 'unit-entry' } : null
     }
     if (entityName === 'CatalogProduct') {
-      return world.products.find((product: { id: string }) => product.id === where.id) ?? null
+      return world.products.find((product) => product.id === where.id) ?? null
     }
     return null
   }),
   findWithDecryption: jest.fn(async (_em: unknown, entityClass: unknown, where: unknown) => {
-    const world = (globalThis as any).__serviceLinesWorld
+    const world = readWorld()
     const entityName = (entityClass as { name?: string })?.name ?? ''
     if (entityName === 'SalesQuoteLine' || entityName === 'SalesOrderLine') return [...world.lines]
     if (entityName === 'CatalogProductUnitConversion') {
@@ -142,16 +158,13 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 function makeEm() {
-  const world = () => (globalThis as any).__serviceLinesWorld
-  const em: any = {
+  const em: Record<string, unknown> = {
     getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
-    fork: function () {
-      return this
-    },
+    fork: () => em,
     transactional: async (cb: (tx: unknown) => Promise<unknown>) => cb(em),
     find: jest.fn(async (entityClass: unknown) => {
       const entityName = (entityClass as { name?: string })?.name ?? ''
-      if (entityName === 'SalesQuoteLine' || entityName === 'SalesOrderLine') return [...world().lines]
+      if (entityName === 'SalesQuoteLine' || entityName === 'SalesOrderLine') return [...readWorld().lines]
       return []
     }),
     findOne: jest.fn(async () => null),
@@ -198,8 +211,7 @@ function makeCtx(em: unknown) {
 async function runCommand(commandId: string, body: Record<string, unknown>) {
   const handler = commandRegistry.get(commandId)!
   await handler.execute({ body } as never, makeCtx(makeEm()) as never)
-  const world = (globalThis as any).__serviceLinesWorld
-  return new Map<string, PersistedLine>(world.lines.map((line: PersistedLine) => [line.id, line]))
+  return new Map<string, PersistedLine>(readWorld().lines.map((line) => [line.id, line]))
 }
 
 const BOX_LINE = {
@@ -245,7 +257,7 @@ describe('sales line writes — unit handling on product changes', () => {
   })
 
   afterEach(() => {
-    delete (globalThis as any).__serviceLinesWorld
+    delete worldHolder.__serviceLinesWorld
   })
 
   describe.each(documents)('$label lines', ({ commandId, parentKey, parentId }) => {
@@ -302,7 +314,26 @@ describe('sales line writes — unit handling on product changes', () => {
       const line = (await runCommand(commandId, productChange)).get(FIRST_LINE_ID)!
 
       expect(line.quantityUnit ?? null).toBeNull()
+      expect(Number(line.normalizedQuantity)).toBe(2)
+      expect(line.normalizedUnit ?? null).toBeNull()
+      expect(line.uomSnapshot ?? null).toBeNull()
       expect(Number(line.unitPriceNet)).toBe(120)
+    })
+
+    it('rejects the change when the fallback to the default unit is rejected too', async () => {
+      setWorld(
+        [storedBoxLine()],
+        [productA, { id: OTHER_PRODUCT_ID, defaultUnit: null, defaultSalesUnit: 'pc' }],
+        { [PRODUCT_ID]: [boxConversionA], [OTHER_PRODUCT_ID]: [] },
+      )
+
+      await expect(runCommand(commandId, productChange)).rejects.toMatchObject({
+        status: 400,
+        body: { error: 'uom.default_unit_missing' },
+      })
+
+      const line = readWorld().lines[0]
+      expect(line).toMatchObject({ productId: PRODUCT_ID, quantityUnit: 'box', normalizedQuantity: '24', unitPriceNet: '120' })
     })
 
     it('does not convert the unit price across products when the caller names a unit', async () => {
