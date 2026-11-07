@@ -9,6 +9,7 @@ export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { redactCliArgs, redactCliText } from './lib/cli-output'
 import { formatInitSummary } from './lib/init-summary'
 import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from './lib/init-secrets'
 import { decideExistingDatabase, formatSkipIfInitializedMessage } from './lib/init-existing-database'
@@ -253,18 +254,10 @@ const SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND = new Map<string, string[]>([
   ['seeds:load', ['--key']],
 ])
 
-function redactSensitiveModuleCliArgs(args: string[], commandKey: string): string[] {
+function getSensitiveModuleCliOptions(commandKey: string): ReadonlySet<string> {
   const sensitive = new Set(SENSITIVE_MODULE_CLI_OPTIONS)
   for (const option of SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND.get(commandKey) ?? []) sensitive.add(option)
-  return args.map((argument, index) => {
-    const separatorIndex = argument.indexOf('=')
-    if (separatorIndex > 0) {
-      const option = argument.slice(0, separatorIndex)
-      if (sensitive.has(option)) return `${option}=****`
-    }
-    if (index > 0 && sensitive.has(args[index - 1]!)) return '****'
-    return argument
-  })
+  return sensitive
 }
 
 function formatInitFailureMessage(error: unknown): string {
@@ -1452,27 +1445,24 @@ export async function run(argv = process.argv) {
         console.log('')
       }
 
-      const adminPasswordOverride = derivedSecrets.adminPassword
-      const employeePasswordOverride = derivedSecrets.employeePassword
       const createdUsers: Array<{ label: string; icon: string; email: string }> = []
-      const createdPasswords = new Map<string, string>()
-      const pushUser = (label: string, icon: string, value: string | null, passwordValue: string) => {
+      const pushUser = (label: string, icon: string, value: string | null) => {
         if (!value) return
         if (createdUsers.some((entry) => entry.email.toLowerCase() === value.toLowerCase())) return
         createdUsers.push({ label, icon, email: value })
-        createdPasswords.set(value.toLowerCase(), passwordValue)
       }
-      pushUser('Superadmin', '👑', email, password)
+      pushUser('Superadmin', '👑', email)
       if (!skipDemoUsers) {
-        pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
-        pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
+        pushUser('Admin', '🧰', adminEmailDerived)
+        pushUser('Employee', '👷', employeeEmailDerived)
       }
+      console.log('🎉 App initialization complete!\n')
       const summaryColor = parseBooleanToken(process.env.OM_INIT_SUMMARY_COLOR)
       const summaryColumns = Number(process.env.OM_INIT_SUMMARY_COLUMNS ?? process.stdout.columns)
       const summary = formatInitSummary({
         users: createdUsers.map((entry) => ({
           ...entry,
-          password: createdPasswords.get(entry.email.toLowerCase()) ?? password,
+          password: '****',
         })),
         autoStart: parseBooleanToken(process.env.OM_INIT_DEV_AUTOSTART) === true,
         columns: summaryColumns,
@@ -1482,7 +1472,7 @@ export async function run(argv = process.argv) {
 
       return 0
     } catch (error: unknown) {
-      console.error('❌ Initialization failed:', formatInitFailureMessage(error))
+      console.error('❌ Initialization failed:', redactCliText(formatInitFailureMessage(error), parts))
       return 1
     }
   }
@@ -2854,8 +2844,10 @@ export async function run(argv = process.argv) {
   const commandArgs = modName === 'deploy' && cmdName === 'railway'
     ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
     : rest
-  const loggedArgs = redactSensitiveModuleCliArgs(commandArgs, `${modName}:${cmdName}`)
-  console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
+  const sensitiveOptions = getSensitiveModuleCliOptions(`${modName}:${cmdName}`)
+  const loggedArgs = redactCliArgs(rest, sensitiveOptions)
+    .map((argument, index) => argument === rest[index] ? commandArgs[index]! : argument)
+  console.log(`🚀 Running ${modName}:${cmdName} ${redactCliText(loggedArgs.join(' '), [], {})}`)
   try {
     const commandExitCode = await runWithCapturedExitCode(async () => {
       await cmd.run(rest)
@@ -2865,8 +2857,8 @@ export async function run(argv = process.argv) {
       console.log(`⏱️ Done in ${ms}ms`)
     }
     return commandExitCode
-  } catch (e: any) {
-    console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)
+  } catch (error: unknown) {
+    console.error(`💥 Failed: ${redactCliText(formatCliFailureMessage(modName, cmdName, error), rest, process.env, sensitiveOptions)}`)
     return 1
   }
 }
