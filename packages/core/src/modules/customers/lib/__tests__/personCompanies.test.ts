@@ -95,6 +95,7 @@ describe('personCompanies primary-company invariants', () => {
       expect.objectContaining({ isPrimary: true, id: { $ne: 'link-second' } }),
       { isPrimary: false },
     )
+    expect(secondLink.isPrimary).toBe(true)
     expect(profile.company).toBe(selectedCompany)
   })
 })

@@ -668,6 +668,30 @@ describe('customers.personCompanyLinks — one primary link per person under con
     expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
   })
 
+  it('locks the person row before restoring a primary link on delete undo', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: false, deletedAt: new Date('2026-06-02T00:00:00Z') },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_B_ID,
+    )
+    const lockCalls = onPersonRowLock(fixtures, () => {
+      fixtures.linkRows.get(LINK_B_ID)!.isPrimary = true
+    })
+    const handler = commandRegistry.get('customers.personCompanyLinks.delete') as CommandHandler
+
+    await handler.undo!({
+      logEntry: { payload: { undo: { before: makeLinkSnapshot(LINK_A_ID, COMPANY_A_ID, true) } } },
+      ctx: makeCtx(fixtures.em),
+    } as any)
+
+    expect(lockCalls).toHaveBeenCalledWith(0)
+    expect(primaryLinkIds(fixtures)).toEqual([LINK_A_ID])
+    expect(fixtures.linkRows.get(LINK_A_ID)!.deletedAt).toBeNull()
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
   it('locks the person row before promoting an existing link on create', async () => {
     const fixtures = makeFixtures(
       [

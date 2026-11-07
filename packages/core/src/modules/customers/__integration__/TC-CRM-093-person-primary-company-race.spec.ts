@@ -58,7 +58,7 @@ async function waitForBlockedBackend(
   queryFragment: string,
   waitEvent: string | null = null,
 ): Promise<number> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
     const result = await client.query<{ pid: number }>(
       `select pid from pg_stat_activity
         where $1 = any(pg_blocking_pids(pid)) and query like $2
@@ -109,7 +109,7 @@ async function raceBehindProfileGate(
               const firstPid = await waitForBlockedBackend(observer, blockerPid, 'customer_people', 'advisory')
               const secondPending = second(secondRequest)
               pending.push(secondPending)
-              await waitForBlockedBackend(observer, firstPid, '')
+              await waitForBlockedBackend(observer, firstPid, 'customer_')
               await blocker.query('select pg_advisory_unlock($1)', [gateKey])
               const responses = await Promise.all([firstPending, secondPending])
               return Promise.all(responses.map(async (response) => ({ status: response.status(), body: await response.text() })))
