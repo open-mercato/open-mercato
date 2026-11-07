@@ -5,8 +5,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { formatDistanceToNow } from 'date-fns'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type ExecutionRun = {
   id: string
@@ -35,6 +36,7 @@ export function ExecutionDetailsDialog({
   scheduleName,
 }: ExecutionDetailsDialogProps) {
   const t = useT()
+  const locale = useLocale()
 
   const getStatusBadgeVariant = (status: string): 'destructive' | 'secondary' | 'default' | 'outline' => {
     switch (status) {
@@ -90,10 +92,10 @@ export function ExecutionDetailsDialog({
             <div>
               <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.started_at', 'Started At')}</Label>
               <p className="mt-1 text-sm">
-                {new Date(run.startedAt).toLocaleString()}
+                {formatDisplayDateTime(run.startedAt, locale)}
               </p>
               <p className="text-xs text-muted-foreground">
-                {formatDistanceToNow(new Date(run.startedAt), { addSuffix: true })}
+                {formatRelativeTime(run.startedAt, { locale })}
               </p>
             </div>
 
@@ -101,10 +103,10 @@ export function ExecutionDetailsDialog({
               <div>
                 <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.finished_at', 'Finished At')}</Label>
                 <p className="mt-1 text-sm">
-                  {new Date(run.finishedAt).toLocaleString()}
+                  {formatDisplayDateTime(run.finishedAt, locale)}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {formatDistanceToNow(new Date(run.finishedAt), { addSuffix: true })}
+                  {formatRelativeTime(run.finishedAt, { locale })}
                 </p>
               </div>
             )}

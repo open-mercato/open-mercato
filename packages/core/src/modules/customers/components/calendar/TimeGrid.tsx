@@ -9,6 +9,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 import { packOverlaps } from '../../lib/calendar/layout'
 import { getVisibleRange } from '../../lib/calendar/range'
 import {
@@ -181,11 +182,12 @@ export function TimeGrid({
     setDrag(next)
   }
 
+  const weekStartsOn = useWeekStartsOn()
   const dayStarts = React.useMemo(() => {
-    const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new Date(anchorMs), 0).from
+    const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new Date(anchorMs), 0, weekStartsOn).from
     const all = Array.from({ length: days }, (_, index) => addDays(rangeStart, index))
     return days === 7 ? applyWeekendVisibility(all, showWeekends, new Date(todayMs)) : all
-  }, [days, anchorMs, showWeekends, todayMs])
+  }, [days, anchorMs, showWeekends, todayMs, weekStartsOn])
 
   const dayColumns = React.useMemo(
     () => dayStarts.map((dayStart) => buildDayColumn(dayStart, items)),

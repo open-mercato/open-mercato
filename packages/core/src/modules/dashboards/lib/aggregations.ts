@@ -41,9 +41,24 @@ export function buildAggregateExpression(aggregate: AggregateFunction, column: s
   }
 }
 
-export function buildDateTruncExpression(column: string, granularity: DateGranularity): string {
+/**
+ * `DATE_TRUNC` for a date bucket. Postgres weeks always start on Monday, so for another
+ * `weekStartsOn` (0 = Sunday … 6 = Saturday) the value is shifted forward to the next Monday
+ * boundary, truncated, and shifted back: each bucket then starts on the configured day, matching
+ * the `this_week` / `last_week` ranges. Monday or no week start keeps the plain ISO expression.
+ */
+export function buildDateTruncExpression(column: string, granularity: DateGranularity, weekStartsOn?: number): string {
   if (!isValidGranularity(granularity)) {
     throw new Error(`Invalid granularity: ${granularity}`)
+  }
+  if (granularity === 'week' && weekStartsOn !== undefined) {
+    if (!Number.isInteger(weekStartsOn) || weekStartsOn < 0 || weekStartsOn > 6) {
+      throw new Error(`[internal] Invalid weekStartsOn: ${weekStartsOn}`)
+    }
+    const shiftDays = (8 - weekStartsOn) % 7
+    if (shiftDays > 0) {
+      return `(DATE_TRUNC('week', ${column} + INTERVAL '${shiftDays} days') - INTERVAL '${shiftDays} days')`
+    }
   }
   return `DATE_TRUNC('${granularity}', ${column})`
 }
@@ -79,6 +94,8 @@ export type BuildAggregationQueryOptions = {
     granularity?: DateGranularity
     limit?: number
   }
+  /** First day of a `week` bucket (0 = Sunday … 6 = Saturday); Monday when omitted. */
+  weekStartsOn?: number
   dateRange?: {
     field: string
     start: Date
@@ -113,6 +130,7 @@ export function resolveGroupExpression(
   registry: AnalyticsRegistry,
   entityType: string,
   groupBy: { field: string; granularity?: DateGranularity },
+  weekStartsOn?: number,
 ): ResolvedGroupExpression | null {
   const groupMapping = registry.getFieldMapping(entityType, groupBy.field)
 
@@ -133,7 +151,7 @@ export function resolveGroupExpression(
 
   if (groupMapping.type === 'timestamp' && groupBy.granularity) {
     return {
-      expression: buildDateTruncExpression(groupMapping.dbColumn, groupBy.granularity),
+      expression: buildDateTruncExpression(groupMapping.dbColumn, groupBy.granularity, weekStartsOn),
       dbColumn: groupMapping.dbColumn,
       jsonPath: null,
     }
@@ -335,7 +353,7 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
   let limitClause = ''
 
   if (options.groupBy) {
-    const resolved = resolveGroupExpression(registry, options.entityType, options.groupBy)
+    const resolved = resolveGroupExpression(registry, options.entityType, options.groupBy, options.weekStartsOn)
 
     if (resolved) {
       selectClause = `SELECT ${resolved.expression} AS group_key, ${aggregateExpr} AS value`

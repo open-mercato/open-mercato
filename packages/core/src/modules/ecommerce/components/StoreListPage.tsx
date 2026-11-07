@@ -20,6 +20,7 @@ import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { StoreCreateDialog } from './StoreCreateDialog'
 import { STORE_STATUS_LABELS, StoreStatusBadge } from './StoreStatusBadge'
 import {
@@ -100,8 +101,6 @@ export function StoreListPage() {
   const refresh = React.useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: STORE_LIST_QUERY_KEY })
   }, [queryClient])
-
-  const dateFormatter = React.useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }), [locale])
 
   const filters = React.useMemo<FilterDef[]>(
     () => [
@@ -204,11 +203,11 @@ export function StoreListPage() {
         enableSorting: true,
         cell: ({ row }) => {
           const value = row.original.createdAt
-          return value ? dateFormatter.format(new Date(value)) : '—'
+          return formatDisplayDate(value, locale) ?? '—'
         },
       },
     ],
-    [dateFormatter, t],
+    [locale, t],
   )
 
   const buildRowActions = React.useCallback(

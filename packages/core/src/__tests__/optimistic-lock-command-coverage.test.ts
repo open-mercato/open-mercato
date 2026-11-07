@@ -55,6 +55,8 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — date-specific availability rule edit; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/currencies/api/fetch-configs/route.ts':
     'OSS-only — currency fetch-config admin settings added on develop; OSS floor guards concurrent admin edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/configs/api/date-locale/route.ts':
+    'OSS-only — tenant date/locale settings (configs.date_locale) are a single module_configs row edited by admins; the OSS floor guards the two-tab admin race. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/feature_toggles/commands/global.ts':
     'OSS-only — global feature-toggle command (feature_toggles.global), instance-level admin config added on develop; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/planner/commands/availability-weekly.ts':

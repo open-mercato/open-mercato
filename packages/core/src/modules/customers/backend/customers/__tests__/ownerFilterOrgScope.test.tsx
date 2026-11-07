@@ -115,6 +115,7 @@ jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   I18nProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useT: () => mockT,
+  useLocale: () => 'en',
 }))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({

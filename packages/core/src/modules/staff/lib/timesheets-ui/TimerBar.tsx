@@ -51,6 +51,7 @@ function formatElapsed(seconds: number): string {
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+// The browser-zone day: the timer's `date` must match the clock its start instant is read back in.
 function getToday(): string {
   const now = new Date()
   const year = now.getFullYear()

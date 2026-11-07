@@ -186,4 +186,33 @@ describe('dbMigrate discharges query-index reindex declarations', () => {
     expect(collectQueryIndexReindexEntityTypes).not.toHaveBeenCalled()
     expect(requestQueryIndexReindex).not.toHaveBeenCalled()
   })
+
+  describe('OM_DB_DEFAULT_TIMEZONE', () => {
+    const originalTimeZone = process.env.OM_DB_DEFAULT_TIMEZONE
+
+    afterEach(() => {
+      if (originalTimeZone === undefined) delete process.env.OM_DB_DEFAULT_TIMEZONE
+      else process.env.OM_DB_DEFAULT_TIMEZONE = originalTimeZone
+    })
+
+    it('opens migration connections with the configured session time zone', async () => {
+      process.env.OM_DB_DEFAULT_TIMEZONE = 'Europe/Warsaw'
+      stubOrmsFor({ alpha: { pending: [] } })
+
+      await dbMigrate(createMockResolver([{ id: 'alpha', dir: createTempModule('alpha') }]))
+
+      expect(ormInit.mock.calls[0][0].driverOptions).toEqual(
+        expect.objectContaining({ options: '-c TimeZone=Europe/Warsaw' }),
+      )
+    })
+
+    it('leaves the connection options untouched when the variable is unset', async () => {
+      delete process.env.OM_DB_DEFAULT_TIMEZONE
+      stubOrmsFor({ alpha: { pending: [] } })
+
+      await dbMigrate(createMockResolver([{ id: 'alpha', dir: createTempModule('alpha') }]))
+
+      expect(ormInit.mock.calls[0][0].driverOptions).not.toHaveProperty('options')
+    })
+  })
 })

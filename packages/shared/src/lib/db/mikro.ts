@@ -5,6 +5,7 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { performance } from 'node:perf_hooks'
 import { getSslConfig } from './ssl'
+import { buildPgSessionOptions, resolveDbSessionTimeZone } from './session'
 import { createLogger } from '../logger'
 import {
   getTelemetryRuntime,
@@ -373,10 +374,8 @@ export async function getOrm() {
     statementTimeoutMs,
     lockTimeoutMs,
   } = resolvePoolConfig()
-  const connectionOptions =
-    idleSessionTimeoutMs && idleSessionTimeoutMs > 0
-      ? `-c idle_session_timeout=${idleSessionTimeoutMs}`
-      : undefined
+  const sessionTimeZone = resolveDbSessionTimeZone()
+  const connectionOptions = buildPgSessionOptions({ idleSessionTimeoutMs, timeZone: sessionTimeZone })
 
   const sslConfig = getSslConfig()
 
@@ -390,6 +389,7 @@ export async function getOrm() {
       idleInTransactionTimeoutMs,
       statementTimeoutMs,
       lockTimeoutMs,
+      sessionTimeZone,
       nodeEnv: process.env.NODE_ENV,
     })
   }

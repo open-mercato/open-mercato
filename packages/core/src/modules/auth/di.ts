@@ -11,6 +11,8 @@ import {
   resetRbacFallbackCache,
 } from '@open-mercato/core/modules/auth/services/rbacDefaultCache'
 import { DefaultAuthPrincipalService } from './services/principalService'
+import { USER_TIME_ZONE_LOOKUP_DI_KEY } from '@open-mercato/shared/lib/date-locale/types'
+import { createUserTimeZoneLookup } from './lib/userTimeZone'
 
 export { resetRbacFallbackCache }
 
@@ -51,6 +53,11 @@ export function register(container: AppContainer) {
   // is disabled and in lean CLI/test containers without a CacheStrategy.
   // Setting `OM_RBAC_DEFAULT_CACHE=on` opts into the in-process fallback;
   // an explicitly registered cache always wins.
+  container.register({
+    [USER_TIME_ZONE_LOOKUP_DI_KEY]: asFunction(function userTimeZoneLookupFactory(cradle: { em: EntityManager }) {
+      return createUserTimeZoneLookup(cradle.em)
+    }).scoped().proxy(),
+  })
   container.register({
     rbacService: asFunction(function rbacServiceFactory(cradle: { em: EntityManager }) {
       const configuredCache = resolveOptionalCache(container)

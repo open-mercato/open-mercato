@@ -16,6 +16,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Boxes, Package, Route, ShieldCheck, Warehouse as WarehouseIcon, X } from 'lucide-react'
 import { E } from '#generated/entities.ids.generated'
@@ -148,9 +149,10 @@ function useInventoryDisplayFormatters() {
     () => createInventoryQuantityFormatter(locale),
     [locale],
   )
+  const displayTimeZone = useDisplayTimeZone()
   const dateTimeFormatter = React.useMemo(
-    () => createInventoryDateTimeFormatter(locale),
-    [locale],
+    () => createInventoryDateTimeFormatter(locale, undefined, displayTimeZone),
+    [displayTimeZone, locale],
   )
   return { quantityFormatter, dateTimeFormatter }
 }

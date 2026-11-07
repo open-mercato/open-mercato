@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Client } from 'pg';
+import { getPgSessionConfig } from '@open-mercato/shared/lib/db/session';
 import { resolveAppRoot } from './appRoot';
 
 /**
@@ -66,7 +67,7 @@ export type IntegrationDbClient = {
 };
 
 export async function withClient<T>(run: (client: IntegrationDbClient) => Promise<T>): Promise<T> {
-  const client = new Client({ connectionString: resolveDatabaseUrl() }) as unknown as IntegrationDbClient & {
+  const client = new Client({ connectionString: resolveDatabaseUrl(), ...getPgSessionConfig() }) as unknown as IntegrationDbClient & {
     connect: () => Promise<void>;
     end: () => Promise<void>;
   };

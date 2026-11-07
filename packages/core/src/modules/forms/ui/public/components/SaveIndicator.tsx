@@ -3,21 +3,21 @@
 import * as React from 'react'
 import { AlertCircle, Check, RefreshCw } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 import type { RunnerSaveState } from '../types'
 
 export type SaveIndicatorProps = {
   state: RunnerSaveState
 }
 
-function formatTime(iso: string): string {
-  const parsed = new Date(iso)
-  if (Number.isNaN(parsed.getTime())) return ''
-  return parsed.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+function formatTime(iso: string, locale: string): string {
+  return formatDisplayTime(iso, locale) ?? ''
 }
 
 export function SaveIndicator({ state }: SaveIndicatorProps) {
   const t = useT()
+  const locale = useLocale()
   let icon: React.ReactNode = null
   let label = ''
   let tone = 'text-muted-foreground'
@@ -38,7 +38,7 @@ export function SaveIndicator({ state }: SaveIndicatorProps) {
       icon = <Check aria-hidden="true" className="h-3 w-3 text-status-success-text" />
       label = t('forms.runner.save_indicator.saved_at', {
         fallback: 'Saved at {time}',
-        time: formatTime(state.savedAt),
+        time: formatTime(state.savedAt, locale),
       })
       tone = 'text-status-success-text'
       break

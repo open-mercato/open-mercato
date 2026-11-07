@@ -14,7 +14,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Bookmark, Lock, Play, RotateCcw, XCircle } from 'lucide-react'
@@ -107,6 +108,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const router = useRouter()
   const runId = params?.id
   const t = useT()
+  const locale = useLocale()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
     contextId: 'data_sync.runDetail',
   })
@@ -645,7 +647,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
               <LogList
                 entries={logs.map<LogListEntry>((log) => ({
                   id: log.id,
-                  time: new Date(log.createdAt).toLocaleString(),
+                  time: formatDisplayDateTime(log.createdAt, locale) ?? log.createdAt,
                   level: log.level,
                   message: log.message,
                   body: log.payload ? (

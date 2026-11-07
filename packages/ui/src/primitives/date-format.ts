@@ -1,14 +1,22 @@
 import { format as formatDateFns } from 'date-fns/format'
 import { parseISO } from 'date-fns/parseISO'
 import type { Locale } from 'date-fns/locale'
+import { normalizeDateFormatPattern } from '@open-mercato/shared/lib/date-locale/validation'
+import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
+import { getActiveDateLocaleSettings } from './date-locale-store'
+import { enUS } from 'date-fns/locale/en-US'
+import { resolveDateFnsLocale } from './date-fns-locales'
 
 type LocaleLike = Locale | string | null | undefined
+
+export type DisplaySettings = Pick<
+  ResolvedDateLocaleSettings,
+  'locale' | 'dateFormat' | 'dateTimeFormat' | 'timeFormat' | 'timeZone'
+>
 
 const DAY_FIRST_LOCALE_CODES = new Set([
   'pl', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'ru', 'cs', 'sk', 'hu', 'ro',
 ])
-
-const SYSTEM_FORMAT_VALUES = new Set(['auto', 'default', 'locale', 'system'])
 
 function getLocaleCode(locale?: LocaleLike): string {
   if (!locale) return ''
@@ -16,15 +24,7 @@ function getLocaleCode(locale?: LocaleLike): string {
   return locale.code?.split('-')[0]?.toLowerCase() ?? ''
 }
 
-export function normalizeDateFormatPattern(value: string | null | undefined): string | null {
-  const trimmed = value?.trim()
-  if (!trimmed) return null
-  if (SYSTEM_FORMAT_VALUES.has(trimmed.toLowerCase())) return null
-  return trimmed
-    .replace(/YYYY/g, 'yyyy')
-    .replace(/YY/g, 'yy')
-    .replace(/DD/g, 'dd')
-}
+export { normalizeDateFormatPattern }
 
 export function deriveDateDisplayFormat(locale?: LocaleLike): string {
   const code = getLocaleCode(locale)
@@ -71,15 +71,13 @@ export function formatWithPublicDateFormat(date: Date, format: string, locale?: 
  * ISO stays the contract for machine-facing values — `toDateInputValue`, storage, serialization —
  * never for a label.
  *
- * A pattern is a deliberate operator pin: it wins over the locale entirely, and month tokens render
- * in English on that path — `NEXT_PUBLIC_OM_DATE_FORMAT=d MMM yyyy` gives `1 Jul 2026` to a `pl`
- * tenant, not `1 lip 2026`. Set a numeric pattern, or leave it unset and let `Intl` localize.
+ * A pattern is a deliberate operator pin: it wins over the locale's ordering, while month and
+ * weekday tokens render in the formatting locale (the configured one, else the app locale) for
+ * the locales with a bundled date-fns locale — `d MMM yyyy` gives `1 lip 2026` to a `pl` tenant.
+ * Other locales fall back to English names on that path.
  */
-export function resolveDisplayDateFormat(): string | null {
-  return (
-    normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_FORMAT)
-  )
+export function resolveDisplayDateFormat(settings: DisplaySettings = getActiveDateLocaleSettings()): string | null {
+  return settings.dateFormat
 }
 
 /**
@@ -89,13 +87,13 @@ export function resolveDisplayDateFormat(): string | null {
  * said how a date should look and said nothing about time — appending `HH:mm` would invent a
  * requirement. This is the precedence `resolvePublicDateTimeFormat` already uses.
  */
-export function resolveDisplayDateTimeFormat(): string | null {
-  return (
-    normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_TIME_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_FORMAT)
-  )
+export function resolveDisplayDateTimeFormat(settings: DisplaySettings = getActiveDateLocaleSettings()): string | null {
+  return settings.dateTimeFormat
+}
+
+/** As `resolveDisplayDateFormat`, for a time of day on its own. */
+export function resolveDisplayTimeFormat(settings: DisplaySettings = getActiveDateLocaleSettings()): string | null {
+  return settings.timeFormat
 }
 
 /**
@@ -123,43 +121,299 @@ function intlLocale(locale?: LocaleLike): string | undefined {
   return typeof locale === 'string' ? locale : locale.code
 }
 
+const FLOATING_PATTERN = /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$/
+
+/**
+ * A bare `yyyy-MM-dd` names a calendar day, and a zone-less `yyyy-MM-dd HH:mm` a wall time, not an
+ * instant: neither carries an offset to convert from, so they must never move between zones.
+ */
+function isFloatingValue(value: string | Date | null | undefined): boolean {
+  return typeof value === 'string' && FLOATING_PATTERN.test(value.trim())
+}
+
 const DISPLAY_STYLES = {
   date: { dateStyle: 'medium' },
   datetime: { dateStyle: 'medium', timeStyle: 'short' },
+  time: { timeStyle: 'short' },
 } as const satisfies Record<string, Intl.DateTimeFormatOptions>
+
+type DisplayStyle = keyof typeof DISPLAY_STYLES
 
 // Constructing an `Intl.DateTimeFormat` costs ~40x using one (Node 24: ~31 µs vs ~0.8 µs), and these
 // helpers render every date cell AND its tooltip in `DataTable` — two constructions per cell, so a
 // 100-row page with two date columns would pay 400 of them on every sort, filter and keystroke.
-// A formatter is immutable and the key space is the locales a deployment ships, so one instance per
-// (locale, style) is kept for the process. The style name is the key, so the two cannot desync.
+// A formatter is immutable and the key space is the locales and zones a deployment ships, so one
+// instance per (locale, zone, style) is kept for the process.
 const formatterCache = new Map<string, Intl.DateTimeFormat>()
 
-function getFormatter(locale: string | undefined, style: keyof typeof DISPLAY_STYLES): Intl.DateTimeFormat {
-  const key = `${locale ?? ''}|${style}`
+function getFormatter(
+  locale: string | undefined,
+  style: DisplayStyle,
+  timeZone?: string | null,
+  hourCycle?: Intl.DateTimeFormatOptions['hourCycle'],
+): Intl.DateTimeFormat {
+  const key = `${locale ?? ''}|${timeZone ?? ''}|${style}|${hourCycle ?? ''}`
   const cached = formatterCache.get(key)
   if (cached) return cached
-  const created = new Intl.DateTimeFormat(locale, DISPLAY_STYLES[style])
+  const created = new Intl.DateTimeFormat(locale, {
+    ...DISPLAY_STYLES[style],
+    ...(timeZone ? { timeZone } : {}),
+    ...(hourCycle ? { hourCycle } : {}),
+  })
   formatterCache.set(key, created)
   return created
 }
 
-/** Render a date for display, or `null` when there is nothing valid to show. */
-export function formatDisplayDate(value: string | Date | null | undefined, locale?: LocaleLike): string | null {
-  const parsed = parseDisplayValue(value)
-  if (!parsed) return null
-  const pattern = resolveDisplayDateFormat()
-  if (pattern) return formatWithPublicDateFormat(parsed, pattern)
-  return getFormatter(intlLocale(locale), 'date').format(parsed)
+const wallClockFormatterCache = new Map<string, Intl.DateTimeFormat>()
+
+function getWallClockFormatter(timeZone: string): Intl.DateTimeFormat {
+  const cached = wallClockFormatterCache.get(timeZone)
+  if (cached) return cached
+  const created = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+  wallClockFormatterCache.set(timeZone, created)
+  return created
 }
 
-/** Render a timestamp for display, or `null` when there is nothing valid to show. */
-export function formatDisplayDateTime(value: string | Date | null | undefined, locale?: LocaleLike): string | null {
+/**
+ * The wall-clock reading of `date` in `timeZone`, as a local `Date` whose getters return that
+ * reading. Lets a `date-fns` pattern render an instant in a zone other than the runtime's, the
+ * same technique `date-fns-tz` `toZonedTime` uses. Returns `date` unchanged when the zone is
+ * unknown.
+ *
+ * Known limitation (shared with `toZonedTime`): a wall time that falls in the RUNTIME zone's DST gap
+ * cannot be represented as a local `Date`, so it renders one hour late. Only patterns that print
+ * the hour are affected, and only for the skipped hour of the runtime zone's spring-forward day.
+ */
+export function toZonedWallClock(date: Date, timeZone: string | null | undefined): Date {
+  if (!timeZone) return date
+  try {
+    const parts = getWallClockFormatter(timeZone).formatToParts(date)
+    const read = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0)
+    const wall = new Date(2000, read('month') - 1, read('day'), read('hour'), read('minute'), read('second'), date.getMilliseconds())
+    // Set separately: the Date constructor reads years 0–99 as 1900–1999.
+    wall.setFullYear(read('year'), read('month') - 1, read('day'))
+    return wall
+  } catch {
+    return date
+  }
+}
+
+const ZONE_TOKEN_LETTERS = new Set(['X', 'x', 'O', 'z', 't', 'T'])
+
+function offsetMinutesIn(date: Date, timeZone: string): number {
+  const wall = toZonedWallClock(date, timeZone)
+  const wallAsUtcDate = new Date(Date.UTC(2000, 0, 1, wall.getHours(), wall.getMinutes(), wall.getSeconds()))
+  wallAsUtcDate.setUTCFullYear(wall.getFullYear(), wall.getMonth(), wall.getDate())
+  const wallAsUtc = wallAsUtcDate.getTime()
+  return Math.round((wallAsUtc - Math.floor(date.getTime() / 1000) * 1000) / 60_000)
+}
+
+function formatOffset(minutes: number, { colon, optionalMinutes }: { colon: boolean; optionalMinutes: boolean }): string {
+  const sign = minutes < 0 ? '-' : '+'
+  const absolute = Math.abs(minutes)
+  const hours = String(Math.floor(absolute / 60)).padStart(2, '0')
+  const rest = absolute % 60
+  if (optionalMinutes && rest === 0) return `${sign}${hours}`
+  return `${sign}${hours}${colon ? ':' : ''}${String(rest).padStart(2, '0')}`
+}
+
+function renderZoneToken(letter: string, length: number, date: Date, timeZone: string, locale: string | undefined): string {
+  if (letter === 't') return String(Math.floor(date.getTime() / 1000))
+  if (letter === 'T') return String(date.getTime())
+  const offset = offsetMinutesIn(date, timeZone)
+  if (letter === 'X' || letter === 'x') {
+    if (letter === 'X' && offset === 0) return 'Z'
+    if (length === 1) return formatOffset(offset, { colon: false, optionalMinutes: true })
+    return formatOffset(offset, { colon: length === 3 || length === 5, optionalMinutes: false })
+  }
+  if (letter === 'O') {
+    if (offset === 0) return 'GMT'
+    if (length === 4) return `GMT${formatOffset(offset, { colon: true, optionalMinutes: false })}`
+    const sign = offset < 0 ? '-' : '+'
+    const absolute = Math.abs(offset)
+    const rest = absolute % 60
+    return `GMT${sign}${Math.floor(absolute / 60)}${rest ? `:${String(rest).padStart(2, '0')}` : ''}`
+  }
+  try {
+    const parts = new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: length === 4 ? 'long' : 'short' }).formatToParts(date)
+    return parts.find((part) => part.type === 'timeZoneName')?.value ?? timeZone
+  } catch {
+    return timeZone
+  }
+}
+
+const LONG_FORMAT_WIDTHS = ['short', 'medium', 'long', 'full'] as const
+
+/**
+ * Expands the localized `P`/`p` tokens to the locale's own patterns, as `date-fns` does when
+ * formatting. Their long time widths (`ppp`, `pppp`) contain `z`, which must be visible to
+ * `inlineZoneTokens` to render in the display zone.
+ */
+function expandLongFormatTokens(pattern: string, locale: Locale = enUS): string {
+  const formatLong = locale.formatLong
+  if (!formatLong) return pattern
+  return pattern
+    .split(/('(?:[^']|'')*'?)/)
+    .map((part) => {
+      if (part.startsWith("'")) return part
+      return part.replace(/P+p+|P+|p+/g, (token) => {
+        const dateLength = token.match(/P+/)?.[0].length ?? 0
+        const timeLength = token.match(/p+/)?.[0].length ?? 0
+        if (dateLength > 4 || timeLength > 4) return token
+        const date = dateLength ? formatLong.date({ width: LONG_FORMAT_WIDTHS[dateLength - 1] }) : ''
+        const time = timeLength ? formatLong.time({ width: LONG_FORMAT_WIDTHS[timeLength - 1] }) : ''
+        if (!dateLength) return time
+        if (!timeLength) return date
+        return formatLong
+          .dateTime({ width: LONG_FORMAT_WIDTHS[dateLength - 1] })
+          .replace('{{date}}', date)
+          .replace('{{time}}', time)
+      })
+    })
+    .join('')
+}
+
+/**
+ * `date-fns` renders zone (`X x O z`) and epoch (`t T`) tokens from the runtime's own offset, but
+ * patterns are formatted on a wall-clock `Date` shifted into `timeZone` (`toZonedWallClock`). Those
+ * tokens are therefore resolved here, for the real instant in `timeZone`, and inlined as quoted
+ * literals; every other token (and quoted text) is left to `date-fns`.
+ */
+function inlineZoneTokens(pattern: string, date: Date, timeZone: string, locale: string | undefined): string {
+  let output = ''
+  let index = 0
+  while (index < pattern.length) {
+    const char = pattern[index]
+    if (char === "'") {
+      const close = pattern.indexOf("'", index + 1)
+      const end = close === -1 ? pattern.length : close + 1
+      output += pattern.slice(index, end)
+      index = end
+      continue
+    }
+    if (ZONE_TOKEN_LETTERS.has(char)) {
+      let end = index
+      while (pattern[end] === char) end += 1
+      const rendered = renderZoneToken(char, end - index, date, timeZone, locale)
+      output += `'${rendered.replace(/'/g, "''")}'`
+      index = end
+      continue
+    }
+    output += char
+    index += 1
+  }
+  return output
+}
+
+function hourCycleOfPattern(pattern: string | null | undefined): Intl.DateTimeFormatOptions['hourCycle'] {
+  if (!pattern) return undefined
+  const unquoted = pattern.replace(/'(?:[^']|'')*'?/g, '')
+  if (unquoted.includes('H')) return 'h23'
+  if (unquoted.includes('h')) return 'h12'
+  if (unquoted.includes('k')) return 'h24'
+  if (unquoted.includes('K')) return 'h11'
+  return undefined
+}
+
+function formatDisplay(
+  value: string | Date | null | undefined,
+  locale: LocaleLike,
+  style: DisplayStyle,
+  pattern: string | null,
+  settings: DisplaySettings,
+): string | null {
   const parsed = parseDisplayValue(value)
   if (!parsed) return null
-  const pattern = resolveDisplayDateTimeFormat()
-  if (pattern) return formatWithPublicDateFormat(parsed, pattern)
-  return getFormatter(intlLocale(locale), 'datetime').format(parsed)
+  const timeZone = isFloatingValue(value) ? null : settings.timeZone
+  const formatLocale = settings.locale ?? intlLocale(locale)
+  if (pattern) {
+    const dateFnsLocale = resolveDateFnsLocale(formatLocale)
+    const zonedPattern = timeZone
+      ? inlineZoneTokens(expandLongFormatTokens(pattern, dateFnsLocale), parsed, timeZone, formatLocale)
+      : pattern
+    return formatWithPublicDateFormat(toZonedWallClock(parsed, timeZone), zonedPattern, dateFnsLocale)
+  }
+  // A pinned time pattern with no date-time pattern still decides the clock of Intl timestamps, so
+  // choosing `HH:mm` makes every date-time 24-hour, not only time-only values.
+  const hourCycle = style === 'datetime' ? hourCycleOfPattern(settings.timeFormat) : undefined
+  return formatWithFallbacks(parsed, style, [formatLocale, intlLocale(locale)], timeZone, hourCycle)
+}
+
+/**
+ * Formats with the first locale `Intl` accepts, keeping the zone and clock: an unusable locale must
+ * not silently move the value into the runtime zone. Only when every locale fails with the zone
+ * (an unknown zone) does it fall back to the runtime zone, so a value still renders.
+ */
+function formatWithFallbacks(
+  value: Date,
+  style: DisplayStyle,
+  locales: Array<string | undefined>,
+  timeZone?: string | null,
+  hourCycle?: Intl.DateTimeFormatOptions['hourCycle'],
+): string {
+  for (const candidate of [...locales, undefined]) {
+    try {
+      return getFormatter(candidate, style, timeZone, hourCycle).format(value)
+    } catch {}
+  }
+  return getFormatter(undefined, style).format(value)
+}
+
+/**
+ * Render a date for display, or `null` when there is nothing valid to show.
+ *
+ * `settings` defaults to the active tenant/user settings (see `DateLocaleSettingsProvider`). A
+ * bare `yyyy-MM-dd` renders as that calendar day in every zone; an instant renders in the
+ * configured timezone. A formatting locale configured in `settings` takes precedence over the
+ * `locale` argument, which applies only when none is configured.
+ *
+ * The default is browser-only: during SSR it is the public env defaults (a module-level value
+ * would leak between tenants' requests). A component that renders dates on the server MUST pass
+ * `useDateLocaleSettings()` explicitly, as `DataTable` does, or its hydration will not match.
+ * Event handlers, effects and data that loads after mount can rely on the default.
+ */
+export function formatDisplayDate(
+  value: string | Date | null | undefined,
+  locale?: LocaleLike,
+  settings: DisplaySettings = getActiveDateLocaleSettings(),
+): string | null {
+  return formatDisplay(value, locale, 'date', resolveDisplayDateFormat(settings), settings)
+}
+
+/** Render a timestamp for display, or `null` when there is nothing valid to show. Same `settings` and `locale` rules as `formatDisplayDate`. */
+export function formatDisplayDateTime(
+  value: string | Date | null | undefined,
+  locale?: LocaleLike,
+  settings: DisplaySettings = getActiveDateLocaleSettings(),
+): string | null {
+  return formatDisplay(value, locale, 'datetime', resolveDisplayDateTimeFormat(settings), settings)
+}
+
+/** Render the time of day of a timestamp, or `null` when there is nothing valid to show. Same `settings` and `locale` rules as `formatDisplayDate`. */
+export function formatDisplayTime(
+  value: string | Date | null | undefined,
+  locale?: LocaleLike,
+  settings: DisplaySettings = getActiveDateLocaleSettings(),
+): string | null {
+  return formatDisplay(value, locale, 'time', resolveDisplayTimeFormat(settings), settings)
+}
+
+/**
+ * Today's calendar day (`yyyy-MM-dd`) in the configured display timezone, or in the runtime zone
+ * when none is configured. Use instead of `new Date().toISOString().slice(0, 10)`, which names the
+ * UTC day and is wrong near midnight everywhere except UTC.
+ */
+export function todayInZone(timeZone: string | null | undefined = getActiveDateLocaleSettings().timeZone, now: Date = new Date()): string {
+  return formatDateFns(toZonedWallClock(now, timeZone), 'yyyy-MM-dd')
 }
 
 /**
@@ -202,4 +456,32 @@ export function toUtcDateInputValue(value: string | Date | null | undefined): st
     return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10)
   }
   return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10)
+}
+
+export type LocalDisplayValueOptions = {
+  withTime?: boolean
+  locale?: Locale
+  /** A caller-pinned pattern (for example a field-level `displayFormat`); wins over the settings. */
+  explicitFormat?: string | null
+  settings?: DisplaySettings
+}
+
+/**
+ * Render a value a user picked on a local calendar (date pickers, range pickers) for display.
+ *
+ * Unlike `formatDisplayDate*` the value is never moved into the configured timezone: a picked day
+ * is a wall-clock choice, not an instant, and shifting it would show a different day than the one
+ * clicked. A configured pattern renders through `date-fns` with the picker's locale; otherwise
+ * `Intl` renders the locale's own style.
+ */
+export function formatLocalDisplayValue(value: Date, options: LocalDisplayValueOptions = {}): string | null {
+  if (Number.isNaN(value.getTime())) return null
+  const { withTime = false, locale, explicitFormat, settings = getActiveDateLocaleSettings() } = options
+  const pattern = normalizeDateFormatPattern(explicitFormat) ?? (withTime ? settings.dateTimeFormat : settings.dateFormat)
+  if (pattern) return formatWithPublicDateFormat(value, pattern, locale)
+  const formatLocale = settings.locale ?? locale?.code
+  // Same clock rule as `formatDisplay`: a pinned time pattern alone decides 12/24-hour, so a picker
+  // shows the clock the tables and detail fields show.
+  const hourCycle = withTime ? hourCycleOfPattern(settings.timeFormat) : undefined
+  return formatWithFallbacks(value, withTime ? 'datetime' : 'date', [formatLocale, locale?.code], undefined, hourCycle)
 }

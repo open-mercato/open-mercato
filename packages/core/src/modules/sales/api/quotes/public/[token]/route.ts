@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
+import { resolveDateLocaleSettingsForScope } from "@open-mercato/shared/lib/date-locale/registry";
 import { isCrudHttpError, notFound } from "@open-mercato/shared/lib/crud/errors";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
 import type { EntityManager } from "@mikro-orm/postgresql";
@@ -66,6 +67,9 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
       ),
     ]);
 
+    // The page has no tenant context of its own (no org slug, no session), so it receives the zone
+    // and formatting locale the quote email used, and both name the same validity day.
+    const displaySettings = await resolveDateLocaleSettingsForScope(container, { tenantId: quote.tenantId });
     return NextResponse.json({
       quote: {
         quoteNumber: quote.quoteNumber,
@@ -131,6 +135,7 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
         quoteLineId: adj.quoteLine?.id ?? null,
       })),
       isExpired,
+      display: { timeZone: displaySettings.timeZone, locale: displaySettings.locale },
     });
   } catch (err) {
     if (isCrudHttpError(err)) {
@@ -213,6 +218,12 @@ const publicQuoteResponseSchema = z.object({
     }),
   ),
   isExpired: z.boolean(),
+  display: z
+    .object({
+      timeZone: z.string().nullable().describe("The tenant display time zone (IANA), or null for the viewer's own zone."),
+      locale: z.string().nullable().describe("The tenant formatting locale, or null for the page language."),
+    })
+    .optional(),
 });
 
 export const openApi: OpenApiRouteDoc = {

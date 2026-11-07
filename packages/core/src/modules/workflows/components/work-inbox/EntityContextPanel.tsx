@@ -33,6 +33,7 @@ import {
 import type { WorkInboxStatusDescriptor } from '../../lib/work-inbox/presentation'
 import { normalizeWorkInboxPriority } from '../../lib/work-inbox/provider'
 import type { UserTaskEntityBinding } from '../../data/types'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 export type EntityContextChip = {
   descriptor: WorkInboxStatusDescriptor
@@ -152,6 +153,7 @@ export function workItemsToEntityContextItems(
     overdue: string
     due: (formatted: string) => string
   },
+  locale?: string,
 ): EntityContextItem[] {
   if (!rows?.length) return []
   return rows.map((row) => {
@@ -169,7 +171,7 @@ export function workItemsToEntityContextItems(
     return {
       id: row.id,
       title: row.title,
-      subtitle: row.dueDate ? labels.due(new Date(row.dueDate).toLocaleString()) : null,
+      subtitle: row.dueDate ? labels.due(formatDisplayDateTime(row.dueDate, locale) ?? row.dueDate) : null,
       href: row.detailHref,
       chips,
     }

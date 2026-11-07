@@ -9,6 +9,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateNewDealsSettings, type CustomerNewDealsSettings } from './config'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 const logger = createLogger('customers')
 
@@ -55,10 +56,7 @@ function resolveDetailHref(item: NewDealItem): string | null {
 }
 
 function formatDate(value: string | null, locale?: string): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString(locale ?? undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return formatDisplayDateTime(value, locale) ?? ''
 }
 
 const CustomerNewDealsWidget: React.FC<DashboardWidgetComponentProps<CustomerNewDealsSettings>> = ({

@@ -20,7 +20,8 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   listPaymentProviders,
@@ -135,6 +136,7 @@ function createPaymentProviderSettingsRenderer(params: {
 
 export function PaymentMethodsSettings() {
   const t = useT()
+  const locale = useLocale()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const providers = React.useMemo(() => listPaymentProviders(), [])
@@ -410,11 +412,11 @@ export function PaymentMethodsSettings() {
       header: translations.table.updatedAt,
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
-          {row.original.updatedAt ? new Date(row.original.updatedAt).toLocaleString() : '—'}
+          {formatDisplayDateTime(row.original.updatedAt, locale) ?? '—'}
         </span>
       ),
     },
-  ], [translations])
+  ], [locale, translations])
 
   const filteredEntries = React.useMemo(() => {
     if (!search.trim()) return entries

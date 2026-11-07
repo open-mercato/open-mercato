@@ -7,6 +7,7 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
+import { getPgSessionConfig } from '@open-mercato/shared/lib/db/session'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 import { quotePostgresIdentifier } from './identifiers'
 import {
@@ -294,7 +295,7 @@ function readModuleMigrationSources(modules: ModuleEntry[], resolver: PackageRes
 
 async function queryEncryptionMapRows(): Promise<EncryptionMapRow[] | null> {
   const { Client } = await import('pg')
-  const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig(), connectionTimeoutMillis: 5000 })
+  const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig(), ...getPgSessionConfig(), connectionTimeoutMillis: 5000 })
   await client.connect()
   try {
     const table = await client.query(`select to_regclass('encryption_maps') is not null as "exists"`)
@@ -394,9 +395,10 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         idleTimeoutMillis: 30000,
         // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
       },
-      driverOptions: sslConfig ? {
-        ssl: sslConfig,
-      } : undefined,
+      driverOptions: {
+        ...(sslConfig ? { ssl: sslConfig } : {}),
+        ...getPgSessionConfig(),
+      },
     })
 
     try {
@@ -494,9 +496,10 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
           idleTimeoutMillis: 30000,
           // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
         },
-        driverOptions: sslConfig ? {
-          ssl: sslConfig,
-        } : undefined,
+        driverOptions: {
+          ...(sslConfig ? { ssl: sslConfig } : {}),
+          ...getPgSessionConfig(),
+        },
       })
 
       try {
@@ -652,7 +655,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
   console.log('Dropping per-module migration tables...')
   try {
     const { Client } = await import('pg')
-    const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
+    const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig(), ...getPgSessionConfig() })
     await client.connect()
     try {
       await client.query('BEGIN')
@@ -682,7 +685,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
   console.log('Dropping ALL public tables for true greenfield...')
   try {
     const { Client } = await import('pg')
-    const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
+    const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig(), ...getPgSessionConfig() })
     await client.connect()
     try {
       const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = current_schema()`)

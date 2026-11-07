@@ -18,7 +18,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, todayInZone } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import type { FilterFieldDef, FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
@@ -59,7 +60,7 @@ import {
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 import { appendCustomerListSortParams } from '../listSorting'
 import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
-import { USER_TIMEZONE } from '../../../lib/localDay'
+import { getUserTimeZone } from '../../../lib/localDay'
 import { formatInTimeZone } from 'date-fns-tz'
 
 type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
@@ -77,7 +78,7 @@ function makeCompaniesPresets(): FilterPreset[] {
       labelKey: 'customers.companies.presets.recentlyCreated',
       iconName: 'clock',
       build: ({ now }) => {
-        const dayBeforeWindow = new Date(`${formatInTimeZone(now, USER_TIMEZONE, 'yyyy-MM-dd')}T00:00:00.000Z`)
+        const dayBeforeWindow = new Date(`${formatInTimeZone(now, getUserTimeZone(), 'yyyy-MM-dd')}T00:00:00.000Z`)
         dayBeforeWindow.setUTCDate(dayBeforeWindow.getUTCDate() - 8)
         return makeRuleTree({ field: 'created_at', operator: 'is_after', value: dayBeforeWindow.toISOString().slice(0, 10) })
       },
@@ -86,7 +87,7 @@ function makeCompaniesPresets(): FilterPreset[] {
       id: 'inactive-60',
       labelKey: 'customers.companies.presets.inactive60',
       build: ({ now }) => {
-        const cutoff = new Date(now.getTime() - 60 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+        const cutoff = todayInZone(undefined, new Date(now.getTime() - 60 * 24 * 3600 * 1000))
         return makeRuleTree({ field: 'next_interaction_at', operator: 'is_before', value: cutoff })
       },
     },
@@ -130,11 +131,9 @@ type CompaniesResponse = {
 type DictionaryKindKey = CustomerDictionaryKind
 type DictionaryMap = CustomerDictionaryMap
 
-function formatDate(value: string | null | undefined, fallback: string): string {
+function formatDate(value: string | null | undefined, fallback: string, locale?: string): string {
   if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleDateString()
+  return formatDisplayDate(value, locale) ?? fallback
 }
 
 function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
@@ -255,6 +254,7 @@ export default function CustomersCompaniesPage() {
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const handlePageSizeChange = React.useCallback((newSize: number) => {
     setPageSize(newSize)
@@ -371,7 +371,7 @@ export default function CustomersCompaniesPage() {
     params.set('pageSize', String(pageSize))
     appendCustomerListSortParams(params, sorting)
     if (search.trim()) params.set('search', search.trim())
-    const advancedParams = serializeTree(expandCreatedAtDayRules(advancedFilterState, USER_TIMEZONE))
+    const advancedParams = serializeTree(expandCreatedAtDayRules(advancedFilterState, getUserTimeZone()))
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
@@ -701,7 +701,7 @@ export default function CustomersCompaniesPage() {
                   </span>
                 ) : null}
                 <div className="flex flex-col">
-                  <span>{formatDate(row.original.nextInteractionAt, t('customers.companies.list.noValue'))}</span>
+                  <span>{formatDate(row.original.nextInteractionAt, t('customers.companies.list.noValue'), locale)}</span>
                   {row.original.nextInteractionName ? (
                     <span className="text-xs text-muted-foreground">{row.original.nextInteractionName}</span>
                   ) : null}
@@ -727,7 +727,7 @@ export default function CustomersCompaniesPage() {
         },
         cell: ({ row }) => (
           <span className="text-sm">
-            {formatDate(row.original.createdAt, t('customers.companies.list.noValue'))}
+            {formatDate(row.original.createdAt, t('customers.companies.list.noValue'), locale)}
           </span>
         ),
       },
@@ -866,7 +866,7 @@ export default function CustomersCompaniesPage() {
       }))
 
     return [...baseColumns, ...customColumns]
-  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, loadOwnerFilterOptions, resolvedOwnerFilterOptions, t])
+  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, loadOwnerFilterOptions, locale, resolvedOwnerFilterOptions, t])
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 

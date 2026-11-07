@@ -232,7 +232,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
     return () => controller.abort()
   }, [entityId, visibleDays, refreshKey, useProvidedEvents])
 
-  const todayDate = React.useMemo(() => startOfDay(new Date()), [])
+  const todayDate = React.useMemo(() => startOfDay(toLocalZonedDate(new Date())), [])
 
   const handlePrev = React.useCallback(() => {
     setAnchor((current) => addDays(current, -VISIBLE_DAYS))

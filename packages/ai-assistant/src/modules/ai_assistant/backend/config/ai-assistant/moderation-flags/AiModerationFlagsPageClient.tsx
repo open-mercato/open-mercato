@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -66,6 +67,7 @@ function flaggedCategoryNames(categories: Record<string, ModerationCategory>): s
 
 export function AiModerationFlagsPageClient() {
   const t = useT()
+  const locale = useLocale()
   const [page, setPage] = React.useState(1)
   const [from, setFrom] = React.useState('')
   const [to, setTo] = React.useState('')
@@ -117,10 +119,10 @@ export function AiModerationFlagsPageClient() {
       {
         accessorKey: 'createdAt',
         header: t('ai_assistant.moderationFlags.columns.createdAt', 'Flagged at'),
-        cell: ({ row }) => new Date(row.original.createdAt).toLocaleString(),
+        cell: ({ row }) => formatDisplayDateTime(row.original.createdAt, locale),
       },
     ],
-    [t],
+    [t, locale],
   )
 
   const total = query.data?.total ?? 0

@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Phone, Mail, Users, StickyNote, Clock, ArrowUpRight, ChevronRight } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
-import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { InteractionSummary } from '../../formConfig'
 
 function interactionIcon(type: string) {
@@ -18,6 +18,7 @@ function interactionIcon(type: string) {
 }
 
 export function RecentActivityWidget({ interactions, t }: { interactions: InteractionSummary[]; t: TranslateFn }) {
+  const locale = useLocale()
   return (
     <div className="rounded-lg border bg-card p-5">
       <div className="flex items-center justify-between">
@@ -45,7 +46,7 @@ export function RecentActivityWidget({ interactions, t }: { interactions: Intera
               </div>
               <div className="shrink-0 text-right">
                 <p className="text-xs text-muted-foreground">
-                  {date ? formatRelativeTime(date) : '—'}
+                  {date ? formatRelativeTime(date, { locale }) : '—'}
                 </p>
                 <ArrowUpRight className="ml-auto mt-1 size-3.5 text-muted-foreground" />
               </div>

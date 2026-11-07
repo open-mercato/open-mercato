@@ -32,6 +32,7 @@ import {
   resolveWarehouseLabel,
 } from './inventoryMutationLoaders'
 import type { WmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 
 type CreateAsnDialogProps = {
   open: boolean
@@ -99,7 +100,7 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
   React.useEffect(() => {
     if (!open) return
     setWarehouseId('')
-    setExpectedAt(new Date().toISOString().slice(0, 10))
+    setExpectedAt(todayInZone())
     setReferenceNumber('')
     setNotes('')
     setLines([{ ...EMPTY_LINE }])

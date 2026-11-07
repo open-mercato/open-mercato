@@ -4,7 +4,8 @@ import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/audit_logs/extension-points'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 export type AccessLogItem = {
   id: string
@@ -24,6 +25,7 @@ export type AccessLogItem = {
 
 export function AccessLogsTable({ items, isLoading, actions, pagination }: { items: AccessLogItem[] | undefined; isLoading?: boolean; actions?: React.ReactNode; pagination?: PaginationProps }) {
   const t = useT()
+  const locale = useLocale()
   const accessItems = Array.isArray(items) ? items : []
   const noneLabel = t('audit_logs.common.none')
 
@@ -66,9 +68,9 @@ export function AccessLogsTable({ items, isLoading, actions, pagination }: { ite
     {
       accessorKey: 'createdAt',
       header: t('audit_logs.access.columns.when'),
-      cell: (info) => formatDate(info.getValue() as string),
+      cell: (info) => formatDate(info.getValue() as string, locale),
     },
-  ], [t, noneLabel])
+  ], [t, noneLabel, locale])
 
   return (
     <DataTable<AccessLogItem>
@@ -89,11 +91,6 @@ function formatResource(item: { resourceKind?: string | null; resourceId?: strin
   return [item.resourceKind, item.resourceId].filter(Boolean).join(' · ')
 }
 
-function formatDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
+function formatDate(value: string, locale?: string) {
+  return formatDisplayDateTime(value, locale) ?? value
 }

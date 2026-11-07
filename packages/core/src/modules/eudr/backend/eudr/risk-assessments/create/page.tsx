@@ -9,6 +9,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { StatementSelectField, translateEudrCrudError } from '../../../../components/formConfig'
+import { toDateInputValue, todayInZone } from '@open-mercato/ui/primitives/date-format'
 import {
   RiskConclusionCriteriaWarning,
   RiskCriteriaField,
@@ -65,10 +66,10 @@ function toDateTimeLocalInput(date: Date): string {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16)
 }
 
+/** One year from today, where "today" is the calendar day in the configured display zone. */
 function defaultReviewDueDate(): string {
-  const date = new Date()
-  date.setFullYear(date.getFullYear() + 1)
-  return date.toISOString().slice(0, 10)
+  const [year, month, day] = todayInZone().split('-').map(Number)
+  return toDateInputValue(new Date(year + 1, month - 1, day)) ?? ''
 }
 
 function toIsoDateTime(value: string | null): string | undefined {

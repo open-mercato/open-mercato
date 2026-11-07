@@ -3,6 +3,7 @@ import * as React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (key: string) => key,
 }))
 

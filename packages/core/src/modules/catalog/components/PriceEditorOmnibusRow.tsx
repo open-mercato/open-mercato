@@ -7,6 +7,7 @@ import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OmnibusApplicabilityReason, OmnibusBlock } from '../lib/omnibusTypes'
@@ -76,8 +77,7 @@ function formatAmount(amount: string | null, currencyCode: string, locale: strin
 
 function formatDate(value: string | null, locale: string): string | null {
   if (!value) return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
+  return formatDisplayDate(value, locale) ?? value
 }
 
 export function PriceEditorOmnibusRow({
