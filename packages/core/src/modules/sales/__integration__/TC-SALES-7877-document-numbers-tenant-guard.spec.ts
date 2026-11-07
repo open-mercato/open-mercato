@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures } from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   deleteGeneralEntityIfExists,
   expectId,
@@ -61,14 +62,27 @@ test.describe('TC-SALES-7877: document-numbers tenant guard through the real dis
   }) => {
     const superadminToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
-    const employeeToken = await getAuthToken(request, 'employee')
     const actorScope = getTokenContext(adminToken)
     const stamp = Date.now()
 
+    let restrictedRoleId: string | null = null
+    let restrictedUserId: string | null = null
     let foreignTenantId: string | null = null
     let foreignOrganizationId: string | null = null
 
     try {
+      restrictedRoleId = await createRoleFixture(request, superadminToken, {
+        name: `QA SALES 7877 Restricted ${stamp}`, tenantId: actorScope.tenantId,
+      })
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId: restrictedRoleId, features: ['sales.orders.manage'],
+      })
+      const restrictedEmail = `qa-sales-7877-${stamp}@example.test`
+      const restrictedPassword = `Guard7877!${stamp}`
+      restrictedUserId = await createUserFixture(request, superadminToken, {
+        email: restrictedEmail, password: restrictedPassword, organizationId: actorScope.organizationId, roles: [restrictedRoleId],
+      })
+      const restrictedToken = await getAuthToken(request, restrictedEmail, restrictedPassword)
       const tenantResponse = await apiRequest(request, 'POST', '/api/directory/tenants', {
         token: superadminToken,
         data: { name: `QA SALES 7877 Tenant ${stamp}` },
@@ -151,7 +165,7 @@ test.describe('TC-SALES-7877: document-numbers tenant guard through the real dis
       // Control: an actor missing `sales.documents.number.edit` is denied regardless of body
       // size or tenant targeting — a different gate than the one under test here.
       const missingFeatureResponse = await apiRequest(request, 'POST', '/api/sales/document-numbers', {
-        token: employeeToken,
+        token: restrictedToken,
         data: { kind: 'order', tenantId: actorScope.tenantId, organizationId: actorScope.organizationId },
       })
       expect(missingFeatureResponse.status(), 'missing sales.documents.number.edit must deny').toBe(403)
@@ -176,6 +190,8 @@ test.describe('TC-SALES-7877: document-numbers tenant guard through the real dis
         foreignOrganizationId,
       )
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', foreignTenantId)
+      await deleteUserIfExists(request, superadminToken, restrictedUserId)
+      await deleteRoleIfExists(request, superadminToken, restrictedRoleId)
     }
   })
 })
