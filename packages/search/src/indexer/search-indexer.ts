@@ -25,6 +25,20 @@ const MAX_PAGES = 10000
 type PlaintextExclusionLookup = (entityId: EntityId) => Promise<IndexableRecord['plaintextExcludedCustomFields']>
 
 /**
+ * Scoped reindexes clear only the reindexed entity's (or organization's) documents. A driver
+ * that can do neither `purge` nor `listDocumentIds` would keep deleted records, and recreating
+ * the whole tenant index instead would drop every other entity and organization, so such a
+ * reindex fails up front.
+ */
+function canScopedPurge(fulltext: FullTextSearchStrategy): boolean {
+  return typeof fulltext.canPurge !== 'function' || fulltext.canPurge()
+}
+
+function scopedPurgeUnsupportedError(fulltext: FullTextSearchStrategy): string {
+  return `Fulltext driver "${fulltext.driverId}" cannot clear documents per entity (implement purge or listDocumentIds); reindex aborted to avoid keeping stale documents`
+}
+
+/**
  * Parameters for indexing a record.
  */
 export type IndexRecordParams = {
@@ -70,7 +84,7 @@ export type ReindexEntityParams = {
   entityId: EntityId
   tenantId: string
   organizationId?: string | null
-  /** Whether to recreate the index first (default: true) */
+  /** Whether to clear this entity's documents (scoped to `organizationId` when set) first (default: true) */
   recreateIndex?: boolean
   /** Callback for progress tracking */
   onProgress?: (progress: ReindexProgress) => void
@@ -84,7 +98,7 @@ export type ReindexEntityParams = {
 export type ReindexAllParams = {
   tenantId: string
   organizationId?: string | null
-  /** Whether to recreate the index first (default: true) */
+  /** Whether to clear indexed documents first (default: true): the whole tenant index, or only `organizationId`'s documents when set */
   recreateIndex?: boolean
   /** Callback for progress tracking */
   onProgress?: (progress: ReindexProgress) => void
@@ -711,9 +725,13 @@ export class SearchIndexer {
         processed: 0,
       })
 
-      // Recreate index if requested (default: true)
       if (params.recreateIndex !== false) {
-        await fulltext.recreateIndex(params.tenantId)
+        if (!canScopedPurge(fulltext)) {
+          result.success = false
+          result.errors.push({ entityId: params.entityId, error: scopedPurgeUnsupportedError(fulltext) })
+          return result
+        }
+        await fulltext.purge(params.entityId, params.tenantId, params.organizationId ?? null)
       }
 
       // Fetch and index records with pagination
@@ -850,9 +868,15 @@ export class SearchIndexer {
       return result
     }
 
-    // Recreate index once before processing all entities
-    if (params.recreateIndex !== false) {
+    const clearIndex = params.recreateIndex !== false
+    const organizationScoped = typeof params.organizationId === 'string' && params.organizationId.trim().length > 0
+    if (clearIndex && !organizationScoped) {
       await fulltext.recreateIndex(params.tenantId)
+    }
+    if (clearIndex && organizationScoped && !canScopedPurge(fulltext)) {
+      result.success = false
+      result.errors.push({ entityId: 'all' as EntityId, error: scopedPurgeUnsupportedError(fulltext) })
+      return result
     }
 
     const entities = this.listEnabledEntities()
@@ -862,7 +886,7 @@ export class SearchIndexer {
         entityId,
         tenantId: params.tenantId,
         organizationId: params.organizationId,
-        recreateIndex: false, // Already recreated above
+        recreateIndex: clearIndex && organizationScoped,
         onProgress: params.onProgress,
         useQueue: params.useQueue,
       })
