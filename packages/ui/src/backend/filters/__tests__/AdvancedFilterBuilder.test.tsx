@@ -208,3 +208,59 @@ describe('AdvancedFilterBuilder — rewrite', () => {
     expect(container.textContent).toContain('Pick a value')
   })
 })
+
+describe('AdvancedFilterBuilder — tags fields', () => {
+  const tagsTree = (field: string, operator: 'has_any_of' | 'has_all_of' | 'has_none_of') => ({
+    root: {
+      id: 'root',
+      type: 'group' as const,
+      combinator: 'and' as const,
+      children: [{ id: 'rule-1', type: 'rule' as const, field, operator, value: [] as string[] }],
+    },
+  })
+
+  it('collects typed values as a list for a tags field without options', () => {
+    const onChange = jest.fn()
+    render(
+      <AdvancedFilterBuilder
+        fields={[{ key: 'labels', label: 'Labels', type: 'tags' as const }]}
+        value={tagsTree('labels', 'has_all_of')}
+        onChange={onChange}
+        onApply={() => {}}
+        onClear={() => {}}
+      />,
+    )
+
+    const input = screen.getByRole('group', { name: 'Text value' }).querySelector('input')
+    expect(input).not.toBeNull()
+    fireEvent.change(input!, { target: { value: 'vip' } })
+    fireEvent.keyDown(input!, { key: 'Enter' })
+
+    const nextTree = onChange.mock.calls[onChange.mock.calls.length - 1][0]
+    expect(nextTree.root.children[0].value).toEqual(['vip'])
+  })
+
+  it('offers the option list for a tags field with options', () => {
+    render(
+      <AdvancedFilterBuilder
+        fields={[
+          {
+            key: 'labels',
+            label: 'Labels',
+            type: 'tags' as const,
+            options: [
+              { value: 'vip', label: 'VIP' },
+              { value: 'eu', label: 'EU' },
+            ],
+          },
+        ]}
+        value={tagsTree('labels', 'has_any_of')}
+        onChange={() => {}}
+        onApply={() => {}}
+        onClear={() => {}}
+      />,
+    )
+
+    expect(screen.getByTestId('multi-value-trigger')).toBeInTheDocument()
+  })
+})

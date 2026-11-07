@@ -5,12 +5,17 @@ import {
   PostgresAdapter,
   PostgresIntrospector,
   PostgresQueryCompiler,
+  type CompiledQuery,
+  type DatabaseConnection,
+  type QueryResult,
   type RawBuilder,
   type SelectQueryBuilder,
 } from 'kysely'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
+import { makeMultiRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import type { FilterOp } from '@open-mercato/shared/lib/query/types'
-import { HybridQueryEngine } from '../lib/engine'
+import { HybridQueryEngine, clearBaseTableExistsCache } from '../lib/engine'
 
 function makeCompilingDb(): Kysely<any> {
   return new Kysely<any>({
@@ -125,5 +130,73 @@ describe('HybridQueryEngine overlap', () => {
     expect(viaExpression.sql).toMatch(/where false$/)
     const viaAlias = engine.applyCfFilterFromAlias(base(), 'ei', ENTITY, 'cf:labels', 'noverlap', ['a']).compile()
     expect(viaAlias.sql).toMatch(/where false$/)
+  })
+})
+
+function makeRecordingDb(columns: string[]): { db: Kysely<any>; queries: CompiledQuery[] } {
+  const queries: CompiledQuery[] = []
+  const rowsFor = (compiled: CompiledQuery): unknown[] => {
+    if (compiled.sql.includes('"information_schema"."tables"')) return [{ one: 1 }]
+    if (!compiled.sql.includes('"information_schema"."columns"')) return []
+    if (compiled.parameters.length === 1) return columns.map((column) => ({ column_name: column, data_type: 'text' }))
+    return columns.includes(String(compiled.parameters[1])) ? [{ one: 1 }] : []
+  }
+  const connection: DatabaseConnection = {
+    async executeQuery<R>(compiled: CompiledQuery): Promise<QueryResult<R>> {
+      queries.push(compiled)
+      return { rows: rowsFor(compiled) as R[] }
+    },
+    async *streamQuery() {},
+  }
+  const recordingDb = new Kysely<any>({
+    dialect: {
+      createAdapter: () => new PostgresAdapter(),
+      createDriver: () => ({
+        init: async () => {},
+        acquireConnection: async () => connection,
+        beginTransaction: async () => {},
+        commitTransaction: async () => {},
+        rollbackTransaction: async () => {},
+        releaseConnection: async () => {},
+        destroy: async () => {},
+      }),
+      createIntrospector: (kysely) => new PostgresIntrospector(kysely),
+      createQueryCompiler: () => new PostgresQueryCompiler(),
+    },
+  })
+  return { db: recordingDb, queries }
+}
+
+describe('HybridQueryEngine tags OR filter', () => {
+  beforeEach(() => {
+    clearBaseTableExistsCache()
+  })
+
+  it.each([
+    ['has all of first', ['has_all_of', 'has_any_of']],
+    ['has any of first', ['has_any_of', 'has_all_of']],
+  ] as const)('does not make the extra has all of tag mandatory when ORed with a has any of it implies (%s)', async (_order, operators) => {
+    const values = { has_all_of: ['vip', 'eu'], has_any_of: ['vip'] }
+    const tree = makeMultiRuleTree(
+      operators.map((operator) => ({ field: 'tags', operator, value: values[operator] })),
+      'or',
+    )
+    const { db: recordingDb, queries } = makeRecordingDb(['id', 'tenant_id', 'organization_id', 'deleted_at', 'tags'])
+    const recordingEm = { getKysely: () => recordingDb } as unknown as EntityManager
+    const fallback = new BasicQueryEngine(recordingEm, () => recordingDb)
+    const fallbackSpy = jest.spyOn(fallback, 'query')
+    const hybrid = new HybridQueryEngine(recordingEm, fallback)
+    await hybrid.query(ENTITY, {
+      tenantId: 'tenant-1',
+      fields: ['id'],
+      filters: mergeAdvancedFilterTree({}, tree),
+    })
+    expect(fallbackSpy).not.toHaveBeenCalled()
+    const listQuery = queries.find((query) => /^select (?!count).* from "catalog_products" as "b"/.test(query.sql))
+    expect(listQuery).toBeDefined()
+    expect(listQuery!.sql.match(/"b"\."tags" && \$\d+/g)).toHaveLength(1)
+    expect(listQuery!.sql).not.toMatch(/ or /)
+    expect(listQuery!.parameters).toContainEqual(['vip'])
+    expect(listQuery!.parameters).not.toContainEqual(['eu'])
   })
 })

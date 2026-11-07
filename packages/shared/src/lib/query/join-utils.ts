@@ -163,15 +163,10 @@ export function normalizeFilters(filters?: QueryOptions['filters']): NormalizedF
   const { common, remaining } = liftCommonClauses(nonEmpty)
   const out: NormalizedFilter[] = []
   for (const c of common) out.push({ field: c.field, op: c.op, value: c.value })
-  // Drop disjuncts that became empty after lifting (they're already represented in `common`).
-  const remainingNonEmpty = remaining.filter((d) => d.length > 0)
-  if (remainingNonEmpty.length === 0) return out
-  if (remainingNonEmpty.length === 1) {
-    for (const c of remainingNonEmpty[0]) out.push({ field: c.field, op: c.op, value: c.value })
-    return out
-  }
-  for (let i = 0; i < remainingNonEmpty.length; i++) {
-    for (const c of remainingNonEmpty[i]) {
+  // An empty disjunct is unconstrained, so (C AND R1) OR C is just C: it absorbs the other disjuncts.
+  if (remaining.some((d) => d.length === 0)) return out
+  for (let i = 0; i < remaining.length; i++) {
+    for (const c of remaining[i]) {
       out.push({ field: c.field, op: c.op, value: c.value, orGroup: `or_${i}` })
     }
   }

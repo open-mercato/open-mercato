@@ -175,6 +175,25 @@ describe('customers deals list filters', () => {
     spy.mockRestore()
   })
 
+  it.each([
+    ['has_any_of', '$in'],
+    ['has_none_of', '$nin'],
+  ] as const)('keeps a %s status rule on scalar set membership (%s), not array overlap', async (operator, expectedOp) => {
+    const { makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
+    const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
+    const tree = makeRuleTree({ field: 'status', operator, value: ['won'] })
+    const serialized = serializeTree(tree)
+    const query = dealListQuerySchema.parse(serialized as Record<string, unknown>)
+    const { ctx } = createDealFilterContext([])
+    const utils = await import('../../utils')
+    const spy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue([])
+    await buildDealListFilters(query as unknown as DealListQuery, ctx)
+    const calledFilters = (spy.mock.calls[0][0] as { filters: Record<string, unknown> }).filters
+    const treeWhere = extractTreeWhere(calledFilters)
+    expect(treeWhere.status).toEqual({ [expectedOp]: expect.arrayContaining(['win', 'won']) })
+    spy.mockRestore()
+  })
+
   it('expands a closed rule on the tree to the full terminal set', async () => {
     const { makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
     const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
