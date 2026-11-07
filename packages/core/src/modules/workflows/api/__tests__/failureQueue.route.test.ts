@@ -179,6 +179,32 @@ describe('GET /api/workflows/instances/failure-queue', () => {
     )
     expect(response.status).toBe(401)
   })
+
+  test.each([100001, 100050, 999999999])('rejects offset %i without scanning or counting another page', async (offset) => {
+    const response = await listFailureQueue(
+      new NextRequest(`http://localhost/api/workflows/instances/failure-queue?offset=${offset}&limit=10`),
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toHaveProperty('error', 'WORKFLOW_LIST_OFFSET_EXCEEDED')
+    expect(mockEm.find).not.toHaveBeenCalled()
+    expect(mockEm.count).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum offset while keeping the grouping scan bounded', async () => {
+    const response = await listFailureQueue(
+      new NextRequest('http://localhost/api/workflows/instances/failure-queue?offset=100000&limit=10'),
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.data).toEqual([])
+    expect(body.pagination).toMatchObject({ limit: 10, offset: 100000, hasMore: false })
+    expect(mockEm.find).toHaveBeenCalledWith(
+      WorkflowInstance,
+      expect.objectContaining({ tenantId, organizationId: { $in: [orgId] } }),
+      expect.objectContaining({ limit: FAILURE_GROUP_SCAN_LIMIT }),
+    )
+  })
 })
 
 describe('POST /api/workflows/instances/bulk-replay', () => {

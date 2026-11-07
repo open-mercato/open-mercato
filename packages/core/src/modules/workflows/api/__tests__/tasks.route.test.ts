@@ -172,6 +172,22 @@ describe('GET /api/workflows/tasks', () => {
     expect(body.pagination).toEqual({ total: 0, limit: 100, offset: 0, hasMore: false })
   })
 
+  test.each([100001, 100050, 999999999])('rejects offset %i without reading a substituted page', async (offset) => {
+    const response = await listTasks(new NextRequest(`http://localhost/api/workflows/tasks?limit=10&offset=${offset}`))
+    expect(response.status).toBe(400)
+    expect(await response.json()).toHaveProperty('error', 'WORKFLOW_LIST_OFFSET_EXCEEDED')
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum offset without changing the requested page', async () => {
+    const response = await listTasks(new NextRequest('http://localhost/api/workflows/tasks?limit=10&offset=100000'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findAndCount.mock.calls[0][2]).toMatchObject({ limit: 10, offset: 100000 })
+    expect(body.pagination).toMatchObject({ limit: 10, offset: 100000, hasMore: false })
+  })
+
   test('serializes rows so the proposal link reaches the client', async () => {
     mockEm.findAndCount.mockResolvedValue([[makeTask({ formSchema: { proposalId: 'proposal-9' } })], 1])
 

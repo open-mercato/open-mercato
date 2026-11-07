@@ -183,4 +183,30 @@ describe('GET /api/workflows/instances/[id]/steps', () => {
     expect(body.pagination.hasMore).toBe(true)
     expect(body.pagination.total).toBe(250)
   })
+
+  test.each([100001, 100050, 999999999])('rejects offset %i before reading step instances', async (offset) => {
+    const response = await listSteps(
+      new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/steps?offset=${offset}&limit=10`),
+      makeContext(),
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toHaveProperty('error', 'WORKFLOW_LIST_OFFSET_EXCEEDED')
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum offset before reading step instances', async () => {
+    const response = await listSteps(
+      new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/steps?offset=100000&limit=10`),
+      makeContext(),
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      StepInstance,
+      expect.objectContaining({ tenantId: testTenantId, organizationId: { $in: [testOrgId] } }),
+      expect.objectContaining({ limit: 10, offset: 100000 }),
+    )
+    expect(body.pagination).toMatchObject({ limit: 10, offset: 100000, hasMore: false })
+  })
 })
