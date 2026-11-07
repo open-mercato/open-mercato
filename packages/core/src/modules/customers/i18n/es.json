@@ -618,6 +618,8 @@
   "customers.companies.detail.fields.sizeBucket": "Tamaño de la empresa",
   "customers.companies.detail.fields.sizeBucketPlaceholder": "Agregar tamaño de empresa",
   "customers.companies.detail.fields.source": "Origen",
+  "customers.companies.detail.fields.taxId": "NIF / IVA",
+  "customers.companies.detail.fields.taxIdPlaceholder": "p. ej. ESB12345678",
   "customers.companies.detail.fields.website": "Sitio web",
   "customers.companies.detail.fields.websiteHelp": "Usa una URL completa, por ejemplo https://ejemplo.com.",
   "customers.companies.detail.fields.websitePlaceholder": "https://ejemplo.com",

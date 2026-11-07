@@ -618,6 +618,8 @@
   "customers.companies.detail.fields.sizeBucket": "Unternehmensgröße",
   "customers.companies.detail.fields.sizeBucketPlaceholder": "Unternehmensgröße hinzufügen",
   "customers.companies.detail.fields.source": "Quelle",
+  "customers.companies.detail.fields.taxId": "USt-IdNr.",
+  "customers.companies.detail.fields.taxIdPlaceholder": "z. B. DE123456789",
   "customers.companies.detail.fields.website": "Website",
   "customers.companies.detail.fields.websiteHelp": "Verwende eine vollständige URL wie https://beispiel.de.",
   "customers.companies.detail.fields.websitePlaceholder": "https://beispiel.de",

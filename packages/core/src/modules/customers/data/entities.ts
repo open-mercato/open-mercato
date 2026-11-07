@@ -285,6 +285,9 @@ export class CustomerCompanyProfile {
   @Property({ name: 'annual_revenue', type: 'numeric', precision: 16, scale: 2, nullable: true })
   annualRevenue?: string | null
 
+  @Property({ name: 'tax_id', type: 'text', nullable: true })
+  taxId?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 

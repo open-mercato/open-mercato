@@ -79,8 +79,10 @@ test.describe('TC-CRM-002: Company Creation Validation Errors', () => {
       const displayNameInput = page.locator('[data-crud-field-id="displayName"] input');
       const emailInput = page.locator('[data-crud-field-id="primaryEmail"] input');
       const websiteInput = page.locator('[data-crud-field-id="websiteUrl"] input');
+      const taxIdInput = page.locator('[data-crud-field-id="taxId"] input');
 
       await safeFill(page, displayNameInput, companyName);
+      await safeFill(page, taxIdInput, 'PL1234567890');
       await safeFill(page, emailInput, 'invalid-email');
       await safeFill(page, websiteInput, 'notaurl');
       await submitBtn.click();

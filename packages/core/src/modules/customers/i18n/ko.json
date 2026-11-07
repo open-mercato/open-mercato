@@ -618,6 +618,8 @@
   "customers.companies.detail.fields.sizeBucket": "회사 규모",
   "customers.companies.detail.fields.sizeBucketPlaceholder": "규모 구간을 추가하세요",
   "customers.companies.detail.fields.source": "출처",
+  "customers.companies.detail.fields.taxId": "사업자등록번호",
+  "customers.companies.detail.fields.taxIdPlaceholder": "예: 123-45-67890",
   "customers.companies.detail.fields.website": "웹사이트",
   "customers.companies.detail.fields.websiteHelp": "https://example.com과 같은 전체 URL을 사용하세요.",
   "customers.companies.detail.fields.websitePlaceholder": "https://example.com",
