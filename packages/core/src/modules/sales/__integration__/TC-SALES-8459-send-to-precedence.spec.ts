@@ -12,7 +12,7 @@
  *
  * Fixtures: people and one quote per case, created through the API and removed in `finally`.
  */
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
@@ -27,9 +27,18 @@ import {
 
 export const integrationMeta = { dependsOnModules: ['sales', 'customers'] }
 
+async function openSendAction(page: Page): Promise<Locator> {
+  const sendAction = page.getByRole('menuitem', { name: 'Send to customer', exact: true })
+  await expect(async () => {
+    await page.mouse.move(0, 0)
+    await page.getByRole('button', { name: 'Actions', exact: true }).hover()
+    await expect(sendAction).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 20_000 })
+  return sendAction
+}
+
 async function expectAnnouncedRecipient(page: Page, email: string): Promise<void> {
-  await page.getByRole('button', { name: 'Actions', exact: true }).hover()
-  await page.getByRole('menuitem', { name: 'Send to customer', exact: true }).click()
+  await (await openSendAction(page)).click()
   const dialog = page.getByRole('dialog', { name: 'Send quote to customer' })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByText(`Email will be sent to: ${email}`), 'the dialog names the recipient').toBeVisible()
@@ -38,11 +47,7 @@ async function expectAnnouncedRecipient(page: Page, email: string): Promise<void
 }
 
 async function expectNoRecipient(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Actions', exact: true }).hover()
-  await expect(
-    page.getByRole('menuitem', { name: 'Send to customer', exact: true }),
-    'sending needs a recipient',
-  ).toBeDisabled()
+  await expect(await openSendAction(page), 'sending needs a recipient').toBeDisabled()
 }
 
 async function saveCustomerCard(page: Page): Promise<void> {
