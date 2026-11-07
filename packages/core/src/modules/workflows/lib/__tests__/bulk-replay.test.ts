@@ -14,8 +14,29 @@ jest.mock('@open-mercato/queue', () => ({
   createModuleQueue: jest.fn(() => ({ enqueue: jest.fn() })),
 }))
 
+const findOneWithDecryption = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryption(...args),
+}))
+
 import { canApplyBulkReplay, runBulkReplay } from '../bulk-replay'
 import { WorkflowInstance } from '../../data/entities'
+import { registerTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+
+function registerThrowingTelemetry() {
+  const reportError = jest.fn(() => {
+    throw new Error('telemetry exporter down')
+  })
+  const unregister = registerTelemetryRuntime({
+    canUseGlobalTracePropagation: () => false,
+    captureTraceContext: () => ({}),
+    continueTrace: (_carrier, _name, fn) => fn(),
+    recordHttpDuration: () => {},
+    reportError,
+    shutdown: async () => {},
+  } satisfies TelemetryRuntime)
+  return { reportError, unregister }
+}
 
 type FakeInstance = {
   id: string
@@ -53,7 +74,12 @@ function makeHarness(instances: FakeInstance[]) {
     if (where.tenantId !== found.tenantId || where.organizationId !== found.organizationId) return null
     return found
   })
-  const em = { findOne, flush: jest.fn(async () => undefined) }
+  const em = {
+    findOne,
+    flush: jest.fn(async () => undefined),
+    refresh: jest.fn(async () => undefined),
+    transactional: jest.fn(async (work: (trx: unknown) => Promise<unknown>) => work(em)),
+  }
   const progressService = {
     startJob: jest.fn(async () => undefined),
     updateProgress: jest.fn(async () => undefined),
@@ -183,6 +209,52 @@ describe('runBulkReplay', () => {
     expect(summary.failedCount).toBe(1)
     expect(summary.affectedCount).toBe(1)
     expect(executeWorkflow).toHaveBeenCalledTimes(2)
+  })
+
+  test('a throwing telemetry runtime does not stop the batch or skip the final summary', async () => {
+    const { reportError, unregister } = registerThrowingTelemetry()
+    try {
+      executeWorkflow.mockImplementationOnce(async () => {
+        throw new Error('still broken')
+      })
+      const harness = makeHarness([makeInstance('a', 'FAILED'), makeInstance('b', 'FAILED')])
+
+      const summary = await runBulkReplay({
+        container: harness.container as never,
+        progressJobId: 'job-1',
+        action: 'retry',
+        ids: ['a', 'b'],
+        scope: SCOPE,
+      })
+
+      expect(reportError).toHaveBeenCalledTimes(1)
+      expect(summary).toMatchObject({ failedCount: 1, affectedCount: 1 })
+      expect(executeWorkflow).toHaveBeenCalledTimes(2)
+      expect(harness.progressService.completeJob).toHaveBeenCalledTimes(1)
+    } finally {
+      unregister()
+    }
+  })
+
+  test('skips a keyed instance whose key a newer open run holds, and keeps replaying the batch', async () => {
+    const keyed = { ...makeInstance('keyed', 'FAILED'), businessKey: 'order:42', workflowId: 'wf-1' }
+    const free = makeInstance('free', 'FAILED')
+    findOneWithDecryption.mockResolvedValueOnce({ id: 'holder' })
+    const harness = makeHarness([keyed, free])
+
+    const summary = await runBulkReplay({
+      container: harness.container as never,
+      progressJobId: 'job-1',
+      action: 'retry',
+      ids: ['keyed', 'free'],
+      scope: SCOPE,
+    })
+
+    expect(summary).toMatchObject({ affectedCount: 1, skippedCount: 1, failedCount: 0 })
+    expect(keyed.status).toBe('FAILED')
+    expect(keyed.retryCount).toBe(0)
+    expect(free.status).toBe('RUNNING')
+    expect(executeWorkflow).toHaveBeenCalledTimes(1)
   })
 
   test('cancel routes through the executor rather than writing the status directly', async () => {
