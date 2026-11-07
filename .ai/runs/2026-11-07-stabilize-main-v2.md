@@ -29,10 +29,16 @@ PR: #9008
 
 ### Phase 1: Fix and validate
 
-- [x] 1.1 Isolate the customerless project scenario and retain routing assertions.
-- [ ] 1.2 Run full PR CI and inspect all failed checks until green.
+- [x] 1.1 Isolate the customerless project scenario and retain routing assertions. — c0b59660c
+- [x] 1.2 Run full PR CI and inspect all failed checks until green. — [full CI 42410603371](https://github.com/open-mercato/open-mercato/actions/runs/42410603371) on d65b64e8e; all 15 shards and coverage passed.
 
 ### Phase 2: Review and handoff
 
-- [ ] 2.1 Obtain independent final review and resolve actionable findings.
-- [ ] 2.2 Record evidence, mark ready and apply automerge only with green checks and approved review.
+- [x] 2.1 Obtain independent final review and resolve actionable findings. — [APPROVE, no findings](https://github.com/open-mercato/open-mercato/pull/9008#pullrequestreview-5814764219).
+- [x] 2.2 Record evidence, mark ready and apply automerge only with green checks and approved review. — Code and review gates passed on d65b64e8e; ready promotion and automerge remain conditional on green checks at the final bookkeeping head, recorded in the PR summary.
+
+## Verification outcome
+
+Runner: GitHub Actions. Full CI 42410603371 passed on d65b64e8e: build/generate/rebuild, i18n synchronization/usage, typecheck, unit tests, app build, lint, design-system checks, multi-instance, timezone, Docker build, all 15 integration shards and coverage merge. CodeQL and CLA also passed; audit and mutation jobs were conditionally skipped. Independent review approved the complete code change with no findings. No local dependency installation or duplicate local gate was needed.
+
+The main-only snapshot workflow has not been rerun with this test fix: source integration success does not establish published standalone success. Verify the next snapshot after merge. No workflow, production code or database change was made; the null-customer and routing assertions remain intact. The final bookkeeping commit changes only this record. Check its reported CI before applying automerge; no merge is performed by this run.
