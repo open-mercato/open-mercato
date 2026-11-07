@@ -14,7 +14,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { authorizeAuditReplayWithEntityManager } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
+import { authorizeAuditReplayWithEntityManager, isAuditReplayOrganizationAllowed } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
 import {
   actionLogBelongsToAuth,
   resolveCanonicalAuthSubject,
@@ -102,14 +102,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
   const scopedOrgId = canUndoTenant ? organizationId ?? null : singleOrganizationId
-  // Tenant-level undoers may undo across organizations within the tenant, so an
-  // unresolved (null) caller org is allowed and only an explicit mismatch is rejected.
-  // Every other caller must resolve to the target's own organization — a null caller
-  // org must not bypass an org-scoped target (issue #2685).
-  const orgScopeMismatch = canUndoTenant
-    ? Boolean(target.organizationId && scopedOrgId && target.organizationId !== scopedOrgId)
-    : Boolean(target.organizationId && target.organizationId !== scopedOrgId)
-  if (orgScopeMismatch) {
+  if (!isAuditReplayOrganizationAllowed({
+    scope,
+    organizationId: scopedOrgId,
+    targetOrganizationId: target.organizationId,
+    canReplayTenant: canUndoTenant,
+  })) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
 
