@@ -21,6 +21,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type Row = {
   id: string
@@ -348,7 +349,7 @@ export default function UsersListPage() {
     return p.toString()
   }, [filterValues.name, page, search, organizationId, normalizedRoleIds])
 
-  const { data: usersData, isLoading } = useQuery({
+  const { data: usersData, isLoading, isPending, isFetching, isError, errorUpdatedAt, refetch } = useQuery({
     queryKey: ['users', params, scopeVersion],
     queryFn: async () => {
       const call = await apiCall<{ items: Row[]; total: number; totalPages: number; totalIsCapped?: boolean; isSuperAdmin?: boolean }>(
@@ -361,6 +362,7 @@ export default function UsersListPage() {
     },
   })
 
+  const hasLoadError = isError || (isPending && errorUpdatedAt > 0)
   const rows = usersData?.items || []
   const total = usersData?.total || 0
   const totalPages = usersData?.totalPages || 1
@@ -459,7 +461,17 @@ export default function UsersListPage() {
             ]} />
           )}
           pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
-          isLoading={isLoading}
+          isLoading={isLoading && !hasLoadError}
+          error={hasLoadError ? (
+            <ErrorMessage
+              label={t('auth.users.list.error.load', 'Failed to load users')}
+              action={(
+                <Button type="button" variant="outline" disabled={isFetching} onClick={() => { void refetch() }}>
+                  {t('auth.users.list.actions.retry', 'Retry')}
+                </Button>
+              )}
+            />
+          ) : null}
         />
       </PageBody>
       {ConfirmDialogElement}
