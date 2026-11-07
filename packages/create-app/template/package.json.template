@@ -138,6 +138,7 @@
     "@open-mercato/gateway-stripe": "{{PACKAGE_VERSION}}",
     "@open-mercato/gateway-autopay": "{{PACKAGE_VERSION}}",
     "@open-mercato/gateway-tpay": "{{PACKAGE_VERSION}}",
+    "@open-mercato/gus-regon": "{{PACKAGE_VERSION}}",
     "@open-mercato/sync-akeneo": "{{PACKAGE_VERSION}}"
   },
   "devDependencies": {
