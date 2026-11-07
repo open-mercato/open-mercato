@@ -85,9 +85,11 @@ it('runs rendered and headless handlers once in priority order across canonical,
 })
 
 it('headless validation blocks save, then transformations and visible contributor values reach handlers only', async () => {
+  const fieldLoad = jest.fn()
   const saved = jest.fn()
   const nativeSubmit = jest.fn()
   const field = fieldWidget('test.priority', {
+    onLoad: fieldLoad,
     onBeforeSave: async (data) => data['_extension.priority'] === 'blocked' ? { ok: false, fieldErrors: { '_extension.priority': 'Invalid priority' } } : true,
     transformFormData: async (data) => ({ ...data, name: 'Transformed' }),
     onSave: saved,
@@ -95,6 +97,7 @@ it('headless validation blocks save, then transformations and visible contributo
   field.fields.push({ id: '_extension.secret', label: 'Secret', type: 'text', group: 'details', visibleWhen: { field: 'name', operator: 'eq', value: 'Visible' } })
   register([field], { [`${SPOT}:fields`]: 'test.priority' })
   const { container, getByLabelText } = renderForm({ initialValues: { id: 'record-1', name: 'Original', _extension: { priority: 'blocked', secret: 'hidden' } }, onSubmit: nativeSubmit })
+  await waitFor(() => expect(fieldLoad).toHaveBeenCalledTimes(1))
   await waitFor(() => expect(getByLabelText('Priority')).toHaveValue('blocked'))
   fireEvent.submit(container.querySelector('form')!)
   await waitFor(() => expect(container.textContent).toContain('Invalid priority'))
