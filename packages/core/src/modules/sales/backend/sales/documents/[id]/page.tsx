@@ -1,6 +1,8 @@
 // @ts-nocheck
-
 "use client"
+
+import { useQuoteSendDefaults } from '@open-mercato/core/modules/sales/components/documents/useQuoteSendDefaults'
+export { resolveDefaultValidForDays } from '@open-mercato/core/modules/sales/lib/quoteValidity'
 
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
@@ -978,18 +980,6 @@ const resolveLineItemCount = (record: unknown): number | null => {
   return Number.isFinite(current) ? current : null
 }
 
-const DEFAULT_QUOTE_VALID_FOR_DAYS = 14
-const MS_PER_DAY = 24 * 60 * 60 * 1000
-
-export function resolveDefaultValidForDays(validUntil: string | null | undefined): number {
-  if (!validUntil) return DEFAULT_QUOTE_VALID_FOR_DAYS
-  const target = new Date(validUntil)
-  if (Number.isNaN(target.getTime())) return DEFAULT_QUOTE_VALID_FOR_DAYS
-  const daysRemaining = Math.ceil((target.getTime() - Date.now()) / MS_PER_DAY)
-  if (daysRemaining < 1) return DEFAULT_QUOTE_VALID_FOR_DAYS
-  return Math.min(daysRemaining, 365)
-}
-
 async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: string): Promise<DocumentRecord | null> {
   const params = new URLSearchParams({ id, page: '1', pageSize: '1' })
   const payload = await readApiResultOrThrow<{ items?: DocumentRecord[] }>(
@@ -1947,8 +1937,7 @@ export default function SalesDocumentDetailPage({
   const [deleting, setDeleting] = React.useState(false)
   const [switchingToComputedAmounts, setSwitchingToComputedAmounts] = React.useState(false)
   const [sending, setSending] = React.useState(false)
-  const [sendOpen, setSendOpen] = React.useState(false)
-  const [validForDays, setValidForDays] = React.useState(DEFAULT_QUOTE_VALID_FOR_DAYS)
+  const { sendOpen, setSendOpen, validForDays, setValidForDays, defaultDays: defaultQuoteValidityDays, loading: loadingSendDefaults, openSendDialog } = useQuoteSendDefaults(kind === 'quote' ? record?.id ?? null : null, record?.validUntil)
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [canEditNumber, setCanEditNumber] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
@@ -4779,7 +4768,7 @@ export default function SalesDocumentDetailPage({
           ) : undefined}
           menuActions={kind === 'quote' ? ([
             { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
-            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => { setValidForDays(resolveDefaultValidForDays(record.validUntil)); setSendOpen(true) }, disabled: !contactEmail || sending, loading: sending },
+            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => { void openSendDialog() }, disabled: !contactEmail || sending || loadingSendDefaults, loading: sending || loadingSendDefaults },
           ] satisfies ActionItem[]) : undefined}
           onDelete={() => void handleDelete()}
           isDeleting={deleting}
@@ -5084,13 +5073,14 @@ export default function SalesDocumentDetailPage({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <label className="text-sm font-medium">{t('sales.quotes.send.validForDays', 'Valid for (days)')}</label>
+            <label htmlFor="sales-quote-send-valid-for-days" className="text-sm font-medium">{t('sales.quotes.send.validForDays', 'Valid for (days)')}</label>
             <Input
               type="number"
               min={1}
               max={365}
+              id="sales-quote-send-valid-for-days"
               value={validForDays}
-              onChange={(e) => setValidForDays(Number(e.target.value || 14))}
+              onChange={(event) => setValidForDays(Number(event.target.value || defaultQuoteValidityDays))}
               disabled={sending}
             />
           </div>

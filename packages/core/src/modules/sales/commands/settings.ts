@@ -1,3 +1,7 @@
+import { LockMode } from '@mikro-orm/core'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from '../lib/documentNumberTokens'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -5,7 +9,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { SalesSettings } from '../data/entities'
-import { salesSettingsUpsertSchema, type SalesSettingsUpsertInput } from '../data/validators'
+import { salesSettingsUpsertSchema, quoteValiditySettingsSaveSchema, type QuoteValiditySettingsSaveInput, type SalesSettingsUpsertInput } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 
@@ -27,12 +31,13 @@ async function ensureNumberEditPermission(
 
 export async function loadSalesSettings(
   em: EntityManager,
-  params: { tenantId: string; organizationId: string }
+  params: { tenantId: string; organizationId: string },
+  options: { lockMode?: LockMode } = {},
 ): Promise<SalesSettings | null> {
-  return em.findOne(SalesSettings, {
+  return findOneWithDecryption(em, SalesSettings, {
     tenantId: params.tenantId,
     organizationId: params.organizationId,
-  })
+  }, options, params)
 }
 
 const saveSalesSettingsCommand: CommandHandler<
@@ -117,3 +122,38 @@ const saveSalesSettingsCommand: CommandHandler<
 }
 
 registerCommand(saveSalesSettingsCommand)
+
+const saveQuoteValiditySettingsCommand: CommandHandler<
+  QuoteValiditySettingsSaveInput,
+  { defaultQuoteValidityDays: number; updatedAt: string }
+> = {
+  id: 'sales.settings.quote_validity.save',
+  async execute(rawInput, ctx) {
+    const input = quoteValiditySettingsSaveSchema.parse(rawInput)
+    ensureTenantScope(ctx, input.tenantId)
+    ensureOrganizationScope(ctx, input.organizationId)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return em.transactional(async (transactionEm) => {
+      let settings = await loadSalesSettings(transactionEm, input, { lockMode: LockMode.PESSIMISTIC_WRITE })
+      if (!settings) {
+        await transactionEm.upsert(SalesSettings, {
+          tenantId: input.tenantId, organizationId: input.organizationId,
+          orderNumberFormat: DEFAULT_ORDER_NUMBER_FORMAT, quoteNumberFormat: DEFAULT_QUOTE_NUMBER_FORMAT,
+          updatedAt: new Date(),
+        }, { onConflictFields: ['organizationId', 'tenantId'], onConflictAction: 'ignore' })
+        settings = await loadSalesSettings(transactionEm, input, { lockMode: LockMode.PESSIMISTIC_WRITE })
+      }
+      if (!settings) throw new Error('[internal] Sales settings initialization failed')
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: 'sales.settings', resourceId: settings.id,
+        current: settings.updatedAt, request: ctx.request,
+      })
+      settings.defaultQuoteValidityDays = input.defaultQuoteValidityDays
+      settings.updatedAt = new Date()
+      await transactionEm.flush()
+      return { defaultQuoteValidityDays: settings.defaultQuoteValidityDays, updatedAt: settings.updatedAt.toISOString() }
+    })
+  },
+}
+
+registerCommand(saveQuoteValiditySettingsCommand)

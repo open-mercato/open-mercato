@@ -42,6 +42,7 @@ describe('sales command registration', () => {
       path: '../documentAddresses',
       expected: [
         'sales.settings.save',
+        'sales.settings.quote_validity.save',
         'sales.document-addresses.create',
         'sales.document-addresses.update',
         'sales.document-addresses.delete',
@@ -58,6 +59,7 @@ describe('sales command registration', () => {
         'sales.payments.update',
         'sales.payments.delete',
         'sales.settings.save',
+        'sales.settings.quote_validity.save',
         'sales.quotes.update',
         'sales.quotes.create',
         'sales.quotes.delete',
@@ -126,7 +128,7 @@ describe('sales command registration', () => {
     {
       label: '../settings',
       path: '../settings',
-      expected: ['sales.settings.save'],
+      expected: ['sales.settings.save', 'sales.settings.quote_validity.save'],
     },
     {
       label: '../tags',
