@@ -25,7 +25,7 @@
 
 import { execFileSync } from 'node:child_process'
 
-export const DEFAULT_BASE_REF = 'origin/develop'
+export const DEFAULT_BASE_REF = 'origin/main'
 export const DEFAULT_MAX_FILES = 25
 
 /**

@@ -1,0 +1,66 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Quote: editing a configured line</title><style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,sans-serif;font-size:13px;color:#262626;background:#fff}
+.top{background:#f5f5f5;border-bottom:1px solid #e5e5e5;padding:10px 24px;display:flex;justify-content:space-between;font-size:12px;color:#525252}
+.top b{color:#171717}
+.wrap{display:grid;grid-template-columns:1fr 380px;min-height:calc(100vh - 38px)}
+.frame{padding:20px 24px;border-right:1px solid #e5e5e5}
+.app{border:1px solid #d4d4d4;border-radius:10px;overflow:hidden;background:#fff}
+.bar{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-bottom:1px solid #e5e5e5;background:#fafafa;color:#737373;font-size:12px}
+.body{display:grid;grid-template-columns:150px 1fr}
+.side{background:#fafafa;border-right:1px solid #e5e5e5;padding:12px 10px;color:#737373;font-size:12px;min-height:300px}
+.side .h{font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin:10px 0 4px;color:#a3a3a3}
+.side .i{padding:4px 6px;border-radius:5px}.side .on{background:#e9e9e9;color:#171717}
+.page{padding:16px 18px}
+.over{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#737373}
+h1{font-size:18px;margin:2px 0 4px}.muted{color:#737373}.small{font-size:11px}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.btn{display:inline-block;position:relative;border:1px solid #d4d4d4;border-radius:7px;padding:5px 10px;font-weight:600;background:#fff;margin-left:8px;font-size:12px}
+.mb{position:absolute;top:-9px;right:-9px;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#e11d48;color:#fff;font-size:10.5px;font-weight:700}
+.dash.row>div:last-child,.row>span:last-child{white-space:nowrap}
+.btn.p{background:#171717;color:#fff;border-color:#171717}.btn.dis{background:#f5f5f5;border-color:#e5e5e5;color:#a3a3a3}.btn.p.dis{background:#d4d4d4;border-color:#d4d4d4;color:#fff}
+.tabs{display:flex;gap:16px;border-bottom:1px solid #e5e5e5;margin:10px 0 12px;font-size:12px;color:#737373;font-weight:600}
+.tabs span{padding:6px 0}.tabs .on{color:#171717;border-bottom:2px solid #171717}
+.card{border:1px solid #e5e5e5;border-radius:9px;padding:12px 14px;margin-bottom:10px;background:#fff}
+.card h3{margin:0 0 8px;font-size:13px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.g3{display:grid;grid-template-columns:1.2fr 1fr;gap:12px}
+.lbl{font-weight:600;margin:8px 0 4px;font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}.chip{border:1px solid #d4d4d4;border-radius:6px;padding:3px 8px;font-size:12px;white-space:nowrap}
+.chip.sel{border:1.5px solid #171717;background:#f5f5f5;font-weight:600}.chip.off{color:#a3a3a3;background:#fafafa;text-decoration:line-through}
+.in{border:1px solid #d4d4d4;border-radius:6px;padding:5px 8px;font-size:12px;background:#fff}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+.hint{font-size:11px;color:#737373;margin-top:3px}
+.cond{border-left:3px solid #a5b4fc;padding-left:8px;margin-top:8px}
+.forced{border-left:3px solid #818cf8;padding-left:8px;margin-top:8px}
+.badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;border:1px solid}
+.badge:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.ok{background:#f0fdf4;color:#14532d;border-color:#bbf7d0}.warn{background:#fffbeb;color:#78350f;border-color:#fde68a}
+.err{background:#fef2f2;color:#7f1d1d;border-color:#fecaca}.info{background:#eef2ff;color:#312e81;border-color:#c7d2fe}.neu{background:#f5f5f5;color:#404040;border-color:#e5e5e5}
+.msg{border-radius:7px;padding:6px 9px;margin-bottom:6px;font-size:12px;border:1px solid}
+table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#737373;border-bottom:1px solid #e5e5e5;padding:5px 4px;background:#fafafa}
+td{border-bottom:1px solid #f0f0f0;padding:6px 4px;vertical-align:top}.r{text-align:right;font-variant-numeric:tabular-nums}
+.tot{display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid #e5e5e5;margin-top:8px;padding-top:8px}.tot b{font-size:18px}
+.m{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#e11d48;color:#fff;font-size:10.5px;font-weight:700;margin:0 4px;vertical-align:1px;flex:none}
+.legend{padding:20px 22px;background:#fafafa}
+.legend h2{font-size:15px;margin:0 0 4px}.legend .sub{color:#737373;margin-bottom:14px;font-size:12px}
+.note{display:flex;gap:8px;margin-bottom:11px;line-height:1.45}.note b{display:block}
+.flowbox{border:1px solid #d4d4d4;border-radius:9px;padding:10px 12px;background:#fff}
+.overlay{position:relative}.scrim{position:absolute;inset:0;background:rgba(23,23,23,.28);border-radius:10px}
+.dialog{position:absolute;background:#fff;border:1px solid #d4d4d4;border-radius:11px;box-shadow:0 14px 34px rgba(0,0,0,.18);padding:14px 16px}
+.row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.dash{border:1px dashed #d4d4d4;border-radius:9px;padding:10px 12px}
+.strike{text-decoration:line-through;color:#a3a3a3}
+.lock{background:#fafafa;color:#a3a3a3}
+.state{margin:16px 0 6px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#737373;font-weight:700}
+.toast{display:inline-block;border:1px solid #bbf7d0;background:#f0fdf4;color:#14532d;border-radius:8px;padding:6px 10px;font-size:12px}
+</style></head><body>
+<div class="top"><span><b>Product Configurator spec</b> &middot; UX wireframe &middot; Quote: editing a configured line</span><span>Low fidelity: shows flow and states, not visual design. Final UI uses the Open Mercato design system.</span></div>
+<div class="wrap"><div class="frame"><div class="overlay"><div class="app"><div class="bar"><span>&#8962; &rsaquo; Quotes &rsaquo; SQ-2026-0142</span><span>Org: Green Valley Demo &#9662; &nbsp; &#9881; &nbsp; &#9787;</span></div>
+<div class="body"><div class="side"><div class="i ">Dashboard</div><div class="h">Customers</div><div class="i">Companies</div><div class="i">People</div><div class="h">Sales</div><div class="i">Create sales document</div><div class="i ">Orders</div><div class="i on">Quotes</div><div class="h">Catalog</div><div class="i">Products</div><div class="h">Product configurator</div><div class="i ">Models</div></div><div class="page">
+<div class="over">Sales quote</div><h1>SQ-2026-0142</h1><div class="muted small">Green Valley Farms Ltd. &middot; Dealer network &middot; EUR</div><div class="tabs"><span>Items</span><span>Addresses</span><span>Adjustments</span><span>History</span><span class="on">Configurations</span><span>Comments</span></div>
+<div class="card"><div class="row"><div><b>Telescopic loader TL-500 (farm spec)</b><div class="muted small">Engine power: 120 kW; Lift height: 9.5 m; Attachment: Bucket 1.5 m&sup3;; Paint: Custom colour; Custom colour: Signal red</div></div><div class="r"><b>81,800.00</b></div></div></div><div style="height:250px"></div></div></div></div><div class="scrim"></div><div class="dialog" style="left:200px;top:110px;width:500px"><b>Edit line details</b> <span class="m">1</span>
+<div class="g2" style="margin-top:6px"><div><div class="lbl">Name</div><div class="in">Telescopic loader TL-500 (farm spec)</div></div><div><div class="lbl">Tax rate</div><div class="in">VAT 23% &#9662;</div></div>
+<div><div class="lbl">Discount <span class="m">2</span></div><div class="chips"><span class="chip">None</span><span class="chip sel">%</span><span class="chip">Amount (EUR)</span></div><div class="in" style="margin-top:4px">5</div></div><div><div class="lbl">Comment</div><div class="in">Delivery after harvest</div></div>
+<div><div class="lbl">Quantity and unit</div><div class="in lock">1 pc</div></div><div><div class="lbl">Configured net price (EUR)</div><div class="in lock">81,800.00</div></div></div>
+<div class="hint" style="margin-top:6px">Quantity and price come from the configuration. To change them, add a changed copy with Add another identical and remove this line in Items. <span class="m">3</span></div>
+<div style="text-align:right;margin-top:10px"><span class="btn">Cancel (Esc)</span><span class="btn p">Save (Cmd/Ctrl+Enter)</span></div></div></div><div class="state">Same line opened from Items with the standard sales dialog <span class="m">4</span></div><div class="app" style="padding:12px 14px"><b>Edit line</b> <span class="muted small">(standard sales dialog, unchanged)</span><div class="msg err" style="margin-top:6px">Select a variant to continue.</div><div class="hint">Product, quantity and price fields of the dialog below&hellip;</div></div><div class="state">Notice below the quote totals <span class="m">5</span></div><div class="app" style="padding:12px 14px"><div class="over" style="margin-bottom:6px">Quote totals &middot; Details</div><div class="dash"><span class="muted small">Totals (sales)</span></div><div class="msg info" style="margin-top:8px">This quote has 2 configured lines. Edit their name, comment, discount and tax in the <u>Configurations tab</u>.</div></div></div>
+<aside class="legend"><h2>Quote: editing a configured line</h2><div class="sub">Commercial details of a configured line are edited from the Configurations tab. The standard Items dialog cannot save a configured line.</div><div class="note"><span class="m">1</span><div><b>Edit from the tab</b>A small form in the Configurations tab saves through the sales line command with the quote lock, so sales recalculates totals as for any line.</div></div><div class="note"><span class="m">2</span><div><b>What can change</b>Name, comment, discount (none, percent or amount in the quote currency) and tax rate from the sales tax rates.</div></div><div class="note"><span class="m">3</span><div><b>What cannot</b>Quantity, unit and price are shown read-only with the way to change them. The server rejects such changes from any other path too.</div></div><div class="note"><span class="m">4</span><div><b>Standard Items dialog</b>Not changed in v1: it requires a variant and has no discount or comment field, so it cannot save a configured line.</div></div><div class="note"><span class="m">5</span><div><b>Notice below the totals</b>A widget in the quote details spot tells the rep where configured lines are edited, with a link. The dialog itself cannot show it in v1: its field widgets do not know which line is open (Q5).</div></div><div class="note"><span class="m">6</span><div><b>Order lines</b>Configured order lines are not edited; the order items show them in the Configured column (order wireframe).</div></div></aside></div></body></html>

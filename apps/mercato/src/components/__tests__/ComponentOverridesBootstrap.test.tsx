@@ -5,8 +5,14 @@
 import '@testing-library/jest-dom'
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  applyModuleOverridesFromEnabledModules,
+  resetModuleContractOverridesForTests,
+  resetModuleOverrideAppliersForTests,
+} from '@open-mercato/shared/modules/overrides'
 import { getComponentOverrides, registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { resetModuleOverridesAppliedForTests } from '../ClientBootstrap'
 import { ComponentOverridesBootstrap } from '../ComponentOverridesBootstrap'
 
 jest.mock('@/.mercato/generated/component-overrides.generated', () => ({
@@ -39,8 +45,24 @@ jest.mock('@/.mercato/generated/enabled-module-ids.generated', () => ({
 }))
 
 describe('ComponentOverridesBootstrap', () => {
+  beforeAll(() => {
+    resetModuleOverrideAppliersForTests()
+    resetModuleContractOverridesForTests()
+    resetModuleOverridesAppliedForTests()
+    applyModuleOverridesFromEnabledModules([{
+      id: 'app',
+      overrides: { widgets: { components: { 'disabled-test': null } } },
+    }], { domains: ['widgets'] })
+  })
+
   afterEach(() => {
     registerComponentOverrides([])
+  })
+
+  afterAll(() => {
+    resetModuleOverrideAppliersForTests()
+    resetModuleContractOverridesForTests()
+    resetModuleOverridesAppliedForTests()
   })
 
   it('activates login overrides before rendering interactive children', async () => {
