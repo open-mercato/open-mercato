@@ -1,0 +1,29 @@
+{
+  "name": "Acme Brand Book",
+  "lastModified": "2026-07-01T09:30:00Z",
+  "role": "viewer",
+  "document": {
+    "id": "0:0",
+    "name": "Document",
+    "type": "DOCUMENT",
+    "children": [
+      {
+        "id": "1:0",
+        "name": "Brand",
+        "type": "CANVAS",
+        "children": [
+          { "id": "1:1", "name": "Palette", "type": "FRAME" },
+          { "id": "1:2", "name": "Buttons", "type": "FRAME" }
+        ]
+      },
+      {
+        "id": "10:0",
+        "name": "Marketing",
+        "type": "CANVAS",
+        "children": [
+          { "id": "10:1", "name": "Hero", "type": "FRAME" }
+        ]
+      }
+    ]
+  }
+}

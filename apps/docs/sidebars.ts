@@ -364,6 +364,7 @@ const sidebars: SidebarsConfig = {
         "customization/list-inventory",
         "customization/inventory-crud-forms",
         "customization/custom-fields-overview",
+        "customization/brand-your-app",
       ],
     },
     {

@@ -1,0 +1,5 @@
+{
+  "error": true,
+  "status": 403,
+  "message": "API is not available on your plan."
+}

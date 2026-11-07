@@ -134,7 +134,7 @@ const TURBOPACK_CORRUPTION_PATTERNS = [
 // slightly longer pause before the retry can win the lock.
 const DEV_COLD_START_RETRY_DELAY_MS = 1500
 
-const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'deploy', 'db', 'server', 'test'])
+const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'deploy', 'db', 'server', 'test', 'theme'])
 
 function collectNestedErrors(error: unknown, seen = new Set<unknown>()): ErrorWithCause[] {
   if (!error || seen.has(error)) {
@@ -990,7 +990,7 @@ const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
 // `--json | jq` and agents that parse the tools@1 contract. Any `--json` run stays quiet.
 export function resolveEnvBootstrapOptions(parts: string[]): { createIfMissing: boolean; quiet: boolean } {
   const first = parts[0]
-  const opaqueEnvCommand = first === 'deploy' || first === 'telemetry'
+  const opaqueEnvCommand = first === 'deploy' || first === 'telemetry' || first === 'theme'
   const readOnlyModuleCommand = first === 'module' && (parts[1] === 'search' || parts[1] === 'info')
   const jsonOutput = parts.includes('--json')
   const helpRequested = isHelpRequest(parts)
@@ -1768,6 +1768,33 @@ export async function run(argv = process.argv) {
         run: async (args: string[]) => {
           const { runRailwayDeploy } = await import('./lib/deploy/railway/index')
           await runRailwayDeploy(args)
+        },
+      },
+    ],
+  } as Module)
+
+  // Built-in CLI module: theme (pure file generation — no bootstrap required)
+  all.push({
+    id: 'theme',
+    cli: [
+      {
+        command: 'init',
+        run: async (args: string[]) => {
+          const { runThemeInit } = await import('./lib/theme/init')
+          const exitCode = await runThemeInit(args)
+          if (exitCode !== 0) {
+            throw new Error('theme init failed — see the report above.')
+          }
+        },
+      },
+      {
+        command: 'from-figma',
+        run: async (args: string[]) => {
+          const { runThemeFromFigma } = await import('./lib/theme/from-figma')
+          const exitCode = await runThemeFromFigma(args)
+          if (exitCode !== 0) {
+            throw new Error('theme from-figma failed — see the report above.')
+          }
         },
       },
     ],

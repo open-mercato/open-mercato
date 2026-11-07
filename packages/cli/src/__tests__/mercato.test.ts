@@ -348,6 +348,13 @@ describe('--help never triggers side effects (issue #5581)', () => {
         quiet: true,
       })
     })
+
+    it('never creates .env for the file-only theme command', () => {
+      expect(resolveEnvBootstrapOptions(['theme', 'init', '--primary', '#0c71c6'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+    })
   })
 
   describe('dispatcher help branch', () => {

@@ -1,0 +1,11 @@
+{
+  "error": false,
+  "status": 200,
+  "meta": {
+    "styles": [
+      { "key": "8b6d2a", "file_key": "Ac9mEbR4nDb0oKf1LeKeY0", "node_id": "2:1", "style_type": "FILL", "name": "Brand/Primary", "description": "" },
+      { "key": "9c7e3b", "file_key": "Ac9mEbR4nDb0oKf1LeKeY0", "node_id": "2:2", "style_type": "FILL", "name": "Brand/Coral", "description": "" },
+      { "key": "1d8f4c", "file_key": "Ac9mEbR4nDb0oKf1LeKeY0", "node_id": "2:3", "style_type": "TEXT", "name": "Heading/H1", "description": "" }
+    ]
+  }
+}
