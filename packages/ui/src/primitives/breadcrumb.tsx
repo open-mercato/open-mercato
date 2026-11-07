@@ -167,7 +167,9 @@ function DefaultSeparator({ divider }: { divider: BreadcrumbDivider }) {
 
 export type BreadcrumbEllipsisProps = React.ComponentProps<'span'>
 
-export function BreadcrumbEllipsis({ className, children, ...props }: BreadcrumbEllipsisProps) {
+export function BreadcrumbEllipsis({ className, children, 'aria-label': label, ...props }: BreadcrumbEllipsisProps) {
+  // A presentational span cannot carry `aria-label`, so a supplied label is
+  // rendered as the visually hidden text instead.
   return (
     <span
       role="presentation"
@@ -179,7 +181,7 @@ export function BreadcrumbEllipsis({ className, children, ...props }: Breadcrumb
       {...props}
     >
       {children ?? <MoreHorizontal aria-hidden="true" className="size-4" />}
-      <span className="sr-only">More</span>
+      <span className="sr-only">{label ?? 'More'}</span>
     </span>
   )
 }

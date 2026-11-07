@@ -274,7 +274,7 @@ export function VersionHistoryPanel({
                             onClick={() => setSelectedEntry(entry)}
                           >
                             {isRelatedEntry ? (
-                              <span className="text-overline uppercase tracking-wider text-muted-foreground/70 font-medium">
+                              <span className="text-overline uppercase tracking-wider text-muted-foreground font-medium">
                                 {humanizeResourceKind(entry.resourceKind, t)}
                               </span>
                             ) : null}

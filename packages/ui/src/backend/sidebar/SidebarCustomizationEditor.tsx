@@ -924,7 +924,7 @@ export function SidebarCustomizationEditor({
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
+            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {t('appShell.sidebarCustomizationVariantNameLabel', 'Variant name')}
             </label>
             <Input
@@ -1009,7 +1009,7 @@ export function SidebarCustomizationEditor({
                       <div className="flex flex-col gap-4">
                         {/* Row: combobox-style name input with chevron picker + DS-compliant add button */}
                         <div className="flex flex-col gap-1.5">
-                          <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
+                          <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                             {t('appShell.sidebarCustomizationVariantNameLabel', 'Variant name')}
                           </label>
                           <div className="flex items-stretch gap-2">
@@ -1084,7 +1084,7 @@ export function SidebarCustomizationEditor({
                             disabled={isBusy || isNewVariant}
                             aria-label={t('appShell.sidebarCustomizationVariantActiveLabel', 'Active')}
                           />
-                          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
+                          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                             {t('appShell.sidebarCustomizationVariantActiveLabel', 'Active')}
                           </span>
                         </div>
@@ -1206,7 +1206,7 @@ export function SidebarCustomizationEditor({
                     <div key={groupId} className="rounded-lg border bg-background">
                       <div className="flex items-start gap-3 border-b px-4 py-3">
                         <div className="flex flex-1 flex-col gap-1.5">
-                          <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
+                          <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                             {t('appShell.sidebarCustomizationGroupLabel')}
                           </label>
                           <div className="flex items-center gap-2">
@@ -1598,7 +1598,7 @@ function SidebarPreview({
         <div className="px-3">
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-background pl-2.5 pr-2 py-2 shadow-sm">
             <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="min-w-0 flex-1 text-sm text-muted-foreground/70 truncate">
+            <span className="min-w-0 flex-1 text-sm text-muted-foreground truncate">
               {t('appShell.sidebarCustomizationPreviewSearchPlaceholder', 'Search...')}
             </span>
           </div>
@@ -1617,7 +1617,7 @@ function SidebarPreview({
                   key={resolveGroupKey(group)}
                   className={`px-3 ${gi < groups.length - 1 ? 'border-b pb-2' : ''}`}
                 >
-                  <div className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground/70 py-1">
+                  <div className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground py-1">
                     <span>{group.name}</span>
                   </div>
                   <div className="flex flex-col gap-1">

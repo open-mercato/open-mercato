@@ -55,11 +55,13 @@ const CODE_BLOCK_LANGUAGES: Record<string, string> = {
 }
 
 type MdxEditorImplProps = {
+  id?: string
+  ariaLabelledBy?: string
   value?: string
   onChange: (markdown: string) => void
 }
 
-export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplProps) {
+export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange }: MdxEditorImplProps) {
   const editorRef = React.useRef<MDXEditorMethods>(null)
   const [container, setContainer] = React.useState<HTMLDivElement | null>(null)
   const latestRef = React.useRef<string>(value)
@@ -74,6 +76,37 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
       editorRef.current?.setMarkdown(value ?? '')
     }
   }, [value])
+
+  React.useEffect(() => {
+    if (!ariaLabelledBy || !container) return
+
+    const applyLabelAttributes = () => {
+      const contentEditable = container.querySelector<HTMLElement>('[contenteditable="true"]')
+      if (!contentEditable) return
+      if (id && contentEditable.getAttribute('id') !== id) {
+        contentEditable.setAttribute('id', id)
+      }
+      if (contentEditable.getAttribute('aria-labelledby') !== ariaLabelledBy) {
+        contentEditable.setAttribute('aria-labelledby', ariaLabelledBy)
+      }
+    }
+
+    applyLabelAttributes()
+    const observer = new MutationObserver(applyLabelAttributes)
+    observer.observe(container, { childList: true, subtree: true })
+
+    return () => {
+      observer.disconnect()
+      const contentEditable = container.querySelector<HTMLElement>('[contenteditable="true"]')
+      if (!contentEditable) return
+      if (id && contentEditable.getAttribute('id') === id) {
+        contentEditable.removeAttribute('id')
+      }
+      if (contentEditable.getAttribute('aria-labelledby') === ariaLabelledBy) {
+        contentEditable.removeAttribute('aria-labelledby')
+      }
+    }
+  }, [ariaLabelledBy, container, id])
 
   return (
     <div

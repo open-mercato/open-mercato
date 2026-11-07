@@ -39,6 +39,7 @@ export function ProfileDropdown({
   const [mounted, setMounted] = React.useState(false)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
+  const languageButtonRef = React.useRef<HTMLButtonElement>(null)
   const [menuPosition, setMenuPosition] = React.useState<{ top: number; right: number } | null>(null)
   const { items: injectedItems } = useInjectedMenuItems('menu:topbar:profile-dropdown')
 
@@ -74,6 +75,31 @@ export function ProfileDropdown({
 
   const isDark = resolvedTheme === 'dark'
 
+  // The stops the keyboard walks through: every tabbable element in the menu,
+  // minus anything nested inside a menu item, which the item itself operates.
+  const getFocusableItems = React.useCallback((): HTMLElement[] => {
+    const menu = menuRef.current
+    if (!menu) return []
+    return Array.from(
+      menu.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+    ).filter((element) => !element.parentElement?.closest('[role^="menuitem"]'))
+  }, [])
+
+  // Move focus into the menu once the portal has rendered. The menu sits at the
+  // end of <body>, so without this a keyboard user had to Tab through the whole
+  // page to reach the first item. The ref keeps a later reposition (scroll,
+  // resize) from pulling focus back to the first item.
+  const focusedOnOpenRef = React.useRef(false)
+  React.useEffect(() => {
+    if (!open) {
+      focusedOnOpenRef.current = false
+      return
+    }
+    if (!menuPosition || focusedOnOpenRef.current) return
+    focusedOnOpenRef.current = true
+    getFocusableItems()[0]?.focus()
+  }, [open, menuPosition, getFocusableItems])
+
   // Close on click outside
   React.useEffect(() => {
     if (!open) return
@@ -92,22 +118,61 @@ export function ProfileDropdown({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
-  // Close on Escape
+  // Close on Escape; move between items with the arrow keys, Home, End and Tab
   React.useEffect(() => {
     if (!open) return
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         if (languageOpen) {
           setLanguageOpen(false)
+          languageButtonRef.current?.focus()
         } else {
           setOpen(false)
           buttonRef.current?.focus()
         }
+        return
       }
+      // The listener is on `document`, so only act while focus is in the menu
+      // or on its trigger; keys typed elsewhere on the page are left alone.
+      const active = document.activeElement
+      const focusWithin = Boolean(
+        active && (menuRef.current?.contains(active) || active === buttonRef.current),
+      )
+      if (!focusWithin) return
+      const focusables = getFocusableItems()
+      if (!focusables.length) return
+      const activeIndex = focusables.indexOf(active as HTMLElement)
+      const lastIndex = focusables.length - 1
+      let nextIndex: number
+      switch (event.key) {
+        case 'ArrowDown':
+          nextIndex = activeIndex < 0 || activeIndex === lastIndex ? 0 : activeIndex + 1
+          break
+        case 'ArrowUp':
+          nextIndex = activeIndex <= 0 ? lastIndex : activeIndex - 1
+          break
+        case 'Home':
+          nextIndex = 0
+          break
+        case 'End':
+          nextIndex = lastIndex
+          break
+        case 'Tab':
+          // The menu is portaled to the end of <body>, so letting Tab through
+          // would drop focus on the browser chrome or back onto the page.
+          nextIndex = event.shiftKey
+            ? (activeIndex <= 0 ? lastIndex : activeIndex - 1)
+            : (activeIndex < 0 || activeIndex === lastIndex ? 0 : activeIndex + 1)
+          break
+        default:
+          return
+      }
+      event.preventDefault()
+      focusables[nextIndex]?.focus()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, languageOpen])
+  }, [open, languageOpen, getFocusableItems])
 
   const handleThemeToggle = () => {
     setTheme(isDark ? 'light' : 'dark')
@@ -247,7 +312,8 @@ export function ProfileDropdown({
           <div
             key={id}
             className={cn(menuItemClass, 'justify-between')}
-            role="menuitem"
+            role="menuitemcheckbox"
+            aria-checked={isDark}
             onClick={handleThemeToggle}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
@@ -261,12 +327,14 @@ export function ProfileDropdown({
               {isDark ? <Moon className={menuIconClass} /> : <Sun className={menuIconClass} />}
               <span className="flex-1 truncate">{t('ui.profileMenu.theme', 'Theme')}</span>
             </span>
-            <Switch
-              checked={isDark}
-              onCheckedChange={handleThemeToggle}
-              aria-label={t('ui.profileMenu.theme', 'Theme')}
-              onClick={(e) => e.stopPropagation()}
-            />
+            {/* The row is the control. The switch only draws its state: it is
+                inert and hidden from assistive technology, so it cannot take
+                focus or clicks and the row stays one target, not two. The
+                negative tabindex and pointer-events cover React 18 hosts,
+                which drop the inert prop. */}
+            <span inert aria-hidden="true" className="pointer-events-none inline-flex">
+              <Switch checked={isDark} tabIndex={-1} />
+            </span>
           </div>
         )
       }
@@ -275,6 +343,7 @@ export function ProfileDropdown({
         return (
           <div key={id} className="contents">
             <button
+              ref={languageButtonRef}
               type="button"
               className={menuItemClass}
               role="menuitem"
@@ -387,7 +456,7 @@ export function ProfileDropdown({
                   </span>
                 ) : null}
                 {!displayName && email ? (
-                  <span className="truncate text-overline uppercase tracking-wider text-muted-foreground/80">
+                  <span className="truncate text-overline uppercase tracking-wider text-muted-foreground">
                     {t('ui.userMenu.loggedInAs', 'Logged in')}
                   </span>
                 ) : null}
