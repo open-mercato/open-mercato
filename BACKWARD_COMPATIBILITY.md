@@ -649,6 +649,6 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
 
-## Attachment owner access covers upload (2026-11-07, #8891)
+## Attachment upload owner access (2026-11-07, #8891)
 
-Extends the #6726/#6829 attachment owner-access framework ([spec](.ai/specs/2026-10-01-attachment-access-resolvers.md)) to `POST /api/attachments`: `AttachmentAccessAction` gains `'create'`, evaluated against the normalized primary owner and every `assignments` entry before any quota reservation or storage write. `documents`' existing resolver treats `create` like `reassign`/`delete` (requires edit access). Additive type/schema change (new enum member); no existing action, resolver contract, or route URL/shape changes. Behavior narrowing only for a `documents:document` owner the caller cannot edit (new `404`, matching the existing resolver's non-disclosure reason) — unprotected owners and Documents' own dedicated upload route (`attachmentService.createScoped`) are unaffected. [Migration](UPGRADE_NOTES.md#attachment-owner-access-covers-upload-8891).
+`POST /api/attachments` enforces the #6726/#6829 check via a new `'create'` action; narrows an uneditable `documents:document` owner to the existing `404`. [Migration](UPGRADE_NOTES.md#attachment-owner-access-covers-upload-8891).
