@@ -15,6 +15,7 @@ import {
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { resolveInjectedIcon } from '@open-mercato/ui/backend/injection/resolveInjectedIcon'
 import { useDealsAccess } from './useDealsAccess'
 
 export const COMPANY_DETAIL_TAB_IDS = ['people', 'deals', 'activity-log', 'changelog', 'files'] as const
@@ -40,7 +41,7 @@ export const COMPANY_DETAIL_TABS_COMPONENT_ID = 'section:customers.companies.det
 export type CompanyDetailTabsProps = {
   activeTab: CompanyTabId
   onTabChange: (tab: CompanyTabId) => void
-  injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  injectedTabs?: Array<{ id: string; label: string; icon?: string; priority?: number }>
   isLoadingInjectedTabs?: boolean
   hiddenTabIds?: string[]
   peopleCount?: number
@@ -136,6 +137,7 @@ function DefaultCompanyDetailTabs({
       ...injectedTabs.filter((tab, index) => !builtInTabs.some((native) => native.id === tab.id) && injectedTabs.findIndex((candidate) => candidate.id === tab.id) === index).map((tab) => ({
         id: tab.id as CompanyTabId,
         label: tab.label,
+        icon: resolveInjectedIcon(tab.icon),
         priority: tab.priority,
       })),
     ]
