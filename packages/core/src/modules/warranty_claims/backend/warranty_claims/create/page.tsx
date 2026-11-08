@@ -36,6 +36,7 @@ import {
   type ClaimProductPick,
 } from '../../components/productLookup'
 import { CustomerOrderPicker } from '../../components/CustomerOrderPicker'
+import { ClaimCustomerSelectionObserver } from '../../components/ClaimCustomerSelectionObserver'
 import { EntitlementLookupBadge } from '../../components/EntitlementLookupBadge'
 import { TroubleshootingWalker, type TroubleshootingWalkerGuide } from '../../components/TroubleshootingWalker'
 import { resolveClaimTypeUiConfig } from '../../../lib/claimTypeConfig'
@@ -1308,11 +1309,17 @@ export default function CreateWarrantyClaimPage() {
       label: t('warranty_claims.form.orderId'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, values, setValue, disabled, autoFocus }) => (
+      component: ({ value, values, setValue, setFormValue, disabled, autoFocus }) => (
         <CustomerOrderPicker
           customerId={nullableText(values?.customerId)}
           value={nullableText(value) ?? ''}
-          onChange={setValue}
+          onChange={(orderId) => {
+            setValue(orderId)
+            if (orderId !== (nullableText(values?.orderId) ?? '')) {
+              const lines = Array.isArray(values?.lines) ? values.lines as ClaimCreateLineValues[] : []
+              setFormValue?.('lines', lines.filter((line) => !line.orderLineId))
+            }
+          }}
           disabled={disabled}
           autoFocus={autoFocus}
           placeholder={t('warranty_claims.form.orderId.placeholder')}
@@ -1346,10 +1353,11 @@ export default function CreateWarrantyClaimPage() {
       // Render order lives here, not in the field definitions. Keep the three
       // thirds adjacent and the two halves adjacent so each grid row fills.
       fields: ['claimType', 'priority', 'customerId', 'orderId', 'reasonCode', 'notes', 'resolutionSummary'],
-      component: ({ values }) => (
+      component: ({ values, setValue }) => (
         <>
           <ClaimTypeSelectionObserver value={values.claimType} onChange={setSelectedClaimType} />
           <ReasonCodeSelectionObserver value={values.reasonCode} onChange={setSelectedReasonCode} />
+          <ClaimCustomerSelectionObserver customerId={nullableText(values.customerId)} lines={Array.isArray(values.lines) ? values.lines : []} onChange={(lines) => setValue('lines', lines)} />
         </>
       ),
     },
