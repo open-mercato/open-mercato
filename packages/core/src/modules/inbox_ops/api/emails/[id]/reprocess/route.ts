@@ -201,7 +201,10 @@ export async function POST(req: Request) {
     }
 
     logger.error('Reprocess failed', { err })
-    return NextResponse.json({ error: 'Failed to reprocess email' }, { status: 500 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({
+      error: translate('inbox_ops.errors.reprocessFailed', 'Failed to reprocess email'),
+    }, { status: 500 })
   }
 }
 

@@ -25,6 +25,10 @@ const EMAIL_CONTENT_FIELDS = [
   'deletedAt',
 ] as const satisfies readonly (keyof InboxEmail)[]
 
+// Computed list fields that are email content too: `null` for callers without
+// `inbox_ops.proposals.view`, like `EMAIL_CONTENT_FIELDS`.
+export const EMAIL_LIST_CONTENT_FIELDS = ['attachmentsRetryable'] as const
+
 // Attachment ingest, claim and release bookkeeping. Never serialized, whatever the
 // caller's features: they are worker coordination state, not email data.
 export const EMAIL_INTERNAL_FIELDS = [
@@ -64,6 +68,20 @@ export function serializeInboxEmail(
 
   for (const field of EMAIL_CONTENT_FIELDS) {
     serialized[field] = null
+  }
+  return serialized
+}
+
+/** A processing-log row: the email plus the computed `attachmentsRetryable`, redacted like the content. */
+export function serializeInboxEmailListItem(
+  email: InboxEmail,
+  includeContent: boolean,
+  computed: { attachmentsRetryable: boolean },
+): Record<string, unknown> {
+  const serialized = serializeInboxEmail(email, includeContent)
+  serialized.attachmentsRetryable = computed.attachmentsRetryable
+  if (!includeContent) {
+    for (const field of EMAIL_LIST_CONTENT_FIELDS) serialized[field] = null
   }
   return serialized
 }

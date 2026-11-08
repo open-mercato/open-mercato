@@ -109,6 +109,8 @@ export async function registerInboundFixture(input: {
   html?: string | null
   messageId?: string
   attachments: InboundAttachmentInput[]
+  /** Downloads answer 503 until `setInboundFixtureFailDownloads(id, false)`. */
+  failDownloads?: boolean
 }): Promise<RegisteredFixture> {
   const messageId = input.messageId ?? `<${randomUUID()}@tc-inbox-att.example.test>`
   const response = await stubRequest<{ id: string; attachments: RegisteredFixture['attachments'] }>(
@@ -121,6 +123,7 @@ export async function registerInboundFixture(input: {
       text: input.text ?? '',
       html: input.html ?? null,
       messageId,
+      ...(input.failDownloads ? { failDownloads: true } : {}),
       attachments: input.attachments.map((attachment) => ({
         ...(attachment.id ? { id: attachment.id } : {}),
         filename: attachment.filename ?? null,
@@ -135,6 +138,12 @@ export async function registerInboundFixture(input: {
   const body = response.body
   if (!body?.id) throw new Error('[internal] Resend stub fixture registration returned no id')
   return { providerEmailId: body.id, messageId, attachments: body.attachments }
+}
+
+export async function setInboundFixtureFailDownloads(providerEmailId: string, failDownloads: boolean): Promise<void> {
+  const response = await stubRequest<{ failDownloads?: boolean }>('PATCH', `/fixtures/${encodeURIComponent(providerEmailId)}`, { failDownloads })
+  expect(response.status, 'Resend stub fixture update should return 200').toBe(200)
+  expect(response.body?.failDownloads).toBe(failDownloads)
 }
 
 export async function deleteInboundFixture(providerEmailId: string): Promise<void> {
@@ -231,6 +240,22 @@ export async function waitForAttachmentsCompleted(request: APIRequestContext, to
     return latest?.attachmentsStatus ?? null
   }, { timeout: COMPLETION_TIMEOUT_MS, intervals: [500, 1_000, 2_000], message: `attachments of ${emailId} should complete` }).toBe('completed')
   if (!latest) throw new Error('[internal] inbox email disappeared while waiting for its attachments')
+  return latest
+}
+
+const TERMINAL_EMAIL_STATUSES = ['failed', 'needs_review', 'processed']
+
+/**
+ * Waits until extraction has finished with the email (CI has no LLM key, so usually `failed`).
+ * UI specs wait for it because extraction changes the email's `updated_at` after ingestion.
+ */
+export async function waitForTerminalEmailStatus(request: APIRequestContext, token: string, emailId: string): Promise<InboxEmailDetail> {
+  let latest: InboxEmailDetail | null = null
+  await expect.poll(async () => {
+    latest = (await fetchInboxEmail(request, token, emailId)).email
+    return TERMINAL_EMAIL_STATUSES.includes(String(latest?.status ?? ''))
+  }, { timeout: COMPLETION_TIMEOUT_MS, intervals: [500, 1_000, 2_000], message: `extraction of ${emailId} should finish` }).toBe(true)
+  if (!latest) throw new Error('[internal] inbox email disappeared while waiting for extraction')
   return latest
 }
 

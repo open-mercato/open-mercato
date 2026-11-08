@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import type { ActionDetail, DiscrepancyDetail } from './types'
 import { hasContactNameIssue } from '../../lib/contactValidation'
+import { SourceRefs } from './SourceRefs'
 
 export { hasContactNameIssue }
 
@@ -289,6 +290,7 @@ export function ActionCard({
         {action.executionError && (
           <p className="text-xs text-status-error-text mt-1">{action.executionError}</p>
         )}
+        <SourceRefs refs={action.sourceRefs} />
         <div className="mt-3 flex items-center gap-2">
           <Button
             type="button"
@@ -357,6 +359,7 @@ export function ActionCard({
         <ConfidenceBadge value={action.confidence} />
       </div>
       <p className="text-sm text-foreground/80 mb-2">{displayDescription}</p>
+      <SourceRefs refs={action.sourceRefs} />
 
       {(action.actionType === 'create_order' || action.actionType === 'create_quote') && (
         <OrderPreview payload={action.payload} />

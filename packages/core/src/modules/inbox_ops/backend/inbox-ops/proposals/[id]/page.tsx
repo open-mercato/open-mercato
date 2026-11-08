@@ -23,6 +23,7 @@ import {
   Users,
   Languages,
   Pencil,
+  Trash2,
 } from 'lucide-react'
 import type { ProposalTranslationEntry } from '../../../../data/entities'
 import type { ProposalDetail, ActionDetail, DiscrepancyDetail, EmailDetail } from '../../../../components/proposals/types'
@@ -30,6 +31,8 @@ import { ActionCard, ConfidenceBadge, useActionTypeLabels, useDiscrepancyDescrip
 import { CategoryBadge, CATEGORY_CONFIG, ALL_CATEGORIES, useCategoryLabels } from '../../../../components/proposals/CategoryBadge'
 import { hasContactNameIssue } from '../../../../lib/contactValidation'
 import { EditActionDialog } from '../../../../components/proposals/EditActionDialog'
+import { EmailAttachmentsList } from '../../../../components/attachments/EmailAttachmentsList'
+import { DeleteEmailDialog, useCanDeleteInboxEmail } from '../../../../components/emails/DeleteEmailDialog'
 
 function EmailThreadViewer({ email }: { email: EmailDetail | null }) {
   const t = useT()
@@ -167,6 +170,8 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
   const resolveDiscrepancyDescription = useDiscrepancyDescriptions()
   const [editingAction, setEditingAction] = React.useState<ActionDetail | null>(null)
   const [sendingReplyId, setSendingReplyId] = React.useState<string | null>(null)
+  const [isDeleteEmailOpen, setIsDeleteEmailOpen] = React.useState(false)
+  const canDeleteEmail = useCanDeleteInboxEmail()
 
   const [translation, setTranslation] = React.useState<ProposalTranslationEntry | null>(null)
   const [isTranslating, setIsTranslating] = React.useState(false)
@@ -451,6 +456,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
           onSaved={loadData}
         />
       )}
+      <DeleteEmailDialog email={isDeleteEmailOpen ? email : null} onClose={() => setIsDeleteEmailOpen(false)} onDeleted={() => router.push('/backend/inbox-ops')} />
 
       <div className="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b bg-background">
         <div className="flex items-center gap-2 md:gap-3 min-w-0">
@@ -467,6 +473,12 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {canDeleteEmail && email && (
+            <Button type="button" variant="outline" size="sm" className="h-11 md:h-9" onClick={() => setIsDeleteEmailOpen(true)} disabled={isProcessing} aria-label={t('inbox_ops.emails.delete.action', 'Delete email')}>
+              <Trash2 className="h-4 w-4 md:mr-1" />
+              <span className="hidden md:inline">{t('inbox_ops.emails.delete.action', 'Delete email')}</span>
+            </Button>
+          )}
           {pendingActions.length > 0 && (
             <Button
               type="button"
@@ -492,8 +504,9 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
       <PageBody>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           {/* Left panel: Email Thread */}
-          <div>
+          <div className="space-y-4">
             <EmailThreadViewer email={email} />
+            {email && <EmailAttachmentsList emailId={email.id} asSection />}
           </div>
 
           {/* Right panel: Summary + Actions */}

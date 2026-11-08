@@ -4,14 +4,18 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
+import { EmailAttachmentsDialog } from '../../../components/attachments/EmailAttachmentsDialog'
+import { DeleteEmailDialog, useCanDeleteInboxEmail } from '../../../components/emails/DeleteEmailDialog'
 
 type EmailRow = {
   id: string
@@ -21,6 +25,10 @@ type EmailRow = {
   status: string
   processingError?: string
   receivedAt: string
+  updatedAt?: string | null
+  /** Both `null` for viewers without `inbox_ops.proposals.view`. */
+  attachmentsStatus?: string | null
+  attachmentsRetryable?: boolean | null
 }
 
 type EmailListResponse = {
@@ -50,7 +58,11 @@ export default function ProcessingLogPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [retryingEmailId, setRetryingEmailId] = React.useState<string | null>(null)
-  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+  const [attachmentsEmail, setAttachmentsEmail] = React.useState<EmailRow | null>(null)
+  const [deletingEmail, setDeletingEmail] = React.useState<EmailRow | null>(null)
+  const canDeleteEmails = useCanDeleteInboxEmail()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
     contextId: 'inbox-ops-log',
   })
 
@@ -79,14 +91,25 @@ export default function ProcessingLogPage() {
 
   React.useEffect(() => { loadEmails() }, [loadEmails])
 
-  const handleRetryEmail = React.useCallback(async (emailId: string) => {
+  const handleRetryEmail = React.useCallback(async (email: EmailRow) => {
+    // Reprocessing a processed email retires its active proposals.
+    if (email.status === 'processed') {
+      const confirmed = await confirm({
+        title: t('inbox_ops.log.retryConfirm.title', 'Retry this email?'),
+        text: t('inbox_ops.log.retryConfirm.text', 'Its current proposals are retired and the email is processed again.'),
+        confirmText: t('inbox_ops.action.retry', 'Retry'),
+      })
+      if (!confirmed) return
+    }
+    const emailId = email.id
     setRetryingEmailId(emailId)
     const result = await runMutation({
       operation: () => apiCall<{ ok: boolean; error?: string }>(
         `/api/inbox_ops/emails/${emailId}/reprocess`,
-        { method: 'POST' },
+        // Refusals (403, 409) come back with the route's translated message, shown below.
+        { method: 'POST', headers: { 'x-om-forbidden-redirect': '0' } },
       ),
-      context: {},
+      context: { retryLastMutation },
     })
 
     if (result?.ok && result.result?.ok) {
@@ -97,7 +120,7 @@ export default function ProcessingLogPage() {
     }
 
     setRetryingEmailId(null)
-  }, [loadEmails, t, runMutation])
+  }, [confirm, loadEmails, t, retryLastMutation, runMutation])
 
   const columns: ColumnDef<EmailRow>[] = React.useMemo(() => [
     {
@@ -153,7 +176,7 @@ export default function ProcessingLogPage() {
       id: 'actions',
       header: t('ui.actions.actions', 'Actions'),
       cell: ({ row }) => {
-        const canRetry = row.original.status === 'failed' || row.original.status === 'needs_review'
+        const canRetry = row.original.status === 'failed' || row.original.status === 'needs_review' || row.original.attachmentsRetryable === true
         if (!canRetry) {
           return <span className="text-xs text-muted-foreground">-</span>
         }
@@ -166,7 +189,7 @@ export default function ProcessingLogPage() {
             size="sm"
             className="h-8"
             disabled={isRetrying}
-            onClick={() => handleRetryEmail(row.original.id)}
+            onClick={() => handleRetryEmail(row.original)}
           >
             <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isRetrying ? 'animate-spin' : ''}`} />
             {t('inbox_ops.action.retry', 'Retry')}
@@ -175,6 +198,17 @@ export default function ProcessingLogPage() {
       },
     },
   ], [handleRetryEmail, retryingEmailId, t])
+
+  const renderRowActions = React.useCallback((row: EmailRow) => {
+    const items: RowActionItem[] = []
+    if (row.attachmentsStatus != null) {
+      items.push({ id: 'show-attachments', label: t('inbox_ops.log.actions.showAttachments', 'Show attachments'), onSelect: () => setAttachmentsEmail(row) })
+    }
+    if (canDeleteEmails) {
+      items.push({ id: 'delete-email', label: t('inbox_ops.emails.delete.action', 'Delete email'), destructive: true, onSelect: () => setDeletingEmail(row) })
+    }
+    return items.length > 0 ? <RowActions items={items} /> : null
+  }, [canDeleteEmails, t])
 
   const tabs = [
     { label: t('inbox_ops.log.tab_all', 'All'), value: undefined },
@@ -187,6 +221,9 @@ export default function ProcessingLogPage() {
 
   return (
     <Page>
+      {ConfirmDialogElement}
+      <EmailAttachmentsDialog email={attachmentsEmail} onClose={() => setAttachmentsEmail(null)} />
+      <DeleteEmailDialog email={deletingEmail} onClose={() => setDeletingEmail(null)} onDeleted={loadEmails} />
       <div className="flex items-center gap-3 px-3 py-3 md:px-6 md:py-4">
         <Link href="/backend/inbox-ops">
           <Button type="button" variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" /></Button>
@@ -218,6 +255,7 @@ export default function ProcessingLogPage() {
               columns={columns}
               data={items}
               isLoading={isLoading}
+              rowActions={renderRowActions}
               pagination={{
                 page,
                 pageSize,

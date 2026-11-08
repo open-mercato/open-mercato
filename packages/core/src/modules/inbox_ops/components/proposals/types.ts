@@ -1,4 +1,11 @@
-import type { ThreadMessage, ExtractedParticipant, InboxActionType, InboxDiscrepancyType } from '../../data/entities'
+import type {
+  ThreadMessage,
+  ExtractedParticipant,
+  InboxActionType,
+  InboxDiscrepancyType,
+  InboxEmailAttachmentsStatus,
+  InboxProposalActionSourceRef,
+} from '../../data/entities'
 
 export type ProposalDetail = {
   id: string
@@ -28,6 +35,7 @@ export type ActionDetail = {
   executionError?: string
   executedAt?: string
   updatedAt?: string
+  sourceRefs?: InboxProposalActionSourceRef[] | null
 }
 
 export type DiscrepancyDetail = {
@@ -51,4 +59,6 @@ export type EmailDetail = {
   status: string
   processingError?: string
   receivedAt: string
+  attachmentsStatus?: InboxEmailAttachmentsStatus | null
+  updatedAt?: string | null
 }

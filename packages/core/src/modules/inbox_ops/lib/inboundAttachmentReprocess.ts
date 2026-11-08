@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   InboxEmail,
   InboxEmailAttachment,
@@ -45,6 +46,43 @@ export async function countRetryableFailedInboundParts(em: EntityManager, ref: I
     reason: { $in: [...RETRYABLE_INBOUND_ATTACHMENT_FAILURE_REASONS] },
     deletedAt: null,
   })
+}
+
+/**
+ * The processing log's `attachmentsRetryable` for a page of emails (spec Phase 3), with one ledger
+ * query for the whole page: an ingest that is `pending` or `processing`, or a finished one with at
+ * least one part failed for an operator-fixable reason. The reprocess route still decides; a live
+ * lease or running extraction is refused there.
+ */
+export async function resolveInboundAttachmentsRetryable(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  emails: ReadonlyArray<Pick<InboxEmail, 'id' | 'attachmentsStatus'>>,
+): Promise<Map<string, boolean>> {
+  const retryable = new Map<string, boolean>()
+  const finished: string[] = []
+  for (const email of emails) {
+    const status = email.attachmentsStatus ?? null
+    retryable.set(email.id, status === 'pending' || status === 'processing')
+    if (status === 'completed') finished.push(email.id)
+  }
+  if (finished.length === 0) return retryable
+  const failedParts = await findWithDecryption(
+    em,
+    InboxEmailAttachment,
+    {
+      inboxEmailId: { $in: finished },
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      status: 'failed',
+      reason: { $in: [...RETRYABLE_INBOUND_ATTACHMENT_FAILURE_REASONS] },
+      deletedAt: null,
+    },
+    { fields: ['id', 'inboxEmailId'] },
+    scope,
+  )
+  for (const part of failedParts) retryable.set(part.inboxEmailId, true)
+  return retryable
 }
 
 export async function planInboundAttachmentReprocess(

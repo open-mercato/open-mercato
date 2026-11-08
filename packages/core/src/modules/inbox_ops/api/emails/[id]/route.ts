@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server'
+import { LockMode } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  enforceCommandOptimisticLockWithGuards,
+  enforceRecordGoneIsConflict,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -22,6 +29,9 @@ import { reportInboundAttachmentError } from '../../../lib/inboundAttachments'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 const logger = createLogger('inbox_ops').child({ component: 'emails' })
+
+/** Dotted form of the module's other command locks (`inbox_ops.settings`, `inbox_ops.action`). */
+const EMAIL_LOCK_RESOURCE_KIND = 'inbox_ops.email'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.log.view'] },
@@ -85,6 +95,7 @@ export async function DELETE(req: Request) {
     }
 
     const ctx = await resolveRequestContext(req)
+    const { translate } = await resolveTranslations()
 
     const guardResult = await validateCrudMutationGuard(ctx.container, {
       tenantId: ctx.tenantId,
@@ -100,14 +111,34 @@ export async function DELETE(req: Request) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    const deleted = await softDeleteInboxEmailForRelease(ctx.em, {
-      id,
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+    const emailRef = { id, tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+    // The locked read serializes the version check with concurrent writers of the row (extraction,
+    // reprocess, the ingest worker's claim renewal); the soft delete then runs under the same lock.
+    // Both version checks are no-ops without the optimistic-lock header, so plain API consumers
+    // keep today's behavior.
+    const deleted = await ctx.em.transactional(async (tx) => {
+      const email = await findOneWithDecryption(
+        tx,
+        InboxEmail,
+        { id, organizationId: ctx.organizationId, tenantId: ctx.tenantId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        ctx.scope,
+      )
+      if (!email) {
+        enforceRecordGoneIsConflict({ resourceKind: EMAIL_LOCK_RESOURCE_KIND, resourceId: id, request: req })
+        return false
+      }
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: EMAIL_LOCK_RESOURCE_KIND,
+        resourceId: email.id,
+        current: email.updatedAt ?? null,
+        request: req,
+      })
+      return softDeleteInboxEmailForRelease(tx, emailRef)
     })
 
     if (!deleted) {
-      return NextResponse.json({ error: 'Email not found' }, { status: 404 })
+      return NextResponse.json({ error: translate('inbox_ops.errors.emailNotFound', 'Email not found') }, { status: 404 })
     }
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
@@ -127,7 +158,7 @@ export async function DELETE(req: Request) {
     try {
       await releaseInboundEmailAttachments({
         em: ctx.em,
-        email: { id, tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        email: emailRef,
         attachmentService: tryResolve<InboundAttachmentReleaseService>(ctx.container, 'attachmentService'),
         encryptionService: tryResolve<TenantDataEncryptionService>(ctx.container, 'tenantEncryptionService'),
       })
@@ -141,8 +172,12 @@ export async function DELETE(req: Request) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
     logger.error('Failed to delete email', { err })
-    return NextResponse.json({ error: 'Failed to delete email' }, { status: 500 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('inbox_ops.errors.emailDeleteFailed', 'Failed to delete email') }, { status: 500 })
   }
 }
 
@@ -159,9 +194,11 @@ export const openApi: OpenApiRouteDoc = {
     },
     DELETE: {
       summary: 'Soft-delete an inbox email',
+      description: 'Soft-deletes the email and releases its stored attachments and their quota. With the optimistic-lock header (`x-om-ext-optimistic-lock-expected-updated-at`, the email\'s `updatedAt`), a stale version answers 409 with the standard conflict body, and so does an email deleted concurrently; without the header a missing email answers 404.',
       responses: [
         { status: 200, description: 'Email deleted' },
         { status: 404, description: 'Email not found' },
+        { status: 409, description: 'Optimistic-lock conflict: the email changed or was deleted since the caller read it' },
       ],
     },
   },
