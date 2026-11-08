@@ -124,18 +124,16 @@ function normalizeAssignedUserId(value: string | null | undefined): string | nul
 }
 
 /**
- * Refuse an undo whose target owner has been superseded by a later change, so
- * the newer assignment is never overwritten with the stale previous owner.
+ * The message for an undo refused because a later reassignment superseded it,
+ * so the newer assignment is never overwritten with the stale previous owner.
  */
-async function throwReassignUndoConflict(): Promise<never> {
-  let message = REASSIGN_UNDO_CONFLICT_FALLBACK
+async function resolveReassignUndoConflictMessage(): Promise<string> {
   try {
     const { translate } = await resolveTranslations()
-    message = translate(REASSIGN_UNDO_CONFLICT_KEY, REASSIGN_UNDO_CONFLICT_FALLBACK)
+    return translate(REASSIGN_UNDO_CONFLICT_KEY, REASSIGN_UNDO_CONFLICT_FALLBACK)
   } catch {
-    message = REASSIGN_UNDO_CONFLICT_FALLBACK
+    return REASSIGN_UNDO_CONFLICT_FALLBACK
   }
-  throw new CrudHttpError(409, { error: message, code: REASSIGN_UNDO_CONFLICT_KEY })
 }
 
 export type ReassignConversationResult =
@@ -176,7 +174,8 @@ export const COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID =
  * Idempotent: when the new owner matches the existing one, returns `noop`.
  *
  * The command is undoable: the `before` snapshot captures the previous owner on
- * both rows so undo can restore them atomically.
+ * both rows so undo can restore them atomically. Undo refuses with a 409 when a
+ * later reassignment has already replaced the owner this command set.
  */
 const reassignConversationCommand: CommandHandler<
   ReassignConversationInput,
@@ -413,7 +412,7 @@ const reassignConversationCommand: CommandHandler<
     if (denialReason) {
       throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
     }
-    await em.transactional(async (tem) => {
+    const superseded = await em.transactional(async (tem) => {
       const lockedMapping = await findOneWithDecryption(
         tem,
         ChannelThreadMapping,
@@ -440,14 +439,23 @@ const reassignConversationCommand: CommandHandler<
         dscope,
       )
       const expectedAssignedUserId = normalizeAssignedUserId(snapshot.newAssignedUserId)
-      const superseded =
+      if (
         normalizeAssignedUserId(lockedMapping.assignedUserId) !== expectedAssignedUserId ||
         (conversation != null && normalizeAssignedUserId(conversation.assignedUserId) !== expectedAssignedUserId)
-      if (superseded) await throwReassignUndoConflict()
+      ) {
+        return true
+      }
       lockedMapping.assignedUserId = snapshot.previousAssignedUserId
       if (conversation) conversation.assignedUserId = snapshot.previousAssignedUserId
       await tem.flush()
+      return false
     })
+    if (superseded) {
+      throw new CrudHttpError(409, {
+        error: await resolveReassignUndoConflictMessage(),
+        code: REASSIGN_UNDO_CONFLICT_KEY,
+      })
+    }
   },
 }
 

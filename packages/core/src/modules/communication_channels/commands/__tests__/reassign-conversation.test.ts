@@ -224,6 +224,21 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
     expect(result).toEqual({ status: 'noop', reason: 'assigned user unchanged' })
     expect(em.flush).not.toHaveBeenCalled()
   })
+
+  it('returns no_channel_link when the mapping is gone by the time it is locked', async () => {
+    mockFindOne
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce(sharedChannel as never)
+      .mockResolvedValueOnce({ id: ASSIGNEE } as never)
+      .mockResolvedValueOnce(null as never)
+    const { ctx, em } = ctxWithEm()
+    const result = await reassignConversationCommand.execute(
+      { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
+      ctx,
+    )
+    expect(result).toMatchObject({ status: 'no_channel_link' })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
 })
 
 describe('reassignConversationCommand execute (personal-mailbox privacy, #3832)', () => {
@@ -564,6 +579,17 @@ describe('reassignConversationCommand undo', () => {
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(mapping.assignedUserId).toBe('old-owner')
     expect(conversation.assignedUserId).toBe('old-owner')
+  })
+
+  it('throws the masked 404 and writes nothing when the mapping is gone by the time it is locked', async () => {
+    const mapping = { id: 'mapping-1', assignedUserId: 'new-owner', channelId: 'channel-1', organizationId: null }
+    mockFindOne
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+      .mockResolvedValueOnce(null as never)
+    const { promise, em } = undo({ userId: OWNER })
+    await expect(promise).rejects.toMatchObject({ status: 404 })
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('refuses with a 409 when only the conversation owner changed after the action', async () => {
