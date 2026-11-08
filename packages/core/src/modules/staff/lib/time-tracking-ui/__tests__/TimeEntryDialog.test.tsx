@@ -35,7 +35,12 @@ const mockTranslate = (
   return interpolate(key, fallbackOrParams)
 }
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
+let mockLocale = 'en'
+
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => mockTranslate,
+  useLocale: () => mockLocale,
+}))
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
@@ -389,6 +394,7 @@ function lastWriteBody(): Record<string, unknown> {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockLocale = 'en'
   mockInjection.calls = []
   mockInjection.beforeSave = { ok: true }
   mockInjection.fieldChange = null
@@ -818,6 +824,37 @@ describe('TimeEntryDialog — unsaved work', () => {
       expect((screen.getByTestId('entry-dialog-description') as HTMLInputElement).value).toBe(
         'Analiza planów zapytań',
       ),
+    )
+
+    fireEvent.keyDown(screen.getByTestId('entry-dialog'), { key: 'Escape' })
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(mockConfirm).not.toHaveBeenCalled()
+  })
+
+  it('redisplays a custom rate with the locale decimal separator and keeps it clean', async () => {
+    mockLocale = 'pl'
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        started_at: '2026-07-20T09:00:00.000Z',
+        ended_at: '2026-07-20T10:00:00.000Z',
+        duration_minutes: 60,
+        description: 'Analiza planów zapytań',
+        task_id: TASK_ID,
+        time_project_id: PROJECT_ID,
+        is_billable: true,
+        rate_override_amount: 100.5,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    const onOpenChange = jest.fn()
+    renderDialog({ entryId: ENTRY_ID, onOpenChange })
+    await waitFor(() =>
+      expect((screen.getByTestId('entry-dialog-rate') as HTMLInputElement).value).toBe('100,50'),
     )
 
     fireEvent.keyDown(screen.getByTestId('entry-dialog'), { key: 'Escape' })

@@ -171,6 +171,15 @@ export function shiftIsoDate(date: string, days: number): string {
   return `${shifted.getUTCFullYear()}-${month}-${day}`
 }
 
+/** Grouping is off so the text round-trips through the dialog's comma-or-dot rate parser. */
+export function formatRateText(amount: number, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+    useGrouping: false,
+  }).format(amount)
+}
+
 export function todayIsoDate(now: Date = new Date()): string {
   const month = String(now.getMonth() + 1).padStart(2, '0')
   const day = String(now.getDate()).padStart(2, '0')

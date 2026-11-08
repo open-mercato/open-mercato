@@ -3,6 +3,7 @@ import {
   combineDateAndClock,
   createIntervalState,
   describeTaskOption,
+  formatRateText,
   reduceIntervalState,
   shiftIsoDate,
   toTaskOption,
@@ -169,5 +170,17 @@ describe('task option references', () => {
   it('falls back to the plain label when a task has no reference', () => {
     const option = toTaskOption({ id: 't1', title: 'Untracked' })!
     expect(describeTaskOption(option, null)).toBe('Untracked')
+  })
+})
+
+describe('formatRateText', () => {
+  it.each([
+    [100.5, 'pl', '100,50'],
+    [100.5, 'en', '100.50'],
+    [1234567.5, 'de', '1234567,50'],
+    [12.3456, 'pl', '12,3456'],
+    [100, 'es', '100,00'],
+  ])('formats %p for %s as %p', (amount, locale, expected) => {
+    expect(formatRateText(amount, locale)).toBe(expected)
   })
 })
