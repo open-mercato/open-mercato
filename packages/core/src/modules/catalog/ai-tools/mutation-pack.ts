@@ -60,6 +60,7 @@ import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/cu
 import { E } from '#generated/entities.ids.generated'
 import {
   createAiApiOperationRunner,
+  expectedRecordVersionFor,
   type AiToolExecutionContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { CatalogProduct, CatalogProductPrice } from '../data/entities'
@@ -248,9 +249,13 @@ const updateProductTool: CatalogAiToolDefinition = {
       method: 'PUT',
       path: '/catalog/products',
       body,
+      expectedUpdatedAt: expectedRecordVersionFor(ctx, row.id),
     })
     if (!response.success) {
-      throw new Error(response.error ?? `Failed to update product "${row.id}"`)
+      const error = new Error(response.error ?? `Failed to update product "${row.id}"`) as Error & { code?: string }
+      const code = (response.details as { code?: unknown } | undefined)?.code
+      if (typeof code === 'string' && code.length > 0) error.code = code
+      throw error
     }
 
     const after = await loadProductForScope(em, ctx, tenantId, row.id)
@@ -377,6 +382,7 @@ const bulkUpdateProductsTool: CatalogAiToolDefinition = {
           method: 'PUT',
           path: '/catalog/products',
           body,
+          expectedUpdatedAt: expectedRecordVersionFor(ctx, product.id),
         })
         if (!response.success) {
           const code =
@@ -553,6 +559,7 @@ const applyAttributeExtractionTool: CatalogAiToolDefinition = {
           method: 'PUT',
           path: '/catalog/products',
           body,
+          expectedUpdatedAt: expectedRecordVersionFor(ctx, product.id),
         })
         if (!response.success) {
           const code =

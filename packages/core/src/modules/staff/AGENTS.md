@@ -4,6 +4,10 @@ The `staff` module is **optional** and slated for extraction into a standalone `
 
 See [`.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`](../../../../../.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md) for the decoupling plan, and [`BACKWARD_COMPATIBILITY.md`](../../../../../BACKWARD_COMPATIBILITY.md) for the contract-surface taxonomy referenced below.
 
+## Always
+
+- Preserve unsaved project-team drafts across translation-context updates. Tie data reloads to the project, organization scope, opening the drawer, or an explicit retry; read the current translator for asynchronous error copy without making translator identity a reload trigger.
+
 ## MUST Rules
 
 1. **MUST NOT import staff entities (`StaffTeam`, `StaffTeamMember`, etc.) from non-staff core modules.** Use the public surfaces below.
@@ -23,7 +27,7 @@ See [`.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`](../../../..
 | `timeCapacityResolver` | Server entry point to the capacity provider (EP-40). `resolveCapacity(staffMemberId, dateRange, ctx)`. |
 | `timeOverlapPolicyResolver` | Server entry point to the overlap policy (EP-38). `evaluate(spans, ctx)`. |
 | `timeProjectCodeResolver` | Server entry point to the project code generator (EP-39). `generate(name, taken, ctx?)`. |
-| `timeTrackingAccessResolver` | The single project-access resolver every time-tracking route consults (board, tasks, entries, timesheets, reports). Returns `{ canManageAll, projectIds, staffMemberId }`. `canManageAll: true` (holder of `staff.timesheets.projects.manage`, wildcard-aware) means **unrestricted** — `projectIds` is then empty and MUST NOT be read as "no projects". Otherwise `projectIds` lists the projects with an active, non-deleted `staff_time_project_members` row for the caller. A caller with no staff profile is a normal outcome (`staffMemberId: null`, empty `projectIds`) that drives the no-access screen, never an error. Every query is scoped by `tenantId` + `organizationId`; a request missing either fails closed. |
+| `timeTrackingAccessResolver` | The single project-access resolver every time-tracking route consults (board, tasks, entries, timesheets, reports). Returns `{ canManageAll, projectIds, staffMemberId }` plus optional `assignmentWindows` (#6988); omitting it places no entry-date bound. `canManageAll: true` (holder of `staff.timesheets.projects.manage`, wildcard-aware) means **unrestricted** — `projectIds` is then empty and MUST NOT be read as "no projects". Otherwise `projectIds` lists the projects with an active, non-deleted `staff_time_project_members` row for the caller. A caller with no staff profile is a normal outcome (`staffMemberId: null`, empty `projectIds`) that drives the no-access screen, never an error. Every query is scoped by `tenantId` + `organizationId`; a request missing either fails closed. |
 
 Resolver shapes (from `lib/availabilityAccess.ts` and `lib/time-tracking/access.ts`):
 
@@ -47,11 +51,17 @@ type TimeTrackingAccessResolver = {
     assignmentGraceDays?: number | null
     /** Injectable clock for the assignment window; defaults to now. */
     now?: Date
-  }): Promise<{ canManageAll: boolean; projectIds: string[]; staffMemberId: string | null }>
+  }): Promise<{
+    canManageAll: boolean
+    projectIds: string[]
+    staffMemberId: string | null
+    /** Additive (#6988): per project, the granting membership windows as day indexes, end already + grace. */
+    assignmentWindows?: Record<string, Array<{ startIndex: number | null; endIndex: number | null }>>
+  }>
 }
 ```
 
-**Assignment window (spec D-12).** Membership alone is not access: a non-manager reaches a project only while `assigned_start_date <= today <= assigned_end_date + assignmentGraceDays` (a null end date is open-ended). Pass `assignmentGraceDays` from `readTimeTrackingSettings(...).access.assignmentGraceDays` — the resolver deliberately does not read `ModuleConfigService` itself, so it stays testable and a caller that already loaded settings avoids a second lookup. Both extra fields are optional and default safely; existing callers are unaffected. An unparseable date bound or an unusable clock fails **closed**.
+**Assignment window (spec D-12).** Membership alone is not access: a non-manager reaches a project only while `assigned_start_date <= today <= assigned_end_date + assignmentGraceDays` (a null end date is open-ended). Pass `assignmentGraceDays` from `readTimeTrackingSettings(...).access.assignmentGraceDays` — the resolver deliberately does not read `ModuleConfigService` itself, so it stays testable and a caller that already loaded settings avoids a second lookup. Both extra fields are optional and default safely; existing callers are unaffected. An unparseable date bound or an unusable clock fails **closed**. **Entry-date bound (#6988):** a time-entry write also requires the entry's own date inside one of those windows — use `isProjectAccessibleOnDate(access, projectId, date)` (a hand-built access without `assignmentWindows` places no date bound). Entry writes go through `resolveTimeEntryWriteAccess` + `resolveTimeEntryWriteDenial` in `commands/timesheets-entries.ts`, shared by the commands and the grid bulk save so both screens give the same answer.
 
 `AvailabilityWriteAccess.unregistered?: boolean` is an additive sentinel field (BC surface #2 — STABLE) set to `true` only when staff DI is missing. Existing required fields MUST NOT be removed.
 
@@ -79,6 +89,7 @@ The consulting suite added the routes below. The URL namespace stays `staff/time
 | `GET/POST/PUT/DELETE /tasks`, `PATCH /tasks/[id]/status`, `GET/POST/PUT/DELETE /tasks/[id]/comments` | `tasks.view` / `tasks.manage` | Tasks are depth-1 (a subtask is a child task, D-2). Every query is intersected with `resolveProjectAccess`. `?tagIds=` narrows to tasks carrying **every** listed tag. |
 | `GET/POST/PUT/DELETE /task-statuses` | `tasks.view` / `tasks.manage` | Per-project Kanban columns (D-1), seeded when a project is created. |
 | `GET/POST/PUT/DELETE /tags`, `POST/DELETE /tags/{task,entry}-assignments` | `tasks.view` / `tasks.manage` | Refuses to tag an entry locked in a closed report. |
+| `GET /time-entries?includeTotals=true` | `view` | Adds an optional `totals` (`entryCount`, `durationMinutes`, `roundedMinutes`; `money` per currency only for `rates.view`) over the WHOLE filtered set, computed by `lib/timesheets/timeEntryTotals.ts` from the same `buildScopedTimeEntryListFilters` output. `money` is grouped in SQL but priced per group by `entryAmount` and summed in cents, so it always equals the summed row `cost` — never price it in SQL, whose exact-decimal rounding disagrees with `entryAmount` on half cents. A filter operator the aggregate cannot compile throws, is reported as `staff.time_entry_totals_failed`, and `totals` is omitted — extend `compileTimeEntryFilters` when the list filters grow. The entries page renders it inside the table via the `data-table:staff.time_entries.list:footer` widget. |
 | `POST /time-entries/[id]/duplicate`, `POST /time-entries/copy-day`, `GET /time-entries/overlaps` | `manage_own` / `view` | Overlaps is advisory and midnight-aware (D-8); copy-day refuses a non-empty target unless `allowDuplicates`. |
 | `GET/POST/PUT/DELETE /reports`, `POST /reports/preview`, `GET /reports/[id]/sheet`, `POST /reports/[id]/{close,unlock}`, `GET /reports/[id]/export` | `reports.view` / `reports.manage` / `reports.unlock` | Close freezes per-entry values and locks the entries; unlock requires a reason. Export never locks. |
 | `GET /my-work` | `view` | Screen 1 aggregate; always the caller's own, no `staffMemberId` parameter exists. |
@@ -401,7 +412,8 @@ Pinned by `lib/time-tracking-ui/__tests__/TimeEntryDialog.test.tsx` →
 | `staff.time_task.board:column-header` | `lib/time-tracking-ui/KanbanColumn.tsx` | `{ statusId, statusName, isDone, total, loggedMinutes }` |
 | `staff.time_task.board:{card-badges,card-footer}` | `lib/time-tracking-ui/KanbanCard.tsx` | `{ entityId, recordId, taskId, timeProjectId, taskStatusId, timerRunning }` |
 | `staff.my_work:{before-sections,after-sections}` | `backend/staff/time-tracking/page.tsx` | `{ staffMemberId, today, projectIds, retryLastMutation }` |
-| `staff.time_tracking.settings:sections` | `backend/staff/time-tracking/settings/page.tsx` | `{ moduleId, canManage }` |
+| `staff.time_tracking.settings:sections` | `backend/staff/time-tracking/settings/page.tsx` | `{ moduleId, canManage, keys, values, setValue }` |
+| `staff.time_tracking.settings:tabs` | `backend/staff/time-tracking/settings/page.tsx` | `{ moduleId, canManage, settings, onSettingsSaved }` — `placement: { kind: 'tab' }`; a tab owns its saves (writes built from `context.settings`, reported via `onSettingsSaved`) |
 | `staff.timesheets.timer-bar:actions` | `lib/timesheets-ui/TimerBar.tsx` | `{ staffMemberId, retryLastMutation }` |
 
 No context carries a rate, cost or amount; contributions that need money must ask for it
@@ -640,9 +652,10 @@ columns time tracking already carried:
 the query engine only ever looks a link up by `base`. **These are strings, never
 imports.** Staff is slated for extraction into a standalone package, so
 `data/extensions.ts` may not import a `customers` or `sales` symbol and
-`requires: ['planner', 'resources']` in [`index.ts`](./index.ts) must not grow;
-`__tests__/entityExtensions.test.ts` fails if either happens, and pins every table and
-column against the migration snapshots.
+`requires` in [`index.ts`](./index.ts) (`['planner', 'resources', 'dictionaries']`;
+`dictionaries` backs the support-ticket categories) must never gain `customers`, `sales` or
+`customer_accounts`; `__tests__/entityExtensions.test.ts` fails if either happens, and pins
+every table and column against the migration snapshots.
 
 **Declaration-only, exactly as in `apps/mercato/src/modules/example/data/extensions.ts`.**
 Nothing in the platform passes `includeExtensions` to a query, the basic engine's
@@ -814,6 +827,20 @@ The CLI enqueues onto the same queue with the same `ProgressJob` the settings
 screen uses; it does not do the work in process. An unknown `--hook` id refuses to
 start rather than silently doing nothing.
 
+## Customer support tickets
+
+Design of record: [`.ai/specs/2026-10-06-staff-helpdesk-support-tickets.md`](../../../../../.ai/specs/2026-10-06-staff-helpdesk-support-tickets.md).
+
+- **A ticket is a task.** `staff_time_tasks.source = 'portal'` plus `customer_id` (the ticket owner — never the project's customer), and a 1:1 `staff_support_tickets` row (same-module FK `task_id`) holding every helpdesk-only field. The customer's original request lives in the encrypted `customer_request_snapshot`; the portal reads it and NEVER the staff-editable task title/description.
+- **Routing** (`lib/support/routing.ts`): per-category `staff_support_routing_rules` override the organization fallback rule (`category_value IS NULL`, exactly one, cannot be deleted or paused). Paused, unusable (completed/deleted/no `isDefault` status) or orphaned overrides fall back. Categories are the per-org dictionary `staff.support_ticket_category` (exact org, no ancestors). `seedDefaults` seeds categories, the "Customer support" project and the fallback rule; existing tenants run `mercato staff seed-support-defaults`.
+- **Settings UI**: categories, routing and the reference prefix are the "Support" tab (`widgets/injection/time-tracking-settings-support`) of `/backend/staff/time-tracking/settings`, mounted on the `staff.time_tracking.settings:tabs` spot. A tab saves on its own; when it writes the settings record it must build the body from `context.settings` and call `context.onSettingsSaved(response)` so the page's draft is rebased, not overwritten.
+- **Backoffice reads for agents**: `GET /api/staff/timesheets/support-tickets/options` (`staff.timesheets.tasks.view`) serves the Support Inbox filters (categories, project-scoped assignees); tasks carry `_staffAssignment: { canClaim, canRelease }`, computed with the claim command's predicate. Never derive claimability client-side.
+- **Portal routes** `/api/staff/portal/support-tickets/*` (options, list, create, detail, messages, attachments) resolve identity via dynamic import (no static `customer_accounts` edge) and load every row WITH `portalOwnedTaskWhere` (`lib/support/portalTickets.ts`). Features `portal.support_tickets.view|manage` are customer features granted via `defaultCustomerRoleFeatures`, not `acl.ts`. Attachments load the attachments module dynamically; customer uploads carry `customer-visible` + `customer-upload:<customerUserId>` tags and only the uploader may delete.
+- **Conversation**: comment `visibility` defaults to `internal`; `customer` is refused (422) on non-portal tasks; `author_kind = 'customer'` comments are immutable for staff, `manage_all` included. Comment CRUD events carry `portalVisible`.
+- **Events**: `staff.support_ticket.created|customer_replied` are server-side only (they name the customer); `activity_recorded` is the id-only client broadcast (also emitted with `kind: attachment_added|attachment_removed` plus the changed `attachmentId` — which keeps rapid uploads distinct for the browser bridge's 500 ms duplicate filter — by the portal attachments route via `lib/support/supportActivity.ts`, so an open TaskDrawer refetches "Ticket files", whose list is a drawer query invalidated with task/comments); `portal_updated` is emitted only by `lib/support/portalBroadcast.ts` with pinned `recipientUserIds` and never with an empty list. `staff.timesheets.time_task.assignee_changed` (client broadcast, ids only, `changeKind`) is emitted by claim/release/manual edits and the portal default assignee.
+- **Assigners and default assignee**: `staff_time_project_members.is_assigner` (requires a linked user) grants claim (`POST /api/staff/timesheets/tasks/{id}/claim`, conditional update, 409 on a lost race) and release. `staff_time_projects.default_assignee_staff_member_id` applies to portal tickets ONLY — staff task creation keeps US-C1 (omitted or `null` → creator).
+- **Notification chain** (`lib/time-tracking/workRecipients.ts`): type audience → active assigners → owner → `createForFeature('staff.timesheets.projects.manage', restrictRecipientsToOrganization: true)`. The actor is excluded in steps 1–3 only. A support notification that reaches nobody sets `staff_support_tickets.unnotified_at` (cleared on assignment).
+
 ## Internal-Only Surfaces (NOT public contract)
 
 These are subject to change without deprecation; do not import them from non-staff code:
@@ -830,9 +857,9 @@ If you need data from staff in another core module, the correct path is:
 
 ## Dependencies
 
-Staff currently declares `requires: ['planner', 'resources']` in [`index.ts`](./index.ts). The dependency direction is intentional and asymmetric:
+Staff currently declares `requires: ['planner', 'resources', 'dictionaries']` in [`index.ts`](./index.ts). The dependency direction is intentional and asymmetric:
 
-- Staff depends on planner + resources (hard requirement at load time).
+- Staff depends on planner + resources (hard requirement at load time), and on dictionaries for the support-ticket categories.
 - Planner soft-resolves `availabilityAccessResolver` via DI with `allowUnregistered: true` (graceful degradation when staff is absent).
 
 This asymmetry will be reconciled in the Phase 2/3 follow-up when staff becomes its own npm package; for now, planner is the only consumer that must work without staff registered.

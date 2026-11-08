@@ -2,6 +2,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
+import { warnOnUnresolvableTimeZone, zonedWeeklyAnchor, zonedWeekday } from '@open-mercato/core/modules/planner/lib/availabilityTimezone'
 import { PlannerAvailabilityRule, PlannerAvailabilityRuleSet } from '../data/entities'
 import {
   plannerAvailabilityWeeklyReplaceSchema,
@@ -54,24 +55,6 @@ type WeeklyUndoPayload = {
   after: AvailabilityRuleSnapshot[]
 }
 
-function parseTimeInput(value: string): { hours: number; minutes: number } | null {
-  const [hours, minutes] = value.split(':').map((part) => Number(part))
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
-  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null
-  return { hours, minutes }
-}
-
-function toDateForWeekday(weekday: number, time: string): Date | null {
-  const parsed = parseTimeInput(time)
-  if (!parsed) return null
-  const now = new Date()
-  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const diff = (weekday - base.getDay() + 7) % 7
-  const target = new Date(base.getTime() + diff * 24 * 60 * 60 * 1000)
-  target.setHours(parsed.hours, parsed.minutes, 0, 0)
-  return target
-}
-
 function formatDuration(minutes: number): string {
   const clamped = Math.max(1, minutes)
   const hours = Math.floor(clamped / 60)
@@ -81,11 +64,18 @@ function formatDuration(minutes: number): string {
   return `PT${mins}M`
 }
 
-function buildWeeklyRrule(start: Date, end: Date): string {
+function buildWeeklyRrule(start: Date, end: Date, timeZone: string): string {
   const dtStart = start.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
   const durationMinutes = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000))
   const duration = formatDuration(durationMinutes)
-  const dayCode = DAY_CODES[start.getDay()] ?? 'MO'
+  // `BYDAY` names the weekday the window falls on in its DECLARED zone, which
+  // is the meaningful label for a recurring local-time window. It is therefore
+  // deliberately not consistent with the `Z`-suffixed `DTSTART` beside it: a
+  // Pacific/Auckland Monday 09:00 ships DTSTART:...T210000Z, a Sunday in UTC,
+  // with BYDAY=MO. Nothing in the planner reads BYDAY today (neither the
+  // expander nor `parseAvailabilityRuleWindow`); a future iCal export must
+  // re-derive it from the zone rather than trust it against DTSTART.
+  const dayCode = DAY_CODES[zonedWeekday(start, timeZone)] ?? 'MO'
   return `DTSTART:${dtStart}\nDURATION:${duration}\nRRULE:FREQ=WEEKLY;BYDAY=${dayCode}`
 }
 
@@ -185,6 +175,7 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
   },
   async execute(input, ctx) {
     const parsed = plannerAvailabilityWeeklyReplaceSchema.parse(input)
+    warnOnUnresolvableTimeZone(parsed.timezone, 'planner.availability.weekly.replace')
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
@@ -247,10 +238,10 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
       }
 
       parsed.windows.forEach((window) => {
-        const start = toDateForWeekday(window.weekday, window.start)
-        const end = toDateForWeekday(window.weekday, window.end)
-        if (!start || !end || start >= end) return
-        const rrule = buildWeeklyRrule(start, end)
+        const anchor = zonedWeeklyAnchor(window.weekday, window.start, window.end, parsed.timezone, now)
+        if (!anchor || anchor.start >= anchor.end) return
+        const { start, end } = anchor
+        const rrule = buildWeeklyRrule(start, end, parsed.timezone)
         const record = trx.create(PlannerAvailabilityRule, {
           tenantId: parsed.tenantId,
           organizationId: parsed.organizationId,

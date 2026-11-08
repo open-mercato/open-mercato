@@ -12,7 +12,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   CustomerAddress,
   CustomerComment,
@@ -67,6 +67,7 @@ import { E } from '#generated/entities.ids.generated'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CUSTOMER_ENTITY_ID, resolveCompanyCustomFieldRouting } from '../lib/customFieldRouting'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
@@ -138,8 +139,11 @@ type CompanyAddressSnapshot = {
   id: string
   name: string | null
   purpose: string | null
+  companyName?: string | null
   addressLine1: string
   addressLine2: string | null
+  buildingNumber?: string | null
+  flatNumber?: string | null
   city: string | null
   region: string | null
   postalCode: string | null
@@ -190,6 +194,7 @@ type CompanyInteractionSnapshot = {
   body: string | null
   status: string
   scheduledAt: Date | null
+  timezone?: string | null
   occurredAt: Date | null
   priority: number | null
   authorUserId: string | null
@@ -358,8 +363,11 @@ async function loadCompanySnapshot(
       id: address.id,
       name: address.name ?? null,
       purpose: address.purpose ?? null,
+      companyName: address.companyName ?? null,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? null,
+      buildingNumber: address.buildingNumber ?? null,
+      flatNumber: address.flatNumber ?? null,
       city: address.city ?? null,
       region: address.region ?? null,
       postalCode: address.postalCode ?? null,
@@ -415,6 +423,7 @@ async function loadCompanySnapshot(
         body: interaction.body ?? null,
         status: interaction.status,
         scheduledAt: interaction.scheduledAt ?? null,
+        timezone: interaction.timezone ?? null,
         occurredAt: interaction.occurredAt ?? null,
         priority: interaction.priority ?? null,
         authorUserId: interaction.authorUserId ?? null,
@@ -502,6 +511,15 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const organization = await findOneWithDecryption(
+      em,
+      Organization,
+      { id: parsed.organizationId, tenant: parsed.tenantId, deletedAt: null },
+      { fields: ['id'] },
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+    )
+    if (!organization) throw forbidden()
+
     const nextInteractionName = parsed.nextInteraction?.name ? parsed.nextInteraction.name.trim() : null
     const nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction?.refId)
     const nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction?.icon)
@@ -1385,8 +1403,11 @@ const deleteCompanyCommand: CommandHandler<
               entity,
               name: address.name,
               purpose: address.purpose,
+              companyName: address.companyName ?? null,
               addressLine1: address.addressLine1,
               addressLine2: address.addressLine2,
+              buildingNumber: address.buildingNumber ?? null,
+              flatNumber: address.flatNumber ?? null,
               city: address.city,
               region: address.region,
               postalCode: address.postalCode,
@@ -1425,6 +1446,7 @@ const deleteCompanyCommand: CommandHandler<
               body: interaction.body,
               status: interaction.status,
               scheduledAt: interaction.scheduledAt,
+              timezone: interaction.timezone ?? null,
               occurredAt: interaction.occurredAt,
               priority: interaction.priority,
               authorUserId: interaction.authorUserId,
