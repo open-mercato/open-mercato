@@ -91,6 +91,15 @@ export function AssignRoleDialog({
   const [currentPage, setCurrentPage] = React.useState(1)
   const deferredSearchQuery = React.useDeferredValue(searchQuery)
   const requestSequenceRef = React.useRef(0)
+  const saveButtonRef = React.useRef<HTMLButtonElement>(null)
+  const restoreSaveFocusRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (open && !saving && restoreSaveFocusRef.current) {
+      restoreSaveFocusRef.current = false
+      saveButtonRef.current?.focus()
+    }
+  }, [open, saving])
 
   const isEditing = editingAssignment !== null
   const availableRoleTypes = React.useMemo(
@@ -103,6 +112,7 @@ export function AssignRoleDialog({
   )
 
   React.useEffect(() => {
+    restoreSaveFocusRef.current = false
     if (!open) {
       setStep(1)
       setSelectedRoleType('')
@@ -314,7 +324,7 @@ export function AssignRoleDialog({
       }
       onClose()
     } catch {
-      // The host surfaces the failure; keep the dialog and its selection for a retry.
+      restoreSaveFocusRef.current = true
     } finally {
       setSaving(false)
     }
@@ -734,6 +744,7 @@ export function AssignRoleDialog({
             {step === 3 ? (
               <Button
                 type="button"
+                ref={saveButtonRef}
                 onClick={handleAssign}
                 disabled={saving || !selectedUser || !selectedRoleType}
               >
