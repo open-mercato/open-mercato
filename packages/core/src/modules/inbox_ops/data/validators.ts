@@ -294,6 +294,55 @@ export const inboundAttachmentIngestJobSchema = z.object({
 export type InboundAttachmentIngestJob = z.infer<typeof inboundAttachmentIngestJobSchema>
 
 // ---------------------------------------------------------------------------
+// Attachment list API (`GET /api/inbox_ops/emails/[id]/attachments`)
+// ---------------------------------------------------------------------------
+
+export const inboxEmailIdParamsSchema = z.object({
+  id: z.guid(),
+})
+
+export const inboxEmailAttachmentDispositionSchema = z.enum(['attachment', 'inline'])
+
+export const inboxEmailAttachmentStatusSchema = z.enum(['pending', 'stored', 'skipped', 'failed', 'released'])
+
+export const inboxEmailAttachmentReasonSchema = z.enum([
+  'inline_decoration',
+  'too_many',
+  'too_large',
+  'total_too_large',
+  'dangerous_executable',
+  'active_content',
+  'unguarded_reader',
+  'quota_exceeded',
+  'partition_unavailable',
+  'fetch_failed',
+  'store_failed',
+  'processing_failed',
+  'ingest_timeout',
+])
+
+export const inboxEmailAttachmentListItemSchema = z.object({
+  id: z.guid(),
+  partKey: z.string(),
+  fileName: z.string().nullable(),
+  mimeType: z.string().nullable(),
+  sizeBytes: z.number().int().nonnegative().nullable(),
+  disposition: inboxEmailAttachmentDispositionSchema,
+  status: inboxEmailAttachmentStatusSchema,
+  reason: inboxEmailAttachmentReasonSchema.nullable(),
+  attachmentId: z.guid().nullable(),
+  url: z.string().nullable(),
+})
+
+export type InboxEmailAttachmentListItem = z.infer<typeof inboxEmailAttachmentListItemSchema>
+
+export const inboxEmailAttachmentListResponseSchema = z.object({
+  items: z.array(inboxEmailAttachmentListItemSchema),
+})
+
+export type InboxEmailAttachmentListResponse = z.infer<typeof inboxEmailAttachmentListResponseSchema>
+
+// ---------------------------------------------------------------------------
 // API Query Schemas
 // ---------------------------------------------------------------------------
 

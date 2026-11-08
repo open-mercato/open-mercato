@@ -32,14 +32,7 @@ function toRef(row: EmailRow): InboundAttachmentEmailRef {
   return { id: row.id, tenantId: row.tenant_id, organizationId: row.organization_id }
 }
 
-/**
- * Stranded: not soft-deleted, and `pending` with `attachments_next_run_at` older than 15 minutes,
- * or `processing` past its lease with `attachments_next_run_at` older than 15 minutes.
- * Parameters: next-run cutoff, lease cutoff, next-run cutoff, limit.
- */
-export const SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_SQL = `select id, tenant_id, organization_id
-  from inbox_emails
- where deleted_at is null
+const STRANDED_INBOUND_ATTACHMENT_EMAIL_PREDICATE_SQL = `deleted_at is null
    and (
      (attachments_status = 'pending'
        and (attachments_next_run_at is null or attachments_next_run_at < ?))
@@ -49,6 +42,24 @@ export const SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_SQL = `select id, tenant_
    )
  order by attachments_next_run_at asc nulls first, id asc
  limit ?`
+
+/**
+ * Stranded: not soft-deleted, and `pending` with `attachments_next_run_at` older than 15 minutes,
+ * or `processing` past its lease with `attachments_next_run_at` older than 15 minutes.
+ * Parameters: next-run cutoff, lease cutoff, next-run cutoff, limit.
+ */
+export const SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_SQL = `select id, tenant_id, organization_id
+  from inbox_emails
+ where ${STRANDED_INBOUND_ATTACHMENT_EMAIL_PREDICATE_SQL}`
+
+/**
+ * The stranded emails of one inbox (the webhook catch-up). Parameters: tenant id, organization id,
+ * next-run cutoff, lease cutoff, next-run cutoff, limit.
+ */
+export const SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_IN_SCOPE_SQL = `select id, tenant_id, organization_id
+  from inbox_emails
+ where tenant_id = ? and organization_id = ?
+   and ${STRANDED_INBOUND_ATTACHMENT_EMAIL_PREDICATE_SQL}`
 
 export const SELECT_DELETED_OPEN_INBOUND_ATTACHMENT_EMAILS_SQL = `select id, tenant_id, organization_id
   from inbox_emails

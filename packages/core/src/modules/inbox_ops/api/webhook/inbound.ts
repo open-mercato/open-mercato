@@ -5,11 +5,28 @@ import { Webhook } from 'svix'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { AwilixContainer } from 'awilix'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { InboxSettings, InboxEmail } from '../../data/entities'
-import { parseInboundEmail } from '../../lib/emailParser'
+import type { ResendInboundAttachment } from '../../data/validators'
+import { parseInboundEmail, type ParsedEmail } from '../../lib/emailParser'
 import { createInboundResendClient } from '../../lib/resendClient'
+import { warnIfStoredInboundAttachmentsReadableByUnguardedReaders } from '../../lib/inboundAttachments'
+import { ensureInboundAttachmentMaintenanceScheduleLazily } from '../../lib/inboundAttachmentSchedule'
+import {
+  catchUpStrandedInboundAttachmentIngestsSafely,
+  enqueueNewInboundAttachmentIngest,
+  findCollidingInboundEmail,
+  intakeRecordsAttachments,
+  NO_INBOUND_ATTACHMENTS,
+  persistInboundEmailWithLedger,
+  readResendInboundAttachments,
+  reenqueueDuplicateInboundAttachmentIngest,
+  resolveInboundAttachmentIntake,
+  type InboundAttachmentIntake,
+} from '../../lib/inboundAttachmentWebhook'
 import { checkRateLimit } from '../../lib/rateLimiter'
 import { emitInboxOpsEvent } from '../../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -115,6 +132,7 @@ async function fetchResendEmail(emailId: string): Promise<{
   replyTo?: string
   inReplyTo?: string
   references?: string[]
+  attachments: ResendInboundAttachment[]
 }> {
   const resend = createInboundResendClient()
   const { data, error } = await resend.emails.receiving.get(emailId)
@@ -132,12 +150,13 @@ async function fetchResendEmail(emailId: string): Promise<{
     replyTo: data.reply_to?.[0] ?? undefined,
     inReplyTo: data.headers?.['in-reply-to'] ?? undefined,
     references: data.headers?.['references']?.split(/\s+/).filter(Boolean),
+    attachments: readResendInboundAttachments(data.attachments),
   }
 }
 
 type VerifiedPayload =
   | { kind: 'custom'; payload: Record<string, unknown>; signature: string; timestamp: string }
-  | { kind: 'resend'; emailFields: Awaited<ReturnType<typeof fetchResendEmail>>; to: string[] }
+  | { kind: 'resend'; emailFields: Awaited<ReturnType<typeof fetchResendEmail>>; to: string[]; providerEmailId: string }
 
 async function verifyAndParse(req: Request, rawBody: string): Promise<
   | { ok: true; data: VerifiedPayload }
@@ -198,7 +217,7 @@ async function verifyAndParse(req: Request, rawBody: string): Promise<
     }
     const emailFields = await fetchResendEmail(emailId)
     const to = emailFields.to || envelope.data?.to || []
-    return { ok: true, data: { kind: 'resend', emailFields, to } }
+    return { ok: true, data: { kind: 'resend', emailFields, to, providerEmailId: emailId } }
   }
 
   return { ok: false, response: NextResponse.json({ error: 'Missing signature headers' }, { status: 400 }) }
@@ -292,7 +311,8 @@ export async function POST(req: Request) {
     return rateLimitedResponse(admissionRateCheck.retryAfterSeconds)
   }
 
-  const em = (container.resolve('em') as EntityManager).fork()
+  const rootEm = container.resolve('em') as EntityManager
+  const em = rootEm.fork()
 
   // No explicit scope: decryptEntitiesWithFallbackScope reads tenant/org off the
   // resolved row, which is exactly what binds webhook_secret to its own tenant.
@@ -348,31 +368,58 @@ export async function POST(req: Request) {
     return rateLimitedResponse(tenantRateCheck.retryAfterSeconds)
   }
 
-  const parsed = parseInboundEmail(emailInput)
+  const attachmentIntake: InboundAttachmentIntake = verified.data.kind === 'resend'
+    ? resolveInboundAttachmentIntake({
+      parts: verified.data.emailFields.attachments,
+      attachmentServiceAvailable: isResolvable(container, 'attachmentService'),
+    })
+    : NO_INBOUND_ATTACHMENTS
+  const parsed = parseInboundEmail(emailInput, { attachmentIds: attachmentIntake.attachmentIds })
 
-  const isDuplicate = await checkDuplicate(em, settings, parsed.messageId, parsed.contentHash)
-  if (isDuplicate) {
-    try {
-      await emitInboxOpsEvent('inbox_ops.email.deduplicated', {
-        tenantId: settings.tenantId,
-        organizationId: settings.organizationId,
-        toAddress,
-      })
-    } catch (eventError) {
-      logger.error('Failed to emit deduplicated event', { err: eventError })
-    }
-    return NextResponse.json({ ok: true })
+  const inbound: InboundEmailContext = {
+    container,
+    rootEm,
+    em,
+    settings,
+    scope: { tenantId: settings.tenantId, organizationId: settings.organizationId },
+    toAddress,
+    parsed,
+    attachmentIntake,
+    providerEmailId: verified.data.kind === 'resend' ? verified.data.providerEmailId : null,
+  }
+  const response = await receiveInboundEmail(inbound)
+  await catchUpStrandedInboundAttachmentIngestsSafely({ em: rootEm.fork(), scope: inbound.scope })
+  return response
+}
+
+type InboundEmailContext = {
+  container: AwilixContainer
+  rootEm: EntityManager
+  em: EntityManager
+  settings: InboxSettings
+  scope: { tenantId: string; organizationId: string }
+  toAddress: string
+  parsed: ParsedEmail
+  attachmentIntake: InboundAttachmentIntake
+  providerEmailId: string | null
+}
+
+async function receiveInboundEmail(inbound: InboundEmailContext): Promise<NextResponse> {
+  const { em, settings, parsed, attachmentIntake } = inbound
+  const duplicate = await checkDuplicate(em, settings, parsed.messageId, parsed.contentHash)
+  if (duplicate) {
+    return answerDuplicate(inbound, em, duplicate)
   }
 
   const maxTextSize = parseInt(process.env.INBOX_OPS_MAX_TEXT_SIZE || '204800', 10)
   const cleanedText = parsed.cleanedText.slice(0, maxTextSize)
 
-  const email = em.create(InboxEmail, {
+  const values = {
     messageId: parsed.messageId,
     contentHash: parsed.contentHash,
     forwardedByAddress: parsed.from.email,
     forwardedByName: parsed.from.name || null,
-    toAddress,
+    toAddress: inbound.toAddress,
     subject: parsed.subject,
     replyTo: parsed.replyTo,
     inReplyTo: parsed.inReplyTo,
@@ -387,10 +434,34 @@ export async function POST(req: Request) {
     isActive: true,
     organizationId: settings.organizationId,
     tenantId: settings.tenantId,
-  })
+  }
 
-  em.persist(email)
-  await em.flush()
+  let email: InboxEmail
+  try {
+    if (inbound.providerEmailId && intakeRecordsAttachments(attachmentIntake)) {
+      email = await persistInboundEmailWithLedger({
+        em,
+        values,
+        intake: attachmentIntake,
+        providerEmailId: inbound.providerEmailId,
+      })
+    } else {
+      email = em.create(InboxEmail, values)
+      em.persist(email)
+      await em.flush()
+    }
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error
+    const collisionEm = inbound.rootEm.fork()
+    const collided = await findCollidingInboundEmail(collisionEm, inbound.scope, parsed)
+    return answerDuplicate(inbound, collisionEm, collided)
+  }
+
+  if (attachmentIntake.kind === 'ingest') {
+    const enqueued = await enqueueNewInboundAttachmentIngest(email)
+    await ensureInboundAttachmentMaintenanceScheduleLazily(inbound.container)
+    return enqueued.ok ? NextResponse.json({ ok: true }) : attachmentIngestEnqueueFailedResponse()
+  }
 
   try {
     await emitInboxOpsEvent('inbox_ops.email.received', {
@@ -408,7 +479,54 @@ export async function POST(req: Request) {
     logger.error('Failed to emit email.received event', { err: eventError })
   }
 
+  if (attachmentIntake.kind === 'blocked') {
+    await warnAboutStoredAttachmentsSafely(inbound.rootEm.fork(), attachmentIntake.readers)
+  }
+
   return NextResponse.json({ ok: true })
+}
+
+async function answerDuplicate(
+  inbound: InboundEmailContext,
+  em: EntityManager,
+  duplicate: InboxEmail | null,
+): Promise<NextResponse> {
+  if (duplicate) {
+    const requeued = await reenqueueDuplicateInboundAttachmentIngest({ em, email: duplicate })
+    if (requeued === 'enqueue_failed') {
+      return attachmentIngestEnqueueFailedResponse()
+    }
+  }
+  try {
+    await emitInboxOpsEvent('inbox_ops.email.deduplicated', {
+      tenantId: inbound.scope.tenantId,
+      organizationId: inbound.scope.organizationId,
+      toAddress: inbound.toAddress,
+    })
+  } catch (eventError) {
+    logger.error('Failed to emit deduplicated event', { err: eventError })
+  }
+  return NextResponse.json({ ok: true })
+}
+
+function isResolvable(container: { resolve: (name: string) => unknown }, name: string): boolean {
+  try {
+    return Boolean(container.resolve(name))
+  } catch {
+    return false
+  }
+}
+
+function attachmentIngestEnqueueFailedResponse(): NextResponse {
+  return NextResponse.json({ error: 'Failed to queue attachment ingestion' }, { status: 500 })
+}
+
+async function warnAboutStoredAttachmentsSafely(em: EntityManager, readers: string[]): Promise<void> {
+  try {
+    await warnIfStoredInboundAttachmentsReadableByUnguardedReaders(em, readers)
+  } catch (error) {
+    logger.warn('Failed to check stored inbound attachments against unguarded readers', { err: error })
+  }
 }
 
 function rateLimitedResponse(retryAfterSeconds?: number): NextResponse {
@@ -442,7 +560,7 @@ async function checkDuplicate(
   settings: InboxSettings,
   messageId: string | null | undefined,
   contentHash: string | null | undefined,
-): Promise<boolean> {
+): Promise<InboxEmail | null> {
   const encScope = {
     tenantId: settings.tenantId,
     organizationId: settings.organizationId,
@@ -455,15 +573,15 @@ async function checkDuplicate(
 
   if (messageId) {
     const byMessageId = await findOneWithDecryption(em, InboxEmail, { ...whereBase, messageId }, undefined, encScope)
-    if (byMessageId) return true
+    if (byMessageId) return byMessageId
   }
 
   if (contentHash) {
     const byHash = await findOneWithDecryption(em, InboxEmail, { ...whereBase, contentHash }, undefined, encScope)
-    if (byHash) return true
+    if (byHash) return byHash
   }
 
-  return false
+  return null
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -472,7 +590,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Receive forwarded email from provider webhook',
-      description: 'Public endpoint — validated by provider HMAC signature or Resend/Svix signature. Rate limited per tenant.',
+      description: 'Public endpoint — validated by provider HMAC signature or Resend/Svix signature. Rate limited per tenant. For Resend emails with attachments, 200 means the email was stored and queued for attachment ingestion; inbox_ops.email.received is emitted once the attachments are processed.',
       requestBody: {
         contentType: 'application/json',
         schema: z.object({
@@ -492,6 +610,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid payload or signature' },
         { status: 413, description: 'Payload too large' },
         { status: 429, description: 'Rate limit exceeded' },
+        { status: 500, description: 'The attachment ingestion could not be queued; the provider redelivers the webhook' },
         { status: 503, description: 'Webhook secret not configured' },
       ],
     },

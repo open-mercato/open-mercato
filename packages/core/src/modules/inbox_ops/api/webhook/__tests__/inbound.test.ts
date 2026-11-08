@@ -10,6 +10,7 @@ interface MockEntityManager {
   create: jest.Mock<Record<string, unknown>, [unknown, Record<string, unknown>]>
   persist: jest.Mock<void, [unknown]>
   flush: jest.Mock<Promise<void>, []>
+  getConnection: jest.Mock<{ execute: jest.Mock<Promise<unknown[]>, [string, unknown[]?]> }, []>
 }
 
 const mockEm: MockEntityManager = {
@@ -18,6 +19,7 @@ const mockEm: MockEntityManager = {
   create: jest.fn<Record<string, unknown>, [unknown, Record<string, unknown>]>(),
   persist: jest.fn<void, [unknown]>(),
   flush: jest.fn<Promise<void>, []>(),
+  getConnection: jest.fn(() => ({ execute: jest.fn<Promise<unknown[]>, [string, unknown[]?]>(async () => []) })),
 }
 
 const mockFindOneWithDecryption = jest.fn()

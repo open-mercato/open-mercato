@@ -4,6 +4,7 @@ import { InboxEmail, InboxEmailAttachment } from '../../../data/entities'
 import { RESERVE_INBOUND_ATTACHMENT_GENERATION_SQL } from '../../inboundAttachments'
 import {
   SELECT_DELETED_OPEN_INBOUND_ATTACHMENT_EMAILS_SQL,
+  SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_IN_SCOPE_SQL,
   SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_SQL,
   SELECT_UNRELEASED_DELETED_INBOUND_EMAILS_SQL,
 } from '../../inboundAttachmentMaintenance'
@@ -81,18 +82,176 @@ function evaluateRaw(previous: Row, fragment: { sql: string; params?: unknown[] 
 
 type UpdateHook = (entity: 'email' | 'part', where: Filter, data: Filter) => void | Promise<void>
 
+const EMAIL_DEFAULTS: Readonly<Filter> = {
+  messageId: null,
+  contentHash: null,
+  metadata: null,
+  attachmentIds: null,
+  processingError: null,
+  attachmentsStatus: null,
+  attachmentsClaimToken: null,
+  attachmentsClaimedAt: null,
+  attachmentsFirstFailureAt: null,
+  attachmentsReleaseRequestedAt: null,
+  attachmentsReleasedAt: null,
+  attachmentsIngestGeneration: 0,
+  attachmentsCurrentGeneration: 0,
+  attachmentsNextRunAt: null,
+  deletedAt: null,
+}
+
+const PART_DEFAULTS: Readonly<Filter> = {
+  mimeType: null,
+  contentId: null,
+  attempts: 0,
+  inFlightAt: null,
+  reason: null,
+  attachmentId: null,
+  extractedText: null,
+  deletedAt: null,
+}
+
+/** Unique indexes of `inbox_emails` and `inbox_email_attachments`; they also cover soft-deleted rows. */
+const UNIQUE_KEYS: ReadonlyArray<{ table: 'emails' | 'parts'; name: string; columns: string[] }> = [
+  { table: 'emails', name: 'inbox_emails_organization_id_tenant_id_message_id_unique', columns: ['organizationId', 'tenantId', 'messageId'] },
+  { table: 'emails', name: 'inbox_emails_organization_id_tenant_id_content_hash_unique', columns: ['organizationId', 'tenantId', 'contentHash'] },
+  { table: 'parts', name: 'inbox_email_attachments_email_part_key_unique', columns: ['inboxEmailId', 'partKey'] },
+]
+
+export class FakeUniqueViolationError extends Error {
+  readonly code = '23505'
+
+  constructor(constraint: string) {
+    super(`duplicate key value violates unique constraint "${constraint}"`)
+    this.name = 'UniqueConstraintViolationException'
+  }
+}
+
+type Snapshot = { emails: Map<string, Row>; parts: Map<string, Row>; extra: Map<unknown, Map<string, Row>> }
+
+function cloneTable(table: Map<string, Row>): Map<string, Row> {
+  return new Map([...table.entries()].map(([id, row]) => [id, { ...row }]))
+}
+
+function restoreTable(table: Map<string, Row>, snapshot: Map<string, Row>): void {
+  for (const id of [...table.keys()]) {
+    if (!snapshot.has(id)) table.delete(id)
+  }
+  for (const [id, saved] of snapshot) {
+    const live = table.get(id)
+    if (!live) {
+      table.set(id, saved)
+      continue
+    }
+    for (const key of Object.keys(live)) {
+      if (!(key in saved)) delete live[key]
+    }
+    Object.assign(live, saved)
+  }
+}
+
 export class FakeInboxDb {
   readonly emails = new Map<string, Row>()
   readonly parts = new Map<string, Row>()
   readonly executed: Array<{ sql: string; params: unknown[] }> = []
+  /** Rows of other entities (proposals, actions), read by the routes under test. */
+  readonly extra = new Map<unknown, Map<string, Row>>()
+  readonly flushes: Array<{ emails: number; parts: number }> = []
   beforeUpdate: UpdateHook | null = null
+  beforeFlush: (() => void | Promise<void>) | null = null
+  private readonly pending: Array<{ entity: unknown; row: Row }> = []
+  private snapshot: Snapshot | null = null
 
   table(entity: unknown): Map<string, Row> {
     if (entity === InboxEmail) return this.emails
     if (entity === InboxEmailAttachment) return this.parts
-    throw new Error('fake db: unknown entity')
+    let table = this.extra.get(entity)
+    if (!table) {
+      table = new Map()
+      this.extra.set(entity, table)
+    }
+    return table
   }
 
+  create(entity: unknown, data: Filter): Row {
+    const now = new Date()
+    const defaults = entity === InboxEmail ? EMAIL_DEFAULTS : entity === InboxEmailAttachment ? PART_DEFAULTS : {}
+    const row: Row = { createdAt: now, updatedAt: now, ...defaults, ...data, id: typeof data.id === 'string' ? data.id : randomUUID() }
+    this.pending.push({ entity, row })
+    return row
+  }
+
+  persist(row: unknown): void {
+    if (this.pending.some((entry) => entry.row === row)) return
+    const managed = [...this.emails.values(), ...this.parts.values()].includes(row as Row)
+    if (!managed) throw new Error('fake db: persist of an entity that was not created through the fake')
+  }
+
+  async flush(): Promise<void> {
+    if (this.beforeFlush) await this.beforeFlush()
+    const batch = this.pending.splice(0, this.pending.length)
+    for (const key of UNIQUE_KEYS) {
+      const table = key.table === 'emails' ? this.emails : this.parts
+      const entity = key.table === 'emails' ? InboxEmail : InboxEmailAttachment
+      const seen = new Set([...table.values()].map((row) => this.uniqueValue(row, key.columns)).filter((value) => value !== null))
+      for (const entry of batch.filter((candidate) => candidate.entity === entity)) {
+        const value = this.uniqueValue(entry.row, key.columns)
+        if (value === null) continue
+        if (seen.has(value)) throw new FakeUniqueViolationError(key.name)
+        seen.add(value)
+      }
+    }
+    for (const entry of batch) this.table(entry.entity).set(entry.row.id, entry.row)
+    this.flushes.push({
+      emails: batch.filter((entry) => entry.entity === InboxEmail).length,
+      parts: batch.filter((entry) => entry.entity === InboxEmailAttachment).length,
+    })
+  }
+
+  private uniqueValue(row: Row, columns: string[]): string | null {
+    const values = columns.map((column) => row[column])
+    if (values.some((value) => value === null || value === undefined)) return null
+    return JSON.stringify(values)
+  }
+
+  /** A write committed by a concurrent transaction: it survives the rollback of a fake transaction. */
+  applyCommitted(entity: 'email' | 'part', id: string, values: Partial<Row>): void {
+    const table = entity === 'email' ? this.emails : this.parts
+    const live = table.get(id)
+    if (!live) throw new Error('fake db: missing row')
+    Object.assign(live, values)
+    const saved = (entity === 'email' ? this.snapshot?.emails : this.snapshot?.parts)?.get(id)
+    if (saved) Object.assign(saved, values)
+  }
+
+  begin(): void {
+    if (this.snapshot) throw new Error('fake db: nested transaction')
+    this.snapshot = {
+      emails: cloneTable(this.emails),
+      parts: cloneTable(this.parts),
+      extra: new Map([...this.extra.entries()].map(([entity, table]) => [entity, cloneTable(table)])),
+    }
+  }
+
+  commit(): void {
+    this.snapshot = null
+  }
+
+  rollback(): void {
+    const snapshot = this.snapshot
+    this.snapshot = null
+    this.pending.splice(0, this.pending.length)
+    if (!snapshot) return
+    restoreTable(this.emails, snapshot.emails)
+    restoreTable(this.parts, snapshot.parts)
+    for (const [entity, table] of this.extra) restoreTable(table, snapshot.extra.get(entity) ?? new Map())
+  }
+
+  count(entity: unknown, where: Filter): number {
+    return [...this.table(entity).values()].filter((row) => matchesFilter(row, where)).length
+  }
+
+  /** Seeds a committed row; one added during a fake transaction survives its rollback (a concurrent commit). */
   addEmail(values: Partial<Row> = {}): Row {
     const row: Row = {
       id: randomUUID(),
@@ -116,6 +275,7 @@ export class FakeInboxDb {
       ...values,
     }
     this.emails.set(row.id, row)
+    this.snapshot?.emails.set(row.id, { ...row })
     return row
   }
 
@@ -144,6 +304,7 @@ export class FakeInboxDb {
       ...values,
     }
     this.parts.set(row.id, row)
+    this.snapshot?.parts.set(row.id, { ...row })
     return row
   }
 
@@ -200,6 +361,10 @@ export class FakeInboxDb {
     this.executed.push({ sql, params })
     if (sql.startsWith(RESERVE_INBOUND_ATTACHMENT_GENERATION_SQL)) return this.reserve(sql, params)
     if (sql === SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_SQL) return this.selectStranded(params)
+    if (sql === SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_IN_SCOPE_SQL) {
+      const [tenantId, organizationId, ...rest] = params
+      return this.selectStranded(rest, (row) => row.tenantId === tenantId && row.organizationId === organizationId)
+    }
     if (sql === SELECT_DELETED_OPEN_INBOUND_ATTACHMENT_EMAILS_SQL) {
       return this.selectRows((row) => row.deletedAt != null && ['pending', 'processing'].includes(String(row.attachmentsStatus)), params[0])
     }
@@ -225,10 +390,11 @@ export class FakeInboxDb {
     return [{ generation: row.attachmentsIngestGeneration }]
   }
 
-  private selectStranded(params: unknown[]): unknown[] {
+  private selectStranded(params: unknown[], inScope: (row: Row) => boolean = () => true): unknown[] {
     const [nextRunCutoff, leaseCutoff, , limit] = params as [Date, Date, Date, number]
     const due = (row: Row) => row.attachmentsNextRunAt == null || (row.attachmentsNextRunAt as Date) < nextRunCutoff
     return this.selectRows((row) => {
+      if (!inScope(row)) return false
       if (row.deletedAt != null) return false
       if (row.attachmentsStatus === 'pending') return due(row)
       if (row.attachmentsStatus !== 'processing') return false
@@ -250,6 +416,13 @@ export class FakeInboxDb {
       nativeUpdate: (entity: unknown, where: Filter, data: Filter) => this.nativeUpdate(entity, where, data),
       transactional: async <T>(fn: (tx: EntityManager) => Promise<T>) => fn(em as unknown as EntityManager),
       getConnection: () => ({ execute: async (sql: string, params?: unknown[]) => this.execute(sql, params ?? []) }),
+      create: (entity: unknown, data: Filter) => this.create(entity, data),
+      persist: (row: unknown) => this.persist(row),
+      flush: () => this.flush(),
+      begin: async () => this.begin(),
+      commit: async () => this.commit(),
+      rollback: async () => this.rollback(),
+      count: async (entity: unknown, where: Filter) => this.count(entity, where),
       fork: () => em,
       __fakeDb: this,
     }

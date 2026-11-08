@@ -1,0 +1,145 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  InboxEmail,
+  InboxEmailAttachment,
+  type InboxEmailAttachmentReason,
+} from '../data/entities'
+import type { InboundAttachmentEmailRef } from './inboundAttachments'
+import { readInboundAttachmentsConfig, type InboundAttachmentsConfig } from './inboundAttachmentsConfig'
+
+/**
+ * The manual ingest retry of `POST /api/inbox_ops/emails/[id]/reprocess` (spec "Manual retry").
+ * Only emails with a non-null `attachments_status` are affected.
+ */
+
+/** Failure reasons an operator can fix (a rotated key, freed quota, a restored partition). */
+export const RETRYABLE_INBOUND_ATTACHMENT_FAILURE_REASONS = [
+  'ingest_timeout',
+  'quota_exceeded',
+  'partition_unavailable',
+] as const satisfies readonly InboxEmailAttachmentReason[]
+
+/**
+ * - `not_applicable`: the route behaves as before.
+ * - `live_lease`: a worker holds a live claim; 409.
+ * - `requeue_ingest`: a waiting or stranded ingest (`pending`, or `processing` with an expired lease).
+ * - `retry_failed_parts`: a finalized ingest with parts failed for an operator-fixable reason.
+ */
+export type InboundAttachmentReprocessPlan = 'not_applicable' | 'live_lease' | 'requeue_ingest' | 'retry_failed_parts'
+
+type ReprocessCandidate = Pick<
+  InboxEmail,
+  'id' | 'tenantId' | 'organizationId' | 'status' | 'attachmentsStatus' | 'attachmentsClaimedAt'
+>
+
+function isQueuedForExtraction(email: Pick<InboxEmail, 'status'>): boolean {
+  return email.status === 'received' || email.status === 'processing'
+}
+
+export async function countRetryableFailedInboundParts(em: EntityManager, ref: InboundAttachmentEmailRef): Promise<number> {
+  return em.count(InboxEmailAttachment, {
+    inboxEmailId: ref.id,
+    tenantId: ref.tenantId,
+    organizationId: ref.organizationId,
+    status: 'failed',
+    reason: { $in: [...RETRYABLE_INBOUND_ATTACHMENT_FAILURE_REASONS] },
+    deletedAt: null,
+  })
+}
+
+export async function planInboundAttachmentReprocess(
+  em: EntityManager,
+  email: ReprocessCandidate,
+  options: { config?: Pick<InboundAttachmentsConfig, 'leaseMs'>; now?: () => Date } = {},
+): Promise<InboundAttachmentReprocessPlan> {
+  switch (email.attachmentsStatus) {
+    case 'pending':
+      return 'requeue_ingest'
+    case 'processing': {
+      const claimedAt = email.attachmentsClaimedAt
+      if (!claimedAt) return 'requeue_ingest'
+      const leaseMs = (options.config ?? readInboundAttachmentsConfig()).leaseMs
+      const now = (options.now ?? (() => new Date()))()
+      return claimedAt.getTime() < now.getTime() - leaseMs ? 'requeue_ingest' : 'live_lease'
+    }
+    case 'completed': {
+      if (isQueuedForExtraction(email)) return 'not_applicable'
+      const retryable = await countRetryableFailedInboundParts(em, email)
+      return retryable > 0 ? 'retry_failed_parts' : 'not_applicable'
+    }
+    default:
+      return 'not_applicable'
+  }
+}
+
+/**
+ * A waiting or stranded ingest gets a fresh 6-hour window. Conditional on `deleted_at is null`;
+ * returns whether the email still exists. Leaves `updated_at` unchanged.
+ */
+export async function clearInboundAttachmentFirstFailure(em: EntityManager, ref: InboundAttachmentEmailRef): Promise<boolean> {
+  const updated = await em.nativeUpdate(
+    InboxEmail,
+    { id: ref.id, tenantId: ref.tenantId, organizationId: ref.organizationId, deletedAt: null },
+    { attachmentsFirstFailureAt: null },
+  )
+  return updated > 0
+}
+
+/**
+ * Resets a finalized ingest for another run, inside the caller's transaction: the email goes back
+ * to `received` with its ingest `pending` (conditional on `deleted_at is null` and
+ * `attachments_status = 'completed'`, so a concurrent deletion or reprocess is never overwritten),
+ * and its parts failed for an operator-fixable reason go back to `pending`. Permanently failed parts
+ * and policy skips stay. Returns `false`, writing nothing, when the email update matched no row.
+ */
+export async function resetFinalizedInboundAttachmentIngest(
+  em: EntityManager,
+  ref: InboundAttachmentEmailRef,
+  now: Date,
+): Promise<boolean> {
+  const updated = await em.nativeUpdate(
+    InboxEmail,
+    {
+      id: ref.id,
+      tenantId: ref.tenantId,
+      organizationId: ref.organizationId,
+      deletedAt: null,
+      attachmentsStatus: 'completed',
+    },
+    {
+      status: 'received',
+      processingError: null,
+      attachmentsStatus: 'pending',
+      attachmentsClaimToken: null,
+      attachmentsClaimedAt: null,
+      attachmentsFirstFailureAt: null,
+      attachmentsNextRunAt: now,
+      updatedAt: now,
+    },
+  )
+  if (updated === 0) return false
+  await em.nativeUpdate(
+    InboxEmailAttachment,
+    {
+      inboxEmailId: ref.id,
+      tenantId: ref.tenantId,
+      organizationId: ref.organizationId,
+      status: 'failed',
+      reason: { $in: [...RETRYABLE_INBOUND_ATTACHMENT_FAILURE_REASONS] },
+      deletedAt: null,
+    },
+    { status: 'pending', reason: null, inFlightAt: null, updatedAt: now },
+  )
+  return true
+}
+
+/** Whether the email still exists and is not soft-deleted (404 versus 409 after a lost reset). */
+export async function isLiveInboxEmail(em: EntityManager, ref: InboundAttachmentEmailRef): Promise<boolean> {
+  const live = await em.count(InboxEmail, {
+    id: ref.id,
+    tenantId: ref.tenantId,
+    organizationId: ref.organizationId,
+    deletedAt: null,
+  })
+  return live > 0
+}

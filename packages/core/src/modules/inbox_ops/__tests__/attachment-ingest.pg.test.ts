@@ -29,8 +29,21 @@ import {
 import { releaseInboundEmailAttachments, softDeleteInboxEmailForRelease } from '../lib/inboundAttachmentRelease'
 import { persistInboundPart, reenqueueInboundAttachmentIngest } from '../lib/inboundAttachments'
 import { readInboundAttachmentsConfig } from '../lib/inboundAttachmentsConfig'
+import {
+  findCollidingInboundEmail,
+  persistInboundEmailWithLedger,
+  resolveInboundAttachmentIntake,
+} from '../lib/inboundAttachmentWebhook'
+import {
+  countRetryableFailedInboundParts,
+  isLiveInboxEmail,
+  resetFinalizedInboundAttachmentIngest,
+} from '../lib/inboundAttachmentReprocess'
+import { SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_IN_SCOPE_SQL } from '../lib/inboundAttachmentMaintenance'
+import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 
 const PG_URL = process.env.OM_INBOX_OPS_PG_URL ?? ''
+const OTHER_TENANT_ID = '33333333-3333-4333-8333-333333333333'
 const maybe = PG_URL ? describe : describe.skip
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -443,6 +456,129 @@ maybe('inbound attachment ingest SQL against PostgreSQL', () => {
         ['stored', 'application/pdf', 3, null, 0],
         ['stored', 'application/pdf', 3, null, 0],
       ])
+    })
+  })
+  describe('webhook persistence and manual retry', () => {
+    beforeEach(async () => {
+      await orm.em.fork().nativeDelete(InboxEmailAttachment, {})
+      await orm.em.fork().nativeDelete(InboxEmail, {})
+    })
+
+    function webhookValues(messageId: string) {
+      return {
+        messageId,
+        contentHash: `hash-${messageId}`,
+        forwardedByAddress: 'sender@example.test',
+        toAddress: 'inbox@example.test',
+        subject: 'Offer',
+        receivedAt: new Date(),
+        status: 'received' as const,
+        isActive: true,
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+      }
+    }
+
+    const config = { ...readInboundAttachmentsConfig({}) }
+    const intake = resolveInboundAttachmentIntake({
+      parts: [
+        { id: 'logo', filename: 'logo.png', size: 100, content_type: 'image/png', content_id: '<logo>', content_disposition: 'inline' },
+        { id: 'offer', filename: 'offer.pdf', size: 1000, content_type: 'application/pdf', content_id: null, content_disposition: null },
+      ],
+      attachmentServiceAvailable: true,
+      config,
+      listReaders: () => [],
+    })
+
+    it('writes the pending email and its ledger rows in one transaction', async () => {
+      if (intake.kind !== 'ingest') throw new Error('expected an ingest intake')
+      const email = await persistInboundEmailWithLedger({ em: orm.em.fork(), values: webhookValues('<a@example.test>'), intake, providerEmailId: 'resend-1' })
+      const stored = await readEmail(email.id)
+      expect(stored).toMatchObject({
+        attachmentsStatus: 'pending',
+        attachmentsIngestGeneration: 1,
+        attachmentsCurrentGeneration: 1,
+        metadata: { attachmentIngest: { provider: 'resend', providerEmailId: 'resend-1' } },
+      })
+      const rows = await orm.em.fork().find(InboxEmailAttachment, { inboxEmailId: email.id }, { orderBy: { createdAt: 'asc' } })
+      expect(rows.map((row) => [row.partKey, row.fileName, row.status, row.reason])).toEqual([
+        ['resend:logo', 'logo.png', 'skipped', 'inline_decoration'],
+        ['resend:offer', 'offer.pdf', 'pending', null],
+      ])
+    })
+
+    it('rolls the email and its rows back on a unique violation with a soft-deleted email, which the collision lookup finds', async () => {
+      if (intake.kind !== 'ingest') throw new Error('expected an ingest intake')
+      const earlier = await persistInboundEmailWithLedger({ em: orm.em.fork(), values: webhookValues('<b@example.test>'), intake, providerEmailId: 'resend-1' })
+      await orm.em.fork().nativeUpdate(InboxEmail, { id: earlier.id }, { deletedAt: new Date() })
+      const error = await persistInboundEmailWithLedger({
+        em: orm.em.fork(),
+        values: { ...webhookValues('<b@example.test>'), contentHash: 'another-hash' },
+        intake,
+        providerEmailId: 'resend-2',
+      }).then(() => null, (failure: unknown) => failure)
+      expect(isUniqueViolation(error)).toBe(true)
+      expect(await orm.em.fork().count(InboxEmail, {})).toBe(1)
+      expect(await orm.em.fork().count(InboxEmailAttachment, {})).toBe(2)
+      const collided = await findCollidingInboundEmail(orm.em.fork(), { tenantId: TENANT_ID, organizationId: ORG_ID }, { messageId: '<b@example.test>' })
+      expect(collided?.id).toBe(earlier.id)
+      expect(collided?.deletedAt).toBeInstanceOf(Date)
+    })
+
+    it('selects only the stranded emails of one inbox', async () => {
+      const now = Date.now()
+      const own = await seedEmail({ nextRunAt: new Date(now - 20 * MINUTE) })
+      const foreign = await seedEmail({ nextRunAt: new Date(now - 30 * MINUTE) })
+      await orm.em.fork().nativeUpdate(InboxEmail, { id: foreign }, { tenantId: OTHER_TENANT_ID })
+      await seedEmail({ nextRunAt: new Date(now - 5 * MINUTE) })
+      const cutoff = new Date(now - 15 * MINUTE)
+      const rows = await orm.em.fork().getConnection().execute<Array<{ id: string }>>(
+        SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_IN_SCOPE_SQL,
+        [TENANT_ID, ORG_ID, cutoff, new Date(now - LEASE_MS), cutoff, 10],
+      )
+      expect(rows.map((row) => row.id)).toEqual([own])
+    })
+
+    it('resets a finalized ingest and only its operator-fixable parts, conditionally on completed and not deleted', async () => {
+      const id = await seedEmail({ status: 'completed', firstFailureAt: new Date(Date.now() - 7 * 60 * MINUTE) })
+      await orm.em.fork().nativeUpdate(InboxEmail, { id }, { status: 'processed' })
+      const timeout = await seedPart(id, 'timeout', 'failed')
+      const gone = await seedPart(id, 'gone', 'failed')
+      await seedPart(id, 'stored', 'stored', randomUUID())
+      await orm.em.fork().nativeUpdate(InboxEmailAttachment, { id: timeout }, { reason: 'ingest_timeout' })
+      await orm.em.fork().nativeUpdate(InboxEmailAttachment, { id: gone }, { reason: 'fetch_failed' })
+      const ref = { id, tenantId: TENANT_ID, organizationId: ORG_ID }
+
+      expect(await countRetryableFailedInboundParts(orm.em.fork(), ref)).toBe(1)
+      const now = new Date()
+      expect(await resetFinalizedInboundAttachmentIngest(orm.em.fork(), ref, now)).toBe(true)
+      expect(await resetFinalizedInboundAttachmentIngest(orm.em.fork(), ref, now)).toBe(false)
+
+      const email = await readEmail(id)
+      expect(email).toMatchObject({ status: 'received', attachmentsStatus: 'pending', attachmentsFirstFailureAt: null })
+      expect(email.attachmentsNextRunAt?.toISOString()).toBe(now.toISOString())
+      const rows = await orm.em.fork().find(InboxEmailAttachment, { inboxEmailId: id }, { orderBy: { partKey: 'asc' } })
+      expect(rows.map((row) => [row.partKey, row.status, row.reason])).toEqual([
+        ['resend:gone', 'failed', 'fetch_failed'],
+        ['resend:stored', 'stored', null],
+        ['resend:timeout', 'pending', null],
+      ])
+
+      await orm.em.fork().nativeUpdate(InboxEmail, { id }, { attachmentsStatus: 'completed', deletedAt: new Date() })
+      expect(await resetFinalizedInboundAttachmentIngest(orm.em.fork(), ref, now)).toBe(false)
+      expect(await isLiveInboxEmail(orm.em.fork(), ref)).toBe(false)
+    })
+
+    it('keeps parts without a reason when filtering out inline decorations', async () => {
+      const id = await seedEmail()
+      await seedPart(id, 'pending')
+      const logoPart = await seedPart(id, 'logo', 'skipped')
+      await orm.em.fork().nativeUpdate(InboxEmailAttachment, { id: logoPart }, { reason: 'inline_decoration' })
+      const rows = await orm.em.fork().find(InboxEmailAttachment, {
+        inboxEmailId: id,
+        $or: [{ reason: null }, { reason: { $ne: 'inline_decoration' } }],
+      })
+      expect(rows.map((row) => row.partKey)).toEqual(['resend:pending'])
     })
   })
 })
