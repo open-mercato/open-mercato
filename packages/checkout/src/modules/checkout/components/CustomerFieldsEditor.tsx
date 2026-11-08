@@ -194,7 +194,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                     </div>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-[1.2fr_180px_max-content_110px] md:items-end">
+                  <div className="grid gap-3 md:grid-cols-2 md:items-end xl:grid-cols-4">
                     <div className="space-y-1">
                       <Label>{t('checkout.customerFieldsEditor.columns.placeholder')}</Label>
                       <Input

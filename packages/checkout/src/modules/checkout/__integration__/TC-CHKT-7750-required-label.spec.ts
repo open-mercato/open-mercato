@@ -13,7 +13,7 @@ test.describe('Required customer field labels fit their controls', () => {
       const requiredControls = page.getByRole('checkbox', { name: 'Wymagane', exact: true })
       await expect(requiredControls).toHaveCount(7)
 
-      for (const width of [1440, 1024, 390]) {
+      for (const width of [1440, 1280, 1024, 768, 390]) {
         await page.setViewportSize({ width, height: 1000 })
         for (const control of await requiredControls.all()) {
           await expect(control).toBeVisible()
