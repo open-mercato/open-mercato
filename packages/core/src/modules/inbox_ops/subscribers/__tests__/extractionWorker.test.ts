@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import handle from '../extractionWorker'
-import { InboxEmail, InboxProposal, InboxProposalAction, InboxDiscrepancy, InboxSettings } from '../../data/entities'
+import { InboxEmail, InboxEmailAttachment, InboxProposal, InboxProposalAction, InboxDiscrepancy, InboxSettings } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -44,8 +44,10 @@ jest.mock('@open-mercato/core/modules/inbox_ops/lib/priceValidator', () => ({
 }))
 
 const mockFindOneWithDecryption = jest.fn()
+const mockFindWithDecryption = jest.fn()
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt', () => ({
@@ -191,6 +193,7 @@ describe('extractionWorker', () => {
     mockFetchCatalog.mockResolvedValue([])
     mockValidatePrices.mockResolvedValue([])
     mockFindOneWithDecryption.mockResolvedValue(null)
+    mockFindWithDecryption.mockResolvedValue([])
   })
 
   describe('race condition handling', () => {
@@ -903,6 +906,183 @@ describe('extractionWorker', () => {
       )
 
       consoleSpy.mockRestore()
+    })
+  })
+
+  describe('attachments (Phase 2)', () => {
+    const PDF_ID = '11111111-1111-4111-8111-111111111111'
+    const IMAGE_ID = '22222222-2222-4222-8222-222222222222'
+    const FOREIGN_ID = '33333333-3333-4333-8333-333333333333'
+    const mockedPrompt = jest.requireMock('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt') as {
+      buildExtractionUserPrompt: jest.Mock
+    }
+
+    function ledgerRow(overrides: Record<string, unknown>) {
+      return {
+        id: `row-${Math.random().toString(16).slice(2)}`,
+        inboxEmailId: 'email-1',
+        fileName: 'order.pdf',
+        declaredMimeType: 'application/pdf',
+        mimeType: 'application/pdf',
+        disposition: 'attachment',
+        status: 'stored',
+        reason: null,
+        attachmentId: PDF_ID,
+        extractedText: '20 x Widget Alpha at 12.50 EUR',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        ...overrides,
+      }
+    }
+
+    function extractionWithRefs(sourceRefs: unknown[]) {
+      return makeExtractionResult({
+        proposedActions: [
+          {
+            actionType: 'create_order',
+            description: 'Create order for 20 widgets',
+            confidence: 0.9,
+            payloadJson: VALID_ORDER_PAYLOAD,
+            sourceRefs,
+          },
+        ],
+      })
+    }
+
+    it('does not query the ledger and keeps the one-argument prompt for emails without attachmentsStatus', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: null }))
+      mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockFindWithDecryption).not.toHaveBeenCalled()
+      expect(mockedPrompt.buildExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String))
+    })
+
+    it('loads the ledger scoped to tenant and organization and passes listed rows to the prompt', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: 'completed' }))
+      mockFindWithDecryption.mockResolvedValueOnce([
+        ledgerRow({}),
+        ledgerRow({ fileName: 'logo.png', mimeType: 'image/png', status: 'skipped', reason: 'inline_decoration', attachmentId: null, extractedText: null }),
+        ledgerRow({ fileName: 'old.pdf', status: 'released', attachmentId: null, extractedText: null }),
+        ledgerRow({ fileName: 'setup.exe', mimeType: null, declaredMimeType: 'application/x-msdownload', status: 'skipped', reason: 'dangerous_executable', attachmentId: null, extractedText: null }),
+      ])
+      mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockFindWithDecryption).toHaveBeenCalledWith(
+        mockEm,
+        InboxEmailAttachment,
+        expect.objectContaining({ inboxEmailId: 'email-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null }),
+        expect.anything(),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
+      )
+      const [, options] = mockedPrompt.buildExtractionUserPrompt.mock.calls[0]
+      expect(options.attachments).toEqual([
+        { attachmentId: PDF_ID, fileName: 'order.pdf', mimeType: 'application/pdf', status: 'stored', reason: null, extractedText: '20 x Widget Alpha at 12.50 EUR' },
+        { attachmentId: null, fileName: 'setup.exe', mimeType: 'application/x-msdownload', status: 'skipped', reason: 'dangerous_executable', extractedText: null },
+      ])
+      expect(options.maxAttachmentTextChars).toBe(60000)
+      expect(options.maxAttachmentTextCharsPerFile).toBe(20000)
+    })
+
+    it('runs extraction for an empty body when an attachment has text', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail({ rawText: '', rawHtml: null, cleanedText: '', attachmentsStatus: 'completed' })
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindWithDecryption.mockResolvedValueOnce([ledgerRow({})])
+      mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockRunExtraction).toHaveBeenCalledTimes(1)
+      expect(email.status).toBe('processed')
+    })
+
+    it('skips the LLM and sets needs_review for an empty body whose stored files have no text', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail({ rawText: '', rawHtml: null, cleanedText: '', attachmentsStatus: 'completed' })
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindWithDecryption.mockResolvedValueOnce([
+        ledgerRow({ fileName: 'scan.jpg', mimeType: 'image/jpeg', attachmentId: IMAGE_ID, extractedText: null }),
+        ledgerRow({ fileName: 'blank.pdf', extractedText: '   ' }),
+      ])
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockRunExtraction).not.toHaveBeenCalled()
+      expect(email.status).toBe('needs_review')
+      expect(email.processingError).toContain('No text content')
+      expect(mockFlush).toHaveBeenCalled()
+      expect(mockCreate).not.toHaveBeenCalledWith(InboxProposal, expect.anything())
+    })
+
+    it('still fails an empty body when no part was stored', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail({ rawText: '', rawHtml: null, cleanedText: '', attachmentsStatus: 'completed' })
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindWithDecryption.mockResolvedValueOnce([
+        ledgerRow({ status: 'skipped', reason: 'too_large', attachmentId: null, extractedText: null }),
+      ])
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockRunExtraction).not.toHaveBeenCalled()
+      expect(email.status).toBe('failed')
+    })
+
+    it('persists sourceRefs that cite stored parts and drops refs to foreign ids', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: 'completed' }))
+      mockFindWithDecryption.mockResolvedValueOnce([
+        ledgerRow({}),
+        ledgerRow({ fileName: 'failed.pdf', status: 'failed', reason: 'fetch_failed', attachmentId: FOREIGN_ID, extractedText: null }),
+      ])
+      mockRunExtraction.mockResolvedValueOnce({
+        object: extractionWithRefs([
+          { kind: 'attachment', attachmentId: PDF_ID, fileName: 'renamed-by-model.pdf', page: 1, snippet: '20 x Widget Alpha' },
+          { kind: 'attachment', attachmentId: FOREIGN_ID, snippet: 'not a stored part' },
+          { kind: 'attachment', attachmentId: '44444444-4444-4444-8444-444444444444', snippet: 'unknown id' },
+          { kind: 'email_body', attachmentId: PDF_ID, snippet: 'please see the attached order' },
+        ]),
+        totalTokens: 1,
+        modelWithProvider: 'm',
+      })
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        InboxProposalAction,
+        expect.objectContaining({
+          actionType: 'create_order',
+          sourceRefs: [
+            { kind: 'attachment', attachmentId: PDF_ID, fileName: 'order.pdf', page: 1, snippet: '20 x Widget Alpha' },
+            { kind: 'email_body', snippet: 'please see the attached order' },
+          ],
+        }),
+      )
+    })
+
+    it('stores null sourceRefs when every ref is dropped and on auto-generated actions', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: null }))
+      mockRunExtraction.mockResolvedValueOnce({
+        object: extractionWithRefs([{ kind: 'attachment', attachmentId: PDF_ID, snippet: 'no ledger' }]),
+        totalTokens: 1,
+        modelWithProvider: 'm',
+      })
+
+      await handle(basePayload, mockCtx as any)
+
+      const actionCalls = mockCreate.mock.calls.filter(([entity]) => entity === InboxProposalAction)
+      expect(actionCalls.length).toBeGreaterThan(0)
+      for (const [, data] of actionCalls) {
+        if ((data as { actionType: string }).actionType === 'draft_reply') continue
+        expect((data as { sourceRefs: unknown }).sourceRefs).toBeNull()
+      }
     })
   })
 })

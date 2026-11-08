@@ -71,7 +71,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get proposal detail',
-      description: 'Returns proposal with actions, discrepancies, and source email',
+      description: 'Returns proposal with actions (including their decrypted `sourceRefs` provenance, when the extraction cited the email body or a stored attachment), discrepancies, and source email',
       responses: [
         { status: 200, description: 'Full proposal detail' },
         { status: 404, description: 'Proposal not found' },

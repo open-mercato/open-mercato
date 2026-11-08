@@ -1,0 +1,91 @@
+import type { z } from 'zod'
+import type { InboxProposalActionSourceRef } from '../data/entities'
+import {
+  INBOX_SOURCE_REFS_MAX_PER_ACTION,
+  INBOX_SOURCE_REF_FILE_NAME_MAX_CHARS,
+  INBOX_SOURCE_REF_SHEET_MAX_CHARS,
+  INBOX_SOURCE_REF_SNIPPET_MAX_CHARS,
+  inboxProposalActionSourceRefSchema,
+  type extractedSourceRefSchema,
+} from '../data/validators'
+
+export type ExtractedSourceRef = z.infer<typeof extractedSourceRefSchema>
+
+/** A stored part of the email that an `attachment` reference may cite. */
+export type CitableAttachmentPart = {
+  attachmentId: string
+  fileName: string | null
+}
+
+function clip(value: string | undefined, max: number): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.replace(/\s+/g, ' ').trim()
+  if (!trimmed) return undefined
+  return trimmed.length > max ? trimmed.slice(0, max) : trimmed
+}
+
+function positiveInteger(value: number | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const rounded = Math.trunc(value)
+  return rounded > 0 ? rounded : undefined
+}
+
+function resolveCitedPart(
+  ref: ExtractedSourceRef,
+  partsById: Map<string, CitableAttachmentPart>,
+  parts: CitableAttachmentPart[],
+): CitableAttachmentPart | null {
+  const attachmentId = ref.attachmentId?.trim().toLowerCase()
+  if (attachmentId) return partsById.get(attachmentId) ?? null
+  // Models sometimes drop the id but keep the file name: accept it only when it names exactly one part.
+  const fileName = ref.fileName?.trim()
+  if (!fileName) return null
+  const matches = parts.filter((part) => part.fileName === fileName)
+  return matches.length === 1 ? matches[0] : null
+}
+
+/**
+ * Turns the LLM's `sourceRefs` of one action into the stored shape: whitespace is collapsed,
+ * strings are clipped to their bounds, at most {@link INBOX_SOURCE_REFS_MAX_PER_ACTION} refs are
+ * kept, and an `attachment` ref survives only when it cites a stored part of this email (its id,
+ * or a file name that names exactly one part). The cited part's own id and file name replace the
+ * model's copy, so a ref never carries a name the ledger does not hold. `email_body` refs keep
+ * only their snippet.
+ */
+export function normalizeSourceRefs(
+  refs: ExtractedSourceRef[] | null | undefined,
+  storedParts: CitableAttachmentPart[],
+): InboxProposalActionSourceRef[] {
+  if (!Array.isArray(refs) || refs.length === 0) return []
+  const partsById = new Map(storedParts.map((part) => [part.attachmentId.toLowerCase(), part]))
+  const normalized: InboxProposalActionSourceRef[] = []
+  for (const ref of refs) {
+    if (normalized.length >= INBOX_SOURCE_REFS_MAX_PER_ACTION) break
+    const snippet = clip(ref.snippet, INBOX_SOURCE_REF_SNIPPET_MAX_CHARS)
+    if (!snippet) continue
+    let candidate: InboxProposalActionSourceRef
+    if (ref.kind === 'attachment') {
+      const part = resolveCitedPart(ref, partsById, storedParts)
+      if (!part) continue
+      const fileName = clip(part.fileName ?? undefined, INBOX_SOURCE_REF_FILE_NAME_MAX_CHARS)
+      const page = positiveInteger(ref.page)
+      const sheet = clip(ref.sheet, INBOX_SOURCE_REF_SHEET_MAX_CHARS)
+      const row = positiveInteger(ref.row)
+      candidate = {
+        kind: 'attachment',
+        attachmentId: part.attachmentId,
+        ...(fileName ? { fileName } : {}),
+        ...(page !== undefined ? { page } : {}),
+        ...(sheet ? { sheet } : {}),
+        ...(row !== undefined ? { row } : {}),
+        snippet,
+      }
+    } else if (ref.kind === 'email_body') {
+      candidate = { kind: 'email_body', snippet }
+    } else {
+      continue
+    }
+    if (inboxProposalActionSourceRefSchema.safeParse(candidate).success) normalized.push(candidate)
+  }
+  return normalized
+}

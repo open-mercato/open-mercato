@@ -105,6 +105,28 @@ describe('GET /api/inbox_ops/proposals/[id]', () => {
     })
   })
 
+  it('returns each action with its sourceRefs', async () => {
+    const sourceRefs = [
+      { kind: 'attachment', attachmentId: '11111111-1111-4111-8111-111111111111', fileName: 'order.pdf', snippet: '20 x Widget' },
+      { kind: 'email_body', snippet: 'see attached' },
+    ]
+    mockFindOneWithDecryption.mockResolvedValueOnce({ id: 'proposal-1', inboxEmailId: 'email-1', isActive: true })
+    mockFindWithDecryption
+      .mockResolvedValueOnce([
+        { id: 'action-1', actionType: 'create_order', sourceRefs },
+        { id: 'action-2', actionType: 'create_contact', sourceRefs: null },
+      ])
+      .mockResolvedValueOnce([])
+    mockFindOneWithDecryption.mockResolvedValueOnce(null)
+
+    const response = await GET(makeRequest())
+    const payload = await response.json()
+
+    expect(payload.proposal.actions[0].sourceRefs).toEqual(sourceRefs)
+    expect(payload.actions[0].sourceRefs).toEqual(sourceRefs)
+    expect(payload.actions[1].sourceRefs).toBeNull()
+  })
+
   it('returns a null email when the source email is gone', async () => {
     mockFindOneWithDecryption.mockResolvedValueOnce({ id: 'proposal-1', inboxEmailId: 'email-1', isActive: true })
     mockFindOneWithDecryption.mockResolvedValueOnce(null)

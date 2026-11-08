@@ -1,12 +1,25 @@
 import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityClass } from '@mikro-orm/core'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { InboxEmail, InboxProposal, InboxProposalAction, InboxDiscrepancy, InboxSettings } from '../data/entities'
-import type { ExtractedParticipant, InboxDiscrepancyType } from '../data/entities'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  InboxEmail,
+  InboxEmailAttachment,
+  InboxProposal,
+  InboxProposalAction,
+  InboxDiscrepancy,
+  InboxSettings,
+} from '../data/entities'
+import type { ExtractedParticipant, InboxDiscrepancyType, InboxProposalActionSourceRef } from '../data/entities'
 import { extractionOutputSchema } from '../data/validators'
 import { matchContacts } from '../lib/contactMatcher'
-import { buildExtractionSystemPrompt, buildExtractionUserPrompt } from '../lib/extractionPrompt'
+import {
+  buildExtractionSystemPrompt,
+  buildExtractionUserPrompt,
+  type ExtractionPromptAttachment,
+} from '../lib/extractionPrompt'
+import { INBOUND_ATTACHMENTS_CONFIG_DEFAULTS, readInboundAttachmentsConfig } from '../lib/inboundAttachmentsConfig'
+import { normalizeSourceRefs, type CitableAttachmentPart } from '../lib/sourceRefs'
 import { REQUIRED_FEATURES_MAP } from '../lib/constants'
 import { fetchCatalogProductsForExtraction } from '../lib/catalogLookup'
 import { enrichOrderPayload } from '../lib/payloadEnrichment'
@@ -146,9 +159,27 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     // cleanedText strips quoted replies — which contain the actual order content
     // in forwarded email threads.
     const fullText = buildFullTextForExtraction(email)
-    if (!fullText.trim()) {
-      email.status = 'failed'
-      email.processingError = 'No text content found in email'
+
+    // Step 1b: Attachment ledger (emails with attachmentsStatus null have no parts and skip the query).
+    const attachments = email.attachmentsStatus != null
+      ? await loadExtractionAttachments(em, email.id, scope)
+      : []
+    const storedParts: CitableAttachmentPart[] = attachments
+      .filter((row) => row.status === 'stored' && row.attachmentId)
+      .map((row) => ({ attachmentId: row.attachmentId as string, fileName: row.fileName }))
+    const hasAttachmentText = attachments.some(
+      (row) => row.status === 'stored' && Boolean(row.extractedText?.trim()),
+    )
+
+    if (!fullText.trim() && !hasAttachmentText) {
+      if (storedParts.length > 0) {
+        // Only files without text (images, scans, archives): a person handles it from the log page.
+        email.status = 'needs_review'
+        email.processingError = 'No text content found in email or its attachments'
+      } else {
+        email.status = 'failed'
+        email.processingError = 'No text content found in email'
+      }
       await em.flush()
       return
     }
@@ -171,7 +202,14 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     const truncatedText = fullText.slice(0, maxTextSize)
 
     const systemPrompt = await buildExtractionSystemPrompt(contactMatches, catalogProducts, undefined, workingLanguage)
-    const userPrompt = buildExtractionUserPrompt(truncatedText)
+    const attachmentBudget = attachments.length > 0 ? resolveAttachmentTextBudget() : null
+    const userPrompt = attachmentBudget
+      ? buildExtractionUserPrompt(truncatedText, {
+          attachments,
+          maxAttachmentTextChars: attachmentBudget.maxTextChars,
+          maxAttachmentTextCharsPerFile: attachmentBudget.maxTextCharsPerFile,
+        })
+      : buildExtractionUserPrompt(truncatedText)
 
     let extractionResult: ReturnType<typeof extractionOutputSchema.parse>
     let tokensUsed = 0
@@ -213,6 +251,13 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       ? Math.min(Math.max(confidenceThresholdRaw, 0), 1)
       : 0.5
     const requiresReview = extractionResult.confidence < confidenceThreshold
+
+    // Step 3b: Field provenance. Refs citing ids that are not stored parts of this email are dropped.
+    const sourceRefsByAction = new WeakMap<object, InboxProposalActionSourceRef[]>()
+    for (const action of extractionResult.proposedActions) {
+      const refs = normalizeSourceRefs(action.sourceRefs, storedParts)
+      if (refs.length > 0) sourceRefsByAction.set(action, refs)
+    }
 
     // Step 4: Validate prices for order/quote actions
     const orderActions = extractionResult.proposedActions
@@ -419,6 +464,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
           actionType: action.actionType,
           description: action.description,
           payload: parsedPayload,
+          sourceRefs: sourceRefsByAction.get(action) ?? null,
           status: 'pending',
           confidence: String(action.confidence.toFixed(2)),
           requiredFeature: action.requiredFeature || REQUIRED_FEATURES_MAP[action.actionType] || null,
@@ -611,6 +657,49 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     }
 
     logger.error('Extraction failed', { err })
+  }
+}
+
+async function loadExtractionAttachments(
+  em: EntityManager,
+  emailId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<ExtractionPromptAttachment[]> {
+  const rows = await findWithDecryption(
+    em,
+    InboxEmailAttachment,
+    {
+      inboxEmailId: emailId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    { orderBy: { createdAt: 'asc', id: 'asc' } },
+    scope,
+  )
+  return rows
+    .filter((row) => row.status !== 'released' && row.reason !== 'inline_decoration')
+    .map((row) => ({
+      attachmentId: row.attachmentId ?? null,
+      fileName: row.fileName ?? null,
+      mimeType: row.mimeType ?? row.declaredMimeType ?? null,
+      status: row.status,
+      reason: row.reason ?? null,
+      extractedText: row.extractedText ?? null,
+    }))
+}
+
+function resolveAttachmentTextBudget(): { maxTextChars: number; maxTextCharsPerFile: number } {
+  try {
+    const config = readInboundAttachmentsConfig()
+    return { maxTextChars: config.maxTextChars, maxTextCharsPerFile: config.maxTextCharsPerFile }
+  } catch (err) {
+    // An invalid ingest setting (e.g. the lease) must not fail extraction of mail already ingested.
+    logger.warn('Invalid inbound attachment configuration; using default prompt budgets', { err })
+    return {
+      maxTextChars: INBOUND_ATTACHMENTS_CONFIG_DEFAULTS.maxTextChars,
+      maxTextCharsPerFile: INBOUND_ATTACHMENTS_CONFIG_DEFAULTS.maxTextCharsPerFile,
+    }
   }
 }
 

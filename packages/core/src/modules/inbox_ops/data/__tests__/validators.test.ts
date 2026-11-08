@@ -10,6 +10,7 @@ import {
   logActivityPayloadSchema,
   draftReplyPayloadSchema,
   extractionOutputSchema,
+  inboxProposalActionSourceRefsSchema,
   proposalListQuerySchema,
   validateActionPayloadForType,
 } from '../validators'
@@ -524,5 +525,42 @@ describe('validateActionPayloadForType', () => {
     if (!result.success) {
       expect(result.error).toContain('create_contact')
     }
+  })
+})
+
+describe('sourceRefs schemas', () => {
+  const action = {
+    actionType: 'create_order',
+    description: 'Create order',
+    confidence: 0.9,
+    payloadJson: '{}',
+  }
+  const output = (sourceRefs?: unknown) => ({
+    summary: 's',
+    participants: [],
+    proposedActions: [{ ...action, ...(sourceRefs === undefined ? {} : { sourceRefs }) }],
+    discrepancies: [],
+    draftReplies: [],
+    confidence: 0.9,
+  })
+
+  it('accepts extraction output with and without sourceRefs, without bounding the model output', () => {
+    expect(extractionOutputSchema.safeParse(output()).success).toBe(true)
+    expect(
+      extractionOutputSchema.safeParse(
+        output([{ kind: 'attachment', attachmentId: 'not-a-uuid', page: 0, snippet: 'x'.repeat(5000) }]),
+      ).success,
+    ).toBe(true)
+    expect(extractionOutputSchema.safeParse(output([{ kind: 'website', snippet: 'x' }])).success).toBe(false)
+  })
+
+  it('bounds the stored shape', () => {
+    const ref = { kind: 'attachment', attachmentId: '11111111-1111-4111-8111-111111111111', snippet: 'quote' }
+    expect(inboxProposalActionSourceRefsSchema.safeParse([ref]).success).toBe(true)
+    expect(inboxProposalActionSourceRefsSchema.safeParse([{ ...ref, snippet: 'x'.repeat(501) }]).success).toBe(false)
+    expect(inboxProposalActionSourceRefsSchema.safeParse([{ ...ref, snippet: '' }]).success).toBe(false)
+    expect(inboxProposalActionSourceRefsSchema.safeParse([{ ...ref, attachmentId: 'nope' }]).success).toBe(false)
+    expect(inboxProposalActionSourceRefsSchema.safeParse([{ ...ref, page: 0 }]).success).toBe(false)
+    expect(inboxProposalActionSourceRefsSchema.safeParse(Array.from({ length: 11 }, () => ref)).success).toBe(false)
   })
 })

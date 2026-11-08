@@ -179,6 +179,43 @@ export const extractedParticipantSchema = z.object({
   role: z.enum(['buyer', 'seller', 'logistics', 'finance', 'other']),
 })
 
+/**
+ * Field provenance as the LLM returns it. Deliberately lenient (no length bounds, plain strings):
+ * a model that overshoots a bound must not fail the whole extraction. The worker normalizes these
+ * refs (`lib/sourceRefs.ts`) into {@link inboxProposalActionSourceRefSchema} before persisting.
+ */
+export const extractedSourceRefSchema = z.object({
+  kind: z.enum(['email_body', 'attachment']),
+  attachmentId: z.string().optional().describe('attachmentId attribute of the cited <attachment> block'),
+  fileName: z.string().optional(),
+  page: z.number().optional(),
+  sheet: z.string().optional(),
+  row: z.number().optional(),
+  snippet: z.string().describe('Short verbatim quote of the source text'),
+})
+
+export const INBOX_SOURCE_REFS_MAX_PER_ACTION = 10
+export const INBOX_SOURCE_REF_SNIPPET_MAX_CHARS = 500
+export const INBOX_SOURCE_REF_FILE_NAME_MAX_CHARS = 255
+export const INBOX_SOURCE_REF_SHEET_MAX_CHARS = 100
+
+/** Stored shape of `inbox_proposal_actions.source_refs` entries (bounded). */
+export const inboxProposalActionSourceRefSchema = z.object({
+  kind: z.enum(['email_body', 'attachment']),
+  attachmentId: z.guid().optional(),
+  fileName: z.string().min(1).max(INBOX_SOURCE_REF_FILE_NAME_MAX_CHARS).optional(),
+  page: z.number().int().positive().optional(),
+  sheet: z.string().min(1).max(INBOX_SOURCE_REF_SHEET_MAX_CHARS).optional(),
+  row: z.number().int().positive().optional(),
+  snippet: z.string().min(1).max(INBOX_SOURCE_REF_SNIPPET_MAX_CHARS),
+})
+
+export const inboxProposalActionSourceRefsSchema = z
+  .array(inboxProposalActionSourceRefSchema)
+  .max(INBOX_SOURCE_REFS_MAX_PER_ACTION)
+
+export type InboxProposalActionSourceRefInput = z.infer<typeof inboxProposalActionSourceRefSchema>
+
 export const extractedActionSchema = z.object({
   actionType: z.enum([
     'create_order',
@@ -195,6 +232,10 @@ export const extractedActionSchema = z.object({
   confidence: z.number(),
   requiredFeature: z.string().optional(),
   payloadJson: z.string().describe('JSON-encoded payload object for this action'),
+  sourceRefs: z
+    .array(extractedSourceRefSchema)
+    .optional()
+    .describe('Where the proposed values were found: the email body or an attachment'),
 })
 
 export const extractedDiscrepancySchema = z.object({
