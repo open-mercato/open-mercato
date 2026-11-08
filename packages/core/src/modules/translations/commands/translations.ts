@@ -28,9 +28,9 @@ type TranslationsDatabase = {
     id: Generated<string>
     entity_type: string
     entity_id: string
-    translations: TranslationSnapshot['translations']
+    translations: Record<string, Record<string, string | null>>
     organization_id: string | null
-    tenant_id: string
+    tenant_id: string | null
     created_at: Generated<Date>
     updated_at: Generated<Date>
   }

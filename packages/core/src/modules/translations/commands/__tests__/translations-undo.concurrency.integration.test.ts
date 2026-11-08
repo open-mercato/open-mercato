@@ -64,6 +64,7 @@ const KEY = {
 const CONFLICT = expect.objectContaining({ ok: false, status: 409, code: 'translations.errors.undoConflict' })
 const LOCK_WAIT_TIMEOUT_MS = 10_000
 const LOCK_WAIT_POLL_MS = 25
+const SAVE_WAIT_TIMEOUT_MS = 2_000
 
 function createDeferred(): Deferred {
   let resolve: () => void = () => undefined
@@ -111,15 +112,6 @@ async function settle(promise: Promise<unknown>): Promise<Outcome> {
     const failure = error as { status?: number; body?: { code?: string }; code?: string }
     return { ok: false, status: failure.status, code: failure.body?.code ?? failure.code }
   }
-}
-
-async function isPending(promise: Promise<unknown>, ms: number): Promise<boolean> {
-  const pending = Symbol('pending')
-  const winner = await Promise.race([
-    promise.then(() => null, () => null),
-    new Promise((resolve) => setTimeout(() => resolve(pending), ms)),
-  ])
-  return winner === pending
 }
 
 describeWithPostgres('translations undo against concurrent saves on real PostgreSQL', () => {
@@ -175,17 +167,17 @@ describeWithPostgres('translations undo against concurrent saves on real Postgre
     return row?.translations ?? null
   }
 
-  async function waitForLockWaiter(): Promise<void> {
-    const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS
+  async function sawLockWaiter(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
       const waiting = await sql<{ count: string }>`
         select count(*)::text as count from pg_stat_activity
         where datname = current_database() and wait_event_type = 'Lock'
       `.execute(db())
-      if (Number(waiting.rows[0]?.count ?? 0) > 0) return
+      if (Number(waiting.rows[0]?.count ?? 0) > 0) return true
       await new Promise((resolve) => setTimeout(resolve, LOCK_WAIT_POLL_MS))
     }
-    throw new Error('[internal] undo never waited on the row lock')
+    return false
   }
 
   beforeAll(async () => {
@@ -254,7 +246,7 @@ describeWithPostgres('translations undo against concurrent saves on real Postgre
     const undone = settle(undo(save, log))
     await gate.reached.promise
     const saved = settle(save.execute({ ...KEY, translations: newer }, ctx()))
-    const saveWaitedForUndo = await isPending(saved, 500)
+    const saveWaitedForUndo = await sawLockWaiter(SAVE_WAIT_TIMEOUT_MS)
     gate.release.resolve()
 
     expect(await undone).toEqual({ ok: true })
@@ -273,7 +265,7 @@ describeWithPostgres('translations undo against concurrent saves on real Postgre
       await client.query('begin')
       await client.query('update entity_translations set translations = $1::jsonb, updated_at = now()', [JSON.stringify(newer)])
       const undone = settle(undo(save, log))
-      await waitForLockWaiter()
+      expect(await sawLockWaiter(LOCK_WAIT_TIMEOUT_MS)).toBe(true)
       await client.query('commit')
 
       expect(await undone).toEqual(CONFLICT)
