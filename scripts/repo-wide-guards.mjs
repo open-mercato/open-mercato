@@ -124,6 +124,22 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/lib/__tests__/init-secrets.test.ts',
+        scans: 'starters/docker and packages/create-app/template full-app Compose defaults — production bootstrap credential safety (#7809)',
+      },
+      {
+        path: 'src/__tests__/documented-queue-subcommands.test.ts',
+        scans: 'apps/docs/docs/**/*.mdx — documented queue subcommands resolve through the real CLI dispatcher (#8511)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/attachment-access.test.ts',
+        scans: 'packages/core attachments generator plugin — installed-package and monorepo owner-policy discovery/bootstrap (#6726)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-subset.test.ts',
+        scans: 'live Catalog and Entities dependency metadata across packages/core and all three module-generator variants — standalone dependency closure (#6517)',
+      },
+      {
         path: 'src/lib/generators/__tests__/module-facts.bc-guard.test.ts',
         scans: 'every package module source — generator BC resolve guard',
       },
@@ -138,6 +154,10 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/lib/generators/__tests__/module-facts.extension-hosts.test.ts',
         scans: 'live packages/core/src/modules sources — generated custom-field declarations (#4534)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-extension-activations.test.ts',
+        scans: 'live packages/core/src/modules/sales sources — shipped extension activation extraction and response-enricher host bindings (#7784)',
       },
       {
         path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
@@ -297,8 +317,16 @@ export const REPO_WIDE_GUARDS = [
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
   {
+    path: 'packages/cli/src/lib/__tests__/module-search.test.ts',
+    reason: 'Reads only package-local catalog fixtures and per-test mkdtemp app roots; packages/core and apps/mercato literals construct temporary resolver layouts, never audit repository sources.',
+  },
+  {
     path: 'packages/cli/src/lib/generators/__tests__/agent-files-extension.test.ts',
     reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
+  },
+  {
+    path: 'packages/create-app/src/lib/application-csp.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It executes both app/template Next configs and proxies through node:test, so it does not belong in the Jest-based guard runner.',
   },
   {
     path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
@@ -307,6 +335,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/root-layout-theme-script.test.ts',
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/setup-ci-skill.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It compares the om-setup-ci skill\'s vendored templates/scripts/ci/{audit-ci,time-bomb-scanner}.mjs against the monorepo scripts/ originals.',
   },
   {
     path: 'packages/create-app/src/lib/template-dependency-drift.test.ts',
@@ -351,6 +383,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',
     reason: 'Already unfiltered — the same create-app parity step (#3779) runs the whole create-mercato-app suite. It also drives the real scaffolder and generator suite against a generated app, so it costs minutes rather than the seconds this runner budgets for the common PR path.',
+  },
+  {
+    path: 'packages/create-app/src/lib/templates/templates.test.ts',
+    reason: 'Already unfiltered: the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). `process.cwd()` only saves the directory `main` is run from; it reads nothing outside packages/create-app.',
   },
   {
     path: 'packages/ui/src/backend/__tests__/FieldDefinitionsEditor.test.tsx',

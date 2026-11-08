@@ -202,6 +202,7 @@ describe('the custom time-tracking routes run API interceptors', () => {
     ['reports', 'preview'],
     ['settings'],
     ['settings', 'reapply-rounding'],
+    ['support-tickets', 'options'],
     ['tags', 'entry-assignments'],
     ['tags', 'task-assignments'],
     ['tasks', '[id]', 'status'],

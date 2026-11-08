@@ -87,6 +87,11 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export type ApiHandler = (req: Request, ctx?: any) => Promise<Response> | Response
 
+export type ApiRouteBeforeAuth = (
+  req: Request,
+  context: { method: HttpMethod; params: Record<string, string | string[]> },
+) => Promise<Response | null> | Response | null
+
 export type ModuleSubscriberHandler = (
   payload: any,
   ctx: any
@@ -219,6 +224,7 @@ export type ModuleWorker = {
 
 export type ModuleInfo = {
   name?: string
+  locator?: string
   title?: string
   version?: string
   description?: string
@@ -226,7 +232,7 @@ export type ModuleInfo = {
   license?: string
   homepage?: string
   copyright?: string
-  // Optional hard dependencies: module ids that must be enabled
+  // Optional hard dependencies: module IDs or canonical package/repository locators
   requires?: string[]
   // Whether this module can be ejected into the app's src/modules/ for customization
   ejectable?: boolean
