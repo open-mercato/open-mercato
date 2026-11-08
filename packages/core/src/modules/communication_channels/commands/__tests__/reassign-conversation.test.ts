@@ -592,6 +592,32 @@ describe('reassignConversationCommand undo', () => {
     expect(em.flush).not.toHaveBeenCalled()
   })
 
+  it('restores the mapping alone when the conversation row no longer exists', async () => {
+    const mapping = { id: 'mapping-1', assignedUserId: 'new-owner', channelId: 'channel-1', organizationId: null }
+    mockFindOne
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce(null as never)
+    const { promise, em } = undo({ userId: OWNER })
+    await promise
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(mapping.assignedUserId).toBe('old-owner')
+  })
+
+  it('refuses with a 409 when the conversation row no longer exists and the mapping owner changed', async () => {
+    const mapping = { id: 'mapping-1', assignedUserId: 'newer-owner', channelId: 'channel-1', organizationId: null }
+    mockFindOne
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce(null as never)
+    const { promise, em } = undo({ userId: OWNER })
+    await expect(promise).rejects.toMatchObject({ status: 409 })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mapping.assignedUserId).toBe('newer-owner')
+  })
+
   it('refuses with a 409 when only the conversation owner changed after the action', async () => {
     const { mapping, conversation } = seedRows({ id: 'channel-1', userId: OWNER })
     conversation.assignedUserId = 'newer-owner'
