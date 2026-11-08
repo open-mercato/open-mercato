@@ -32,6 +32,6 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm|kysely)/)',
+    'node_modules/(?!(sanitize-html|htmlparser2|domhandler|domutils|dom-serializer|domelementtype|entities|@mikro-orm|kysely)/)',
   ],
 }
