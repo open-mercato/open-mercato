@@ -3668,7 +3668,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           const manageDisabled = !manageHref
           nodes.push(
             <div key={sectionKey} className={`rounded-lg border bg-card ${densityCardPadding} ${densityStackLg}`}>
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-start gap-2">
                   {FieldsetIcon ? (
                     <FieldsetIcon className="size-5 text-muted-foreground" />
