@@ -32,9 +32,9 @@ No remote push or PR until parent authorizes after standalone validation. No mer
 
 ### Phase 1: Bounded evaluation lifetime
 
-- [ ] 1.1 Isolate watch generation and drain the active cycle.
+- [x] 1.1 Isolate watch generation and drain the active cycle. — 44d748066c
 
 ### Phase 2: Regression coverage and qualification
 
-- [ ] 2.1 Add metadata and lifecycle regression coverage.
+- [x] 2.1 Add metadata and lifecycle regression coverage. — 44d748066c
 - [ ] 2.2 Complete coordinated validation, standalone measurement, and existing documentation update.
