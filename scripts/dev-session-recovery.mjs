@@ -9,10 +9,10 @@ import {
   inspectDevSessionRecovery,
   withDevSessionRecovery,
 } from './dev-session-guard.mjs'
-import { inspectProcessTree, signalProcessTree } from './dev-shutdown-utils.mjs'
 
 function canonicalPath(value) {
-  try { return fs.realpathSync(value) } catch { return null }
+  if (typeof value !== 'string' || !value) return null
+  try { return fs.realpathSync(value) } catch { return path.resolve(value) }
 }
 
 function processWorkspace(pid) {
@@ -27,10 +27,19 @@ function processWorkspace(pid) {
   return result.stdout.split('\n').find((line) => line.startsWith('n'))?.slice(1) ?? null
 }
 
+function parseLocalEndpoint(value) {
+  if (typeof value !== 'string' || !value) return null
+  try {
+    const endpoint = new URL(value)
+    return ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname) ? endpoint : null
+  } catch {
+    return null
+  }
+}
+
 async function endpointAvailable(value) {
-  let endpoint
-  try { endpoint = new URL(value) } catch { return false }
-  if (!['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)) return false
+  const endpoint = parseLocalEndpoint(value)
+  if (!endpoint) return false
   const port = Number(endpoint.port || (endpoint.protocol === 'https:' ? 443 : 80))
   const hosts = endpoint.hostname === 'localhost' ? ['127.0.0.1', '::1'] : [endpoint.hostname.replace(/^\[|\]$/g, '')]
   for (const host of hosts) {
@@ -47,39 +56,89 @@ async function endpointAvailable(value) {
 async function confirmRecovery(description) {
   const terminal = createInterface({ input: process.stdin, output: process.stdout })
   try {
-    const answer = await terminal.question(`${description}\nStop these orphaned processes and continue startup? [y/N] `)
+    const answer = await terminal.question(`${description} [y/N] `)
     return /^(y|yes)$/i.test(answer.trim())
   } finally {
     terminal.close()
   }
 }
 
-function inspectOrphans(snapshot, dependencies) {
-  if (!snapshot?.liveRecords.length) return null
-  if (!snapshot.owner.transferredAt && snapshot.liveRecords.some((record) => record.pid === snapshot.owner.pid)) return null
-  const trees = new Map()
-  for (const member of snapshot.liveRecords) {
-    for (const row of dependencies.inspectTree(member.pid)) trees.set(row.pid, row)
-  }
-  for (const member of snapshot.liveRecords) {
-    const root = trees.get(member.pid)
-    const lastSeen = Date.parse(member.registeredAt ?? member.heartbeatAt ?? snapshot.owner.transferredAt ?? snapshot.owner.startedAt)
-    const started = Date.parse(root?.startedAt)
-    if (!root || !Number.isFinite(lastSeen) || !Number.isFinite(started) || started > lastSeen) return null
-    const workspace = canonicalPath(dependencies.processWorkspace(member.pid))
-    if (!workspace) return null
-    const relative = path.relative(snapshot.workspaceRoot, workspace)
-    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null
-    const visited = new Set()
-    let ancestor = root
-    while (ancestor.parentPid !== 1) {
-      if (visited.has(ancestor.pid)) return null
-      visited.add(ancestor.pid)
-      ancestor = trees.get(ancestor.parentPid)
-      if (!ancestor) return null
+function isInsideWorkspace(workspaceRoot, candidate) {
+  const relative = path.relative(workspaceRoot, candidate)
+  return !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+}
+
+function classifySession(state, dependencies) {
+  const running = []
+  const stale = []
+  const unverified = []
+  const rows = new Map()
+  for (const member of state.liveRecords) {
+    const tree = dependencies.inspectTree(member.pid)
+    const root = tree.find((row) => row.pid === member.pid)
+    if (!root) {
+      unverified.push(member)
+      continue
     }
+    const lastSeen = Date.parse(member.registeredAt ?? member.heartbeatAt ?? state.owner.transferredAt ?? state.owner.startedAt)
+    const started = Date.parse(root.startedAt)
+    if (Number.isFinite(lastSeen) && Number.isFinite(started) && started > lastSeen) {
+      stale.push({ member })
+      continue
+    }
+    const workspace = canonicalPath(dependencies.processWorkspace(member.pid))
+    if (workspace && !isInsideWorkspace(state.workspaceRoot, workspace)) {
+      stale.push({ member })
+      continue
+    }
+    if (!workspace || !Number.isFinite(lastSeen) || !Number.isFinite(started)) {
+      unverified.push(member)
+      continue
+    }
+    running.push(member)
+    for (const row of tree) rows.set(row.pid, row)
   }
-  return [...trees.values()]
+  const protectedPids = new Set([process.ppid].filter((pid) => Number.isInteger(pid) && pid > 1))
+  const protectedRecords = [...rows.values()].filter((row) => protectedPids.has(row.pid))
+  return { running, stale, unverified, protectedRecords, rows: [...rows.values()] }
+}
+
+function describeConflict(snapshot, plan, endpointFree) {
+  const owner = snapshot.owner
+  const endpoint = parseLocalEndpoint(owner.url)
+  const lines = [
+    `Another Open Mercato dev session already owns this workspace (PID ${owner.pid ?? 'unknown'}, mode ${owner.mode || 'unknown'}, URL ${owner.url || 'unavailable'}).`,
+    `Workspace: ${snapshot.workspaceRoot}`,
+    ...plan.running.map((record) => `  ${record.role ?? 'managed process'} (PID ${record.pid}) is still running in this workspace`),
+    ...plan.stale.map(({ member }) => `  ${member.role ?? 'managed process'} (PID ${member.pid}) is no longer running (the PID now belongs to an unrelated process, which is left untouched)`),
+  ]
+  if (endpoint) {
+    lines.push(endpointFree
+      ? `The application endpoint ${endpoint.origin} has no listener.`
+      : `The application endpoint ${endpoint.origin} is still serving; continuing stops it.`)
+  }
+  lines.push(plan.running.length
+    ? 'Stop these processes, clean up the session lock and continue startup?'
+    : 'Clean up the stale session lock and continue startup?')
+  return lines.join('\n')
+}
+
+function describeRefusal(snapshot, plan) {
+  const lines = []
+  for (const record of plan.unverified) {
+    lines.push(`Could not verify that PID ${record.pid} (${record.role ?? 'managed process'}) belongs to ${snapshot.workspaceRoot}; it was left untouched.`)
+  }
+  for (const record of plan.protectedRecords) {
+    lines.push(`PID ${record.pid} is a parent of this launch and cannot be stopped from here.`)
+  }
+  lines.push('Stop it manually (Ctrl+C in its terminal, or kill <PID>) and retry.')
+  return `${lines.join('\n')}\n`
+}
+
+async function loadProcessUtilities(overrides) {
+  if (overrides.inspectTree && overrides.signalTree) return {}
+  const { inspectProcessTree, signalProcessTree } = await import('./dev-shutdown-utils.mjs')
+  return { inspectTree: inspectProcessTree, signalTree: signalProcessTree }
 }
 
 export async function acquireDevSessionWithRecovery(options = {}, overrides = {}) {
@@ -88,70 +147,98 @@ export async function acquireDevSessionWithRecovery(options = {}, overrides = {}
     if (!(error instanceof DevSessionConflictError)) throw error
     conflict = error
   }
+  const interactive = overrides.interactive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY && !process.env.CI)
+  if (!interactive) throw conflict
   const dependencies = {
-    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY && !process.env.CI),
     confirm: confirmRecovery,
     endpointAvailable,
-    inspectTree: inspectProcessTree,
     processWorkspace,
-    signalTree: signalProcessTree,
     output: process.stdout,
-    graceMs: 3000,
+    graceMs: 10_000,
+    ...await loadProcessUtilities(overrides),
     ...overrides,
   }
-  if (!dependencies.interactive) throw conflict
   let snapshot = inspectDevSessionRecovery(options.workspaceRoot ?? process.cwd())
   if (!snapshot?.liveRecords.length) return acquireDevSession(options)
-  let records = inspectOrphans(snapshot, dependencies)
-  if (!records || !await dependencies.endpointAvailable(snapshot.owner.url)) throw conflict
-  const endpoint = new URL(snapshot.owner.url)
-  const description = [
-    `A stopped development session left orphaned processes in ${snapshot.workspaceRoot}.`,
-    ...snapshot.liveRecords.map((record) => `  ${record.role ?? 'managed process'} (PID ${record.pid})`),
-    `The application endpoint ${endpoint.origin} has no listener.`,
-  ].join('\n')
-  if (!await dependencies.confirm(description)) throw conflict
-  if (!await dependencies.endpointAvailable(snapshot.owner.url)) throw conflict
+  const plan = classifySession(snapshot, dependencies)
+  if (plan.unverified.length || plan.protectedRecords.length) {
+    dependencies.output.write(describeRefusal(snapshot, plan))
+    throw conflict
+  }
+  const endpointFree = await dependencies.endpointAvailable(snapshot.owner.url)
+  if (!await dependencies.confirm(describeConflict(snapshot, plan, endpointFree))) throw conflict
+
+  const expectedRunning = new Set(plan.running.map((record) => record.pid))
+  let records = []
   withDevSessionRecovery(snapshot, (current, retainProcesses) => {
-    const inspected = inspectOrphans(snapshot, dependencies)
-    if (!inspected || records.some((record) => !inspected.some((row) => row.pid === record.pid && row.startedAt === record.startedAt))) throw conflict
-    records = inspected
-    snapshot = retainProcesses(records.map((record) => record.pid))
+    const fresh = classifySession(current, dependencies)
+    if (fresh.unverified.length || fresh.protectedRecords.length || fresh.running.some((record) => !expectedRunning.has(record.pid))) throw conflict
+    records = fresh.rows
+    if (!records.length) return
+    snapshot = retainProcesses(records.map((record) => record.pid)) ?? snapshot
     dependencies.signalTree(records, 'SIGTERM')
   })
-  const survivingTrees = () => {
-    const survivors = new Map()
-    for (const record of records) {
-      const tree = dependencies.inspectTree(record.pid)
-      if (tree.some((row) => row.pid === record.pid && row.startedAt === record.startedAt)) {
-        for (const row of tree) survivors.set(row.pid, row)
+
+  if (records.length) {
+    dependencies.output.write(`Stopping ${records.length} process${records.length === 1 ? '' : 'es'} of the previous session...\n`)
+    const retain = (pids, onRetained) => {
+      try {
+        withDevSessionRecovery(snapshot, (current, retainProcesses) => {
+          snapshot = retainProcesses(pids) ?? snapshot
+          onRetained?.()
+        })
+      } catch (error) {
+        if (!(error instanceof DevSessionConflictError)) throw error
+        onRetained?.()
       }
     }
-    const discovered = [...survivors.values()].filter((row) => !records.some((record) => record.pid === row.pid && record.startedAt === row.startedAt))
-    if (discovered.length) {
-      withDevSessionRecovery(snapshot, (current, retainProcesses) => {
-        snapshot = retainProcesses([...survivors.keys()])
-        records = [...new Map([...records, ...discovered].map((record) => [record.pid, record])).values()]
-      })
+    const survivingTrees = () => {
+      const survivors = new Map()
+      for (const record of records) {
+        const tree = dependencies.inspectTree(record.pid)
+        if (tree.some((row) => row.pid === record.pid && row.startedAt === record.startedAt)) {
+          for (const row of tree) survivors.set(row.pid, row)
+        }
+      }
+      const discovered = [...survivors.values()].filter((row) => !records.some((record) => record.pid === row.pid && record.startedAt === row.startedAt))
+      if (discovered.length) {
+        retain([...survivors.keys()], () => {
+          records = [...new Map([...records, ...discovered].map((record) => [record.pid, record])).values()]
+        })
+      }
+      return [...survivors.values()]
     }
-    return [...survivors.values()]
-  }
-  const deadline = Date.now() + dependencies.graceMs
-  while (survivingTrees().length && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-  const survivors = survivingTrees()
-  if (survivors.length) {
-    withDevSessionRecovery(snapshot, (current, retainProcesses) => {
-      snapshot = retainProcesses(survivors.map((record) => record.pid))
-      records = survivors
-      dependencies.signalTree(records, 'SIGKILL')
-    })
-    const forcedDeadline = Date.now() + 1000
-    while (survivingTrees().length && Date.now() < forcedDeadline) {
+    const deadline = Date.now() + dependencies.graceMs
+    while (survivingTrees().length && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    if (survivingTrees().length) throw conflict
+    const survivors = survivingTrees()
+    if (survivors.length) {
+      retain(survivors.map((record) => record.pid), () => {
+        records = survivors
+        dependencies.signalTree(records, 'SIGKILL')
+      })
+      const forcedDeadline = Date.now() + 2000
+      while (survivingTrees().length && Date.now() < forcedDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      if (survivingTrees().length) throw conflict
+    }
   }
-  return acquireDevSession(options)
+
+  try {
+    const session = acquireDevSession(options)
+    dependencies.output.write('Previous dev session cleaned up; continuing startup.\n')
+    return session
+  } catch (error) {
+    if (!(error instanceof DevSessionConflictError)) throw error
+  }
+  withDevSessionRecovery(snapshot, (current, retainProcesses, discardLock) => {
+    const remaining = classifySession(current, dependencies)
+    if (remaining.running.length || remaining.unverified.length) throw conflict
+    discardLock()
+  })
+  const session = acquireDevSession(options)
+  dependencies.output.write('Stale dev session lock removed; continuing startup.\n')
+  return session
 }

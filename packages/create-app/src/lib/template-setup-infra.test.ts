@@ -14,7 +14,7 @@ import test from 'node:test'
 // what setup forwarded to it.
 
 const TEMPLATE_SCRIPTS = fileURLToPath(new URL('../../template/scripts/', import.meta.url))
-const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-service-modes.mjs', 'dev-service-connections.mjs', 'dev-database-write-guard.mjs', 'dev-session-guard.mjs']
+const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-env-secrets.mjs', 'dev-service-modes.mjs', 'dev-service-connections.mjs', 'dev-database-write-guard.mjs', 'dev-session-guard.mjs', 'dev-session-recovery.mjs']
 const skip = process.platform === 'win32' ? 'fake docker shim is a POSIX shell script' : false
 
 const FAKE_DOCKER = `#!/bin/sh
@@ -159,6 +159,30 @@ test('yarn setup creates .env from .env.example only when it is missing', { skip
     const second = await runScript(app, 'setup.mjs', ['--no-infra'])
     assert.equal(second.code, 0, second.output)
     assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), 'DATABASE_URL=postgres://me:pw@db.example.com:5432/custom\n')
+  } finally {
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('yarn setup replaces placeholder secrets when it creates .env, and only then', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    fs.writeFileSync(
+      path.join(app.appDir, '.env.example'),
+      'JWT_SECRET=change-me-dev-secret\nAUTH_SECRET=change-me-dev-auth-secret\nLOOKUP_HASH_PEPPER=\n# JWT_SECRET=commented-stays\n',
+    )
+    const first = await runScript(app, 'setup.mjs', ['--no-infra'])
+    assert.equal(first.code, 0, first.output)
+    const created = fs.readFileSync(path.join(app.appDir, '.env'), 'utf8')
+    assert.match(created, /^JWT_SECRET=[0-9a-f]{64}$/m)
+    assert.match(created, /^AUTH_SECRET=[0-9a-f]{64}$/m)
+    assert.match(created, /^LOOKUP_HASH_PEPPER=[0-9a-f]{32}$/m)
+    assert.match(created, /^# JWT_SECRET=commented-stays$/m)
+    assert.doesNotMatch(created, /change-me/)
+
+    const second = await runScript(app, 'setup.mjs', ['--no-infra'])
+    assert.equal(second.code, 0, second.output)
+    assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), created)
   } finally {
     fs.rmSync(app.appDir, { recursive: true, force: true })
   }

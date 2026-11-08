@@ -635,6 +635,10 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
 
+## Encryption maintenance safety gates (2026-11-02, #6767)
+
+CLI safety confirmations changed; stop writers and restart replicas. [Flags, migration and stable formats](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767).
+
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
 `POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
