@@ -41,7 +41,7 @@ function resolvePort(container: Awaited<ReturnType<typeof createRequestContainer
 
 export async function POST(req: Request, routeContext: RouteContext) {
   try {
-    const { id: productId } = paramsSchema.parse(await routeContext.params)
+    const { id: rawProductId } = paramsSchema.parse(await routeContext.params)
     const auth = await getAuthFromRequest(req)
     if (!auth || !auth.tenantId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -66,12 +66,15 @@ export async function POST(req: Request, routeContext: RouteContext) {
       auth: { userId: auth.sub, tenantId, organizationId },
       input: {
         resourceKind: 'catalog.category_suggestion',
-        resourceId: productId,
+        resourceId: rawProductId,
         operation: 'create',
-        mutationPayload: { productId },
+        mutationPayload: { productId: rawProductId },
       },
     })
     if (!guarded.ok) return guarded.response
+    const productId = guarded.modifiedPayload
+      ? paramsSchema.shape.id.parse(guarded.modifiedPayload.productId)
+      : rawProductId
 
     const em = (container.resolve('em') as EntityManager).fork()
     const productState = await buildProductState(em, { productId, tenantId, organizationId })

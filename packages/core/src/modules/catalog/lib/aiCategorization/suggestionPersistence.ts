@@ -50,6 +50,8 @@ export async function persistCategorySuggestion(
 
     const pending = await trx.find(CatalogProductCategorySuggestion, {
       product: product.id,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
       status: 'pending',
     })
     for (const row of pending) {

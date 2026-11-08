@@ -125,7 +125,7 @@ describeWithPostgres('catalog category suggestions against real PostgreSQL concu
     throw new Error(`[internal] no transaction started waiting on a row lock within ${WAITER_TIMEOUT_MS}ms`)
   }
 
-  function catalogCtx(seed: Seed, gate: Gate | null = null) {
+  function catalogCtxWithFork(seed: Seed, forkOverride: (root: EntityManager) => EntityManager) {
     const root = rootEm()
     return {
       auth: { sub: seed.userId, tenantId: seed.tenantId, orgId: seed.organizationId, isSuperAdmin: false },
@@ -138,7 +138,7 @@ describeWithPostgres('catalog category suggestions against real PostgreSQL concu
           if (name === 'em') {
             return new Proxy(root, {
               get(object, property) {
-                if (property === 'fork') return () => gatedFork(root, gate)
+                if (property === 'fork') return () => forkOverride(root)
                 const value = Reflect.get(object, property, object)
                 return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(object) : value
               },
@@ -149,6 +149,33 @@ describeWithPostgres('catalog category suggestions against real PostgreSQL concu
         },
       } as unknown as AwilixContainer,
     }
+  }
+
+  function catalogCtx(seed: Seed, gate: Gate | null = null) {
+    return catalogCtxWithFork(seed, (root) => gatedFork(root, gate))
+  }
+
+  // Wraps a fork so its Nth `flush()` call throws instead of delegating, so a
+  // mid-transaction failure can be injected after earlier phases' flushes have
+  // already emitted SQL inside the (uncommitted) transaction.
+  function throwingFork(root: EntityManager, throwOnFlushCall: number): EntityManager {
+    const target = root.fork()
+    let flushCalls = 0
+    return new Proxy(target, {
+      get(object, property) {
+        const value = Reflect.get(object, property, object)
+        if (typeof value !== 'function') return value
+        const bound = (value as (...args: unknown[]) => unknown).bind(object)
+        if (property !== 'flush') return bound
+        return async (...args: unknown[]) => {
+          flushCalls += 1
+          if (flushCalls === throwOnFlushCall) {
+            throw new Error('[internal] injected flush failure for rollback test')
+          }
+          return bound(...args)
+        }
+      },
+    })
   }
 
   async function seed(): Promise<Seed> {
@@ -364,5 +391,99 @@ describeWithPostgres('catalog category suggestions against real PostgreSQL concu
 
     const assignments = await rootEm().find(CatalogProductCategoryAssignment, { product: seedData.productId })
     expect(assignments).toHaveLength(0)
+  }, CASE_TIMEOUT_MS)
+
+  // R3 residual: undo-vs-undo contender coverage. Two different suggestions on
+  // the same product are undone concurrently; both lock the product first (same
+  // order as accept/reject/suggest), so they must serialize rather than both
+  // landing on `pending` and tripping the partial unique (product_id) WHERE
+  // status='pending' index.
+  it('undoing two different suggestions for the same product serializes through the product lock', async () => {
+    const seedData = await seed()
+
+    await persistCategorySuggestion(rootEm(), {
+      productId: seedData.productId,
+      tenantId: seedData.tenantId,
+      organizationId: seedData.organizationId,
+      outcome: 'suggested',
+      categoryId: seedData.categoryId,
+      trigger: 'manual',
+    })
+    const firstId = await pendingSuggestionId(seedData)
+    const accepted = await settle(acceptCategorySuggestionCommand.execute({ id: firstId }, catalogCtx(seedData)))
+    expect(accepted.ok).toBe(true)
+
+    await persistCategorySuggestion(rootEm(), {
+      productId: seedData.productId,
+      tenantId: seedData.tenantId,
+      organizationId: seedData.organizationId,
+      outcome: 'no_match',
+      trigger: 'manual',
+    })
+    const secondId = await pendingSuggestionId(seedData)
+    const rejected = await settle(rejectCategorySuggestionCommand.execute({ id: secondId }, catalogCtx(seedData)))
+    expect(rejected.ok).toBe(true)
+
+    const firstLog = { commandPayload: { undo: { suggestionId: firstId, productId: seedData.productId, before: { categoryIds: [] } } } }
+    const secondLog = { commandPayload: { undo: { suggestionId: secondId, productId: seedData.productId } } }
+    const gate = createGate({ method: 'findOne', entity: 'CatalogProduct', lockMode: LockMode.PESSIMISTIC_WRITE })
+
+    const undoingFirst = settle(acceptCategorySuggestionCommand.undo!({ input: { id: firstId }, ctx: catalogCtx(seedData, gate), logEntry: firstLog }))
+    await gate.reached.promise
+    const undoingSecond = settle(rejectCategorySuggestionCommand.undo!({ input: { id: secondId }, ctx: catalogCtx(seedData), logEntry: secondLog }))
+    await waitForLockWaiters(1)
+    gate.release.resolve()
+    const [firstOutcome, secondOutcome] = await Promise.all([undoingFirst, undoingSecond])
+
+    expect(firstOutcome.ok).toBe(true)
+    expect(secondOutcome.ok).toBe(true)
+
+    const rows = await suggestionStatuses(seedData.productId)
+    // Whichever undo commits first restores to `pending`; the one serialized
+    // behind the product lock recounts under its own lock, sees that row
+    // already pending, and defers to `superseded` instead of racing a second
+    // pending row into the partial unique index.
+    expect(rows.filter((row) => row.status === 'pending')).toHaveLength(1)
+    expect(rows.filter((row) => row.status === 'superseded')).toHaveLength(1)
+  }, CASE_TIMEOUT_MS)
+
+  // R3 residual: injected-failure rollback coverage. A failure mid-undo (after
+  // the category-restore phase has already flushed inside the open transaction)
+  // must roll back every phase, not just the one that threw.
+  it('an injected failure mid-undo rolls back the already-flushed category restore too', async () => {
+    const seedData = await seed()
+    await persistCategorySuggestion(rootEm(), {
+      productId: seedData.productId,
+      tenantId: seedData.tenantId,
+      organizationId: seedData.organizationId,
+      outcome: 'suggested',
+      categoryId: seedData.categoryId,
+      trigger: 'manual',
+    })
+    const suggestionId = await pendingSuggestionId(seedData)
+    const accepted = await settle(acceptCategorySuggestionCommand.execute({ id: suggestionId }, catalogCtx(seedData)))
+    expect(accepted.ok).toBe(true)
+
+    const productBeforeUndo = await rootEm().findOne(CatalogProduct, { id: seedData.productId })
+    const updatedAtBeforeUndo = productBeforeUndo!.updatedAt.getTime()
+
+    const logEntry = { commandPayload: { undo: { suggestionId, productId: seedData.productId, before: { categoryIds: [] } } } }
+    // Phase 1 (product lock + category restore) flushes and succeeds; phase 2's
+    // own flush (status restore) is the injected failure.
+    const throwingCtx = catalogCtxWithFork(seedData, (root) => throwingFork(root, 2))
+
+    const undone = await settle(acceptCategorySuggestionCommand.undo!({ input: { id: suggestionId }, ctx: throwingCtx, logEntry }))
+    expect(undone.ok).toBe(false)
+
+    const assignments = await rootEm().find(CatalogProductCategoryAssignment, { product: seedData.productId })
+    expect(assignments).toHaveLength(1)
+    const assignedCategoryId = typeof assignments[0].category === 'string' ? assignments[0].category : assignments[0].category?.id
+    expect(assignedCategoryId).toBe(seedData.categoryId)
+
+    const productAfterRollback = await rootEm().findOne(CatalogProduct, { id: seedData.productId })
+    expect(productAfterRollback!.updatedAt.getTime()).toBe(updatedAtBeforeUndo)
+
+    const rows = await suggestionStatuses(seedData.productId)
+    expect(rows).toEqual([{ id: suggestionId, status: 'accepted' }])
   }, CASE_TIMEOUT_MS)
 })

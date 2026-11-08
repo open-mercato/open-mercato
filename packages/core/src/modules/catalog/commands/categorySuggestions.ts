@@ -103,7 +103,7 @@ async function loadCurrentCategoryIds(
   const assignments = await findWithDecryption(
     em,
     CatalogProductCategoryAssignment,
-    { product: product.id },
+    { product: product.id, tenantId: product.tenantId, organizationId: product.organizationId },
     { populate: ['category'] },
     { tenantId: product.tenantId, organizationId: product.organizationId },
   )

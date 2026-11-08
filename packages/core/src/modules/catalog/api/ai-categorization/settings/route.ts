@@ -133,6 +133,15 @@ async function PUT(req: Request) {
     const effectiveSettings = guarded.modifiedPayload
       ? aiCategorizationSettingsSchema.parse({ ...body.settings, ...guarded.modifiedPayload })
       : body.settings
+    // A transforming guard can turn `enabled` on (or raise `applyMode`) after the
+    // raw-body check above already passed — re-validate against the final payload
+    // so a guard can never enable the feature while the decision model is unavailable.
+    if (effectiveSettings.enabled && !currentStatus.available) {
+      return NextResponse.json(
+        { code: 'decision_model_unavailable', reason: currentStatus.reason ?? null },
+        { status: 422 },
+      )
+    }
 
     const moduleConfigService = context.container.resolve('moduleConfigService') as ModuleConfigService
     await writeAiCategorizationSettings(moduleConfigService, { tenantId: context.tenantId }, effectiveSettings)

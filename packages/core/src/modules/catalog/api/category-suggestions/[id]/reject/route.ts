@@ -59,6 +59,9 @@ export async function POST(req: Request, routeContext: RouteContext) {
       },
     })
     if (!guarded.ok) return guarded.response
+    const commandInput = guarded.modifiedPayload
+      ? z.object({ id: z.string().uuid() }).parse(guarded.modifiedPayload)
+      : { id: suggestionId }
 
     const commandBus = container.resolve('commandBus') as CommandBus
     const ctx: CommandRuntimeContext = {
@@ -70,7 +73,7 @@ export async function POST(req: Request, routeContext: RouteContext) {
       request: req,
     }
     const { result, logEntry } = await commandBus.execute('catalog.category_suggestions.reject', {
-      input: { id: suggestionId },
+      input: commandInput,
       ctx,
     }) as { result: { suggestionId: string }; logEntry: unknown }
     await guarded.runAfterSuccess()
