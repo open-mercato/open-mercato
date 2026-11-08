@@ -4,9 +4,21 @@ import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-m
 import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { withClient, type IntegrationDbClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { expectOperation, skipIfUndoTestsDisabled } from '@open-mercato/core/helpers/integration/undoHarness'
 
 type Fixture = { personId: string; companyIds: string[]; linkIds: string[] }
 type LinkState = { companyId: string; isPrimary: boolean }
+type Gate = { table: string; event: 'insert' | 'update'; condition: string }
+
+const UNDO_PATH = '/api/audit_logs/audit-logs/actions/undo'
+
+function profileUpdateGate(personId: string): Gate {
+  return { table: 'customer_people', event: 'update', condition: `old.entity_id = '${personId}'::uuid` }
+}
+
+function tagAssignmentInsertGate(personId: string): Gate {
+  return { table: 'customer_tag_assignments', event: 'insert', condition: `new.entity_id = '${personId}'::uuid` }
+}
 
 async function createFixture(request: APIRequestContext, token: string, stamp: string, companyCount: number): Promise<Fixture> {
   const personId = await createPersonFixture(request, token, {
@@ -76,8 +88,8 @@ async function waitForBlockedBackend(
   throw new Error('[internal] Primary-company contender did not reach the expected PostgreSQL lock')
 }
 
-async function raceBehindProfileGate(
-  personId: string,
+async function raceBehindGate(
+  gate: Gate,
   first: (request: APIRequestContext) => Promise<APIResponse>,
   second: (request: APIRequestContext) => Promise<APIResponse>,
 ): Promise<Array<{ status: number; body: string }>> {
@@ -96,8 +108,8 @@ async function raceBehindProfileGate(
          $$`,
       )
       await client.query(
-        `create trigger "${triggerName}" before update on customer_people
-           for each row when (old.entity_id = '${personId}'::uuid)
+        `create trigger "${triggerName}" before ${gate.event} on ${gate.table}
+           for each row when (${gate.condition})
            execute function "${functionName}"()`,
       )
     })
@@ -111,7 +123,7 @@ async function raceBehindProfileGate(
             try {
               const firstPending = first(firstRequest)
               pending.push(firstPending)
-              const firstPid = await waitForBlockedBackend(observer, blockerPid, 'customer_people', 'advisory')
+              const firstPid = await waitForBlockedBackend(observer, blockerPid, gate.table, 'advisory')
               const secondPending = second(secondRequest)
               pending.push(secondPending)
               await waitForBlockedBackend(observer, firstPid, 'customer_')
@@ -128,7 +140,7 @@ async function raceBehindProfileGate(
     ))
   } finally {
     await withClient(async (client) => {
-      await client.query(`drop trigger if exists "${triggerName}" on customer_people`)
+      await client.query(`drop trigger if exists "${triggerName}" on ${gate.table}`)
       await client.query(`drop function if exists "${functionName}"()`)
     })
   }
@@ -147,7 +159,7 @@ test.describe('TC-CRM-093 person primary company stays unique under concurrent w
         { token, data: { isPrimary: true }, timeout: 15_000, retryTransport: false },
       )
 
-      const responses = await raceBehindProfileGate(personId, patchPrimary(linkIds[1]), patchPrimary(linkIds[2]))
+      const responses = await raceBehindGate(profileUpdateGate(personId), patchPrimary(linkIds[1]), patchPrimary(linkIds[2]))
       for (const response of responses) expect(response.status, response.body).toBe(200)
 
       await withClient(async (client) => {
@@ -172,7 +184,7 @@ test.describe('TC-CRM-093 person primary company stays unique under concurrent w
         { token, data: { isPrimary: true }, timeout: 15_000, retryTransport: false },
       )
 
-      const responses = await raceBehindProfileGate(personId, patchPrimary(linkIds[1]), patchPrimary(linkIds[0]))
+      const responses = await raceBehindGate(profileUpdateGate(personId), patchPrimary(linkIds[1]), patchPrimary(linkIds[0]))
       for (const response of responses) expect(response.status, response.body).toBe(200)
 
       await withClient(async (client) => {
@@ -196,8 +208,8 @@ test.describe('TC-CRM-093 person primary company stays unique under concurrent w
       const newCompanyId = await createCompanyFixture(request, token, `PrimaryRace New ${stamp}`)
       companyIds.push(newCompanyId)
 
-      const responses = await raceBehindProfileGate(
-        personId,
+      const responses = await raceBehindGate(
+        profileUpdateGate(personId),
         (isolated) => apiRequest(isolated, 'PATCH', `/api/customers/people/${personId}/companies/${linkIds[1]}`, {
           token, data: { isPrimary: true }, timeout: 15_000, retryTransport: false,
         }),
@@ -215,6 +227,60 @@ test.describe('TC-CRM-093 person primary company stays unique under concurrent w
       })
     } finally {
       await cleanupFixture(request, token, fixture)
+    }
+  })
+
+  test('undoing a company and tag change overlapping a primary PATCH lets both requests succeed', async ({ request }) => {
+    skipIfUndoTestsDisabled()
+    test.setTimeout(60_000)
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}_${randomInt(1_000_000)}`
+    let fixture: Fixture | null = null
+    let tagId: string | null = null
+    try {
+      fixture = await createFixture(request, token, stamp, 3)
+      const { personId, companyIds, linkIds } = fixture
+      const tagResponse = await apiRequest(request, 'POST', '/api/customers/tags', {
+        token, data: { slug: `primary-race-${stamp}`, label: `PrimaryRace ${stamp}` },
+      })
+      expect(tagResponse.status(), await tagResponse.text()).toBe(201)
+      tagId = expectOperation(tagResponse, 'tags.create').resourceId
+      expect(tagId).toBeTruthy()
+      const assigned = await apiRequest(request, 'POST', '/api/customers/tags/assign', {
+        token, data: { tagId, entityId: personId },
+      })
+      expect(assigned.status(), await assigned.text()).toBe(201)
+      const updated = await apiRequest(request, 'PUT', '/api/customers/people', {
+        token, data: { id: personId, companyEntityId: companyIds[1], tags: [] },
+      })
+      expect(updated.status(), await updated.text()).toBe(200)
+      const update = expectOperation(updated, 'customers.people.update')
+
+      const responses = await raceBehindGate(
+        tagAssignmentInsertGate(personId),
+        (isolated) => apiRequest(isolated, 'POST', UNDO_PATH, {
+          token, data: { undoToken: update.undoToken }, timeout: 15_000, retryTransport: false,
+        }),
+        (isolated) => apiRequest(isolated, 'PATCH', `/api/customers/people/${personId}/companies/${linkIds[2]}`, {
+          token, data: { isPrimary: true }, timeout: 15_000, retryTransport: false,
+        }),
+      )
+      expect(responses[0].status, responses[0].body).toBe(200)
+      expect(responses[1].status, responses[1].body).toBe(200)
+
+      await withClient(async (client) => {
+        const primaries = (await readLinks(client, personId)).filter((link) => link.isPrimary)
+        expect(primaries.map((link) => link.companyId)).toEqual([companyIds[2]])
+        expect(await readProfileCompanyId(client, personId)).toBe(companyIds[2])
+        const tags = await client.query<{ tag_id: string }>(
+          'select tag_id from customer_tag_assignments where entity_id = $1',
+          [personId],
+        )
+        expect(tags.rows.map((row) => row.tag_id)).toEqual([tagId])
+      })
+    } finally {
+      await cleanupFixture(request, token, fixture)
+      await deleteEntityIfExists(request, token, '/api/customers/tags', tagId)
     }
   })
 

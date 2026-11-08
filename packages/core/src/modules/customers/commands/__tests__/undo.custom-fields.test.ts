@@ -16,6 +16,7 @@ import { commandRegistry, registerCommand } from '@open-mercato/shared/lib/comma
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import {
   CustomerEntity,
   CustomerPersonProfile,
@@ -318,6 +319,13 @@ describe('customers commands undo custom fields', () => {
       })
     )
     expect(existingEntity.displayName).toBe('Before Name')
+    const lockCallIndex = em.findOne.mock.calls.findIndex(
+      ([ctor, , opts]: any[]) => ctor === CustomerEntity && opts?.lockMode === LockMode.PESSIMISTIC_WRITE,
+    )
+    const profileCallIndex = em.findOne.mock.calls.findIndex(([ctor]: any[]) => ctor === CustomerPersonProfile)
+    expect(lockCallIndex).toBeGreaterThanOrEqual(0)
+    expect(profileCallIndex).toBeGreaterThan(lockCallIndex)
+    expect(em.findOne.mock.invocationCallOrder[lockCallIndex]).toBeLessThan(em.flush.mock.invocationCallOrder[0])
   })
 
   it('companies.update undo restores custom fields', async () => {
