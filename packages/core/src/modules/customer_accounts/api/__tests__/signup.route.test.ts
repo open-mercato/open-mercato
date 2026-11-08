@@ -24,6 +24,7 @@ const mockCustomerTokenService = {
 }
 
 const mockEm = {
+  transactional: jest.fn(async <Result>(work: (manager: typeof mockEm) => Promise<Result>): Promise<Result> => work(mockEm)),
   getConnection: () => ({ execute: mockExecute }),
   findOne: jest.fn((entity: { name?: string }, ...rest: unknown[]) =>
     entity?.name === 'Organization'

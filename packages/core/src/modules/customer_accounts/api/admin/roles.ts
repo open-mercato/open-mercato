@@ -80,7 +80,7 @@ export async function GET(req: Request) {
     isSystem: role.isSystem,
     customerAssignable: role.customerAssignable,
     createdAt: role.createdAt,
-    updatedAt: role.updatedAt || null,
+    updatedAt: role.updatedAt ?? role.createdAt,
   }))
 
   return NextResponse.json({ ok: true, items, total, totalPages, page })
@@ -165,6 +165,7 @@ export async function POST(req: Request) {
       isSystem: role.isSystem,
       customerAssignable: role.customerAssignable,
       createdAt: role.createdAt,
+      updatedAt: role.updatedAt ?? role.createdAt,
     },
   }, { status: 201 })
 }
@@ -190,6 +191,7 @@ const roleResponseSchema = z.object({
   isSystem: z.boolean(),
   customerAssignable: z.boolean(),
   createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime().nullable(),
 })
 
 const errorSchema = z.object({ ok: z.literal(false), error: z.string() })

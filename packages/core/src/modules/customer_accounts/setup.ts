@@ -1,3 +1,5 @@
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { LockMode } from '@mikro-orm/core'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { hash } from 'bcryptjs'
@@ -227,36 +229,38 @@ export const setup: ModuleSetupConfig = {
     const BCRYPT_COST = 10
 
     for (const entry of EXAMPLE_PORTAL_ACCOUNTS) {
-      const emailHash = hashForLookup(entry.email)
-      const existing = await em.findOne(CustomerUser, { emailHash, tenantId, deletedAt: null })
-      if (existing) continue
+      await em.transactional(async (tx) => {
+        const emailHash = hashForLookup(entry.email)
+        const existing = await findOneWithDecryption(tx, CustomerUser, { emailHash, tenantId, deletedAt: null }, undefined, { tenantId, organizationId })
+        if (existing) return
 
-      const passwordHash = await hash(entry.password, BCRYPT_COST)
-      const user = em.create(CustomerUser, {
-        email: entry.email,
-        emailHash,
-        passwordHash,
-        displayName: entry.displayName,
-        tenantId,
-        organizationId,
-        isActive: true,
-        failedLoginAttempts: 0,
-        emailVerifiedAt: new Date(),
-        createdAt: new Date(),
-      } as any)
-      em.persist(user)
-
-      const role = await em.findOne(CustomerRole, { tenantId, slug: entry.roleSlug, deletedAt: null })
-      if (role) {
-        const userRole = em.create(CustomerUserRole, {
-          user,
-          role,
+        const passwordHash = await hash(entry.password, BCRYPT_COST)
+        const user = tx.create(CustomerUser, {
+          email: entry.email,
+          emailHash,
+          passwordHash,
+          displayName: entry.displayName,
+          tenantId,
+          organizationId,
+          isActive: true,
+          failedLoginAttempts: 0,
+          emailVerifiedAt: new Date(),
           createdAt: new Date(),
         } as any)
-        em.persist(userRole)
-      }
+        tx.persist(user)
+
+        const role = await findOneWithDecryption(tx, CustomerRole, { tenantId, slug: entry.roleSlug, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }, { tenantId, organizationId })
+        if (role) {
+          const userRole = tx.create(CustomerUserRole, {
+            user,
+            role,
+            createdAt: new Date(),
+          } as any)
+          tx.persist(userRole)
+        }
+        await tx.flush()
+      })
     }
-    await em.flush()
   },
 }
 

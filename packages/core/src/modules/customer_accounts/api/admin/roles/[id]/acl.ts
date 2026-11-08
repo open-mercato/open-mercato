@@ -65,7 +65,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     enforceCommandOptimisticLock({
       resourceKind: ROLE_RESOURCE_KIND,
       resourceId: role.id,
-      current: role.updatedAt ?? null,
+      current: role.updatedAt ?? role.createdAt,
       request: req,
     })
   } catch (err) {
@@ -117,7 +117,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   await em.nativeUpdate(CustomerRole, { id: role.id }, { updatedAt: nextUpdatedAt })
 
   const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
-  await customerRbacService.invalidateRoleCache(role.id)
+  await customerRbacService.invalidateRoleCache(role.id, role.tenantId)
 
   if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
     await runCrudMutationGuardAfterSuccess(container, {

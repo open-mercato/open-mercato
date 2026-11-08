@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
@@ -54,36 +55,36 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
 
-  // Validate all roles are customer_assignable and collect for assignment
-  const requestedRoleIds = parsed.data.roleIds
-  const fetchedRoles = requestedRoleIds.length > 0
-    ? await findWithDecryption(
-        em,
-        CustomerRole,
-        {
-          id: { $in: requestedRoleIds },
-          tenantId: auth.tenantId,
-          organizationId: auth.orgId,
-          deletedAt: null,
-        } as any,
-        undefined,
-        { tenantId: auth.tenantId, organizationId: auth.orgId },
-      )
-    : []
-  const fetchedRolesById = new Map(fetchedRoles.map((role) => [role.id, role]))
-  const validatedRoles: InstanceType<typeof CustomerRole>[] = []
-  for (const roleId of requestedRoleIds) {
-    const role = fetchedRolesById.get(roleId)
-    if (!role || !role.customerAssignable) {
-      return NextResponse.json({ ok: false, error: 'Role not found or not assignable' }, { status: 400 })
-    }
-    validatedRoles.push(role)
-  }
-
   // Replace the role set atomically: deleting the old roles and inserting the new
   // ones in one transaction prevents a flush failure from leaving the user with
   // zero roles (portal lockout / privilege loss) (#2337).
-  await em.transactional(async (tx) => {
+  const assignmentError = await em.transactional(async (tx) => {
+    // Validate all roles are customer_assignable and collect for assignment
+    const requestedRoleIds = parsed.data.roleIds
+    const fetchedRoles = requestedRoleIds.length > 0
+      ? await findWithDecryption(
+          tx,
+          CustomerRole,
+          {
+            id: { $in: requestedRoleIds },
+            tenantId: auth.tenantId,
+            organizationId: auth.orgId,
+            deletedAt: null,
+          } as any,
+          { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true, orderBy: { id: 'asc' } },
+          { tenantId: auth.tenantId, organizationId: auth.orgId },
+        )
+      : []
+    const fetchedRolesById = new Map(fetchedRoles.map((role) => [role.id, role]))
+    const validatedRoles: InstanceType<typeof CustomerRole>[] = []
+    for (const roleId of requestedRoleIds) {
+      const role = fetchedRolesById.get(roleId)
+      if (!role || !role.customerAssignable) {
+        return NextResponse.json({ ok: false, error: 'Role not found or not assignable' }, { status: 400 })
+      }
+      validatedRoles.push(role)
+    }
+
     await tx.nativeDelete(CustomerUserRole, { user: targetUser.id as any })
     for (const role of validatedRoles) {
       const userRole = tx.create(CustomerUserRole, {
@@ -94,8 +95,9 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       tx.persist(userRole)
     }
   })
+  if (assignmentError) return assignmentError
 
-  await customerRbacService.invalidateUserCache(targetUser.id)
+  await customerRbacService.invalidateUserCache(targetUser.id, auth.tenantId)
 
   return NextResponse.json({ ok: true })
 }

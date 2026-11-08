@@ -107,6 +107,16 @@ describe('customer role ACL PUT — optimistic locking + mutation guard (#3194)'
     delete process.env.OM_OPTIMISTIC_LOCK
   })
 
+  it('uses creation time to reject a stale ACL write on a legacy null-version role', async () => {
+    em.findOne.mockImplementation(async (entity: unknown) => entity === CustomerRoleStub
+      ? { id: roleId, tenantId, createdAt: new Date(CURRENT_VERSION), updatedAt: null }
+      : null)
+    const response = await PUT(makeRequest(['portal.orders.view'], STALE_VERSION), { params: { id: roleId } })
+    expect(response.status).toBe(409)
+    expect((await response.json()).currentUpdatedAt).toBe(CURRENT_VERSION)
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
   it('returns the structured 409 conflict body when the expected version is stale', async () => {
     const res = await PUT(makeRequest(['portal.orders.view'], STALE_VERSION), { params: { id: roleId } })
     expect(res.status).toBe(409)
@@ -135,13 +145,13 @@ describe('customer role ACL PUT — optimistic locking + mutation guard (#3194)'
       { id: roleId },
       expect.objectContaining({ updatedAt: expect.any(Date) }),
     )
-    expect(invalidateRoleCacheMock).toHaveBeenCalledWith(roleId)
+    expect(invalidateRoleCacheMock).toHaveBeenCalledWith(roleId, tenantId)
   })
 
   it('succeeds without a version header (strictly additive — plain API consumers keep working)', async () => {
     const res = await PUT(makeRequest(['portal.orders.view'], null), { params: { id: roleId } })
     expect(res.status).toBe(200)
-    expect(invalidateRoleCacheMock).toHaveBeenCalledWith(roleId)
+    expect(invalidateRoleCacheMock).toHaveBeenCalledWith(roleId, tenantId)
   })
 
   it('blocks the write when the generic mutation guard rejects it', async () => {

@@ -46,18 +46,19 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
   const tenantId = '11111111-1111-4111-8111-111111111111'
   const organizationId = '22222222-2222-4222-8222-222222222222'
 
-  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'transactional'>>
   let service: CustomerInvitationService
 
   beforeEach(() => {
     jest.clearAllMocks()
     mockEm = {
+      transactional: jest.fn(async <Result>(work: (manager: typeof mockEm) => Promise<Result>): Promise<Result> => work(mockEm)),
       find: jest.fn(),
       findOne: jest.fn(),
       create: jest.fn((_: unknown, data: unknown) => data as any),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
-    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'transactional'>>
     service = new CustomerInvitationService(mockEm as unknown as EntityManager)
   })
 
@@ -209,7 +210,7 @@ describe('CustomerInvitationService.acceptInvitation — soft-deleted email reus
   const tenantId = '11111111-1111-4111-8111-111111111111'
   const organizationId = '22222222-2222-4222-8222-222222222222'
 
-  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'transactional'>>
   let service: CustomerInvitationService
 
   const buildInvitation = () => ({
@@ -228,12 +229,13 @@ describe('CustomerInvitationService.acceptInvitation — soft-deleted email reus
   beforeEach(() => {
     jest.clearAllMocks()
     mockEm = {
+      transactional: jest.fn(async <Result>(work: (manager: typeof mockEm) => Promise<Result>): Promise<Result> => work(mockEm)),
       find: jest.fn(),
       findOne: jest.fn(),
       create: jest.fn((_: unknown, data: unknown) => data as any),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
-    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'transactional'>>
     service = new CustomerInvitationService(mockEm as unknown as EntityManager)
   })
 
@@ -342,18 +344,19 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
   const tenantId = '11111111-1111-4111-8111-111111111111'
   const organizationId = '22222222-2222-4222-8222-222222222222'
 
-  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'transactional'>>
   let service: CustomerInvitationService
 
   beforeEach(() => {
     jest.clearAllMocks()
     mockEm = {
+      transactional: jest.fn(async <Result>(work: (manager: typeof mockEm) => Promise<Result>): Promise<Result> => work(mockEm)),
       find: jest.fn(),
       findOne: jest.fn(),
       create: jest.fn((_: unknown, data: unknown) => data as any),
       persist: jest.fn(() => mockEm),
       flush: jest.fn(async () => undefined),
-    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'transactional'>>
     service = new CustomerInvitationService(mockEm as unknown as EntityManager)
   })
 

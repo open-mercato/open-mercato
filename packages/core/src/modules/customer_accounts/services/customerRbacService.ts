@@ -1,5 +1,5 @@
 import { EntityManager } from '@mikro-orm/postgresql'
-import type { CacheStrategy } from '@open-mercato/cache'
+import { getCurrentCacheTenant, runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import {
   CustomerUserAcl,
   CustomerRoleAcl,
@@ -34,7 +34,7 @@ export class CustomerRbacService {
   private getCacheKey(userId: string, scope: { tenantId: string; organizationId: string }): string {
     // Keep the authorization query versioned in the key so cache entries created
     // before scope hardening cannot preserve grants that are no longer valid.
-    return `customer_rbac:v2:${userId}:${scope.tenantId}:${scope.organizationId}`
+    return `customer_rbac:v3:${userId}:${scope.tenantId}:${scope.organizationId}`
   }
 
   private getUserTag(userId: string): string {
@@ -45,9 +45,10 @@ export class CustomerRbacService {
     return `customer_rbac:tenant:${tenantId}`
   }
 
-  private async getFromCache(cacheKey: string): Promise<CustomerAclData | null> {
-    if (!this.cache) return null
-    const cached = await this.cache.get(cacheKey)
+  private async getFromCache(cacheKey: string, tenantId: string): Promise<CustomerAclData | null> {
+    const cache = this.cache
+    if (!cache) return null
+    const cached = await runWithCacheTenant(tenantId, () => cache.get(cacheKey))
     if (!cached) return null
     return isCustomerAclData(cached) ? cached : null
   }
@@ -58,13 +59,14 @@ export class CustomerRbacService {
     userId: string,
     scope: { tenantId: string; organizationId: string },
   ): Promise<void> {
-    if (!this.cache) return
+    const cache = this.cache
+    if (!cache) return
     const tags = [
       this.getUserTag(userId),
       this.getTenantTag(scope.tenantId),
       'customer_rbac:all',
     ]
-    await this.cache.set(cacheKey, data, { ttl: this.cacheTtlMs, tags })
+    await runWithCacheTenant(scope.tenantId, () => cache.set(cacheKey, data, { ttl: this.cacheTtlMs, tags }))
   }
 
   async loadAcl(
@@ -72,7 +74,7 @@ export class CustomerRbacService {
     scope: { tenantId: string; organizationId: string },
   ): Promise<CustomerAclData> {
     const cacheKey = this.getCacheKey(userId, scope)
-    const cached = await this.getFromCache(cacheKey)
+    const cached = await this.getFromCache(cacheKey, scope.tenantId)
     if (cached) return cached
 
     const em = this.em.fork()
@@ -146,19 +148,22 @@ export class CustomerRbacService {
     return resolveEffectiveFeatures(acl.isPortalAdmin ? ['portal.*'] : acl.features)
   }
 
-  async invalidateUserCache(userId: string): Promise<void> {
-    if (!this.cache) return
-    await this.cache.deleteByTags([this.getUserTag(userId)])
+  async invalidateUserCache(userId: string, tenantId = getCurrentCacheTenant()): Promise<void> {
+    const cache = this.cache
+    if (!cache) return
+    await runWithCacheTenant(tenantId, () => cache.deleteByTags([this.getUserTag(userId)]))
   }
 
-  async invalidateRoleCache(roleId: string): Promise<void> {
-    if (!this.cache) return
+  async invalidateRoleCache(roleId: string, tenantId = getCurrentCacheTenant()): Promise<void> {
+    const cache = this.cache
+    if (!cache) return
     // When a role changes, invalidate all customer RBAC caches since we don't track role→user mappings
-    await this.cache.deleteByTags(['customer_rbac:all'])
+    await runWithCacheTenant(tenantId, () => cache.deleteByTags(['customer_rbac:all']))
   }
 
   async invalidateTenantCache(tenantId: string): Promise<void> {
-    if (!this.cache) return
-    await this.cache.deleteByTags([this.getTenantTag(tenantId)])
+    const cache = this.cache
+    if (!cache) return
+    await runWithCacheTenant(tenantId, () => cache.deleteByTags([this.getTenantTag(tenantId)]))
   }
 }
