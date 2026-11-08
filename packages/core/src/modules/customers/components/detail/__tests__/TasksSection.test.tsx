@@ -37,6 +37,7 @@ jest.mock('../TaskDialog', () => ({
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: () => null,
+  ErrorMessage: ({ label }: { label: string }) => <div role="alert">{label}</div>,
   TabEmptyState: ({ title, children }: { title: string; children?: React.ReactNode }) => (
     <div>
       <div>{title}</div>
@@ -108,6 +109,63 @@ describe('TasksSection', () => {
     )
 
     expect(screen.getByRole('link', { name: 'View all tasks' })).toHaveAttribute('href', '/backend/customer-tasks')
+  })
+
+  it.each([false, true])('shows an initial read error instead of an empty task list (canonical=%s)', (useCanonicalInteractions) => {
+    const failedRead = {
+      tasks: [],
+      interactions: [],
+      isInitialLoading: false,
+      isLoadingMore: false,
+      isMutating: false,
+      hasMore: false,
+      error: 'Task reader is unavailable',
+    }
+    usePersonTasksMock.mockReturnValue(failedRead)
+    useInteractionsMock.mockReturnValue(failedRead)
+
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+        useCanonicalInteractions={useCanonicalInteractions}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Task reader is unavailable')
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
+  })
+
+  it.each([false, true])('retains loaded tasks while showing a later read error (canonical=%s)', (useCanonicalInteractions) => {
+    const failedRead = {
+      tasks: [sampleTask],
+      interactions: [sampleTask],
+      isInitialLoading: false,
+      isLoadingMore: false,
+      isMutating: false,
+      hasMore: false,
+      error: 'Task refresh failed',
+    }
+    usePersonTasksMock.mockReturnValue(failedRead)
+    useInteractionsMock.mockReturnValue(failedRead)
+
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[sampleTask]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+        useCanonicalInteractions={useCanonicalInteractions}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Task refresh failed')
+    expect(screen.getByText('Follow up call')).toBeVisible()
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
   })
 
   it('emits the persistent section action when entityId is provided', () => {
