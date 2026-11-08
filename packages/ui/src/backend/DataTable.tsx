@@ -292,7 +292,9 @@ export type DataTableSaveViewInput = {
   name?: string
   /**
    * Target view id. Defaults to the active personal view; pass `null` to force
-   * creating a new view (then `name` is required).
+   * creating a new view (then `name` is required). Creating never overwrites:
+   * when another personal view already uses `name`, the save resolves
+   * `{ ok: false, reason: 'failed' }` with the 409 `duplicate_name` in `error`.
    */
   perspectiveId?: string | null
   /** Marks the saved view as the user's default. Defaults to the target's current flag. */
@@ -1239,7 +1241,7 @@ function ViewSwitcherDropdown({
   const activeName = allViews.find((v) => v.id === activePerspectiveId)?.name.trim() || ''
   const activeLabel = activeName || t('ui.dataTable.perspectives.allViews', 'All views')
   return (
-    <div className="inline-flex h-9 items-center rounded-md border border-input text-sm">
+    <div className="inline-flex h-9 min-w-0 max-w-full items-center rounded-md border border-input text-sm">
       <Button
         data-testid="data-table-open-views-sidebar"
         type="button"
@@ -1258,7 +1260,8 @@ function ViewSwitcherDropdown({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-full max-w-[200px] rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
+            className="h-full min-w-0 max-w-48 shrink rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
+            title={activeLabel}
           >
             <span className="truncate">{activeLabel}</span>
             <ChevronDown className="size-3.5 shrink-0 ml-1.5" />
@@ -2332,6 +2335,7 @@ function DataTableImpl<T extends RowData>({
     setRoleDefault: boolean
     perspectiveId?: string | null
     settings?: PerspectiveSettings
+    createOnly?: boolean
   }
 
   const perspectiveQueryKey: [string, string | null] = ['table-perspectives', perspectiveTableId]
@@ -2385,6 +2389,7 @@ function DataTableImpl<T extends RowData>({
         isDefault: input.isDefault,
         applyToRoles: input.applyToRoles,
         setRoleDefault: input.setRoleDefault,
+        ...(input.createOnly ? { createOnly: true } : {}),
         ...(Object.keys(roleExpectedUpdatedAtByRoleId).length > 0
           ? { roleExpectedUpdatedAtByRoleId }
           : {}),
@@ -2580,7 +2585,7 @@ function DataTableImpl<T extends RowData>({
     applyPerspectiveSettings(item.settings, item.id)
   }, [applyPerspectiveSettings])
 
-  const handlePerspectiveSave = React.useCallback(async (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean; perspectiveId?: string | null; settings?: PerspectiveSettings }) => {
+  const handlePerspectiveSave = React.useCallback(async (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean; perspectiveId?: string | null; settings?: PerspectiveSettings; createOnly?: boolean }) => {
     const normalizedRoles = Array.from(new Set(input.applyToRoles))
     await savePerspectiveMutation.mutateAsync({
       name: input.name.trim(),
@@ -2589,6 +2594,7 @@ function DataTableImpl<T extends RowData>({
       setRoleDefault: normalizedRoles.length > 0 ? input.setRoleDefault : false,
       perspectiveId: input.perspectiveId !== undefined ? input.perspectiveId : activePersonalPerspectiveId,
       settings: input.settings,
+      createOnly: input.createOnly,
     })
   }, [savePerspectiveMutation, activePersonalPerspectiveId])
 
@@ -2702,6 +2708,7 @@ function DataTableImpl<T extends RowData>({
         applyToRoles: [],
         setRoleDefault: false,
         perspectiveId: targetId ?? null,
+        createOnly: !targetId,
       })
       return { ok: true, perspectiveId: saved?.perspective?.id ?? null }
     } catch (error) {
@@ -3501,7 +3508,7 @@ function DataTableImpl<T extends RowData>({
       </Button>
     ) : null
     const leadingItems = advancedFilterButton || perspectiveButtonLeading || saveViewButton ? (
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
         {advancedFilterButton}
         {perspectiveButtonLeading}
         {saveViewButton}
