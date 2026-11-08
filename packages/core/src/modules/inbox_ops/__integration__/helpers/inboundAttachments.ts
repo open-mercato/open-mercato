@@ -286,16 +286,38 @@ export async function waitForAttachmentsCompleted(request: APIRequestContext, to
 
 const TERMINAL_EMAIL_STATUSES = ['failed', 'needs_review', 'processed']
 
+/** Queue of persistent event subscribers, where the extraction subscriber of `inbox_ops.email.received` runs. */
+export const EVENTS_QUEUE = 'events'
+
 /**
  * Waits until extraction has finished with the email (CI has no LLM key, so usually `failed`).
  * UI specs wait for it because extraction changes the email's `updated_at` after ingestion.
+ *
+ * The extraction subscriber is persistent, and with single delivery (the default outside the
+ * ephemeral harness) it runs on the `events` queue, so each poll drains that queue: standalone runs
+ * (`AUTO_SPAWN_WORKERS=false`) have no worker for it, and with managed workers the drain only
+ * waits for the queue to go idle. A drain that fails (a busy shared queue under managed workers
+ * outlasting the expect timeout) does not end the wait; its error is attached if the wait times out.
  */
-export async function waitForTerminalEmailStatus(request: APIRequestContext, token: string, emailId: string): Promise<InboxEmailDetail> {
+export async function waitForTerminalEmailStatus(
+  request: APIRequestContext,
+  token: string,
+  emailId: string,
+  options: { timeoutMs?: number } = {},
+): Promise<InboxEmailDetail> {
   let latest: InboxEmailDetail | null = null
-  await expect.poll(async () => {
-    latest = (await fetchInboxEmail(request, token, emailId)).email
-    return TERMINAL_EMAIL_STATUSES.includes(String(latest?.status ?? ''))
-  }, { timeout: COMPLETION_TIMEOUT_MS, intervals: [500, 1_000, 2_000], message: `extraction of ${emailId} should finish` }).toBe(true)
+  let drainError: unknown = null
+  try {
+    await expect.poll(async () => {
+      drainError = await drainIntegrationQueue(EVENTS_QUEUE).then(() => null, (error: unknown) => error)
+      latest = (await fetchInboxEmail(request, token, emailId)).email
+      return TERMINAL_EMAIL_STATUSES.includes(String(latest?.status ?? ''))
+    }, { timeout: options.timeoutMs ?? COMPLETION_TIMEOUT_MS, intervals: [500, 1_000, 2_000], message: `extraction of ${emailId} should finish` }).toBe(true)
+  } catch (error) {
+    if (!drainError) throw error
+    const drainMessage = drainError instanceof Error ? drainError.message : String(drainError)
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nLast drain of the ${EVENTS_QUEUE} queue failed: ${drainMessage}`)
+  }
   if (!latest) throw new Error('[internal] inbox email disappeared while waiting for extraction')
   return latest
 }

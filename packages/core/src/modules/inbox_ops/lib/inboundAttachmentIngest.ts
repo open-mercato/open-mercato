@@ -109,9 +109,11 @@ export type InboundAttachmentIngestOutcome =
   | 'already_completed'
   | 'claim_lost'
   | 'lease_live_requeued'
+  | 'released_requeued'
   | 'completed'
   | 'finalized'
   | 'retry_requeued'
+  | 'error_requeued'
 
 export type InboundAttachmentIngestRunResult = {
   outcome: InboundAttachmentIngestOutcome
@@ -341,11 +343,19 @@ async function reenqueueSelf(run: IngestRunContext, delayMs: number): Promise<bo
   return result.kind === 'enqueued'
 }
 
-/** Another claim's lease is still live: re-enqueue after it, so a fast retry after a crash cannot end the chain. */
+/**
+ * Another claim's lease is still live: re-enqueue after it, so a fast retry after a crash cannot end
+ * the chain. When the holder already released the email (`pending` again) between our claim and this
+ * read, re-enqueue at once instead: the holder's own follow-up may be its last.
+ */
 async function afterLostClaimRace(run: IngestRunContext): Promise<InboundAttachmentIngestRunResult> {
   const current = await loadEmail(run.em, run.ref)
   const settled = await settleUnclaimable(run, current)
   if (settled) return settled
+  if (current?.attachmentsStatus === 'pending') {
+    const requeued = await reenqueueSelf(run, 0)
+    return { outcome: requeued ? 'released_requeued' : 'superseded' }
+  }
   const claimedAt = current?.attachmentsClaimedAt?.getTime()
   if (current?.attachmentsStatus !== 'processing' || claimedAt === undefined) return { outcome: 'claim_lost' }
   const remainingLeaseMs = claimedAt + run.config.leaseMs - run.now().getTime()
@@ -678,7 +688,7 @@ async function ingestClaimed(run: IngestRunContext, claim: Claim, email: InboxEm
  * propagates. The clock only dates the fault: finalization still happens only at the end of a run
  * that attempted every remaining `pending` part (step 5), so parts nobody tried never time out.
  */
-async function releaseClaimAfterError(run: IngestRunContext, claim: Claim, error: unknown): Promise<void> {
+async function releaseClaimAfterError(run: IngestRunContext, claim: Claim, error: unknown): Promise<boolean> {
   if (!(error && typeof error === 'object' && reportedRunErrors.has(error))) {
     logger.warn('Inbound attachment ingest run failed unexpectedly', { emailId: claim.id, generation: run.job.generation })
     reportInboundAttachmentError(error, 'inbox_ops.attachment_ingest_failed', {
@@ -688,7 +698,7 @@ async function releaseClaimAfterError(run: IngestRunContext, claim: Claim, error
     })
   }
   try {
-    await run.em.transactional(async (tx) => {
+    const released = await run.em.transactional(async (tx) => {
       const claimed = { id: claim.id, tenantId: claim.tenantId, organizationId: claim.organizationId, attachmentsClaimToken: claim.token }
       await tx.nativeUpdate(InboxEmail, { ...claimed, attachmentsFirstFailureAt: null }, { attachmentsFirstFailureAt: run.now() })
       const reset = await tx.nativeUpdate(
@@ -696,16 +706,20 @@ async function releaseClaimAfterError(run: IngestRunContext, claim: Claim, error
         claimed,
         { attachmentsStatus: 'pending', attachmentsClaimToken: null, attachmentsNextRunAt: run.now() },
       )
-      if (reset === 0 || !run.inFlightRowId) return
+      if (reset === 0) return false
+      if (!run.inFlightRowId) return true
       await tx.nativeUpdate(
         InboxEmailAttachment,
         { ...run.ledgerScope, id: run.inFlightRowId, status: 'pending' },
         { inFlightAt: null, updatedAt: run.now() },
       )
+      return true
     })
     run.inFlightRowId = null
+    return released
   } catch (cleanupError) {
     logger.warn('Failed to release an inbound attachment claim after an unexpected error', { emailId: claim.id, err: cleanupError })
+    return false
   }
 }
 
@@ -733,8 +747,17 @@ export async function runInboundAttachmentIngest(
     return await ingestClaimed(run, claim, email)
   } catch (error) {
     // A planned retry already reset the email to `pending` (and cleared the claim) before throwing.
-    if (!(error instanceof InboundAttachmentIngestRetryError)) await releaseClaimAfterError(run, claim, error)
-    throw error
+    if (error instanceof InboundAttachmentIngestRetryError) throw error
+    const released = await releaseClaimAfterError(run, claim, error)
+    // The queue does not retry past its last attempt, so a fresh delayed job keeps the chain alive.
+    if (!released || run.attemptNumber < INBOX_OPS_ATTACHMENT_INGEST_QUEUE_ATTEMPTS) throw error
+    const requeued = await reenqueueSelf(run, run.config.retryDelayMs)
+    logger.warn('Re-enqueued an inbound attachment ingest after an unexpected error on the last queue attempt', {
+      emailId: claim.id,
+      generation: run.job.generation,
+      requeued,
+    })
+    return { outcome: requeued ? 'error_requeued' : 'superseded' }
   }
 }
 

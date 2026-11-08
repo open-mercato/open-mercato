@@ -5,6 +5,7 @@ import { InboxEmail } from '../../data/entities'
 import { emailListQuerySchema } from '../../data/validators'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { canViewEmailContent, serializeInboxEmailListItem } from './response'
 import { resolveInboundAttachmentsRetryable } from '../../lib/inboundAttachmentReprocess'
 
@@ -15,6 +16,7 @@ export const metadata = {
 }
 
 export async function GET(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
     const url = new URL(req.url)
     const query = emailListQuerySchema.parse({
@@ -66,10 +68,10 @@ export async function GET(req: Request) {
     })
   } catch (err) {
     if (err instanceof UnauthorizedError) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: translate('inbox_ops.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }
     logger.error('Failed to list emails', { err })
-    return NextResponse.json({ error: 'Failed to list emails' }, { status: 500 })
+    return NextResponse.json({ error: translate('inbox_ops.errors.emailsListFailed', 'Failed to list emails') }, { status: 500 })
   }
 }
 

@@ -8,7 +8,7 @@ import {
   inboxProposalActionSourceRefSchema,
   type extractedSourceRefSchema,
 } from '../data/validators'
-import { renderAttachmentPromptName, unescapePromptAttribute } from './extractionPrompt'
+import { codePointSafeEnd, renderAttachmentPromptName, unescapePromptAttribute } from './extractionPrompt'
 
 /** One model-output ref after the lenient parse; `undefined` marks a malformed ref. */
 export type ExtractedSourceRef = NonNullable<z.infer<typeof extractedSourceRefSchema>>
@@ -23,7 +23,7 @@ function clip(value: string | undefined, max: number): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.replace(/\s+/g, ' ').trim()
   if (!trimmed) return undefined
-  return trimmed.length > max ? trimmed.slice(0, max) : trimmed
+  return trimmed.length > max ? trimmed.slice(0, codePointSafeEnd(trimmed, max)) : trimmed
 }
 
 function positiveInteger(value: number | undefined): number | undefined {

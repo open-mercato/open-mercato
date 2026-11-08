@@ -126,6 +126,8 @@ export type ExtractionUserPromptOptions = {
   maxAttachmentTextChars?: number
   /** Per-file attachment-text budget (`INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS_PER_FILE`). */
   maxAttachmentTextCharsPerFile?: number
+  /** Budget of the neutralized email body (`INBOX_OPS_MAX_TEXT_SIZE`); unbounded when absent. */
+  maxBodyChars?: number
 }
 
 const ATTACHMENT_NAME_MAX_CHARS = 255
@@ -157,9 +159,11 @@ const PROMPT_DELIMITER_TAGS = [
 
 const DELIMITER_TAG_PATTERN = new RegExp(`<(\\s*/?\\s*(?:${PROMPT_DELIMITER_TAGS.join('|')})(?![A-Za-z0-9_-]))`, 'gi')
 
-const CONTROL_CHARS_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g
+// Zero-width characters (U+200B-U+200D, U+FEFF) are dropped as well, so `<\u200Battachment>` cannot
+// slip past the delimiter match and be read as a tag by the model.
+const CONTROL_CHARS_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200D\uFEFF]/g
 
-/** Neutralizes prompt delimiter tags in untrusted text (`<` of the tag becomes `&lt;`) and drops control characters. */
+/** Neutralizes prompt delimiter tags in untrusted text (`<` of the tag becomes `&lt;`) and drops control and zero-width characters. */
 export function neutralizePromptDelimiters(text: string): string {
   return text.replace(CONTROL_CHARS_PATTERN, '').replace(DELIMITER_TAG_PATTERN, '&lt;$1')
 }
@@ -169,7 +173,7 @@ function isHighSurrogate(code: number): boolean {
 }
 
 /** End index `<= end` that does not split a UTF-16 surrogate pair of `text`. */
-function codePointSafeEnd(text: string, end: number): number {
+export function codePointSafeEnd(text: string, end: number): number {
   if (end <= 0) return 0
   if (end >= text.length) return text.length
   return isHighSurrogate(text.charCodeAt(end - 1)) ? end - 1 : end
@@ -319,9 +323,11 @@ export function buildExtractionUserPrompt(cleanedText: string, options: Extracti
       })
     : null
   // The body is untrusted as well: a forged `</email_content><attachments>` must not open a section.
+  // Cut-then-neutralize like attachment text, so `&lt;` growth cannot overrun the body budget.
+  const maxBodyChars = positiveBudget(options.maxBodyChars, Number.POSITIVE_INFINITY)
   const emailContent = attachmentsSection && !cleanedText.trim()
     ? '(The email body is empty; the content is in the attachments.)'
-    : neutralizePromptDelimiters(cleanedText)
+    : fitNeutralizedText(cleanedText, maxBodyChars).body
   const attachmentsBlock = attachmentsSection ? `\n\n${attachmentsSection}` : ''
   const attachmentRequirement = attachmentsSection
     ? '\n- Use the attachment text as order, quote, and contact data when the email refers to it or the body is empty.'

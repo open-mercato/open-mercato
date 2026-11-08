@@ -949,7 +949,7 @@ describe('extractionWorker', () => {
       })
     }
 
-    it('does not query the ledger and keeps the one-argument prompt for emails without attachmentsStatus', async () => {
+    it('does not query the ledger and passes only the body budget to the prompt for emails without attachmentsStatus', async () => {
       mockNativeUpdate.mockResolvedValue(1)
       mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: null }))
       mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
@@ -957,7 +957,7 @@ describe('extractionWorker', () => {
       await handle(basePayload, mockCtx as any)
 
       expect(mockFindWithDecryption).not.toHaveBeenCalled()
-      expect(mockedPrompt.buildExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String))
+      expect(mockedPrompt.buildExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 204800 })
     })
 
     it('loads the ledger scoped to tenant and organization and passes listed rows to the prompt', async () => {
@@ -965,18 +965,24 @@ describe('extractionWorker', () => {
       mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: 'completed' }))
       mockFindWithDecryption.mockResolvedValueOnce([
         ledgerRow({}),
-        ledgerRow({ fileName: 'logo.png', mimeType: 'image/png', status: 'skipped', reason: 'inline_decoration', attachmentId: null, extractedText: null }),
-        ledgerRow({ fileName: 'old.pdf', status: 'released', attachmentId: null, extractedText: null }),
         ledgerRow({ fileName: 'setup.exe', mimeType: null, declaredMimeType: 'application/x-msdownload', status: 'skipped', reason: 'dangerous_executable', attachmentId: null, extractedText: null }),
       ])
       mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
 
       await handle(basePayload, mockCtx as any)
 
+      // Released and decorative parts are filtered in SQL.
       expect(mockFindWithDecryption).toHaveBeenCalledWith(
         mockEm,
         InboxEmailAttachment,
-        expect.objectContaining({ inboxEmailId: 'email-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null }),
+        {
+          inboxEmailId: 'email-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          deletedAt: null,
+          status: { $ne: 'released' },
+          $or: [{ reason: null }, { reason: { $ne: 'inline_decoration' } }],
+        },
         expect.anything(),
         { tenantId: 'tenant-1', organizationId: 'org-1' },
       )
@@ -987,6 +993,36 @@ describe('extractionWorker', () => {
       ])
       expect(options.maxAttachmentTextChars).toBe(60000)
       expect(options.maxAttachmentTextCharsPerFile).toBe(20000)
+    })
+
+    it('falls back to the default text budgets when the attachment configuration is invalid', async () => {
+      const saved = {
+        lease: process.env.INBOX_OPS_ATTACHMENT_LEASE_MS,
+        total: process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS,
+      }
+      // A lease below the fetch timeouts fails validation of the whole configuration.
+      process.env.INBOX_OPS_ATTACHMENT_LEASE_MS = '1'
+      process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS = '5'
+      try {
+        mockNativeUpdate.mockResolvedValue(1)
+        const email = makeEmail({ attachmentsStatus: 'completed' })
+        mockFindOneWithDecryption.mockResolvedValueOnce(email)
+        mockFindWithDecryption.mockResolvedValueOnce([ledgerRow({})])
+        mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+        await handle(basePayload, mockCtx as any)
+
+        const [, options] = mockedPrompt.buildExtractionUserPrompt.mock.calls[0]
+        expect(options.maxAttachmentTextChars).toBe(60000)
+        expect(options.maxAttachmentTextCharsPerFile).toBe(20000)
+        expect(mockRunExtraction).toHaveBeenCalledTimes(1)
+        expect(email.status).toBe('processed')
+      } finally {
+        for (const [key, value] of [['INBOX_OPS_ATTACHMENT_LEASE_MS', saved.lease], ['INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS', saved.total]] as const) {
+          if (value === undefined) delete process.env[key]
+          else process.env[key] = value
+        }
+      }
     })
 
     it('runs extraction for an empty body when an attachment has text', async () => {

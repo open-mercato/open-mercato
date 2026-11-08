@@ -153,6 +153,7 @@
   "inbox_ops.errors.emailDeleteFailed": "E-Mail konnte nicht gelöscht werden",
   "inbox_ops.errors.emailLoadFailed": "E-Mail konnte nicht geladen werden",
   "inbox_ops.errors.emailNotFound": "E-Mail nicht gefunden",
+  "inbox_ops.errors.emailsListFailed": "E-Mails konnten nicht aufgelistet werden",
   "inbox_ops.errors.missingEmailId": "E-Mail-ID fehlt",
   "inbox_ops.errors.reprocessAlreadyRequested": "Diese E-Mail wurde bereits zur erneuten Verarbeitung zurückgesetzt.",
   "inbox_ops.errors.reprocessFailed": "E-Mail konnte nicht erneut verarbeitet werden",

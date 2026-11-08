@@ -153,6 +153,7 @@
   "inbox_ops.errors.emailDeleteFailed": "No se pudo eliminar el correo",
   "inbox_ops.errors.emailLoadFailed": "No se pudo cargar el correo",
   "inbox_ops.errors.emailNotFound": "Correo no encontrado",
+  "inbox_ops.errors.emailsListFailed": "No se pudieron listar los correos",
   "inbox_ops.errors.missingEmailId": "Falta el ID del correo",
   "inbox_ops.errors.reprocessAlreadyRequested": "Este correo ya se restableció para volver a procesarlo.",
   "inbox_ops.errors.reprocessFailed": "No se pudo volver a procesar el correo",

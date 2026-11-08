@@ -127,7 +127,8 @@ export async function DELETE(req: Request) {
         tx,
         InboxEmail,
         { id, organizationId: ctx.organizationId, tenantId: ctx.tenantId, deletedAt: null },
-        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        // Only the version is needed, so the locked read does not decrypt the whole row.
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true, fields: ['id', 'updatedAt'] },
         ctx.scope,
       )
       if (!email) {

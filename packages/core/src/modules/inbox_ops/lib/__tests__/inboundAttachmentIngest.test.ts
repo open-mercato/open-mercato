@@ -487,6 +487,18 @@ describe('ingest: unexpected errors', () => {
     expect(second).toMatchObject({ status: 'pending', inFlightAt: staleInFlight, attempts: 1 })
   })
 
+  it('re-enqueues itself with the retry delay after releasing the claim on the last queue attempt', async () => {
+    const harness = createHarness({ parts: [{ id: 'a' }] })
+    harness.fetchImpl.mockResolvedValue(new Response('down', { status: 503 }))
+    failNextPartClear(harness, new Error('connection reset'))
+
+    await expect(harness.run(3)).resolves.toEqual({ outcome: 'error_requeued' })
+
+    expect(reportedCodes()).toEqual(['inbox_ops.attachment_ingest_failed'])
+    expect(harness.queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ generation: 2 }), { delayMs: config.retryDelayMs })
+    expect(harness.db.email(harness.email.id)).toMatchObject({ attachmentsStatus: 'pending', attachmentsClaimToken: null })
+  })
+
   it('does not charge the error as a crash on the next run', async () => {
     const harness = createHarness({ parts: [{ id: 'a' }] })
     harness.fetchImpl.mockResolvedValueOnce(new Response('down', { status: 503 }))
@@ -654,6 +666,24 @@ describe('ingest: claims', () => {
     await expect(harness.run()).resolves.toEqual({ outcome: 'lease_live_requeued' })
     expect(harness.queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ generation: 2 }), { delayMs: 20 * MINUTE })
     expect(harness.db.email(harness.email.id).attachmentsClaimToken).toBe('other')
+  })
+
+  it('re-enqueues at once when the holder released the email between the lost claim and the reload', async () => {
+    const harness = createHarness({
+      email: { attachmentsStatus: 'processing', attachmentsClaimToken: 'other', attachmentsClaimedAt: new Date(START.getTime() - 10 * MINUTE) },
+    })
+    const em = harness.deps.em as unknown as { nativeUpdate: (entity: unknown, where: unknown, data: Record<string, unknown>) => Promise<number> }
+    const original = em.nativeUpdate
+    em.nativeUpdate = async (entity, where, data) => {
+      const updated = await original(entity, where, data)
+      if (updated === 0 && data.attachmentsClaimToken === 'token-1') {
+        Object.assign(harness.db.email(harness.email.id), { attachmentsStatus: 'pending', attachmentsClaimToken: null, attachmentsClaimedAt: null })
+      }
+      return updated
+    }
+    await expect(harness.run()).resolves.toEqual({ outcome: 'released_requeued' })
+    expect(harness.queue.enqueue).toHaveBeenCalledTimes(1)
+    expect(harness.queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ generation: 2 }))
   })
 
   it('takes over an expired lease and starts the 6-hour clock', async () => {

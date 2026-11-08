@@ -153,6 +153,7 @@
   "inbox_ops.errors.emailDeleteFailed": "Failed to delete email",
   "inbox_ops.errors.emailLoadFailed": "Failed to load email",
   "inbox_ops.errors.emailNotFound": "Email not found",
+  "inbox_ops.errors.emailsListFailed": "Failed to list emails",
   "inbox_ops.errors.missingEmailId": "Missing email ID",
   "inbox_ops.errors.reprocessAlreadyRequested": "This email was already reset for reprocessing.",
   "inbox_ops.errors.reprocessFailed": "Failed to reprocess email",

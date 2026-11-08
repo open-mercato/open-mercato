@@ -21,7 +21,11 @@ const logger = createLogger('inbox_ops').child({ component: 'email-attachments' 
  */
 export const INBOX_EMAIL_ATTACHMENT_LIST_LIMIT = 2 * INBOUND_ATTACHMENT_LEDGER_MAX_ROWS
 
-/** Columns the list reads: the returned ones only, so the encrypted `extractedText` is never loaded or decrypted. */
+/**
+ * Columns the list reads: the returned ones, plus `declaredMimeType` (the type shown while no sniffed
+ * `mimeType` exists) and `createdAt` (the sort key). The encrypted `extractedText` is left out, so it
+ * is never loaded or decrypted; only the encrypted `fileName` is.
+ */
 export const INBOX_EMAIL_ATTACHMENT_LIST_FIELDS = [
   'id',
   'partKey',

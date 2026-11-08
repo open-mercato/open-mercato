@@ -43,9 +43,22 @@ export function attachmentReasonLabels(t: TranslateFn): Record<AttachmentReason,
   }
 }
 
-export function formatAttachmentSize(t: TranslateFn, bytes: number | null): string | null {
+function formatSizeNumber(value: number, fractionDigits: number, locale: string | undefined): string {
+  const options = { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }
+  try {
+    return new Intl.NumberFormat(locale, options).format(value)
+  } catch {
+    // An unknown locale tag: the runtime's default locale still groups and separates digits.
+    return new Intl.NumberFormat(undefined, options).format(value)
+  }
+}
+
+/** A part size in B, KB or MB, its number formatted for `locale` (the active UI locale). */
+export function formatAttachmentSize(t: TranslateFn, bytes: number | null, locale?: string): string | null {
   if (bytes == null || !Number.isFinite(bytes)) return null
-  if (bytes < 1024) return t('inbox_ops.attachments.size.bytes', '{size} B', { size: bytes })
-  if (bytes < 1024 * 1024) return t('inbox_ops.attachments.size.kilobytes', '{size} KB', { size: (bytes / 1024).toFixed(1) })
-  return t('inbox_ops.attachments.size.megabytes', '{size} MB', { size: (bytes / (1024 * 1024)).toFixed(1) })
+  if (bytes < 1024) return t('inbox_ops.attachments.size.bytes', '{size} B', { size: formatSizeNumber(bytes, 0, locale) })
+  if (bytes < 1024 * 1024) {
+    return t('inbox_ops.attachments.size.kilobytes', '{size} KB', { size: formatSizeNumber(bytes / 1024, 1, locale) })
+  }
+  return t('inbox_ops.attachments.size.megabytes', '{size} MB', { size: formatSizeNumber(bytes / (1024 * 1024), 1, locale) })
 }

@@ -387,6 +387,7 @@ export async function persistInboundPart(input: PersistInboundPartInput): Promis
         reason: null,
         attachmentId,
         extractedText: readEncryptedText(encrypted),
+        inFlightAt: null,
         updatedAt: timestamp,
       },
     )

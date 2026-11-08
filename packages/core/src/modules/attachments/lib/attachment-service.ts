@@ -243,7 +243,11 @@ export interface AttachmentService {
    * because the rows are already gone and a retry could not find the bytes again. The result
    * therefore always describes the committed changes. (`releaseScoped` without `flush: false`
    * still throws such a failure after its commit.) Rows are locked together with every row sharing
-   * their stored objects, in id order, so a concurrent `releaseScoped` cannot deadlock with it.
+   * their stored objects, in id order, so a concurrent single-object `releaseScoped` (which locks one
+   * object's references in the same order) cannot deadlock with it. Other writers that lock these
+   * rows in another order can still abort the transaction with a deadlock (40P01) or a
+   * serialization failure; it then throws with nothing committed, and the caller must report it
+   * and retry later (inbox_ops leaves the email to its maintenance sweep).
    *
    * All of the owner's rows are handled in this one transaction (one statement locks them, then
    * one storage-reference read per deleted row), so it is meant for owners with a bounded number
@@ -637,6 +641,16 @@ export class DefaultAttachmentService implements AttachmentService {
     const removedRows: Attachment[] = []
     const providerCleanups: Array<{ attachmentId: string; run: AttachmentProviderCleanup }> = []
 
+    // One driver per partition for this call; an owner's rows usually share one partition.
+    const drivers = new Map<string, ReturnType<StorageDriverFactory['resolveForPartition']>>()
+    const resolveDriver = (partitionCode: string) => {
+      let driver = drivers.get(partitionCode)
+      if (!driver) {
+        driver = this.storageDriverFactory.resolveForPartition(partitionCode, scope)
+        drivers.set(partitionCode, driver)
+      }
+      return driver
+    }
     await this.em.transactional(async (tx) => {
       const candidateIds = await lockOwnedAttachmentRows(tx, owner, scope)
       if (!candidateIds.length) return
@@ -671,7 +685,7 @@ export class DefaultAttachmentService implements AttachmentService {
           const removal = resolveAttachmentStorageRelease(referenceIds, row.id)
           if (!removal.removed) continue
           if (removal.releaseStorage) {
-            const driver = await this.storageDriverFactory.resolveForPartition(row.partitionCode, scope)
+            const driver = await resolveDriver(row.partitionCode)
             const partitionCode = row.partitionCode
             const storagePath = row.storagePath
             providerCleanups.push({ attachmentId: row.id, run: () => driver.delete(partitionCode, storagePath) })

@@ -113,6 +113,26 @@ describe('EmailAttachmentsList', () => {
     expect(await screen.findByText('Failed to load attachments')).toBeTruthy()
   })
 
+  it('retries the request from the error state', async () => {
+    apiCallMock.mockResolvedValueOnce({ ok: false, status: 500, result: { error: 'boom' } })
+    renderWithProviders(<EmailAttachmentsList emailId={EMAIL_ID} />)
+    expect(await screen.findByText('Failed to load attachments')).toBeTruthy()
+
+    apiCallMock.mockResolvedValueOnce({ ok: true, status: 200, result: { items: [part({})] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByText('offer.pdf')).toBeTruthy()
+    expect(screen.queryByText('Failed to load attachments')).toBeNull()
+    expect(apiCallMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('formats sizes for the active locale', async () => {
+    respond(200, { items: [part({ sizeBytes: 1536 }), part({ partKey: 'resend:b', fileName: 'big.pdf', sizeBytes: 5 * 1024 * 1024 + 512 * 1024 })] })
+    renderWithProviders(<EmailAttachmentsList emailId={EMAIL_ID} />, { locale: 'pl' })
+    expect(await screen.findByText('application/pdf · 1,5 KB')).toBeTruthy()
+    expect(screen.getByText('application/pdf · 5,5 MB')).toBeTruthy()
+  })
+
   it('shows an error state when the request throws', async () => {
     apiCallMock.mockRejectedValue(new Error('network down'))
     renderWithProviders(<EmailAttachmentsList emailId={EMAIL_ID} />)

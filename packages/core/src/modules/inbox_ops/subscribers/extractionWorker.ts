@@ -198,18 +198,21 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     )
 
     // Step 3: Call LLM for extraction
-    const maxTextSize = parseInt(process.env.INBOX_OPS_MAX_TEXT_SIZE || '204800', 10)
-    const truncatedText = fullText.slice(0, maxTextSize)
+    // The prompt builder cuts the body and neutralizes it within this budget.
+    // A malformed value falls back to the default instead of lifting the limit.
+    const parsedMaxTextSize = parseInt(process.env.INBOX_OPS_MAX_TEXT_SIZE || '204800', 10)
+    const maxTextSize = Number.isFinite(parsedMaxTextSize) && parsedMaxTextSize > 0 ? parsedMaxTextSize : 204800
 
     const systemPrompt = await buildExtractionSystemPrompt(contactMatches, catalogProducts, undefined, workingLanguage)
     const attachmentBudget = attachments.length > 0 ? resolveAttachmentTextBudget() : null
     const userPrompt = attachmentBudget
-      ? buildExtractionUserPrompt(truncatedText, {
+      ? buildExtractionUserPrompt(fullText, {
+          maxBodyChars: maxTextSize,
           attachments,
           maxAttachmentTextChars: attachmentBudget.maxTextChars,
           maxAttachmentTextCharsPerFile: attachmentBudget.maxTextCharsPerFile,
         })
-      : buildExtractionUserPrompt(truncatedText)
+      : buildExtractionUserPrompt(fullText, { maxBodyChars: maxTextSize })
 
     let extractionResult: ReturnType<typeof extractionOutputSchema.parse>
     let tokensUsed = 0
@@ -673,12 +676,14 @@ async function loadExtractionAttachments(
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       deletedAt: null,
+      // Released parts are gone and decorative ones are not listed; `reason` is nullable.
+      status: { $ne: 'released' },
+      $or: [{ reason: null }, { reason: { $ne: 'inline_decoration' } }],
     },
     { orderBy: { createdAt: 'asc', id: 'asc' } },
     scope,
   )
   return rows
-    .filter((row) => row.status !== 'released' && row.reason !== 'inline_decoration')
     .map((row) => ({
       attachmentId: row.attachmentId ?? null,
       fileName: row.fileName ?? null,

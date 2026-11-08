@@ -93,4 +93,9 @@ describe('normalizeSourceRefs', () => {
     expect(refs).toHaveLength(10)
     expect(refs[0]).toEqual({ kind: 'attachment', attachmentId: CSV_ID, fileName: 'lines.csv', page: 1, sheet: 'S'.repeat(100), snippet: 'q'.repeat(500) })
   })
+
+  it('never splits a surrogate pair at the clip limit', () => {
+    const [ref] = normalizeSourceRefs([{ kind: 'email_body', snippet: `${'q'.repeat(499)}\u{1F600}tail` }], parts)
+    expect(ref.snippet).toBe('q'.repeat(499))
+  })
 })

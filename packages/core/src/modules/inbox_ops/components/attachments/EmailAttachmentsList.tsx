@@ -2,10 +2,11 @@
 
 import * as React from 'react'
 import { Download, Paperclip } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail/LoadingMessage'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
+import { TabEmptyState } from '@open-mercato/ui/backend/detail/TabEmptyState'
 import { CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
@@ -44,6 +45,9 @@ export type EmailAttachmentsListProps = {
  */
 export function EmailAttachmentsList({ emailId, asSection = false, hideWhenEmpty = false, knownEmpty = false }: EmailAttachmentsListProps) {
   const t = useT()
+  const locale = useLocale()
+  // Bumped by the error state's Retry to run the request again.
+  const [attempt, setAttempt] = React.useState(0)
   const [state, setState] = React.useState<ListState>(() => (knownEmpty ? { kind: 'ready', items: [] } : { kind: 'loading' }))
 
   React.useEffect(() => {
@@ -69,7 +73,7 @@ export function EmailAttachmentsList({ emailId, asSection = false, hideWhenEmpty
         if (!controller.signal.aborted) setState({ kind: 'error' })
       })
     return () => controller.abort()
-  }, [emailId, knownEmpty])
+  }, [emailId, knownEmpty, attempt])
 
   const statuses = attachmentStatusLabels(t)
   const reasons = attachmentReasonLabels(t)
@@ -83,15 +87,24 @@ export function EmailAttachmentsList({ emailId, asSection = false, hideWhenEmpty
   if (state.kind === 'loading') {
     content = <LoadingMessage label={t('inbox_ops.attachments.loading', 'Loading attachments...')} />
   } else if (state.kind === 'error') {
-    content = <ErrorMessage label={t('inbox_ops.attachments.loadFailed', 'Failed to load attachments')} />
+    content = (
+      <ErrorMessage
+        label={t('inbox_ops.attachments.loadFailed', 'Failed to load attachments')}
+        action={(
+          <Button type="button" variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}>
+            {t('inbox_ops.action.retry', 'Retry')}
+          </Button>
+        )}
+      />
+    )
   } else if (state.items.length === 0) {
-    content = <p className="text-sm text-muted-foreground">{t('inbox_ops.attachments.empty', 'No attachments were recorded for this email.')}</p>
+    content = <TabEmptyState title={t('inbox_ops.attachments.empty', 'No attachments were recorded for this email.')} />
   } else {
     content = (
       <ul className="space-y-2">
         {state.items.map((item) => {
           const name = item.fileName || t('inbox_ops.attachments.unnamed', 'Unnamed attachment')
-          const details = [item.mimeType, formatAttachmentSize(t, item.sizeBytes)].filter(Boolean).join(' · ')
+          const details = [item.mimeType, formatAttachmentSize(t, item.sizeBytes, locale)].filter(Boolean).join(' · ')
           return (
             <li key={item.id} className="flex items-center gap-3 rounded-md border px-3 py-2">
               <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />

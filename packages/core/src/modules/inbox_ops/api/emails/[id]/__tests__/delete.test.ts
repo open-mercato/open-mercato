@@ -90,7 +90,7 @@ describe('DELETE /api/inbox_ops/emails/[id]', () => {
     const [, entity, where, options] = mockFindOne.mock.calls[0] as [unknown, unknown, Record<string, unknown>, Record<string, unknown>]
     expect(entity).toBe(InboxEmail)
     expect(where).toEqual({ id: email.id, organizationId: ORG_ID, tenantId: TENANT_ID, deletedAt: null })
-    expect(options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+    expect(options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true, fields: ['id', 'updatedAt'] })
     const deletion = updates[0]
     expect(deletion.deletedAt).toBeInstanceOf(Date)
     expect(deletion.attachmentsReleaseRequestedAt).toBe(deletion.deletedAt)

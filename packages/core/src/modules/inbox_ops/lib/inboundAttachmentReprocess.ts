@@ -50,7 +50,7 @@ export async function countRetryableFailedInboundParts(em: EntityManager, ref: I
 
 /**
  * The processing log's `attachmentsRetryable` for a page of emails (spec Phase 3), with one ledger
- * query for the whole page: an ingest that is `pending` or `processing`, or a finished one with at
+ * query (distinct email ids) for the whole page: an ingest that is `pending` or `processing`, or a finished one with at
  * least one part failed for an operator-fixable reason. The reprocess route still decides; a live
  * lease or running extraction is refused there.
  */
@@ -67,22 +67,31 @@ export async function resolveInboundAttachmentsRetryable(
     if (status === 'completed') finished.push(email.id)
   }
   if (finished.length === 0) return retryable
-  const failedParts = await findWithDecryption(
-    em,
-    InboxEmailAttachment,
-    {
-      inboxEmailId: { $in: finished },
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      status: 'failed',
-      reason: { $in: [...RETRYABLE_INBOUND_ATTACHMENT_FAILURE_REASONS] },
-      deletedAt: null,
-    },
-    { fields: ['id', 'inboxEmailId'] },
-    scope,
-  )
-  for (const part of failedParts) retryable.set(part.inboxEmailId, true)
+  // Distinct email ids only: a ledger holds up to its row cap per email, and the columns read are plaintext.
+  const rows = await em.getKysely<RetryableLedgerDb>()
+    .selectFrom('inbox_email_attachments')
+    .select('inbox_email_id')
+    .distinct()
+    .where('inbox_email_id', 'in', finished)
+    .where('tenant_id', '=', scope.tenantId)
+    .where('organization_id', '=', scope.organizationId)
+    .where('status', '=', 'failed')
+    .where('reason', 'in', [...RETRYABLE_INBOUND_ATTACHMENT_FAILURE_REASONS])
+    .where('deleted_at', 'is', null)
+    .execute()
+  for (const row of rows) retryable.set(row.inbox_email_id, true)
   return retryable
+}
+
+type RetryableLedgerDb = {
+  inbox_email_attachments: {
+    inbox_email_id: string
+    tenant_id: string
+    organization_id: string
+    status: string
+    reason: string | null
+    deleted_at: Date | null
+  }
 }
 
 export async function planInboundAttachmentReprocess(

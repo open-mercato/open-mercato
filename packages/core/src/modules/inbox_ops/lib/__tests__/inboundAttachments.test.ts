@@ -260,6 +260,19 @@ describe('readResendInboundAttachments', () => {
     ])
   })
 
+  it('degrades a size past the int column to null, so the part is planned with an unknown size', () => {
+    const parts = readResendInboundAttachments([
+      { id: 'max', filename: 'max.pdf', size: 2_147_483_647 },
+      { id: 'huge', filename: 'huge.pdf', size: 2_147_483_648 },
+    ])
+    expect(parts.map((entry) => [entry.id, entry.size])).toEqual([['max', 2_147_483_647], ['huge', null]])
+    const plans = planInboundAttachmentParts(parts, { ...limits, maxTotalBytes: 100 * MIB })
+    expect(plans.map((plan) => [plan.providerAttachmentId, plan.sizeBytes, plan.status, plan.reason])).toEqual([
+      ['max', 2_147_483_647, 'skipped', 'too_large'],
+      ['huge', null, 'pending', null],
+    ])
+  })
+
   it('records an entry with a malformed size in the ledger plan and the hash input', () => {
     const parts = readResendInboundAttachments([{ id: 'odd', filename: 'odd.pdf', size: 'big' }])
     const config = { ...limits, enabled: true, allowUnguardedReaders: false, resendStubEnabled: false } as never

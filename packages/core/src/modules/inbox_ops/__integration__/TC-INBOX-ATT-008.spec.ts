@@ -1,11 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
-import {
-  fetchProposalDetail,
-  waitForEmailProcessed,
-  type InboxProposalActionDetail,
-} from '@open-mercato/core/helpers/integration/inboxFixtures'
+import { fetchProposalDetail, type InboxProposalActionDetail } from '@open-mercato/core/helpers/integration/inboxFixtures'
 import {
   WEBHOOK_SPEC_TIMEOUT_MS,
   cleanupInboundEmails,
@@ -15,6 +11,7 @@ import {
   resolveInboxAddress,
   skipUnlessResendStubAvailable,
   uniqueRunId,
+  waitForTerminalEmailStatus,
 } from './helpers/inboundAttachments'
 
 export const integrationMeta = { dependsOnModules: ['example', 'attachments'] }
@@ -98,13 +95,13 @@ test.describe('TC-INBOX-ATT-008: order lines from an attached PDF reach the prop
       expect(ledger).toHaveLength(1)
       expect(ledger[0].extracted_text ?? '').not.toBe('')
 
-      const processed = await waitForEmailProcessed(request, admin, received.emailId, EXTRACTION_TIMEOUT_MS)
-      expect(processed, 'the extraction worker should finish the email').toBeTruthy()
-      if (processed!.status === 'failed') {
+      // Drains the `events` queue while polling, so standalone runs (no events worker) extract too.
+      const processed = await waitForTerminalEmailStatus(request, admin, received.emailId, { timeoutMs: EXTRACTION_TIMEOUT_MS })
+      if (processed.status === 'failed') {
         test.skip(true, 'LLM extraction failed (no API key configured in CI)')
         return
       }
-      expect(['processed', 'needs_review']).toContain(processed!.status)
+      expect(['processed', 'needs_review']).toContain(processed.status)
       const proposalIds = await withClient(async (client) => {
         const result = await client.query<{ id: string }>(
           'select id from inbox_proposals where inbox_email_id = $1 and is_active = true and deleted_at is null',

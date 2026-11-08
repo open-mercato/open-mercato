@@ -153,6 +153,7 @@
   "inbox_ops.errors.emailDeleteFailed": "Nie udało się usunąć wiadomości",
   "inbox_ops.errors.emailLoadFailed": "Nie udało się wczytać wiadomości",
   "inbox_ops.errors.emailNotFound": "Nie znaleziono wiadomości",
+  "inbox_ops.errors.emailsListFailed": "Nie udało się wczytać listy wiadomości",
   "inbox_ops.errors.missingEmailId": "Brak identyfikatora wiadomości",
   "inbox_ops.errors.reprocessAlreadyRequested": "Ta wiadomość została już przekazana do ponownego przetworzenia.",
   "inbox_ops.errors.reprocessFailed": "Nie udało się ponownie przetworzyć wiadomości",

@@ -312,11 +312,14 @@ export const updateSettingsSchema = z.object({
 // Inbound attachment metadata (Resend `receiving.get()` → `attachments[]`)
 // ---------------------------------------------------------------------------
 
+/** Largest `inbox_email_attachments.size_bytes` (a Postgres `int`). */
+export const INBOUND_ATTACHMENT_SIZE_MAX = 2_147_483_647
+
 /** A well-formed metadata entry. */
 export const resendInboundAttachmentStrictSchema = z.object({
   id: z.string().trim().min(1),
   filename: z.string().nullish(),
-  size: z.number().int().nonnegative(),
+  size: z.number().int().nonnegative().max(INBOUND_ATTACHMENT_SIZE_MAX),
   content_type: z.string().nullish(),
   content_id: z.string().nullish(),
   content_disposition: z.string().nullish(),
@@ -325,12 +328,14 @@ export const resendInboundAttachmentStrictSchema = z.object({
 /**
  * A metadata entry as the webhook reads it: only the provider `id` is required, because it names
  * the part to fetch and enters the content hash (D13). Any other malformed field degrades to
- * `null` (an unknown `size` is reserved at the per-file maximum against the total limit).
+ * `null` (an unknown `size` is reserved at the per-file maximum against the total limit). A `size`
+ * past the `int` column degrades too, so it cannot fail the ledger insert; the per-file limit then
+ * applies to the downloaded bytes.
  */
 export const resendInboundAttachmentSchema = z.object({
   id: z.string().trim().min(1),
   filename: z.string().nullish().catch(null),
-  size: z.number().int().nonnegative().nullable().catch(null),
+  size: z.number().int().nonnegative().max(INBOUND_ATTACHMENT_SIZE_MAX).nullable().catch(null),
   content_type: z.string().nullish().catch(null),
   content_id: z.string().nullish().catch(null),
   content_disposition: z.string().nullish().catch(null),

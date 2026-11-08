@@ -257,6 +257,22 @@ describe('DefaultAttachmentService.releaseOwnedScoped', () => {
     expect(mockClearThumbnailCache.mock.calls.map(([, id]) => id)).toEqual(['a', 'b1', 'b2', 'c', 'e'])
   })
 
+  it('resolves the storage driver once per partition within one call', async () => {
+    const { release, factory, providerDelete } = createHarness([
+      row('a'),
+      row('b'),
+      row('c', { partitionCode: 'otherPartition' }),
+    ])
+
+    await expect(release()).resolves.toEqual({ deleted: 3, repointed: 0, detached: 0 })
+
+    expect(providerDelete).toHaveBeenCalledTimes(3)
+    expect(factory.resolveForPartition.mock.calls).toEqual([
+      ['privateAttachments', scope],
+      ['otherPartition', scope],
+    ])
+  })
+
   it('re-points an email-owned row with other assignments to the first remaining one in stored order', async () => {
     const { release, committed, providerDelete } = createHarness([
       row('a', { storageMetadata: { tags: ['offer'], assignments: [
