@@ -76,7 +76,7 @@ function buildHarness() {
     }),
     find: jest.fn(async (entity: unknown) => {
       if (entity === UserRole) return [...state.userRoles]
-      if (entity === Role || entity === UserAcl) return []
+      if (entity === Role) return [oldRole, newRole]
       return []
     }),
     create: jest.fn((entity: unknown, data: Record<string, unknown>) => ({ entity, ...data })),
