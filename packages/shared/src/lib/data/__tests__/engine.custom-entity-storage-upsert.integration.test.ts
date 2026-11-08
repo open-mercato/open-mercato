@@ -80,6 +80,14 @@ describePostgres('custom entity storage transactions with the nonunique producti
       for (const phase of ['create', 'upsert', 'update', 'revive'] as const) {
         await storage.transaction().execute(async (transaction) => {
           const em = {
+            isInTransaction: () => true,
+            execute: async (query: string, parameters: readonly unknown[]) => {
+              expect(query).toBe('select pg_try_advisory_xact_lock(hashtextextended(?, 0)) as locked')
+              const lockKey = parameters[0]
+              if (typeof lockKey !== 'string') throw new Error('[internal] Missing advisory lock key')
+              const result = await sql<{ locked: boolean }>`select pg_try_advisory_xact_lock(hashtextextended(${lockKey}, 0)) as locked`.execute(transaction)
+              return result.rows
+            },
             getKysely: () => transaction,
             getMetadata: () => ({ find: () => undefined, getAll: () => [] }),
             find: async () => [],

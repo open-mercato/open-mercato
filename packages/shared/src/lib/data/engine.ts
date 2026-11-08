@@ -14,8 +14,8 @@ import {
   type CrudEntityIdentifiers,
 } from '../crud/types'
 import type { BulkImportSuppression } from '../commands/types'
-import { conflict, CrudHttpError, isUniqueViolation } from '../crud/errors'
-import { withAdvisoryXactLock } from '../db/advisoryLock'
+import { conflict, CrudHttpError, isUniqueViolation, notFound } from '../crud/errors'
+import { AdvisoryLockUnavailableError, withAdvisoryXactLock } from '../db/advisoryLock'
 import { resolveRegisteredEntityTableName } from '../query/engine'
 import { getEntityIds } from '../encryption/entityIds'
 import { normalizeCustomFieldValues } from '../custom-fields/normalize'
@@ -112,7 +112,14 @@ export interface DataEngine {
     organizationId?: string | null
     tenantId?: string | null
     values: Record<string, string | number | boolean | null | undefined | Array<string | number | boolean | null | undefined>>
-    notify?: boolean // default true -> emit '<module>.<entity>.updated'
+    /**
+     * Default true: emits the entity-keyed custom-field change signal `<module>.<entity>.updated`,
+     * derived from `entityId` (e.g. `catalog:catalog_product` → `catalog.catalog_product.updated`).
+     * It is not a module domain event — the query_index bridge subscribes to the same derivation for
+     * every entity carrying custom fields, including runtime custom entities — so it is deliberately
+     * not checked against the `events.ts` registry.
+     */
+    notify?: boolean
     // Forwarded to `setRecordCustomFields` — see its doc for when a caller must pass
     // true (a recordId that is not unique across organizations for this entityId).
     pinOrganizationId?: boolean
@@ -136,6 +143,7 @@ export interface DataEngine {
     tenantId?: string | null
     values: CustomEntityValues
     notify?: boolean // keep event emitting as it is via setCustomFields (updated)
+    requireActive?: boolean
   }): Promise<void>
 
   deleteCustomEntityRecord(opts: {
@@ -319,7 +327,6 @@ export class DefaultDataEngine implements DataEngine {
         const [mod, ent] = (entityId || '').split(':')
         if (mod && ent) {
           const eventName = `${mod}.${ent}.updated`
-          warnIfUndeclaredEvent(eventName, 'setCustomFields')
           try {
             await bus.emitEvent(eventName, { id: recordId, organizationId, tenantId }, {
               persistent: true,
@@ -414,41 +421,55 @@ export class DefaultDataEngine implements DataEngine {
     }
   }
 
-  // custom_entities_storage has no unique constraint: `custom_entities_storage_unique_idx` is a plain
-  // btree index (Migration20251030150038), and organization_id is nullable. An INSERT ... ON CONFLICT
-  // therefore never has a matching arbiter index and always errors, so write by scoped update-then-insert.
+  private async withCustomEntityStorageLock<T>(lockKey: string, work: (txEm: EntityManager) => Promise<T>): Promise<T> {
+    if (!this.em.isInTransaction?.()) return withAdvisoryXactLock(this.em, lockKey, work)
+    const deadlineAt = Date.now() + 15_000
+    while (true) {
+      const rows = await this.em.execute<Array<{ locked: boolean }>>(
+        'select pg_try_advisory_xact_lock(hashtextextended(?, 0)) as locked',
+        [lockKey],
+      )
+      if (rows[0]?.locked) return work(this.em)
+      const remainingMs = deadlineAt - Date.now()
+      if (remainingMs <= 0) throw new AdvisoryLockUnavailableError('deadline', lockKey)
+      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(50, remainingMs)))
+    }
+  }
+
   private async writeCustomEntityStorageDoc(target: {
     entityType: string
     entityId: string
     organizationId: string | null
     tenantId: string | null
     doc: Record<string, unknown>
+    requireActive?: boolean
   }): Promise<void> {
-    const db = this.getKysely()
-    const docJson = JSON.stringify(target.doc)
-    let update = db
-      .updateTable('custom_entities_storage' as any)
-      .set({ doc: sql`${docJson}::jsonb`, updated_at: sql`now()`, deleted_at: null } as any)
-      .where('entity_type' as any, '=', target.entityType)
-      .where('entity_id' as any, '=', target.entityId)
-    update = target.organizationId === null
-      ? update.where('organization_id' as any, 'is', null as any)
-      : update.where('organization_id' as any, '=', target.organizationId)
-    update = target.tenantId === null
-      ? update.where('tenant_id' as any, 'is', null as any)
-      : update.where('tenant_id' as any, '=', target.tenantId)
-    const updated = await update.executeTakeFirst()
-    if (updated && Number(updated.numUpdatedRows ?? 0) > 0) return
-    await db.insertInto('custom_entities_storage' as any).values({
-      entity_type: target.entityType,
-      entity_id: target.entityId,
-      organization_id: target.organizationId,
-      tenant_id: target.tenantId,
-      doc: sql`${docJson}::jsonb`,
-      created_at: sql`now()`,
-      updated_at: sql`now()`,
-      deleted_at: null,
-    } as any).execute()
+    const lockKey = `custom_entity_create:${JSON.stringify([target.tenantId, target.organizationId, target.entityType, target.entityId.toLowerCase()])}`
+    await this.withCustomEntityStorageLock(lockKey, async (txEm) => {
+      const db = txEm.getKysely<CustomEntityStorageDatabase>()
+      const doc = sql<CustomEntityValues>`${JSON.stringify(target.doc)}::jsonb`
+      let update = db
+        .updateTable('custom_entities_storage')
+        .set({ doc, updated_at: sql<Date>`now()`, deleted_at: null })
+        .where('entity_type', '=', target.entityType)
+        .where('entity_id', '=', target.entityId)
+        .where('organization_id', target.organizationId === null ? 'is' : '=', target.organizationId)
+        .where('tenant_id', target.tenantId === null ? 'is' : '=', target.tenantId)
+      if (target.requireActive) update = update.where('deleted_at', 'is', null)
+      const updated = await update.executeTakeFirst()
+      if (Number(updated.numUpdatedRows) > 0) return
+      if (target.requireActive) throw notFound()
+      await db.insertInto('custom_entities_storage').values({
+        entity_type: target.entityType,
+        entity_id: target.entityId,
+        organization_id: target.organizationId,
+        tenant_id: target.tenantId,
+        doc,
+        created_at: sql<Date>`now()`,
+        updated_at: sql<Date>`now()`,
+        deleted_at: null,
+      }).execute()
+    })
   }
 
   async createCustomEntityRecord(opts: Parameters<DataEngine['createCustomEntityRecord']>[0]): Promise<{ id: string }> {
@@ -508,7 +529,7 @@ export class DefaultDataEngine implements DataEngine {
           .selectFrom('custom_entities_storage')
           .select('entity_id')
           .where('entity_type', '=', opts.entityId)
-          .where(sql<string>`lower(entity_id)`, '=', id.toLowerCase())
+          .where(sql<string>`lower(entity_id::text)`, '=', id.toLowerCase())
           .where('organization_id', orgId === null ? 'is' : '=', orgId)
           .where('tenant_id', tenantId === null ? 'is' : '=', tenantId)
           .executeTakeFirst()
@@ -556,6 +577,7 @@ export class DefaultDataEngine implements DataEngine {
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null
+    const requireActive = opts.requireActive === true
 
     // Merge doc shallowly: load existing doc and overlay
     await this.ensureStorageTableExists()
@@ -568,18 +590,20 @@ export class DefaultDataEngine implements DataEngine {
       chain = tenantId === null
         ? chain.where('tenant_id' as any, 'is', null as any)
         : chain.where('tenant_id' as any, '=', tenantId)
+      if (requireActive) chain = chain.where('deleted_at', 'is', null)
       return chain
     }
     const row = await applyScope(
       db.selectFrom('custom_entities_storage' as any).select(['doc' as any])
     ).executeTakeFirst()
+    if (requireActive && !row) throw notFound()
     const prevDoc: Record<string, unknown> = (row as any)?.doc || { id }
     const nextDoc = await encryptCustomEntityRecordDocument(this.em, {
       entityId: opts.entityId, organizationId: orgId, tenantId,
       doc: { ...prevDoc, ...this.normalizeDocValues(sanitizedValues || {}), id },
       encryptionService: this.resolveCustomEntityEncryptionService(),
     })
-    await this.writeCustomEntityStorageDoc({ entityType: opts.entityId, entityId: id, organizationId: orgId, tenantId, doc: nextDoc })
+    await this.writeCustomEntityStorageDoc({ entityType: opts.entityId, entityId: id, organizationId: orgId, tenantId, doc: nextDoc, requireActive })
 
     // Optional EAV backward compatibility (disabled by default)
     if (this.backcompatEavEnabled() && sanitizedValues && Object.keys(sanitizedValues).length > 0) {

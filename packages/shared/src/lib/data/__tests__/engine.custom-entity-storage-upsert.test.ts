@@ -1,3 +1,7 @@
+jest.mock('../../db/advisoryLock', () => ({
+  withAdvisoryXactLock: async <T>(em: unknown, _key: string, work: (txEm: unknown) => Promise<T>): Promise<T> => work(em),
+}))
+
 import fs from 'node:fs'
 import path from 'node:path'
 import { DefaultDataEngine, clearDataEngineTableExistsCache } from '../engine'

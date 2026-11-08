@@ -256,6 +256,7 @@
   "entities.userEntities.help.title": "Eigene Benutzerentitäten gestalten",
   "entities.userEntities.records.errors.deleteFailed": "Datensatz konnte nicht gelöscht werden",
   "entities.userEntities.records.errors.entityIdRequired": "Entitätskennung ist erforderlich",
+  "entities.userEntities.records.errors.notFound": "Datensatz nicht gefunden",
   "entities.userEntities.records.errors.recordIdRequired": "Datensatzkennung ist erforderlich",
   "entities.userEntities.records.errors.systemEntity": "Diese Entität wird vom System verwaltet. Datensätze sind nur für benutzerdefinierte Entitäten verfügbar.",
   "entities.userEntities.records.form.createTitle": "Datensatz erstellen",
