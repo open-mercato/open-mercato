@@ -4,7 +4,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  FORCE_FULL_SUITE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'stabilize/') }}
+  FORCE_FULL_SUITE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'stabilize/') || contains(github.event.pull_request.labels.*.name, 'ci-full')) }}
   # Required by the OSS optimistic-locking integration tests (#1981 /
   # TC-LOCK-OSS-001..004). Set workflow-wide so both `prepare`
   # (`yarn build:app`) and `ephemeral-integration` see the same value —
@@ -1127,6 +1127,9 @@ jobs:
           OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
           OM_INTEGRATION_MODULES: ${{ needs.prepare.outputs.affected_modules }}
         run: |
+          OM_INIT_SUPERADMIN_PASSWORD="$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url') + 'aA1!')")"
+          echo "::add-mask::$OM_INIT_SUPERADMIN_PASSWORD"
+          export OM_INIT_SUPERADMIN_PASSWORD
           SHARD_FLAG="${{ steps.shard-meta.outputs.shard_flag }}"
           if [ -n "$SHARD_FLAG" ]; then
             yarn test:integration:coverage $SHARD_FLAG
