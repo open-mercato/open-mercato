@@ -26,6 +26,12 @@ Fresh processes trade startup and repeated module evaluation latency for releasi
 
 No remote push or PR until parent authorizes after standalone validation. No merge. Parent owns validation and publication.
 
+## Standalone verification
+
+Two paired packaged standalone comparisons against `c981a94bea74fee63ca75815bf64fcf90738fb76` passed six-page navigation, customer create/read/delete with optimistic locking, composer/AI dock interaction, and ten structural API revisions per run. Post-edit process-tree physical footprint fell by 11.2% and 11.4%; supervisor residency fell by approximately 850 MiB in both pairs. Subsequent regeneration increased from approximately 1.5–2.5 seconds to 4.8–5.7 seconds. Cold-navigation peaks did not consistently improve.
+
+The 111 focused generator/lifecycle tests passed before the standalone runs. The final configured publication gate uses the local runner; no compose app container is running. Full gate completion is tracked separately from the successful smoke. Detailed methodology and measurements are in `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md`.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.

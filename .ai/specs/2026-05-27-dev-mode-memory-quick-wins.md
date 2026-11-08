@@ -155,6 +155,23 @@ Measured delta:
 
 Action item: when the `16.3.x` line is released as stable, retest before upgrading. Expected impact is roughly a **30% dev-memory reduction** for this repo, but the stable release alone should not be treated as a complete fix because the canary still peaked at `5.8 GB` and remained dominated by `next-turbopack`.
 
+### 2026-11-08 standalone generator lifetime measurement
+
+Watch-triggered generation now runs `mercato generate all --quiet` in a disposable child, both for `mercato generate watch` and the embedded `mercato server dev` watcher. Metadata evaluation remains complete: computed exports, imported values, plugins and callbacks are not replaced with partial static extraction. The watcher coalesces changes, propagates generation failures and drains its active cycle before shutdown.
+
+Two local paired runs used packages built from base `c981a94bea74fee63ca75815bf64fcf90738fb76`, a Verdaccio-scaffolded standalone app, Node 24.13.1 and Next.js 16.4.1 on macOS arm64. Each run started with a cold Next cache, navigated Companies, People, Products, Orders, Claims and Messages, created/read/deleted a temporary customer with optimistic-lock protection, opened the message composer and AI dock, then applied ten structural API edits and checked every returned revision. The customer list still rendered afterward without non-aborted browser errors. The repeat candidate used keyboard activation to close the dock after a headless-browser hit-test obstruction.
+
+Measurements below are summed native physical footprint in MiB for the dev process tree during the post-edit idle window, not RSS. Browser and Docker backing services are excluded. No heap cap, feature disabling or forced GC was used in these application comparisons.
+
+| Pair | Baseline post-edit mean | Child-generation post-edit mean | Reduction | Baseline supervisor mean | Child-generation supervisor mean |
+|------|-------------------------|---------------------------------|-----------|--------------------------|----------------------------------|
+| First | 5,101.6 MiB | 4,529.3 MiB | 11.2% | 1,173.7 MiB | 322.1 MiB |
+| Repeat | 5,286.5 MiB | 4,682.6 MiB | 11.4% | 1,172.0 MiB | 325.3 MiB |
+
+The repeatable saving is retained memory after edits, not lower cold-start memory or eliminated growth. Subsequent regeneration took approximately 4.8–5.7 seconds with isolation versus 1.5–2.5 seconds in the baseline; first regeneration remained approximately 6.1–6.4 seconds. Whole-tree cold-navigation peaks varied substantially and did not consistently improve. This does not establish a 30% reduction, a production-runtime improvement, or a long-session plateau.
+
+To reproduce, compare the same packaged baseline and candidate in one standalone fixture, clear only the Next cache between runs, use the same navigation/mutation/edit sequence, sample the complete dev child process tree every five seconds, and keep phase-specific memory separate from regeneration latency. Attribute the supervisor separately so Turbopack variability cannot hide whether generation state is released.
+
 ## Migration & backward compatibility
 
 - **No contract surface is touched** by this PR.
