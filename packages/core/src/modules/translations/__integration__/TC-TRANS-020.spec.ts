@@ -69,7 +69,12 @@ async function createSecondOperator(
     organizationId: getTokenScope(adminToken).organizationId,
     roles: ['admin'],
   })
-  return { userId, token: await getAuthToken(request, email, SECOND_PASSWORD) }
+  try {
+    return { userId, token: await getAuthToken(request, email, SECOND_PASSWORD) }
+  } catch (error) {
+    await deleteUserIfExists(request, adminToken, userId)
+    throw error
+  }
 }
 
 function escapeForRegex(value: string): string {

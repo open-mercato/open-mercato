@@ -50,8 +50,9 @@ type Deferred = { promise: Promise<void>; resolve: () => void }
 
 type Outcome = { ok: true } | { ok: false; status?: number; code?: string }
 
-type SaveHandler = CommandHandler<typeof KEY & { translations: Translations }, { rowId: string }>
-type DeleteHandler = CommandHandler<typeof KEY, { deleted: boolean }>
+type TranslationKey = Omit<typeof KEY, 'organizationId'> & { organizationId: string | null }
+type SaveHandler = CommandHandler<TranslationKey & { translations: Translations }, { rowId: string }>
+type DeleteHandler = CommandHandler<TranslationKey, { deleted: boolean }>
 type LogEntry = Record<string, unknown>
 
 const KEY = {
@@ -61,10 +62,11 @@ const KEY = {
   tenantId: '33333333-3333-4333-8333-333333333333',
 }
 
+const GLOBAL_KEY = { ...KEY, organizationId: null }
+
 const CONFLICT = expect.objectContaining({ ok: false, status: 409, code: 'translations.errors.undoConflict' })
 const LOCK_WAIT_TIMEOUT_MS = 10_000
 const LOCK_WAIT_POLL_MS = 25
-const SAVE_WAIT_TIMEOUT_MS = 2_000
 
 function createDeferred(): Deferred {
   let resolve: () => void = () => undefined
@@ -142,8 +144,8 @@ describeWithPostgres('translations undo against concurrent saves on real Postgre
     } as unknown as CommandRuntimeContext
   }
 
-  async function runSave(translations: Translations): Promise<LogEntry> {
-    const input = { ...KEY, translations }
+  async function runSave(translations: Translations, key: TranslationKey = KEY): Promise<LogEntry> {
+    const input = { ...key, translations }
     const prepared = await save.prepare!(input, ctx())
     const result = await save.execute(input, ctx())
     const after = await save.captureAfter!(input, result, ctx())
@@ -162,8 +164,12 @@ describeWithPostgres('translations undo against concurrent saves on real Postgre
     return Promise.resolve(handler.undo!({ input: {} as never, ctx: ctx(), logEntry: logEntry as never }))
   }
 
-  async function current(): Promise<Translations | null> {
-    const row = await db().selectFrom('entity_translations').select('translations').executeTakeFirst()
+  async function current(organizationId: string | null = KEY.organizationId): Promise<Translations | null> {
+    const row = await db()
+      .selectFrom('entity_translations')
+      .select('translations')
+      .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
+      .executeTakeFirst()
     return row?.translations ?? null
   }
 
@@ -246,7 +252,7 @@ describeWithPostgres('translations undo against concurrent saves on real Postgre
     const undone = settle(undo(save, log))
     await gate.reached.promise
     const saved = settle(save.execute({ ...KEY, translations: newer }, ctx()))
-    const saveWaitedForUndo = await sawLockWaiter(SAVE_WAIT_TIMEOUT_MS)
+    const saveWaitedForUndo = await sawLockWaiter(LOCK_WAIT_TIMEOUT_MS)
     gate.release.resolve()
 
     expect(await undone).toEqual({ ok: true })
@@ -273,6 +279,31 @@ describeWithPostgres('translations undo against concurrent saves on real Postgre
       client.release()
     }
     expect(await current()).toEqual(newer)
+  })
+
+  it('refuses a stale undo of a global row and leaves the organization row alone', async () => {
+    await runSave({ en: { name: 'Organization shoe' } })
+    await runSave({ en: { name: 'Shoe' } }, GLOBAL_KEY)
+    const log = await runSave({ en: { name: 'Sneaker' } }, GLOBAL_KEY)
+    const newer = { en: { name: 'Sneaker' }, fr: { name: 'Baskets' } }
+
+    const client = await pool!.connect()
+    try {
+      await client.query('begin')
+      await client.query(
+        'update entity_translations set translations = $1::jsonb, updated_at = now() where organization_id is null',
+        [JSON.stringify(newer)],
+      )
+      const undone = settle(undo(save, log))
+      expect(await sawLockWaiter(LOCK_WAIT_TIMEOUT_MS)).toBe(true)
+      await client.query('commit')
+
+      expect(await undone).toEqual(CONFLICT)
+    } finally {
+      client.release()
+    }
+    expect(await current(null)).toEqual(newer)
+    expect(await current()).toEqual({ en: { name: 'Organization shoe' } })
   })
 
   it('answers 409 when translations are re-created while a delete is being undone', async () => {
