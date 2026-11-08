@@ -20,6 +20,7 @@ const packageDir = dirname(fileURLToPath(import.meta.url))
 await buildPackage(packageDir, {
   name: 'cli',
   entryPoints: 'src/**/*.ts',
+  copyJson: true,
   rewriteOptions: {
     // Generated code templates keep `.ts` suffixes and template-literal placeholders
     // (`${...}`) inside import strings; those must survive the rewrite untouched.
