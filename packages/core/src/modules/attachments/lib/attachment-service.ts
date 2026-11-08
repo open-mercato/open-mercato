@@ -3,7 +3,8 @@ import { throwAttachmentAccessError } from './access-errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { sql } from 'kysely'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Attachment, AttachmentPartition } from '../data/entities'
@@ -12,6 +13,8 @@ import type { StorageDriverFactory } from './drivers'
 import { buildAttachmentFileUrl } from './imageUrls'
 import {
   isScopedAttachmentUploadError,
+  type AttachmentPersistLink,
+  type AttachmentTextExtractionMode,
   type ScopedAttachmentUploadErrorCode,
   type ScopedAttachmentUploadService,
 } from './scoped-upload-service'
@@ -22,6 +25,7 @@ import {
   removeAttachmentRecord,
   resolveAttachmentStorageRelease,
 } from './storageReferences'
+import { clearAttachmentThumbnailCache } from './thumbnailCache'
 import {
   buildAttachmentContentDisposition,
   canRenderInlineAttachment,
@@ -121,9 +125,19 @@ export type CreateScopedAttachmentInput = AttachmentOwner & {
   /**
    * Persists a module-owned link inside the same transaction as the Attachment
    * row. The callback receives only the generated id, never an Attachment
-   * entity or storage implementation.
+   * entity or storage implementation. With `textExtraction: 'return'` it also
+   * receives the extracted text as its third argument (`{ content }`).
    */
-  persistLink?: (tx: EntityManager, attachmentId: string) => Promise<void> | void
+  persistLink?: AttachmentPersistLink
+  /**
+   * `'partition'` (default) keeps today's behavior: text is extracted only when
+   * the partition has `requiresOcr`, stored in `Attachment.content`, and LLM OCR
+   * is queued when available. `'return'` runs the pure-JS extractor whatever the
+   * partition flag, never queues LLM OCR, leaves `Attachment.content` empty, and
+   * hands the text to `persistLink` and to the result's `content`. `'none'`
+   * extracts nothing and never queues OCR.
+   */
+  textExtraction?: AttachmentTextExtractionMode
 }
 
 export type CreatedScopedAttachment = {
@@ -132,6 +146,8 @@ export type CreatedScopedAttachment = {
   fileName: string
   mimeType: string
   fileSize: number
+  /** Set only with `textExtraction: 'return'`: the extracted text, or `null` when there is none. */
+  content?: string | null
 }
 
 export type ReadScopedAttachmentInput = {
@@ -168,6 +184,22 @@ export type ReleaseScopedAttachmentInput = {
 
 export type AttachmentProviderCleanup = () => Promise<void>
 
+export type ReleaseOwnedScopedAttachmentsInput = {
+  /** The owner whose references are removed, as primary owner or as an assignment. */
+  owner: AttachmentOwner
+  tenantId: string
+  organizationId: string
+}
+
+export type ReleaseOwnedScopedAttachmentsResult = {
+  /** Rows deleted because the owner was their primary owner and their only reference. */
+  deleted: number
+  /** Rows owned by `owner` re-pointed to their first remaining assignment. */
+  repointed: number
+  /** Rows owned by something else that only lost `owner`'s assignment. */
+  detached: number
+}
+
 export interface AttachmentService {
   validateUpload(input: {
     contentLength?: string | null
@@ -191,6 +223,18 @@ export interface AttachmentService {
     input: ReleaseScopedAttachmentInput,
     options?: { em?: EntityManager; flush?: boolean },
   ): Promise<AttachmentProviderCleanup | void>
+  /**
+   * Removes `owner`'s reference from every attachment row of the scope that carries it:
+   * - a row whose primary owner is `owner` and that has no other assignment is deleted (its
+   *   stored object only once no other row references it);
+   * - a row whose primary owner is `owner` but that has other assignments is re-pointed to the
+   *   first remaining assignment in stored order and loses `owner`'s assignment;
+   * - a row whose primary owner is something else only loses `owner`'s assignment.
+   *
+   * Commits its own transaction, then deletes provider bytes; it refuses an entity manager that
+   * is already inside a transaction. A retry after success finds nothing and returns zeros.
+   */
+  releaseOwnedScoped?(input: ReleaseOwnedScopedAttachmentsInput): Promise<ReleaseOwnedScopedAttachmentsResult>
 }
 
 async function readRequestBodyWithinLimit(request: Request, maxBytes: number): Promise<Uint8Array> {
@@ -224,6 +268,52 @@ async function readRequestBodyWithinLimit(request: Request, maxBytes: number): P
 
 function assignmentMatches(candidate: AttachmentAssignment, expected: AttachmentAssignment): boolean {
   return candidate.type === expected.type && candidate.id === expected.id
+}
+
+async function clearAttachmentThumbnailCacheSafely(attachment: Pick<Attachment, 'id' | 'partitionCode'>): Promise<void> {
+  await clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((error) => {
+    logger.error('Failed to clean up cached thumbnails', { attachmentId: attachment.id, err: error })
+  })
+}
+
+type OwnedAttachmentRowDatabase = {
+  attachments: {
+    id: string
+    tenant_id: string | null
+    organization_id: string | null
+    entity_id: string
+    record_id: string
+    storage_metadata: unknown
+  }
+}
+
+/**
+ * Locks, in id order, every row of the scope that references `owner`: as primary owner
+ * (`attachments_entity_record_idx`) or as an assignment, found by jsonb containment so the
+ * `attachments_storage_metadata_gin_idx` (`jsonb_path_ops`) index serves it. Both stored shapes
+ * of `assignments` are probed: the array written today and the single legacy object.
+ */
+async function lockOwnedAttachmentRows(
+  em: EntityManager,
+  owner: AttachmentOwner,
+  scope: { tenantId: string; organizationId: string },
+): Promise<string[]> {
+  const assignment = { type: owner.entityId, id: owner.recordId }
+  const rows = await em
+    .getKysely<OwnedAttachmentRowDatabase>()
+    .selectFrom('attachments')
+    .select('id')
+    .where('tenant_id', '=', scope.tenantId)
+    .where('organization_id', '=', scope.organizationId)
+    .where((eb) => eb.or([
+      eb.and([eb('entity_id', '=', owner.entityId), eb('record_id', '=', owner.recordId)]),
+      eb('storage_metadata', '@>', sql<unknown>`${JSON.stringify({ assignments: [assignment] })}::jsonb`),
+      eb('storage_metadata', '@>', sql<unknown>`${JSON.stringify({ assignments: assignment })}::jsonb`),
+    ]))
+    .orderBy('id')
+    .forUpdate()
+    .execute()
+  return rows.map((row) => String(row.id))
 }
 
 function partitionMatchesScope(
@@ -260,13 +350,13 @@ export class DefaultAttachmentService implements AttachmentService {
     fileSize?: number
   }): void {
     if (!isMultipartRequestWithinUploadLimit(input.contentLength ?? null)) {
-      throw new CrudHttpError(413, { error: 'Attachment exceeds the maximum upload size.' })
+      throw new CrudHttpError(413, { error: 'Attachment exceeds the maximum upload size.', code: 'max_upload_size' })
     }
     if (input.fileName && hasDangerousExecutableExtension(input.fileName)) {
-      throw new CrudHttpError(400, { error: 'Executable file types are not allowed as attachments.' })
+      throw new CrudHttpError(400, { error: 'Executable file types are not allowed as attachments.', code: 'dangerous_executable' })
     }
     if (typeof input.fileSize === 'number' && input.fileSize > resolveAttachmentMaxBytes(null)) {
-      throw new CrudHttpError(413, { error: 'Attachment exceeds the maximum upload size.' })
+      throw new CrudHttpError(413, { error: 'Attachment exceeds the maximum upload size.', code: 'max_upload_size' })
     }
   }
 
@@ -311,6 +401,16 @@ export class DefaultAttachmentService implements AttachmentService {
       })
     }
 
+    const textExtraction = input.textExtraction ?? 'partition'
+    let returnedContent: string | null = null
+    // In 'return' mode the text reaches the caller only through `persistLink`'s third argument;
+    // wrapping the callback captures it for the result even when the caller passed none.
+    const persistLink: AttachmentPersistLink | undefined = textExtraction === 'return'
+      ? async (tx, attachmentId, extras) => {
+          returnedContent = extras?.content ?? null
+          await input.persistLink?.(tx, attachmentId, extras)
+        }
+      : input.persistLink
     let attachment: Attachment
     try {
       attachment = await uploadService.upload({
@@ -324,23 +424,26 @@ export class DefaultAttachmentService implements AttachmentService {
         assignments: input.assignments,
         partitionCode: input.partitionCode,
         requirePrivatePartition: true,
-        persistLink: input.persistLink,
+        persistLink,
+        textExtraction,
       })
     } catch (error) {
       if (isScopedAttachmentUploadError(error)) {
         const message = SCOPED_UPLOAD_ERROR_MESSAGES[error.code] ?? UPLOAD_FAILED_MESSAGE
-        throw new CrudHttpError(error.status, { error: await translateAttachmentError(message) })
+        throw new CrudHttpError(error.status, { error: await translateAttachmentError(message), code: error.code })
       }
       throw error
     }
 
-    return {
+    const created: CreatedScopedAttachment = {
       id: attachment.id,
       url: attachment.url ?? buildAttachmentFileUrl(attachment.id),
       fileName: attachment.fileName,
       mimeType: attachment.mimeType,
       fileSize: attachment.fileSize,
     }
+    if (textExtraction === 'return') created.content = returnedContent
+    return created
   }
 
   async readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult> {
@@ -494,10 +597,95 @@ export class DefaultAttachmentService implements AttachmentService {
       const removal = resolveAttachmentStorageRelease(referenceIds, attachment.id)
       if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
       em.remove(attachment)
+      // The cache is derived data keyed by this row only; a rollback merely regenerates it.
+      await clearAttachmentThumbnailCacheSafely(attachment)
       return removal.releaseStorage ? deleteProviderBytes : undefined
     }
     const removal = await removeAttachmentRecord(em, attachment)
     if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
+    await clearAttachmentThumbnailCacheSafely(attachment)
     if (removal.releaseStorage) await deleteProviderBytes()
+  }
+
+  async releaseOwnedScoped(input: ReleaseOwnedScopedAttachmentsInput): Promise<ReleaseOwnedScopedAttachmentsResult> {
+    const ownerEntityId = typeof input.owner?.entityId === 'string' ? input.owner.entityId.trim() : ''
+    const ownerRecordId = typeof input.owner?.recordId === 'string' ? input.owner.recordId.trim() : ''
+    if (!ownerEntityId || !ownerRecordId || !input.tenantId || !input.organizationId) {
+      throw new CrudHttpError(500, { error: 'Owned attachment release requires an owner and a tenant and organization scope' })
+    }
+    const isInTransaction = (this.em as { isInTransaction?: () => boolean }).isInTransaction
+    if (typeof isInTransaction === 'function' && isInTransaction.call(this.em)) {
+      throw new CrudHttpError(500, {
+        error: 'Owned attachment release commits its own transaction before provider cleanup; call it outside a transaction',
+      })
+    }
+    const owner = { entityId: ownerEntityId, recordId: ownerRecordId }
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+    const result: ReleaseOwnedScopedAttachmentsResult = { deleted: 0, repointed: 0, detached: 0 }
+    const removedRows: Attachment[] = []
+    const providerCleanups: Array<{ attachmentId: string; run: AttachmentProviderCleanup }> = []
+
+    await this.em.transactional(async (tx) => {
+      const candidateIds = await lockOwnedAttachmentRows(tx, owner, scope)
+      if (!candidateIds.length) return
+      const rows = await findWithDecryption(
+        tx,
+        Attachment,
+        { id: { $in: candidateIds }, tenantId: scope.tenantId, organizationId: scope.organizationId },
+        { orderBy: { id: 'asc' }, refresh: true },
+        scope,
+      )
+      // Rows removed earlier in this transaction still answer the storage-reference lock until
+      // the flush, so they are discounted here; otherwise two rows sharing one stored object,
+      // both released now, would each see the other and keep the bytes forever.
+      const removedIds = new Set<string>()
+      for (const row of rows) {
+        const metadata = readAttachmentMetadata(row.storageMetadata)
+        const assignments = metadata.assignments ?? []
+        const remaining = assignments.filter((assignment) => (
+          assignment.type !== owner.entityId || assignment.id !== owner.recordId
+        ))
+        const isPrimary = row.entityId === owner.entityId && row.recordId === owner.recordId
+        if (isPrimary && !remaining.length) {
+          const referenceIds = (await lockAttachmentStorageReferences(tx, row)).filter((id) => !removedIds.has(id))
+          const removal = resolveAttachmentStorageRelease(referenceIds, row.id)
+          if (!removal.removed) continue
+          if (removal.releaseStorage) {
+            const driver = await this.storageDriverFactory.resolveForPartition(row.partitionCode, scope)
+            const partitionCode = row.partitionCode
+            const storagePath = row.storagePath
+            providerCleanups.push({ attachmentId: row.id, run: () => driver.delete(partitionCode, storagePath) })
+          }
+          removedIds.add(row.id)
+          removedRows.push(row)
+          tx.remove(row)
+          result.deleted += 1
+          continue
+        }
+        if (remaining.length === assignments.length && !isPrimary) continue
+        row.storageMetadata = { ...metadata, assignments: remaining }
+        if (isPrimary) {
+          row.entityId = remaining[0].type
+          row.recordId = remaining[0].id
+          result.repointed += 1
+        } else {
+          result.detached += 1
+        }
+      }
+      await tx.flush()
+    })
+
+    for (const row of removedRows) await clearAttachmentThumbnailCacheSafely(row)
+    const failures: unknown[] = []
+    for (const cleanup of providerCleanups) {
+      try {
+        await cleanup.run()
+      } catch (error) {
+        failures.push(error)
+        logger.error('Owned attachment provider cleanup failed', { attachmentId: cleanup.attachmentId, err: error })
+      }
+    }
+    if (failures.length) throw failures[0]
+    return result
   }
 }

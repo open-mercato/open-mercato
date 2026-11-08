@@ -60,6 +60,37 @@ describe('attachment access registry', () => {
     expect(getAttachmentAccessRegistry().protectedTargets).toHaveLength(1)
   })
 
+  it('keeps the registry valid with listInLibrary declared on an exact owner', () => {
+    registerAttachmentAccessResolvers([{
+      moduleId: 'inbox_ops', resolvers: [resolver('inbox_ops.email-attachments', { targetEntity: 'inbox_ops:inbox_email' })],
+      protectedTargets: [
+        { resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity: 'inbox_ops:inbox_email', listInLibrary: false },
+        { resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity: 'inbox_ops.*', listInLibrary: true },
+      ],
+    }])
+    const registry = getAttachmentAccessRegistry()
+    expect(registry.invalid).toBe(false)
+    expect(registry.protectedTargets).toEqual([
+      { resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity: 'inbox_ops:inbox_email', listInLibrary: false },
+      { resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity: 'inbox_ops.*', listInLibrary: true },
+    ])
+  })
+
+  it.each(['*', 'inbox_ops.*'])('rejects listInLibrary: false with the wildcard owner %s and fails closed', (targetEntity) => {
+    expect(() => registerAttachmentAccessResolvers([{
+      moduleId: 'inbox_ops', resolvers: [],
+      protectedTargets: [{ resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity, listInLibrary: false }],
+    }])).toThrow()
+    expect(getAttachmentAccessRegistry().invalid).toBe(true)
+  })
+
+  it('rejects a non-boolean listInLibrary', () => {
+    expect(() => registerAttachmentAccessResolvers([{
+      moduleId: 'inbox_ops', resolvers: [],
+      protectedTargets: [{ resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity: 'inbox_ops:inbox_email', listInLibrary: 'no' }],
+    }])).toThrow()
+  })
+
   it.each([
     [{ moduleId: 'documents', resolvers: [resolver('documents.same'), resolver('documents.same')] }],
     [{ moduleId: 'other', resolvers: [resolver('documents.files')] }],

@@ -15,6 +15,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../lib/assignmentDetails'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { ensureDefaultPartitions } from '../../lib/partitions'
+import { resolveLibraryExcludedEntities } from '../../lib/access-protection'
 import {
   attachmentsTag,
   attachmentListQuerySchema as openApiListQuerySchema,
@@ -82,10 +83,18 @@ async function listAttachments(req: Request) {
   } catch {
     queryEngine = null
   }
+  const partitions = await em.find(AttachmentPartition, {}, { orderBy: { title: 'asc' } })
+  // Owners declared `listInLibrary: false` (in the registry or durably on a partition) never
+  // enter the candidate queries, so their rows cost neither a fetch nor an owner-access
+  // resolver call in the records, count and facet passes below.
+  const excludedEntityIds = resolveLibraryExcludedEntities(partitions)
   const qb = em.createQueryBuilder(Attachment, 'a')
   const baseFilter: Record<string, unknown> = { tenantId: auth.tenantId }
   if (auth.orgId) {
     baseFilter.organizationId = auth.orgId
+  }
+  if (excludedEntityIds.length > 0) {
+    baseFilter.entityId = { $nin: excludedEntityIds }
   }
   qb.where(baseFilter)
   if (search && search.trim().length > 0) {
@@ -107,7 +116,6 @@ async function listAttachments(req: Request) {
   qb.orderBy({ [orderColumn]: sortDir === 'asc' ? 'asc' : 'desc', 'a.id': 'asc' })
   qb.limit(pageSize).offset(offset)
 
-  const partitions = await em.find(AttachmentPartition, {}, { orderBy: { title: 'asc' } })
   const protectedScan = requiresAttachmentAccessScan(partitions)
   const accessContext = createAttachmentAccessContext(container)
   const deadline = Date.now() + 15_000
@@ -184,6 +192,9 @@ async function listAttachments(req: Request) {
     .where('tenant_id', '=', auth.tenantId)
   if (auth.orgId) {
     tagQuery = tagQuery.where('organization_id', '=', auth.orgId)
+  }
+  if (excludedEntityIds.length > 0) {
+    tagQuery = tagQuery.where('entity_id', 'not in', excludedEntityIds)
   }
   const tagRows = await tagQuery.orderBy('tag', 'asc').execute() as Array<{ tag?: string | null }>
   availableTags = tagRows

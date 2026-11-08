@@ -17,8 +17,15 @@ export {
   type CreateScopedAttachmentInput,
   type ReadScopedAttachmentInput,
   type ReadScopedAttachmentResult,
+  type ReleaseOwnedScopedAttachmentsInput,
+  type ReleaseOwnedScopedAttachmentsResult,
   type ReleaseScopedAttachmentInput,
 } from './lib/attachment-service'
+export type {
+  AttachmentPersistLink,
+  AttachmentPersistLinkExtras,
+  AttachmentTextExtractionMode,
+} from './lib/scoped-upload-service'
 
 export {
   AttachmentStorageConfigurationError,

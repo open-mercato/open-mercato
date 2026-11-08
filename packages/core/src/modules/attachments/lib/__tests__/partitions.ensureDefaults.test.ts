@@ -4,6 +4,7 @@ jest.mock('#generated/entities.ids.generated', () => ({
 }), { virtual: true })
 
 import { DEFAULT_ATTACHMENT_PARTITIONS, ensureDefaultPartitions } from '@open-mercato/core/modules/attachments/lib/partitions'
+import { registerAttachmentAccessResolvers } from '@open-mercato/core/modules/attachments/lib/access-registry'
 
 // Fresh-install / demo-mode invariant locked in for PR #2635 review:
 // `ensureDefaultPartitions` MUST create the platform default partitions with
@@ -89,5 +90,27 @@ describe('ensureDefaultPartitions — fresh-install invariant', () => {
       expect(row.tenantId == null).toBe(true)
       expect(row.organizationId == null).toBe(true)
     }
+  })
+})
+
+describe('ensureDefaultPartitions — durable owner protection', () => {
+  afterEach(() => registerAttachmentAccessResolvers([]))
+
+  it('writes declared requirements and library exclusions when it creates a partition', async () => {
+    registerAttachmentAccessResolvers([{
+      moduleId: 'inbox_ops', resolvers: [],
+      protectedTargets: [{
+        resolverId: 'inbox_ops.email-attachments', targetPartition: 'privateAttachments',
+        targetEntity: 'inbox_ops:inbox_email', listInLibrary: false,
+      }],
+    }])
+    const { em, repo } = makeMockEm()
+    await ensureDefaultPartitions(em)
+    const created = new Map(repo.create.mock.calls.map(([data]) => [(data as { code: string }).code, data as Record<string, unknown>]))
+    expect(created.get('privateAttachments')).toMatchObject({
+      accessResolverRequirements: [{ resolverId: 'inbox_ops.email-attachments', targetEntity: 'inbox_ops:inbox_email' }],
+      libraryExcludedEntities: ['inbox_ops:inbox_email'],
+    })
+    expect(created.get('productsMedia')).toMatchObject({ accessResolverRequirements: [], libraryExcludedEntities: null })
   })
 })

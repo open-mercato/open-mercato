@@ -3,7 +3,7 @@ import { AttachmentPartition } from '../data/entities'
 import { resolveDefaultAttachmentOcrEnabled } from './ocrConfig'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { E } from '#generated/entities.ids.generated'
-import { getDeclaredAttachmentAccessRequirements } from './access-protection'
+import { getDeclaredAttachmentAccessRequirements, getInitialLibraryExcludedEntities } from './access-protection'
 
 export type AttachmentPartitionSeed = {
   code: string
@@ -52,6 +52,7 @@ export async function ensureDefaultPartitions(em: EntityManager): Promise<void> 
       storageDriver: 'local',
       isPublic: seed.isPublic ?? false,
       accessResolverRequirements: getDeclaredAttachmentAccessRequirements(seed.code),
+      libraryExcludedEntities: getInitialLibraryExcludedEntities(seed.code),
       requiresOcr: resolveDefaultAttachmentOcrEnabled(),
     })
     em.persist(record)

@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { StorageDriverFactory } from '../drivers'
 import type { AttachmentQuotaService } from '../quota-service'
+import { requestOcrProcessing } from '../ocrQueue'
 import {
   isScopedAttachmentUploadError,
   ScopedAttachmentUploadError,
@@ -15,6 +16,19 @@ jest.mock('../partitions', () => ({
 
 jest.mock('../ocrQueue', () => ({ requestOcrProcessing: jest.fn(async () => undefined) }))
 
+const mockExtractAttachmentContent = jest.fn(async (_params: { filePath: string; mimeType?: string | null }): Promise<string | null> => 'extracted text')
+jest.mock('../textExtraction', () => ({
+  extractAttachmentContent: (params: { filePath: string; mimeType?: string | null }) => mockExtractAttachmentContent(params),
+}))
+
+const mockOcrAvailable = { value: false }
+jest.mock('../ocrService', () => ({
+  OcrService: class {
+    get available() { return mockOcrAvailable.value }
+  },
+  shouldUseLlmOcr: () => true,
+}))
+
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 
@@ -23,6 +37,7 @@ function makeHarness(options: {
   reserveFails?: boolean
   markStoredFails?: boolean
   storedPath?: string
+  requiresOcr?: boolean
 } = {}) {
   const order: string[] = []
   const attachment = {} as Record<string, unknown>
@@ -42,7 +57,7 @@ function makeHarness(options: {
     findOne: jest.fn(async () => ({
       code: 'privateAttachments',
       storageDriver: 'local',
-      requiresOcr: false,
+      requiresOcr: options.requiresOcr ?? false,
     })),
     transactional: jest.fn(async (work: (inner: typeof tx) => Promise<void>) => work(tx)),
   } as unknown as EntityManager
@@ -56,6 +71,7 @@ function makeHarness(options: {
     deleteStrict: jest.fn(async () => {
       order.push('delete')
     }),
+    toLocalPath: jest.fn(async () => ({ filePath: '/tmp/upload.pdf', cleanup: jest.fn(async () => undefined) })),
   }
   const storageDriverFactory = {
     resolveForPartition: jest.fn(async () => driver),
@@ -167,6 +183,66 @@ describe('ScopedAttachmentUploadService', () => {
       status: 413,
     }))
     expect(driver.store).not.toHaveBeenCalled()
+  })
+})
+
+describe('ScopedAttachmentUploadService text extraction modes', () => {
+  beforeEach(() => {
+    mockExtractAttachmentContent.mockClear()
+    mockExtractAttachmentContent.mockResolvedValue('extracted text')
+    jest.mocked(requestOcrProcessing).mockClear()
+    mockOcrAvailable.value = false
+  })
+
+  it('keeps today\'s partition behavior by default: content stored when the partition requires OCR', async () => {
+    const { service, attachment } = makeHarness({ requiresOcr: true })
+    const persistLink = jest.fn(async () => undefined)
+    await service.upload({ ...input, persistLink })
+    expect(mockExtractAttachmentContent).toHaveBeenCalledTimes(1)
+    expect(attachment.content).toBe('extracted text')
+    expect(persistLink).toHaveBeenCalledWith(expect.anything(), expect.any(String))
+    expect(persistLink.mock.calls[0]).toHaveLength(2)
+  })
+
+  it('keeps queuing LLM OCR in partition mode when it is available', async () => {
+    mockOcrAvailable.value = true
+    const { service, attachment } = makeHarness({ requiresOcr: true })
+    await service.upload({ ...input, textExtraction: 'partition' })
+    expect(mockExtractAttachmentContent).not.toHaveBeenCalled()
+    expect(requestOcrProcessing).toHaveBeenCalledTimes(1)
+    expect(attachment.content).toBeNull()
+  })
+
+  it.each([false, true])('return mode extracts with requiresOcr=%s, leaves content empty and never queues OCR', async (requiresOcr) => {
+    mockOcrAvailable.value = true
+    const { service, attachment, driver } = makeHarness({ requiresOcr })
+    const persistLink = jest.fn(async () => undefined)
+    await service.upload({ ...input, textExtraction: 'return', persistLink })
+    expect(driver.toLocalPath).toHaveBeenCalledWith('privateAttachments', 'tenant/org/upload.pdf')
+    expect(mockExtractAttachmentContent).toHaveBeenCalledTimes(1)
+    expect(attachment.content).toBeNull()
+    expect(persistLink).toHaveBeenCalledWith(expect.anything(), expect.any(String), { content: 'extracted text' })
+    expect(requestOcrProcessing).not.toHaveBeenCalled()
+  })
+
+  it('return mode hands persistLink a null content when the extractor yields nothing', async () => {
+    mockExtractAttachmentContent.mockResolvedValue(null)
+    const { service } = makeHarness()
+    const persistLink = jest.fn(async () => undefined)
+    await service.upload({ ...input, textExtraction: 'return', persistLink })
+    expect(persistLink).toHaveBeenCalledWith(expect.anything(), expect.any(String), { content: null })
+  })
+
+  it('none mode extracts nothing and never queues OCR even when the partition requires it', async () => {
+    mockOcrAvailable.value = true
+    const { service, attachment, driver } = makeHarness({ requiresOcr: true })
+    const persistLink = jest.fn(async () => undefined)
+    await service.upload({ ...input, textExtraction: 'none', persistLink })
+    expect(driver.toLocalPath).not.toHaveBeenCalled()
+    expect(mockExtractAttachmentContent).not.toHaveBeenCalled()
+    expect(requestOcrProcessing).not.toHaveBeenCalled()
+    expect(attachment.content).toBeNull()
+    expect(persistLink.mock.calls[0]).toHaveLength(2)
   })
 })
 

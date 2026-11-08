@@ -348,6 +348,29 @@ describe('attachment partitions API — tenant scoping', () => {
     expect(row.organizationId).toBe('orgA')
   })
 
+  it('POST writes declared requirements and library exclusions on the new partition', async () => {
+    const { registerAttachmentAccessResolvers } = await import('@open-mercato/core/modules/attachments/lib/access-registry')
+    registerAttachmentAccessResolvers([{
+      moduleId: 'inbox_ops', resolvers: [],
+      protectedTargets: [{
+        resolverId: 'inbox_ops.email-attachments', targetPartition: '*',
+        targetEntity: 'inbox_ops:inbox_email', listInLibrary: false,
+      }],
+    }])
+    try {
+      const { POST } = await loadHandlers()
+      const res = await POST(buildRequest('POST', { code: 'inboundMail', title: 'Inbound', storageDriver: 'local' }))
+      expect(res.status).toBe(201)
+      expect(mockEm.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        code: 'inboundMail',
+        accessResolverRequirements: [{ resolverId: 'inbox_ops.email-attachments', targetEntity: 'inbox_ops:inbox_email' }],
+        libraryExcludedEntities: ['inbox_ops:inbox_email'],
+      }))
+    } finally {
+      registerAttachmentAccessResolvers([])
+    }
+  })
+
   it('Unauthenticated requests are rejected on every verb', async () => {
     currentAuth = null
     const { GET, POST, PUT, DELETE: del } = await loadHandlers()

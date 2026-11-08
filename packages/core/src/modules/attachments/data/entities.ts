@@ -29,6 +29,14 @@ export class AttachmentPartition {
   @Property({ name: 'access_resolver_requirements', type: 'jsonb', nullable: true })
   accessResolverRequirements?: AttachmentAccessRequirement[] | null
 
+  /**
+   * Primary owner entity ids kept out of the shared attachments library. Written
+   * as a union wherever access requirements are written and never pruned, so the
+   * exclusion survives disabling the declaring module.
+   */
+  @Property({ name: 'library_excluded_entities', type: 'jsonb', nullable: true })
+  libraryExcludedEntities?: string[] | null
+
   @Property({ name: 'is_public', type: 'boolean', default: false })
   isPublic: boolean = false
 
@@ -54,6 +62,13 @@ export class AttachmentPartition {
 
 @Entity({ tableName: 'attachments' })
 @Index({ name: 'attachments_storage_reference_idx', properties: ['partitionCode', 'storagePath'] })
+// Serves `storage_metadata @> '{"assignments":[{"type":…,"id":…}]}'`, the containment probe
+// `releaseOwnedScoped` uses to find rows assigned to an owner. `jsonb_path_ops` supports
+// exactly `@>` and is the smaller opclass. Built concurrently by its migration.
+@Index({
+  name: 'attachments_storage_metadata_gin_idx',
+  expression: 'create index "attachments_storage_metadata_gin_idx" on "attachments" using gin ("storage_metadata" jsonb_path_ops)',
+})
 export class Attachment {
   [OptionalProps]?: 'createdAt'
 

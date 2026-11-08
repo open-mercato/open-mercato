@@ -73,6 +73,30 @@ export function isScopedAttachmentUploadError(error: unknown): error is ScopedAt
     && (error as Record<symbol, unknown>)[SCOPED_ATTACHMENT_UPLOAD_ERROR_MARKER] === true
 }
 
+/**
+ * How an upload extracts text:
+ * - `'partition'` (default): today's behavior. Text is extracted at upload only when the
+ *   partition has `requiresOcr`, stored in `Attachment.content`, and LLM OCR is queued when
+ *   available.
+ * - `'return'`: the pure-JS extractor runs whatever the partition flag, LLM OCR is never
+ *   queued, `Attachment.content` stays empty, and the text is handed to `persistLink` as
+ *   its third argument (`{ content }`) instead.
+ * - `'none'`: nothing is extracted and LLM OCR is never queued.
+ */
+export type AttachmentTextExtractionMode = 'partition' | 'return' | 'none'
+
+/** Third `persistLink` argument, passed only with `textExtraction: 'return'`. */
+export type AttachmentPersistLinkExtras = {
+  /** The extracted text, or `null` when the file type yields none. */
+  content: string | null
+}
+
+export type AttachmentPersistLink = (
+  tx: EntityManager,
+  attachmentId: string,
+  extras?: AttachmentPersistLinkExtras,
+) => Promise<void> | void
+
 export type ScopedAttachmentUploadInput = {
   tenantId: string
   organizationId: string
@@ -97,9 +121,12 @@ export type ScopedAttachmentUploadInput = {
    * Persists a module-owned link row inside the same transaction as the
    * Attachment, so a link failure cannot leave a committed orphan attachment.
    * The callback receives only the generated id, never the entity or the
-   * storage implementation.
+   * storage implementation. With `textExtraction: 'return'` it also receives
+   * the extracted text.
    */
-  persistLink?: (tx: EntityManager, attachmentId: string) => Promise<void> | void
+  persistLink?: AttachmentPersistLink
+  /** Defaults to `'partition'`; see `AttachmentTextExtractionMode`. */
+  textExtraction?: AttachmentTextExtractionMode
 }
 
 type QuotaRecoveryScheduler = (
@@ -207,11 +234,14 @@ export class ScopedAttachmentUploadService {
       throw new ScopedAttachmentUploadError('storage_failed', 500)
     }
 
+    const textExtraction: AttachmentTextExtractionMode = input.textExtraction ?? 'partition'
     let extractedContent: string | null = null
-    const wantsLlmOcr = partition.requiresOcr && shouldUseLlmOcr(mimeType, safeName)
+    const wantsLlmOcr = textExtraction === 'partition' && partition.requiresOcr && shouldUseLlmOcr(mimeType, safeName)
     const ocrService = wantsLlmOcr ? new OcrService() : null
     const useLlmOcr = Boolean(wantsLlmOcr && ocrService?.available)
-    if (partition.requiresOcr && !useLlmOcr) {
+    const extractAtUpload = textExtraction === 'return'
+      || (textExtraction === 'partition' && partition.requiresOcr && !useLlmOcr)
+    if (extractAtUpload) {
       try {
         const { filePath, cleanup } = await driver.toLocalPath(partition.code, storedPath)
         try {
@@ -248,12 +278,13 @@ export class ScopedAttachmentUploadService {
           storageDriver: partition.storageDriver || 'local',
           storagePath: storedPath,
           url: buildAttachmentFileUrl(attachmentId),
-          content: extractedContent,
+          content: textExtraction === 'partition' ? extractedContent : null,
           storageMetadata: metadata,
         })
         assertAttachmentScopeInvariant({ tenantId: attachment.tenantId, organizationId: attachment.organizationId })
         await tx.persist(attachment).flush()
-        await input.persistLink?.(tx, attachmentId)
+        if (textExtraction === 'return') await input.persistLink?.(tx, attachmentId, { content: extractedContent })
+        else await input.persistLink?.(tx, attachmentId)
         await attachmentQuotaService.completeAttachment(reservation.id, reservation.leaseToken, tx)
       })
     } catch (error) {

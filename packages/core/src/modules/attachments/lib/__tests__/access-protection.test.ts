@@ -2,7 +2,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AttachmentPartition } from '../../data/entities'
 import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ensureAttachmentPartitionProtection, mergeAttachmentAccessRequirements, syncAttachmentAccessProtection } from '../access-protection'
+import {
+  ensureAttachmentPartitionProtection,
+  getDeclaredAttachmentAccessRequirements,
+  getDeclaredLibraryExcludedEntities,
+  getInitialLibraryExcludedEntities,
+  mergeAttachmentAccessRequirements,
+  mergeLibraryExcludedEntities,
+  resolveLibraryExcludedEntities,
+  syncAttachmentAccessProtection,
+} from '../access-protection'
 import { registerAttachmentAccessResolvers } from '../access-registry'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -81,4 +90,114 @@ it('accepts an uncommitted partition carrying every required marker for its atom
     code: 'new-private', accessResolverRequirements: [documentRequirement],
   } as AttachmentPartition)
   expect(em.fork).not.toHaveBeenCalled()
+})
+
+describe('library exclusion (listInLibrary: false)', () => {
+  const inboxRequirement = { resolverId: 'inbox_ops.email-attachments', targetEntity: 'inbox_ops:inbox_email' }
+
+  function registerInbox() {
+    registerAttachmentAccessResolvers([
+      { moduleId: 'documents', resolvers: [], protectedTargets: [{ ...documentRequirement, targetPartition: '*' }] },
+      { moduleId: 'inbox_ops', resolvers: [], protectedTargets: [{ ...inboxRequirement, targetPartition: '*', listInLibrary: false }] },
+    ])
+  }
+
+  function transactionHarness(partition: Record<string, unknown>) {
+    const transaction = { flush: jest.fn(async () => undefined) }
+    const isolated = { transactional: jest.fn(async (callback: (em: typeof transaction) => Promise<number>) => callback(transaction)) }
+    jest.mocked(findWithDecryption).mockResolvedValue([partition] as never)
+    jest.mocked(findOneWithDecryption).mockResolvedValue(partition as never)
+    return { em: { fork: jest.fn(() => isolated) } as unknown as EntityManager, transaction, isolated }
+  }
+
+  it('keeps the stored requirement rows in their existing two-field shape', () => {
+    registerInbox()
+    expect(getDeclaredAttachmentAccessRequirements('privateAttachments')).toEqual([documentRequirement, inboxRequirement])
+    for (const requirement of getDeclaredAttachmentAccessRequirements('privateAttachments')) {
+      expect(Object.keys(requirement).sort()).toEqual(['resolverId', 'targetEntity'])
+    }
+    expect(getDeclaredLibraryExcludedEntities('privateAttachments')).toEqual(['inbox_ops:inbox_email'])
+    expect(getInitialLibraryExcludedEntities('privateAttachments')).toEqual(['inbox_ops:inbox_email'])
+  })
+
+  it('returns null for a new partition without declared exclusions', () => {
+    expect(getInitialLibraryExcludedEntities('privateAttachments')).toBeNull()
+  })
+
+  it('fills the column on a partition whose requirements were already merged', async () => {
+    registerInbox()
+    const partition = {
+      id: 'partition-1', code: 'privateAttachments',
+      accessResolverRequirements: [documentRequirement, inboxRequirement], libraryExcludedEntities: null,
+    }
+    const { em, transaction } = transactionHarness(partition)
+    expect(await syncAttachmentAccessProtection(em)).toBe(1)
+    expect(partition.accessResolverRequirements).toEqual([documentRequirement, inboxRequirement])
+    expect(partition.libraryExcludedEntities).toEqual(['inbox_ops:inbox_email'])
+    expect(transaction.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes requirements and exclusions together and is idempotent once both are present', async () => {
+    registerInbox()
+    const partition = { id: 'partition-1', code: 'privateAttachments', accessResolverRequirements: null, libraryExcludedEntities: null }
+    const { em } = transactionHarness(partition)
+    expect(await syncAttachmentAccessProtection(em)).toBe(1)
+    expect(partition.accessResolverRequirements).toEqual([documentRequirement, inboxRequirement])
+    expect(partition.libraryExcludedEntities).toEqual(['inbox_ops:inbox_email'])
+    expect(await syncAttachmentAccessProtection(em)).toBe(0)
+  })
+
+  it('keeps persisted exclusions when the owner module is no longer registered', async () => {
+    registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [], protectedTargets: [{ ...documentRequirement, targetPartition: '*' }] }])
+    const partition = {
+      id: 'partition-1', code: 'privateAttachments',
+      accessResolverRequirements: [inboxRequirement], libraryExcludedEntities: ['inbox_ops:inbox_email'],
+    }
+    const { em } = transactionHarness(partition)
+    expect(await syncAttachmentAccessProtection(em)).toBe(1)
+    expect(partition.accessResolverRequirements).toEqual([inboxRequirement, documentRequirement])
+    expect(partition.libraryExcludedEntities).toEqual(['inbox_ops:inbox_email'])
+  })
+
+  it('merges exclusions as a union that never removes entries and rejects malformed durable data', () => {
+    expect(mergeLibraryExcludedEntities(['legacy:owner'], ['inbox_ops:inbox_email'])).toEqual(['legacy:owner', 'inbox_ops:inbox_email'])
+    expect(mergeLibraryExcludedEntities(['inbox_ops:inbox_email'], [])).toEqual(['inbox_ops:inbox_email'])
+    expect(mergeLibraryExcludedEntities(null, ['inbox_ops:inbox_email'])).toEqual(['inbox_ops:inbox_email'])
+    expect(() => mergeLibraryExcludedEntities({ entity: 'x' }, ['inbox_ops:inbox_email'])).toThrow()
+    expect(() => mergeLibraryExcludedEntities(['*'], [])).toThrow()
+  })
+
+  it('syncs on upload when only the exclusion is missing from an otherwise protected partition', async () => {
+    registerInbox()
+    const partition = {
+      id: 'partition-1', code: 'privateAttachments',
+      accessResolverRequirements: [documentRequirement, inboxRequirement], libraryExcludedEntities: null,
+    }
+    const { em, isolated } = transactionHarness(partition)
+    await ensureAttachmentPartitionProtection(em, partition as unknown as AttachmentPartition)
+    expect(isolated.transactional).toHaveBeenCalledTimes(1)
+    expect(partition.libraryExcludedEntities).toEqual(['inbox_ops:inbox_email'])
+  })
+
+  it('skips the upload sync when requirements and exclusions are both present', async () => {
+    registerInbox()
+    const em = { fork: jest.fn() }
+    await ensureAttachmentPartitionProtection(em as unknown as EntityManager, {
+      code: 'privateAttachments',
+      accessResolverRequirements: [documentRequirement, inboxRequirement],
+      libraryExcludedEntities: ['inbox_ops:inbox_email'],
+    } as AttachmentPartition)
+    expect(em.fork).not.toHaveBeenCalled()
+  })
+
+  it('resolves library exclusions from the registry and from partitions, after the owner module is disabled too', () => {
+    registerInbox()
+    expect(resolveLibraryExcludedEntities([])).toEqual(['inbox_ops:inbox_email'])
+    registerAttachmentAccessResolvers([])
+    expect(resolveLibraryExcludedEntities([{ libraryExcludedEntities: null }])).toEqual([])
+    expect(resolveLibraryExcludedEntities([
+      { libraryExcludedEntities: ['inbox_ops:inbox_email'] },
+      { libraryExcludedEntities: ['inbox_ops:inbox_email', 'legacy:owner', '*', ''] as string[] },
+    ])).toEqual(['inbox_ops:inbox_email', 'legacy:owner'])
+  })
 })

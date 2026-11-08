@@ -22,8 +22,21 @@ export const attachmentAccessRequirementSchema = z.object({
   targetEntity: attachmentAccessSelectorSchema,
 }).strict()
 
+/** An exact owner entity id: the library exclusion matches `entity_id` by equality, never by pattern. */
+export const attachmentLibraryExcludedEntitySchema = z.string().min(1).max(200).regex(/^[^*\s]+$/)
+export const attachmentLibraryExcludedEntitiesSchema = z.array(attachmentLibraryExcludedEntitySchema)
+
 export const protectedAttachmentTargetSchema = attachmentAccessRequirementSchema.extend({
   targetPartition: attachmentAccessSelectorSchema,
+  listInLibrary: z.boolean().optional(),
+}).superRefine((target, ctx) => {
+  if (target.listInLibrary === false && !attachmentLibraryExcludedEntitySchema.safeParse(target.targetEntity).success) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['listInLibrary'],
+      message: 'listInLibrary: false requires an exact targetEntity, not a wildcard',
+    })
+  }
 })
 
 export const attachmentAccessResolverSchema = z.object({
