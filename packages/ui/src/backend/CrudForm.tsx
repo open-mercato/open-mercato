@@ -3668,7 +3668,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           const manageDisabled = !manageHref
           nodes.push(
             <div key={sectionKey} className={`rounded-lg border bg-card ${densityCardPadding} ${densityStackLg}`}>
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-start gap-2">
                   {FieldsetIcon ? (
                     <FieldsetIcon className="size-5 text-muted-foreground" />
@@ -4051,13 +4051,13 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
                   <SortableContext items={col1Ids} strategy={verticalListSortingStrategy}>
-                    <div className={densityStackMd}>{col1Content}</div>
+                    <div className={`min-w-0 ${densityStackMd}`}>{col1Content}</div>
                   </SortableContext>
                 </DndContext>
               ) : (
-                <div className={densityStackMd}>{col1Content}</div>
+                <div className={`min-w-0 ${densityStackMd}`}>{col1Content}</div>
               )}
-              {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
+              {hasSecondaryColumn ? <div className={`min-w-0 ${densityStackMd}`} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {renderFooterActions ? (
