@@ -3,6 +3,7 @@ import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachme
 import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
 import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { prepareAttachmentMutation } from '../lib/access-mutation'
 import { throwAttachmentAccessError } from '../lib/access-errors'
 import { createAttachmentAccessContext } from '../lib/access-runner'
@@ -646,6 +647,18 @@ async function uploadAttachment(req: Request) {
   // custom-field failure cannot leave behind a committed orphan attachment.
   try {
     await em.transactional(async (tx) => {
+      // Recheck owner access at the commit boundary (#8891 review) — the early
+      // check above ran before storage/OCR; an editor's share or the owner
+      // itself can be revoked/archived while that work was in flight. Use a
+      // fresh context so this evaluation never reuses the earlier subject or
+      // resolver cache.
+      await assertAttachmentOwnerAccess({
+        em: tx,
+        context: createAttachmentAccessContext(container),
+        auth: scopedAuth,
+        attachment: att,
+        action: 'create',
+      })
       await tx.persist(att).flush()
       if (dataEngine) {
         await setCustomFieldsIfAny({
@@ -662,7 +675,6 @@ async function uploadAttachment(req: Request) {
       }
     })
   } catch (error) {
-    logger.error('Failed to persist attachment with custom attributes', { err: error })
     try {
       await (uploadDriver.deleteStrict?.(partition.code, storedPath)
         ?? uploadDriver.delete(partition.code, storedPath))
@@ -672,6 +684,10 @@ async function uploadAttachment(req: Request) {
     } catch (cleanupError) {
       logger.error('Failed to compensate attachment persistence', { err: cleanupError })
     }
+    // A commit-boundary owner-access denial must still surface as the usual
+    // non-disclosing access error (e.g. 404), not the generic 500 below.
+    if (isCrudHttpError(error)) throw error
+    logger.error('Failed to persist attachment with custom attributes', { err: error })
     return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
   }
 

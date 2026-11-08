@@ -187,6 +187,14 @@ Upgrade: run the additive migration, regenerate/build registrations, then synchr
 
 Older binaries ignore the new column and reopen disclosure. Retaining it while rolling forward is safe; dropping policy data is not a supported security rollback. If emergency binary rollback is unavoidable, first block affected host endpoints at the deployment boundary. Coding never applies migrations to a developer database; validation uses an owned disposable database.
 
+### Generic upload `create` action (2026-11-07, #8891)
+
+`POST /api/attachments` extends this same framework with a new `AttachmentAccessAction` member, `'create'`, evaluated against the normalized primary owner and every assignment right after the upload's partition is resolved — before any quota reservation or storage write — and re-evaluated with a fresh subject/resolver cache at the commit boundary (inside the persisting transaction, right before the attachment row is flushed), so a share revoked or an owner archived while storage/OCR ran still denies before anything commits. Documents' resolver treats `create` like `reassign`/`delete` (requires `canEdit`, not just `canView`).
+
+This is the same Emergency Security Exception shape as the original #6726/#6829 rollout above: the vulnerable surface is the write path itself, and the only bridge — a flag or opt-in that keeps accepting an upload against an owner the caller cannot edit — is exactly the retained branch the exception exists to refuse. Steps 4 and 5 apply: this section, the dated `BACKWARD_COMPATIBILITY.md` entry for #8891, and `UPGRADE_NOTES.md#attachment-owner-access-covers-upload-8891`, which carries both the client migration (a previously-successful upload against an uneditable `documents:document` now answers `404`) and the module-author migration (resolvers with an explicit `actions` array should add `'create'`).
+
+**Outstanding: named maintainer acknowledgment.** Unlike the original #6726/#6829 rollout — acknowledged by @haxiorz on 2026-10-29, recorded above — this `create` tightening has not yet been signed off by a human maintainer. Per Exception rule 5, an automated review cannot clear it: a maintainer must comment approval naming this change (#8891) before merge, the same way @haxiorz's linked comment closed the original rollout. No merge is authorized on this surface until that acknowledgment is recorded here and in `BACKWARD_COMPATIBILITY.md`.
+
 ## 📝 Risks & Impact Review
 
 | Failure | Severity / mitigation / residual risk |
@@ -267,3 +275,5 @@ Fault/disabled-registry tests may use controlled registry real-route fixtures; l
 - 2026-10-01: Independent design review required preserving malformed declared owners during matching, host-isolated resolver cache namespaces, and disclosure of predeployment cache-purge limitations; incorporated before publication.
 
 - 2026-10-29: Record @haxiorz’s explicit Emergency Security Exception waiver and migration acknowledgment; preserve independent review, QA and CI gates.
+
+- 2026-11-07: Extended Migration & Backward Compatibility for #8891's new `create` action on the generic upload route and its commit-boundary recheck; recorded that this narrower tightening still needs its own named maintainer acknowledgment (not yet granted) before merge.

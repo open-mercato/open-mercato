@@ -651,4 +651,4 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 
 ## Attachment upload owner access (2026-11-07, #8891)
 
-`POST /api/attachments` enforces the #6726/#6829 check via a new `'create'` action; narrows an uneditable `documents:document` owner to the existing `404`. [Migration](UPGRADE_NOTES.md#attachment-owner-access-covers-upload-8891).
+Generic upload enforces #6726/#6829 via `create`. [Migration](.ai/specs/2026-10-01-attachment-access-resolvers.md). Ack pending.
