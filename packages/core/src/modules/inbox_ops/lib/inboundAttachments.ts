@@ -1,7 +1,14 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
-import type { AttachmentPersistLink, AttachmentService } from '@open-mercato/core/modules/attachments'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import {
+  listUnguardedAttachmentReaders,
+  type AttachmentPersistLink,
+  type AttachmentService,
+} from '@open-mercato/core/modules/attachments'
 import { E } from '#generated/entities.ids.generated'
 import {
   InboxEmail,
@@ -10,8 +17,8 @@ import {
   type InboxEmailAttachmentReason,
   type InboxEmailAttachmentStatus,
 } from '../data/entities'
-import type { ResendInboundAttachment } from '../data/validators'
-import type { InboundAttachmentsConfig } from './inboundAttachmentsConfig'
+import type { InboundAttachmentIngestJob, ResendInboundAttachment } from '../data/validators'
+import { readInboundAttachmentsConfig, type InboundAttachmentsConfig } from './inboundAttachmentsConfig'
 
 /**
  * Inbound email attachments of Resend mail (spec `2026-10-25-inbox-ops-inbound-attachments.md`):
@@ -368,4 +375,266 @@ export async function persistInboundPart(input: PersistInboundPartInput): Promis
         return classification
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Reporting
+// ---------------------------------------------------------------------------
+
+const logger = createLogger('inbox_ops').child({ component: 'inbound-attachments' })
+
+export type InboundAttachmentErrorCode =
+  | 'inbox_ops.attachment_fetch_failed'
+  | 'inbox_ops.attachment_store_failed'
+  | 'inbox_ops.attachment_ingest_timeout'
+  | 'inbox_ops.attachment_requeue_failed'
+  | 'inbox_ops.attachment_release_failed'
+  | 'inbox_ops.attachment_schedule_failed'
+
+/** Reports through the telemetry funnel; a telemetry fault degrades to a warning. Attributes carry ids and codes only. */
+export function reportInboundAttachmentError(
+  error: unknown,
+  code: InboundAttachmentErrorCode,
+  attributes: Record<string, string | number | boolean | undefined> = {},
+): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'inbox_ops', code, attributes })
+  } catch (reportFailure) {
+    logger.warn('Failed to report an inbound attachment error', { code, err: reportFailure })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ingestion gate (spec D19)
+// ---------------------------------------------------------------------------
+
+export type InboundAttachmentGateConfig = Pick<InboundAttachmentsConfig, 'enabled' | 'allowUnguardedReaders' | 'resendStubEnabled'>
+
+export type InboundAttachmentGateOptions = {
+  config?: InboundAttachmentGateConfig
+  listReaders?: () => string[]
+}
+
+const warnedOnce = new Set<string>()
+
+function warnOncePerProcess(key: string, message: string, data: Record<string, unknown>): void {
+  if (warnedOnce.has(key)) return
+  warnedOnce.add(key)
+  logger.warn(message, data)
+}
+
+/** The D19 test opt-out: honored only when both test-only flags are set. */
+export function isUnguardedReaderTestOptOutActive(config: Pick<InboundAttachmentGateConfig, 'allowUnguardedReaders' | 'resendStubEnabled'>): boolean {
+  return config.allowUnguardedReaders === true && config.resendStubEnabled === true
+}
+
+/**
+ * Enabled modules that read attachment rows without owner checks and therefore block storing
+ * inbound files, or an empty list when the test opt-out applies (which logs a warning). The
+ * first call in the process that meets blocking modules logs one warning naming them.
+ */
+export function unguardedAttachmentReadersBlockingIngest(options: InboundAttachmentGateOptions = {}): string[] {
+  const readers = (options.listReaders ?? listUnguardedAttachmentReaders)()
+  if (readers.length === 0) return []
+  const config = options.config ?? readInboundAttachmentsConfig()
+  const modules = [...readers].sort((left, right) => left.localeCompare(right))
+  if (isUnguardedReaderTestOptOutActive(config)) {
+    warnOncePerProcess(
+      `opt-out:${modules.join(',')}`,
+      'Inbound attachment ingestion runs while unguarded attachment readers are enabled (INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS with OM_ENABLE_RESEND_STUB; test only)',
+      { modules },
+    )
+    return []
+  }
+  warnOncePerProcess(
+    `blocking:${modules.join(',')}`,
+    'Inbound email attachments are not stored while modules that read attachments without owner checks are enabled',
+    { modules },
+  )
+  return modules
+}
+
+/** `INBOX_OPS_ATTACHMENTS_ENABLED` is on (checked first) and no unguarded reader blocks ingestion. */
+export function isInboundAttachmentIngestEnabled(options: InboundAttachmentGateOptions = {}): boolean {
+  const config = options.config ?? readInboundAttachmentsConfig()
+  if (!config.enabled) return false
+  return unguardedAttachmentReadersBlockingIngest({ ...options, config }).length === 0
+}
+
+const STORED_ROWS_CHECK_TTL_MS = 5 * 60 * 1000
+let storedRowsCheckedAt = 0
+
+/**
+ * While an unguarded reader is enabled and any `stored` ledger row exists, warns once per process
+ * that those files are readable through it. Logged by the maintenance worker and by the first
+ * webhook or worker run that meets the closed gate. Returns whether the condition holds.
+ */
+export async function warnIfStoredInboundAttachmentsReadableByUnguardedReaders(
+  em: EntityManager,
+  readers: readonly string[],
+  now: () => Date = () => new Date(),
+): Promise<boolean> {
+  if (readers.length === 0) return false
+  const modules = [...readers].sort((left, right) => left.localeCompare(right))
+  const key = `stored:${modules.join(',')}`
+  if (warnedOnce.has(key)) return true
+  const timestamp = now().getTime()
+  if (storedRowsCheckedAt > 0 && timestamp - storedRowsCheckedAt < STORED_ROWS_CHECK_TTL_MS) return false
+  storedRowsCheckedAt = timestamp
+  const rows = await em.getConnection().execute<Array<{ found: number }>>(
+    `select 1 as found from inbox_email_attachments where status = 'stored' and deleted_at is null limit 1`,
+  )
+  if (!Array.isArray(rows) || rows.length === 0) return false
+  warnOncePerProcess(
+    key,
+    'Stored inbound email attachments are readable through modules that read attachments without owner checks',
+    { modules },
+  )
+  return true
+}
+
+/** Test helper: forgets the per-process warnings. */
+export function resetInboundAttachmentGateWarningsForTests(): void {
+  warnedOnce.clear()
+  storedRowsCheckedAt = 0
+}
+
+// ---------------------------------------------------------------------------
+// Ingest job queue and the re-enqueue helper (spec D10)
+// ---------------------------------------------------------------------------
+
+export const INBOX_OPS_ATTACHMENT_INGEST_QUEUE = 'inbox-ops-attachment-ingest'
+export const INBOX_OPS_ATTACHMENT_INGEST_CONCURRENCY = 2
+/** Attempts `createModuleQueue` gives a job by default; the worker re-enqueues itself on the last one. */
+export const INBOX_OPS_ATTACHMENT_INGEST_QUEUE_ATTEMPTS = 3
+/** Generation the webhook inserts a pending email with and enqueues its first job under. */
+export const INITIAL_INBOUND_ATTACHMENT_INGEST_GENERATION = 1
+
+export type InboundAttachmentIngestEnqueuer = Pick<Queue<InboundAttachmentIngestJob>, 'enqueue'>
+
+let ingestQueue: Queue<InboundAttachmentIngestJob> | null = null
+
+/**
+ * The ingest queue. It sets no `coalesceBy` and no enqueue passes `coalesce`: a coalesced add
+ * would drop a re-enqueue carrying a newer generation, and delayed work must not use a key.
+ */
+export function getInboundAttachmentIngestQueue(): Queue<InboundAttachmentIngestJob> {
+  if (!ingestQueue) {
+    ingestQueue = createModuleQueue<InboundAttachmentIngestJob>(INBOX_OPS_ATTACHMENT_INGEST_QUEUE, {
+      concurrency: INBOX_OPS_ATTACHMENT_INGEST_CONCURRENCY,
+      attempts: INBOX_OPS_ATTACHMENT_INGEST_QUEUE_ATTEMPTS,
+    })
+  }
+  return ingestQueue
+}
+
+/** Enqueues `{ emailId, tenantId, organizationId, generation }` and nothing else, optionally delayed. */
+export async function enqueueInboundAttachmentIngestJob(
+  job: InboundAttachmentIngestJob,
+  options: { delayMs?: number; queue?: InboundAttachmentIngestEnqueuer } = {},
+): Promise<string> {
+  const queue = options.queue ?? getInboundAttachmentIngestQueue()
+  const payload: InboundAttachmentIngestJob = {
+    emailId: job.emailId,
+    tenantId: job.tenantId,
+    organizationId: job.organizationId,
+    generation: job.generation,
+  }
+  const delayMs = options.delayMs && options.delayMs > 0 ? Math.floor(options.delayMs) : 0
+  return delayMs > 0 ? queue.enqueue(payload, { delayMs }) : queue.enqueue(payload)
+}
+
+export type InboundAttachmentEmailRef = { id: string; tenantId: string; organizationId: string }
+
+export type ReenqueueInboundAttachmentIngestInput = {
+  em: EntityManager
+  email: InboundAttachmentEmailRef
+  delayMs?: number
+  /**
+   * The generation of the job that re-enqueues (the worker's own re-enqueues and
+   * `onJobAbandoned`): the reservation then also requires that this job is not superseded.
+   */
+  jobGeneration?: number
+  queue?: InboundAttachmentIngestEnqueuer
+  now?: () => Date
+}
+
+export type ReenqueueInboundAttachmentIngestResult =
+  | { kind: 'enqueued'; generation: number; jobId: string; confirmed: boolean }
+  | { kind: 'not_reserved' }
+  | { kind: 'enqueue_failed'; generation: number; error: unknown }
+
+/** Step 1: one conditional `UPDATE … RETURNING`, so concurrent callers get different generations. */
+export const RESERVE_INBOUND_ATTACHMENT_GENERATION_SQL = `update inbox_emails
+   set attachments_ingest_generation = coalesce(attachments_ingest_generation, 0) + 1
+ where id = ? and tenant_id = ? and organization_id = ?
+   and deleted_at is null
+   and attachments_status in ('pending', 'processing')`
+
+const RESERVE_NOT_SUPERSEDED_SQL = `
+   and coalesce(attachments_current_generation, 0) <= ?`
+
+const RESERVE_RETURNING_SQL = `
+ returning attachments_ingest_generation as generation`
+
+function readGeneration(rows: unknown): number | null {
+  if (!Array.isArray(rows) || rows.length === 0) return null
+  const value = Number((rows[0] as { generation?: unknown }).generation)
+  return Number.isInteger(value) && value > 0 ? value : null
+}
+
+/**
+ * The single re-enqueue path (duplicate branch, catch-up, `onJobAbandoned`, manual retry, sweep,
+ * the worker's delayed job): reserve a generation, enqueue the job, and confirm it as current only
+ * after the enqueue succeeded. A failed enqueue changes nothing, so the previous job stays current.
+ * Writes leave `inbox_emails.updated_at` unchanged.
+ */
+export async function reenqueueInboundAttachmentIngest(
+  input: ReenqueueInboundAttachmentIngestInput,
+): Promise<ReenqueueInboundAttachmentIngestResult> {
+  const { em, email } = input
+  const now = input.now ?? (() => new Date())
+  const notSuperseded = typeof input.jobGeneration === 'number'
+  const sql = RESERVE_INBOUND_ATTACHMENT_GENERATION_SQL
+    + (notSuperseded ? RESERVE_NOT_SUPERSEDED_SQL : '')
+    + RESERVE_RETURNING_SQL
+  const params: unknown[] = [email.id, email.tenantId, email.organizationId]
+  if (notSuperseded) params.push(input.jobGeneration)
+  const rows = await em.getConnection().execute<Array<{ generation: number }>>(sql, params)
+  const generation = readGeneration(rows)
+  if (generation === null) return { kind: 'not_reserved' }
+
+  const delayMs = input.delayMs && input.delayMs > 0 ? Math.floor(input.delayMs) : 0
+  let jobId: string
+  try {
+    jobId = await enqueueInboundAttachmentIngestJob(
+      { emailId: email.id, tenantId: email.tenantId, organizationId: email.organizationId, generation },
+      { delayMs, queue: input.queue },
+    )
+  } catch (error) {
+    return { kind: 'enqueue_failed', generation, error }
+  }
+
+  // Step 3: only a lower generation is superseded, so a failed or late confirmation never undoes a newer one.
+  let confirmed = false
+  try {
+    const updated = await em.nativeUpdate(
+      InboxEmail,
+      {
+        id: email.id,
+        tenantId: email.tenantId,
+        organizationId: email.organizationId,
+        $or: [{ attachmentsCurrentGeneration: null }, { attachmentsCurrentGeneration: { $lt: generation } }],
+      },
+      { attachmentsCurrentGeneration: generation, attachmentsNextRunAt: new Date(now().getTime() + delayMs) },
+    )
+    confirmed = updated > 0
+  } catch (error) {
+    logger.warn('Failed to confirm an inbound attachment ingest job; the claim serializes the jobs', {
+      emailId: email.id,
+      generation,
+      err: error,
+    })
+  }
+  return { kind: 'enqueued', generation, jobId, confirmed }
 }

@@ -37,6 +37,8 @@ interface EmailReceivedPayload {
   organizationId: string
   forwardedByAddress: string
   subject: string
+  /** Stored attachment parts, when the ingest worker emitted the event. */
+  attachmentCount?: number
 }
 
 interface ResolverContext {

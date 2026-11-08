@@ -275,6 +275,24 @@ export const resendInboundAttachmentSchema = z.object({
 
 export type ResendInboundAttachment = z.infer<typeof resendInboundAttachmentSchema>
 
+/** `inbox_emails.metadata.attachmentIngest`: where the ingest worker fetches the parts from. */
+export const inboxEmailAttachmentIngestMetadataSchema = z.object({
+  provider: z.literal('resend'),
+  providerEmailId: z.string().trim().min(1),
+})
+
+export type InboxEmailAttachmentIngestMetadata = z.infer<typeof inboxEmailAttachmentIngestMetadataSchema>
+
+/** Payload of an `inbox-ops-attachment-ingest` job: ids and the ingest generation, nothing else. */
+export const inboundAttachmentIngestJobSchema = z.object({
+  emailId: z.guid(),
+  tenantId: z.guid(),
+  organizationId: z.guid(),
+  generation: z.number().int().positive(),
+})
+
+export type InboundAttachmentIngestJob = z.infer<typeof inboundAttachmentIngestJobSchema>
+
 // ---------------------------------------------------------------------------
 // API Query Schemas
 // ---------------------------------------------------------------------------

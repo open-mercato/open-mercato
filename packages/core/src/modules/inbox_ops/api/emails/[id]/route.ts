@@ -13,12 +13,27 @@ import {
 } from '../../routeHelpers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { canViewEmailContent, serializeInboxEmail } from '../response'
+import {
+  releaseInboundEmailAttachments,
+  softDeleteInboxEmailForRelease,
+  type InboundAttachmentReleaseService,
+} from '../../../lib/inboundAttachmentRelease'
+import { reportInboundAttachmentError } from '../../../lib/inboundAttachments'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 const logger = createLogger('inbox_ops').child({ component: 'emails' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.log.view'] },
   DELETE: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
+}
+
+function tryResolve<T>(container: { resolve: (name: string) => unknown }, name: string): T | null {
+  try {
+    return (container.resolve(name) as T | undefined) ?? null
+  } catch {
+    return null
+  }
 }
 
 export async function GET(req: Request) {
@@ -85,18 +100,13 @@ export async function DELETE(req: Request) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    const updated = await ctx.em.nativeUpdate(
-      InboxEmail,
-      {
-        id,
-        organizationId: ctx.organizationId,
-        tenantId: ctx.tenantId,
-        deletedAt: null,
-      },
-      { deletedAt: new Date() },
-    )
+    const deleted = await softDeleteInboxEmailForRelease(ctx.em, {
+      id,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
 
-    if (updated === 0) {
+    if (!deleted) {
       return NextResponse.json({ error: 'Email not found' }, { status: 404 })
     }
 
@@ -112,6 +122,18 @@ export async function DELETE(req: Request) {
         requestHeaders: req.headers,
         metadata: guardResult.metadata ?? null,
       })
+    }
+
+    try {
+      await releaseInboundEmailAttachments({
+        em: ctx.em,
+        email: { id, tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        attachmentService: tryResolve<InboundAttachmentReleaseService>(ctx.container, 'attachmentService'),
+        encryptionService: tryResolve<TenantDataEncryptionService>(ctx.container, 'tenantEncryptionService'),
+      })
+    } catch (releaseError) {
+      logger.warn('Deferred the attachment release of a deleted email to the maintenance sweep', { emailId: id, err: releaseError })
+      reportInboundAttachmentError(releaseError, 'inbox_ops.attachment_release_failed', { emailId: id })
     }
 
     return NextResponse.json({ ok: true })

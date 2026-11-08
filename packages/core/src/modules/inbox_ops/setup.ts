@@ -1,5 +1,6 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { ensureInboxSettings } from './lib/ensure-settings'
+import { ensureInboundAttachmentMaintenanceScheduleSafely } from './lib/inboundAttachmentSchedule'
 
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
@@ -22,7 +23,9 @@ export const setup: ModuleSetupConfig = {
     await ensureInboxSettings(em, { tenantId, organizationId })
   },
 
-  async seedDefaults() {},
+  async seedDefaults({ container }) {
+    await ensureInboundAttachmentMaintenanceScheduleSafely(container)
+  },
 }
 
 export default setup

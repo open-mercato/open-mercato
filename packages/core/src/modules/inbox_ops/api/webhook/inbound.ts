@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 import { Webhook } from 'svix'
-import { Resend } from 'resend'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -10,6 +9,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxSettings, InboxEmail } from '../../data/entities'
 import { parseInboundEmail } from '../../lib/emailParser'
+import { createInboundResendClient } from '../../lib/resendClient'
 import { checkRateLimit } from '../../lib/rateLimiter'
 import { emitInboxOpsEvent } from '../../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -116,10 +116,7 @@ async function fetchResendEmail(emailId: string): Promise<{
   inReplyTo?: string
   references?: string[]
 }> {
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) throw new Error('RESEND_API_KEY is required to fetch Resend inbound emails')
-
-  const resend = new Resend(apiKey)
+  const resend = createInboundResendClient()
   const { data, error } = await resend.emails.receiving.get(emailId)
   if (error || !data) {
     throw new Error(`Failed to fetch Resend email ${emailId}: ${error?.message || 'unknown error'}`)
