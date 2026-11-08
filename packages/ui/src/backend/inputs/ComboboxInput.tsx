@@ -14,6 +14,7 @@ export type ComboboxOption = {
 }
 
 export type ComboboxInputProps = {
+  inputProps?: React.AriaAttributes & { id?: string }
   value: string
   onChange: (next: string) => void
   placeholder?: string
@@ -79,6 +80,7 @@ export function ComboboxInput({
   allowCustomValues = true,
   clearable = false,
   clearLabel,
+  inputProps,
 }: ComboboxInputProps) {
   const t = useT()
   const resolvedPlaceholder = placeholder ?? t('ui.inputs.comboboxInput.placeholder', 'Type to search...')
@@ -426,6 +428,7 @@ export function ComboboxInput({
               input element. The DS wrapper introduces a <div> that desyncs autocomplete
               on this specific surface. Keeps the rest of the form on Input primitive. */}
           <input
+            {...inputProps}
             ref={inputRef}
             type="text"
             className={[

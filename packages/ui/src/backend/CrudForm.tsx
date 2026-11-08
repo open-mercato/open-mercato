@@ -4247,6 +4247,7 @@ function RelationSelect({
 }
 // Local-buffer text input to avoid focus loss when parent re-renders
 function TextInput({
+  accessibility,
   value,
   onChange,
   placeholder,
@@ -4257,6 +4258,7 @@ function TextInput({
   suggestions,
   inputType = 'text',
 }: {
+  accessibility?: React.AriaAttributes & { id: string }
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -4313,6 +4315,7 @@ function TextInput({
   if (inputType === 'password') {
     return (
       <PasswordInput
+        {...accessibility}
         placeholder={placeholder}
         value={local}
         onChange={handleChange}
@@ -4330,6 +4333,7 @@ function TextInput({
   return (
     <>
       <Input
+      {...accessibility}
         type={inputType}
         placeholder={placeholder}
         value={local}
@@ -4357,6 +4361,7 @@ function TextInput({
 
 // Local-buffer number input to avoid focus loss when parent re-renders
 function NumberInput({
+  accessibility,
   value,
   onChange,
   placeholder,
@@ -4365,6 +4370,7 @@ function NumberInput({
   disabled,
   readOnly,
 }: {
+  accessibility?: React.AriaAttributes & { id: string }
   value: number | string | null | undefined
   onChange: (v: number | undefined) => void
   placeholder?: string
@@ -4445,6 +4451,7 @@ function NumberInput({
     // against the BROWSER locale, so it discards the separator the app locale displays
     // before React ever sees it (issue #5552). inputMode keeps the mobile numeric keypad.
     <Input
+      {...accessibility}
       type="text"
       inputMode="decimal"
       // A text input is eligible for autofill and spellcheck; a number field is not.
@@ -4466,6 +4473,7 @@ function NumberInput({
 
 // Local-buffer textarea to avoid form-wide re-renders while typing
 function TextAreaInput({
+  accessibility,
   value,
   onChange,
   placeholder,
@@ -4476,6 +4484,7 @@ function TextAreaInput({
   disabled,
   readOnly,
 }: {
+  accessibility?: React.AriaAttributes & { id: string }
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -4512,6 +4521,7 @@ function TextAreaInput({
 
   return (
     <Textarea
+      {...accessibility}
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
@@ -4756,6 +4766,16 @@ const FieldControl = React.memo(function FieldControlImpl({
   recordId,
   markRequired,
 }: FieldControlProps) {
+  const controlId = React.useId()
+  const labelId = `${controlId}-label`
+  const errorId = `${controlId}-error`
+  const descriptionId = `${controlId}-description`
+  const accessibility = {
+    id: controlId,
+    'aria-labelledby': field.label.trim() ? labelId : undefined,
+    'aria-invalid': error ? true : undefined,
+    'aria-describedby': [field.description ? descriptionId : null, error ? errorId : null].filter(Boolean).join(' ') || undefined,
+  }
   const t = useT()
   const fieldSetValue = React.useCallback(
     (nextValue: unknown) => setValue(field.id, nextValue),
@@ -4813,13 +4833,14 @@ const FieldControl = React.memo(function FieldControlImpl({
         : undefined}
     >
       {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
-        <label className="block text-sm font-medium">
+        <label id={labelId} htmlFor={['text', 'password', 'number', 'textarea', 'select', 'combobox'].includes(field.type) && !(field.type === 'select' && field.multiple) ? controlId : undefined} className="block text-sm font-medium">
           {field.label}
           {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
         </label>
       ) : null}
       {field.type === 'text' && (
         <TextInput
+          accessibility={accessibility}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4832,6 +4853,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'password' && (
         <TextInput
+          accessibility={accessibility}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4844,6 +4866,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'number' && (
         <NumberInput
+          accessibility={accessibility}
           value={typeof value === 'number' || typeof value === 'string' ? value : null}
           placeholder={placeholder}
           onChange={fieldSetValue}
@@ -4921,6 +4944,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'textarea' && (
         <TextAreaInput
+          accessibility={accessibility}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4955,6 +4979,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'combobox' && (
         <ComboboxInput
+          inputProps={accessibility}
           value={typeof value === 'string' ? value : String(value ?? '')}
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
@@ -5009,7 +5034,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           }}
           disabled={disabled || readOnly}
         >
-          <SelectTrigger data-crud-focus-target="">
+          <SelectTrigger {...accessibility} data-crud-focus-target="">
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
               {singleSelectLabel}
             </SelectValue>
@@ -5099,13 +5124,13 @@ const FieldControl = React.memo(function FieldControlImpl({
         </>
       )}
       {field.description ? (
-        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+        <div id={descriptionId} className="flex items-start gap-2 text-xs text-muted-foreground">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div>{field.description}</div>
         </div>
       ) : null}
       {error && !(field.type === 'custom' && field.rendersOwnError) ? (
-        <div className="text-xs text-status-error-text">{error}</div>
+        <div id={errorId} className="text-xs text-status-error-text">{error}</div>
       ) : null}
     </div>
   )
