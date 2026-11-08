@@ -88,6 +88,28 @@ describe('GET /api/inbox_ops/emails/[id]', () => {
     )
   })
 
+  it.each([true, false])('never returns the internal attachment-ingest columns (content viewer: %s)', async (canView) => {
+    mockUserHasAllFeatures.mockResolvedValue(canView)
+    mockFindOneWithDecryption.mockResolvedValueOnce({
+      ...email,
+      attachmentsStatus: 'pending',
+      attachmentsClaimToken: '99999999-9999-4999-8999-999999999999',
+      attachmentsClaimedAt: new Date('2026-11-08T10:01:00.000Z'),
+      attachmentsFirstFailureAt: null,
+      attachmentsReleaseRequestedAt: null,
+      attachmentsReleasedAt: null,
+      attachmentsIngestGeneration: 1,
+      attachmentsCurrentGeneration: 1,
+      attachmentsNextRunAt: new Date('2026-11-08T10:00:00.000Z'),
+    })
+
+    const response = await GET(new Request('http://localhost/api/inbox_ops/emails/email-1'))
+    const payload = await response.json()
+
+    expect(Object.keys(payload.email).filter((key) => key.startsWith('attachments'))).toEqual(['attachmentsStatus'])
+    expect(payload.email.attachmentsStatus).toBe(canView ? 'pending' : null)
+  })
+
   it('preserves the full response for viewers allowed to read email threads', async () => {
     mockUserHasAllFeatures.mockResolvedValue(true)
 

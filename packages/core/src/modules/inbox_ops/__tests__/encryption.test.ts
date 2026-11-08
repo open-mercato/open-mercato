@@ -38,6 +38,20 @@ describe('inbox_ops defaultEncryptionMaps', () => {
     ]))
   })
 
+  it('encrypts InboxProposalAction field provenance (source_refs)', () => {
+    const entry = defaultEncryptionMaps.find((m) => m.entityId === 'inbox_ops:inbox_proposal_action')
+    expect(entry!.fields).toEqual(expect.arrayContaining([{ field: 'source_refs' }]))
+  })
+
+  it('encrypts the inbound attachment ledger file name and extracted text', () => {
+    const entry = defaultEncryptionMaps.find((m) => m.entityId === 'inbox_ops:inbox_email_attachment')
+    expect(entry).toBeDefined()
+    expect(entry!.fields).toEqual([
+      { field: 'file_name' },
+      { field: 'extracted_text' },
+    ])
+  })
+
   it('encrypts InboxDiscrepancy description, expected/found values', () => {
     const entry = defaultEncryptionMaps.find((m) => m.entityId === 'inbox_ops:inbox_discrepancy')
     expect(entry).toBeDefined()

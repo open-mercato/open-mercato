@@ -74,6 +74,48 @@ describe('GET /api/inbox_ops/proposals/[id]', () => {
     expect(payload.email.subject).toBe('Order request')
   })
 
+  it('strips the internal attachment-ingest columns from the email and keeps attachmentsStatus', async () => {
+    const proposal = { id: 'proposal-1', inboxEmailId: 'email-1', summary: 'Offer', status: 'pending', isActive: true }
+    const email = {
+      id: 'email-1',
+      subject: 'Offer',
+      attachmentIds: ['attachment-1'],
+      attachmentsStatus: 'completed',
+      attachmentsClaimToken: '99999999-9999-4999-8999-999999999999',
+      attachmentsClaimedAt: new Date('2026-11-08T10:01:00.000Z'),
+      attachmentsFirstFailureAt: new Date('2026-11-08T10:02:00.000Z'),
+      attachmentsReleaseRequestedAt: null,
+      attachmentsReleasedAt: null,
+      attachmentsIngestGeneration: 2,
+      attachmentsCurrentGeneration: 2,
+      attachmentsNextRunAt: new Date('2026-11-08T10:00:00.000Z'),
+    }
+    mockFindOneWithDecryption.mockResolvedValueOnce(proposal)
+    mockFindOneWithDecryption.mockResolvedValueOnce(email)
+
+    const response = await GET(makeRequest())
+    const payload = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(payload.email).toEqual({
+      id: 'email-1',
+      subject: 'Offer',
+      attachmentIds: ['attachment-1'],
+      attachmentsStatus: 'completed',
+    })
+  })
+
+  it('returns a null email when the source email is gone', async () => {
+    mockFindOneWithDecryption.mockResolvedValueOnce({ id: 'proposal-1', inboxEmailId: 'email-1', isActive: true })
+    mockFindOneWithDecryption.mockResolvedValueOnce(null)
+
+    const response = await GET(makeRequest())
+    const payload = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(payload.email).toBeNull()
+  })
+
   it('returns 404 when proposal not found', async () => {
     mockFindOneWithDecryption.mockResolvedValueOnce(null)
 

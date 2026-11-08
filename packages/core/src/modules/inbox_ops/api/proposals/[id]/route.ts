@@ -8,6 +8,7 @@ import {
   handleRouteError,
   isErrorResponse,
 } from '../../routeHelpers'
+import { serializeInboxEmail } from '../../emails/response'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -55,7 +56,9 @@ export async function GET(req: Request) {
       },
       actions,
       discrepancies,
-      email,
+      // The route requires `inbox_ops.proposals.view`, so email content is included;
+      // the serializer still strips the internal attachment-ingest columns.
+      email: email ? serializeInboxEmail(email, true) : null,
     })
   } catch (err) {
     return handleRouteError(err, 'load proposal')
