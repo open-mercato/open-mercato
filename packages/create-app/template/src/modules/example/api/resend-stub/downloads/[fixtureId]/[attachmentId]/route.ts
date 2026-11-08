@@ -36,6 +36,9 @@ export async function GET(request: Request, context: RouteContext) {
       'content-type': attachment.contentType,
       'content-length': String(attachment.content.byteLength),
       'cache-control': 'no-store',
+      // Fixture bytes are arbitrary test content: never sniffed or rendered by a browser.
+      'content-disposition': 'attachment',
+      'x-content-type-options': 'nosniff',
     },
   })
 }

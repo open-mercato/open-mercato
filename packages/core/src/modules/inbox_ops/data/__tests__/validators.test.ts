@@ -551,7 +551,30 @@ describe('sourceRefs schemas', () => {
         output([{ kind: 'attachment', attachmentId: 'not-a-uuid', page: 0, snippet: 'x'.repeat(5000) }]),
       ).success,
     ).toBe(true)
-    expect(extractionOutputSchema.safeParse(output([{ kind: 'website', snippet: 'x' }])).success).toBe(false)
+  })
+
+  it('never fails the extraction on a malformed ref: bad fields are dropped, unusable refs parse to undefined', () => {
+    const parsed = extractionOutputSchema.safeParse(
+      output([
+        { kind: 'website', snippet: 'x' },
+        { kind: 'attachment' },
+        'just a string',
+        null,
+        { kind: 'attachment', attachmentId: 42, page: 'three', row: '7', sheet: ['A'], fileName: {}, snippet: 'kept' },
+      ]),
+    )
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    expect(parsed.data.proposedActions[0].sourceRefs).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { kind: 'attachment', snippet: 'kept' },
+    ])
+    const notAnArray = extractionOutputSchema.safeParse(output('nope'))
+    expect(notAnArray.success).toBe(true)
+    if (notAnArray.success) expect(notAnArray.data.proposedActions[0].sourceRefs).toBeUndefined()
   })
 
   it('bounds the stored shape', () => {

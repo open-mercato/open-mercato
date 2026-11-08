@@ -175,9 +175,10 @@ test.describe('TC-INBOX-ATT-010: Delete email and Retry from the processing log'
       const fixture = await registerInboundFixture({ to, from, subject, text: 'File attached.', attachments: [textPart(fileName, 'retry me')], failDownloads: true })
       tracker.fixtures.push(fixture.providerEmailId)
       expect(await postResendEmailReceived({ providerEmailId: fixture.providerEmailId, to, from })).toBe(200)
-      const [emailId] = await findInboundEmailIds(admin, fixture.providerEmailId)
+      const emailIds = await findInboundEmailIds(admin, fixture.providerEmailId)
+      tracker.emails.push(...emailIds)
+      const [emailId] = emailIds
       expect(emailId).toBeTruthy()
-      tracker.emails.push(emailId)
 
       // The queue's attempts are spent and the delayed retry waits: pending, failure clock started,
       // next run in the future.

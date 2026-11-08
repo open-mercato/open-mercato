@@ -129,6 +129,11 @@ export type ExtractionUserPromptOptions = {
 }
 
 const ATTACHMENT_NAME_MAX_CHARS = 255
+/**
+ * Metadata-only `<attachment … />` lines (skipped/failed parts, stored files without text or past the
+ * text budget) the section lists at most; the rest collapse into one `<attachments_omitted count="N" />`.
+ */
+export const EXTRACTION_PROMPT_ATTACHMENT_METADATA_LINES_MAX = 25
 const ATTACHMENT_TYPE_MAX_CHARS = 100
 
 /**
@@ -145,6 +150,7 @@ const PROMPT_DELIMITER_TAGS = [
   'task',
   'email_content',
   'attachments',
+  'attachments_omitted',
   'attachment',
   'output_requirements',
 ]
@@ -187,7 +193,9 @@ function attachmentAttributes(index: number, attachment: ExtractionPromptAttachm
  * Builds the `<attachments>` section from the email's ledger rows, or `null` when no row is
  * listed. Stored files with text get a delimited block, truncated per file and in total; stored
  * files without text (or past the total budget) get a metadata-only line; skipped and failed
- * parts get a line with their reason. Inline decorations and released rows are left out.
+ * parts get a line with their reason. Inline decorations and released rows are left out. At most
+ * {@link EXTRACTION_PROMPT_ATTACHMENT_METADATA_LINES_MAX} metadata-only lines are listed; the rest
+ * are summarized by one `<attachments_omitted count="N" />` line.
  */
 export function buildAttachmentsSection(
   attachments: ExtractionPromptAttachment[],
@@ -201,21 +209,31 @@ export function buildAttachmentsSection(
   if (listed.length === 0) return null
 
   let remaining = maxTotal
+  let metadataLines = 0
+  let omitted = 0
   const lines: string[] = []
+  const pushMetadataLine = (line: string) => {
+    if (metadataLines >= EXTRACTION_PROMPT_ATTACHMENT_METADATA_LINES_MAX) {
+      omitted += 1
+      return
+    }
+    metadataLines += 1
+    lines.push(line)
+  }
   listed.forEach((attachment, position) => {
     const attributes = attachmentAttributes(position + 1, attachment)
     if (attachment.status !== 'stored') {
       const reason = attachment.reason ? ` reason="${escapeAttribute(attachment.reason, 64)}"` : ''
-      lines.push(`<attachment ${attributes} status="${attachment.status}"${reason} />`)
+      pushMetadataLine(`<attachment ${attributes} status="${attachment.status}"${reason} />`)
       return
     }
     const text = attachment.extractedText?.trim() ?? ''
     if (!text) {
-      lines.push(`<attachment ${attributes} text="none" />`)
+      pushMetadataLine(`<attachment ${attributes} text="none" />`)
       return
     }
     if (remaining <= 0) {
-      lines.push(`<attachment ${attributes} text="omitted_budget" />`)
+      pushMetadataLine(`<attachment ${attributes} text="omitted_budget" />`)
       return
     }
     const limit = Math.min(maxPerFile, remaining)
@@ -226,6 +244,7 @@ export function buildAttachmentsSection(
     lines.push(neutralizePromptDelimiters(body))
     lines.push('</attachment>')
   })
+  if (omitted > 0) lines.push(`<attachments_omitted count="${omitted}" />`)
 
   return `<attachments>\n${lines.join('\n')}\n</attachments>`
 }

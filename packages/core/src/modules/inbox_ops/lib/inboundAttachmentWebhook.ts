@@ -13,9 +13,11 @@ import {
 import {
   enqueueInboundAttachmentIngestJob,
   INITIAL_INBOUND_ATTACHMENT_INGEST_GENERATION,
+  capInboundAttachmentPlans,
   isInboundAttachmentIngestEnabled,
   nonDecorativeInboundAttachmentIds,
   planInboundAttachmentParts,
+  readInboundAttachmentsConfigOrDefaults,
   reenqueueInboundAttachmentIngest,
   reportInboundAttachmentError,
   unguardedAttachmentReadersBlockingIngest,
@@ -27,7 +29,7 @@ import {
   INBOX_OPS_ATTACHMENT_STRANDED_AFTER_MS,
   SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_IN_SCOPE_SQL,
 } from './inboundAttachmentMaintenance'
-import { readInboundAttachmentsConfig, type InboundAttachmentsConfig } from './inboundAttachmentsConfig'
+import type { InboundAttachmentsConfig } from './inboundAttachmentsConfig'
 
 /**
  * The attachment side of the inbound webhook (spec "Webhook (`api/webhook/inbound.ts`)"): which
@@ -68,8 +70,8 @@ export function readResendInboundAttachments(raw: unknown): ResendInboundAttachm
 export type InboundAttachmentIntake =
   | { kind: 'none'; attachmentIds: string[] }
   | { kind: 'ignored'; attachmentIds: string[] }
-  | { kind: 'blocked'; attachmentIds: string[]; readers: string[]; plans: InboundAttachmentPartPlan[] }
-  | { kind: 'ingest'; attachmentIds: string[]; plans: InboundAttachmentPartPlan[] }
+  | { kind: 'blocked'; attachmentIds: string[]; readers: string[]; plans: InboundAttachmentPartPlan[]; omittedParts: number }
+  | { kind: 'ingest'; attachmentIds: string[]; plans: InboundAttachmentPartPlan[]; omittedParts: number }
 
 export const NO_INBOUND_ATTACHMENTS: InboundAttachmentIntake = { kind: 'none', attachmentIds: [] }
 
@@ -80,17 +82,22 @@ export type ResolveInboundAttachmentIntakeInput = {
   listReaders?: () => string[]
 }
 
-/** The kill switch is checked first, then the attachment service, then the D19 gate. */
+/**
+ * The kill switch is checked first, then the attachment service, then the D19 gate. The planned
+ * ledger rows are capped ({@link capInboundAttachmentPlans}); `attachmentIds` (the hash input)
+ * still lists every non-decorative part.
+ */
 export function resolveInboundAttachmentIntake(input: ResolveInboundAttachmentIntakeInput): InboundAttachmentIntake {
   if (input.parts.length === 0) return NO_INBOUND_ATTACHMENTS
-  const config = input.config ?? readInboundAttachmentsConfig()
+  const config = input.config ?? readInboundAttachmentsConfigOrDefaults()
   const attachmentIds = nonDecorativeInboundAttachmentIds(input.parts, config)
   if (attachmentIds.length === 0) return NO_INBOUND_ATTACHMENTS
   if (!config.enabled || !input.attachmentServiceAvailable) return { kind: 'ignored', attachmentIds }
   const gate = { config, listReaders: input.listReaders }
-  const plans = planInboundAttachmentParts(input.parts, config)
-  if (isInboundAttachmentIngestEnabled(gate)) return { kind: 'ingest', attachmentIds, plans }
-  return { kind: 'blocked', attachmentIds, readers: unguardedAttachmentReadersBlockingIngest(gate), plans }
+  const { plans, omittedParts } = capInboundAttachmentPlans(planInboundAttachmentParts(input.parts, config))
+  if (omittedParts > 0) logger.warn('Inbound email lists more attachment parts than the ledger records', { omittedParts })
+  if (isInboundAttachmentIngestEnabled(gate)) return { kind: 'ingest', attachmentIds, plans, omittedParts }
+  return { kind: 'blocked', attachmentIds, readers: unguardedAttachmentReadersBlockingIngest(gate), plans, omittedParts }
 }
 
 export function intakeRecordsAttachments(
@@ -131,8 +138,16 @@ function attachmentStateFor(
   providerEmailId: string,
   now: Date,
 ): InboundEmailAttachmentState {
-  if (intake.kind === 'blocked') return { attachmentsStatus: 'completed' }
-  const attachmentIngest: InboxEmailAttachmentIngestMetadata = { provider: 'resend', providerEmailId }
+  const attachmentIngest: InboxEmailAttachmentIngestMetadata = {
+    provider: 'resend',
+    providerEmailId,
+    ...(intake.omittedParts > 0 ? { omittedParts: intake.omittedParts } : {}),
+  }
+  if (intake.kind === 'blocked') {
+    return intake.omittedParts > 0
+      ? { attachmentsStatus: 'completed', metadata: { attachmentIngest } }
+      : { attachmentsStatus: 'completed' }
+  }
   return {
     attachmentsStatus: 'pending',
     metadata: { attachmentIngest },
@@ -153,7 +168,7 @@ export type PersistInboundEmailWithLedgerInput = {
 }
 
 /**
- * Writes the email and one ledger row per metadata entry in one transaction. The rows are created
+ * Writes the email and one ledger row per planned (capped) metadata entry in one transaction. The rows are created
  * through the ORM, so the encryption subscriber encrypts `file_name`. Ledger `created_at` follows the
  * provider's part order, so the list route returns the parts in the order the sender attached them.
  * A unique-index violation propagates for the caller to answer as a duplicate.
@@ -253,7 +268,7 @@ export async function reenqueueDuplicateInboundAttachmentIngest(input: {
   now?: () => Date
 }): Promise<DuplicateInboundAttachmentReenqueueOutcome> {
   const now = input.now ?? (() => new Date())
-  const leaseMs = () => (input.config ?? readInboundAttachmentsConfig()).leaseMs
+  const leaseMs = () => (input.config ?? readInboundAttachmentsConfigOrDefaults()).leaseMs
   if (!needsInboundAttachmentReenqueue(input.email, { leaseMs, now: now() })) return 'not_needed'
   const ref = { id: input.email.id, tenantId: input.email.tenantId, organizationId: input.email.organizationId }
   const result = await reenqueueInboundAttachmentIngest({ em: input.em, email: ref, queue: input.queue, now })
@@ -335,7 +350,7 @@ export async function catchUpStrandedInboundAttachmentIngests(input: {
   const now = input.now ?? (() => new Date())
   const timestamp = now().getTime()
   if (!claimCatchUpSlot(input.scope, timestamp)) return { ran: false }
-  const leaseMs = (input.config ?? readInboundAttachmentsConfig()).leaseMs
+  const leaseMs = (input.config ?? readInboundAttachmentsConfigOrDefaults()).leaseMs
   const nextRunCutoff = new Date(timestamp - INBOX_OPS_ATTACHMENT_STRANDED_AFTER_MS)
   const leaseCutoff = new Date(timestamp - leaseMs)
   const rows = await input.em.getConnection().execute<StrandedRow[]>(SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_IN_SCOPE_SQL, [

@@ -73,7 +73,7 @@ describe('EmailAttachmentsList', () => {
 
     const [url, init] = apiCallMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe(`/api/inbox_ops/emails/${EMAIL_ID}/attachments`)
-    expect(init.headers).toEqual({ 'x-om-forbidden-redirect': '0' })
+    expect(init.headers).toEqual({ 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' })
     expect(init.signal).toBeInstanceOf(AbortSignal)
   })
 
@@ -88,10 +88,23 @@ describe('EmailAttachmentsList', () => {
     await waitFor(() => expect(hidden.container.textContent).toBe(''))
   })
 
-  it.each([403, 404])('hides the whole section on %s', async (status) => {
+  it.each([401, 403, 404])('hides the whole section on %s', async (status) => {
     respond(status, { error: 'Forbidden' })
     const { container } = renderWithProviders(<EmailAttachmentsList emailId={EMAIL_ID} asSection />)
     await waitFor(() => expect(container.textContent).toBe(''))
+  })
+
+  it('renders the empty state without a request when the caller knows the email has no parts', () => {
+    renderWithProviders(<EmailAttachmentsList emailId={EMAIL_ID} asSection knownEmpty />)
+    expect(screen.getByText('This email has no attachments.')).toBeTruthy()
+    expect(apiCallMock).not.toHaveBeenCalled()
+  })
+
+  it('renders nothing while loading when an empty list would be hidden', () => {
+    apiCallMock.mockReturnValue(new Promise(() => undefined))
+    const { container } = renderWithProviders(<EmailAttachmentsList emailId={EMAIL_ID} asSection hideWhenEmpty />)
+    expect(container.textContent).toBe('')
+    expect(screen.queryByText('Loading attachments...')).toBeNull()
   })
 
   it('shows an error state for other failures', async () => {

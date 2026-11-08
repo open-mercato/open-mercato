@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { FakeInboxDb, ORG_ID, TENANT_ID } from './support/fakeInboxDb'
 import { INBOX_OPS_ATTACHMENT_FINALIZE_AFTER_MS } from '../inboundAttachmentIngest'
-import { resetInboundAttachmentGateWarningsForTests } from '../inboundAttachments'
+import { resetInboundAttachmentConfigReportsForTests, resetInboundAttachmentGateWarningsForTests } from '../inboundAttachments'
 import { INBOX_OPS_ATTACHMENT_MAINTENANCE_QUEUE, runInboundAttachmentMaintenance } from '../inboundAttachmentMaintenance'
 import { releaseInboundEmailAttachments, softDeleteInboxEmailForRelease } from '../inboundAttachmentRelease'
 import {
@@ -53,6 +53,25 @@ function sweep(db: FakeInboxDb, overrides: Partial<Parameters<typeof runInboundA
 beforeEach(() => {
   mockReportError.mockReset()
   resetInboundAttachmentGateWarningsForTests()
+})
+
+describe('maintenance sweep: configuration', () => {
+  it('keeps sweeping with the default lease under a malformed environment and reports it', async () => {
+    resetInboundAttachmentConfigReportsForTests()
+    const previous = process.env.INBOX_OPS_ATTACHMENT_LEASE_MS
+    process.env.INBOX_OPS_ATTACHMENT_LEASE_MS = 'half an hour'
+    try {
+      const db = new FakeInboxDb()
+      const stranded = db.addEmail({ attachmentsNextRunAt: ago(16 * MINUTE) })
+      const result = await sweep(db, { config: undefined })
+      expect(result.reenqueued).toBe(1)
+      expect(db.email(stranded.id).attachmentsCurrentGeneration).toBe(2)
+      expect(mockReportError.mock.calls.map((call) => (call[1] as { code: string }).code)).toEqual(['inbox_ops.attachment_config_invalid'])
+    } finally {
+      if (previous === undefined) delete process.env.INBOX_OPS_ATTACHMENT_LEASE_MS
+      else process.env.INBOX_OPS_ATTACHMENT_LEASE_MS = previous
+    }
+  })
 })
 
 describe('maintenance sweep: stranded emails', () => {

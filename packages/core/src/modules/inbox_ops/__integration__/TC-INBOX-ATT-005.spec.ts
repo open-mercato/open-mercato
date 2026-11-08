@@ -96,15 +96,17 @@ test.describe('TC-INBOX-ATT-005: inbound attachments are hidden from colleagues 
 
       expect((await ownerPolicyRequest('GET', `/api/attachments/file/${attachmentId}`, colleague)).status).toBe(404)
 
+      // Without the read feature the resolver answers 404 even for managed actions, so the id is
+      // not revealed as an inbox attachment.
       const deleted = await ownerPolicyRequest('DELETE', `/api/attachments?id=${attachmentId}`, colleague)
-      expect(deleted.status).toBe(403)
+      expect(deleted.status).toBe(404)
       const moved = await ownerPolicyRequest('POST', '/api/attachments/transfer', colleague, {
         entityId: INBOUND_EMAIL_ENTITY_ID,
         attachmentIds: [attachmentId],
         fromRecordId: received.emailId,
         toRecordId: randomUUID(),
       })
-      expect(moved.status).toBe(403)
+      expect(moved.status).toBe(404)
 
       const deniedRead = await ownerPolicyRequest<ReadAttachmentResponse>('POST', '/api/ai_assistant/tools/execute', colleague, {
         toolName: 'attachments.read_attachment',

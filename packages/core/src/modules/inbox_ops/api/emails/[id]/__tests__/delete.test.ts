@@ -148,6 +148,13 @@ describe('DELETE /api/inbox_ops/emails/[id]', () => {
     expect(response.status).toBe(404)
   })
 
+  it('answers 404 for a non-uuid id before the guard and without reading', async () => {
+    const response = await DELETE(request('not-a-uuid', UPDATED_AT.toISOString()))
+    expect(response.status).toBe(404)
+    expect(mockValidateGuard).not.toHaveBeenCalled()
+    expect(mockFindOne).not.toHaveBeenCalled()
+  })
+
   it('maps a mutation guard refusal to its own status before reading the email', async () => {
     const email = seedEmail()
     mockValidateGuard.mockResolvedValue({ ok: false, status: 423, body: { error: 'Locked' } })

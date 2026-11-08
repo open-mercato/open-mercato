@@ -506,7 +506,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
           {/* Left panel: Email Thread */}
           <div className="space-y-4">
             <EmailThreadViewer email={email} />
-            {email && <EmailAttachmentsList emailId={email.id} asSection />}
+            {email && <EmailAttachmentsList emailId={email.id} asSection knownEmpty={email.attachmentsStatus == null} />}
           </div>
 
           {/* Right panel: Summary + Actions */}

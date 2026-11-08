@@ -103,23 +103,28 @@ export default function ProcessingLogPage() {
     }
     const emailId = email.id
     setRetryingEmailId(emailId)
-    const result = await runMutation({
-      operation: () => apiCall<{ ok: boolean; error?: string }>(
-        `/api/inbox_ops/emails/${emailId}/reprocess`,
-        // Refusals (403, 409) come back with the route's translated message, shown below.
-        { method: 'POST', headers: { 'x-om-forbidden-redirect': '0' } },
-      ),
-      context: { retryLastMutation },
-    })
+    try {
+      const result = await runMutation({
+        operation: () => apiCall<{ ok: boolean; error?: string }>(
+          `/api/inbox_ops/emails/${emailId}/reprocess`,
+          // Refusals (403, 409) come back with the route's translated message, shown below.
+          { method: 'POST', headers: { 'x-om-forbidden-redirect': '0' } },
+        ),
+        context: { retryLastMutation },
+      })
 
-    if (result?.ok && result.result?.ok) {
-      flash(t('inbox_ops.flash.reprocessing_started', 'Reprocessing started'), 'success')
-      await loadEmails()
-    } else {
-      flash(result?.result?.error || t('inbox_ops.extraction_failed', 'Extraction failed'), 'error')
+      if (result?.ok && result.result?.ok) {
+        flash(t('inbox_ops.flash.reprocessing_started', 'Reprocessing started'), 'success')
+        await loadEmails()
+      } else {
+        flash(result?.result?.error || t('inbox_ops.extraction_failed', 'Extraction failed'), 'error')
+      }
+    } catch {
+      // A thrown request or a blocking mutation guard: report it instead of leaving an unhandled rejection.
+      flash(t('inbox_ops.extraction_failed', 'Extraction failed'), 'error')
+    } finally {
+      setRetryingEmailId(null)
     }
-
-    setRetryingEmailId(null)
   }, [confirm, loadEmails, t, retryLastMutation, runMutation])
 
   const columns: ColumnDef<EmailRow>[] = React.useMemo(() => [

@@ -72,8 +72,12 @@ describe('unguardedAttachmentReadersBlockingIngest', () => {
     try {
       process.env.INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS = 'true'
       delete process.env.OM_ENABLE_RESEND_STUB
+      process.env.RESEND_API_KEY = 're_stub_test'
       expect(unguardedAttachmentReadersBlockingIngest()).toEqual(['agent_orchestrator'])
       process.env.OM_ENABLE_RESEND_STUB = 'true'
+      process.env.RESEND_API_KEY = 're_live_key'
+      expect(unguardedAttachmentReadersBlockingIngest()).toEqual(['agent_orchestrator'])
+      process.env.RESEND_API_KEY = 're_stub_test'
       expect(unguardedAttachmentReadersBlockingIngest()).toEqual([])
     } finally {
       process.env = previous

@@ -18,6 +18,7 @@ import { runInboundAttachmentMaintenance } from '../inboundAttachmentMaintenance
 import { releaseInboundEmailAttachments, softDeleteInboxEmailForRelease } from '../inboundAttachmentRelease'
 import { INBOUND_ATTACHMENTS_CONFIG_DEFAULTS, type InboundAttachmentsConfig } from '../inboundAttachmentsConfig'
 import type { ResendInboundAttachmentsApi } from '../resendInboundAttachments'
+import { InboxEmailAttachment } from '../../data/entities'
 
 const mockReportError = jest.fn()
 
@@ -449,6 +450,85 @@ describe('ingest: poison parts', () => {
       return { data: descriptor(id, harness.clock), error: null }
     })
     await expect(harness.run()).resolves.toMatchObject({ outcome: 'completed' })
+  })
+})
+
+describe('ingest: unexpected errors', () => {
+  function failNextPartClear(harness: Harness, error: Error): void {
+    const em = harness.deps.em as unknown as { nativeUpdate: (entity: unknown, where: unknown, data: Record<string, unknown>) => Promise<number> }
+    const original = em.nativeUpdate
+    let failed = false
+    em.nativeUpdate = async (entity, where, data) => {
+      if (!failed && entity === InboxEmailAttachment && data.inFlightAt === null && !('status' in data)) {
+        failed = true
+        throw error
+      }
+      return original(entity, where, data)
+    }
+  }
+
+  it('releases the lease and clears in_flight_at of the current part only, then rethrows', async () => {
+    const staleInFlight = new Date(START.getTime() - MINUTE)
+    const harness = createHarness({ parts: [{ id: 'a' }, { id: 'b', values: { inFlightAt: staleInFlight, attempts: 1 } }] })
+    harness.fetchImpl.mockResolvedValue(new Response('down', { status: 503 }))
+    const blip = new Error('connection reset')
+    failNextPartClear(harness, blip)
+
+    await expect(harness.run()).rejects.toBe(blip)
+
+    expect(harness.db.email(harness.email.id)).toMatchObject({
+      attachmentsStatus: 'pending',
+      attachmentsClaimToken: null,
+      attachmentsNextRunAt: START,
+    })
+    const [first, second] = harness.db.partsOf(harness.email.id)
+    expect(first).toMatchObject({ status: 'pending', inFlightAt: null, attempts: 0 })
+    // A crash recorded by an earlier run is still charged.
+    expect(second).toMatchObject({ status: 'pending', inFlightAt: staleInFlight, attempts: 1 })
+  })
+
+  it('does not charge the error as a crash on the next run', async () => {
+    const harness = createHarness({ parts: [{ id: 'a' }] })
+    harness.fetchImpl.mockResolvedValueOnce(new Response('down', { status: 503 }))
+    failNextPartClear(harness, new Error('connection reset'))
+    await expect(harness.run()).rejects.toThrow('connection reset')
+
+    await expect(harness.run(1, 1)).resolves.toMatchObject({ outcome: 'completed', storedCount: 1 })
+    expect(harness.db.partsOf(harness.email.id)[0]).toMatchObject({ status: 'stored', attempts: 0, inFlightAt: null })
+    expect(harness.createScoped.mock.calls.map((call) => (call[0] as CreateScopedAttachmentInput).textExtraction)).toEqual(['return'])
+  })
+
+  it('leaves a claim another run took over untouched', async () => {
+    const harness = createHarness({ parts: [{ id: 'a' }] })
+    harness.fetchImpl.mockResolvedValue(new Response('down', { status: 503 }))
+    const em = harness.deps.em as unknown as { nativeUpdate: (entity: unknown, where: unknown, data: Record<string, unknown>) => Promise<number> }
+    const original = em.nativeUpdate
+    const blip = new Error('connection reset')
+    em.nativeUpdate = async (entity, where, data) => {
+      // The renewal before the part's resolution write: another run took the claim, then the database fails.
+      if (harness.fetchImpl.mock.calls.length > 0 && entity !== InboxEmailAttachment && 'attachmentsClaimedAt' in data && em.nativeUpdate !== original) {
+        harness.db.applyCommitted('email', harness.email.id, { attachmentsClaimToken: 'someone-else' })
+        em.nativeUpdate = original
+        throw blip
+      }
+      return original(entity, where, data)
+    }
+    await expect(harness.run()).rejects.toBe(blip)
+    expect(harness.db.email(harness.email.id)).toMatchObject({ attachmentsStatus: 'processing', attachmentsClaimToken: 'someone-else' })
+    expect(harness.db.partsOf(harness.email.id)[0].inFlightAt).toEqual(START)
+  })
+
+  it('reports a failed emit and an unavailable Resend client', async () => {
+    const emit = createHarness({ parts: [] })
+    emit.emitReceived.mockRejectedValue(new Error('bus down'))
+    await expect(emit.run()).rejects.toMatchObject({ reason: 'emit_failed' })
+    expect(reportedCodes()).toContain('inbox_ops.attachment_emit_failed')
+
+    mockReportError.mockClear()
+    const provider = createHarness({ parts: [{ id: 'a' }] })
+    provider.deps.createResendApi = () => { throw new Error('RESEND_API_KEY is required') }
+    await expect(provider.run()).rejects.toBeInstanceOf(InboundAttachmentIngestRetryError)
+    expect(reportedCodes()).toEqual(['inbox_ops.attachment_provider_unavailable'])
   })
 })
 

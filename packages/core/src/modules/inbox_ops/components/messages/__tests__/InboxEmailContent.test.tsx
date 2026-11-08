@@ -51,10 +51,21 @@ describe('InboxEmailContent attachments', () => {
     expect(apiCallMock.mock.calls[0][0]).toBe(`/api/inbox_ops/emails/${EMAIL_ID}/attachments`)
   })
 
-  it.each([403, 404])('hides the section when the list route answers %s', async (status) => {
+  it.each([401, 403, 404])('hides the section when the list route answers %s', async (status) => {
     apiCallMock.mockResolvedValue({ ok: false, status, result: { error: 'Forbidden' } })
     renderWithProviders(<InboxEmailContent {...props([EMAIL_OBJECT])} />)
     await waitFor(() => expect(screen.queryByText('Loading attachments...')).toBeNull())
+    expect(screen.queryByText('Attachments')).toBeNull()
+    expect(screen.getByText('Please see the attached offer.')).toBeTruthy()
+  })
+
+  it('asks the list route not to redirect a signed-out reader of a public message link', async () => {
+    apiCallMock.mockResolvedValue({ ok: false, status: 401, result: { error: 'Unauthorized' } })
+    renderWithProviders(<InboxEmailContent {...props([EMAIL_OBJECT])} />)
+    expect(screen.queryByText('Loading attachments...')).toBeNull()
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(1))
+    const [, init] = apiCallMock.mock.calls[0] as [string, RequestInit]
+    expect(init.headers).toMatchObject({ 'x-om-unauthorized-redirect': '0', 'x-om-forbidden-redirect': '0' })
     expect(screen.queryByText('Attachments')).toBeNull()
     expect(screen.getByText('Please see the attached offer.')).toBeTruthy()
   })

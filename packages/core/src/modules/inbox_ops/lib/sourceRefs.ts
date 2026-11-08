@@ -9,7 +9,8 @@ import {
   type extractedSourceRefSchema,
 } from '../data/validators'
 
-export type ExtractedSourceRef = z.infer<typeof extractedSourceRefSchema>
+/** One model-output ref after the lenient parse; `undefined` marks a malformed ref. */
+export type ExtractedSourceRef = NonNullable<z.infer<typeof extractedSourceRefSchema>>
 
 /** A stored part of the email that an `attachment` reference may cite. */
 export type CitableAttachmentPart = {
@@ -47,13 +48,13 @@ function resolveCitedPart(
 /**
  * Turns the LLM's `sourceRefs` of one action into the stored shape: whitespace is collapsed,
  * strings are clipped to their bounds, at most {@link INBOX_SOURCE_REFS_MAX_PER_ACTION} refs are
- * kept, and an `attachment` ref survives only when it cites a stored part of this email (its id,
+ * kept, malformed refs are dropped, and an `attachment` ref survives only when it cites a stored part of this email (its id,
  * or a file name that names exactly one part). The cited part's own id and file name replace the
  * model's copy, so a ref never carries a name the ledger does not hold. `email_body` refs keep
  * only their snippet.
  */
 export function normalizeSourceRefs(
-  refs: ExtractedSourceRef[] | null | undefined,
+  refs: ReadonlyArray<ExtractedSourceRef | null | undefined> | null | undefined,
   storedParts: CitableAttachmentPart[],
 ): InboxProposalActionSourceRef[] {
   if (!Array.isArray(refs) || refs.length === 0) return []
@@ -61,6 +62,8 @@ export function normalizeSourceRefs(
   const normalized: InboxProposalActionSourceRef[] = []
   for (const ref of refs) {
     if (normalized.length >= INBOX_SOURCE_REFS_MAX_PER_ACTION) break
+    // The lenient model-output schema turns a malformed ref into `undefined`.
+    if (!ref || typeof ref !== 'object') continue
     const snippet = clip(ref.snippet, INBOX_SOURCE_REF_SNIPPET_MAX_CHARS)
     if (!snippet) continue
     let candidate: InboxProposalActionSourceRef

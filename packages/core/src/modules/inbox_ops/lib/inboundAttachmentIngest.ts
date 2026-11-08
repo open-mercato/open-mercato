@@ -23,6 +23,7 @@ import {
   INBOX_OPS_ATTACHMENT_INGEST_QUEUE_ATTEMPTS,
   persistInboundPart,
   reenqueueInboundAttachmentIngest,
+  readInboundAttachmentsConfigOrDefaults,
   reportInboundAttachmentError,
   unguardedAttachmentReadersBlockingIngest,
   warnIfStoredInboundAttachmentsReadableByUnguardedReaders,
@@ -30,7 +31,7 @@ import {
   type InboundAttachmentErrorCode,
   type InboundAttachmentIngestEnqueuer,
 } from './inboundAttachments'
-import { readInboundAttachmentsConfig, type InboundAttachmentsConfig } from './inboundAttachmentsConfig'
+import type { InboundAttachmentsConfig } from './inboundAttachmentsConfig'
 import {
   acquireInboundPartBytes,
   createResendInboundAttachmentsApi,
@@ -278,6 +279,8 @@ type IngestRunContext = {
   ref: InboundAttachmentEmailRef
   ledgerScope: { inboxEmailId: string; tenantId: string; organizationId: string }
   decryptionScope: { tenantId: string; organizationId: string }
+  /** The ledger row whose `in_flight_at` this run set and has not cleared yet. */
+  inFlightRowId: string | null
 }
 
 function createRunContext(
@@ -290,11 +293,12 @@ function createRunContext(
     attemptNumber,
     deps,
     em: deps.em,
-    config: deps.config ?? readInboundAttachmentsConfig(),
+    config: deps.config ?? readInboundAttachmentsConfigOrDefaults(),
     now: deps.now ?? (() => new Date()),
     ref: { id: job.emailId, tenantId: job.tenantId, organizationId: job.organizationId },
     ledgerScope: { inboxEmailId: job.emailId, tenantId: job.tenantId, organizationId: job.organizationId },
     decryptionScope: { tenantId: job.tenantId, organizationId: job.organizationId },
+    inFlightRowId: null,
   }
 }
 
@@ -469,6 +473,7 @@ async function processPart(run: IngestRunContext, claim: Claim, row: LedgerRow, 
     { inFlightAt: run.now(), attempts, updatedAt: run.now() },
   ))
   if (!started) return 'aborted'
+  run.inFlightRowId = row.id
 
   const textExtraction = attempts >= run.config.maxPartAttempts - 1 ? 'none' : 'return'
   const resolution = await acquireAndPersist(run, claim, row, source, textExtraction)
@@ -476,6 +481,7 @@ async function processPart(run: IngestRunContext, claim: Claim, row: LedgerRow, 
 
   const written = await withClaim(run.em, claim, run.now, (tx) => writePartResolution(run, tx, row.id, resolution))
   if (!written) return 'aborted'
+  run.inFlightRowId = null
 
   if (resolution.kind === 'status' && resolution.status === 'failed') reportFailedParts(run.ref, resolution.reason, 1)
   if (resolution.kind === 'transient') {
@@ -560,6 +566,11 @@ async function finish(run: IngestRunContext, claim: Claim, email: InboxEmail): P
     )
   } catch (error) {
     logger.warn('Failed to emit inbox_ops.email.received after attachment ingest', { emailId: claim.id, err: error })
+    reportInboundAttachmentError(error, 'inbox_ops.attachment_emit_failed', {
+      emailId: claim.id,
+      tenantId: claim.tenantId,
+      generation: run.job.generation,
+    })
     return retryLater(run, claim, 'emit_failed')
   }
 
@@ -581,8 +592,12 @@ async function openPartSource(
   let api: ResendInboundAttachmentsApi
   try {
     api = (run.deps.createResendApi ?? createResendInboundAttachmentsApi)()
-  } catch {
+  } catch (error) {
     logger.warn('Resend client unavailable for inbound attachments', { emailId: run.ref.id })
+    reportInboundAttachmentError(error, 'inbox_ops.attachment_provider_unavailable', {
+      emailId: run.ref.id,
+      tenantId: run.ref.tenantId,
+    })
     return { kind: 'provider_unavailable' }
   }
   const providerEmailId = ingestMetadata.data.providerEmailId
@@ -650,6 +665,33 @@ async function ingestClaimed(run: IngestRunContext, claim: Claim, email: InboxEm
   return retryLater(run, claim, 'transient_parts')
 }
 
+/**
+ * After an unexpected error under the claim (a database blip, a bug): clears `in_flight_at` of the
+ * part this run was processing, so the error is not charged as a crash on the next run, and resets
+ * the email to `pending` with the lease released and due now. Both writes are conditional on the
+ * claim token; a cleanup failure is logged and the original error still propagates.
+ */
+async function releaseClaimAfterError(run: IngestRunContext, claim: Claim): Promise<void> {
+  try {
+    await run.em.transactional(async (tx) => {
+      const reset = await tx.nativeUpdate(
+        InboxEmail,
+        { id: claim.id, tenantId: claim.tenantId, organizationId: claim.organizationId, attachmentsClaimToken: claim.token },
+        { attachmentsStatus: 'pending', attachmentsClaimToken: null, attachmentsNextRunAt: run.now() },
+      )
+      if (reset === 0 || !run.inFlightRowId) return
+      await tx.nativeUpdate(
+        InboxEmailAttachment,
+        { ...run.ledgerScope, id: run.inFlightRowId, status: 'pending' },
+        { inFlightAt: null, updatedAt: run.now() },
+      )
+    })
+    run.inFlightRowId = null
+  } catch (cleanupError) {
+    logger.warn('Failed to release an inbound attachment claim after an unexpected error', { emailId: claim.id, err: cleanupError })
+  }
+}
+
 /** One ingest run for one job. Throws `InboundAttachmentIngestRetryError` to let the queue retry. */
 export async function runInboundAttachmentIngest(
   job: InboundAttachmentIngestJob,
@@ -669,7 +711,14 @@ export async function runInboundAttachmentIngest(
     leaseMs: run.config.leaseMs,
   })
   if (!claimed) return afterLostClaimRace(run)
-  return ingestClaimed(run, { ...run.ref, token }, email)
+  const claim = { ...run.ref, token }
+  try {
+    return await ingestClaimed(run, claim, email)
+  } catch (error) {
+    // A planned retry already reset the email to `pending` (and cleared the claim) before throwing.
+    if (!(error instanceof InboundAttachmentIngestRetryError)) await releaseClaimAfterError(run, claim)
+    throw error
+  }
 }
 
 export type AbandonedInboundAttachmentIngestDeps = {

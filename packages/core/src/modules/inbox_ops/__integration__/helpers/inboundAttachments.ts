@@ -275,8 +275,9 @@ export async function receiveInboundEmail(
   const status = await postResendEmailReceived({ providerEmailId: fixture.providerEmailId, to: input.to, from })
   expect(status, 'The Resend webhook should accept the email').toBe(200)
   const emailIds = await findInboundEmailIds(adminToken, fixture.providerEmailId)
+  // Track before asserting, so a duplicate persisted by a regression is still cleaned up.
+  tracker.emails.push(...emailIds)
   expect(emailIds, 'The webhook should persist exactly one email').toHaveLength(1)
-  tracker.emails.push(emailIds[0])
   const email = await waitForAttachmentsCompleted(request, adminToken, emailIds[0])
   return { ...fixture, emailId: emailIds[0], to: input.to, email }
 }

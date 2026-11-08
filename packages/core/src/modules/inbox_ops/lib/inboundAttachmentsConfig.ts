@@ -100,6 +100,10 @@ export type InboundAttachmentsConfig = {
   enabled: boolean
   /** Raw D19 test opt-out; honored only together with `resendStubEnabled` (the gate decides). */
   allowUnguardedReaders: boolean
+  /**
+   * The test-only Resend stub is on: `OM_ENABLE_RESEND_STUB` is true and `RESEND_API_KEY` is a stub
+   * key (`re_stub_…`), the same condition the stub routes in the `example` module require.
+   */
   resendStubEnabled: boolean
   maxAttachments: number
   maxTotalBytes: number
@@ -126,36 +130,42 @@ export class InboundAttachmentsConfigError extends Error {
 
 export type InboundAttachmentsEnv = Readonly<Record<string, string | undefined>>
 
-/**
- * Reads and validates the inbound-attachment settings. Unset or blank variables take their
- * defaults; a malformed value or a lease outside `(4 x fetch timeout, lockDuration]` throws
- * `InboundAttachmentsConfigError`.
- */
-export function readInboundAttachmentsConfig(env: InboundAttachmentsEnv = process.env): InboundAttachmentsConfig {
-  const parsed = inboundAttachmentsEnvSchema.safeParse({
-    INBOX_OPS_ATTACHMENTS_ENABLED: env.INBOX_OPS_ATTACHMENTS_ENABLED,
-    INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS: env.INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS,
-    OM_ENABLE_RESEND_STUB: env.OM_ENABLE_RESEND_STUB,
-    INBOX_OPS_MAX_ATTACHMENTS: env.INBOX_OPS_MAX_ATTACHMENTS,
-    INBOX_OPS_MAX_ATTACHMENTS_TOTAL_BYTES: env.INBOX_OPS_MAX_ATTACHMENTS_TOTAL_BYTES,
-    INBOX_OPS_INLINE_IMAGE_MIN_BYTES: env.INBOX_OPS_INLINE_IMAGE_MIN_BYTES,
-    INBOX_OPS_ATTACHMENT_FETCH_TIMEOUT_MS: env.INBOX_OPS_ATTACHMENT_FETCH_TIMEOUT_MS,
-    INBOX_OPS_ATTACHMENT_LEASE_MS: env.INBOX_OPS_ATTACHMENT_LEASE_MS,
-    INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS: env.INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS,
-    INBOX_OPS_ATTACHMENT_MAX_PART_ATTEMPTS: env.INBOX_OPS_ATTACHMENT_MAX_PART_ATTEMPTS,
-    INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS: env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS,
-    INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS_PER_FILE: env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS_PER_FILE,
-  })
-  if (!parsed.success) {
-    throw new InboundAttachmentsConfigError(
-      parsed.error.issues.map((issue) => `${issue.path.join('.') || 'config'}: ${issue.message}`),
-    )
-  }
-  const values = parsed.data
+const INBOUND_ATTACHMENTS_ENV_NAMES = [
+  'INBOX_OPS_ATTACHMENTS_ENABLED',
+  'INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS',
+  'OM_ENABLE_RESEND_STUB',
+  'INBOX_OPS_MAX_ATTACHMENTS',
+  'INBOX_OPS_MAX_ATTACHMENTS_TOTAL_BYTES',
+  'INBOX_OPS_INLINE_IMAGE_MIN_BYTES',
+  'INBOX_OPS_ATTACHMENT_FETCH_TIMEOUT_MS',
+  'INBOX_OPS_ATTACHMENT_LEASE_MS',
+  'INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS',
+  'INBOX_OPS_ATTACHMENT_MAX_PART_ATTEMPTS',
+  'INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS',
+  'INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS_PER_FILE',
+] as const
+
+type InboundAttachmentsEnvName = (typeof INBOUND_ATTACHMENTS_ENV_NAMES)[number]
+
+function readEnvInput(env: InboundAttachmentsEnv): Record<InboundAttachmentsEnvName, string | undefined> {
+  const input = {} as Record<InboundAttachmentsEnvName, string | undefined>
+  for (const name of INBOUND_ATTACHMENTS_ENV_NAMES) input[name] = env[name]
+  return input
+}
+
+/** Prefix of the Resend stub's API keys; mirrors `RESEND_STUB_API_KEY_PREFIX` of the example module's stub. */
+export const RESEND_STUB_API_KEY_PREFIX = 're_stub_'
+
+function isResendStubApiKey(value: string | undefined): boolean {
+  const key = value?.trim() ?? ''
+  return key.startsWith(RESEND_STUB_API_KEY_PREFIX) && key.length > RESEND_STUB_API_KEY_PREFIX.length
+}
+
+function toConfig(values: z.infer<typeof inboundAttachmentsEnvSchema>, env: InboundAttachmentsEnv): InboundAttachmentsConfig {
   return {
     enabled: values.INBOX_OPS_ATTACHMENTS_ENABLED,
     allowUnguardedReaders: values.INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS,
-    resendStubEnabled: values.OM_ENABLE_RESEND_STUB,
+    resendStubEnabled: values.OM_ENABLE_RESEND_STUB && isResendStubApiKey(env.RESEND_API_KEY),
     maxAttachments: values.INBOX_OPS_MAX_ATTACHMENTS,
     maxTotalBytes: values.INBOX_OPS_MAX_ATTACHMENTS_TOTAL_BYTES,
     maxFileBytes: resolveAttachmentMaxBytes(null),
@@ -166,5 +176,66 @@ export function readInboundAttachmentsConfig(env: InboundAttachmentsEnv = proces
     maxPartAttempts: values.INBOX_OPS_ATTACHMENT_MAX_PART_ATTEMPTS,
     maxTextChars: values.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS,
     maxTextCharsPerFile: values.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS_PER_FILE,
+  }
+}
+
+function toConfigError(error: z.ZodError): InboundAttachmentsConfigError {
+  return new InboundAttachmentsConfigError(
+    error.issues.map((issue) => `${issue.path.join('.') || 'config'}: ${issue.message}`),
+  )
+}
+
+/**
+ * Reads and validates the inbound-attachment settings. Unset or blank variables take their
+ * defaults; a malformed value or a lease outside `(4 x fetch timeout, lockDuration]` throws
+ * `InboundAttachmentsConfigError`. Runtime paths use {@link resolveInboundAttachmentsConfig}.
+ */
+export function readInboundAttachmentsConfig(env: InboundAttachmentsEnv = process.env): InboundAttachmentsConfig {
+  const parsed = inboundAttachmentsEnvSchema.safeParse(readEnvInput(env))
+  if (!parsed.success) throw toConfigError(parsed.error)
+  return toConfig(parsed.data, env)
+}
+
+export type ResolvedInboundAttachmentsConfig = {
+  config: InboundAttachmentsConfig
+  /** The validation error the fallback replaced, or `null` for a valid environment. */
+  error: InboundAttachmentsConfigError | null
+}
+
+/**
+ * Like {@link readInboundAttachmentsConfig}, but never throws: each malformed variable falls back
+ * to its default, so a typo in one setting cannot fail every webhook or stop the sweep. Two
+ * fallbacks are chosen for safety rather than taken from the defaults: a malformed kill switch
+ * (`INBOX_OPS_ATTACHMENTS_ENABLED`) turns ingestion off, and a lease outside
+ * `(4 x fetch timeout, lockDuration]` resets both the lease and the fetch timeout to their
+ * defaults, a pair known to satisfy the bound. The caller reports `error`.
+ */
+export function resolveInboundAttachmentsConfig(env: InboundAttachmentsEnv = process.env): ResolvedInboundAttachmentsConfig {
+  const input = readEnvInput(env)
+  const parsed = inboundAttachmentsEnvSchema.safeParse(input)
+  if (parsed.success) return { config: toConfig(parsed.data, env), error: null }
+  const error = toConfigError(parsed.error)
+  const repaired: Record<string, string | undefined> = { ...input }
+  for (const issue of parsed.error.issues) {
+    const name = issue.path[0]
+    if (name === 'INBOX_OPS_ATTACHMENTS_ENABLED') {
+      repaired[name] = 'false'
+    } else if (name === 'INBOX_OPS_ATTACHMENT_LEASE_MS' || name === 'INBOX_OPS_ATTACHMENT_FETCH_TIMEOUT_MS') {
+      repaired.INBOX_OPS_ATTACHMENT_LEASE_MS = undefined
+      repaired.INBOX_OPS_ATTACHMENT_FETCH_TIMEOUT_MS = undefined
+    } else if (typeof name === 'string') {
+      repaired[name] = undefined
+    }
+  }
+  const retried = inboundAttachmentsEnvSchema.safeParse(repaired)
+  if (retried.success) return { config: toConfig(retried.data, env), error }
+  // Unreachable with valid defaults; still fail closed rather than throw.
+  return {
+    config: {
+      ...INBOUND_ATTACHMENTS_CONFIG_DEFAULTS,
+      enabled: false,
+      maxFileBytes: resolveAttachmentMaxBytes(null),
+    },
+    error,
   }
 }

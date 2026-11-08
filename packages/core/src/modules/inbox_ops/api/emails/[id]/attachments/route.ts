@@ -10,9 +10,16 @@ import {
   type InboxEmailAttachmentListItem,
   type InboxEmailAttachmentListResponse,
 } from '../../../../data/validators'
+import { INBOUND_ATTACHMENT_LEDGER_MAX_ROWS } from '../../../../lib/inboundAttachments'
 import { extractPathSegment, resolveRequestContext, UnauthorizedError } from '../../../routeHelpers'
 
 const logger = createLogger('inbox_ops').child({ component: 'email-attachments' })
+
+/**
+ * Rows the list returns at most. The webhook records at most {@link INBOUND_ATTACHMENT_LEDGER_MAX_ROWS}
+ * rows beyond an email's `pending` parts, so this bounds the response even for an unusual ledger.
+ */
+export const INBOX_EMAIL_ATTACHMENT_LIST_LIMIT = 2 * INBOUND_ATTACHMENT_LEDGER_MAX_ROWS
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -35,9 +42,9 @@ function toListItem(row: InboxEmailAttachment): InboxEmailAttachmentListItem {
 }
 
 export async function GET(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
     const ctx = await resolveRequestContext(req)
-    const { translate } = await resolveTranslations()
     const params = inboxEmailIdParamsSchema.safeParse({ id: extractPathSegment(new URL(req.url), 'emails') })
     const notFound = () => NextResponse.json(
       { error: translate('inbox_ops.errors.emailNotFound', 'Email not found') },
@@ -64,7 +71,7 @@ export async function GET(req: Request) {
         deletedAt: null,
         $or: [{ reason: null }, { reason: { $ne: 'inline_decoration' } }],
       },
-      { orderBy: { createdAt: 'asc', id: 'asc' } },
+      { orderBy: { createdAt: 'asc', id: 'asc' }, limit: INBOX_EMAIL_ATTACHMENT_LIST_LIMIT },
       ctx.scope,
     )
 
@@ -72,10 +79,13 @@ export async function GET(req: Request) {
     return NextResponse.json(body)
   } catch (err) {
     if (err instanceof UnauthorizedError) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: translate('inbox_ops.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }
     logger.error('Failed to list email attachments', { err })
-    return NextResponse.json({ error: 'Failed to load email attachments' }, { status: 500 })
+    return NextResponse.json(
+      { error: translate('inbox_ops.errors.attachmentsLoadFailed', 'Failed to load email attachments') },
+      { status: 500 },
+    )
   }
 }
 
@@ -85,9 +95,12 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List the attachment parts of an inbound email',
-      description: 'Ledger of the email\'s attachment parts with their ingestion status and reason, oldest ledger row first (rows recorded together have no guaranteed relative order). Inline decorations (signature logos, tracking pixels) and extracted text are never returned. Stored files are downloaded through the returned url.',
+      description: 'Ledger of the email\'s attachment parts with their ingestion status and reason, oldest ledger row first (rows recorded together have no guaranteed relative order). Inline decorations (signature logos, tracking pixels) and extracted text are never returned. Stored files are downloaded through the returned url. At most 200 rows are returned.',
       responses: [
         { status: 200, description: 'Attachment parts of the email', schema: inboxEmailAttachmentListResponseSchema },
+      ],
+      errors: [
+        { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Email not found' },
       ],
     },

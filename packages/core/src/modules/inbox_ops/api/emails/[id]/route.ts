@@ -13,6 +13,7 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { InboxEmail } from '../../../data/entities'
+import { inboxEmailIdParamsSchema } from '../../../data/validators'
 import {
   resolveRequestContext,
   extractPathSegment,
@@ -56,6 +57,11 @@ export async function GET(req: Request) {
     }
 
     const ctx = await resolveRequestContext(req)
+    // A non-uuid id names no email; answer 404 instead of letting Postgres reject the cast.
+    if (!inboxEmailIdParamsSchema.safeParse({ id }).success) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({ error: translate('inbox_ops.errors.emailNotFound', 'Email not found') }, { status: 404 })
+    }
 
     const email = await findOneWithDecryption(
       ctx.em,
@@ -96,6 +102,9 @@ export async function DELETE(req: Request) {
 
     const ctx = await resolveRequestContext(req)
     const { translate } = await resolveTranslations()
+    if (!inboxEmailIdParamsSchema.safeParse({ id }).success) {
+      return NextResponse.json({ error: translate('inbox_ops.errors.emailNotFound', 'Email not found') }, { status: 404 })
+    }
 
     const guardResult = await validateCrudMutationGuard(ctx.container, {
       tenantId: ctx.tenantId,
@@ -187,6 +196,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get email detail with parsed thread',
+      description: 'The email with its parsed thread. `attachmentsStatus` is the attachment ingestion state (`pending`, `processing`, `completed`, or `null` for mail without recorded attachment parts; like the other content fields it is `null` for callers without `inbox_ops.proposals.view`); list the parts with `GET /api/inbox_ops/emails/{id}/attachments`. A non-uuid id answers 404.',
       responses: [
         { status: 200, description: 'Email detail' },
         { status: 404, description: 'Email not found' },

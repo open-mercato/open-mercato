@@ -7,6 +7,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { sql } from 'kysely'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { assertAttachmentScopeInvariant, checkAttachmentAccess } from './access'
 import type { StorageDriverFactory } from './drivers'
@@ -215,6 +216,9 @@ export interface AttachmentService {
    * With `{ flush: false }` call it inside your own transaction and run the returned cleanup after
    * commit; `undefined` means another row still references the stored object.
    *
+   * Without `flush: false` the provider deletion runs after the row's own commit, and a failure of
+   * it is thrown although the row is already gone.
+   *
    * @deprecated Calling it with `{ flush: false }` outside a transaction. It still works for one
    * minor version but logs a warning, and its reference check is not locked, so two racing releases
    * of rows sharing the stored object keep it. Wrap the call in a transaction instead.
@@ -233,6 +237,13 @@ export interface AttachmentService {
    *
    * Commits its own transaction, then deletes provider bytes; it refuses an entity manager that
    * is already inside a transaction. A retry after success finds nothing and returns zeros.
+   *
+   * Provider byte cleanup is best-effort: it runs after the commit, every deletion is attempted,
+   * and a failure is logged and reported (`attachments.release_cleanup_failed`) instead of thrown,
+   * because the rows are already gone and a retry could not find the bytes again. The result
+   * therefore always describes the committed changes. (`releaseScoped` without `flush: false`
+   * still throws such a failure after its commit.) Rows are locked together with every row sharing
+   * their stored objects, in id order, so a concurrent `releaseScoped` cannot deadlock with it.
    */
   releaseOwnedScoped?(input: ReleaseOwnedScopedAttachmentsInput): Promise<ReleaseOwnedScopedAttachmentsResult>
 }
@@ -276,22 +287,16 @@ async function clearAttachmentThumbnailCacheSafely(attachment: Pick<Attachment, 
   })
 }
 
-type OwnedAttachmentRowDatabase = {
-  attachments: {
-    id: string
-    tenant_id: string | null
-    organization_id: string | null
-    entity_id: string
-    record_id: string
-    storage_metadata: unknown
-  }
-}
-
 /**
- * Locks, in id order, every row of the scope that references `owner`: as primary owner
- * (`attachments_entity_record_idx`) or as an assignment, found by jsonb containment so the
- * `attachments_storage_metadata_gin_idx` (`jsonb_path_ops`) index serves it. Both stored shapes
- * of `assignments` are probed: the array written today and the single legacy object.
+ * Locks, in one id-ordered statement, every row of the scope that references `owner` (as primary
+ * owner, served by `attachments_entity_record_idx`, or as an assignment, found by jsonb containment
+ * so `attachments_storage_metadata_gin_idx` serves it; both stored shapes of `assignments` are
+ * probed: the array written today and the single legacy object) together with every row, of any
+ * scope, that shares a stored object with one of them (`attachments_storage_reference_idx`).
+ *
+ * Taking the storage siblings in the same ordered lock keeps the lock order of `releaseScoped`
+ * (which locks one object's references in id order): locking owner rows first and each row's
+ * siblings later could deadlock against a concurrent release of a sibling.
  */
 async function lockOwnedAttachmentRows(
   em: EntityManager,
@@ -299,21 +304,23 @@ async function lockOwnedAttachmentRows(
   scope: { tenantId: string; organizationId: string },
 ): Promise<string[]> {
   const assignment = { type: owner.entityId, id: owner.recordId }
-  const rows = await em
-    .getKysely<OwnedAttachmentRowDatabase>()
-    .selectFrom('attachments')
-    .select('id')
-    .where('tenant_id', '=', scope.tenantId)
-    .where('organization_id', '=', scope.organizationId)
-    .where((eb) => eb.or([
-      eb.and([eb('entity_id', '=', owner.entityId), eb('record_id', '=', owner.recordId)]),
-      eb('storage_metadata', '@>', sql<unknown>`${JSON.stringify({ assignments: [assignment] })}::jsonb`),
-      eb('storage_metadata', '@>', sql<unknown>`${JSON.stringify({ assignments: assignment })}::jsonb`),
-    ]))
-    .orderBy('id')
-    .forUpdate()
-    .execute()
-  return rows.map((row) => String(row.id))
+  const result = await sql<{ id: string }>`with "owned" as (
+  select "id", "partition_code", "storage_path" from "attachments"
+   where "tenant_id" = ${scope.tenantId} and "organization_id" = ${scope.organizationId}
+     and (("entity_id" = ${owner.entityId} and "record_id" = ${owner.recordId})
+       or "storage_metadata" @> ${JSON.stringify({ assignments: [assignment] })}::jsonb
+       or "storage_metadata" @> ${JSON.stringify({ assignments: assignment })}::jsonb)
+)
+select "attachments"."id" from "attachments"
+ where "attachments"."id" in (
+   select "id" from "owned"
+   union
+   select "sibling"."id" from "attachments" as "sibling"
+     join "owned" on "sibling"."partition_code" = "owned"."partition_code" and "sibling"."storage_path" = "owned"."storage_path"
+ )
+ order by "attachments"."id"
+ for update of "attachments"`.execute(em.getKysely())
+  return result.rows.map((row) => String(row.id))
 }
 
 function partitionMatchesScope(
@@ -676,16 +683,23 @@ export class DefaultAttachmentService implements AttachmentService {
     })
 
     for (const row of removedRows) await clearAttachmentThumbnailCacheSafely(row)
-    const failures: unknown[] = []
+    // Best-effort: the rows are committed as removed, so a failure must not misreport the release.
     for (const cleanup of providerCleanups) {
       try {
         await cleanup.run()
       } catch (error) {
-        failures.push(error)
         logger.error('Owned attachment provider cleanup failed', { attachmentId: cleanup.attachmentId, err: error })
+        try {
+          getTelemetryRuntime()?.reportError(error, {
+            module: 'attachments',
+            code: 'attachments.release_cleanup_failed',
+            attributes: { attachmentId: cleanup.attachmentId },
+          })
+        } catch (reportFailure) {
+          logger.warn('Failed to report an attachment cleanup failure', { err: reportFailure })
+        }
       }
     }
-    if (failures.length) throw failures[0]
     return result
   }
 }

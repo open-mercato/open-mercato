@@ -18,7 +18,7 @@ import {
   type InboxEmailAttachmentStatus,
 } from '../data/entities'
 import type { InboundAttachmentIngestJob, ResendInboundAttachment } from '../data/validators'
-import { readInboundAttachmentsConfig, type InboundAttachmentsConfig } from './inboundAttachmentsConfig'
+import { resolveInboundAttachmentsConfig, type InboundAttachmentsConfig } from './inboundAttachmentsConfig'
 
 /**
  * Inbound email attachments of Resend mail (spec `2026-10-25-inbox-ops-inbound-attachments.md`):
@@ -181,6 +181,43 @@ export function planInboundAttachmentParts(
     })
   })
   return plans
+}
+
+/**
+ * Ledger rows one email may persist beyond its `pending` parts. The provider's metadata list is
+ * sender-controlled, so decorative, `too_many` and other skipped parts are recorded only up to this
+ * total; `pending` parts (at most `maxAttachments`) are always kept.
+ */
+export const INBOUND_ATTACHMENT_LEDGER_MAX_ROWS = 100
+
+export type CappedInboundAttachmentPlans = {
+  plans: InboundAttachmentPartPlan[]
+  /** Parts the ledger does not record; stored as `metadata.attachmentIngest.omittedParts`. */
+  omittedParts: number
+}
+
+/**
+ * Bounds the ledger rows of one email: every `pending` part is kept, then skipped parts in provider
+ * order while the total stays within `maxRows`. The rows persisted are therefore at most
+ * `max(maxRows, pending parts)`. The content hash is not affected: it covers every non-decorative
+ * provider id ({@link nonDecorativeInboundAttachmentIds}), recorded or not.
+ */
+export function capInboundAttachmentPlans(
+  plans: readonly InboundAttachmentPartPlan[],
+  maxRows: number = INBOUND_ATTACHMENT_LEDGER_MAX_ROWS,
+): CappedInboundAttachmentPlans {
+  const pending = plans.filter((plan) => plan.status === 'pending').length
+  let skippedBudget = Math.max(0, maxRows - pending)
+  const kept: InboundAttachmentPartPlan[] = []
+  for (const plan of plans) {
+    if (plan.status === 'pending') {
+      kept.push(plan)
+    } else if (skippedBudget > 0) {
+      kept.push(plan)
+      skippedBudget -= 1
+    }
+  }
+  return { plans: kept, omittedParts: plans.length - kept.length }
 }
 
 /** Provider ids of the non-decorative parts; they enter `contentHash` (spec D13). */
@@ -390,6 +427,10 @@ export type InboundAttachmentErrorCode =
   | 'inbox_ops.attachment_requeue_failed'
   | 'inbox_ops.attachment_release_failed'
   | 'inbox_ops.attachment_schedule_failed'
+  | 'inbox_ops.attachment_requeue_confirm_failed'
+  | 'inbox_ops.attachment_emit_failed'
+  | 'inbox_ops.attachment_provider_unavailable'
+  | 'inbox_ops.attachment_config_invalid'
 
 /** Reports through the telemetry funnel; a telemetry fault degrades to a warning. Attributes carry ids and codes only. */
 export function reportInboundAttachmentError(
@@ -402,6 +443,28 @@ export function reportInboundAttachmentError(
   } catch (reportFailure) {
     logger.warn('Failed to report an inbound attachment error', { code, err: reportFailure })
   }
+}
+
+const reportedConfigErrors = new Set<string>()
+
+/**
+ * The inbound-attachment settings for runtime paths (webhook, ingest worker, sweep, retry): a
+ * malformed environment value never throws; it falls back as {@link resolveInboundAttachmentsConfig}
+ * describes and is reported once per process as `inbox_ops.attachment_config_invalid`.
+ */
+export function readInboundAttachmentsConfigOrDefaults(env?: Readonly<Record<string, string | undefined>>): InboundAttachmentsConfig {
+  const { config, error } = resolveInboundAttachmentsConfig(env)
+  if (error && !reportedConfigErrors.has(error.message)) {
+    reportedConfigErrors.add(error.message)
+    logger.warn('Invalid inbound attachment configuration; using fallback values', { issues: error.issues })
+    reportInboundAttachmentError(error, 'inbox_ops.attachment_config_invalid', { issues: error.issues.length })
+  }
+  return config
+}
+
+/** Test helper: forgets which configuration errors were reported. */
+export function resetInboundAttachmentConfigReportsForTests(): void {
+  reportedConfigErrors.clear()
 }
 
 // ---------------------------------------------------------------------------
@@ -423,7 +486,10 @@ function warnOncePerProcess(key: string, message: string, data: Record<string, u
   logger.warn(message, data)
 }
 
-/** The D19 test opt-out: honored only when both test-only flags are set. */
+/**
+ * The D19 test opt-out: honored only when `INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS` is set and
+ * the Resend stub is on (`resendStubEnabled`: `OM_ENABLE_RESEND_STUB` plus a `re_stub_` API key).
+ */
 export function isUnguardedReaderTestOptOutActive(config: Pick<InboundAttachmentGateConfig, 'allowUnguardedReaders' | 'resendStubEnabled'>): boolean {
   return config.allowUnguardedReaders === true && config.resendStubEnabled === true
 }
@@ -436,12 +502,12 @@ export function isUnguardedReaderTestOptOutActive(config: Pick<InboundAttachment
 export function unguardedAttachmentReadersBlockingIngest(options: InboundAttachmentGateOptions = {}): string[] {
   const readers = (options.listReaders ?? listUnguardedAttachmentReaders)()
   if (readers.length === 0) return []
-  const config = options.config ?? readInboundAttachmentsConfig()
+  const config = options.config ?? readInboundAttachmentsConfigOrDefaults()
   const modules = [...readers].sort((left, right) => left.localeCompare(right))
   if (isUnguardedReaderTestOptOutActive(config)) {
     warnOncePerProcess(
       `opt-out:${modules.join(',')}`,
-      'Inbound attachment ingestion runs while unguarded attachment readers are enabled (INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS with OM_ENABLE_RESEND_STUB; test only)',
+      'Inbound attachment ingestion runs while unguarded attachment readers are enabled (INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS with OM_ENABLE_RESEND_STUB and a re_stub_ API key; test only)',
       { modules },
     )
     return []
@@ -456,7 +522,7 @@ export function unguardedAttachmentReadersBlockingIngest(options: InboundAttachm
 
 /** `INBOX_OPS_ATTACHMENTS_ENABLED` is on (checked first) and no unguarded reader blocks ingestion. */
 export function isInboundAttachmentIngestEnabled(options: InboundAttachmentGateOptions = {}): boolean {
-  const config = options.config ?? readInboundAttachmentsConfig()
+  const config = options.config ?? readInboundAttachmentsConfigOrDefaults()
   if (!config.enabled) return false
   return unguardedAttachmentReadersBlockingIngest({ ...options, config }).length === 0
 }
@@ -635,6 +701,7 @@ export async function reenqueueInboundAttachmentIngest(
       generation,
       err: error,
     })
+    reportInboundAttachmentError(error, 'inbox_ops.attachment_requeue_confirm_failed', { emailId: email.id, generation })
   }
   return { kind: 'enqueued', generation, jobId, confirmed }
 }

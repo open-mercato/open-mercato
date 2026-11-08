@@ -20,8 +20,11 @@ export type ProtectedAttachmentTarget = AttachmentAccessRequirement & Readonly<{
    * `false` keeps rows whose primary owner is `targetEntity` out of the shared
    * `GET /api/attachments/library` listing (records, count and facets). The
    * exclusion is persisted on matching partitions, so it outlives the declaring
-   * module. Requires an exact `targetEntity` (no wildcard). Omitted or `true`
-   * keeps today's behavior.
+   * module. Requires an exact `targetEntity` (no wildcard): rows are matched by
+   * their exact primary `entity_id`, never by an assignment. The exclusion is
+   * global: once any partition (or the registry) lists the entity, its rows are
+   * left out of the library in every partition, not only in `targetPartition`.
+   * Omitted or `true` keeps today's behavior.
    */
   listInLibrary?: boolean
 }>

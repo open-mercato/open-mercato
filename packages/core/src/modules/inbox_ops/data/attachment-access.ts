@@ -59,16 +59,18 @@ export const attachmentAccessResolvers: AttachmentAccessResolver[] = [{
   targetPartition: '*',
   targetEntity: ownerEntityId,
   async resolve(input) {
-    // Only `inbox_ops` manages these files: deleting the email releases them (spec D11).
-    if (input.action === 'reassign' || input.action === 'delete') {
-      return { ok: false, status: 403, reason: 'inbox_email_attachment_managed_by_inbox' }
-    }
     // The shared policy entrypoint honors wildcards, removed features and disabled modules.
+    // Checked before the managed-action refusal, so a caller who may not read inbox mail cannot
+    // tell an inbox attachment id (403) from an unknown one (404).
     const canRead = authorizeFeatures([readFeature], {
       grantedFeatures: input.subject.userFeatures,
       unrestricted: input.subject.isSuperAdmin,
     })
     if (!canRead) return notFound
+    // Only `inbox_ops` manages these files: deleting the email releases them (spec D11).
+    if (input.action === 'reassign' || input.action === 'delete') {
+      return { ok: false, status: 403, reason: 'inbox_email_attachment_managed_by_inbox' }
+    }
     const emailIds = input.targets
       .filter((target) => target.entityId === ownerEntityId)
       .map((target) => target.recordId.toLowerCase())

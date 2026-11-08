@@ -1066,6 +1066,33 @@ describe('extractionWorker', () => {
       )
     })
 
+    it('succeeds and drops a malformed ref the lenient model-output schema let through', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: 'completed' }))
+      mockFindWithDecryption.mockResolvedValueOnce([ledgerRow({})])
+      // generateObject validates the model output with extractionOutputSchema; replay that here.
+      const { extractionOutputSchema } = jest.requireActual('@open-mercato/core/modules/inbox_ops/data/validators') as typeof import('../../data/validators')
+      const parsed = extractionOutputSchema.parse(
+        extractionWithRefs([
+          { kind: 'website', snippet: 'unknown kind' },
+          { kind: 'attachment', attachmentId: PDF_ID },
+          'not an object',
+          { kind: 'attachment', attachmentId: PDF_ID, page: 'one', snippet: '20 x Widget Alpha' },
+        ]),
+      )
+      mockRunExtraction.mockResolvedValueOnce({ object: parsed, totalTokens: 1, modelWithProvider: 'm' })
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        InboxProposalAction,
+        expect.objectContaining({
+          actionType: 'create_order',
+          sourceRefs: [{ kind: 'attachment', attachmentId: PDF_ID, fileName: 'order.pdf', snippet: '20 x Widget Alpha' }],
+        }),
+      )
+    })
+
     it('stores null sourceRefs when every ref is dropped and on auto-generated actions', async () => {
       mockNativeUpdate.mockResolvedValue(1)
       mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: null }))

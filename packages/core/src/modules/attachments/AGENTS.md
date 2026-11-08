@@ -46,6 +46,32 @@ write time.
   an ambient transaction pass `{ flush: false }`, commit the returned database
   removal first, and invoke the returned provider cleanup only after commit;
   never delete provider bytes before a transaction can still roll back.
+- To drop **every** reference an owner record holds (as primary owner or as an
+  assignment), for example when the owner is deleted, use
+  `attachmentService.releaseOwnedScoped({ owner, tenantId, organizationId })`. Contract:
+  a row owned by `owner` with no other assignment is deleted (its bytes only once no
+  other row shares the stored object); a row owned by `owner` with other assignments is
+  re-pointed to the first remaining assignment in stored order; a row owned by
+  something else only loses `owner`'s assignment (array and legacy single-object
+  `storage_metadata.assignments` shapes). Only rows of the given tenant and organization
+  change. It commits its own transaction (it refuses an ambient one), locks the owner's
+  rows together with every row sharing their stored objects in one id-ordered statement,
+  and is idempotent (a retry returns zeros). Provider byte cleanup runs after commit and
+  is best-effort: failures are logged and reported as `attachments.release_cleanup_failed`,
+  never thrown. It emits no CRUD events and does not update the query index (same as
+  `releaseScoped`).
+- `createScoped` takes `textExtraction`: `'partition'` (default; the partition's OCR
+  settings decide and the text lands in `Attachment.content`), `'return'` (the pure-JS
+  extractor always runs, LLM OCR is never queued, `Attachment.content` stays empty and
+  the text reaches the caller only through `persistLink`'s third argument and the
+  result's `content`; use it when the owner stores the text itself, e.g. encrypted), or
+  `'none'` (nothing is extracted).
+- A protected target declared with `listInLibrary: false` keeps rows whose **exact
+  primary** `entity_id` equals its `targetEntity` (no wildcards; assignments do not
+  count) out of `GET /api/attachments/library` (records, count, tag facets). The
+  exclusion is persisted on partitions (`library_excluded_entities`, union-merged, never
+  removed) and applied globally across all partitions, so it survives disabling the
+  declaring module. Record-scoped `GET /api/attachments` is unaffected.
 - Rows MAY share a stored object (`partition_code` + `storage_path`). Any other
   code deleting a row with its bytes MUST use `removeAttachmentRecord`
   (`lib/storageReferences.ts`, outside a transaction) and delete the bytes only

@@ -11,7 +11,11 @@ import { sanitizeUploadedFileName } from '@open-mercato/core/modules/attachments
 import { InboxEmail, InboxEmailAttachment } from '../../data/entities'
 import type { ResendInboundAttachment } from '../../data/validators'
 import {
+  capInboundAttachmentPlans,
   classifyInboundUploadError,
+  INBOUND_ATTACHMENT_LEDGER_MAX_ROWS,
+  readInboundAttachmentsConfigOrDefaults,
+  resetInboundAttachmentConfigReportsForTests,
   fallbackInboundFileName,
   inboundAttachmentPartKey,
   isDecorativeInboundPart,
@@ -22,6 +26,13 @@ import {
   type InboundAttachmentLimits,
   type PersistInboundPartInput,
 } from '../inboundAttachments'
+import { resolveInboundAttachmentIntake } from '../inboundAttachmentWebhook'
+
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
+}))
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
@@ -162,6 +173,82 @@ describe('nonDecorativeInboundAttachmentIds', () => {
       limits,
     )
     expect(ids).toEqual(['b', 'huge', 'a'])
+  })
+})
+
+describe('ledger cap', () => {
+  it('keeps every pending part and records skipped parts only up to the total cap', () => {
+    const parts = [
+      ...Array.from({ length: 150 }, (_, index) => logo(`logo-${index}`)),
+      ...Array.from({ length: 30 }, (_, index) => part({ id: `doc-${index}` })),
+    ]
+    const { plans, omittedParts } = capInboundAttachmentPlans(planInboundAttachmentParts(parts, limits))
+    expect(plans).toHaveLength(INBOUND_ATTACHMENT_LEDGER_MAX_ROWS)
+    expect(plans.filter((plan) => plan.status === 'pending')).toHaveLength(limits.maxAttachments)
+    expect(omittedParts).toBe(180 - INBOUND_ATTACHMENT_LEDGER_MAX_ROWS)
+    // The planned order (the ledger's created_at order) follows the provider's order.
+    const positions = plans.map((plan) => plan.position)
+    expect(positions).toEqual([...positions].sort((left, right) => left - right))
+  })
+
+  it('omits nothing under the cap and still keeps pending parts beyond it', () => {
+    const few = planInboundAttachmentParts([part({ id: 'a' }), logo('l')], limits)
+    expect(capInboundAttachmentPlans(few)).toEqual({ plans: few, omittedParts: 0 })
+    const many = planInboundAttachmentParts(
+      Array.from({ length: 8 }, (_, index) => part({ id: `p-${index}` })),
+      { ...limits, maxAttachments: 6 },
+    )
+    const capped = capInboundAttachmentPlans(many, 4)
+    expect(capped.plans.map((plan) => plan.status)).toEqual(Array(6).fill('pending'))
+    expect(capped.omittedParts).toBe(2)
+  })
+
+  it('records the overflow on the intake while the hash input still lists every non-decorative part', () => {
+    const parts = [
+      ...Array.from({ length: 120 }, (_, index) => part({ id: `doc-${index}` })),
+      ...Array.from({ length: 5 }, (_, index) => logo(`logo-${index}`)),
+    ]
+    const config = { ...limits, enabled: true, allowUnguardedReaders: false, resendStubEnabled: false } as never
+    const intake = resolveInboundAttachmentIntake({ parts, attachmentServiceAvailable: true, config, listReaders: () => [] })
+    expect(intake.kind).toBe('ingest')
+    if (intake.kind !== 'ingest') return
+    expect(intake.plans).toHaveLength(INBOUND_ATTACHMENT_LEDGER_MAX_ROWS)
+    expect(intake.omittedParts).toBe(25)
+    expect(intake.attachmentIds).toEqual(nonDecorativeInboundAttachmentIds(parts, limits))
+    expect(intake.attachmentIds).toHaveLength(120)
+  })
+})
+
+describe('readInboundAttachmentsConfigOrDefaults', () => {
+  beforeEach(() => {
+    mockReportError.mockReset()
+    resetInboundAttachmentConfigReportsForTests()
+  })
+
+  it('falls back instead of throwing and reports a malformed environment once', () => {
+    const env = { INBOX_OPS_MAX_ATTACHMENTS: 'twenty' }
+    expect(readInboundAttachmentsConfigOrDefaults(env).maxAttachments).toBe(20)
+    expect(readInboundAttachmentsConfigOrDefaults(env).maxAttachments).toBe(20)
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError.mock.calls[0][1]).toMatchObject({ module: 'inbox_ops', code: 'inbox_ops.attachment_config_invalid' })
+  })
+
+  it('reports nothing for a valid environment', () => {
+    expect(readInboundAttachmentsConfigOrDefaults({}).enabled).toBe(true)
+    expect(mockReportError).not.toHaveBeenCalled()
+  })
+
+  it('lets the webhook intake resolve under a malformed environment', () => {
+    const previous = process.env.INBOX_OPS_ATTACHMENT_LEASE_MS
+    process.env.INBOX_OPS_ATTACHMENT_LEASE_MS = '5'
+    try {
+      const intake = resolveInboundAttachmentIntake({ parts: [part({ id: 'a' })], attachmentServiceAvailable: true, listReaders: () => [] })
+      expect(intake.kind).toBe('ingest')
+      expect(mockReportError.mock.calls[0][1]).toMatchObject({ code: 'inbox_ops.attachment_config_invalid' })
+    } finally {
+      if (previous === undefined) delete process.env.INBOX_OPS_ATTACHMENT_LEASE_MS
+      else process.env.INBOX_OPS_ATTACHMENT_LEASE_MS = previous
+    }
   })
 })
 

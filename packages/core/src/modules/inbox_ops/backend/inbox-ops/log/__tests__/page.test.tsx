@@ -64,7 +64,7 @@ const ROWS: Row[] = [
   { id: 'email-retryable', subject: 'Offer timed out', forwardedByAddress: 'c@example.test', status: 'processed', receivedAt: '2026-11-08T10:00:00.000Z', attachmentsStatus: 'completed', attachmentsRetryable: true },
 ]
 
-function configureApi(options: { granted?: string[]; reprocess?: { status: number; result: unknown } } = {}) {
+function configureApi(options: { granted?: string[]; reprocess?: { status: number; result: unknown } | Error } = {}) {
   apiCallMock.mockImplementation(async (url: string) => {
     if (url.startsWith('/api/inbox_ops/emails?')) return { ok: true, status: 200, result: { items: ROWS, total: ROWS.length } }
     if (url === '/api/auth/feature-check') return { ok: true, status: 200, result: { ok: true, granted: options.granted ?? ['inbox_ops.proposals.manage'] } }
@@ -72,6 +72,7 @@ function configureApi(options: { granted?: string[]; reprocess?: { status: numbe
       return { ok: true, status: 200, result: { items: [{ id: 'part-1', partKey: 'resend:a', fileName: 'offer.pdf', mimeType: 'application/pdf', sizeBytes: 10, disposition: 'attachment', status: 'stored', reason: null, attachmentId: 'att-1', url: '/api/attachments/file/att-1' }] } }
     }
     if (url.endsWith('/reprocess')) {
+      if (options.reprocess instanceof Error) throw options.reprocess
       const reprocess = options.reprocess ?? { status: 200, result: { ok: true, retiredProposalCount: 0, retiredActionCount: 0 } }
       return { ok: reprocess.status === 200, status: reprocess.status, result: reprocess.result }
     }
@@ -165,6 +166,17 @@ describe('ProcessingLogPage attachments, Retry and Delete', () => {
     await renderPage()
     fireEvent.click(within(screen.getByTestId('row-email-plain')).getByText('Retry'))
     await waitFor(() => expect(flashMock).toHaveBeenCalledWith(error, 'error'))
+    expect(requestsTo('/api/inbox_ops/emails?')).toHaveLength(1)
+  })
+
+  it('stops the spinner and reports the failure when the retry request throws', async () => {
+    configureApi({ reprocess: new Error('network down') })
+    await renderPage()
+    const button = within(screen.getByTestId('row-email-plain')).getByText('Retry').closest('button') as HTMLButtonElement
+    fireEvent.click(button)
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Extraction failed', 'error'))
+    await waitFor(() => expect(button.disabled).toBe(false))
+    expect(button.querySelector('.animate-spin')).toBeNull()
     expect(requestsTo('/api/inbox_ops/emails?')).toHaveLength(1)
   })
 })

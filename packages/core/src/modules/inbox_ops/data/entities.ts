@@ -287,6 +287,13 @@ export class InboxEmail {
 
 @Entity({ tableName: 'inbox_email_attachments' })
 @Index({ name: 'inbox_email_attachments_scope_email_idx', properties: ['organizationId', 'tenantId', 'inboxEmailId'] })
+// Live stored parts: the "any stored row exists" check of the unguarded-reader warning
+// (`lib/inboundAttachments.ts`) filters on exactly this predicate.
+@Index({
+  name: 'inbox_email_attachments_stored_idx',
+  expression:
+    `create index "inbox_email_attachments_stored_idx" on "inbox_email_attachments" ("inbox_email_id") where status = 'stored' and deleted_at is null`,
+})
 @Unique({ name: 'inbox_email_attachments_email_part_key_unique', properties: ['inboxEmailId', 'partKey'] })
 export class InboxEmailAttachment {
   [OptionalProps]?: 'attempts' | 'createdAt' | 'updatedAt' | 'deletedAt'

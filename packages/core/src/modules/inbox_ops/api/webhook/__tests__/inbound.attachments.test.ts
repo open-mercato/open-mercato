@@ -4,7 +4,7 @@ import { Webhook } from 'svix'
 import { InboxEmail, InboxEmailAttachment, InboxSettings } from '../../../data/entities'
 import { parseInboundEmail } from '../../../lib/emailParser'
 import { runInboundAttachmentIngest } from '../../../lib/inboundAttachmentIngest'
-import { resetInboundAttachmentGateWarningsForTests } from '../../../lib/inboundAttachments'
+import { resetInboundAttachmentConfigReportsForTests, resetInboundAttachmentGateWarningsForTests } from '../../../lib/inboundAttachments'
 import { resetInboundAttachmentCatchUpForTests } from '../../../lib/inboundAttachmentWebhook'
 import { INBOUND_ATTACHMENTS_CONFIG_DEFAULTS } from '../../../lib/inboundAttachmentsConfig'
 import type { ResendInboundAttachmentsApi } from '../../../lib/resendInboundAttachments'
@@ -82,6 +82,8 @@ const ENV_KEYS = [
   'INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS',
   'OM_ENABLE_RESEND_STUB',
   'INBOX_OPS_ATTACHMENT_LEASE_MS',
+  'INBOX_OPS_MAX_ATTACHMENTS',
+  'RESEND_API_KEY',
 ] as const
 
 type MetadataPart = {
@@ -207,6 +209,7 @@ beforeEach(() => {
   mockEnsureSchedule.mockResolvedValue('scheduler_unavailable')
   mockState.attachmentService = true
   resetInboundAttachmentGateWarningsForTests()
+  resetInboundAttachmentConfigReportsForTests()
   resetInboundAttachmentCatchUpForTests()
   db = createDb()
 })
@@ -364,6 +367,25 @@ describe('Resend email whose attachments are not ingested', () => {
     expect(stored.contentHash).toBe(parseInboundEmail(parserInput(email)).contentHash)
   })
 
+  it('still ingests mail with attachments under a malformed setting, with the default, and reports it', async () => {
+    process.env.INBOX_OPS_MAX_ATTACHMENTS = 'twenty'
+    const response = await POST(resendRequest(resendEmail({ attachments: [pdf('offer')] })))
+
+    expect(response.status).toBe(200)
+    expect(emailsOf(db).map((row) => row.attachmentsStatus)).toEqual(['pending'])
+    expect(reportedCodes()).toContain('inbox_ops.attachment_config_invalid')
+  })
+
+  it('records at most the ledger cap and counts the omitted parts', async () => {
+    const parts = [pdf('offer'), ...Array.from({ length: 105 }, (_, index) => logo(`logo-${index}`))]
+    const response = await POST(resendRequest(resendEmail({ attachments: parts })))
+
+    expect(response.status).toBe(200)
+    const [stored] = emailsOf(db)
+    expect(ledgerOf(db, stored.id)).toHaveLength(100)
+    expect(stored.metadata).toMatchObject({ attachmentIngest: { provider: 'resend', providerEmailId: 'resend-email-1', omittedParts: 6 } })
+  })
+
   it('leaves mail whose only parts are inline logos unchanged, hash included', async () => {
     const email = resendEmail({ text: 'Regards', attachments: [logo('logo-1'), logo('logo-2')] })
 
@@ -441,15 +463,20 @@ describe('Resend email with attachments while an unguarded reader is enabled (D1
     expect(enqueuedJobs()).toHaveLength(1)
   })
 
-  it('ignores the test opt-out without OM_ENABLE_RESEND_STUB=true, and honors it with both flags', async () => {
+  it('ignores the test opt-out without OM_ENABLE_RESEND_STUB=true or with a real API key, and honors it with both flags and a stub key', async () => {
     mockReaders.mockReturnValue(['agent_orchestrator'])
     process.env.INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS = 'true'
+    process.env.RESEND_API_KEY = 're_stub_test'
     await POST(resendRequest(resendEmail({ attachments: [pdf('first')] })))
 
     process.env.OM_ENABLE_RESEND_STUB = 'true'
+    process.env.RESEND_API_KEY = 're_live_key'
     await POST(resendRequest(resendEmail({ id: 'resend-email-2', message_id: '<offer-2@example.test>', attachments: [pdf('second')] })))
 
-    expect(emailsOf(db).map((row) => row.attachmentsStatus)).toEqual(['completed', 'pending'])
+    process.env.RESEND_API_KEY = 're_stub_test'
+    await POST(resendRequest(resendEmail({ id: 'resend-email-3', message_id: '<offer-3@example.test>', attachments: [pdf('third')] })))
+
+    expect(emailsOf(db).map((row) => row.attachmentsStatus)).toEqual(['completed', 'completed', 'pending'])
   })
 })
 

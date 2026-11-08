@@ -180,19 +180,25 @@ export const extractedParticipantSchema = z.object({
 })
 
 /**
- * Field provenance as the LLM returns it. Deliberately lenient (no length bounds, plain strings):
- * a model that overshoots a bound must not fail the whole extraction. The worker normalizes these
- * refs (`lib/sourceRefs.ts`) into {@link inboxProposalActionSourceRefSchema} before persisting.
+ * Field provenance as the LLM returns it. Deliberately lenient: a model that overshoots a bound or
+ * returns a malformed ref must not fail the whole `generateObject` extraction. A bad optional field
+ * is dropped (`.catch(undefined)`); a ref whose `kind`/`snippet` is unusable, or that is not an object,
+ * parses to `undefined` and is dropped by the worker's normalizer (`lib/sourceRefs.ts`), which turns
+ * the survivors into {@link inboxProposalActionSourceRefSchema} before persisting. `.catch` is
+ * transparent to the JSON-schema conversion, so the model still sees the full ref shape.
  */
-export const extractedSourceRefSchema = z.object({
-  kind: z.enum(['email_body', 'attachment']),
-  attachmentId: z.string().optional().describe('attachmentId attribute of the cited <attachment> block'),
-  fileName: z.string().optional(),
-  page: z.number().optional(),
-  sheet: z.string().optional(),
-  row: z.number().optional(),
-  snippet: z.string().describe('Short verbatim quote of the source text'),
-})
+export const extractedSourceRefSchema = z
+  .object({
+    kind: z.enum(['email_body', 'attachment']),
+    attachmentId: z.string().optional().catch(undefined).describe('attachmentId attribute of the cited <attachment> block'),
+    fileName: z.string().optional().catch(undefined),
+    page: z.number().optional().catch(undefined),
+    sheet: z.string().optional().catch(undefined),
+    row: z.number().optional().catch(undefined),
+    snippet: z.string().describe('Short verbatim quote of the source text'),
+  })
+  .optional()
+  .catch(undefined)
 
 export const INBOX_SOURCE_REFS_MAX_PER_ACTION = 10
 export const INBOX_SOURCE_REF_SNIPPET_MAX_CHARS = 500
@@ -235,6 +241,7 @@ export const extractedActionSchema = z.object({
   sourceRefs: z
     .array(extractedSourceRefSchema)
     .optional()
+    .catch(undefined)
     .describe('Where the proposed values were found: the email body or an attachment'),
 })
 
@@ -320,6 +327,8 @@ export type ResendInboundAttachment = z.infer<typeof resendInboundAttachmentSche
 export const inboxEmailAttachmentIngestMetadataSchema = z.object({
   provider: z.literal('resend'),
   providerEmailId: z.string().trim().min(1),
+  /** Metadata entries past the per-email ledger cap, not recorded as ledger rows. */
+  omittedParts: z.number().int().positive().optional(),
 })
 
 export type InboxEmailAttachmentIngestMetadata = z.infer<typeof inboxEmailAttachmentIngestMetadataSchema>

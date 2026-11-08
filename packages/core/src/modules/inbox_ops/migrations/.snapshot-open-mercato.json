@@ -1302,6 +1302,15 @@
           "unique": false
         },
         {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "inbox_email_attachments_stored_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"inbox_email_attachments_stored_idx\" on \"inbox_email_attachments\" (\"inbox_email_id\") where status = 'stored' and deleted_at is null"
+        },
+        {
           "keyName": "inbox_email_attachments_email_part_key_unique",
           "columnNames": [
             "inbox_email_id",

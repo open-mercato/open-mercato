@@ -38,7 +38,7 @@ const EMAIL = {
   cleanedText: 'See attached.',
 }
 
-function configureApi(granted: string[]) {
+function configureApi(granted: string[], email: Record<string, unknown> = EMAIL) {
   apiCallMock.mockImplementation(async (url: string) => {
     if (url === '/api/inbox_ops/proposals/proposal-1') {
       return {
@@ -48,7 +48,7 @@ function configureApi(granted: string[]) {
           proposal: { id: 'proposal-1', summary: 'Order from supplier', confidence: '0.9', status: 'pending', participants: [], possiblyIncomplete: false, workingLanguage: 'en', createdAt: '2026-11-08T10:00:00.000Z' },
           actions: [],
           discrepancies: [],
-          email: EMAIL,
+          email,
         },
       }
     }
@@ -85,5 +85,12 @@ describe('ProposalDetailPage attachments and Delete email', () => {
     expect(await screen.findByText('offer.pdf')).toBeTruthy()
     await waitFor(() => expect(apiCallMock.mock.calls.some(([url]) => url === '/api/auth/feature-check')).toBe(true))
     expect(screen.queryByRole('button', { name: 'Delete email' })).toBeNull()
+  })
+
+  it('shows the empty attachments section without a request for an email that recorded no parts', async () => {
+    configureApi(['inbox_ops.proposals.view'], { ...EMAIL, attachmentsStatus: null })
+    renderWithProviders(<ProposalDetailPage params={{ id: 'proposal-1' }} />)
+    expect(await screen.findByText('This email has no attachments.')).toBeTruthy()
+    expect(apiCallMock.mock.calls.some(([url]) => String(url).endsWith('/attachments'))).toBe(false)
   })
 })

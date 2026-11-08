@@ -31,8 +31,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
+const EMAIL_ID = '44444444-4444-4444-8444-444444444444'
+
 const email = {
-  id: 'email-1',
+  id: EMAIL_ID,
   subject: 'Operational subject',
   forwardedByAddress: 'sender@example.test',
   status: 'processed',
@@ -56,12 +58,12 @@ describe('GET /api/inbox_ops/emails/[id]', () => {
   it('redacts correspondence fields from log-only viewers', async () => {
     mockUserHasAllFeatures.mockResolvedValue(false)
 
-    const response = await GET(new Request('http://localhost/api/inbox_ops/emails/email-1'))
+    const response = await GET(new Request(`http://localhost/api/inbox_ops/emails/${EMAIL_ID}`))
     const payload = await response.json()
 
     expect(response.status).toBe(200)
     expect(payload.email).toMatchObject({
-      id: 'email-1',
+      id: EMAIL_ID,
       subject: 'Operational subject',
       forwardedByAddress: 'sender@example.test',
       status: 'processed',
@@ -78,7 +80,7 @@ describe('GET /api/inbox_ops/emails/[id]', () => {
       mockEm,
       InboxEmail,
       expect.objectContaining({
-        id: 'email-1',
+        id: EMAIL_ID,
         tenantId: 'tenant-1',
         organizationId: 'org-1',
         deletedAt: null,
@@ -103,7 +105,7 @@ describe('GET /api/inbox_ops/emails/[id]', () => {
       attachmentsNextRunAt: new Date('2026-11-08T10:00:00.000Z'),
     })
 
-    const response = await GET(new Request('http://localhost/api/inbox_ops/emails/email-1'))
+    const response = await GET(new Request(`http://localhost/api/inbox_ops/emails/${EMAIL_ID}`))
     const payload = await response.json()
 
     expect(Object.keys(payload.email).filter((key) => key.startsWith('attachments'))).toEqual(['attachmentsStatus'])
@@ -113,7 +115,7 @@ describe('GET /api/inbox_ops/emails/[id]', () => {
   it('preserves the full response for viewers allowed to read email threads', async () => {
     mockUserHasAllFeatures.mockResolvedValue(true)
 
-    const response = await GET(new Request('http://localhost/api/inbox_ops/emails/email-1'))
+    const response = await GET(new Request(`http://localhost/api/inbox_ops/emails/${EMAIL_ID}`))
     const payload = await response.json()
 
     expect(payload.email).toMatchObject({
@@ -124,5 +126,12 @@ describe('GET /api/inbox_ops/emails/[id]', () => {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
     })
+  })
+
+  it('answers 404 for a non-uuid id without querying', async () => {
+    const response = await GET(new Request('http://localhost/api/inbox_ops/emails/not-a-uuid'))
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Email not found' })
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
   })
 })

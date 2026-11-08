@@ -20,6 +20,11 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: async (em: { find: (...args: unknown[]) => unknown }, ...args: unknown[]) => em.find(...args),
 }))
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
+}))
+
 const mockClearThumbnailCache = jest.fn(async (_partitionCode: string, _attachmentId: string) => undefined)
 jest.mock('../thumbnailCache', () => ({
   clearAttachmentThumbnailCache: (partitionCode: string, attachmentId: string) => mockClearThumbnailCache(partitionCode, attachmentId),
@@ -80,11 +85,16 @@ function createHarness(initial: Row[]) {
       const rows = [...committed.values()].sort((left, right) => (left.id < right.id ? -1 : 1))
       if (query.sql.includes('"storage_metadata" @>')) {
         const [tenantId, organizationId, entityId, recordId, arrayProbe, objectProbe] = params as [string, string, string, string, string, string]
-        const matched = rows.filter((entry) => entry.tenantId === tenantId && entry.organizationId === organizationId && (
+        const owned = rows.filter((entry) => entry.tenantId === tenantId && entry.organizationId === organizationId && (
           (entry.entityId === entityId && entry.recordId === recordId)
           || hasAssignment(entry.storageMetadata, JSON.parse(arrayProbe))
           || hasAssignment(entry.storageMetadata, JSON.parse(objectProbe))
         ))
+        // Storage siblings of any scope are locked in the same statement.
+        const matched = rows.filter((entry) => owned.some((candidate) => (
+          candidate.id === entry.id
+          || (candidate.partitionCode === entry.partitionCode && candidate.storagePath === entry.storagePath)
+        )))
         return { rows: matched.map((entry) => ({ id: entry.id })) as R[] }
       }
       const [partitionCode, storagePath] = params as [string, string]
@@ -164,23 +174,39 @@ function createHarness(initial: Row[]) {
   return { service, release, committed, queries, events, providerDelete, factory, em, tx }
 }
 
-beforeEach(() => mockClearThumbnailCache.mockClear())
+beforeEach(() => {
+  mockClearThumbnailCache.mockClear()
+  mockReportError.mockClear()
+})
 
 describe('DefaultAttachmentService.releaseOwnedScoped', () => {
-  it('finds references with one index-friendly locked query: primary owner or jsonb containment', async () => {
+  it('locks owner references and their storage siblings in one id-ordered, index-friendly statement', async () => {
     const { release, queries } = createHarness([row('a')])
     await release()
     const [lookup] = queries
-    expect(lookup.sql).toBe(
-      'select "id" from "attachments" where "tenant_id" = $1 and "organization_id" = $2 and '
-      + '(("entity_id" = $3 and "record_id" = $4) or "storage_metadata" @> $5::jsonb or "storage_metadata" @> $6::jsonb) '
-      + 'order by "id" for update',
+    const normalized = lookup.sql.replace(/\s+/g, ' ')
+    expect(normalized).toContain(
+      'with "owned" as ( select "id", "partition_code", "storage_path" from "attachments" where "tenant_id" = $1 and "organization_id" = $2 '
+      + 'and (("entity_id" = $3 and "record_id" = $4) or "storage_metadata" @> $5::jsonb or "storage_metadata" @> $6::jsonb) )',
     )
+    expect(normalized).toContain('join "owned" on "sibling"."partition_code" = "owned"."partition_code" and "sibling"."storage_path" = "owned"."storage_path"')
+    expect(normalized).toMatch(/order by "attachments"\."id" for update of "attachments"$/)
     expect(lookup.parameters).toEqual([
       'tenant-1', 'org-1', EMAIL.entityId, EMAIL.recordId,
       JSON.stringify({ assignments: [{ type: EMAIL.entityId, id: EMAIL.recordId }] }),
       JSON.stringify({ assignments: { type: EMAIL.entityId, id: EMAIL.recordId } }),
     ])
+  })
+
+  it('leaves a locked storage sibling of another owner or scope untouched', async () => {
+    const { release, committed, providerDelete } = createHarness([
+      row('a', { storagePath: 'objects/shared' }),
+      row('z', { storagePath: 'objects/shared', organizationId: 'org-2', entityId: 'documents:document', recordId: 'document-9', storageMetadata: { assignments: [{ type: 'documents:document', id: 'document-9' }] } }),
+    ])
+    await expect(release()).resolves.toEqual({ deleted: 1, repointed: 0, detached: 0 })
+    expect([...committed.keys()]).toEqual(['z'])
+    expect(committed.get('z')).toMatchObject({ entityId: 'documents:document', organizationId: 'org-2' })
+    expect(providerDelete).not.toHaveBeenCalled()
   })
 
   it('deletes email-owned rows without other assignments and releases bytes only with the last reference', async () => {
@@ -290,14 +316,20 @@ describe('DefaultAttachmentService.releaseOwnedScoped', () => {
     expect(mockClearThumbnailCache).not.toHaveBeenCalled()
   })
 
-  it('attempts every provider cleanup after commit and reports a failure', async () => {
+  it('attempts every provider cleanup after commit and reports a failure instead of throwing', async () => {
     const { release, committed, providerDelete } = createHarness([row('a'), row('b')])
-    providerDelete.mockRejectedValueOnce(new Error('provider down'))
+    const failure = new Error('provider down')
+    providerDelete.mockRejectedValueOnce(failure)
 
-    await expect(release()).rejects.toThrow('provider down')
+    await expect(release()).resolves.toEqual({ deleted: 2, repointed: 0, detached: 0 })
 
     expect(committed.size).toBe(0)
     expect(providerDelete).toHaveBeenCalledTimes(2)
+    expect(mockReportError).toHaveBeenCalledWith(failure, expect.objectContaining({
+      module: 'attachments',
+      code: 'attachments.release_cleanup_failed',
+      attributes: { attachmentId: 'a' },
+    }))
   })
 
   it('refuses to run inside an ambient transaction', async () => {

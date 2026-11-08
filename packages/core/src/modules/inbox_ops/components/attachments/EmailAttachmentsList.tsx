@@ -29,28 +29,39 @@ export type EmailAttachmentsListProps = {
   asSection?: boolean
   /** Render nothing when the email has no listed parts (Messages thread) instead of the empty state. */
   hideWhenEmpty?: boolean
+  /**
+   * The caller already knows the email recorded no parts (`attachmentsStatus` is `null`): the list
+   * is empty without a request.
+   */
+  knownEmpty?: boolean
 }
 
 /**
  * The ledger of an inbound email's attachment parts (`GET /api/inbox_ops/emails/[id]/attachments`).
- * A 403 or 404 hides the list, so viewers who may not read the email see nothing. Downloads go
- * through the attachments file route, which the inbox_ops owner access resolver guards.
+ * A 401, 403 or 404 hides the list, so viewers who may not read the email see nothing — including a
+ * signed-out reader of a public message link, who must not be bounced to the session refresh. Downloads
+ * go through the attachments file route, which the inbox_ops owner access resolver guards.
  */
-export function EmailAttachmentsList({ emailId, asSection = false, hideWhenEmpty = false }: EmailAttachmentsListProps) {
+export function EmailAttachmentsList({ emailId, asSection = false, hideWhenEmpty = false, knownEmpty = false }: EmailAttachmentsListProps) {
   const t = useT()
-  const [state, setState] = React.useState<ListState>({ kind: 'loading' })
+  const [state, setState] = React.useState<ListState>(() => (knownEmpty ? { kind: 'ready', items: [] } : { kind: 'loading' }))
 
   React.useEffect(() => {
+    if (knownEmpty) {
+      setState({ kind: 'ready', items: [] })
+      return
+    }
     const controller = new AbortController()
     setState({ kind: 'loading' })
     apiCall<InboxEmailAttachmentListResponse>(`/api/inbox_ops/emails/${encodeURIComponent(emailId)}/attachments`, {
       signal: controller.signal,
-      // A viewer without inbox access gets the section hidden, not an access-denied banner.
-      headers: { 'x-om-forbidden-redirect': '0' },
+      // A viewer without inbox access (or without a session, on a public message link) gets the
+      // section hidden — never an access-denied banner or a session-refresh redirect.
+      headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' },
     })
       .then((call) => {
         if (controller.signal.aborted) return
-        if (call.status === 403 || call.status === 404) setState({ kind: 'hidden' })
+        if (call.status === 401 || call.status === 403 || call.status === 404) setState({ kind: 'hidden' })
         else if (call.ok && Array.isArray(call.result?.items)) setState({ kind: 'ready', items: call.result.items })
         else setState({ kind: 'error' })
       })
@@ -58,12 +69,14 @@ export function EmailAttachmentsList({ emailId, asSection = false, hideWhenEmpty
         if (!controller.signal.aborted) setState({ kind: 'error' })
       })
     return () => controller.abort()
-  }, [emailId])
+  }, [emailId, knownEmpty])
 
   const statuses = attachmentStatusLabels(t)
   const reasons = attachmentReasonLabels(t)
 
   if (state.kind === 'hidden') return null
+  // A list that may turn out hidden or empty stays invisible while it loads, so the host layout doesn't jump.
+  if (state.kind === 'loading' && hideWhenEmpty) return null
   if (state.kind === 'ready' && state.items.length === 0 && hideWhenEmpty) return null
 
   let content: React.ReactNode

@@ -5,13 +5,14 @@ import { listUnguardedAttachmentReaders } from '@open-mercato/core/modules/attac
 import { completeDeletedInboundAttachmentIngest } from './inboundAttachmentIngest'
 import { releaseInboundEmailAttachments, type InboundAttachmentReleaseService } from './inboundAttachmentRelease'
 import {
+  readInboundAttachmentsConfigOrDefaults,
   reenqueueInboundAttachmentIngest,
   reportInboundAttachmentError,
   warnIfStoredInboundAttachmentsReadableByUnguardedReaders,
   type InboundAttachmentEmailRef,
   type InboundAttachmentIngestEnqueuer,
 } from './inboundAttachments'
-import { readInboundAttachmentsConfig, type InboundAttachmentsConfig } from './inboundAttachmentsConfig'
+import type { InboundAttachmentsConfig } from './inboundAttachmentsConfig'
 
 /**
  * The maintenance sweep (spec "Maintenance"): a safety net that re-enqueues stranded ingests,
@@ -106,7 +107,7 @@ export async function runInboundAttachmentMaintenance(
 ): Promise<InboundAttachmentMaintenanceResult> {
   const { em } = deps
   const now = deps.now ?? (() => new Date())
-  const leaseMs = (deps.config ?? readInboundAttachmentsConfig()).leaseMs
+  const leaseMs = (deps.config ?? readInboundAttachmentsConfigOrDefaults()).leaseMs
   const result: InboundAttachmentMaintenanceResult = {
     completedDeleted: 0,
     reenqueued: 0,

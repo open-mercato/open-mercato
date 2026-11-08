@@ -151,10 +151,19 @@ describe('inbox_ops.email-attachments resolver', () => {
     ['reassign', false, ['inbox_ops.proposals.view', 'inbox_ops.proposals.manage', 'attachments.manage']],
     ['delete', true, ['*']],
     ['reassign', true, ['*']],
-    ['delete', false, []],
-  ] as const)('refuses %s with 403 (super-admin: %s) without any lookup', async (action, isSuperAdmin, userFeatures) => {
+    ['delete', false, ['inbox_ops.*']],
+  ] as const)('refuses %s with 403 to a reader (super-admin: %s) without any lookup', async (action, isSuperAdmin, userFeatures) => {
     const decision = await resolver.resolve(buildInput({ action, isSuperAdmin, userFeatures: [...userFeatures] }))
     expect(decision).toEqual({ ok: false, status: 403, reason: 'inbox_email_attachment_managed_by_inbox' })
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['delete', []],
+    ['reassign', ['attachments.manage', 'inbox_ops.proposals.manage', 'inbox_ops.log.view']],
+  ] as const)('answers 404 for %s without the read feature, so the id is not revealed as an inbox attachment', async (action, userFeatures) => {
+    const decision = await resolver.resolve(buildInput({ action, userFeatures: [...userFeatures] }))
+    expect(decision).toEqual({ ok: false, status: 404, reason: 'inbox_email_not_found' })
     expect(mockFindWithDecryption).not.toHaveBeenCalled()
   })
 

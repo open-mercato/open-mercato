@@ -5,8 +5,8 @@ import {
   InboxEmailAttachment,
   type InboxEmailAttachmentReason,
 } from '../data/entities'
-import type { InboundAttachmentEmailRef } from './inboundAttachments'
-import { readInboundAttachmentsConfig, type InboundAttachmentsConfig } from './inboundAttachmentsConfig'
+import { readInboundAttachmentsConfigOrDefaults, type InboundAttachmentEmailRef } from './inboundAttachments'
+import type { InboundAttachmentsConfig } from './inboundAttachmentsConfig'
 
 /**
  * The manual ingest retry of `POST /api/inbox_ops/emails/[id]/reprocess` (spec "Manual retry").
@@ -96,7 +96,7 @@ export async function planInboundAttachmentReprocess(
     case 'processing': {
       const claimedAt = email.attachmentsClaimedAt
       if (!claimedAt) return 'requeue_ingest'
-      const leaseMs = (options.config ?? readInboundAttachmentsConfig()).leaseMs
+      const leaseMs = (options.config ?? readInboundAttachmentsConfigOrDefaults()).leaseMs
       const now = (options.now ?? (() => new Date()))()
       return claimedAt.getTime() < now.getTime() - leaseMs ? 'requeue_ingest' : 'live_lease'
     }
