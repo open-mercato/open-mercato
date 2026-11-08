@@ -12,6 +12,7 @@ type Translations = Record<string, Record<string, string | null>>
 const ENTITY_TYPE = 'catalog:catalog_product'
 const CONFLICT_CODE = 'translations.errors.undoConflict'
 const CONFLICT_MESSAGE = 'These translations changed after the action you are undoing. Undo was refused.'
+const CONFLICT_MESSAGE_PL = 'Te tłumaczenia zmieniły się po akcji, którą próbujesz cofnąć. Cofnięcie zostało odrzucone.'
 const SECOND_PASSWORD = 'Valid1!Pass'
 
 function translationPath(productId: string): string {
@@ -42,7 +43,18 @@ async function expectUndoConflict(request: APIRequestContext, token: string, und
   const body = await readJsonSafe<{ error?: string; code?: string }>(response)
   expect(response.status(), `stale undo should be refused, got ${JSON.stringify(body)}`).toBe(409)
   expect(body?.code).toBe(CONFLICT_CODE)
-  expect(body?.error).toBe(CONFLICT_MESSAGE)
+}
+
+async function expectLocalizedUndoConflict(request: APIRequestContext, token: string, undoToken: string): Promise<void> {
+  const response = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', {
+    token,
+    data: { undoToken },
+    headers: { 'Accept-Language': 'pl' },
+  })
+  const body = await readJsonSafe<{ error?: string; code?: string }>(response)
+  expect(response.status(), `stale undo should be refused, got ${JSON.stringify(body)}`).toBe(409)
+  expect(body?.code).toBe(CONFLICT_CODE)
+  expect(body?.error, 'the refusal is localized').toBe(CONFLICT_MESSAGE_PL)
 }
 
 async function createSecondOperator(
@@ -114,6 +126,7 @@ test.describe('TC-TRANS-020: translation undo keeps later edits by another opera
       })
 
       await expectUndoConflict(request, adminToken, firstUpdate.undoToken)
+      await expectLocalizedUndoConflict(request, adminToken, firstUpdate.undoToken)
       expect(await readTranslations(request, adminToken, productId)).toEqual({
         en: { title: 'Sneaker' },
         fr: { title: 'Baskets' },
@@ -143,10 +156,14 @@ test.describe('TC-TRANS-020: translation undo keeps later edits by another opera
       const deleteResponse = await apiRequest(request, 'DELETE', translationPath(productId), { token: adminToken })
       expect(deleteResponse.status(), 'translation delete should succeed').toBe(204)
       const deleteOperation = expectOperation(deleteResponse, `delete translations for ${productId}`)
-      await saveTranslations(request, second.token, productId, { de: { title: 'Schuh' } })
+      const secondSave = await saveTranslations(request, second.token, productId, { de: { title: 'Schuh' } })
 
       await expectUndoConflict(request, adminToken, deleteOperation.undoToken)
       expect(await readTranslations(request, adminToken, productId)).toEqual({ de: { title: 'Schuh' } })
+
+      await undoOk(request, second.token, secondSave.undoToken, 'second operator save')
+      await undoOk(request, adminToken, deleteOperation.undoToken, 'first operator delete after the newer save was undone')
+      expect(await readTranslations(request, adminToken, productId)).toEqual({ en: { title: 'Shoe' } })
     } finally {
       await deleteTranslationIfExists(request, adminToken, ENTITY_TYPE, productId)
       await deleteUserIfExists(request, adminToken, secondUserId)
