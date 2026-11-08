@@ -618,6 +618,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
     persist: jest.Mock
     flush: jest.Mock
     fork?: () => unknown
+    transactional?: (callback: (tx: unknown) => Promise<unknown>) => Promise<unknown>
   }
 
   function statusOf(result: unknown): unknown {
@@ -631,6 +632,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       flush: jest.fn(async () => undefined),
     }
     em.fork = () => em
+    em.transactional = (callback) => callback(em)
     const adapter = {
       providerKey: 'gmail',
       convertOutbound: jest.fn(async () => ({ content: { text: 'hi' }, metadata: convertedMetadata })),
@@ -752,12 +754,13 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
   it('leaves the placeholder alone when another conversation already owns the provider id', async () => {
     const mapping = outboundMapping()
     const conversation: Row = { id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' }
+    const link = pendingLink()
     const { ctx } = makeCtx({
       status: 'sent',
       externalMessageId: '<client-built@gmail.com>',
       conversationId: 'gmail-thread:gm-thread-1',
     })
-    primeFinds(mapping, pendingLink())
+    primeFinds(mapping, link)
     mockFindOne.mockResolvedValueOnce(conversation as never)
     mockFindOne.mockResolvedValueOnce({ id: 'conv-2', externalConversationId: 'gmail-thread:gm-thread-1' } as never)
 
@@ -769,6 +772,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
     expect(statusOf(result)).toBe('delivered')
     expect(conversation.externalConversationId).toBe('outbound:thread-1')
     expect(mapping.externalThreadRef).toBe('outbound:thread-1')
+    expect((link.channelMetadata as Record<string, unknown>).providerConversationId).toBe('gmail-thread:gm-thread-1')
   })
 
   it('does not touch a conversation that already carries a provider id', async () => {
@@ -823,7 +827,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
     }
-    const adoptionFork: Pick<TestEm, 'flush'> = {
+    const adoptionFork: Pick<TestEm, 'flush' | 'transactional'> = {
       flush: jest.fn(async () => {
         throw Object.assign(
           new Error('duplicate key value violates unique constraint "external_conversations_channel_external_uq"'),
@@ -831,6 +835,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
         )
       }),
     }
+    adoptionFork.transactional = (callback) => callback(adoptionFork)
     parentEm.fork = jest.fn().mockReturnValueOnce(parentEm).mockReturnValueOnce(adoptionFork)
     const adapter = {
       providerKey: 'gmail',

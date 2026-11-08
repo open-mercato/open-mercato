@@ -504,6 +504,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         channel.status = 'connected'
       }
 
+      const providerConversationId = stringOrUndefined(sendResult.conversationId)
       link.deliveryStatus = sendResult.status === 'sent' ? 'sent' : 'queued'
       link.externalMessageId = externalMessageRowId
       link.channelMetadata = {
@@ -528,6 +529,12 @@ const deliverOutboundMessageCommand: CommandHandler<
             stringOrUndefined((converted.metadata as Record<string, unknown> | undefined)?.messageId) ??
             sendResult.externalMessageId,
         ),
+        // The provider conversation this message was actually sent under. The
+        // shared conversation can be re-keyed to a different provider ref by a
+        // concurrent first send (see `adoptProviderConversationRef`), so the
+        // message keeps its own association here instead of relying on the
+        // conversation's ref.
+        ...(providerConversationId ? { providerConversationId } : {}),
       }
       await em.flush()
 
@@ -548,6 +555,7 @@ const deliverOutboundMessageCommand: CommandHandler<
             messageId: message.id,
             channelId: channel.id,
             conversationId: mapping.externalConversationId,
+            providerConversationId,
           })
         }
       } catch (adoptErr) {

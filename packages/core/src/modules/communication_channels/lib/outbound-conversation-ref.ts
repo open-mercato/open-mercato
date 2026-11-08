@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { ChannelThreadMapping, ExternalConversation } from '../data/entities'
@@ -29,15 +30,29 @@ export type AdoptProviderConversationRefResult = 'adopted' | 'unchanged' | 'conf
  * conversation, and the CRM shows the exchange as two threads.
  *
  * No-op unless the mapping still carries an `outbound:` placeholder and the
- * provider returned a different, non-empty ref. When another conversation on
- * the same channel already owns that ref (an inbound message raced the send),
- * it is left alone and `conflict` is returned: merging two live conversations
- * is not this helper's job. The same holds when that owner is inserted between
- * the lookup and the flush: the unique violation on
- * `external_conversations_channel_external_uq` is reported as `conflict` too.
- * The work runs on a fork of `em`, so a failed flush never leaves the caller's
- * entity manager holding dirty state; the caller's `mapping` is updated only
- * after the fork committed.
+ * provider returned a different, non-empty ref.
+ *
+ * The placeholder-to-provider transition is atomic: the conversation and the
+ * mapping are read with `PESSIMISTIC_WRITE` (always conversation first, then
+ * mapping, so two adopters cannot deadlock) inside one transaction, and the
+ * placeholder check runs on those locked rows. Two delivery workers adopting
+ * the same placeholder are serialized: the first commits its provider ref, the
+ * second blocks on the lock, re-reads the committed rows and returns
+ * `unchanged` when the stored ref is the one it would write, or `conflict`
+ * when it is a different provider ref. A loser never overwrites the winner.
+ *
+ * `conflict` is also returned when another conversation on the same channel
+ * already owns the provider ref (an inbound message raced the send): merging
+ * two live conversations is not this helper's job. The same holds when that
+ * owner is inserted between the lookup and the flush: the unique violation on
+ * `external_conversations_channel_external_uq` rolls the transaction back and
+ * is reported as `conflict` too. On `conflict` the caller keeps the delivered
+ * message's own provider identifiers (they live on its link and external
+ * message, not on the shared conversation).
+ *
+ * The work runs on a fork of `em`, so a failed transaction never leaves the
+ * caller's entity manager holding dirty state; the caller's `mapping` is
+ * updated only after this call's own transaction committed.
  */
 export async function adoptProviderConversationRef(
   em: EntityManager,
@@ -55,56 +70,75 @@ export async function adoptProviderConversationRef(
 
   const dscope = { tenantId: args.scope.tenantId, organizationId: args.scope.organizationId }
   const isolated = em.fork()
-  const conversation = await findOneWithDecryption(
-    isolated,
-    ExternalConversation,
-    {
-      id: args.mapping.externalConversationId,
-      channelId: args.channelId,
-      tenantId: args.scope.tenantId,
-      organizationId: args.scope.organizationId,
-    },
-    undefined,
-    dscope,
-  )
-  if (!conversation || !isOutboundConversationRef(conversation.externalConversationId)) return 'unchanged'
-
-  const owner = await findOneWithDecryption(
-    isolated,
-    ExternalConversation,
-    {
-      channelId: args.channelId,
-      externalConversationId: nextRef,
-      tenantId: args.scope.tenantId,
-      organizationId: args.scope.organizationId,
-    },
-    undefined,
-    dscope,
-  )
-  if (owner) return 'conflict'
-
-  const mapping = await findOneWithDecryption(
-    isolated,
-    ChannelThreadMapping,
-    {
-      id: args.mapping.id,
-      channelId: args.channelId,
-      tenantId: args.scope.tenantId,
-      organizationId: args.scope.organizationId,
-    },
-    undefined,
-    dscope,
-  )
-  if (!mapping || !isOutboundConversationRef(mapping.externalThreadRef)) return 'unchanged'
-
-  conversation.externalConversationId = nextRef
-  mapping.externalThreadRef = nextRef
+  let result: AdoptProviderConversationRefResult
   try {
-    await isolated.flush()
+    result = await isolated.transactional(async (tx) => {
+      const conversation = await findOneWithDecryption(
+        tx,
+        ExternalConversation,
+        {
+          id: args.mapping.externalConversationId,
+          channelId: args.channelId,
+          tenantId: args.scope.tenantId,
+          organizationId: args.scope.organizationId,
+        },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        dscope,
+      )
+      if (!conversation) return 'unchanged'
+      if (!isOutboundConversationRef(conversation.externalConversationId)) {
+        return settledRefOutcome(conversation.externalConversationId, nextRef)
+      }
+
+      const owner = await findOneWithDecryption(
+        tx,
+        ExternalConversation,
+        {
+          channelId: args.channelId,
+          externalConversationId: nextRef,
+          tenantId: args.scope.tenantId,
+          organizationId: args.scope.organizationId,
+        },
+        undefined,
+        dscope,
+      )
+      if (owner) return 'conflict'
+
+      const mapping = await findOneWithDecryption(
+        tx,
+        ChannelThreadMapping,
+        {
+          id: args.mapping.id,
+          channelId: args.channelId,
+          tenantId: args.scope.tenantId,
+          organizationId: args.scope.organizationId,
+        },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        dscope,
+      )
+      if (!mapping) return 'unchanged'
+      if (!isOutboundConversationRef(mapping.externalThreadRef)) {
+        return settledRefOutcome(mapping.externalThreadRef, nextRef)
+      }
+
+      conversation.externalConversationId = nextRef
+      mapping.externalThreadRef = nextRef
+      await tx.flush()
+      return 'adopted'
+    })
   } catch (error) {
     if (isUniqueViolation(error)) return 'conflict'
     throw error
   }
-  args.mapping.externalThreadRef = nextRef
-  return 'adopted'
+  if (result === 'adopted') args.mapping.externalThreadRef = nextRef
+  return result
+}
+
+/**
+ * Outcome for an adopter that finds the locked row already re-keyed by
+ * another one: the same provider ref is a no-op, a different one is a
+ * `conflict` the caller must not overwrite.
+ */
+function settledRefOutcome(storedRef: string | null | undefined, nextRef: string): AdoptProviderConversationRefResult {
+  return storedRef === nextRef ? 'unchanged' : 'conflict'
 }
