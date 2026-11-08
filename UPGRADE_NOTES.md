@@ -24,6 +24,18 @@ operators whose entities previously reached an excluded writer should purge thos
 entities from that index using the existing cleanup operations. Existing vectors
 and embedding-provider retention are not removed automatically.
 
+## Archive limits for imported apps in create-mercato-app
+
+`create-mercato-app --app` and `--app-url` now import through the same safe archive path as the new `--template`
+flag. The download is streamed with a 64 MiB cap, and the archive may hold at most 10,000 entries (files and
+directories) and 128 MiB of unpacked files. Only files and directories are allowed: a symbolic link, hard link,
+device, FIFO, absolute path or `..` segment fails the import and names the path. The archive is inspected before
+the target directory is created, so a rejected archive leaves nothing behind. Measured ready apps are far below
+the limits (`ready-app-oss-prm`: 19.1 MB, 392 entries), and links were never part of the ready-app snapshot
+contract. An app that hits a limit must be trimmed or have its links replaced by files; there is no override.
+
+[Implementation specification](.ai/specs/2026-11-04-create-app-template-flag.md).
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings
