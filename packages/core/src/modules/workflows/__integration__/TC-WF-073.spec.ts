@@ -1,0 +1,175 @@
+import { randomUUID } from 'node:crypto'
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { login } from '@open-mercato/core/helpers/integration/auth'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import {
+  buildSignalDefinitionPayload,
+  cancelWorkflowInstanceIfExists,
+  createWorkflowDefinitionFixture,
+  pollWorkflowInstance,
+  startWorkflowInstanceFixture,
+} from '@open-mercato/core/helpers/integration/workflowsFixtures'
+
+const translations = {
+  en: { retry: 'Retry', cancel: 'Cancel', confirm: 'Confirm', actions: 'Open actions' },
+  pl: { retry: 'Ponów', cancel: 'Anuluj', confirm: 'Potwierdź', actions: 'Otwórz akcje' },
+}
+
+type Fixture = { definitionId: string; instanceId?: string; workflowId: string; status: 'FAILED' | 'PAUSED' }
+
+async function instanceRecord(request: APIRequestContext, token: string, instanceId: string) {
+  const response = await apiRequest(request, 'GET', `/api/workflows/instances/${instanceId}`, { token })
+  expect(response.status()).toBe(200)
+  const body = await readJsonSafe<{ data: Record<string, unknown> }>(response)
+  expect(body?.data).toBeTruthy()
+  return body!.data
+}
+
+async function createFixture(request: APIRequestContext, token: string, fixture: Fixture) {
+  fixture.instanceId = await startWorkflowInstanceFixture(request, token, {
+    workflowId: fixture.workflowId,
+    initialContext: { reference: randomUUID() },
+  })
+  const instance = await pollWorkflowInstance(request, token, fixture.instanceId,
+    (record) => record.status === fixture.status)
+  expect(instance?.status).toBe(fixture.status)
+}
+
+async function openAction(page: Page, fixture: Fixture, action: string, actionsLabel: string) {
+  const row = page.getByRole('row').filter({ has: page.getByText(fixture.workflowId, { exact: true }) })
+  await expect(row).toHaveCount(1)
+  await row.getByRole('button', { name: actionsLabel, exact: true }).click()
+  await page.getByRole('menuitem', { name: action, exact: true }).click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
+async function expectContained(locator: Locator) {
+  await expect(locator).toBeVisible()
+  await expect.poll(async () => locator.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return rect.left >= 0 && rect.right <= window.innerWidth && rect.top >= 0
+      && rect.bottom <= window.innerHeight && element.scrollWidth <= element.clientWidth
+  })).toBe(true)
+}
+
+for (const locale of ['en', 'pl'] as const) {
+  for (const modifier of ['Control', 'Meta'] as const) {
+    test(`TC-WF-073: ${locale} confirmations preserve dismissals and target the selected row with ${modifier}+Enter`, async ({ page, request }, testInfo) => {
+      test.setTimeout(120_000)
+      const token = await getAuthToken(request, 'admin')
+      const fixtures: Fixture[] = []
+      const copy = translations[locale]
+      const stamp = Date.now()
+      try {
+        for (const status of ['FAILED', 'PAUSED'] as const) {
+          for (const target of ['selected', 'control']) {
+            const workflowId = `qa-wf-073-${locale}-${modifier.toLowerCase()}-${target}-${status.toLowerCase()}-${randomUUID()}-long-identifier-long-identifier`.slice(0, 100)
+            const payload = buildSignalDefinitionPayload(stamp, `signal-${randomUUID()}`)
+            const definition = status === 'PAUSED' ? payload.definition : {
+              steps: [
+                { stepId: 'start', stepName: 'Start', stepType: 'START' },
+                { stepId: 'end', stepName: 'End', stepType: 'END' },
+              ],
+              transitions: [{
+                transitionId: 'fail', fromStepId: 'start', toStepId: 'end', trigger: 'auto',
+                activities: [{
+                  activityId: 'fail', activityName: 'Fail deterministically', activityType: 'EXECUTE_FUNCTION',
+                  config: { functionName: `qa.missing.${randomUUID()}` },
+                  retryPolicy: { maxAttempts: 1, initialIntervalMs: 0, backoffCoefficient: 1, maxIntervalMs: 0 },
+                }],
+              }],
+            }
+            const definitionId = await createWorkflowDefinitionFixture(request, token, {
+              ...payload, workflowId, workflowName: workflowId, definition,
+            })
+            const fixture: Fixture = { definitionId, workflowId, status }
+            fixtures.push(fixture)
+            await createFixture(request, token, fixture)
+          }
+        }
+        await login(page, 'admin')
+        await page.context().addCookies([{ name: 'locale', value: locale, url: new URL(page.url()).origin }])
+        await page.goto('/backend/instances')
+        for (const status of ['FAILED', 'PAUSED'] as const) {
+          const selected = fixtures.find((fixture) => fixture.status === status)!
+          const action = status === 'FAILED' ? 'retry' : 'cancel'
+          const before = await Promise.all(fixtures.map((fixture) => instanceRecord(request, token, fixture.instanceId!)))
+          const mutations: string[] = []
+          const observeMutation = (sent: import('@playwright/test').Request) => {
+            if (sent.method() === 'POST' && /\/api\/workflows\/instances\/[^/]+\/(retry|cancel)$/.test(new URL(sent.url()).pathname)) {
+              mutations.push(new URL(sent.url()).pathname)
+            }
+          }
+          page.on('request', observeMutation)
+          try {
+            for (const dismiss of ['cancel', 'escape'] as const) {
+              const dialog = await openAction(page, selected, copy[action], copy.actions)
+              const title = locale === 'en'
+                ? `Are you sure you want to ${action} workflow '${selected.workflowId}'?`
+                : `Czy na pewno chcesz ${action === 'retry' ? 'ponowić' : 'anulować'} przepływ '${selected.workflowId}'?`
+              await expect(dialog.getByRole('heading')).toHaveText(title)
+              await expect(dialog).not.toContainText('{{workflowId}}')
+              if (dismiss === 'cancel') await dialog.getByRole('button', { name: copy.cancel, exact: true }).click()
+              else await page.keyboard.press('Escape')
+              await expect(dialog).not.toBeVisible()
+              expect(await Promise.all(fixtures.map((fixture) => instanceRecord(request, token, fixture.instanceId!)))).toEqual(before)
+              expect(mutations).toEqual([])
+            }
+            await page.setViewportSize({ width: 390, height: 844 })
+            const dialog = await openAction(page, selected, copy[action], copy.actions)
+            await expectContained(dialog)
+            await expectContained(dialog.getByRole('heading'))
+            await expectContained(dialog.getByRole('button', { name: copy.cancel, exact: true }))
+            await expectContained(dialog.getByRole('button', { name: copy.confirm, exact: true }))
+            await page.screenshot({ path: testInfo.outputPath(`${locale}-${action}-390px.png`) })
+            const targetPath = `/api/workflows/instances/${selected.instanceId}/${action}`
+            const responsePromise = page.waitForResponse((response) => new URL(response.url()).pathname === targetPath && response.request().method() === 'POST')
+            await page.keyboard.press(`${modifier}+Enter`)
+            expect((await responsePromise).status()).toBe(200)
+            await expect(dialog).not.toBeVisible()
+            expect(mutations).toEqual([targetPath])
+            for (const [index, fixture] of fixtures.entries()) {
+              if (fixture === selected) continue
+              expect(await instanceRecord(request, token, fixture.instanceId!)).toEqual(before[index])
+            }
+            await expect.poll(async () => {
+              const record = await instanceRecord(request, token, selected.instanceId!)
+              return action === 'retry' ? record.retryCount : record.status
+            }).toBe(action === 'retry' ? 1 : 'CANCELLED')
+            await page.setViewportSize({ width: 1280, height: 900 })
+          } finally {
+            page.off('request', observeMutation)
+          }
+        }
+      } finally {
+        const knownInstanceIds = fixtures.flatMap((fixture) => fixture.instanceId ? [fixture.instanceId] : [])
+        const definitionIds = fixtures.map((fixture) => fixture.definitionId)
+        await withClient(async (client) => {
+          const createdInstances = await client.query<{ id: string }>(
+            'select id from workflow_instances where definition_id = any($1::uuid[])', [definitionIds],
+          )
+          const instanceIds = [...new Set([...knownInstanceIds, ...createdInstances.rows.map((record) => record.id)])]
+          for (const instanceId of instanceIds) {
+            await cancelWorkflowInstanceIfExists(request, token, instanceId)
+          }
+          await client.query('begin')
+          try {
+            for (const table of ['workflow_events', 'user_tasks', 'step_instances', 'workflow_branch_instances']) {
+              await client.query(`delete from ${table} where workflow_instance_id = any($1::uuid[])`, [instanceIds])
+            }
+            await client.query('delete from workflow_instances where id = any($1::uuid[])', [instanceIds])
+            await client.query('delete from workflow_definitions where id = any($1::uuid[])', [definitionIds])
+            await client.query('commit')
+          } catch (error) {
+            await client.query('rollback')
+            throw error
+          }
+        })
+      }
+    })
+  }
+}
