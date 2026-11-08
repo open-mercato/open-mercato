@@ -199,7 +199,7 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
       4,
       em,
       expect.anything(),
-      { id: 'mapping-1', tenantId: TENANT },
+      { id: 'mapping-1', tenantId: TENANT, organizationId: null },
       { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
       expect.anything(),
     )
@@ -487,7 +487,7 @@ describe('reassignConversationCommand undo', () => {
       3,
       em,
       expect.anything(),
-      { id: 'mapping-1', tenantId: TENANT },
+      { id: 'mapping-1', tenantId: TENANT, organizationId: null },
       { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
       expect.anything(),
     )
@@ -495,7 +495,7 @@ describe('reassignConversationCommand undo', () => {
       4,
       em,
       expect.anything(),
-      { id: 'conv-1', tenantId: TENANT },
+      { id: 'conv-1', tenantId: TENANT, organizationId: null },
       { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
       expect.anything(),
     )
@@ -538,6 +538,32 @@ describe('reassignConversationCommand undo', () => {
     expect(em.flush).not.toHaveBeenCalled()
     expect(mapping.assignedUserId).toBe('newer-owner')
     expect(conversation.assignedUserId).toBe('newer-owner')
+  })
+
+  it('restores when the action being undone was sent with an uppercase assignee id', async () => {
+    const UPPER_ASSIGNEE = 'ABCDEFAB-1234-4ABC-8DEF-ABCDEFABCDEF'
+    const { mapping, conversation } = seedRows({ id: 'channel-1', userId: OWNER })
+    mapping.assignedUserId = UPPER_ASSIGNEE.toLowerCase()
+    conversation.assignedUserId = UPPER_ASSIGNEE.toLowerCase()
+    const { ctx, em } = ctxFor(TENANT, { userId: OWNER })
+    await reassignConversationCommand.undo!({
+      input: { threadId: 'thread-1' } as never,
+      ctx,
+      logEntry: {
+        commandPayload: {
+          undo: {
+            threadMappingId: 'mapping-1',
+            conversationId: 'conv-1',
+            tenantId: TENANT,
+            previousAssignedUserId: 'old-owner',
+            newAssignedUserId: UPPER_ASSIGNEE,
+          },
+        },
+      } as never,
+    })
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(mapping.assignedUserId).toBe('old-owner')
+    expect(conversation.assignedUserId).toBe('old-owner')
   })
 
   it('refuses with a 409 when only the conversation owner changed after the action', async () => {

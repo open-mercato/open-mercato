@@ -21,6 +21,8 @@ type ReassignLog = { id: string; undoToken: string | null; executionState: strin
 const REASSIGN_COMMAND_ID = 'communication_channels.conversation.reassign'
 const CONFLICT_MESSAGE =
   'This conversation was reassigned again after this change. Undo was refused so the newer assignment is kept.'
+const CONFLICT_MESSAGE_PL =
+  'Ta rozmowa została ponownie przypisana po tej zmianie. Cofnięcie odrzucono, aby zachować nowsze przypisanie.'
 
 async function listReassignLogs(
   request: APIRequestContext,
@@ -140,6 +142,13 @@ test.describe('TC-CHANNEL-API-013: reassign undo keeps a newer reassignment', ()
       const staleBody = await readJsonSafe<{ error?: string; code?: string }>(staleUndo)
       expect(staleBody?.code).toBe('communication_channels.errors.reassignUndoConflict')
       expect(staleBody?.error, 'the refusal carries a translated message, not the key').toBe(CONFLICT_MESSAGE)
+      const stalePolishUndo = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', {
+        token: firstToken,
+        data: { undoToken: firstLog.undoToken },
+        headers: { 'Accept-Language': 'pl' },
+      })
+      expect(stalePolishUndo.status(), 'a repeated stale undo is refused again').toBe(409)
+      expect((await readJsonSafe<{ error?: string }>(stalePolishUndo))?.error, 'the refusal is localized').toBe(CONFLICT_MESSAGE_PL)
       expect(
         (await findReassignLog(request, firstToken, seeded.conversationId, (log) => log.id === firstLog.id)).executionState,
         'a refused undo must leave the first reassignment done',

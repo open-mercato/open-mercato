@@ -116,6 +116,14 @@ export async function resolveThreadNotFoundMessage(): Promise<string> {
 }
 
 /**
+ * Postgres returns `uuid` columns in lowercase while a snapshot keeps the
+ * assignee id exactly as the caller sent it, so compare canonical forms.
+ */
+function normalizeAssignedUserId(value: string | null | undefined): string | null {
+  return value ? value.toLowerCase() : null
+}
+
+/**
  * Refuse an undo whose target owner has been superseded by a later change, so
  * the newer assignment is never overwritten with the stale previous owner.
  */
@@ -255,7 +263,11 @@ const reassignConversationCommand: CommandHandler<
       const lockedMapping = await findOneWithDecryption(
         tem,
         ChannelThreadMapping,
-        { id: mapping.id, tenantId: input.scope.tenantId },
+        {
+          id: mapping.id,
+          tenantId: input.scope.tenantId,
+          organizationId: input.scope.organizationId ?? null,
+        },
         { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
         dscope,
       )
@@ -405,7 +417,11 @@ const reassignConversationCommand: CommandHandler<
       const lockedMapping = await findOneWithDecryption(
         tem,
         ChannelThreadMapping,
-        { id: snapshot.threadMappingId, tenantId: snapshot.tenantId },
+        {
+          id: snapshot.threadMappingId,
+          tenantId: snapshot.tenantId,
+          organizationId: mapping.organizationId ?? null,
+        },
         { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
         dscope,
       )
@@ -415,13 +431,18 @@ const reassignConversationCommand: CommandHandler<
       const conversation = await findOneWithDecryption(
         tem,
         ExternalConversation,
-        { id: snapshot.conversationId, tenantId: snapshot.tenantId },
+        {
+          id: snapshot.conversationId,
+          tenantId: snapshot.tenantId,
+          organizationId: mapping.organizationId ?? null,
+        },
         { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
         dscope,
       )
+      const expectedAssignedUserId = normalizeAssignedUserId(snapshot.newAssignedUserId)
       const superseded =
-        (lockedMapping.assignedUserId ?? null) !== snapshot.newAssignedUserId ||
-        (conversation != null && (conversation.assignedUserId ?? null) !== snapshot.newAssignedUserId)
+        normalizeAssignedUserId(lockedMapping.assignedUserId) !== expectedAssignedUserId ||
+        (conversation != null && normalizeAssignedUserId(conversation.assignedUserId) !== expectedAssignedUserId)
       if (superseded) await throwReassignUndoConflict()
       lockedMapping.assignedUserId = snapshot.previousAssignedUserId
       if (conversation) conversation.assignedUserId = snapshot.previousAssignedUserId
