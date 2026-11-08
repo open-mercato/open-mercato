@@ -124,6 +124,10 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/lib/__tests__/init-secrets.test.ts',
+        scans: 'starters/docker and packages/create-app/template full-app Compose defaults — production bootstrap credential safety (#7809)',
+      },
+      {
         path: 'src/__tests__/documented-queue-subcommands.test.ts',
         scans: 'apps/docs/docs/**/*.mdx — documented queue subcommands resolve through the real CLI dispatcher (#8511)',
       },
@@ -379,6 +383,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',
     reason: 'Already unfiltered — the same create-app parity step (#3779) runs the whole create-mercato-app suite. It also drives the real scaffolder and generator suite against a generated app, so it costs minutes rather than the seconds this runner budgets for the common PR path.',
+  },
+  {
+    path: 'packages/create-app/src/lib/templates/templates.test.ts',
+    reason: 'Already unfiltered: the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). `process.cwd()` only saves the directory `main` is run from; it reads nothing outside packages/create-app.',
   },
   {
     path: 'packages/ui/src/backend/__tests__/FieldDefinitionsEditor.test.tsx',
