@@ -218,7 +218,7 @@ test.describe('TC-CHANNEL-API-010: undo of a channel delete after a reconnect', 
       const undoResponse = page.waitForResponse(
         (response) => response.url().includes(UNDO_PATH) && response.request().method() === 'POST',
       )
-      await deleteRow.getByRole('button', { name: 'Undo last action' }).click()
+      await deleteRow.getByRole('button', { name: 'Undo this action' }).click()
       expect((await undoResponse).status(), 'the UI undo must be refused').toBe(409)
       await expect(page.getByText(DUPLICATE_MESSAGE).first()).toBeVisible({ timeout: 10_000 })
       expect(await listLiveChannelIds(request, token)).not.toContain(original)
