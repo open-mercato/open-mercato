@@ -6,6 +6,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { ResourcesResource, ResourcesResourceType } from '../data/entities'
@@ -16,6 +17,7 @@ import {
   type ResourcesResourceTypeUpdateInput,
 } from '../data/validators'
 import { resourcesResourceTypeCrudEvents } from '../lib/crud'
+import { lockResourceType } from '../lib/resourceTypeLock'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '#generated/entities.ids.generated'
@@ -69,6 +71,25 @@ async function loadResourceTypeCustomSnapshot(em: EntityManager, snapshot: Resou
     recordId: snapshot.id,
     tenantId: snapshot.tenantId,
     organizationId: snapshot.organizationId,
+  })
+}
+
+async function assertNoAssignedResources(
+  em: EntityManager,
+  resourceType: ResourcesResourceType,
+  status: 400 | 409,
+): Promise<void> {
+  const assignedCount = await em.count(ResourcesResource, {
+    resourceTypeId: resourceType.id,
+    deletedAt: null,
+    tenantId: resourceType.tenantId,
+    organizationId: resourceType.organizationId,
+  })
+  if (assignedCount === 0) return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(status, {
+    error: translate('resources.resourceTypes.errors.deleteAssigned', 'Resource type has assigned resources.'),
+    code: 'resources.resourceTypes.errors.deleteAssigned',
   })
 }
 
@@ -152,9 +173,24 @@ const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const resourceType = await em.findOne(ResourcesResourceType, { id: after.id })
     if (resourceType) {
-      resourceType.deletedAt = new Date()
-      resourceType.updatedAt = new Date()
-      await em.flush()
+      let deleted = false
+      await withAtomicFlush(em, [
+        async () => {
+          await lockResourceType(em, resourceType.id)
+          const isLive = await em.count(ResourcesResourceType, {
+            id: resourceType.id,
+            tenantId: resourceType.tenantId,
+            organizationId: resourceType.organizationId,
+            deletedAt: null,
+          }) > 0
+          if (!isLive) return
+          await assertNoAssignedResources(em, resourceType, 409)
+          resourceType.deletedAt = new Date()
+          resourceType.updatedAt = new Date()
+          deleted = true
+        },
+      ], { transaction: true })
+      if (!deleted) return
 
       const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({
@@ -361,18 +397,14 @@ const deleteResourceTypeCommand: CommandHandler<{ id?: string }, { resourceTypeI
     if (!record) throw new CrudHttpError(404, { error: 'Resources resource type not found.' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    const assignedCount = await em.count(ResourcesResource, {
-      resourceTypeId: record.id,
-      deletedAt: null,
-      tenantId: record.tenantId,
-      organizationId: record.organizationId,
-    })
-    if (assignedCount > 0) {
-      throw new CrudHttpError(400, { error: 'Resource type has assigned resources.' })
-    }
-    record.deletedAt = new Date()
-    record.updatedAt = new Date()
-    await em.flush()
+    await withAtomicFlush(em, [
+      async () => {
+        await lockResourceType(em, record.id)
+        await assertNoAssignedResources(em, record, 400)
+        record.deletedAt = new Date()
+        record.updatedAt = new Date()
+      },
+    ], { transaction: true })
 
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
