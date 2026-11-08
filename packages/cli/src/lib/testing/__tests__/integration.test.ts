@@ -29,6 +29,9 @@ import {
   terminateProcessTree,
   registerEphemeralShutdownHandlers,
   withoutCoverageEnvironment,
+  buildResendStubEnvironment,
+  RESEND_STUB_TEST_API_KEY,
+  RESEND_STUB_TEST_WEBHOOK_SIGNING_SECRET,
 } from '../integration'
 import type { CapturedOutputProcess, ShutdownProcessRef } from '../integration'
 import { resolveSpawnCommand } from '../../spawn'
@@ -204,6 +207,7 @@ describe('integration cache and options', () => {
         path.join(projectRootDirectory, '.ai', 'qa', 'email-capture.jsonl'),
       )
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBeUndefined()
+      expect(environment?.commandEnvironment).toMatchObject(buildResendStubEnvironment(baseUrl))
     } finally {
       fetchSpy.mockRestore()
     }
@@ -533,6 +537,24 @@ describe('integration cache and options', () => {
     expect(resolveEphemeralSuperadminPassword({ OM_INIT_SUPERADMIN_PASSWORD: 'Operator-Chosen-Pass-42!' })).toBe(
       'Operator-Chosen-Pass-42!',
     )
+  })
+
+  it('points every Resend client at the example stub with fixed test-only values', () => {
+    const inherited = { ...process.env }
+    process.env.RESEND_API_KEY = 're_live_should_never_reach_the_harness'
+    try {
+      expect(buildResendStubEnvironment('http://127.0.0.1:5001/')).toEqual({
+        OM_ENABLE_RESEND_STUB: 'true',
+        INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS: 'true',
+        RESEND_BASE_URL: 'http://127.0.0.1:5001/api/example/resend-stub',
+        RESEND_API_KEY: RESEND_STUB_TEST_API_KEY,
+        RESEND_WEBHOOK_SIGNING_SECRET: RESEND_STUB_TEST_WEBHOOK_SIGNING_SECRET,
+      })
+    } finally {
+      process.env = inherited
+    }
+    expect(RESEND_STUB_TEST_API_KEY.startsWith('re_stub_')).toBe(true)
+    expect(RESEND_STUB_TEST_WEBHOOK_SIGNING_SECRET).toMatch(/^whsec_[A-Za-z0-9+/]+=*$/)
   })
 
   it('creates the vector and pgcrypto extensions in the ephemeral init SQL', () => {

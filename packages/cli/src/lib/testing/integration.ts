@@ -191,6 +191,27 @@ export function ephemeralPostgresInitSql(): string {
   return EPHEMERAL_POSTGRES_INIT_SQL
 }
 
+export const RESEND_STUB_TEST_API_KEY = 're_stub_open-mercato-integration'
+export const RESEND_STUB_TEST_WEBHOOK_SIGNING_SECRET = 'whsec_b3Blbi1tZXJjYXRvLWludGVncmF0aW9uLXJlc2VuZC13ZWJob29rLXNlY3JldA=='
+
+/**
+ * Test-only Resend settings (spec `2026-10-25-inbox-ops-inbound-attachments.md`): every Resend SDK
+ * client of the app, its workers and the Playwright process talks to the `example` module's stub
+ * at `<baseUrl>/api/example/resend-stub` instead of api.resend.com. The values are fixed, never
+ * inherited, so a developer's real `RESEND_API_KEY` can never reach an ephemeral environment.
+ * `INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS` is the D19 opt-out, honored only next to
+ * `OM_ENABLE_RESEND_STUB`, because enterprise CI enables `agent_orchestrator`.
+ */
+export function buildResendStubEnvironment(baseUrl: string): NodeJS.ProcessEnv {
+  return {
+    OM_ENABLE_RESEND_STUB: 'true',
+    INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS: 'true',
+    RESEND_BASE_URL: `${baseUrl.replace(/\/+$/, '')}/api/example/resend-stub`,
+    RESEND_API_KEY: RESEND_STUB_TEST_API_KEY,
+    RESEND_WEBHOOK_SIGNING_SECRET: RESEND_STUB_TEST_WEBHOOK_SIGNING_SECRET,
+  }
+}
+
 const DEFAULT_EPHEMERAL_JWT_SECRET = 'om-ephemeral-integration-jwt-secret'
 
 export function resolveEphemeralJwtSecret(env: NodeJS.ProcessEnv = process.env): string {
@@ -2277,6 +2298,10 @@ function buildReusableEnvironment(
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
     MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret',
+    // The Playwright process signs Resend webhooks and registers stub fixtures with these values,
+    // and its queue-drain children fetch attachments through RESEND_BASE_URL. Same block as the
+    // app server below.
+    ...buildResendStubEnvironment(baseUrl),
     NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
     CI: 'true',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
@@ -3688,6 +3713,11 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       // var at the workflow level, masking the gap). Keep in sync with the
       // Playwright-process env block above.
       MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret',
+      // Resend stub for the inbox_ops inbound-attachment specs. Side effect: with RESEND_API_KEY
+      // set, the inbox reply send route leaves its "not configured" branch and stops at
+      // OM_TEST_MODE ("delivery disabled"); channel_resend seeds nothing because
+      // SYSTEM_EMAIL_PROVIDER is `__test_seed__`. Keep in sync with the Playwright block above.
+      ...buildResendStubEnvironment(applicationBaseUrl),
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',

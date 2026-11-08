@@ -113,6 +113,29 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.9.0 → 0.10.0 (Unreleased)
+
+### InboxOps stores the attachments of Resend inbound mail (#6282)
+
+Attachments of mail received through the Resend webhook are now stored as private platform attachments owned by the `InboxEmail`, with their extracted text kept encrypted in a new ledger table (`inbox_email_attachments`). Emails without attachments, and everything received through the custom HMAC webhook, behave as before. Specification: [`2026-10-25-inbox-ops-inbound-attachments.md`](.ai/specs/2026-10-25-inbox-ops-inbound-attachments.md).
+
+What changes for integrations and operators:
+
+- **Event timing.** For a Resend email with non-decorative attachments, `inbox_ops.email.received` is no longer emitted by the webhook request. The new `inbox_ops:attachment-ingest` worker (queue `inbox-ops-attachment-ingest`) stores the parts first and then emits the event with the same ID and payload, plus the optional `attachmentCount`. Subscribers need no change, but the event can arrive minutes later while Resend is unreachable, and a crash between the emit and completion can repeat it once. The webhook response is `200` once the email is stored and the job is queued.
+- **Enqueue failure answers `500`.** When the ingest job cannot be queued, `POST /api/inbox_ops/webhook/inbound` answers `500` so Resend redelivers; the redelivery is deduplicated and queues the job again. A unique-index collision is now answered as a duplicate (`200`) instead of a `500`.
+- **Deduplication.** `contentHash` of an email with non-decorative attachments includes their sorted Resend attachment ids (also while the kill switch is off), so two attachment-only emails with the same sender and subject are no longer collapsed. Hashes of other emails are unchanged.
+- **Release on deletion.** `DELETE /api/inbox_ops/emails/[id]` also releases the email's attachments and their quota. Inbound files cannot be moved or deleted through the attachments API by anyone; deleting the email is the only way to free them. With the scheduler module installed, a failed release is retried by `inbox_ops:attachment-maintenance` (system schedule, every 15 minutes); without it the files stay unreadable until the module is enabled.
+- **Retry through reprocess.** `POST /api/inbox_ops/emails/[id]/reprocess` now re-queues an email whose attachments are `pending` (or `processing` with an expired lease) instead of answering `409`, and re-fetches parts that failed with `ingest_timeout`, `quota_exceeded` or `partition_unavailable` on a finalized email before extraction runs again. It answers `500` when the job cannot be queued. Only emails received after this upgrade (`attachmentsStatus` not null) are affected.
+- **Access.** A new owner access resolver (`inbox_ops.email-attachments`, `inbox_ops/data/attachment-access.ts`) limits every attachment owned by `inbox_ops:inbox_email` to users with `inbox_ops.proposals.view`, on the attachment routes, in the AI attachment tools and chat, and in Messages linking; `reassign` and `delete` are refused for everyone. The shared library (`GET /api/attachments/library`) never lists these files (new `listInLibrary: false` on the protected target, stored in `attachment_partitions.library_excluded_entities`).
+- **New route and fields.** `GET /api/inbox_ops/emails/[id]/attachments` lists the parts with status and reason. `GET /api/inbox_ops/emails[/id]` fills `attachmentIds` and adds `attachmentsStatus`; both stay redacted for callers without `inbox_ops.proposals.view`.
+- **Quota.** Stored files count against the tenant attachment quota. Limits: `INBOX_OPS_MAX_ATTACHMENTS` (20 parts), `INBOX_OPS_MAX_ATTACHMENTS_TOTAL_BYTES` (25 MiB per email) and the attachments module's per-file maximum. The remaining settings are listed in `.env.example`.
+
+**Ingestion stays off while an unguarded attachment reader is enabled.** While a module listed by `listUnguardedAttachmentReaders()` is enabled — today the enterprise `agent_orchestrator`, whose attachment stager reads rows without owner checks — no inbound file is stored: the parts are recorded as `skipped` with `unguarded_reader`, the email is emitted at once, and one warning per process names the module. Ingestion starts by itself once the module declares owner-access enforcement. **Precondition:** do not enable such a module in an instance that already holds inbound attachments; files stored before it was enabled stay readable through it, and the maintenance worker logs a warning while both are true.
+
+**Operator action:** run the migrations (`inbox_ops` adds the ledger table, nine nullable `inbox_emails` columns and `inbox_proposal_actions.source_refs`, and backfills the encryption maps of existing tenants; `attachments` adds `attachment_partitions.library_excluded_entities` and a concurrently built GIN index on `attachments.storage_metadata`). Make sure workers process `inbox-ops-attachment-ingest`; otherwise emails with attachments stay `pending` and are never extracted. `RESEND_API_KEY` must allow reading received emails and their attachments. Set `INBOX_OPS_ATTACHMENTS_ENABLED=false` to ignore attachments of new mail. **Rollback:** the kill switch restores the previous processing (the hash of emails with attachments keeps their ids); stored files remain readable by authorized users and are released with their emails. Rolling the code back to a build without this change keeps the files protected but lists them in the library again until the code is restored.
+
+`OM_ENABLE_RESEND_STUB` and `INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS` are test-harness flags (a Resend stub in the `example` module and the opt-out above, honored only together); never set them outside a test environment.
+
 ## 0.9.0 → 0.9.1 (unreleased)
 
 ### Encryption maintenance safety confirmations (#6767)

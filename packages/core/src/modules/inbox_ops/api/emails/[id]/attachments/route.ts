@@ -85,7 +85,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List the attachment parts of an inbound email',
-      description: 'Ledger of the email\'s attachment parts with their ingestion status and reason, in the order the sender attached them. Inline decorations (signature logos, tracking pixels) and extracted text are never returned. Stored files are downloaded through the returned url.',
+      description: 'Ledger of the email\'s attachment parts with their ingestion status and reason, oldest ledger row first (rows recorded together have no guaranteed relative order). Inline decorations (signature logos, tracking pixels) and extracted text are never returned. Stored files are downloaded through the returned url.',
       responses: [
         { status: 200, description: 'Attachment parts of the email', schema: inboxEmailAttachmentListResponseSchema },
         { status: 404, description: 'Email not found' },
