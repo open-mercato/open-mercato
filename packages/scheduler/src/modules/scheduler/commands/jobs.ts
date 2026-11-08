@@ -357,7 +357,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
     const alreadyActive = Boolean(existing && existing.isEnabled && !existing.deletedAt)
     let schedule: ScheduledJob
     try {
-      schedule = await withTenantActiveScheduleSlot(em, after.tenantId, after.isEnabled && !alreadyActive, () => {
+      schedule = await withTenantActiveScheduleSlot(em, after.tenantId, after.sourceType === 'user' && after.isEnabled && !alreadyActive, () => {
         if (!existing) return materializeScheduleFromSnapshot(em, after)
         existing.deletedAt = null
         return existing
@@ -430,7 +430,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       })
     }
 
-    const activatesSchedule = input.isEnabled === true && schedule.isEnabled !== true
+    const activatesSchedule = schedule.sourceType === 'user' && input.isEnabled === true && schedule.isEnabled !== true
 
     const effectiveTargetType = input.targetType ?? schedule.targetType
     const effectiveQueue = input.targetQueue ?? schedule.targetQueue
@@ -563,7 +563,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     const schedule = await em.findOne(ScheduledJob, { id: before.id })
 
     if (schedule) {
-      const activatesSchedule = before.isEnabled && !schedule.isEnabled && !schedule.deletedAt
+      const activatesSchedule = before.sourceType === 'user' && before.isEnabled && !schedule.isEnabled && !schedule.deletedAt
       const scheduleDefinitionChanged =
         schedule.scheduleType !== before.scheduleType
         || schedule.scheduleValue !== before.scheduleValue
@@ -654,8 +654,8 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const existing = await em.findOne(ScheduledJob, { id: before.id })
     const restoresActiveSchedule = existing
-      ? existing.isEnabled && Boolean(existing.deletedAt)
-      : before.isEnabled
+      ? existing.sourceType === 'user' && existing.isEnabled && Boolean(existing.deletedAt)
+      : before.sourceType === 'user' && before.isEnabled
     const tenantId = existing ? existing.tenantId : before.tenantId
 
     // Soft-deleted rows are restored by clearing `deletedAt`. A hard-removed row

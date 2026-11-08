@@ -159,6 +159,18 @@ describe('scheduler.jobs undo/redo respect the tenant active-schedule cap', () =
     expect(liveRow.isEnabled).toBe(false)
   })
 
+  it('re-enables a module-source schedule on update undo without counting the user-schedule cap', async () => {
+    const { updateUndo } = loadCommands()
+    const liveRow = snapshot({ sourceType: 'module', isEnabled: false, deletedAt: null })
+    const em = makeEm(liveRow, 2)
+
+    await updateUndo({ logEntry: logEntry({ before: snapshot({ sourceType: 'module' }) }), ctx: makeCtx(em) })
+
+    expect(em.count).not.toHaveBeenCalled()
+    expect(em.begin).not.toHaveBeenCalled()
+    expect(liveRow.isEnabled).toBe(true)
+  })
+
   it('rejects a delete undo that restores an enabled schedule when the tenant is at the cap', async () => {
     const { deleteUndo } = loadCommands()
     const deletedAt = new Date('2026-01-01T00:00:00.000Z')
@@ -208,6 +220,29 @@ describe('scheduler.jobs undo/redo respect the tenant active-schedule cap', () =
 
     expect(em.count).not.toHaveBeenCalled()
     expect(liveRow.deletedAt).toBeNull()
+    expect(em.flush).toHaveBeenCalled()
+  })
+
+  it('restores an enabled module-source schedule on delete undo without counting the user-schedule cap', async () => {
+    const { deleteUndo } = loadCommands()
+    const liveRow = snapshot({ sourceType: 'module', deletedAt: new Date('2026-01-01T00:00:00.000Z') })
+    const em = makeEm(liveRow, 2)
+
+    await deleteUndo({ logEntry: logEntry({ before: snapshot({ sourceType: 'module' }) }), ctx: makeCtx(em) })
+
+    expect(em.count).not.toHaveBeenCalled()
+    expect(em.begin).not.toHaveBeenCalled()
+    expect(liveRow.deletedAt).toBeNull()
+  })
+
+  it('re-materializes an enabled module-source schedule on delete undo without counting the user-schedule cap', async () => {
+    const { deleteUndo } = loadCommands()
+    const em = makeEm(null, 2)
+
+    await deleteUndo({ logEntry: logEntry({ before: snapshot({ sourceType: 'module' }) }), ctx: makeCtx(em) })
+
+    expect(em.count).not.toHaveBeenCalled()
+    expect(em.create).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ id: 'job-1', sourceType: 'module', isEnabled: true }))
     expect(em.flush).toHaveBeenCalled()
   })
 
