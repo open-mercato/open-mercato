@@ -19,6 +19,9 @@ export type Row = Record<string, unknown> & { id: string }
 
 type Filter = Record<string, unknown>
 
+/** The `find` options the fake honors: `fields` projects the returned rows like a partial load. */
+type FindOptionsLike = { orderBy?: Record<string, 'asc' | 'desc'>; fields?: readonly string[] }
+
 export const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 export const ORG_ID = '22222222-2222-4222-8222-222222222222'
 export const UPDATED_AT = new Date('2026-01-01T00:00:00.000Z')
@@ -340,8 +343,15 @@ export class FakeInboxDb {
     return count
   }
 
-  find(entity: unknown, where: Filter, options?: { orderBy?: Record<string, 'asc' | 'desc'> }): Row[] {
-    const rows = [...this.table(entity).values()].filter((row) => matchesFilter(row, where)).map((row) => ({ ...row }))
+  /** Every `find` the code under test ran, with its options (`fields`, `orderBy`, …). */
+  finds: Array<{ entity: unknown; where: Filter; options?: FindOptionsLike }> = []
+
+  find(entity: unknown, where: Filter, options?: FindOptionsLike): Row[] {
+    this.finds.push({ entity, where, options })
+    const fields = options?.fields
+    const rows = [...this.table(entity).values()]
+      .filter((row) => matchesFilter(row, where))
+      .map((row) => (fields ? (Object.fromEntries(['id', ...fields].map((key) => [key, row[key]])) as Row) : { ...row }))
     const order = Object.entries(options?.orderBy ?? {})
     rows.sort((left, right) => {
       for (const [key, direction] of order) {
@@ -438,8 +448,8 @@ export function fakeDbOf(em: unknown): FakeInboxDb {
 
 /** `findWithDecryption` / `findOneWithDecryption` stand-ins bound to the fake entity manager. */
 export const fakeDecryption = {
-  findWithDecryption: async (em: unknown, entity: unknown, where: Filter, options?: { orderBy?: Record<string, 'asc' | 'desc'> }) =>
+  findWithDecryption: async (em: unknown, entity: unknown, where: Filter, options?: FindOptionsLike) =>
     fakeDbOf(em).find(entity, where, options),
-  findOneWithDecryption: async (em: unknown, entity: unknown, where: Filter) =>
-    fakeDbOf(em).find(entity, where)[0] ?? null,
+  findOneWithDecryption: async (em: unknown, entity: unknown, where: Filter, options?: FindOptionsLike) =>
+    fakeDbOf(em).find(entity, where, options)[0] ?? null,
 }

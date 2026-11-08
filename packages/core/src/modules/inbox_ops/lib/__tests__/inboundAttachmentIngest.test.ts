@@ -498,6 +498,44 @@ describe('ingest: unexpected errors', () => {
     expect(harness.createScoped.mock.calls.map((call) => (call[0] as CreateScopedAttachmentInput).textExtraction)).toEqual(['return'])
   })
 
+  it('reports the error as inbox_ops.attachment_ingest_failed and starts the 6-hour clock once', async () => {
+    const harness = createHarness({ parts: [{ id: 'a' }] })
+    harness.fetchImpl.mockResolvedValue(new Response('down', { status: 503 }))
+    failNextPartClear(harness, new Error('connection reset'))
+    await expect(harness.run()).rejects.toThrow('connection reset')
+
+    expect(reportedCodes()).toEqual(['inbox_ops.attachment_ingest_failed'])
+    expect(mockReportError.mock.calls[0][1]).toMatchObject({
+      attributes: { emailId: harness.email.id, tenantId: TENANT_ID, generation: 1 },
+    })
+    expect(harness.db.email(harness.email.id).attachmentsFirstFailureAt).toEqual(START)
+
+    harness.clock.now = new Date(START.getTime() + 60 * MINUTE)
+    failNextPartClear(harness, new Error('connection reset'))
+    await expect(harness.run(2)).rejects.toThrow('connection reset')
+    expect(harness.db.email(harness.email.id).attachmentsFirstFailureAt).toEqual(START)
+  })
+
+  it('finalizes a persistent fault only at the end of a run that attempted every remaining part', async () => {
+    const harness = createHarness({ parts: [{ id: 'a' }, { id: 'b' }] })
+    harness.fetchImpl.mockResolvedValue(new Response('down', { status: 503 }))
+    failNextPartClear(harness, new Error('connection reset'))
+    await expect(harness.run()).rejects.toThrow('connection reset')
+    expect(harness.db.email(harness.email.id).attachmentsFirstFailureAt).toEqual(START)
+
+    // Past the 6 hours, a run that fails again before reaching part b finalizes nothing.
+    harness.clock.now = new Date(START.getTime() + INBOX_OPS_ATTACHMENT_FINALIZE_AFTER_MS + MINUTE)
+    failNextPartClear(harness, new Error('connection reset'))
+    await expect(harness.run(2)).rejects.toThrow('connection reset')
+    expect(statuses(harness)).toEqual([['resend:a', 'pending', null], ['resend:b', 'pending', null]])
+    expect(harness.db.email(harness.email.id)).toMatchObject({ attachmentsStatus: 'pending' })
+
+    // The next run attempts both parts; they fail transiently, so the clock started by the fault finalizes them.
+    await expect(harness.run(3)).resolves.toEqual({ outcome: 'finalized', storedCount: 0 })
+    expect(statuses(harness)).toEqual([['resend:a', 'failed', 'ingest_timeout'], ['resend:b', 'failed', 'ingest_timeout']])
+    expect(harness.db.email(harness.email.id)).toMatchObject({ attachmentsStatus: 'completed' })
+  })
+
   it('leaves a claim another run took over untouched', async () => {
     const harness = createHarness({ parts: [{ id: 'a' }] })
     harness.fetchImpl.mockResolvedValue(new Response('down', { status: 503 }))

@@ -85,7 +85,7 @@ export function EmailAttachmentsList({ emailId, asSection = false, hideWhenEmpty
   } else if (state.kind === 'error') {
     content = <ErrorMessage label={t('inbox_ops.attachments.loadFailed', 'Failed to load attachments')} />
   } else if (state.items.length === 0) {
-    content = <p className="text-sm text-muted-foreground">{t('inbox_ops.attachments.empty', 'This email has no attachments.')}</p>
+    content = <p className="text-sm text-muted-foreground">{t('inbox_ops.attachments.empty', 'No attachments were recorded for this email.')}</p>
   } else {
     content = (
       <ul className="space-y-2">

@@ -74,37 +74,44 @@ function hasAssignment(metadata: Row['storageMetadata'], probe: unknown): boolea
  * PostgreSQL exactly as in production, then answered from `committed` rows. Changes made through
  * the ORM double become visible only on flush, as in a real transaction.
  */
-function createHarness(initial: Row[]) {
+function createHarness(initial: Row[], options: { afterQuery?: (query: CompiledQuery, committed: Map<string, Row>) => void } = {}) {
   const committed = new Map(initial.map((entry) => [entry.id, structuredClone(entry)]))
   const queries: CompiledQuery[] = []
   const events: string[] = []
   const connection: DatabaseConnection = {
     async executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
-      queries.push(query)
-      const params = query.parameters as unknown[]
-      const rows = [...committed.values()].sort((left, right) => (left.id < right.id ? -1 : 1))
-      if (query.sql.includes('"storage_metadata" @>')) {
-        const [tenantId, organizationId, entityId, recordId, arrayProbe, objectProbe] = params as [string, string, string, string, string, string]
-        const owned = rows.filter((entry) => entry.tenantId === tenantId && entry.organizationId === organizationId && (
-          (entry.entityId === entityId && entry.recordId === recordId)
-          || hasAssignment(entry.storageMetadata, JSON.parse(arrayProbe))
-          || hasAssignment(entry.storageMetadata, JSON.parse(objectProbe))
-        ))
-        // Storage siblings of any scope are locked in the same statement.
-        const matched = rows.filter((entry) => owned.some((candidate) => (
-          candidate.id === entry.id
-          || (candidate.partitionCode === entry.partitionCode && candidate.storagePath === entry.storagePath)
-        )))
-        return { rows: matched.map((entry) => ({ id: entry.id })) as R[] }
-      }
-      const [partitionCode, storagePath] = params as [string, string]
-      return {
-        rows: rows
-          .filter((entry) => entry.partitionCode === partitionCode && entry.storagePath === storagePath)
-          .map((entry) => ({ id: entry.id })) as R[],
+      try {
+        return answer<R>(query)
+      } finally {
+        options.afterQuery?.(query, committed)
       }
     },
     async *streamQuery() { /* not used */ },
+  }
+  function answer<R>(query: CompiledQuery): QueryResult<R> {
+    queries.push(query)
+    const params = query.parameters as unknown[]
+    const rows = [...committed.values()].sort((left, right) => (left.id < right.id ? -1 : 1))
+    if (query.sql.includes('"storage_metadata" @>')) {
+      const [tenantId, organizationId, entityId, recordId, arrayProbe, objectProbe] = params as [string, string, string, string, string, string]
+      const owned = rows.filter((entry) => entry.tenantId === tenantId && entry.organizationId === organizationId && (
+        (entry.entityId === entityId && entry.recordId === recordId)
+        || hasAssignment(entry.storageMetadata, JSON.parse(arrayProbe))
+        || hasAssignment(entry.storageMetadata, JSON.parse(objectProbe))
+      ))
+      // Storage siblings of any scope are locked in the same statement.
+      const matched = rows.filter((entry) => owned.some((candidate) => (
+        candidate.id === entry.id
+        || (candidate.partitionCode === entry.partitionCode && candidate.storagePath === entry.storagePath)
+      )))
+      return { rows: matched.map((entry) => ({ id: entry.id })) as R[] }
+    }
+    const [partitionCode, storagePath] = params as [string, string]
+    return {
+      rows: rows
+        .filter((entry) => entry.partitionCode === partitionCode && entry.storagePath === storagePath)
+        .map((entry) => ({ id: entry.id })) as R[],
+    }
   }
   const driver: Driver = {
     async init() {},
@@ -196,6 +203,25 @@ describe('DefaultAttachmentService.releaseOwnedScoped', () => {
       JSON.stringify({ assignments: [{ type: EMAIL.entityId, id: EMAIL.recordId }] }),
       JSON.stringify({ assignments: { type: EMAIL.entityId, id: EMAIL.recordId } }),
     ])
+  })
+
+  it('keeps the bytes for a sibling committed after the combined lock, reading references without a second lock', async () => {
+    const { release, committed, providerDelete, queries } = createHarness([row('m', { storagePath: 'objects/shared' })], {
+      // A copy of the stored object commits right after the id-ordered lock statement.
+      afterQuery: (query, rows) => {
+        if (query.sql.includes('"storage_metadata" @>') && !rows.has('a-late')) {
+          rows.set('a-late', row('a-late', { storagePath: 'objects/shared', entityId: 'messages:message', recordId: 'message-1', storageMetadata: null }))
+        }
+      },
+    })
+
+    await expect(release()).resolves.toEqual({ deleted: 1, repointed: 0, detached: 0 })
+
+    expect([...committed.keys()]).toEqual(['a-late'])
+    expect(providerDelete).not.toHaveBeenCalled()
+    const referenceReads = queries.slice(1)
+    expect(referenceReads).toHaveLength(1)
+    expect(referenceReads[0].sql).not.toMatch(/for update/i)
   })
 
   it('leaves a locked storage sibling of another owner or scope untouched', async () => {

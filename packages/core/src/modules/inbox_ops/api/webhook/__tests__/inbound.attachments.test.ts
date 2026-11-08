@@ -251,6 +251,61 @@ describe('Resend email with attachments, ingestion enabled', () => {
     expect(mockEnsureSchedule).toHaveBeenCalledTimes(1)
   })
 
+  it('completes and emits at once, without an ingest job, when the webhook skips every part, even while the queue is down', async () => {
+    mockEnqueue.mockRejectedValue(new Error('[internal] queue down'))
+    const email = resendEmail({ attachments: [logo('logo'), pdf('huge', 30 * MIB)] })
+
+    const response = await POST(resendRequest(email))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    const [stored] = emailsOf(db)
+    expect(stored).toMatchObject({
+      status: 'received',
+      attachmentsStatus: 'completed',
+      attachmentsCurrentGeneration: 0,
+      contentHash: parseInboundEmail(parserInput(email), { attachmentIds: ['huge'] }).contentHash,
+    })
+    expect(ledgerOf(db, stored.id)).toEqual([
+      ['resend:logo', 'logo.png', 'skipped', 'inline_decoration'],
+      ['resend:huge', 'huge.pdf', 'skipped', 'too_large'],
+    ])
+    expect(mockEnqueue).not.toHaveBeenCalled()
+    expect(mockEnsureSchedule).not.toHaveBeenCalled()
+    expect(mockEmit).toHaveBeenCalledWith(
+      'inbox_ops.email.received',
+      { emailId: stored.id, tenantId: TENANT_ID, organizationId: ORG_ID, forwardedByAddress: 'supplier@example.test', subject: 'Offer' },
+      { persistent: true, tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+    expect(reportedCodes()).not.toContain('inbox_ops.attachment_requeue_failed')
+  })
+
+  it('records metadata entries with a valid id but a malformed size, and hashes them', async () => {
+    const malformed = (id: string) => ({ id, filename: `${id}.pdf`, size: 'big', content_type: 'application/pdf', content_id: null, content_disposition: 'attachment' }) as unknown as MetadataPart
+    const email = resendEmail({ attachments: [malformed('odd'), pdf('offer'), malformed('odd-2'), { filename: 'no-id.pdf' } as unknown as MetadataPart] })
+
+    expect((await POST(resendRequest(email))).status).toBe(200)
+
+    const [stored] = emailsOf(db)
+    expect(stored).toMatchObject({
+      attachmentsStatus: 'pending',
+      contentHash: parseInboundEmail(parserInput(email), { attachmentIds: ['odd', 'offer', 'odd-2'] }).contentHash,
+    })
+    // An unknown size reserves the per-file maximum (25 MiB) against the 25 MiB total, after the parts of known size.
+    expect(ledgerOf(db, stored.id)).toEqual([
+      ['resend:odd', 'odd.pdf', 'skipped', 'total_too_large'],
+      ['resend:offer', 'offer.pdf', 'pending', null],
+      ['resend:odd-2', 'odd-2.pdf', 'skipped', 'total_too_large'],
+    ])
+    expect(db.partsOf(stored.id).map((row) => row.sizeBytes)).toEqual([null, 1000, null])
+
+    const alone = resendEmail({ id: 'resend-email-2', message_id: '<offer-2@example.test>', attachments: [malformed('solo')] })
+    expect((await POST(resendRequest(alone))).status).toBe(200)
+    const solo = emailsOf(db).find((row) => row.id !== stored.id) as Row
+    expect(ledgerOf(db, solo.id)).toEqual([['resend:solo', 'solo.pdf', 'pending', null]])
+    expect(enqueuedJobs()).toHaveLength(2)
+  })
+
   it('creates the ledger rows through the ORM inside the email transaction, so a failed insert writes neither', async () => {
     const createSpy = jest.spyOn(db, 'create')
     db.beforeFlush = () => {

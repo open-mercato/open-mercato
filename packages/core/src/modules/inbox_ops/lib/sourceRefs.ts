@@ -8,6 +8,7 @@ import {
   inboxProposalActionSourceRefSchema,
   type extractedSourceRefSchema,
 } from '../data/validators'
+import { renderAttachmentPromptName, unescapePromptAttribute } from './extractionPrompt'
 
 /** One model-output ref after the lenient parse; `undefined` marks a malformed ref. */
 export type ExtractedSourceRef = NonNullable<z.infer<typeof extractedSourceRefSchema>>
@@ -41,8 +42,26 @@ function resolveCitedPart(
   // Models sometimes drop the id but keep the file name: accept it only when it names exactly one part.
   const fileName = ref.fileName?.trim()
   if (!fileName) return null
-  const matches = parts.filter((part) => part.fileName === fileName)
+  const echoed = [fileName, unescapePromptAttribute(fileName)]
+  const matches = parts.filter((part) => {
+    const forms = promptNameForms(part.fileName)
+    return echoed.some((form) => forms.has(form))
+  })
   return matches.length === 1 ? matches[0] : null
+}
+
+/**
+ * The forms of a ledger file name a model may echo, unescaped: the prompt showed the name escaped
+ * and clipped (`renderAttachmentPromptName`), so the echo is compared against that rendered form
+ * (entities decoded, since models tend to decode them) as well as against the raw ledger name.
+ */
+function promptNameForms(fileName: string | null): Set<string> {
+  const rendered = unescapePromptAttribute(renderAttachmentPromptName(fileName))
+  const forms = new Set([rendered])
+  if (rendered.endsWith('…')) forms.add(rendered.slice(0, -1).trimEnd())
+  const raw = fileName?.trim()
+  if (raw) forms.add(raw)
+  return forms
 }
 
 /**

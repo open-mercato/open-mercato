@@ -590,7 +590,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Receive forwarded email from provider webhook',
-      description: 'Public endpoint — validated by provider HMAC signature or Resend/Svix signature. Rate limited per tenant. For Resend emails with attachments, 200 means the email was stored and queued for attachment ingestion; inbox_ops.email.received is emitted once the attachments are processed.',
+      description: 'Public endpoint — validated by provider HMAC signature or Resend/Svix signature. Rate limited per tenant. For Resend emails with attachments, 200 means the email was stored and queued for attachment ingestion; inbox_ops.email.received is emitted once the attachments are processed (at once when the webhook already skipped every part, for example by the size limits).',
       requestBody: {
         contentType: 'application/json',
         schema: z.object({

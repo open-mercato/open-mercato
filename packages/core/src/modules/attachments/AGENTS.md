@@ -56,7 +56,10 @@ write time.
   `storage_metadata.assignments` shapes). Only rows of the given tenant and organization
   change. It commits its own transaction (it refuses an ambient one), locks the owner's
   rows together with every row sharing their stored objects in one id-ordered statement,
-  and is idempotent (a retry returns zeros). Provider byte cleanup runs after commit and
+  and is idempotent (a retry returns zeros). It handles all of one owner's rows in that
+  single transaction (plus one storage-reference read per deleted row), so it is meant for
+  owners with a bounded number of rows (an inbound email holds at most its ledger's parts);
+  do not use it for an owner whose row count is unbounded. Provider byte cleanup runs after commit and
   is best-effort: failures are logged and reported as `attachments.release_cleanup_failed`,
   never thrown. It emits no CRUD events and does not update the query index (same as
   `releaseScoped`).

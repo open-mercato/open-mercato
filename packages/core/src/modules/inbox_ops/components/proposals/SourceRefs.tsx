@@ -12,7 +12,9 @@ function describeRef(t: TranslateFn, ref: InboxProposalActionSourceRef): string 
     ref.row ? t('inbox_ops.attachments.sourceRefs.row', 'row {row}', { row: ref.row }) : null,
   ].filter(Boolean).join(', ')
   const name = ref.fileName || t('inbox_ops.attachments.sourceRefs.attachment', 'Attachment')
-  return location ? `${name} (${location})` : name
+  return location
+    ? t('inbox_ops.attachments.sourceRefs.withLocation', '{name} ({location})', { name, location })
+    : name
 }
 
 /**

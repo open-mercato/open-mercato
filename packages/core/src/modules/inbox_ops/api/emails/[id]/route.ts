@@ -48,20 +48,19 @@ function tryResolve<T>(container: { resolve: (name: string) => unknown }, name: 
 }
 
 export async function GET(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
     const url = new URL(req.url)
     const id = extractPathSegment(url, 'emails')
 
     if (!id) {
-      return NextResponse.json({ error: 'Missing email ID' }, { status: 400 })
+      return NextResponse.json({ error: translate('inbox_ops.errors.missingEmailId', 'Missing email ID') }, { status: 400 })
     }
 
     const ctx = await resolveRequestContext(req)
+    const notFound = () => NextResponse.json({ error: translate('inbox_ops.errors.emailNotFound', 'Email not found') }, { status: 404 })
     // A non-uuid id names no email; answer 404 instead of letting Postgres reject the cast.
-    if (!inboxEmailIdParamsSchema.safeParse({ id }).success) {
-      const { translate } = await resolveTranslations()
-      return NextResponse.json({ error: translate('inbox_ops.errors.emailNotFound', 'Email not found') }, { status: 404 })
-    }
+    if (!inboxEmailIdParamsSchema.safeParse({ id }).success) return notFound()
 
     const email = await findOneWithDecryption(
       ctx.em,
@@ -76,32 +75,30 @@ export async function GET(req: Request) {
       ctx.scope,
     )
 
-    if (!email) {
-      return NextResponse.json({ error: 'Email not found' }, { status: 404 })
-    }
+    if (!email) return notFound()
 
     const includeContent = await canViewEmailContent(ctx)
     return NextResponse.json({ email: serializeInboxEmail(email, includeContent) })
   } catch (err) {
     if (err instanceof UnauthorizedError) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: translate('inbox_ops.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }
     logger.error('Failed to load email detail', { err })
-    return NextResponse.json({ error: 'Failed to load email' }, { status: 500 })
+    return NextResponse.json({ error: translate('inbox_ops.errors.emailLoadFailed', 'Failed to load email') }, { status: 500 })
   }
 }
 
 export async function DELETE(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
     const url = new URL(req.url)
     const id = extractPathSegment(url, 'emails')
 
     if (!id) {
-      return NextResponse.json({ error: 'Missing email ID' }, { status: 400 })
+      return NextResponse.json({ error: translate('inbox_ops.errors.missingEmailId', 'Missing email ID') }, { status: 400 })
     }
 
     const ctx = await resolveRequestContext(req)
-    const { translate } = await resolveTranslations()
     if (!inboxEmailIdParamsSchema.safeParse({ id }).success) {
       return NextResponse.json({ error: translate('inbox_ops.errors.emailNotFound', 'Email not found') }, { status: 404 })
     }
@@ -179,13 +176,12 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ ok: true })
   } catch (err) {
     if (err instanceof UnauthorizedError) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: translate('inbox_ops.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     logger.error('Failed to delete email', { err })
-    const { translate } = await resolveTranslations()
     return NextResponse.json({ error: translate('inbox_ops.errors.emailDeleteFailed', 'Failed to delete email') }, { status: 500 })
   }
 }

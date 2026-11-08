@@ -22,7 +22,8 @@ jest.mock('@open-mercato/core/modules/inbox_ops/lib/eventBus', () => ({
   resolveOptionalEventBus: jest.fn(() => null),
 }))
 
-import { GET, metadata, openApi } from '../route'
+import { InboxEmail, InboxEmailAttachment } from '../../../../../data/entities'
+import { GET, INBOX_EMAIL_ATTACHMENT_LIST_FIELDS, metadata, openApi } from '../route'
 
 const OTHER_ORG_ID = '99999999-9999-4999-8999-999999999999'
 const STORED_ATTACHMENT_ID = '00000000-0000-4000-8000-000000000001'
@@ -80,6 +81,20 @@ describe('GET /api/inbox_ops/emails/[id]/attachments', () => {
     expect(body.items[1]).toMatchObject({ status: 'skipped', reason: 'dangerous_executable', mimeType: 'application/x-msdownload', url: null })
     expect(body.items[2]).toMatchObject({ status: 'pending', reason: null, mimeType: 'text/csv', attachmentId: null, url: null })
     expect(JSON.stringify(body)).not.toContain('secret mail content')
+  })
+
+  it('loads only the returned ledger columns and only the id of the email', async () => {
+    const email = db.addEmail({ attachmentsStatus: 'completed' })
+    db.addPart(email.id, 'offer', { status: 'stored', attachmentId: STORED_ATTACHMENT_ID, extractedText: 'secret mail content' })
+
+    const response = await GET(request(email.id))
+
+    expect(response.status).toBe(200)
+    const emailFind = db.finds.find((call) => call.entity === InboxEmail)
+    expect(emailFind?.options?.fields).toEqual(['id'])
+    const ledgerFind = db.finds.find((call) => call.entity === InboxEmailAttachment)
+    expect(ledgerFind?.options?.fields).toEqual([...INBOX_EMAIL_ATTACHMENT_LIST_FIELDS])
+    expect(ledgerFind?.options?.fields).not.toContain('extractedText')
   })
 
   it('returns an empty list for an email without attachments', async () => {

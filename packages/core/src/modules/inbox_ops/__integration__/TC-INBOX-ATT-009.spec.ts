@@ -21,6 +21,8 @@ import {
   skipUnlessResendStubAvailable,
   textPart,
   uniqueRunId,
+  waitForDeleteFeatureCheck,
+  waitForEmailAttachmentList,
   waitForTerminalEmailStatus,
 } from './helpers/inboundAttachments'
 
@@ -181,11 +183,17 @@ test.describe('TC-INBOX-ATT-009: attachment lists and their visibility', () => {
       await page.context().clearCookies()
       const viewerErrors = trackHydrationErrors(page)
       await signInAs(page, logViewer)
+      // Row actions settle only after the Delete feature check; absence is asserted after it answered.
+      const viewerFeatureCheck = waitForDeleteFeatureCheck(page)
       await page.goto('/backend/inbox-ops/log')
+      await viewerFeatureCheck
       await expect(logRow(page, subject)).toBeVisible()
       await expect(logRow(page, subject).getByRole('button', { name: 'Open actions' })).toHaveCount(0)
 
+      // The list renders nothing while loading, so its absence is asserted after the 403 arrived.
+      const viewerList = waitForEmailAttachmentList(page, received.emailId)
       await page.goto(`/backend/messages/${messageId}`)
+      expect((await viewerList).status(), 'the thread recipient may not list the email attachments').toBe(403)
       await expect(page.getByText('Offer and price list attached.').first()).toBeVisible()
       await expect(page.getByRole('button', { name: /Attachments section/ })).toHaveCount(0)
       await expect(page.getByText(offerName, { exact: true })).toHaveCount(0)
@@ -198,13 +206,14 @@ test.describe('TC-INBOX-ATT-009: attachment lists and their visibility', () => {
           await client.query('delete from messages where id = $1', [messageId])
         }).catch(() => undefined)
       }
+      // Each cleanup runs even when an earlier one fails.
       if (proposalInserted) {
         await withClient(async (client) => {
           await client.query('delete from inbox_proposals where id = $1', [proposalId])
-        })
+        }).catch(() => undefined)
       }
-      await deleteUserIfExists(request, admin, userId)
-      await deleteRoleIfExists(request, admin, roleId)
+      await deleteUserIfExists(request, admin, userId).catch(() => undefined)
+      await deleteRoleIfExists(request, admin, roleId).catch(() => undefined)
       await cleanupInboundEmails(request, admin, tracker)
     }
   })

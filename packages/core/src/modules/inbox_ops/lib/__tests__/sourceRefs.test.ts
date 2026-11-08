@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { normalizeSourceRefs } from '../sourceRefs'
+import { renderAttachmentPromptName, unescapePromptAttribute } from '../extractionPrompt'
 
 const PDF_ID = '11111111-1111-4111-8111-111111111111'
 const CSV_ID = '22222222-2222-4222-8222-222222222222'
@@ -40,6 +41,34 @@ describe('normalizeSourceRefs', () => {
         duplicated,
       ),
     ).toEqual([{ kind: 'attachment', attachmentId: PDF_ID, fileName: 'order.pdf', snippet: 'a' }])
+  })
+
+  it('resolves a file-name echo against the escaped and clipped name the prompt showed', () => {
+    const QA_ID = '55555555-5555-4555-8555-555555555555'
+    const LONG_ID = '66666666-6666-4666-8666-666666666666'
+    const longName = `${'"'.repeat(60)}${'x'.repeat(300)}.pdf`
+    const named = [
+      { attachmentId: QA_ID, fileName: 'Q&A.pdf' },
+      { attachmentId: LONG_ID, fileName: longName },
+    ]
+    const shownLongName = renderAttachmentPromptName(longName)
+    expect(
+      normalizeSourceRefs(
+        [
+          { kind: 'attachment', fileName: 'Q&amp;A.pdf', snippet: 'escaped echo' },
+          { kind: 'attachment', fileName: 'Q&A.pdf', snippet: 'decoded echo' },
+          { kind: 'attachment', fileName: shownLongName, snippet: 'clipped echo' },
+          { kind: 'attachment', fileName: unescapePromptAttribute(shownLongName).slice(0, -1), snippet: 'clipped, no ellipsis' },
+          { kind: 'attachment', fileName: 'Q&amp;B.pdf', snippet: 'other name' },
+        ],
+        named,
+      ).map((ref) => [ref.attachmentId, ref.snippet]),
+    ).toEqual([
+      [QA_ID, 'escaped echo'],
+      [QA_ID, 'decoded echo'],
+      [LONG_ID, 'clipped echo'],
+      [LONG_ID, 'clipped, no ellipsis'],
+    ])
   })
 
   it('drops attachment refs when the email has no stored parts', () => {

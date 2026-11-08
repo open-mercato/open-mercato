@@ -164,15 +164,72 @@ export function neutralizePromptDelimiters(text: string): string {
   return text.replace(CONTROL_CHARS_PATTERN, '').replace(DELIMITER_TAG_PATTERN, '&lt;$1')
 }
 
-/** Escapes an untrusted value for a double-quoted attribute, on one line, clipped to `max`. */
-function escapeAttribute(value: string, max: number): string {
-  const singleLine = value.replace(CONTROL_CHARS_PATTERN, ' ').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim()
-  const clipped = singleLine.length > max ? `${singleLine.slice(0, max)}…` : singleLine
-  return clipped
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff
+}
+
+/** End index `<= end` that does not split a UTF-16 surrogate pair of `text`. */
+function codePointSafeEnd(text: string, end: number): number {
+  if (end <= 0) return 0
+  if (end >= text.length) return text.length
+  return isHighSurrogate(text.charCodeAt(end - 1)) ? end - 1 : end
+}
+
+function escapeAttributeEntities(value: string): string {
+  return value
     .replace(/&/g, '&amp;')
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
+}
+
+/**
+ * Escapes an untrusted value for a double-quoted attribute, on one line, and clips the escaped
+ * form to `max` characters (plus `…`). Clipping after escaping bounds the emitted length however
+ * many characters need an entity; the cut never splits an entity or a surrogate pair.
+ */
+function escapeAttribute(value: string, max: number): string {
+  const singleLine = value.replace(CONTROL_CHARS_PATTERN, ' ').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim()
+  const escaped = escapeAttributeEntities(singleLine)
+  if (escaped.length <= max) return escaped
+  let end = max
+  // Every `&` of the escaped form opens an entity this function wrote; cut before one the limit splits.
+  const entityStart = escaped.lastIndexOf('&', end - 1)
+  if (entityStart !== -1 && escaped.indexOf(';', entityStart) >= end) end = entityStart
+  end = codePointSafeEnd(escaped, end)
+  return `${escaped.slice(0, end)}…`
+}
+
+/**
+ * The `name` attribute value the attachments section shows for a ledger file name (escaped and
+ * clipped). Source-ref resolution compares the model's echoed name against this rendered form.
+ */
+export function renderAttachmentPromptName(fileName: string | null | undefined): string {
+  return escapeAttribute(fileName?.trim() || 'unnamed', ATTACHMENT_NAME_MAX_CHARS)
+}
+
+/** Reverses {@link escapeAttribute}'s entities, for comparing a model's echo of a rendered attribute. */
+export function unescapePromptAttribute(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+}
+
+/**
+ * Neutralizes `text` and fits the result into `limit` characters: the raw text is cut first (on a
+ * code-point boundary) and neutralized afterwards, so a cut can never turn a harmless tail such as
+ * `<attachmentx` into a delimiter; the cut shrinks until the neutralized form (`<` grows to `&lt;`)
+ * fits.
+ */
+function fitNeutralizedText(text: string, limit: number): { body: string; truncated: boolean } {
+  let end = codePointSafeEnd(text, Math.min(text.length, limit))
+  for (;;) {
+    const body = neutralizePromptDelimiters(text.slice(0, end))
+    if (body.length <= limit || end === 0) return { body, truncated: end < text.length }
+    end = codePointSafeEnd(text, Math.max(0, end - (body.length - limit)))
+  }
 }
 
 function positiveBudget(value: number | undefined, fallback: number): number {
@@ -180,7 +237,7 @@ function positiveBudget(value: number | undefined, fallback: number): number {
 }
 
 function attachmentAttributes(index: number, attachment: ExtractionPromptAttachment): string {
-  const name = escapeAttribute(attachment.fileName?.trim() || 'unnamed', ATTACHMENT_NAME_MAX_CHARS)
+  const name = renderAttachmentPromptName(attachment.fileName)
   const type = escapeAttribute(attachment.mimeType?.trim() || 'application/octet-stream', ATTACHMENT_TYPE_MAX_CHARS)
   const parts = [`index="${index}"`, `name="${name}"`, `type="${type}"`]
   if (attachment.status === 'stored' && attachment.attachmentId) {
@@ -193,9 +250,13 @@ function attachmentAttributes(index: number, attachment: ExtractionPromptAttachm
  * Builds the `<attachments>` section from the email's ledger rows, or `null` when no row is
  * listed. Stored files with text get a delimited block, truncated per file and in total; stored
  * files without text (or past the total budget) get a metadata-only line; skipped and failed
- * parts get a line with their reason. Inline decorations and released rows are left out. At most
- * {@link EXTRACTION_PROMPT_ATTACHMENT_METADATA_LINES_MAX} metadata-only lines are listed; the rest
- * are summarized by one `<attachments_omitted count="N" />` line.
+ * parts get a line with their reason. Inline decorations and released rows are left out.
+ *
+ * Budgets: the per-file budget bounds the emitted (neutralized) text of one block; the total
+ * budget bounds every text block as emitted, its opening and closing tag lines included. The
+ * metadata-only lines have their own small budget: at most
+ * {@link EXTRACTION_PROMPT_ATTACHMENT_METADATA_LINES_MAX} of them, each with clipped attributes;
+ * the rest are summarized by one `<attachments_omitted count="N" />` line.
  */
 export function buildAttachmentsSection(
   attachments: ExtractionPromptAttachment[],
@@ -232,17 +293,18 @@ export function buildAttachmentsSection(
       pushMetadataLine(`<attachment ${attributes} text="none" />`)
       return
     }
-    if (remaining <= 0) {
+    // The tag lines and their 3 line breaks count against the total budget; reserve the longer (truncated) opening tag.
+    const closingTag = '</attachment>'
+    const overhead = `<attachment ${attributes} truncated="true">`.length + closingTag.length + 3
+    const available = remaining - overhead
+    const fitted = available > 0 ? fitNeutralizedText(text, Math.min(maxPerFile, available)) : null
+    if (!fitted?.body.trim()) {
       pushMetadataLine(`<attachment ${attributes} text="omitted_budget" />`)
       return
     }
-    const limit = Math.min(maxPerFile, remaining)
-    const truncated = text.length > limit
-    const body = truncated ? text.slice(0, limit) : text
-    remaining -= body.length
-    lines.push(`<attachment ${attributes}${truncated ? ' truncated="true"' : ''}>`)
-    lines.push(neutralizePromptDelimiters(body))
-    lines.push('</attachment>')
+    const block = [`<attachment ${attributes}${fitted.truncated ? ' truncated="true"' : ''}>`, fitted.body, closingTag]
+    remaining -= block.join('\n').length + 1
+    lines.push(...block)
   })
   if (omitted > 0) lines.push(`<attachments_omitted count="${omitted}" />`)
 

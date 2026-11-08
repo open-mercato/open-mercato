@@ -316,6 +316,9 @@ async function settleUnclaimable(
   return null
 }
 
+/** Errors this module reported before rethrowing, so the run's catch-all does not report them twice. */
+const reportedRunErrors = new WeakSet<object>()
+
 async function reenqueueSelf(run: IngestRunContext, delayMs: number): Promise<boolean> {
   const result = await reenqueueInboundAttachmentIngest({
     em: run.em,
@@ -332,6 +335,7 @@ async function reenqueueSelf(run: IngestRunContext, delayMs: number): Promise<bo
       tenantId: run.ref.tenantId,
       generation: run.job.generation,
     })
+    if (result.error && typeof result.error === 'object') reportedRunErrors.add(result.error)
     throw result.error
   }
   return result.kind === 'enqueued'
@@ -666,17 +670,30 @@ async function ingestClaimed(run: IngestRunContext, claim: Claim, email: InboxEm
 }
 
 /**
- * After an unexpected error under the claim (a database blip, a bug): clears `in_flight_at` of the
- * part this run was processing, so the error is not charged as a crash on the next run, and resets
- * the email to `pending` with the lease released and due now. Both writes are conditional on the
- * claim token; a cleanup failure is logged and the original error still propagates.
+ * After an unexpected error under the claim (a database blip, a bug): reports it as
+ * `inbox_ops.attachment_ingest_failed` (unless a step already reported it), clears `in_flight_at` of the part this run was processing,
+ * so the error is not charged as a crash on the next run, starts the 6-hour clock if it has not
+ * started, and resets the email to `pending` with the lease released and due now. The writes are
+ * conditional on the claim token; a cleanup failure is logged and the original error still
+ * propagates. The clock only dates the fault: finalization still happens only at the end of a run
+ * that attempted every remaining `pending` part (step 5), so parts nobody tried never time out.
  */
-async function releaseClaimAfterError(run: IngestRunContext, claim: Claim): Promise<void> {
+async function releaseClaimAfterError(run: IngestRunContext, claim: Claim, error: unknown): Promise<void> {
+  if (!(error && typeof error === 'object' && reportedRunErrors.has(error))) {
+    logger.warn('Inbound attachment ingest run failed unexpectedly', { emailId: claim.id, generation: run.job.generation })
+    reportInboundAttachmentError(error, 'inbox_ops.attachment_ingest_failed', {
+      emailId: claim.id,
+      tenantId: claim.tenantId,
+      generation: run.job.generation,
+    })
+  }
   try {
     await run.em.transactional(async (tx) => {
+      const claimed = { id: claim.id, tenantId: claim.tenantId, organizationId: claim.organizationId, attachmentsClaimToken: claim.token }
+      await tx.nativeUpdate(InboxEmail, { ...claimed, attachmentsFirstFailureAt: null }, { attachmentsFirstFailureAt: run.now() })
       const reset = await tx.nativeUpdate(
         InboxEmail,
-        { id: claim.id, tenantId: claim.tenantId, organizationId: claim.organizationId, attachmentsClaimToken: claim.token },
+        claimed,
         { attachmentsStatus: 'pending', attachmentsClaimToken: null, attachmentsNextRunAt: run.now() },
       )
       if (reset === 0 || !run.inFlightRowId) return
@@ -716,7 +733,7 @@ export async function runInboundAttachmentIngest(
     return await ingestClaimed(run, claim, email)
   } catch (error) {
     // A planned retry already reset the email to `pending` (and cleared the claim) before throwing.
-    if (!(error instanceof InboundAttachmentIngestRetryError)) await releaseClaimAfterError(run, claim)
+    if (!(error instanceof InboundAttachmentIngestRetryError)) await releaseClaimAfterError(run, claim, error)
     throw error
   }
 }

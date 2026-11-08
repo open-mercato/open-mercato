@@ -7,6 +7,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { InboxEmail, InboxEmailAttachment } from '../data/entities'
 import {
   resendInboundAttachmentSchema,
+  resendInboundAttachmentStrictSchema,
   type InboxEmailAttachmentIngestMetadata,
   type ResendInboundAttachment,
 } from '../data/validators'
@@ -45,17 +46,27 @@ export type InboundEmailScope = { tenantId: string; organizationId: string }
 // Intake
 // ---------------------------------------------------------------------------
 
-/** The metadata entries of `receiving.get()`; entries without a usable id or size are dropped. */
+/**
+ * The metadata entries of `receiving.get()`. An entry without a usable `id` is dropped; an entry
+ * with one is kept even when its other fields are malformed (they degrade to `null`, see
+ * `resendInboundAttachmentSchema`), so the part still gets a ledger row and enters the hash.
+ */
 export function readResendInboundAttachments(raw: unknown): ResendInboundAttachment[] {
   if (!Array.isArray(raw)) return []
   const parts: ResendInboundAttachment[] = []
   let dropped = 0
+  let degraded = 0
   for (const entry of raw) {
     const parsed = resendInboundAttachmentSchema.safeParse(entry)
-    if (parsed.success) parts.push(parsed.data)
-    else dropped += 1
+    if (!parsed.success) {
+      dropped += 1
+      continue
+    }
+    if (!resendInboundAttachmentStrictSchema.safeParse(entry).success) degraded += 1
+    parts.push(parsed.data)
   }
-  if (dropped > 0) logger.warn('Ignored malformed Resend attachment metadata entries', { dropped })
+  if (dropped > 0) logger.warn('Ignored Resend attachment metadata entries without an id', { dropped })
+  if (degraded > 0) logger.warn('Read Resend attachment metadata entries with malformed fields', { degraded })
   return parts
 }
 
@@ -65,13 +76,20 @@ export function readResendInboundAttachments(raw: unknown): ResendInboundAttachm
  *   hash includes the attachment ids (D13).
  * - `blocked`: an unguarded attachment reader is enabled (D19); the email is completed with
  *   `skipped`/`unguarded_reader` ledger rows and emitted at once.
+ * - `settled`: ingestion is on, but the webhook already skipped every recorded part (limits), so
+ *   nothing is left to fetch; the email is completed with its ledger rows and emitted at once,
+ *   like `blocked`, without an ingest job.
  * - `ingest`: the email is persisted `pending` with its ledger rows and handed to the ingest worker.
  */
 export type InboundAttachmentIntake =
   | { kind: 'none'; attachmentIds: string[] }
   | { kind: 'ignored'; attachmentIds: string[] }
   | { kind: 'blocked'; attachmentIds: string[]; readers: string[]; plans: InboundAttachmentPartPlan[]; omittedParts: number }
+  | { kind: 'settled'; attachmentIds: string[]; plans: InboundAttachmentPartPlan[]; omittedParts: number }
   | { kind: 'ingest'; attachmentIds: string[]; plans: InboundAttachmentPartPlan[]; omittedParts: number }
+
+/** The intakes that persist ledger rows with the email. */
+export type RecordedInboundAttachmentIntake = Extract<InboundAttachmentIntake, { kind: 'blocked' | 'settled' | 'ingest' }>
 
 export const NO_INBOUND_ATTACHMENTS: InboundAttachmentIntake = { kind: 'none', attachmentIds: [] }
 
@@ -96,14 +114,15 @@ export function resolveInboundAttachmentIntake(input: ResolveInboundAttachmentIn
   const gate = { config, listReaders: input.listReaders }
   const { plans, omittedParts } = capInboundAttachmentPlans(planInboundAttachmentParts(input.parts, config))
   if (omittedParts > 0) logger.warn('Inbound email lists more attachment parts than the ledger records', { omittedParts })
-  if (isInboundAttachmentIngestEnabled(gate)) return { kind: 'ingest', attachmentIds, plans, omittedParts }
-  return { kind: 'blocked', attachmentIds, readers: unguardedAttachmentReadersBlockingIngest(gate), plans, omittedParts }
+  if (!isInboundAttachmentIngestEnabled(gate)) {
+    return { kind: 'blocked', attachmentIds, readers: unguardedAttachmentReadersBlockingIngest(gate), plans, omittedParts }
+  }
+  if (!plans.some((plan) => plan.status === 'pending')) return { kind: 'settled', attachmentIds, plans, omittedParts }
+  return { kind: 'ingest', attachmentIds, plans, omittedParts }
 }
 
-export function intakeRecordsAttachments(
-  intake: InboundAttachmentIntake,
-): intake is Extract<InboundAttachmentIntake, { kind: 'blocked' | 'ingest' }> {
-  return intake.kind === 'blocked' || intake.kind === 'ingest'
+export function intakeRecordsAttachments(intake: InboundAttachmentIntake): intake is RecordedInboundAttachmentIntake {
+  return intake.kind === 'blocked' || intake.kind === 'settled' || intake.kind === 'ingest'
 }
 
 // ---------------------------------------------------------------------------
@@ -126,15 +145,15 @@ type InboundLedgerRowPlan = Omit<InboundAttachmentPartPlan, 'reason'> & {
 }
 
 /** D19 records every non-decorative part as `skipped`/`unguarded_reader`, whatever its limit outcome. */
-function ledgerRowsFor(intake: Extract<InboundAttachmentIntake, { kind: 'blocked' | 'ingest' }>): InboundLedgerRowPlan[] {
-  if (intake.kind === 'ingest') return intake.plans
+function ledgerRowsFor(intake: RecordedInboundAttachmentIntake): InboundLedgerRowPlan[] {
+  if (intake.kind !== 'blocked') return intake.plans
   return intake.plans.map((plan) => (plan.reason === 'inline_decoration'
     ? plan
     : { ...plan, status: 'skipped', reason: 'unguarded_reader' }))
 }
 
 function attachmentStateFor(
-  intake: Extract<InboundAttachmentIntake, { kind: 'blocked' | 'ingest' }>,
+  intake: RecordedInboundAttachmentIntake,
   providerEmailId: string,
   now: Date,
 ): InboundEmailAttachmentState {
@@ -143,7 +162,8 @@ function attachmentStateFor(
     providerEmailId,
     ...(intake.omittedParts > 0 ? { omittedParts: intake.omittedParts } : {}),
   }
-  if (intake.kind === 'blocked') {
+  // Nothing to fetch: completed at once; the provider id is kept only to explain omitted parts.
+  if (intake.kind !== 'ingest') {
     return intake.omittedParts > 0
       ? { attachmentsStatus: 'completed', metadata: { attachmentIngest } }
       : { attachmentsStatus: 'completed' }
@@ -161,7 +181,7 @@ export type PersistInboundEmailWithLedgerInput = {
   em: EntityManager
   /** The `InboxEmail` values the webhook writes for every email. */
   values: InboundEmailValues
-  intake: Extract<InboundAttachmentIntake, { kind: 'blocked' | 'ingest' }>
+  intake: RecordedInboundAttachmentIntake
   providerEmailId: string
   now?: () => Date
   newId?: () => string

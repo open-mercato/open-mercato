@@ -26,7 +26,7 @@ import {
   type InboundAttachmentLimits,
   type PersistInboundPartInput,
 } from '../inboundAttachments'
-import { resolveInboundAttachmentIntake } from '../inboundAttachmentWebhook'
+import { readResendInboundAttachments, resolveInboundAttachmentIntake } from '../inboundAttachmentWebhook'
 
 const mockReportError = jest.fn()
 
@@ -164,6 +164,30 @@ describe('planInboundAttachmentParts', () => {
     const plans = planInboundAttachmentParts([part({ id: 'dup' }), part({ id: 'dup' })], limits)
     expect(plans).toHaveLength(1)
   })
+
+  it('plans a part of unknown size pending, reserving the per-file maximum after the parts of known size', () => {
+    const small = { ...limits, maxFileBytes: 10 * MIB, maxTotalBytes: 25 * MIB }
+    const plans = planInboundAttachmentParts(
+      [
+        part({ id: 'unknown-1', size: null }),
+        part({ id: 'known', size: 4 * MIB }),
+        part({ id: 'unknown-2', size: null }),
+        part({ id: 'unknown-3', size: null }),
+        { ...logo('logo'), size: null },
+      ],
+      small,
+    )
+    expect(plans.map((plan) => [plan.providerAttachmentId, plan.status, plan.reason, plan.sizeBytes])).toEqual([
+      // 4 MiB known first, then 10 MiB per unknown part while the 25 MiB total admits it.
+      ['unknown-1', 'pending', null, null],
+      ['known', 'pending', null, 4 * MIB],
+      ['unknown-2', 'pending', null, null],
+      ['unknown-3', 'skipped', 'total_too_large', null],
+      // Without a size, an inline image with a content id is not taken for a decoration.
+      ['logo', 'skipped', 'total_too_large', null],
+    ])
+    expect(isDecorativeInboundPart({ ...logo('logo'), size: null }, limits.inlineImageMinBytes)).toBe(false)
+  })
 })
 
 describe('nonDecorativeInboundAttachmentIds', () => {
@@ -216,6 +240,48 @@ describe('ledger cap', () => {
     expect(intake.omittedParts).toBe(25)
     expect(intake.attachmentIds).toEqual(nonDecorativeInboundAttachmentIds(parts, limits))
     expect(intake.attachmentIds).toHaveLength(120)
+  })
+})
+
+describe('readResendInboundAttachments', () => {
+  it('keeps every entry with a valid id, degrading malformed fields to null, and drops entries without one', () => {
+    const parts = readResendInboundAttachments([
+      { id: 'ok', filename: 'ok.pdf', size: 10, content_type: 'application/pdf', content_id: null, content_disposition: 'attachment' },
+      { id: 'odd', filename: 42, size: 'big', content_type: ['x'], content_id: {}, content_disposition: 7 },
+      { id: 'negative', size: -1 },
+      { id: '  ', size: 10 },
+      { filename: 'no-id.pdf', size: 10 },
+      'garbage',
+    ])
+    expect(parts).toEqual([
+      { id: 'ok', filename: 'ok.pdf', size: 10, content_type: 'application/pdf', content_id: null, content_disposition: 'attachment' },
+      { id: 'odd', filename: null, size: null, content_type: null, content_id: null, content_disposition: null },
+      { id: 'negative', size: null },
+    ])
+  })
+
+  it('records an entry with a malformed size in the ledger plan and the hash input', () => {
+    const parts = readResendInboundAttachments([{ id: 'odd', filename: 'odd.pdf', size: 'big' }])
+    const config = { ...limits, enabled: true, allowUnguardedReaders: false, resendStubEnabled: false } as never
+    const intake = resolveInboundAttachmentIntake({ parts, attachmentServiceAvailable: true, config, listReaders: () => [] })
+    expect(intake).toMatchObject({ kind: 'ingest', attachmentIds: ['odd'] })
+    if (intake.kind !== 'ingest') return
+    expect(intake.plans).toEqual([expect.objectContaining({ partKey: 'resend:odd', fileName: 'odd.pdf', sizeBytes: null, status: 'pending' })])
+  })
+})
+
+describe('resolveInboundAttachmentIntake without a part left to fetch', () => {
+  it('settles the intake when the webhook skipped every recorded part', () => {
+    const config = { ...limits, enabled: true, allowUnguardedReaders: false, resendStubEnabled: false } as never
+    const intake = resolveInboundAttachmentIntake({
+      parts: [logo('logo'), part({ id: 'huge', size: 40 * MIB })],
+      attachmentServiceAvailable: true,
+      config,
+      listReaders: () => [],
+    })
+    expect(intake).toMatchObject({ kind: 'settled', attachmentIds: ['huge'], omittedParts: 0 })
+    if (intake.kind !== 'settled') return
+    expect(intake.plans.map((plan) => [plan.status, plan.reason])).toEqual([['skipped', 'inline_decoration'], ['skipped', 'too_large']])
   })
 })
 

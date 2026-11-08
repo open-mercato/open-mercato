@@ -31,6 +31,7 @@ import {
   textPart,
   uniqueRunId,
   waitForAttachmentsCompleted,
+  waitForDeleteFeatureCheck,
   waitForTerminalEmailStatus,
 } from './helpers/inboundAttachments'
 
@@ -115,18 +116,25 @@ test.describe('TC-INBOX-ATT-010: Delete email and Retry from the processing log'
 
       const reviewerErrors = trackHydrationErrors(page)
       await page.context().addCookies([{ name: 'auth_token', value: reviewer, url: baseUrl(), sameSite: 'Lax' }])
+      // Delete stays hidden until the feature check answers; its absence is asserted after that.
+      const reviewerFeatureCheck = waitForDeleteFeatureCheck(page)
       await page.goto('/backend/inbox-ops/log')
+      await reviewerFeatureCheck
       await logRow(page, subject).getByRole('button', { name: 'Open actions' }).click()
       await expect(page.getByRole('menuitem', { name: 'Show attachments' })).toBeVisible()
       await expect(page.getByRole('menuitem', { name: 'Delete email' })).toHaveCount(0)
       expect((await ownerPolicyRequest('DELETE', `/api/inbox_ops/emails/${received.emailId}`, reviewer)).status).toBe(403)
       expect(reviewerErrors).toEqual([])
 
+      // Leave the reviewer's page first: once its cookies are gone it may redirect, aborting the login navigation.
+      await page.goto('about:blank')
       await page.context().clearCookies()
       const adminErrors = trackHydrationErrors(page)
       const deleteRequests = trackDeleteRequests(page, received.emailId)
       await login(page, 'admin')
+      const adminFeatureCheck = waitForDeleteFeatureCheck(page)
       await page.goto('/backend/inbox-ops/log')
+      await adminFeatureCheck
 
       let dialog = await openDeleteDialog(page, subject)
       await page.keyboard.press('Escape')
@@ -143,7 +151,9 @@ test.describe('TC-INBOX-ATT-010: Delete email and Retry from the processing log'
       expect(deleteRequests).toHaveLength(1)
       expect((await fetchInboxEmail(request, admin, received.emailId)).status, 'a stale delete must not delete').toBe(200)
 
+      const reloadFeatureCheck = waitForDeleteFeatureCheck(page)
       await page.reload()
+      await reloadFeatureCheck
       dialog = await openDeleteDialog(page, subject)
       await page.keyboard.press('ControlOrMeta+Enter')
       await expect(dialog).toHaveCount(0)

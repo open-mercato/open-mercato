@@ -18,6 +18,11 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   })),
 }))
 
+const mockTranslate = jest.fn((key: string, fallback?: string) => `${key}|${fallback}`)
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ translate: mockTranslate })),
+}))
+
 const mockEm = { fork: jest.fn() }
 const mockContainer = {
   resolve: jest.fn((token: string) => {
@@ -131,7 +136,19 @@ describe('GET /api/inbox_ops/emails/[id]', () => {
   it('answers 404 for a non-uuid id without querying', async () => {
     const response = await GET(new Request('http://localhost/api/inbox_ops/emails/not-a-uuid'))
     expect(response.status).toBe(404)
-    expect(await response.json()).toEqual({ error: 'Email not found' })
+    expect(await response.json()).toEqual({ error: 'inbox_ops.errors.emailNotFound|Email not found' })
     expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('answers translated errors for a missing email and a failed load', async () => {
+    mockFindOneWithDecryption.mockResolvedValueOnce(null)
+    const missing = await GET(new Request(`http://localhost/api/inbox_ops/emails/${EMAIL_ID}`))
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toEqual({ error: 'inbox_ops.errors.emailNotFound|Email not found' })
+
+    mockFindOneWithDecryption.mockRejectedValueOnce(new Error('db down'))
+    const failed = await GET(new Request(`http://localhost/api/inbox_ops/emails/${EMAIL_ID}`))
+    expect(failed.status).toBe(500)
+    expect(await failed.json()).toEqual({ error: 'inbox_ops.errors.emailLoadFailed|Failed to load email' })
   })
 })

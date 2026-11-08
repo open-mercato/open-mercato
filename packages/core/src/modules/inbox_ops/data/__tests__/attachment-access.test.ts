@@ -72,9 +72,17 @@ function buildInput(overrides: {
   }
 }
 
+/** Deny-set stand-in: the requested ids (`id.$in`) that are pending release in `tenantId`. */
+function denySetIn(pendingByTenant: Record<string, string[]>) {
+  return async (_em: unknown, _entity: unknown, where: { tenantId: string; id: { $in: string[] } }) =>
+    (pendingByTenant[where.tenantId] ?? [])
+      .filter((id) => where.id.$in.includes(id))
+      .map((id) => ({ id }))
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
-  mockFindWithDecryption.mockResolvedValue([{ id: EMAIL_PENDING_RELEASE }])
+  mockFindWithDecryption.mockImplementation(denySetIn({ [TENANT_A]: [EMAIL_PENDING_RELEASE] }))
 })
 
 describe('inbox_ops attachment access declaration', () => {
@@ -152,8 +160,22 @@ describe('inbox_ops.email-attachments resolver', () => {
     ['delete', true, ['*']],
     ['reassign', true, ['*']],
     ['delete', false, ['inbox_ops.*']],
-  ] as const)('refuses %s with 403 to a reader (super-admin: %s) without any lookup', async (action, isSuperAdmin, userFeatures) => {
+  ] as const)('refuses %s with 403 to a reader (super-admin: %s) of a live email', async (action, isSuperAdmin, userFeatures) => {
     const decision = await resolver.resolve(buildInput({ action, isSuperAdmin, userFeatures: [...userFeatures] }))
+    expect(decision).toEqual({ ok: false, status: 403, reason: 'inbox_email_attachment_managed_by_inbox' })
+  })
+
+  it.each(['delete', 'reassign'] as const)('answers 404, not 403, for %s of a deleted email whose files are not released yet', async (action) => {
+    const decision = await resolver.resolve(buildInput({
+      action, userFeatures: ['*'], isSuperAdmin: true, targets: [primary(EMAIL_PENDING_RELEASE)],
+    }))
+    expect(decision).toEqual({ ok: false, status: 404, reason: 'inbox_email_not_found' })
+  })
+
+  it('refuses a managed action with 403 without any lookup when no target is an inbox email', async () => {
+    const decision = await resolver.resolve(buildInput({
+      action: 'delete', targets: [{ entityId: 'library:upload', recordId: 'upload-1', origin: 'primary' }],
+    }))
     expect(decision).toEqual({ ok: false, status: 403, reason: 'inbox_email_attachment_managed_by_inbox' })
     expect(mockFindWithDecryption).not.toHaveBeenCalled()
   })
@@ -173,19 +195,22 @@ describe('inbox_ops.email-attachments resolver', () => {
     expect(mockFindWithDecryption).not.toHaveBeenCalled()
   })
 
-  it('loads the deny set once per tenant-and-organization scope with a WHERE served by the partial index', async () => {
+  it('looks up only the requested email ids and caches each answer per scope and id', async () => {
     const cache = new Map<string, unknown>()
     const decisions = await Promise.all([
       resolver.resolve(buildInput({ cache, targets: [primary(EMAIL_LIVE)] })),
       resolver.resolve(buildInput({ cache, targets: [primary(EMAIL_PENDING_RELEASE)] })),
       resolver.resolve(buildInput({ cache, action: 'metadata', targets: [primary(EMAIL_LIVE)] })),
+      resolver.resolve(buildInput({ cache, targets: [primary(EMAIL_PENDING_RELEASE.toUpperCase())] })),
     ])
-    expect(decisions.map((decision) => decision.ok)).toEqual([true, false, true])
-    expect(mockFindWithDecryption).toHaveBeenCalledTimes(1)
-    expect(mockFindWithDecryption).toHaveBeenCalledWith(
+    expect(decisions.map((decision) => decision.ok)).toEqual([true, false, true, false])
+    expect(mockFindWithDecryption).toHaveBeenCalledTimes(2)
+    expect(mockFindWithDecryption).toHaveBeenNthCalledWith(
+      1,
       em,
       InboxEmail,
       {
+        id: { $in: [EMAIL_LIVE] },
         tenantId: TENANT_A,
         organizationId: ORG_A,
         deletedAt: { $ne: null },
@@ -198,6 +223,23 @@ describe('inbox_ops.email-attachments resolver', () => {
       { fields: ['id'], disableIdentityMap: true },
       { tenantId: TENANT_A, organizationId: ORG_A },
     )
+    expect(mockFindWithDecryption.mock.calls[1][2]).toMatchObject({ id: { $in: [EMAIL_PENDING_RELEASE] } })
+  })
+
+  it('looks up all uncached email targets of one check in a single query and skips non-UUID ids', async () => {
+    const cache = new Map<string, unknown>()
+    await resolver.resolve(buildInput({ cache, targets: [primary(EMAIL_LIVE)] }))
+    const decision = await resolver.resolve(buildInput({
+      cache,
+      targets: [
+        primary(EMAIL_LIVE),
+        { entityId: OWNER, recordId: EMAIL_PENDING_RELEASE, origin: 'assignment' },
+        { entityId: OWNER, recordId: 'not-a-uuid', origin: 'assignment' },
+      ],
+    }))
+    expect(decision).toMatchObject({ ok: false, status: 404 })
+    expect(mockFindWithDecryption).toHaveBeenCalledTimes(2)
+    expect(mockFindWithDecryption.mock.calls[1][2]).toMatchObject({ id: { $in: [EMAIL_PENDING_RELEASE] } })
   })
 
   it('fails closed when the deny-set query fails', async () => {
@@ -230,9 +272,7 @@ describe('inbox_ops.email-attachments through the attachments access runner', ()
       resolvers: attachmentAccessResolvers,
       protectedTargets: protectedAttachmentTargets,
     }])
-    mockFindWithDecryption.mockImplementation(async (_em: unknown, _entity: unknown, where: { tenantId: string }) => (
-      where.tenantId === TENANT_A ? [{ id: EMAIL_PENDING_RELEASE }] : []
-    ))
+    mockFindWithDecryption.mockImplementation(denySetIn({ [TENANT_A]: [EMAIL_PENDING_RELEASE] }))
   })
 
   afterEach(() => registerAttachmentAccessResolvers([]))
@@ -251,10 +291,11 @@ describe('inbox_ops.email-attachments through the attachments access runner', ()
     }
     expect(results.map((result) => result.ok)).toEqual([false, true, true, true])
     expect(results[0]).toMatchObject({ status: 404, protected: true })
-    expect(mockFindWithDecryption).toHaveBeenCalledTimes(2)
-    expect(mockFindWithDecryption.mock.calls.map((call) => call[4])).toEqual([
-      { tenantId: TENANT_A, organizationId: ORG_A },
-      { tenantId: TENANT_B, organizationId: ORG_B },
+    expect(mockFindWithDecryption.mock.calls.map((call) => [call[2].id.$in, call[4]])).toEqual([
+      [[EMAIL_PENDING_RELEASE], { tenantId: TENANT_A, organizationId: ORG_A }],
+      [[EMAIL_LIVE], { tenantId: TENANT_A, organizationId: ORG_A }],
+      [[EMAIL_PENDING_RELEASE], { tenantId: TENANT_B, organizationId: ORG_B }],
+      [[EMAIL_LIVE], { tenantId: TENANT_B, organizationId: ORG_B }],
     ])
   })
 
@@ -267,6 +308,16 @@ describe('inbox_ops.email-attachments through the attachments access runner', ()
       context: createAttachmentAccessContext(runnerContainer),
     })
     expect(result).toMatchObject({ ok: false, status: 403, protected: true })
-    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('answers 404 to a super-admin deleting a file of a deleted email pending release', async () => {
+    const result = await evaluateAttachmentAccess({
+      auth: superAdmin,
+      attachment: row('a-1', EMAIL_PENDING_RELEASE, TENANT_A, ORG_A),
+      partition,
+      action: 'delete',
+      context: createAttachmentAccessContext(runnerContainer),
+    })
+    expect(result).toMatchObject({ ok: false, status: 404, protected: true })
   })
 })

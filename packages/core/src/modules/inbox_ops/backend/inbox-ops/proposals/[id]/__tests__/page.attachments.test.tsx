@@ -90,7 +90,7 @@ describe('ProposalDetailPage attachments and Delete email', () => {
   it('shows the empty attachments section without a request for an email that recorded no parts', async () => {
     configureApi(['inbox_ops.proposals.view'], { ...EMAIL, attachmentsStatus: null })
     renderWithProviders(<ProposalDetailPage params={{ id: 'proposal-1' }} />)
-    expect(await screen.findByText('This email has no attachments.')).toBeTruthy()
+    expect(await screen.findByText('No attachments were recorded for this email.')).toBeTruthy()
     expect(apiCallMock.mock.calls.some(([url]) => String(url).endsWith('/attachments'))).toBe(false)
   })
 })

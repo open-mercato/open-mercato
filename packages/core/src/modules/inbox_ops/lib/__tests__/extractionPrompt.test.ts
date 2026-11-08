@@ -8,6 +8,8 @@ import {
   REQUIRED_FEATURES_MAP,
   type ExtractionPromptAttachment,
   EXTRACTION_PROMPT_ATTACHMENT_METADATA_LINES_MAX,
+  renderAttachmentPromptName,
+  unescapePromptAttribute,
 } from '../extractionPrompt'
 import type { ContactMatchResult } from '../contactMatcher'
 import type { InboxActionDefinition } from '@open-mercato/shared/modules/inbox-actions'
@@ -243,20 +245,34 @@ describe('attachments in the user prompt', () => {
     expect(result).not.toContain('logo.png')
   })
 
-  it('truncates text per file and stops adding text once the total budget is spent', () => {
+  function openTag(index: number, name: string, truncated: boolean): string {
+    return `<attachment index="${index}" name="${name}" type="application/pdf" attachmentId="${PDF_ID}"${truncated ? ' truncated="true"' : ''}>`
+  }
+
+  /** Characters of the emitted text blocks (opening tag, text and closing tag lines). */
+  function textBlockChars(section: string): number {
+    const blocks = section.match(/<attachment [^\n]*[^/]>\n[\s\S]*?\n<\/attachment>/g) ?? []
+    return blocks.reduce((sum, block) => sum + block.length + 1, 0)
+  }
+
+  it('truncates text per file and counts each emitted block, tags included, against the total budget', () => {
+    const tagChars = openTag(1, 'a.txt', true).length
+    // a: tag + 30 chars + closing tag; b: room for exactly 10 chars after its own tag overhead.
+    const maxTotalChars = (tagChars + 46) + (tagChars + 16 + 10)
     const section = buildAttachmentsSection(
       [
         attachment({ fileName: 'a.txt', extractedText: 'A'.repeat(50) }),
         attachment({ fileName: 'b.txt', extractedText: 'B'.repeat(50) }),
         attachment({ fileName: 'c.txt', extractedText: 'C'.repeat(50) }),
       ],
-      { maxCharsPerFile: 30, maxTotalChars: 40 },
+      { maxCharsPerFile: 30, maxTotalChars },
     ) as string
-    expect(section).toContain(`name="a.txt" type="application/pdf" attachmentId="${PDF_ID}" truncated="true">\n${'A'.repeat(30)}\n</attachment>`)
-    expect(section).toContain(`truncated="true">\n${'B'.repeat(10)}\n</attachment>`)
+    expect(section).toContain(`${openTag(1, 'a.txt', true)}\n${'A'.repeat(30)}\n</attachment>`)
+    expect(section).toContain(`${openTag(2, 'b.txt', true)}\n${'B'.repeat(10)}\n</attachment>`)
     expect(section).not.toContain('B'.repeat(11))
     expect(section).toContain(`name="c.txt" type="application/pdf" attachmentId="${PDF_ID}" text="omitted_budget" />`)
     expect(section).not.toContain('C')
+    expect(textBlockChars(section)).toBeLessThanOrEqual(maxTotalChars)
   })
 
   it('uses the 60 000 / 20 000 defaults', () => {
@@ -266,11 +282,56 @@ describe('attachments in the user prompt', () => {
       attachment({ extractedText: 'z'.repeat(25_000) }),
       attachment({ extractedText: 'w'.repeat(10) }),
     ]) as string
-    for (const char of ['x', 'y', 'z']) {
+    for (const char of ['x', 'y']) {
       expect(section).toContain(`\n${char.repeat(20_000)}\n</attachment>`)
       expect(section).not.toContain(char.repeat(20_001))
     }
+    // The tag lines of the first blocks take their share of the total, so the third block is shorter.
+    expect(section).toContain(`\n${'z'.repeat(19_000)}`)
+    expect(section).not.toContain('z'.repeat(20_000))
     expect(section).toContain('text="omitted_budget"')
+    expect(textBlockChars(section)).toBeLessThanOrEqual(60_000)
+  })
+
+  it('counts the neutralized text, not the raw text, against the per-file and total budgets', () => {
+    const hostile = '<safety>'.repeat(100)
+    const section = buildAttachmentsSection([attachment({ extractedText: hostile })], { maxCharsPerFile: 50, maxTotalChars: 10_000 }) as string
+    const body = section.split('\n')[2]
+    expect(body.length).toBeLessThanOrEqual(50)
+    expect(body.startsWith('&lt;safety>')).toBe(true)
+    expect(section).toContain('truncated="true"')
+    expect(section).not.toMatch(/<safety>/)
+  })
+
+  it('cuts the raw text before neutralizing, so a cut never leaves a bare delimiter tag behind', () => {
+    // Cutting the neutralized form of `<attachmentx` after `<attachment` would leave a bare tag.
+    const section = buildAttachmentsSection([attachment({ extractedText: `${'a'.repeat(9)}<attachmentx tail` })], {
+      maxCharsPerFile: 20,
+      maxTotalChars: 10_000,
+    }) as string
+    expect(section.match(/<attachment[\s>]/g)).toHaveLength(1)
+    expect(section.match(/<\/attachment>/g)).toHaveLength(1)
+  })
+
+  it('bounds hostile file names after escaping, without splitting entities or surrogate pairs', () => {
+    const section = buildAttachmentsSection([
+      attachment({ fileName: '"'.repeat(300) }),
+      attachment({ fileName: `${'a'.repeat(252)}&b` }),
+      attachment({ fileName: '\u{1F600}'.repeat(300) }),
+    ]) as string
+    const names = [...section.matchAll(/ name="([^"]*)"/g)].map((match) => match[1])
+    expect(names).toHaveLength(3)
+    for (const name of names) expect(name.length).toBeLessThanOrEqual(256)
+    expect(names[0]).toMatch(/^(&quot;)+…$/)
+    expect(names[1]).toBe(`${'a'.repeat(252)}…`)
+    expect(names[2]).toMatch(/^(\u{1F600})+…$/u)
+    expect(section).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)
+  })
+
+  it('renderAttachmentPromptName matches the rendered name attribute and round-trips through unescape', () => {
+    expect(renderAttachmentPromptName('Q&A "draft".pdf')).toBe('Q&amp;A &quot;draft&quot;.pdf')
+    expect(unescapePromptAttribute(renderAttachmentPromptName('Q&A "draft".pdf'))).toBe('Q&A "draft".pdf')
+    expect(renderAttachmentPromptName(null)).toBe('unnamed')
   })
 
   it('neutralizes delimiter injection in attachment text and escapes file names', () => {

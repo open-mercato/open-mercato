@@ -312,13 +312,28 @@ export const updateSettingsSchema = z.object({
 // Inbound attachment metadata (Resend `receiving.get()` → `attachments[]`)
 // ---------------------------------------------------------------------------
 
-export const resendInboundAttachmentSchema = z.object({
+/** A well-formed metadata entry. */
+export const resendInboundAttachmentStrictSchema = z.object({
   id: z.string().trim().min(1),
   filename: z.string().nullish(),
   size: z.number().int().nonnegative(),
   content_type: z.string().nullish(),
   content_id: z.string().nullish(),
   content_disposition: z.string().nullish(),
+})
+
+/**
+ * A metadata entry as the webhook reads it: only the provider `id` is required, because it names
+ * the part to fetch and enters the content hash (D13). Any other malformed field degrades to
+ * `null` (an unknown `size` is reserved at the per-file maximum against the total limit).
+ */
+export const resendInboundAttachmentSchema = z.object({
+  id: z.string().trim().min(1),
+  filename: z.string().nullish().catch(null),
+  size: z.number().int().nonnegative().nullable().catch(null),
+  content_type: z.string().nullish().catch(null),
+  content_id: z.string().nullish().catch(null),
+  content_disposition: z.string().nullish().catch(null),
 })
 
 export type ResendInboundAttachment = z.infer<typeof resendInboundAttachmentSchema>

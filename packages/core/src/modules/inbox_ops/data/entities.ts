@@ -157,10 +157,10 @@ export class InboxSettings {
 // Stranded-ingest lookups of the webhook catch-up and the maintenance sweep.
 @Index({ properties: ['attachmentsStatus', 'attachmentsNextRunAt'] })
 @Index({ properties: ['attachmentsStatus', 'attachmentsClaimedAt'] })
-// Deleted emails whose attachments still await release: the deny set of the
-// `inbox_ops.email-attachments` access resolver and the release sweep. Emails
-// deleted before attachment ingestion existed have neither column set and never
-// enter it.
+// Deleted emails whose attachments still await release, for the release sweep
+// (the `inbox_ops.email-attachments` access resolver checks the same predicate
+// for the requested ids by primary key). Emails deleted before attachment
+// ingestion existed have neither column set and never enter it.
 @Index({
   name: 'inbox_emails_attachments_release_pending_idx',
   expression:

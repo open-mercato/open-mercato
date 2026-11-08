@@ -80,7 +80,7 @@ describe('EmailAttachmentsList', () => {
   it('shows the empty state, or nothing when asked to hide an empty list', async () => {
     respond(200, { items: [] })
     const { unmount } = renderWithProviders(<EmailAttachmentsList emailId={EMAIL_ID} asSection />)
-    expect(await screen.findByText('This email has no attachments.')).toBeTruthy()
+    expect(await screen.findByText('No attachments were recorded for this email.')).toBeTruthy()
     expect(screen.getByText('Attachments')).toBeTruthy()
     unmount()
 
@@ -96,7 +96,7 @@ describe('EmailAttachmentsList', () => {
 
   it('renders the empty state without a request when the caller knows the email has no parts', () => {
     renderWithProviders(<EmailAttachmentsList emailId={EMAIL_ID} asSection knownEmpty />)
-    expect(screen.getByText('This email has no attachments.')).toBeTruthy()
+    expect(screen.getByText('No attachments were recorded for this email.')).toBeTruthy()
     expect(apiCallMock).not.toHaveBeenCalled()
   })
 

@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { Loader2 } from 'lucide-react'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -9,6 +8,7 @@ import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import {
   Dialog,
   DialogContent,
@@ -119,7 +119,7 @@ export function DeleteEmailDialog({ email, onClose, onDeleted }: DeleteEmailDial
             {t('ui.actions.cancel', 'Cancel')}
           </Button>
           <Button type="button" variant="destructive-solid" onClick={() => void handleDelete()} disabled={isDeleting}>
-            {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+            {isDeleting ? <Spinner size="sm" /> : null}
             {t('inbox_ops.emails.delete.confirm', 'Delete email')}
           </Button>
         </DialogFooter>

@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from 'node:crypto'
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Page, type Response } from '@playwright/test'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { apiRequest, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
@@ -60,10 +60,21 @@ function baseUrl(): string {
   return process.env.BASE_URL?.trim() || 'http://localhost:3000'
 }
 
+/** Prefix of the stub's API keys; a key without it may be a real Resend key and is never sent. */
+const RESEND_STUB_KEY_PREFIX = 're_stub_'
+
 function requiredEnv(key: 'RESEND_API_KEY' | 'RESEND_WEBHOOK_SIGNING_SECRET'): string {
   const value = process.env[key]?.trim()
   if (!value) throw new Error(`[internal] ${key} must be set in the Playwright process for the Resend stub specs`)
   return value
+}
+
+function stubApiKey(): string {
+  const key = requiredEnv('RESEND_API_KEY')
+  if (!key.startsWith(RESEND_STUB_KEY_PREFIX)) {
+    throw new Error(`[internal] RESEND_API_KEY must start with ${RESEND_STUB_KEY_PREFIX}; a real Resend key is never sent to BASE_URL`)
+  }
+  return key
 }
 
 export function uniqueRunId(prefix: string): string {
@@ -74,7 +85,7 @@ async function stubRequest<T>(method: string, path: string, data?: unknown): Pro
   return withCredentialIsolatedRequest(async (isolated) => {
     const response = await isolated.fetch(`${baseUrl()}${RESEND_STUB_PATH}${path}`, {
       method,
-      headers: { Authorization: `Bearer ${requiredEnv('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${stubApiKey()}`, 'Content-Type': 'application/json' },
       ...(data === undefined ? {} : { data }),
     })
     return { status: response.status(), body: await readJsonSafe<T>(response) }
@@ -84,13 +95,18 @@ async function stubRequest<T>(method: string, path: string, data?: unknown): Pro
 /**
  * Skips the spec when the app under test does not serve the Resend stub. A 404 while this
  * Playwright process runs with `OM_ENABLE_RESEND_STUB=true` throws instead, so a broken stub
- * cannot silently turn the suite into skips.
+ * cannot silently turn the suite into skips. Before any request it skips unless `RESEND_API_KEY`
+ * is a stub key (`re_stub_…`), so a real key is never sent to `BASE_URL`.
  */
 export async function skipUnlessResendStubAvailable(): Promise<void> {
   const stubFlag = parseBooleanWithDefault(process.env.OM_ENABLE_RESEND_STUB, false)
   if (!process.env.RESEND_API_KEY?.trim() || !process.env.RESEND_WEBHOOK_SIGNING_SECRET?.trim()) {
     if (stubFlag) throw new Error('[internal] OM_ENABLE_RESEND_STUB is on but RESEND_API_KEY or RESEND_WEBHOOK_SIGNING_SECRET is missing')
     test.skip(true, 'Resend stub is not configured (OM_ENABLE_RESEND_STUB, RESEND_API_KEY, RESEND_WEBHOOK_SIGNING_SECRET)')
+    return
+  }
+  if (!process.env.RESEND_API_KEY.trim().startsWith(RESEND_STUB_KEY_PREFIX)) {
+    test.skip(true, `RESEND_API_KEY is not a Resend stub key (${RESEND_STUB_KEY_PREFIX}…); the stub specs never send a real key`)
     return
   }
   const probe = await stubRequest<{ ok?: boolean }>('DELETE', `/fixtures/${randomUUID()}`)
@@ -157,9 +173,11 @@ function svixSignature(secret: string, messageId: string, timestamp: string, bod
 
 /**
  * Posts a Svix-signed `email.received` envelope. On 429 it waits for `Retry-After` and retries
- * within a total wait of 70 seconds; when the bucket needs longer (its hourly cap on a reused
- * environment), the spec is skipped with the reason. Specs that post webhooks raise their
- * timeout to `WEBHOOK_SPEC_TIMEOUT_MS`, because the harness default is 20 seconds.
+ * within a total wait of 70 seconds per call; when the bucket needs longer (its hourly cap on a
+ * reused environment), the spec is skipped with the reason. Each wait also extends the running
+ * test's timeout by its length, so a spec posting several webhooks skips or proceeds instead of
+ * timing out while the bucket refills. Specs that post webhooks raise their timeout to
+ * `WEBHOOK_SPEC_TIMEOUT_MS`, because the harness default is 20 seconds.
  */
 export async function postResendEmailReceived(input: { providerEmailId: string; to: string; from: string }): Promise<number> {
   const secret = requiredEnv('RESEND_WEBHOOK_SIGNING_SECRET')
@@ -190,8 +208,31 @@ export async function postResendEmailReceived(input: { providerEmailId: string; 
     if (Date.now() + waitMs > deadline) {
       test.skip(true, `The inbox_ops webhook rate limit asks to wait ${Math.ceil(waitMs / 1000)}s, beyond the ${RATE_LIMIT_BUDGET_MS / 1000}s budget (hourly cap reached on a reused environment)`)
     }
+    const testInfo = test.info()
+    if (testInfo.timeout > 0) testInfo.setTimeout(testInfo.timeout + waitMs)
     await new Promise((resolve) => setTimeout(resolve, waitMs))
   }
+}
+
+/**
+ * Resolves with the log page's `POST /api/auth/feature-check` for `inbox_ops.proposals.manage`.
+ * The Delete action stays hidden until it answers, so a check that Delete is absent must wait for
+ * it. Create the promise before the navigation that triggers the request.
+ */
+export function waitForDeleteFeatureCheck(page: Page): Promise<Response> {
+  return page.waitForResponse((response) => response.request().method() === 'POST'
+    && response.url().includes('/api/auth/feature-check')
+    && (response.request().postData() ?? '').includes('inbox_ops.proposals.manage'))
+}
+
+/**
+ * Resolves with the response of `GET /api/inbox_ops/emails/{emailId}/attachments`. The attachment
+ * list renders nothing while it loads, so a check that the list is absent must wait for it. Create
+ * the promise before the navigation that triggers the request.
+ */
+export function waitForEmailAttachmentList(page: Page, emailId: string): Promise<Response> {
+  return page.waitForResponse((response) => response.request().method() === 'GET'
+    && response.url().includes(`/api/inbox_ops/emails/${emailId}/attachments`))
 }
 
 export async function resolveInboxAddress(request: APIRequestContext, adminToken: string): Promise<string> {

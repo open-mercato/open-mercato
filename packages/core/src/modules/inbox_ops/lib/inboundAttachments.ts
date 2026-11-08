@@ -61,8 +61,10 @@ function hasContentId(part: ResendInboundAttachment): boolean {
  * null disposition counts as `attachment`; a larger inline image, such as a pasted photo, is kept.
  */
 export function isDecorativeInboundPart(part: ResendInboundAttachment, inlineImageMinBytes: number): boolean {
+  // A part of unknown size is never decorative: it is recorded and enters the hash.
   return normalizeInboundDisposition(part.content_disposition) === 'inline'
     && hasContentId(part)
+    && typeof part.size === 'number'
     && part.size < inlineImageMinBytes
 }
 
@@ -132,7 +134,8 @@ export type InboundAttachmentPartPlan = {
   position: number
   fileName: string
   declaredMimeType: string | null
-  sizeBytes: number
+  /** Declared size; `null` when the provider's metadata entry carried no valid size. */
+  sizeBytes: number | null
   contentId: string | null
   disposition: InboxEmailAttachmentDisposition
   status: Extract<InboxEmailAttachmentStatus, 'pending' | 'skipped'>
@@ -144,43 +147,54 @@ export type InboundAttachmentPartPlan = {
  * (`inline_decoration`), count (`too_many`), per-file size (`too_large`), total size
  * (`total_too_large`). Decorative parts never use up a slot. The total limit keeps every later
  * part that still fits. A repeated provider id is planned once (part keys are unique per email).
+ *
+ * A part whose metadata carried no valid size is planned `pending` with a `null` size: the
+ * per-file limit is enforced when its bytes are downloaded, and against the total it reserves the
+ * per-file maximum (the most the download admits), so the total limit still bounds the bytes
+ * fetched. These reservations are made after the parts of known size, so a malformed entry never
+ * pushes a well-formed part over the total.
  */
 export function planInboundAttachmentParts(
   parts: readonly ResendInboundAttachment[],
   limits: InboundAttachmentLimits,
 ): InboundAttachmentPartPlan[] {
   const seen = new Set<string>()
-  const plans: InboundAttachmentPartPlan[] = []
+  const planned: Array<{ part: ResendInboundAttachment; position: number; reason: InboundAttachmentPolicyReason | null }> = []
+  const unknownSize: Array<(typeof planned)[number]> = []
   let countedParts = 0
   let acceptedBytes = 0
   parts.forEach((part, index) => {
     if (seen.has(part.id)) return
     seen.add(part.id)
-    const position = index + 1
-    let reason: InboundAttachmentPolicyReason | null = null
+    const entry = { part, position: index + 1, reason: null as InboundAttachmentPolicyReason | null }
+    planned.push(entry)
     if (isDecorativeInboundPart(part, limits.inlineImageMinBytes)) {
-      reason = 'inline_decoration'
-    } else {
-      countedParts += 1
-      if (countedParts > limits.maxAttachments) reason = 'too_many'
-      else if (part.size > limits.maxFileBytes) reason = 'too_large'
-      else if (acceptedBytes + part.size > limits.maxTotalBytes) reason = 'total_too_large'
-      else acceptedBytes += part.size
+      entry.reason = 'inline_decoration'
+      return
     }
-    plans.push({
-      partKey: inboundAttachmentPartKey(part.id),
-      providerAttachmentId: part.id,
-      position,
-      fileName: resolveInboundFileName(part, position),
-      declaredMimeType: normalizeInboundContentType(part.content_type),
-      sizeBytes: part.size,
-      contentId: hasContentId(part) ? (part.content_id ?? null) : null,
-      disposition: normalizeInboundDisposition(part.content_disposition),
-      status: reason ? 'skipped' : 'pending',
-      reason,
-    })
+    countedParts += 1
+    if (countedParts > limits.maxAttachments) entry.reason = 'too_many'
+    else if (part.size == null) unknownSize.push(entry)
+    else if (part.size > limits.maxFileBytes) entry.reason = 'too_large'
+    else if (acceptedBytes + part.size > limits.maxTotalBytes) entry.reason = 'total_too_large'
+    else acceptedBytes += part.size
   })
-  return plans
+  for (const entry of unknownSize) {
+    if (acceptedBytes + limits.maxFileBytes > limits.maxTotalBytes) entry.reason = 'total_too_large'
+    else acceptedBytes += limits.maxFileBytes
+  }
+  return planned.map(({ part, position, reason }) => ({
+    partKey: inboundAttachmentPartKey(part.id),
+    providerAttachmentId: part.id,
+    position,
+    fileName: resolveInboundFileName(part, position),
+    declaredMimeType: normalizeInboundContentType(part.content_type),
+    sizeBytes: part.size ?? null,
+    contentId: hasContentId(part) ? (part.content_id ?? null) : null,
+    disposition: normalizeInboundDisposition(part.content_disposition),
+    status: reason ? 'skipped' : 'pending',
+    reason,
+  }))
 }
 
 /**
@@ -431,6 +445,7 @@ export type InboundAttachmentErrorCode =
   | 'inbox_ops.attachment_emit_failed'
   | 'inbox_ops.attachment_provider_unavailable'
   | 'inbox_ops.attachment_config_invalid'
+  | 'inbox_ops.attachment_ingest_failed'
 
 /** Reports through the telemetry funnel; a telemetry fault degrades to a warning. Attributes carry ids and codes only. */
 export function reportInboundAttachmentError(

@@ -21,6 +21,21 @@ const logger = createLogger('inbox_ops').child({ component: 'email-attachments' 
  */
 export const INBOX_EMAIL_ATTACHMENT_LIST_LIMIT = 2 * INBOUND_ATTACHMENT_LEDGER_MAX_ROWS
 
+/** Columns the list reads: the returned ones only, so the encrypted `extractedText` is never loaded or decrypted. */
+export const INBOX_EMAIL_ATTACHMENT_LIST_FIELDS = [
+  'id',
+  'partKey',
+  'fileName',
+  'mimeType',
+  'declaredMimeType',
+  'sizeBytes',
+  'disposition',
+  'status',
+  'reason',
+  'attachmentId',
+  'createdAt',
+] as const satisfies ReadonlyArray<keyof InboxEmailAttachment>
+
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
 }
@@ -52,11 +67,12 @@ export async function GET(req: Request) {
     )
     if (!params.success) return notFound()
 
+    // Existence check only: loading just the id keeps the encrypted body, subject and addresses undecrypted.
     const email = await findOneWithDecryption(
       ctx.em,
       InboxEmail,
       { id: params.data.id, organizationId: ctx.organizationId, tenantId: ctx.tenantId, deletedAt: null },
-      undefined,
+      { fields: ['id'] },
       ctx.scope,
     )
     if (!email) return notFound()
@@ -71,7 +87,7 @@ export async function GET(req: Request) {
         deletedAt: null,
         $or: [{ reason: null }, { reason: { $ne: 'inline_decoration' } }],
       },
-      { orderBy: { createdAt: 'asc', id: 'asc' }, limit: INBOX_EMAIL_ATTACHMENT_LIST_LIMIT },
+      { fields: [...INBOX_EMAIL_ATTACHMENT_LIST_FIELDS], orderBy: { createdAt: 'asc', id: 'asc' }, limit: INBOX_EMAIL_ATTACHMENT_LIST_LIMIT },
       ctx.scope,
     )
 

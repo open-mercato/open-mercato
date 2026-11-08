@@ -244,6 +244,11 @@ export interface AttachmentService {
    * therefore always describes the committed changes. (`releaseScoped` without `flush: false`
    * still throws such a failure after its commit.) Rows are locked together with every row sharing
    * their stored objects, in id order, so a concurrent `releaseScoped` cannot deadlock with it.
+   *
+   * All of the owner's rows are handled in this one transaction (one statement locks them, then
+   * one storage-reference read per deleted row), so it is meant for owners with a bounded number
+   * of rows, such as an inbound email (at most its ledger's parts); an owner with an unbounded
+   * number of rows needs a batched release instead.
    */
   releaseOwnedScoped?(input: ReleaseOwnedScopedAttachmentsInput): Promise<ReleaseOwnedScopedAttachmentsResult>
 }
@@ -654,7 +659,15 @@ export class DefaultAttachmentService implements AttachmentService {
         ))
         const isPrimary = row.entityId === owner.entityId && row.recordId === owner.recordId
         if (isPrimary && !remaining.length) {
-          const referenceIds = (await lockAttachmentStorageReferences(tx, row)).filter((id) => !removedIds.has(id))
+          // Re-read the row's storage references instead of trusting the locked set: a copy that
+          // committed after the combined lock (it inserts a new row and locks nothing of ours)
+          // shares the object, and only a fresh read sees it, so its bytes are kept. The read does
+          // not lock: taking a late sibling's lock here, after the id-ordered statement, could
+          // deadlock against a release of that sibling. Not locking it is safe, because every
+          // other release locks all references of the object, this row among them, and so waits
+          // for this commit and then sees this row gone (READ COMMITTED). One read per removed row;
+          // `releaseOwnedScoped` is meant for owners with a bounded number of rows.
+          const referenceIds = (await listAttachmentStorageReferences(tx, row)).filter((id) => !removedIds.has(id))
           const removal = resolveAttachmentStorageRelease(referenceIds, row.id)
           if (!removal.removed) continue
           if (removal.releaseStorage) {
