@@ -15,6 +15,7 @@ test.describe('Required customer field labels fit their controls', () => {
 
       for (const width of [1440, 1280, 1024, 768, 390]) {
         await page.setViewportSize({ width, height: 1000 })
+        await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
         for (const control of await requiredControls.all()) {
           await expect(control).toBeVisible()
           await expect.poll(async () => control.evaluate((element) => {
