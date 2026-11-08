@@ -224,6 +224,7 @@ export type ModuleWorker = {
 
 export type ModuleInfo = {
   name?: string
+  locator?: string
   title?: string
   version?: string
   description?: string
@@ -231,7 +232,7 @@ export type ModuleInfo = {
   license?: string
   homepage?: string
   copyright?: string
-  // Optional hard dependencies: module ids that must be enabled
+  // Optional hard dependencies: module IDs or canonical package/repository locators
   requires?: string[]
   /**
    * Module ids this module USES when they are present and works without when they are not.

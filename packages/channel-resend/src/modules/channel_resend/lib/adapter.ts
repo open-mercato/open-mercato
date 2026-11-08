@@ -41,15 +41,20 @@ function resolveResendErrorMessage(result: unknown): string | null {
   return null
 }
 
+function headerOrUndefined(value: unknown): string | undefined {
+  const text = stringOrUndefined(value)
+  return text === undefined ? undefined : sanitizeHeaderValue(text)
+}
+
 function attachmentsFromMeta(value: unknown): ResendAttachment[] | undefined {
   if (!Array.isArray(value)) return undefined
   const attachments = value.flatMap((item): ResendAttachment[] => {
     if (!item || typeof item !== 'object') return []
     const record = item as Record<string, unknown>
-    const filename = stringOrUndefined(record.filename)
+    const filename = headerOrUndefined(record.filename)
     const content = stringOrUndefined(record.content)
     if (!filename || !content) return []
-    const contentType = stringOrUndefined(record.contentType)
+    const contentType = headerOrUndefined(record.contentType)
     return [{ filename, content, ...(contentType ? { contentType } : {}) }]
   })
   return attachments.length ? attachments : undefined
@@ -88,7 +93,7 @@ class ResendChannelAdapter implements ChannelAdapter {
     if (to.length === 0) {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires at least one recipient' }
     }
-    const subject = stringOrUndefined(meta.subject)
+    const subject = headerOrUndefined(meta.subject)
     if (!subject) {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires a subject' }
     }
@@ -96,11 +101,12 @@ class ResendChannelAdapter implements ChannelAdapter {
     const client = new Resend(credentials.apiKey)
     const resendAttachments = attachmentsFromMeta(meta.attachments)
     const resendHeaders = headersFromMeta(meta.headers)
+    const replyTo = headerOrUndefined(meta.replyTo)
     const basePayload = {
-      from: stringOrUndefined(meta.from) ?? credentials.fromAddress,
+      from: headerOrUndefined(meta.from) ?? credentials.fromAddress,
       to,
       subject,
-      ...(stringOrUndefined(meta.replyTo) ? { replyTo: stringOrUndefined(meta.replyTo) } : {}),
+      ...(replyTo ? { replyTo } : {}),
       ...(resendAttachments?.length ? { attachments: resendAttachments } : {}),
       ...(resendHeaders ? { headers: resendHeaders } : {}),
     }
@@ -135,7 +141,7 @@ class ResendChannelAdapter implements ChannelAdapter {
   async convertOutbound(input: ConvertOutboundInput): Promise<ChannelNativeContent> {
     const meta = (input.channelMetadata ?? {}) as Record<string, unknown>
     const to = toAddressList(meta.to).map(sanitizeHeaderValue)
-    const subject = stringOrUndefined(meta.subject)
+    const subject = headerOrUndefined(meta.subject)
     const html = input.bodyFormat === 'html' ? input.body : undefined
     const text = input.bodyFormat === 'html' ? htmlToText(input.body) : input.body
     return {
@@ -147,8 +153,8 @@ class ResendChannelAdapter implements ChannelAdapter {
       metadata: {
         to,
         subject,
-        from: stringOrUndefined(meta.from),
-        replyTo: stringOrUndefined(meta.replyTo),
+        from: headerOrUndefined(meta.from),
+        replyTo: headerOrUndefined(meta.replyTo),
         attachments: attachmentsFromMeta(meta.attachments),
         headers: headersFromMeta(meta.headers),
       },
