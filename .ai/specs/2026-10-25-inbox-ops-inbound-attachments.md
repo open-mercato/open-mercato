@@ -709,3 +709,15 @@ Ready for implementation after #7989 (`2026-11-03-attachment-direct-reader-owner
 - Frontend Architecture Contract for Phase 3: boundary map, `"use client"` ledger, budgets, guarded Retry and Delete with `retryLastMutation`, optimistic-lock header on Delete, log page attachments in a dialog, `TC-INBOX-ATT-010`.
 - The ingest queue uses no queue coalescing (D10); integration webhooks honor the admission limit's `Retry-After` within raised test timeouts.
 - Delete keeps its mutation-guard calls and checks the version through `enforceCommandOptimisticLockWithGuards` on a locked read; the ingest worker's `lockDuration` is a fixed literal that caps the lease; the client uses `apiCallOrThrow`; manual retry also resets `quota_exceeded` and `partition_unavailable` parts; new route refusals are translated.
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Ingest and access | Done | 2026-11-08 | Steps 1–9 implemented; TC-INBOX-ATT-001…007 pass locally |
+| Phase 2 — Attachment text in extraction | Done | 2026-11-08 | Prompt section, empty-body rule, `sourceRefs`; TC-INBOX-ATT-008 skips without an LLM key |
+| Phase 3 — Surfaces | Done | 2026-11-08 | Delete optimistic lock, client islands, Retry for retryable ingests; TC-INBOX-ATT-009/010 pass locally; `yarn check:client-boundaries` adds no page root |
+
+### Notes
+- The follow-up issue that splits the proposal detail page (Budgets) is still to be filed with the implementation PR.
+- `GET /api/inbox_ops/emails/[id]/attachments` returns ledger rows oldest first; rows written in one transaction have no guaranteed relative order (the ledger keeps no part position).
