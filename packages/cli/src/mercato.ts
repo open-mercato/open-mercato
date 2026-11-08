@@ -380,10 +380,19 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
     // Resolver might fail during early init, fall back to default behavior
   }
 
-  // Fall back to default dotenv behavior (loads from cwd)
+  // Preserve dotenv/config's environment/argv options in the cwd fallback.
+  const previousDotenvQuiet = process.env.DOTENV_CONFIG_QUIET
   try {
+    if (quietDotenv) process.env.DOTENV_CONFIG_QUIET = 'true'
     await import('dotenv/config')
-  } catch {}
+  } catch {
+    // Environment loading remains best effort.
+  } finally {
+    if (quietDotenv) {
+      if (previousDotenvQuiet === undefined) delete process.env.DOTENV_CONFIG_QUIET
+      else process.env.DOTENV_CONFIG_QUIET = previousDotenvQuiet
+    }
+  }
 }
 
 function resolveInstalledBinary(baseDirs: string[], relativeBinPath: string): string {
@@ -1000,16 +1009,18 @@ export function resolveEnvBootstrapOptions(parts: string[]): { createIfMissing: 
   const opaqueEnvCommand = first === 'deploy' || first === 'telemetry'
   const readOnlyModuleCommand = first === 'module' && (parts[1] === 'search' || parts[1] === 'info')
   const jsonOutput = parts.includes('--json')
+  const quietGeneration = first === 'generate' && (parts.includes('--quiet') || parts.includes('-q'))
   const helpRequested = isHelpRequest(parts)
   return {
     createIfMissing: !helpRequested && !opaqueEnvCommand && !readOnlyModuleCommand,
-    quiet: helpRequested || opaqueEnvCommand || readOnlyModuleCommand || jsonOutput,
+    quiet: helpRequested || opaqueEnvCommand || readOnlyModuleCommand || jsonOutput || quietGeneration,
   }
 }
 
 export async function run(argv = process.argv) {
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
+  const quietGeneration = first === 'generate' && (parts.includes('--quiet') || parts.includes('-q'))
   // Help must never have side effects: it must not create .env, and must not fall through
   // to the command it is asking about.
   const helpRequested = isHelpRequest(parts)
@@ -2786,7 +2797,7 @@ export async function run(argv = process.argv) {
 
   if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
 
-  const quietBanner = process.env.OM_CLI_QUIET === '1'
+  const quietBanner = process.env.OM_CLI_QUIET === '1' || quietGeneration
   const banner = '🧩 Open Mercato CLI'
   if (!quietBanner) {
     const header = [
@@ -2850,18 +2861,20 @@ export async function run(argv = process.argv) {
     return 0
   }
 
-  console.log('')
+  if (!quietGeneration) console.log('')
   const started = Date.now()
-  const commandArgs = modName === 'deploy' && cmdName === 'railway'
-    ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
-    : rest
-  const loggedArgs = redactSensitiveModuleCliArgs(commandArgs, `${modName}:${cmdName}`)
-  console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
+  if (!quietGeneration) {
+    const commandArgs = modName === 'deploy' && cmdName === 'railway'
+      ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
+      : rest
+    const loggedArgs = redactSensitiveModuleCliArgs(commandArgs, `${modName}:${cmdName}`)
+    console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
+  }
   try {
     const commandExitCode = await runWithCapturedExitCode(async () => {
       await cmd.run(rest)
     })
-    if (modName !== 'deploy' || cmdName !== 'railway') {
+    if (!quietGeneration && (modName !== 'deploy' || cmdName !== 'railway')) {
       const ms = Date.now() - started
       console.log(`⏱️ Done in ${ms}ms`)
     }
