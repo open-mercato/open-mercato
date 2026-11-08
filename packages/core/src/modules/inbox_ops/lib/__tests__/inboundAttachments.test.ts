@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { ATTACHMENT_ACCESS_REGISTRY_INVALID_MESSAGE } from '@open-mercato/core/modules/attachments/lib/access-protection'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type {
   AttachmentPersistLink,
@@ -369,6 +370,11 @@ describe('classifyInboundUploadError', () => {
       .toEqual({ kind: 'transient', code: 'unknown' })
     expect(classifyInboundUploadError(new Error('boom'))).toEqual({ kind: 'transient', code: 'unknown' })
   })
+
+  it('gives an invalid attachments access registry its own transient code', () => {
+    expect(classifyInboundUploadError(new Error(ATTACHMENT_ACCESS_REGISTRY_INVALID_MESSAGE)))
+      .toEqual({ kind: 'transient', code: 'access_registry_invalid' })
+  })
 })
 
 type NativeUpdateCall = { entity: unknown; where: Record<string, unknown>; data: Record<string, unknown> }
@@ -505,6 +511,26 @@ describe('persistInboundPart', () => {
       part: { id: PART_ROW_ID, status: 'pending', fileName: 'Fwd: order', declaredMimeType: 'message/rfc822' },
     })
     expect(harness.createScoped.mock.calls[0][0].fileName).toBe('Fwd: order.eml')
+  })
+
+  it('reports an upload refused by an invalid access registry and leaves the part transient', async () => {
+    mockReportError.mockReset()
+    const failure = new Error(ATTACHMENT_ACCESS_REGISTRY_INVALID_MESSAGE)
+    const harness = createHarness({ uploadError: failure })
+    await expect(persistInboundPart(harness.baseInput)).resolves.toEqual({ kind: 'transient', code: 'access_registry_invalid', error: failure })
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(failure, expect.objectContaining({
+      module: 'inbox_ops',
+      code: 'inbox_ops.attachment_store_failed',
+      attributes: expect.objectContaining({ emailId: EMAIL_ID, partId: PART_ROW_ID, code: 'access_registry_invalid', transient: true }),
+    }))
+  })
+
+  it('does not report other transient upload failures', async () => {
+    mockReportError.mockReset()
+    const harness = createHarness({ uploadError: new CrudHttpError(500, { error: 'storage', code: 'storage_failed' }) })
+    await expect(persistInboundPart(harness.baseInput)).resolves.toMatchObject({ kind: 'transient', code: 'storage_failed' })
+    expect(mockReportError).not.toHaveBeenCalled()
   })
 
   it('skips an executable part without failing the email', async () => {

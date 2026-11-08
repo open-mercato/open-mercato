@@ -92,13 +92,20 @@ function createHarness(initial: Row[], options: { afterQuery?: (query: CompiledQ
     queries.push(query)
     const params = query.parameters as unknown[]
     const rows = [...committed.values()].sort((left, right) => (left.id < right.id ? -1 : 1))
-    if (query.sql.includes('"storage_metadata" @>')) {
+    const ownedBy = () => {
       const [tenantId, organizationId, entityId, recordId, arrayProbe, objectProbe] = params as [string, string, string, string, string, string]
-      const owned = rows.filter((entry) => entry.tenantId === tenantId && entry.organizationId === organizationId && (
+      return rows.filter((entry) => entry.tenantId === tenantId && entry.organizationId === organizationId && (
         (entry.entityId === entityId && entry.recordId === recordId)
         || hasAssignment(entry.storageMetadata, JSON.parse(arrayProbe))
         || hasAssignment(entry.storageMetadata, JSON.parse(objectProbe))
       ))
+    }
+    if (query.sql.includes('select distinct "partition_code"')) {
+      const codes = [...new Set(ownedBy().map((entry) => entry.partitionCode))]
+      return { rows: codes.map((code) => ({ partition_code: code })) as R[] }
+    }
+    if (query.sql.includes('"storage_metadata" @>')) {
+      const owned = ownedBy()
       // Storage siblings of any scope are locked in the same statement.
       const matched = rows.filter((entry) => owned.some((candidate) => (
         candidate.id === entry.id
@@ -154,6 +161,7 @@ function createHarness(initial: Row[], options: { afterQuery?: (query: CompiledQ
   }
   let inTransaction = false
   const em = {
+    getKysely: () => db,
     isInTransaction: jest.fn(() => inTransaction),
     transactional: jest.fn(async (work: (inner: typeof tx) => Promise<void>) => {
       loaded = new Map()
@@ -190,7 +198,7 @@ describe('DefaultAttachmentService.releaseOwnedScoped', () => {
   it('locks owner references and their storage siblings in one id-ordered, index-friendly statement', async () => {
     const { release, queries } = createHarness([row('a')])
     await release()
-    const [lookup] = queries
+    const lookup = queries.find((query) => /for update/.test(query.sql))!
     const normalized = lookup.sql.replace(/\s+/g, ' ')
     expect(normalized).toContain(
       'with "owned" as ( select "id", "partition_code", "storage_path" from "attachments" where "tenant_id" = $1 and "organization_id" = $2 '
@@ -219,7 +227,8 @@ describe('DefaultAttachmentService.releaseOwnedScoped', () => {
 
     expect([...committed.keys()]).toEqual(['a-late'])
     expect(providerDelete).not.toHaveBeenCalled()
-    const referenceReads = queries.slice(1)
+    const lockIndex = queries.findIndex((query) => /for update/.test(query.sql))
+    const referenceReads = queries.slice(lockIndex + 1)
     expect(referenceReads).toHaveLength(1)
     expect(referenceReads[0].sql).not.toMatch(/for update/i)
   })
@@ -271,6 +280,40 @@ describe('DefaultAttachmentService.releaseOwnedScoped', () => {
       ['privateAttachments', scope],
       ['otherPartition', scope],
     ])
+  })
+
+  it('resolves the drivers of the owner\'s partitions before the transaction, and a partition first seen under the lock inside it', async () => {
+    const { release, factory, em, events, providerDelete } = createHarness([row('a'), row('c', { partitionCode: 'otherPartition' })], {
+      afterQuery: (query, rows) => {
+        // A row in a new partition gains the email assignment between the pre-read and the lock.
+        if (query.sql.includes('select distinct "partition_code"')) rows.set('n', row('n', { partitionCode: 'latePartition' }))
+      },
+    })
+    const resolvedInTransaction: boolean[] = []
+    factory.resolveForPartition.mockImplementation(async () => {
+      resolvedInTransaction.push(em.isInTransaction())
+      return { delete: providerDelete }
+    })
+
+    await expect(release()).resolves.toEqual({ deleted: 3, repointed: 0, detached: 0 })
+
+    expect(factory.resolveForPartition.mock.calls.map(([code]) => code)).toEqual(['privateAttachments', 'otherPartition', 'latePartition'])
+    expect(resolvedInTransaction).toEqual([false, false, true])
+    expect(events.filter((event) => event.startsWith('delete:'))).toHaveLength(3)
+  })
+
+  it('does not fail the release when a pre-resolved partition is only re-pointed, and retries a failed resolution under the lock', async () => {
+    const { release, factory, providerDelete } = createHarness([
+      row('a'),
+      row('k', { partitionCode: 'brokenPartition', storageMetadata: { assignments: [{ type: EMAIL.entityId, id: EMAIL.recordId }, { type: 'documents:document', id: 'document-1' }] } }),
+    ])
+    factory.resolveForPartition.mockImplementation((async (code: string) => {
+      if (code === 'brokenPartition') throw new Error('vault down')
+      return { delete: providerDelete }
+    }) as never)
+
+    await expect(release()).resolves.toEqual({ deleted: 1, repointed: 1, detached: 0 })
+    expect(providerDelete).toHaveBeenCalledTimes(1)
   })
 
   it('re-points an email-owned row with other assignments to the first remaining one in stored order', async () => {

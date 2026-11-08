@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
+import { installNextSubpathResolveHook } from '@open-mercato/shared/lib/bootstrap/next-subpath-resolve-hook'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createQueue } from '@open-mercato/queue'
 
@@ -18,6 +19,11 @@ function getBootstrapData(appRoot: string): Promise<BootstrapData> {
   const resolvedAppRoot = path.resolve(appRoot)
   const cached = bootstrapCache.get(resolvedAppRoot)
   if (cached) return cached
+  // Like the `mercato` CLI entry, so the generated registrations resolve a bare `next/<subpath>`
+  // in plain Node (child-process drain) as well as in the test process (in-process drain).
+  // Without it, bootstrap marks the registrations failed and fail-closed registries (e.g. the
+  // attachments access registry) reject work. Idempotent: installs at most once per process.
+  installNextSubpathResolveHook()
   const promise = bootstrapFromAppRoot(resolvedAppRoot)
   bootstrapCache.set(resolvedAppRoot, promise)
   return promise

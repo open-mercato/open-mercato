@@ -124,7 +124,8 @@ export async function runInboundAttachmentMaintenance(
     }
   } catch (error) {
     logger.error('Failed to complete the ingests of deleted inbound emails', { err: error })
-    reportInboundAttachmentError(error, 'inbox_ops.attachment_requeue_failed', { step: 'complete_deleted' })
+    // Completing a deleted email's ingest is the first step of its release, not a re-enqueue.
+    reportInboundAttachmentError(error, 'inbox_ops.attachment_release_failed', { step: 'complete_deleted' })
   }
 
   try {

@@ -62,7 +62,9 @@ write time.
   retry returns zeros). It handles all of one owner's rows in that
   single transaction (plus one storage-reference read per deleted row), so it is meant for
   owners with a bounded number of rows (an inbound email holds at most its ledger's parts);
-  do not use it for an owner whose row count is unbounded. Provider byte cleanup runs after commit and
+  do not use it for an owner whose row count is unbounded. Storage drivers are resolved
+  before the transaction from a non-locking read of the owner's partitions; only a partition
+  first seen under the lock is resolved while the rows are locked. Provider byte cleanup runs after commit and
   is best-effort: failures are logged and reported as `attachments.release_cleanup_failed`,
   never thrown. It emits no CRUD events and does not update the query index (same as
   `releaseScoped`).
@@ -71,7 +73,8 @@ write time.
   extractor always runs, LLM OCR is never queued, `Attachment.content` stays empty and
   the text reaches the caller only through `persistLink`'s third argument and the
   result's `content`; use it when the owner stores the text itself, e.g. encrypted), or
-  `'none'` (nothing is extracted).
+  `'none'` (nothing is extracted). Any other value is a caller bug and throws before quota or
+  storage work.
 - A protected target declared with `listInLibrary: false` keeps rows whose **exact
   primary** `entity_id` equals its `targetEntity` (no wildcards; assignments do not
   count) out of `GET /api/attachments/library` (records, count, tag facets). The

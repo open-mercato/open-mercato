@@ -16,6 +16,7 @@ import { matchContacts } from '../lib/contactMatcher'
 import {
   buildExtractionSystemPrompt,
   buildExtractionUserPrompt,
+  hasVisiblePromptText,
   type ExtractionPromptAttachment,
 } from '../lib/extractionPrompt'
 import { INBOUND_ATTACHMENTS_CONFIG_DEFAULTS, readInboundAttachmentsConfig } from '../lib/inboundAttachmentsConfig'
@@ -167,11 +168,13 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     const storedParts: CitableAttachmentPart[] = attachments
       .filter((row) => row.status === 'stored' && row.attachmentId)
       .map((row) => ({ attachmentId: row.attachmentId as string, fileName: row.fileName }))
+    // Text made only of invisible characters (zero-width, bidi, tag characters…) counts as none:
+    // the prompt builder drops them, so it would reach the model empty.
     const hasAttachmentText = attachments.some(
-      (row) => row.status === 'stored' && Boolean(row.extractedText?.trim()),
+      (row) => row.status === 'stored' && hasVisiblePromptText(row.extractedText),
     )
 
-    if (!fullText.trim() && !hasAttachmentText) {
+    if (!hasVisiblePromptText(fullText) && !hasAttachmentText) {
       if (storedParts.length > 0) {
         // Only files without text (images, scans, archives): a person handles it from the log page.
         email.status = 'needs_review'

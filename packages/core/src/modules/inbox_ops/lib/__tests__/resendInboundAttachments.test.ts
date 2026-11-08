@@ -66,6 +66,38 @@ describe('listInboundAttachmentDescriptors', () => {
     expect(api.list).toHaveBeenCalledTimes(2)
     expect(listed.failed).toBe(false)
   })
+
+  it('stops paging once every wanted id is listed and runs beforeNextPage before each further page', async () => {
+    const api = {
+      list: jest.fn()
+        .mockResolvedValueOnce({ data: { has_more: true, data: [descriptor('a'), descriptor('b')] }, error: null })
+        .mockResolvedValueOnce({ data: { has_more: true, data: [descriptor('c')] }, error: null })
+        .mockResolvedValueOnce({ data: { has_more: true, data: [descriptor('d')] }, error: null }),
+      get: jest.fn(),
+    }
+    const beforeNextPage = jest.fn(async () => true)
+    const listed = await listInboundAttachmentDescriptors(api as unknown as ResendInboundAttachmentsApi, 'e', 1000, {
+      wantedIds: new Set(['a', 'c']),
+      beforeNextPage,
+    })
+    expect(api.list).toHaveBeenCalledTimes(2)
+    expect(beforeNextPage).toHaveBeenCalledTimes(1)
+    expect(listed).toMatchObject({ failed: false, aborted: false, emailNotFound: false })
+    expect([...listed.byId.keys()]).toEqual(['a', 'b', 'c'])
+  })
+
+  it('stops listing with aborted when beforeNextPage reports a lost claim', async () => {
+    const api = {
+      list: jest.fn().mockResolvedValue({ data: { has_more: true, data: [descriptor('a')] }, error: null }),
+      get: jest.fn(),
+    }
+    const listed = await listInboundAttachmentDescriptors(api as unknown as ResendInboundAttachmentsApi, 'e', 1000, {
+      wantedIds: new Set(['z']),
+      beforeNextPage: async () => false,
+    })
+    expect(api.list).toHaveBeenCalledTimes(1)
+    expect(listed).toMatchObject({ aborted: true, failed: false })
+  })
 })
 
 describe('downloadWithSizeCap', () => {

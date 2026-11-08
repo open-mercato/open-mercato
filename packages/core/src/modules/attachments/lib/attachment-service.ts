@@ -332,6 +332,26 @@ select "attachments"."id" from "attachments"
   return result.rows.map((row) => String(row.id))
 }
 
+/**
+ * The distinct partitions of the owner's rows, read without locking before the release transaction,
+ * so the storage drivers can be resolved before any row lock is held. Advisory only: the locked
+ * read inside the transaction stays authoritative, and a partition that shows up only there is
+ * resolved there.
+ */
+async function listOwnedAttachmentPartitionCodes(
+  em: EntityManager,
+  owner: AttachmentOwner,
+  scope: { tenantId: string; organizationId: string },
+): Promise<string[]> {
+  const assignment = { type: owner.entityId, id: owner.recordId }
+  const result = await sql<{ partition_code: string }>`select distinct "partition_code" from "attachments"
+ where "tenant_id" = ${scope.tenantId} and "organization_id" = ${scope.organizationId}
+   and (("entity_id" = ${owner.entityId} and "record_id" = ${owner.recordId})
+     or "storage_metadata" @> ${JSON.stringify({ assignments: [assignment] })}::jsonb
+     or "storage_metadata" @> ${JSON.stringify({ assignments: assignment })}::jsonb)`.execute(em.getKysely())
+  return result.rows.map((row) => String(row.partition_code))
+}
+
 function partitionMatchesScope(
   partition: AttachmentPartition,
   tenantId: string | null | undefined,
@@ -641,7 +661,11 @@ export class DefaultAttachmentService implements AttachmentService {
     const removedRows: Attachment[] = []
     const providerCleanups: Array<{ attachmentId: string; run: AttachmentProviderCleanup }> = []
 
-    // One driver per partition for this call; an owner's rows usually share one partition.
+    // One driver per partition for this call; an owner's rows usually share one partition. Drivers
+    // are resolved before the transaction (from a non-locking read of the owner's partitions), so
+    // resolution I/O does not run while the owner's rows and their storage siblings are locked; only
+    // a partition first seen under the lock is resolved inside it. A partition whose resolution
+    // fails here is retried lazily inside, so it fails the release only if a removed row needs it.
     const drivers = new Map<string, ReturnType<StorageDriverFactory['resolveForPartition']>>()
     const resolveDriver = (partitionCode: string) => {
       let driver = drivers.get(partitionCode)
@@ -650,6 +674,13 @@ export class DefaultAttachmentService implements AttachmentService {
         drivers.set(partitionCode, driver)
       }
       return driver
+    }
+    for (const partitionCode of await listOwnedAttachmentPartitionCodes(this.em, owner, scope)) {
+      try {
+        await resolveDriver(partitionCode)
+      } catch {
+        drivers.delete(partitionCode)
+      }
     }
     await this.em.transactional(async (tx) => {
       const candidateIds = await lockOwnedAttachmentRows(tx, owner, scope)

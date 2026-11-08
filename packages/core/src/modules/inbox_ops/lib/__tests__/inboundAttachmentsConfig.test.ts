@@ -1,7 +1,9 @@
 /** @jest-environment node */
 
 import {
+  INBOUND_ATTACHMENTS_CONFIG_DEFAULTS,
   INBOX_OPS_ATTACHMENT_INGEST_LOCK_DURATION_MS,
+  INBOX_OPS_ATTACHMENT_RETRY_DELAY_MIN_MS,
   InboundAttachmentsConfigError,
   readInboundAttachmentsConfig,
   resolveInboundAttachmentsConfig,
@@ -105,6 +107,8 @@ describe('readInboundAttachmentsConfig', () => {
     ['INBOX_OPS_INLINE_IMAGE_MIN_BYTES', '-1'],
     ['INBOX_OPS_ATTACHMENT_MAX_PART_ATTEMPTS', '0'],
     ['INBOX_OPS_ATTACHMENTS_ENABLED', 'maybe'],
+    ['INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS', '0'],
+    ['INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS', '59999'],
   ])('refuses %s=%s', (name, value) => {
     expect(() => readInboundAttachmentsConfig({ [name]: value })).toThrow(InboundAttachmentsConfigError)
   })
@@ -125,6 +129,18 @@ describe('resolveInboundAttachmentsConfig', () => {
     expect(resolved.error).toBeInstanceOf(InboundAttachmentsConfigError)
     expect(resolved.error?.issues).toEqual([expect.stringContaining('INBOX_OPS_MAX_ATTACHMENTS')])
     expect(resolved.config).toMatchObject({ enabled: true, maxAttachments: 20, maxTextCharsPerFile: 500 })
+  })
+
+  it('floors the retry delay: a value below one minute falls back to the default', () => {
+    expect(resolveInboundAttachmentsConfig({ INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS: '60000' })).toMatchObject({
+      error: null,
+      config: { retryDelayMs: INBOX_OPS_ATTACHMENT_RETRY_DELAY_MIN_MS },
+    })
+    for (const value of ['1', '59999', '-5']) {
+      const resolved = resolveInboundAttachmentsConfig({ INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS: value })
+      expect(resolved.error?.issues).toEqual([expect.stringContaining('INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS')])
+      expect(resolved.config.retryDelayMs).toBe(INBOUND_ATTACHMENTS_CONFIG_DEFAULTS.retryDelayMs)
+    }
   })
 
   it('turns ingestion off for a malformed kill switch', () => {

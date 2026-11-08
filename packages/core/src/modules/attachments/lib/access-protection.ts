@@ -6,9 +6,20 @@ import { attachmentAccessRequirementsSchema, attachmentLibraryExcludedEntitiesSc
 import { getAttachmentAccessRegistry, matchesAttachmentAccessSelector } from './access-registry'
 import type { AttachmentAccessRequirement } from './access-types'
 
+/**
+ * Message of the error every access-protection entry point throws while the access registry is
+ * invalid (the app's generated registrations failed to load at bootstrap): a deployment fault that
+ * fails closed until the process is fixed and restarted.
+ */
+export const ATTACHMENT_ACCESS_REGISTRY_INVALID_MESSAGE = '[internal] Attachment access registry is invalid'
+
+export function isAttachmentAccessRegistryInvalidError(error: unknown): boolean {
+  return error instanceof Error && error.message === ATTACHMENT_ACCESS_REGISTRY_INVALID_MESSAGE
+}
+
 export function getDeclaredAttachmentAccessRequirements(partitionCode: string): AttachmentAccessRequirement[] {
   const registry = getAttachmentAccessRegistry()
-  if (registry.invalid) throw new Error('[internal] Attachment access registry is invalid')
+  if (registry.invalid) throw new Error(ATTACHMENT_ACCESS_REGISTRY_INVALID_MESSAGE)
   return registry.protectedTargets
     .filter((target) => matchesAttachmentAccessSelector(target.targetPartition, partitionCode))
     .map(({ resolverId, targetEntity }) => ({ resolverId, targetEntity }))
@@ -17,7 +28,7 @@ export function getDeclaredAttachmentAccessRequirements(partitionCode: string): 
 /** Owner entity ids that registered targets matching this partition keep out of the shared library. */
 export function getDeclaredLibraryExcludedEntities(partitionCode: string): string[] {
   const registry = getAttachmentAccessRegistry()
-  if (registry.invalid) throw new Error('[internal] Attachment access registry is invalid')
+  if (registry.invalid) throw new Error(ATTACHMENT_ACCESS_REGISTRY_INVALID_MESSAGE)
   return uniqueEntities(registry.protectedTargets
     .filter((target) => target.listInLibrary === false && matchesAttachmentAccessSelector(target.targetPartition, partitionCode))
     .map((target) => target.targetEntity))
@@ -86,7 +97,7 @@ export async function syncAttachmentAccessProtection(
   options: { partitionCode?: string } = {},
 ): Promise<number> {
   const registry = getAttachmentAccessRegistry()
-  if (registry.invalid) throw new Error('[internal] Attachment access registry is invalid')
+  if (registry.invalid) throw new Error(ATTACHMENT_ACCESS_REGISTRY_INVALID_MESSAGE)
   if (!registry.protectedTargets.length) return 0
   const isolated = em.fork({ clear: true, useContext: false })
   const candidates = await findWithDecryption(

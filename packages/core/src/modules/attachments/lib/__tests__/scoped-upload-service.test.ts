@@ -233,6 +233,15 @@ describe('ScopedAttachmentUploadService text extraction modes', () => {
     expect(persistLink).toHaveBeenCalledWith(expect.anything(), expect.any(String), { content: null })
   })
 
+  it.each(['ocr', '', 'RETURN', null, 42])('rejects the unknown mode %p before reserving quota or storing', async (mode) => {
+    const { service, driver, order } = makeHarness()
+    const persistLink = jest.fn(async () => undefined)
+    await expect(service.upload({ ...input, textExtraction: mode as never, persistLink })).rejects.toThrow(/Unknown attachment textExtraction mode/)
+    expect(order).toEqual([])
+    expect(driver.store).not.toHaveBeenCalled()
+    expect(persistLink).not.toHaveBeenCalled()
+  })
+
   it('none mode extracts nothing and never queues OCR even when the partition requires it', async () => {
     mockOcrAvailable.value = true
     const { service, attachment, driver } = makeHarness({ requiresOcr: true })

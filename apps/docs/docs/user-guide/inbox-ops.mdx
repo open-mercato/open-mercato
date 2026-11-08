@@ -256,7 +256,7 @@ Deduplication of an email with attachments also compares Resend's attachment ids
 # INBOX_OPS_ATTACHMENT_FETCH_TIMEOUT_MS=30000
 # Ingest claim lease; must exceed 4x the fetch timeout and not exceed 1800000 (default: 1800000 ms)
 # INBOX_OPS_ATTACHMENT_LEASE_MS=1800000
-# Delay before the next automatic retry after the queue's attempts (default: 900000 ms)
+# Delay before the next automatic retry after the queue's attempts; at least 60000 (default: 900000 ms)
 # INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS=900000
 # Crash-interrupted attempts per part; the last one stores the file without text (default: 3)
 # INBOX_OPS_ATTACHMENT_MAX_PART_ATTEMPTS=3

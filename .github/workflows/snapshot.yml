@@ -273,6 +273,11 @@ jobs:
           RESEND_BASE_URL=http://localhost:3001/api/example/resend-stub
           RESEND_API_KEY=re_stub_open-mercato-integration
           RESEND_WEBHOOK_SIGNING_SECRET=whsec_b3Blbi1tZXJjYXRvLWludGVncmF0aW9uLXJlc2VuZC13ZWJob29rLXNlY3JldA==
+          # With RESEND_API_KEY set and the default `resend` provider, `yarn initialize`
+          # would seed channel_resend from the stub key (applyResendEnvPreset). The
+          # ephemeral harness selects the network-free test-seed provider instead;
+          # mirror it so this lane seeds the same channels.
+          SYSTEM_EMAIL_PROVIDER=__test_seed__
           MOCK_INBOUND_WEBHOOK_SECRET=open-mercato-mock-dev-inbound-webhook-secret
           NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true
           OM_ENABLE_ENTERPRISE_MODULES=true

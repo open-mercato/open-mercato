@@ -686,6 +686,24 @@ describe('ingest: claims', () => {
     expect(harness.queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ generation: 2 }))
   })
 
+  it('re-enqueues at once when the reload after a lost claim finds an expired lease', async () => {
+    const harness = createHarness({
+      email: { attachmentsStatus: 'processing', attachmentsClaimToken: 'other', attachmentsClaimedAt: new Date(START.getTime() - 10 * MINUTE) },
+    })
+    const em = harness.deps.em as unknown as { nativeUpdate: (entity: unknown, where: unknown, data: Record<string, unknown>) => Promise<number> }
+    const original = em.nativeUpdate
+    em.nativeUpdate = async (entity, where, data) => {
+      const updated = await original(entity, where, data)
+      // The holder's lease runs out between the lost claim and the reload.
+      if (updated === 0 && data.attachmentsClaimToken === 'token-1') harness.clock.now = new Date(START.getTime() + 25 * MINUTE)
+      return updated
+    }
+    await expect(harness.run()).resolves.toEqual({ outcome: 'lease_expired_requeued' })
+    expect(harness.queue.enqueue).toHaveBeenCalledTimes(1)
+    expect(harness.queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ generation: 2 }))
+    expect(harness.db.email(harness.email.id).attachmentsClaimToken).toBe('other')
+  })
+
   it('takes over an expired lease and starts the 6-hour clock', async () => {
     const harness = createHarness({
       email: { attachmentsStatus: 'processing', attachmentsClaimToken: 'crashed', attachmentsClaimedAt: new Date(START.getTime() - 31 * MINUTE) },
@@ -721,6 +739,33 @@ describe('ingest: claims', () => {
     await expect(harness.run()).rejects.toBeInstanceOf(InboundAttachmentIngestRetryError)
     expect(renewals).toHaveLength(3)
     expect(renewals[1].getTime() - renewals[0].getTime()).toBe(20 * MINUTE)
+  })
+
+  it('renews the claim between list pages and stops paging once every pending part is listed', async () => {
+    const harness = createHarness({ parts: [{ id: 'a' }, { id: 'b' }] })
+    const claimedAt: Date[] = []
+    const pages = [['a', 'x'], ['b'], ['y']]
+    harness.api.list.mockImplementation((async () => {
+      claimedAt.push(harness.db.email(harness.email.id).attachmentsClaimedAt as Date)
+      harness.clock.now = new Date(harness.clock.now.getTime() + 20 * MINUTE)
+      const page = pages[harness.api.list.mock.calls.length - 1] ?? []
+      return { data: { has_more: true, data: page.map((id) => descriptor(id, harness.clock)) }, error: null }
+    }) as never)
+    await expect(harness.run()).resolves.toMatchObject({ outcome: 'completed', storedCount: 2 })
+    expect(harness.api.list).toHaveBeenCalledTimes(2)
+    expect(claimedAt[1].getTime() - claimedAt[0].getTime()).toBe(20 * MINUTE)
+    expect(harness.api.get).not.toHaveBeenCalled()
+  })
+
+  it('stops listing and stores nothing when the claim is lost between list pages', async () => {
+    const harness = createHarness({ parts: [{ id: 'a' }, { id: 'b' }] })
+    harness.api.list.mockImplementation((async () => {
+      harness.db.email(harness.email.id).attachmentsClaimToken = 'someone-else'
+      return { data: { has_more: true, data: [descriptor('a', harness.clock)] }, error: null }
+    }) as never)
+    await expect(harness.run()).resolves.toEqual({ outcome: 'claim_lost' })
+    expect(harness.api.list).toHaveBeenCalledTimes(1)
+    expect(harness.createScoped).not.toHaveBeenCalled()
   })
 
   it('aborts without emitting when persistLink loses the claim', async () => {

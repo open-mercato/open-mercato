@@ -132,6 +132,10 @@ function writeStandaloneEnv(appDir: string): void {
     // gets it from the test run below. Values mirror `buildResendStubEnvironment` in
     // packages/cli/src/lib/testing/integration.ts.
     ...RESEND_STUB_STATIC_ENV.map(([key, value]) => `${key}=${value}`),
+    // With RESEND_API_KEY set and the default `resend` provider, initialization would seed
+    // channel_resend from the stub key (applyResendEnvPreset); the ephemeral harness selects the
+    // test-seed provider instead (SYSTEM_EMAIL_PROVIDER in integration.ts), mirrored here.
+    'SYSTEM_EMAIL_PROVIDER=__test_seed__',
     'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true',
     'OM_ENABLE_ENTERPRISE_MODULES=true',
     'OM_ENABLE_ENTERPRISE_MODULES_SSO=true',

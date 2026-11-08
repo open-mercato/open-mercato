@@ -19,6 +19,7 @@ import {
 } from '../data/entities'
 import type { InboundAttachmentIngestJob, ResendInboundAttachment } from '../data/validators'
 import { resolveInboundAttachmentsConfig, type InboundAttachmentsConfig } from './inboundAttachmentsConfig'
+import { isAttachmentAccessRegistryInvalidError } from '@open-mercato/core/modules/attachments/lib/access-protection'
 
 /**
  * Inbound email attachments of Resend mail (spec `2026-10-25-inbox-ops-inbound-attachments.md`):
@@ -276,6 +277,13 @@ const CLASSIFIED_UPLOAD_ERRORS: Readonly<Record<string, Exclude<InboundUploadErr
 }
 
 const UNKNOWN_UPLOAD_ERROR_CODE = 'unknown'
+/**
+ * The attachments access registry is invalid (the app's generated registrations failed at
+ * bootstrap, e.g. a worker started without the `next/*` resolve hook): every upload fails closed
+ * until the process is fixed and restarted. Transient, because a restarted worker stores the part,
+ * but reported, because nothing recovers without an operator.
+ */
+export const INBOUND_UPLOAD_ACCESS_REGISTRY_INVALID_CODE = 'access_registry_invalid'
 
 function readErrorCode(error: unknown): string | null {
   if (!isCrudHttpError(error)) return null
@@ -287,9 +295,12 @@ function readErrorCode(error: unknown): string | null {
  * Maps a `createScoped` failure: policy codes become `skipped`, operator-visible errors
  * `failed`, and `quota_unavailable`, `storage_failed`, `persistence_failed`, unknown codes and
  * errors without a code (for example the 500 when the upload service is unavailable) transient.
+ * An invalid attachments access registry is transient with its own code
+ * ({@link INBOUND_UPLOAD_ACCESS_REGISTRY_INVALID_CODE}), which {@link persistInboundPart} reports.
  * The two `persistLink` conflicts abort the run (`inbox_claim_lost`) or count as stored.
  */
 export function classifyInboundUploadError(error: unknown): InboundUploadErrorClassification {
+  if (isAttachmentAccessRegistryInvalidError(error)) return { kind: 'transient', code: INBOUND_UPLOAD_ACCESS_REGISTRY_INVALID_CODE }
   const code = readErrorCode(error)
   if (code === INBOX_CLAIM_LOST_CODE) return { kind: 'aborted', code: INBOX_CLAIM_LOST_CODE }
   if (code === INBOX_PART_ALREADY_STORED_CODE) return { kind: 'already_stored' }
@@ -422,6 +433,20 @@ export async function persistInboundPart(input: PersistInboundPartInput): Promis
       case 'already_stored':
         return { kind: 'stored', alreadyStored: true }
       case 'transient':
+        if (classification.code === INBOUND_UPLOAD_ACCESS_REGISTRY_INVALID_CODE) {
+          logger.error('Inbound attachment upload refused: the attachments access registry is invalid', {
+            emailId: email.id,
+            partId: part.id,
+            code: classification.code,
+          })
+          reportInboundAttachmentError(error, 'inbox_ops.attachment_store_failed', {
+            emailId: email.id,
+            tenantId: email.tenantId,
+            partId: part.id,
+            code: classification.code,
+            transient: true,
+          })
+        }
         return { kind: 'transient', code: classification.code, error }
       default:
         return classification

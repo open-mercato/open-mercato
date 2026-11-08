@@ -159,13 +159,29 @@ const PROMPT_DELIMITER_TAGS = [
 
 const DELIMITER_TAG_PATTERN = new RegExp(`<(\\s*/?\\s*(?:${PROMPT_DELIMITER_TAGS.join('|')})(?![A-Za-z0-9_-]))`, 'gi')
 
-// Zero-width characters (U+200B-U+200D, U+FEFF) are dropped as well, so `<\u200Battachment>` cannot
-// slip past the delimiter match and be read as a tag by the model.
-const CONTROL_CHARS_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200D\uFEFF]/g
+// Invisible characters are dropped: C0/C1 controls other than tab and line breaks, and every Unicode
+// format character (`\p{Cf}`: zero-width space/joiners, BOM, word joiner, soft hyphen, bidi
+// embeddings/overrides/isolates, tag characters U+E0000-U+E007F, …), so `<\u200Battachment>` or
+// `<\u2060attachment>` cannot slip past the delimiter match and be read as a tag by the model.
+const CONTROL_CHARS_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\p{Cf}]/gu
 
-/** Neutralizes prompt delimiter tags in untrusted text (`<` of the tag becomes `&lt;`) and drops control and zero-width characters. */
+/** Drops control and invisible format characters from untrusted text (see {@link neutralizePromptDelimiters}). */
+export function stripInvisiblePromptChars(text: string): string {
+  return text.replace(CONTROL_CHARS_PATTERN, '')
+}
+
+/** Whether untrusted text has any visible content once invisible characters are dropped. */
+export function hasVisiblePromptText(text: string | null | undefined): boolean {
+  return Boolean(text && stripInvisiblePromptChars(text).trim())
+}
+
+function neutralizeDelimiterTags(text: string): string {
+  return text.replace(DELIMITER_TAG_PATTERN, '&lt;$1')
+}
+
+/** Neutralizes prompt delimiter tags in untrusted text (`<` of the tag becomes `&lt;`) and drops control and invisible characters. */
 export function neutralizePromptDelimiters(text: string): string {
-  return text.replace(CONTROL_CHARS_PATTERN, '').replace(DELIMITER_TAG_PATTERN, '&lt;$1')
+  return neutralizeDelimiterTags(stripInvisiblePromptChars(text))
 }
 
 function isHighSurrogate(code: number): boolean {
@@ -226,15 +242,31 @@ export function unescapePromptAttribute(value: string): string {
  * code-point boundary) and neutralized afterwards, so a cut can never turn a harmless tail such as
  * `<attachmentx` into a delimiter; the cut shrinks until the neutralized form (`<` grows to `&lt;`)
  * fits.
+ *
+ * Linear work: invisible characters are stripped from the whole text once, up front. Afterwards
+ * neutralizing only grows the text (each delimiter `<` gains 3 characters), so the neutralized form
+ * of a prefix of `n` characters with `k` delimiters is `n + 3k` long. A pass that overruns the limit
+ * by `n + 3k - limit` cuts to `limit - 3k`; that shorter prefix keeps at most those `k` delimiters
+ * plus one new one at the cut (`<attachments` → `<attachment`), so the next pass overruns by at most
+ * 3 and cuts 3 characters into that tag (every tag name is 4+ characters, and no clipped name is
+ * itself a tag), which then no longer matches. So the loop ends within 3 passes of O(limit) each;
+ * {@link FIT_NEUTRALIZED_MAX_PASSES} is a safety net past which the step doubles.
  */
-function fitNeutralizedText(text: string, limit: number): { body: string; truncated: boolean } {
-  let end = codePointSafeEnd(text, Math.min(text.length, limit))
-  for (;;) {
-    const body = neutralizePromptDelimiters(text.slice(0, end))
-    if (body.length <= limit || end === 0) return { body, truncated: end < text.length }
-    end = codePointSafeEnd(text, Math.max(0, end - (body.length - limit)))
+export function fitNeutralizedText(text: string, limit: number): { body: string; truncated: boolean; passes: number } {
+  const visible = stripInvisiblePromptChars(text)
+  let end = codePointSafeEnd(visible, Math.min(visible.length, limit))
+  for (let passes = 1; ; passes += 1) {
+    const body = neutralizeDelimiterTags(visible.slice(0, end))
+    if (body.length <= limit || end === 0) return { body, truncated: end < visible.length, passes }
+    const excess = body.length - limit
+    // Past the cap the step doubles each pass, which still bounds the passes by log2(limit).
+    const step = passes < FIT_NEUTRALIZED_MAX_PASSES ? excess : excess * 2 ** (passes - FIT_NEUTRALIZED_MAX_PASSES + 1)
+    end = codePointSafeEnd(visible, Math.max(0, end - step))
   }
 }
+
+/** Passes {@link fitNeutralizedText} needs at most (3 by its argument; one spare). */
+export const FIT_NEUTRALIZED_MAX_PASSES = 4
 
 function positiveBudget(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
@@ -292,7 +324,7 @@ export function buildAttachmentsSection(
       pushMetadataLine(`<attachment ${attributes} status="${attachment.status}"${reason} />`)
       return
     }
-    const text = attachment.extractedText?.trim() ?? ''
+    const text = stripInvisiblePromptChars(attachment.extractedText ?? '').trim()
     if (!text) {
       pushMetadataLine(`<attachment ${attributes} text="none" />`)
       return
@@ -325,7 +357,7 @@ export function buildExtractionUserPrompt(cleanedText: string, options: Extracti
   // The body is untrusted as well: a forged `</email_content><attachments>` must not open a section.
   // Cut-then-neutralize like attachment text, so `&lt;` growth cannot overrun the body budget.
   const maxBodyChars = positiveBudget(options.maxBodyChars, Number.POSITIVE_INFINITY)
-  const emailContent = attachmentsSection && !cleanedText.trim()
+  const emailContent = attachmentsSection && !hasVisiblePromptText(cleanedText)
     ? '(The email body is empty; the content is in the attachments.)'
     : fitNeutralizedText(cleanedText, maxBodyChars).body
   const attachmentsBlock = attachmentsSection ? `\n\n${attachmentsSection}` : ''

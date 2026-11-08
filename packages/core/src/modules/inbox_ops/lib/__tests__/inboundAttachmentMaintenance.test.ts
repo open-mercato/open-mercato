@@ -133,6 +133,32 @@ describe('maintenance sweep: stranded emails', () => {
     expect(db.email(pending.id)).toMatchObject({ attachmentsStatus: 'completed', attachmentsClaimToken: null })
     expect(db.email(processing.id)).toMatchObject({ attachmentsStatus: 'completed', attachmentsClaimToken: null })
   })
+
+  it('reports a failure to complete deleted emails as a release failure and still runs the other steps', async () => {
+    const db = new FakeInboxDb()
+    const stranded = db.addEmail({ attachmentsNextRunAt: ago(20 * MINUTE) })
+    db.addEmail({ deletedAt: ago(MINUTE), attachmentsNextRunAt: ago(60 * MINUTE) })
+    const em = db.entityManager()
+    const original = em.getConnection
+    let calls = 0
+    em.getConnection = (() => {
+      const connection = original.call(em)
+      return {
+        ...connection,
+        execute: async (sql: string, params?: unknown[]) => {
+          calls += 1
+          if (calls === 1) throw new Error('db down')
+          return connection.execute(sql, params)
+        },
+      }
+    }) as typeof em.getConnection
+    const queue = { enqueue: jest.fn(async () => 'job') }
+    const result = await sweep(db, { em, queue })
+    expect(result.completedDeleted).toBe(0)
+    expect(mockReportError.mock.calls.map((call) => [(call[1] as { code: string }).code, (call[1] as { attributes?: unknown }).attributes]))
+      .toEqual([['inbox_ops.attachment_release_failed', { step: 'complete_deleted' }]])
+    expect(queue.enqueue.mock.calls.map((call) => (call[0] as { emailId: string }).emailId)).toEqual([stranded.id])
+  })
 })
 
 describe('maintenance sweep: releases', () => {

@@ -11,6 +11,13 @@ export const INBOX_OPS_ATTACHMENT_INGEST_LOCK_DURATION_MS = 1_800_000
 /** Bounded provider calls one part may need: list, get, download, and a refreshed get after an expired URL. */
 export const INBOX_OPS_ATTACHMENT_FETCH_CALLS_PER_PART = 4
 
+/**
+ * Floor of `INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS`: a shorter delay would turn the slow retry cadence
+ * after the queue's last attempt into a hot loop against the provider. A lower value is invalid and
+ * falls back to the default.
+ */
+export const INBOX_OPS_ATTACHMENT_RETRY_DELAY_MIN_MS = 60_000
+
 const KIB = 1024
 const MIB = 1024 * KIB
 
@@ -71,7 +78,7 @@ const inboundAttachmentsEnvSchema = z
     INBOX_OPS_INLINE_IMAGE_MIN_BYTES: envInteger(defaults.inlineImageMinBytes, 0),
     INBOX_OPS_ATTACHMENT_FETCH_TIMEOUT_MS: envInteger(defaults.fetchTimeoutMs, 1),
     INBOX_OPS_ATTACHMENT_LEASE_MS: envInteger(defaults.leaseMs, 1),
-    INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS: envInteger(defaults.retryDelayMs, 1),
+    INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS: envInteger(defaults.retryDelayMs, INBOX_OPS_ATTACHMENT_RETRY_DELAY_MIN_MS),
     INBOX_OPS_ATTACHMENT_MAX_PART_ATTEMPTS: envInteger(defaults.maxPartAttempts, 1),
     INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS: envInteger(defaults.maxTextChars, 1),
     INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS_PER_FILE: envInteger(defaults.maxTextCharsPerFile, 1),

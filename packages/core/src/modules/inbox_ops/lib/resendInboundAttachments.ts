@@ -78,33 +78,56 @@ export type ListedInboundAttachments = {
   emailNotFound: boolean
   /** A list call failed; parts missing from `byId` take their URL from `get`. */
   failed: boolean
+  /** `beforeNextPage` returned `false` (the caller lost its claim): listing stopped, nothing should be stored. */
+  aborted: boolean
 }
 
-/** Lists fresh download URLs with `receiving.attachments.list`, paged with `after` until `has_more` is false. */
+export type ListInboundAttachmentsOptions = {
+  /** Provider attachment ids the caller still needs; paging stops once every one is listed. */
+  wantedIds?: ReadonlySet<string>
+  /**
+   * Runs before each further page, e.g. to renew the caller's claim so up to {@link MAX_LIST_PAGES}
+   * paged calls cannot outlast its lease; `false` stops listing with `aborted`.
+   */
+  beforeNextPage?: () => Promise<boolean>
+}
+
+/**
+ * Lists fresh download URLs with `receiving.attachments.list`, paged with `after` until `has_more`
+ * is false or every wanted id is listed.
+ */
 export async function listInboundAttachmentDescriptors(
   api: ResendInboundAttachmentsApi,
   providerEmailId: string,
   timeoutMs: number,
+  options: ListInboundAttachmentsOptions = {},
 ): Promise<ListedInboundAttachments> {
   const byId = new Map<string, ResendInboundAttachmentDescriptor>()
+  const wanted = options.wantedIds
+  const listedEveryWanted = () => wanted !== undefined && [...wanted].every((id) => byId.has(id))
   let after: string | undefined
   for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+    if (page > 0 && options.beforeNextPage && !await options.beforeNextPage()) {
+      return { byId, emailNotFound: false, failed: false, aborted: true }
+    }
     const cursor = after
     const result = await callSdk(
       () => api.list(cursor ? { emailId: providerEmailId, limit: LIST_PAGE_LIMIT, after: cursor } : { emailId: providerEmailId, limit: LIST_PAGE_LIMIT }),
       timeoutMs,
     )
-    if (result.kind === 'not_found') return { byId, emailNotFound: page === 0, failed: true }
-    if (result.kind === 'transient') return { byId, emailNotFound: false, failed: true }
+    if (result.kind === 'not_found') return { byId, emailNotFound: page === 0, failed: true, aborted: false }
+    if (result.kind === 'transient') return { byId, emailNotFound: false, failed: true, aborted: false }
     const items = Array.isArray(result.data.data) ? result.data.data : []
     for (const item of items) {
       if (item && typeof item.id === 'string') byId.set(item.id, item)
     }
     const last = items[items.length - 1]
-    if (!result.data.has_more || !last || last.id === after) return { byId, emailNotFound: false, failed: false }
+    if (!result.data.has_more || !last || last.id === after || listedEveryWanted()) {
+      return { byId, emailNotFound: false, failed: false, aborted: false }
+    }
     after = last.id
   }
-  return { byId, emailNotFound: false, failed: true }
+  return { byId, emailNotFound: false, failed: true, aborted: false }
 }
 
 export type DownloadResult =

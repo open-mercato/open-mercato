@@ -110,6 +110,7 @@ export type InboundAttachmentIngestOutcome =
   | 'claim_lost'
   | 'lease_live_requeued'
   | 'released_requeued'
+  | 'lease_expired_requeued'
   | 'completed'
   | 'finalized'
   | 'retry_requeued'
@@ -346,7 +347,8 @@ async function reenqueueSelf(run: IngestRunContext, delayMs: number): Promise<bo
 /**
  * Another claim's lease is still live: re-enqueue after it, so a fast retry after a crash cannot end
  * the chain. When the holder already released the email (`pending` again) between our claim and this
- * read, re-enqueue at once instead: the holder's own follow-up may be its last.
+ * read, or its lease has expired by now (a crashed holder whose lease ran out in between), re-enqueue
+ * at once instead: the holder's own follow-up may be its last.
  */
 async function afterLostClaimRace(run: IngestRunContext): Promise<InboundAttachmentIngestRunResult> {
   const current = await loadEmail(run.em, run.ref)
@@ -359,7 +361,10 @@ async function afterLostClaimRace(run: IngestRunContext): Promise<InboundAttachm
   const claimedAt = current?.attachmentsClaimedAt?.getTime()
   if (current?.attachmentsStatus !== 'processing' || claimedAt === undefined) return { outcome: 'claim_lost' }
   const remainingLeaseMs = claimedAt + run.config.leaseMs - run.now().getTime()
-  if (remainingLeaseMs <= 0) return { outcome: 'claim_lost' }
+  if (remainingLeaseMs <= 0) {
+    const requeued = await reenqueueSelf(run, 0)
+    return { outcome: requeued ? 'lease_expired_requeued' : 'superseded' }
+  }
   const requeued = await reenqueueSelf(run, remainingLeaseMs)
   return { outcome: requeued ? 'lease_live_requeued' : 'superseded' }
 }
@@ -599,8 +604,10 @@ async function finish(run: IngestRunContext, claim: Claim, email: InboxEmail): P
 
 async function openPartSource(
   run: IngestRunContext,
+  claim: Claim,
   email: InboxEmail,
-): Promise<PartSource | { kind: 'unfetchable' } | { kind: 'provider_unavailable' }> {
+  pending: LedgerRow[],
+): Promise<PartSource | { kind: 'unfetchable' } | { kind: 'provider_unavailable' } | { kind: 'claim_lost' }> {
   const ingestMetadata = inboxEmailAttachmentIngestMetadataSchema.safeParse(email.metadata?.attachmentIngest)
   if (!ingestMetadata.success) return { kind: 'unfetchable' }
   let api: ResendInboundAttachmentsApi
@@ -615,7 +622,15 @@ async function openPartSource(
     return { kind: 'provider_unavailable' }
   }
   const providerEmailId = ingestMetadata.data.providerEmailId
-  const listed = await listInboundAttachmentDescriptors(api, providerEmailId, run.config.fetchTimeoutMs)
+  const wantedIds = new Set(
+    pending.map((row) => providerAttachmentIdFromPartKey(row.partKey)).filter((id): id is string => Boolean(id)),
+  )
+  const listed = await listInboundAttachmentDescriptors(api, providerEmailId, run.config.fetchTimeoutMs, {
+    wantedIds,
+    // Each page may take up to the fetch timeout: renew the claim so paging cannot outlast the lease.
+    beforeNextPage: () => withClaim(run.em, claim, run.now),
+  })
+  if (listed.aborted) return { kind: 'claim_lost' }
   if (listed.emailNotFound) return { kind: 'unfetchable' }
   return { kind: 'source', api, providerEmailId, listed }
 }
@@ -641,7 +656,8 @@ async function ingestClaimed(run: IngestRunContext, claim: Claim, email: InboxEm
     return finish(run, claim, email)
   }
 
-  const source = await openPartSource(run, email)
+  const source = await openPartSource(run, claim, email, pending)
+  if (source.kind === 'claim_lost') return { outcome: 'claim_lost' }
   if (source.kind === 'unfetchable') {
     if (!await resolveAllPending(run, claim, 'failed', 'fetch_failed')) return { outcome: 'claim_lost' }
     return finish(run, claim, email)

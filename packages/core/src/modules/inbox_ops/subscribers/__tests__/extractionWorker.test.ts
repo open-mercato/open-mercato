@@ -53,6 +53,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt', () => ({
   buildExtractionSystemPrompt: jest.fn(() => Promise.resolve('mock system prompt')),
   buildExtractionUserPrompt: jest.fn(() => 'mock user prompt'),
+  hasVisiblePromptText: jest.requireActual('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt').hasVisiblePromptText,
 }))
 
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/constants', () => ({
@@ -960,6 +961,40 @@ describe('extractionWorker', () => {
       expect(mockedPrompt.buildExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 204800 })
     })
 
+    it.each(['abc', '0', '-5', ''])('falls back to the 204800 body budget for INBOX_OPS_MAX_TEXT_SIZE=%p', async (value) => {
+      const saved = process.env.INBOX_OPS_MAX_TEXT_SIZE
+      process.env.INBOX_OPS_MAX_TEXT_SIZE = value
+      try {
+        mockNativeUpdate.mockResolvedValue(1)
+        mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: null }))
+        mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+        await handle(basePayload, mockCtx as any)
+
+        expect(mockedPrompt.buildExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 204800 })
+      } finally {
+        if (saved === undefined) delete process.env.INBOX_OPS_MAX_TEXT_SIZE
+        else process.env.INBOX_OPS_MAX_TEXT_SIZE = saved
+      }
+    })
+
+    it('passes a valid INBOX_OPS_MAX_TEXT_SIZE through as the body budget', async () => {
+      const saved = process.env.INBOX_OPS_MAX_TEXT_SIZE
+      process.env.INBOX_OPS_MAX_TEXT_SIZE = '5000'
+      try {
+        mockNativeUpdate.mockResolvedValue(1)
+        mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: null }))
+        mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+        await handle(basePayload, mockCtx as any)
+
+        expect(mockedPrompt.buildExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 5000 })
+      } finally {
+        if (saved === undefined) delete process.env.INBOX_OPS_MAX_TEXT_SIZE
+        else process.env.INBOX_OPS_MAX_TEXT_SIZE = saved
+      }
+    })
+
     it('loads the ledger scoped to tenant and organization and passes listed rows to the prompt', async () => {
       mockNativeUpdate.mockResolvedValue(1)
       mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: 'completed' }))
@@ -1054,6 +1089,20 @@ describe('extractionWorker', () => {
       expect(email.processingError).toContain('No text content')
       expect(mockFlush).toHaveBeenCalled()
       expect(mockCreate).not.toHaveBeenCalledWith(InboxProposal, expect.anything())
+    })
+
+    it('counts text made only of invisible characters as no text, in the body and in stored files', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const invisible = '\u200B\u2060\u00AD\u202E\u{E0041} \uFEFF'
+      const email = makeEmail({ rawText: invisible, rawHtml: null, cleanedText: invisible, attachmentsStatus: 'completed' })
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindWithDecryption.mockResolvedValueOnce([ledgerRow({ fileName: 'blank.pdf', extractedText: invisible })])
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockRunExtraction).not.toHaveBeenCalled()
+      expect(email.status).toBe('needs_review')
+      expect(email.processingError).toContain('No text content')
     })
 
     it('still fails an empty body when no part was stored', async () => {

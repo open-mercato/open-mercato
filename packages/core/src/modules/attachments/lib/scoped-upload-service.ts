@@ -85,6 +85,15 @@ export function isScopedAttachmentUploadError(error: unknown): error is ScopedAt
  */
 export type AttachmentTextExtractionMode = 'partition' | 'return' | 'none'
 
+const ATTACHMENT_TEXT_EXTRACTION_MODES: ReadonlySet<string> = new Set<AttachmentTextExtractionMode>(['partition', 'return', 'none'])
+
+function resolveTextExtractionMode(value: unknown): AttachmentTextExtractionMode {
+  if (value === undefined) return 'partition'
+  if (typeof value === 'string' && ATTACHMENT_TEXT_EXTRACTION_MODES.has(value)) return value as AttachmentTextExtractionMode
+  // A caller bug (the option is typed and never read from a request): fail before any quota or storage work.
+  throw new TypeError(`[internal] Unknown attachment textExtraction mode: ${String(value)}`)
+}
+
 /** Third `persistLink` argument, passed only with `textExtraction: 'return'`. */
 export type AttachmentPersistLinkExtras = {
   /** The extracted text, or `null` when the file type yields none. */
@@ -144,6 +153,7 @@ export class ScopedAttachmentUploadService {
   }) {}
 
   async upload(input: ScopedAttachmentUploadInput): Promise<Attachment> {
+    const textExtraction = resolveTextExtractionMode(input.textExtraction)
     const safeName = sanitizeUploadedFileName(input.fileName)
     if (hasDangerousExecutableExtension(safeName)) {
       throw new ScopedAttachmentUploadError('dangerous_executable', 400)
@@ -234,7 +244,6 @@ export class ScopedAttachmentUploadService {
       throw new ScopedAttachmentUploadError('storage_failed', 500)
     }
 
-    const textExtraction: AttachmentTextExtractionMode = input.textExtraction ?? 'partition'
     let extractedContent: string | null = null
     const wantsLlmOcr = textExtraction === 'partition' && partition.requiresOcr && shouldUseLlmOcr(mimeType, safeName)
     const ocrService = wantsLlmOcr ? new OcrService() : null

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { ownerPolicyRequest } from '@open-mercato/core/helpers/integration/attachmentAccessFixtures'
+import { uploadAttachmentFixture } from '@open-mercato/core/helpers/integration/attachmentsFixtures'
 import { withClient, type IntegrationDbClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   INBOUND_EMAIL_ENTITY_ID,
@@ -76,6 +77,8 @@ function assignmentsOf(row: AttachmentRow | null): unknown {
  * stored part is released through `releaseScoped` first, so rows other modules attached to the
  * email are planted through SQL to reach `releaseOwnedScoped` with real rows: its locked
  * containment query on both `assignments` shapes, the storage-reference check and the scope filter.
+ * One row has its own stored object (uploaded, then re-owned through SQL), so the provider
+ * cleanup after commit is checked against real storage.
  * Spec: .ai/specs/2026-10-25-inbox-ops-inbound-attachments.md
  */
 test.describe('TC-INBOX-ATT-011: deleting an email removes its references from other attachment rows', () => {
@@ -101,6 +104,21 @@ test.describe('TC-INBOX-ATT-011: deleting an email removes its references from o
       const documentId = randomUUID()
       const otherOrganizationId = randomUUID()
 
+      // (0) A row with its own real stored object, uploaded through the API (as a library file, so
+      // its bytes can be read back here) and then re-owned by the email alone.
+      const ownBytes = `own object bytes ${run}`
+      const uploaded = await uploadAttachmentFixture(request, admin, {
+        entityId: LIBRARY_ENTITY_ID,
+        recordId: run,
+        fileName: `${run}-own.txt`,
+        mimeType: 'text/plain',
+        buffer: Buffer.from(ownBytes, 'utf8'),
+      })
+      planted.push(uploaded.id)
+      const uploadedDownload = await ownerPolicyRequest('GET', `/api/attachments/file/${uploaded.id}`, admin)
+      expect(uploadedDownload.status, 'The uploaded object should be readable before the delete').toBe(200)
+      expect(uploadedDownload.bytes.toString('utf8')).toBe(ownBytes)
+
       const ids = await withClient(async (client) => {
         const source = await readAttachment(client, sourceId)
         if (!source?.organization_id) throw new Error('[internal] the ingested attachment row is missing')
@@ -109,6 +127,15 @@ test.describe('TC-INBOX-ATT-011: deleting an email removes its references from o
         expect(stored).toEqual([expect.objectContaining({ type: INBOUND_EMAIL_ENTITY_ID, id: emailId })])
         const emailAssignment = stored[0]
         const organizationId = source.organization_id
+        await client.query(
+          `update attachments set entity_id = $2, record_id = $3, storage_metadata = $4::jsonb where id = $1`,
+          [uploaded.id, INBOUND_EMAIL_ENTITY_ID, emailId, JSON.stringify({ assignments: [emailAssignment] })],
+        )
+        const ownObject = await readAttachment(client, uploaded.id)
+        if (!ownObject) throw new Error('[internal] the uploaded attachment row is missing')
+        expect(ownObject.storage_path, 'The uploaded row should have its own stored object').not.toBe(source.storage_path)
+        // Same scope and partition as the email's part, so the release covers it and the probe below can copy a row of that partition.
+        expect(ownObject).toMatchObject({ organization_id: organizationId, tenant_id: source.tenant_id, partition_code: source.partition_code })
         const fakePath = (name: string) => `${source.storage_path}.tc-inbox-att-011-${name}`
 
         // (1) email-owned, no other assignment, sharing the stored object with a library copy.
@@ -147,13 +174,14 @@ test.describe('TC-INBOX-ATT-011: deleting an email removes its references from o
           storagePath: fakePath('other-org'), storageMetadata: { assignments: [emailAssignment] },
         })
         planted.push(otherScope)
-        return { ownedShared, ownedAssigned, libraryArray, libraryLegacy, otherScope, otherScopeBefore: await readAttachment(client, otherScope) }
+        return { ownObject, ownedShared, ownedAssigned, libraryArray, libraryLegacy, otherScope, otherScopeBefore: await readAttachment(client, otherScope) }
       })
 
       const deleted = await apiRequest(request, 'DELETE', `/api/inbox_ops/emails/${emailId}`, { token: admin })
       expect(deleted.status()).toBe(200)
 
       const after = await withClient(async (client) => ({
+        ownObject: await readAttachment(client, ids.ownObject.id),
         source: await readAttachment(client, sourceId),
         ownedShared: await readAttachment(client, ids.ownedShared),
         libraryCopy: libraryCopyId ? await readAttachment(client, libraryCopyId) : null,
@@ -167,6 +195,19 @@ test.describe('TC-INBOX-ATT-011: deleting an email removes its references from o
         )).rows[0],
       }))
 
+      // (0) The row and its own bytes are gone: its file route 404s, and a probe row planted on the
+      // same stored object (readable as a library file) finds nothing in storage.
+      expect(after.ownObject).toBeNull()
+      const ownRoute = await ownerPolicyRequest('GET', `/api/attachments/file/${ids.ownObject.id}`, admin)
+      expect(ownRoute.status).toBe(404)
+      // The source row is gone by now; the library copy carries the same tenant, partition and driver.
+      const probeId = await withClient((client) => plantAttachment(client, libraryCopyId as string, {
+        entityId: LIBRARY_ENTITY_ID, recordId: run, organizationId: ids.ownObject.organization_id as string,
+        storagePath: ids.ownObject.storage_path, storageMetadata: { assignments: [{ type: LIBRARY_ENTITY_ID, id: run }] },
+      }))
+      planted.push(probeId)
+      const probe = await ownerPolicyRequest('GET', `/api/attachments/file/${probeId}`, admin)
+      expect(probe.status, 'The stored object of the released row should be deleted').toBe(404)
       // (1) Deleted with the email's own part, while the stored bytes stay for the library copy.
       expect(after.source).toBeNull()
       expect(after.ownedShared).toBeNull()

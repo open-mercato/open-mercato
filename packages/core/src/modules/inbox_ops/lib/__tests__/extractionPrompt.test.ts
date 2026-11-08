@@ -4,6 +4,9 @@ import {
   buildAttachmentsSection,
   buildExtractionSystemPrompt,
   buildExtractionUserPrompt,
+  FIT_NEUTRALIZED_MAX_PASSES,
+  fitNeutralizedText,
+  hasVisiblePromptText,
   neutralizePromptDelimiters,
   REQUIRED_FEATURES_MAP,
   type ExtractionPromptAttachment,
@@ -392,6 +395,76 @@ describe('attachments in the user prompt', () => {
 
   it('neutralizePromptDelimiters keeps ordinary angle brackets', () => {
     expect(neutralizePromptDelimiters('qty <5 and <b>bold</b>')).toBe('qty <5 and <b>bold</b>')
+  })
+
+  it('drops every Unicode format character and C0/C1 control before matching delimiters', () => {
+    const invisible = ['\u2060', '\u00AD', '\u202A', '\u202E', '\u2066', '\u2069', '\u{E0001}', '\u{E0041}', '\u{E007F}', '\u0085', '\u0001']
+    for (const char of invisible) {
+      expect(neutralizePromptDelimiters(`<${char}/attachment>`)).toBe('&lt;/attachment>')
+    }
+    expect(neutralizePromptDelimiters('a\tb\nc\r\nd')).toBe('a\tb\nc\r\nd')
+    expect(hasVisiblePromptText('\u200B\u2060\u00AD \u{E0041}\n')).toBe(false)
+    expect(hasVisiblePromptText('\u200Bx')).toBe(true)
+    expect(hasVisiblePromptText(null)).toBe(false)
+  })
+
+  it('treats attachment text made only of invisible characters as no text', () => {
+    const section = buildAttachmentsSection([attachment({ extractedText: '\u200B\u2060\u00AD\u{E0041} ' })]) as string
+    expect(section).toContain(`attachmentId="${PDF_ID}" text="none" />`)
+  })
+
+  it('never leaves a partial delimiter at the cut', () => {
+    for (const tail of ['<attachmentx', '<attachments', '</attachment', '<role']) {
+      for (let limit = 1; limit <= 20; limit += 1) {
+        const fitted = fitNeutralizedText(`abc${tail}def`, limit)
+        expect(fitted.body.length).toBeLessThanOrEqual(limit)
+        expect(fitted.body).not.toMatch(/<\s*\/?\s*(attachment|attachments|role)(?![A-Za-z0-9_-])/)
+      }
+    }
+  })
+
+  describe('fitting adversarial text', () => {
+    // Delimiters that fill the budget exactly once neutralized, then invisible padding the old
+    // cut-then-neutralize loop trimmed a few characters per O(limit) pass (168 s at 204 800).
+    const LIMIT = 204800
+    const adversarial = `${'<role'.repeat(25600)}${' '.repeat(9)}${'\u200B'.repeat(77000)}tail`
+
+    it('fits the email body in a bounded number of passes', () => {
+      const fitted = fitNeutralizedText(adversarial, LIMIT)
+      expect(fitted.passes).toBeLessThanOrEqual(FIT_NEUTRALIZED_MAX_PASSES)
+      expect(fitted.body.length).toBeLessThanOrEqual(LIMIT)
+      expect(fitted.body).not.toMatch(/\u200B/)
+      const started = Date.now()
+      const prompt = buildExtractionUserPrompt(adversarial, { maxBodyChars: LIMIT })
+      expect(Date.now() - started).toBeLessThan(5000)
+      const body = prompt.split('<email_content>\n')[1].split('\n</email_content>')[0]
+      expect(body.length).toBeLessThanOrEqual(LIMIT)
+      expect(body).not.toMatch(/<role/)
+    })
+
+    it('fits attachment text in a bounded number of passes', () => {
+      const perFile = 20000
+      const text = `${'<attachment'.repeat(2500)}${'\u2060'.repeat(30000)}tail`
+      expect(fitNeutralizedText(text, perFile).passes).toBeLessThanOrEqual(FIT_NEUTRALIZED_MAX_PASSES)
+      const started = Date.now()
+      const section = buildAttachmentsSection(
+        [attachment({ extractedText: adversarial }), attachment({ extractedText: text })],
+        { maxTotalChars: LIMIT * 2, maxCharsPerFile: LIMIT },
+      ) as string
+      expect(Date.now() - started).toBeLessThan(5000)
+      expect(section.match(/^<attachment /gm)).toHaveLength(2)
+      expect(section).not.toMatch(/<role|\u200B|\u2060/)
+    })
+
+    it('keeps the passes bounded when every cut lands on a delimiter', () => {
+      for (const unit of ['<role', '<attachments', '</email_content', '< / task']) {
+        for (const limit of [97, 100, 101, 4096]) {
+          const fitted = fitNeutralizedText(unit.repeat(5000), limit)
+          expect(fitted.passes).toBeLessThanOrEqual(FIT_NEUTRALIZED_MAX_PASSES)
+          expect(fitted.body.length).toBeLessThanOrEqual(limit)
+        }
+      }
+    })
   })
 })
 
