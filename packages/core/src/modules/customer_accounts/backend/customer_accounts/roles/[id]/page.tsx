@@ -239,6 +239,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
   const initialValues = React.useMemo(() => {
     if (!data) return {}
     return {
+      id: data.id,
       name: data.name,
       description: data.description || '',
       isDefault: data.isDefault,
