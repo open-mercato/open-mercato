@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { hasFeature } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import type {
   AttachmentAccessInput,
   AttachmentAccessResolver,
@@ -63,8 +63,12 @@ export const attachmentAccessResolvers: AttachmentAccessResolver[] = [{
     if (input.action === 'reassign' || input.action === 'delete') {
       return { ok: false, status: 403, reason: 'inbox_email_attachment_managed_by_inbox' }
     }
-    // Effective features are wildcard-expanded server-side; super-admins carry `*`.
-    if (!hasFeature(input.subject.userFeatures, readFeature)) return notFound
+    // The shared policy entrypoint honors wildcards, removed features and disabled modules.
+    const canRead = authorizeFeatures([readFeature], {
+      grantedFeatures: input.subject.userFeatures,
+      unrestricted: input.subject.isSuperAdmin,
+    })
+    if (!canRead) return notFound
     const emailIds = input.targets
       .filter((target) => target.entityId === ownerEntityId)
       .map((target) => target.recordId.toLowerCase())

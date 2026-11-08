@@ -1,6 +1,8 @@
 /** @jest-environment node */
 
+import type { ResendInboundAttachment } from '../../data/validators'
 import { parseInboundEmail } from '../emailParser'
+import { nonDecorativeInboundAttachmentIds } from '../inboundAttachments'
 
 describe('parseInboundEmail', () => {
   it('parses basic email fields', () => {
@@ -187,5 +189,55 @@ describe('parseInboundEmail', () => {
     })
 
     expect(result.from).toEqual({ name: 'Doe, John', email: 'john@example.com' })
+  })
+})
+
+describe('parseInboundEmail contentHash with attachments', () => {
+  const inlineImageMinBytes = 16 * 1024
+  const envelope = { from: 'Supplier <offers@supplier.example>', subject: 'Offer', text: 'Please find our offer attached.' }
+  const attachmentOnlyEnvelope = { from: 'offers@supplier.example', subject: 'Offer' }
+
+  function file(id: string): ResendInboundAttachment {
+    return { id, filename: 'offer.pdf', size: 48_213, content_type: 'application/pdf', content_id: null, content_disposition: 'attachment' }
+  }
+
+  function logo(id: string): ResendInboundAttachment {
+    return { id, filename: 'logo.png', size: 2_048, content_type: 'image/png', content_id: `<${id}@mail>`, content_disposition: 'inline' }
+  }
+
+  function hashOf(payload: Parameters<typeof parseInboundEmail>[0], parts?: ResendInboundAttachment[]): string {
+    const attachmentIds = parts ? nonDecorativeInboundAttachmentIds(parts, { inlineImageMinBytes }) : undefined
+    return parseInboundEmail(payload, attachmentIds ? { attachmentIds } : undefined).contentHash
+  }
+
+  it('keeps the existing hash byte-identical for mail without attachments', () => {
+    expect(hashOf(envelope)).toBe('8070f90f5892b8ce5a75e9e89cca8c4bdbf47d181670c1ecb1e01902d559a3ec')
+    expect(hashOf(attachmentOnlyEnvelope)).toBe('48a08f5b743a1a052c1c7dfaa9eaf7754f455f2f7eccac75cd06cf2289f1319b')
+    expect(hashOf(envelope, [])).toBe(hashOf(envelope))
+    expect(parseInboundEmail(envelope, { attachmentIds: [] }).contentHash).toBe(hashOf(envelope))
+  })
+
+  it('keeps the existing hash for mail whose only parts are inline logos', () => {
+    expect(hashOf(envelope, [logo('logo-1'), logo('logo-2')])).toBe(hashOf(envelope))
+  })
+
+  it('distinguishes attachment-only emails from the same envelope without files', () => {
+    expect(hashOf(attachmentOnlyEnvelope, [file('att-1')])).not.toBe(hashOf(attachmentOnlyEnvelope))
+  })
+
+  it('gives different hashes to attachment-only emails with equal metadata but different attachment ids', () => {
+    const first = hashOf(attachmentOnlyEnvelope, [file('2f0d1b6e-0001-4000-8000-000000000001')])
+    const second = hashOf(attachmentOnlyEnvelope, [file('2f0d1b6e-0002-4000-8000-000000000002')])
+    expect(first).not.toBe(second)
+  })
+
+  it('gives equal hashes to the same envelope delivered twice, whatever the part order', () => {
+    const parts = [logo('logo-1'), file('att-b'), file('att-a')]
+    expect(hashOf(attachmentOnlyEnvelope, parts)).toBe(hashOf(attachmentOnlyEnvelope, [file('att-a'), logo('logo-1'), file('att-b')]))
+    expect(hashOf(attachmentOnlyEnvelope, parts)).toBe(hashOf(attachmentOnlyEnvelope, parts))
+  })
+
+  it('ignores inline logos next to real attachments', () => {
+    expect(hashOf(envelope, [logo('logo-1'), file('att-1')])).toBe(hashOf(envelope, [file('att-1')]))
   })
 })

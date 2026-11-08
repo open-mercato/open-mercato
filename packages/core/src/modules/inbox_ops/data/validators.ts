@@ -261,6 +261,21 @@ export const updateSettingsSchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Inbound attachment metadata (Resend `receiving.get()` → `attachments[]`)
+// ---------------------------------------------------------------------------
+
+export const resendInboundAttachmentSchema = z.object({
+  id: z.string().trim().min(1),
+  filename: z.string().nullish(),
+  size: z.number().int().nonnegative(),
+  content_type: z.string().nullish(),
+  content_id: z.string().nullish(),
+  content_disposition: z.string().nullish(),
+})
+
+export type ResendInboundAttachment = z.infer<typeof resendInboundAttachmentSchema>
+
+// ---------------------------------------------------------------------------
 // API Query Schemas
 // ---------------------------------------------------------------------------
 
