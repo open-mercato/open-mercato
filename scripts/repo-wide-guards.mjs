@@ -385,6 +385,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Already unfiltered — the same create-app parity step (#3779) runs the whole create-mercato-app suite. It also drives the real scaffolder and generator suite against a generated app, so it costs minutes rather than the seconds this runner budgets for the common PR path.',
   },
   {
+    path: 'packages/create-app/src/lib/templates/templates.test.ts',
+    reason: 'Already unfiltered: the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). `process.cwd()` only saves the directory `main` is run from; it reads nothing outside packages/create-app.',
+  },
+  {
     path: 'packages/ui/src/backend/__tests__/FieldDefinitionsEditor.test.tsx',
     reason: 'Package-local despite the repo-root anchor — it only reads packages/ui sources, so the turbo filter selects it correctly.',
   },
