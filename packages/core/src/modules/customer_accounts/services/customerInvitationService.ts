@@ -15,6 +15,25 @@ import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_acco
 const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
 
+const CUSTOMER_INVITATION_OWNERSHIP_CONFLICT_MARKER = Symbol.for('@open-mercato/CustomerInvitationOwnershipConflictError')
+
+export class CustomerInvitationOwnershipConflictError extends Error {
+  readonly [CUSTOMER_INVITATION_OWNERSHIP_CONFLICT_MARKER] = true
+
+  constructor() {
+    super('[internal] Pending invitation cannot be replaced by this portal inviter')
+    this.name = 'CustomerInvitationOwnershipConflictError'
+  }
+}
+
+export function isCustomerInvitationOwnershipConflictError(
+  error: unknown,
+): error is CustomerInvitationOwnershipConflictError {
+  return !!error
+    && typeof error === 'object'
+    && (error as Record<symbol, unknown>)[CUSTOMER_INVITATION_OWNERSHIP_CONFLICT_MARKER] === true
+}
+
 // Use Symbol.for so the marker survives module duplication across bundle
 // boundaries: the accept route and this service are bundled into separate
 // chunks, so `instanceof` between them is false and the 409 mapping would
@@ -119,6 +138,14 @@ export class CustomerInvitationService {
       )
 
       if (existing && !existing.acceptedAt && !existing.cancelledAt && existing.expiresAt.getTime() > Date.now()) {
+        if (options.invitedByCustomerUserId && (
+          !options.customerEntityId
+          || existing.customerEntityId !== options.customerEntityId
+          || !existing.invitedByCustomerUserId
+          || existing.invitedByUserId
+        )) {
+          throw new CustomerInvitationOwnershipConflictError()
+        }
         const rollbackState: CustomerInvitationRollbackState = {
           email: existing.email,
           token: existing.token,

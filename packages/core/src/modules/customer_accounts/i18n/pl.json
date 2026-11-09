@@ -296,6 +296,7 @@
   "customer_accounts.errors.cancelInvitationPermission": "Niewystarczające uprawnienia",
   "customer_accounts.errors.crossSiteRequest": "To żądanie logowania nie pochodzi z tej aplikacji. Otwórz stronę logowania i spróbuj ponownie.",
   "customer_accounts.errors.emailAlreadyExists": "Konto z tym adresem e-mail już istnieje",
+  "customer_accounts.errors.invitationConflict": "Nie można wysłać tego zaproszenia. Skontaktuj się z administratorem.",
   "customer_accounts.invitation.email.body": "Użyj bezpiecznego linku zaproszenia, aby utworzyć hasło i uzyskać dostęp do portalu klienta.",
   "customer_accounts.invitation.email.cta": "Przyjmij zaproszenie",
   "customer_accounts.invitation.email.hint": "Ten link zaproszenia wygasa po 72 godzinach. Jeśli nie spodziewasz się tego zaproszenia, możesz zignorować tę wiadomość.",
