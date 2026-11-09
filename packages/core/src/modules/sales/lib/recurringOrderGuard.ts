@@ -13,6 +13,7 @@ export type RecurringErrorCode =
   | 'recurring_order_locked'
   | 'recurring_order_use_cancel'
   | 'recurring_order_invoiced'
+  | 'recurring_order_invoiced_stop'
 
 const FALLBACK_MESSAGES: Record<RecurringErrorCode, string> = {
   recurring_quote_started: 'This recurring quote starts in the past. Create a new quote with a current start date.',
@@ -20,6 +21,7 @@ const FALLBACK_MESSAGES: Record<RecurringErrorCode, string> = {
   recurring_order_locked: 'This recurring order has been invoiced. Create a new recurring order instead of editing it.',
   recurring_order_use_cancel: "A canceled or on-hold order can't keep a recurring schedule. Remove the schedule first.",
   recurring_order_invoiced: 'A recurring order with issued invoices cannot be deleted.',
+  recurring_order_invoiced_stop: "A recurring order with issued invoices can't be canceled or put on hold.",
 }
 
 const STATUS_BY_CODE: Record<RecurringErrorCode, number> = {
@@ -28,6 +30,7 @@ const STATUS_BY_CODE: Record<RecurringErrorCode, number> = {
   recurring_order_locked: 409,
   recurring_order_use_cancel: 409,
   recurring_order_invoiced: 409,
+  recurring_order_invoiced_stop: 409,
 }
 
 export async function recurringError(code: RecurringErrorCode): Promise<CrudHttpError> {
@@ -67,7 +70,8 @@ export async function assertOrderRecurrenceUnlocked(em: EntityManager, order: Or
 
 /**
  * A canceled or on-hold order may not carry an unfinished recurrence (R10): the schedule has to
- * be removed first, or stopped with *Cancel recurring order* once that ships. `nextStatus` and
+ * be removed first, or stopped with *Cancel recurring order* once that ships. An invoiced
+ * schedule cannot be removed (R5), so that refusal does not point at removing it. `nextStatus` and
  * `nextRecurrence` are the values the write leaves on the order; `nextRecurrence` is `undefined`
  * when the write keeps the current one. Order writes MUST call it after the order row lock that
  * recurrence writes take, so a concurrent recurrence write cannot slip between this check and
@@ -86,7 +90,9 @@ export async function assertRecurringOrderStatusAllowed(
   const unfinished = keepsCurrent
     ? !!recurrence && UNFINISHED_RECURRENCE_STATUSES.has(recurrence.status)
     : true
-  if (unfinished) throw await recurringError('recurring_order_use_cancel')
+  if (!unfinished) return
+  if (await hasRecurringPeriods(em, order)) throw await recurringError('recurring_order_invoiced_stop')
+  throw await recurringError('recurring_order_use_cancel')
 }
 
 /**

@@ -45,7 +45,7 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
     const handleKeyDown = React.useCallback(
       (event: React.KeyboardEvent<HTMLButtonElement>) => {
         onKeyDown?.(event)
-        if (event.defaultPrevented) {
+        if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
           return
         }
         if (event.key === ' ' || event.key === 'Enter') {

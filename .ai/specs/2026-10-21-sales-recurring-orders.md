@@ -39,7 +39,7 @@ Settled with the maintainer (2026-10-21):
 | R7 | Quotes carry the recurrence; `sales.quotes.convert_to_order` copies it. A recurring quote whose start date has passed cannot be accepted or converted — a new quote is needed. |
 | R8 | Customers pay per invoice. For a recurring order, the order's paid and outstanding amounts are derived from its issued invoices, credit memos and payments; payment gateways charge the oldest unpaid invoice. |
 | R9 | Order-level adjustments (discounts, surcharges, shipping) apply to every period's invoice. |
-| R10 | Only *Cancel recurring order* stops a recurring order: setting an active recurring order to the canceled or on-hold status is refused, and so is converting a canceled or on-hold recurring quote. Until the cancel action ships in phase 3, the refusal asks to remove the schedule first. There is no pause. |
+| R10 | Only *Cancel recurring order* stops a recurring order: setting an active recurring order to the canceled or on-hold status is refused, and so is converting a canceled or on-hold recurring quote. Until the cancel action ships in phase 3, the refusal asks to remove the schedule first; on an order with issued invoices, whose schedule cannot be removed (R5), it says only that the order cannot be canceled or put on hold. There is no pause. |
 
 ## 📝 Problem Statement
 
@@ -174,7 +174,7 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
 | Cancel while the worker issues a period | The cancel waits for the recurrence lock; the worker re-reads the cutoff inside each period's transaction. |
 | Quote accepted after its start date | `422 recurring_quote_started`; a new quote is needed. |
 | Generated invoice deleted | `sales.invoices.delete` is refused for an invoice linked to a ledger row (`409 recurring_invoice`); corrections use credit memos. |
-| Order set to canceled / on hold | Refused while the recurrence is not finished (R10). |
+| Order set to canceled / on hold | Refused while the recurrence is not finished (R10): `409 recurring_order_use_cancel`, or `409 recurring_order_invoiced_stop` once a period exists. |
 | Order deleted | Refused while any period exists; otherwise deleted with its recurrence. |
 | Scheduler absent or schedule row missing | No automatic invoices; banner; the CLI issues due periods. |
 | Credit on an invoice already paid | The invoice's outstanding floors at zero; the excess is customer credit, refunded through existing flows. |
@@ -292,3 +292,9 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
   - The `recurring_order_invoiced` message no longer ends with "Cancel it instead.": cancelling is refused for an order with issued invoices until the Phase 3 cancel action ships. The code is unchanged.
   - `Migration20261107120000_sales_order_recurrences_drop_order_fk` drops the order foreign key on databases that ran an early build of the recurring-orders migration (such as the QA environment), so retired rows survive there too. TC-SALES-048 checks it is a no-op without the key and drops it when present.
   - The integration specs were renumbered because `main` added its own TC-SALES-047 and TC-SALES-049: the recurring UI spec is now TC-SALES-052, the integrity spec TC-SALES-053. TC-SALES-053 adds the canceled-quote conversion, the repeated order delete → undo → redo and the quote conversion → undo → redo regressions; TC-SALES-046 expects the removed row after an order delete.
+
+### 2026-11-09
+- From the QA retest of #8008 (issue #9065):
+  - The *Recurring billing* dialog saves through the sales document guarded mutation (`useSalesDocumentMutation`), so record locking sees the write and the next status change or conversion on the same page no longer opens a false conflict.
+  - The shared `Switch` primitive no longer toggles on Enter or Space held with Cmd, Ctrl or Alt, so Cmd/Ctrl+Enter in a dialog submits the switch's current value instead of flipping it first.
+  - Setting a recurring order with issued invoices to canceled or on hold is refused with the new `409 recurring_order_invoiced_stop`, whose message no longer asks to remove a schedule that is locked. Orders without periods keep `recurring_order_use_cancel`. TC-SALES-046 covers both statuses on a locked order.

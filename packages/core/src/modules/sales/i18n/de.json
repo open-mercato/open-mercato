@@ -1407,6 +1407,7 @@
   "sales.recurring.errors.invalidPeriodCount": "Geben Sie eine ganze Zahl von Perioden ein, mindestens 1.",
   "sales.recurring.errors.invalidStartsOn": "Geben Sie ein gültiges Startdatum ein.",
   "sales.recurring.errors.recurring_order_invoiced": "Ein wiederkehrender Auftrag mit ausgestellten Rechnungen kann nicht gelöscht werden.",
+  "sales.recurring.errors.recurring_order_invoiced_stop": "Ein wiederkehrender Auftrag mit ausgestellten Rechnungen kann nicht storniert oder angehalten werden.",
   "sales.recurring.errors.recurring_order_locked": "Dieser wiederkehrende Auftrag wurde bereits abgerechnet. Erstellen Sie einen neuen wiederkehrenden Auftrag, statt ihn zu bearbeiten.",
   "sales.recurring.errors.recurring_order_use_cancel": "Ein stornierter oder angehaltener Auftrag kann keinen wiederkehrenden Zeitplan haben. Entfernen Sie zuerst den Zeitplan.",
   "sales.recurring.errors.recurring_quote_no_lines": "Fügen Sie mindestens eine Position hinzu, bevor Sie ein wiederkehrendes Angebot senden oder umwandeln.",

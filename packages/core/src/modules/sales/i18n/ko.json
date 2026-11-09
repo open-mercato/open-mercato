@@ -1407,6 +1407,7 @@
   "sales.recurring.errors.invalidPeriodCount": "1 이상의 정수로 기간 수를 입력하세요.",
   "sales.recurring.errors.invalidStartsOn": "올바른 시작일을 입력하세요.",
   "sales.recurring.errors.recurring_order_invoiced": "청구서가 발행된 반복 주문은 삭제할 수 없습니다.",
+  "sales.recurring.errors.recurring_order_invoiced_stop": "청구서가 발행된 반복 주문은 취소하거나 보류할 수 없습니다.",
   "sales.recurring.errors.recurring_order_locked": "이 반복 주문은 이미 청구되었습니다. 수정하는 대신 새 반복 주문을 만드세요.",
   "sales.recurring.errors.recurring_order_use_cancel": "취소되었거나 보류 중인 주문에는 반복 일정을 둘 수 없습니다. 먼저 일정을 삭제하세요.",
   "sales.recurring.errors.recurring_quote_no_lines": "반복 견적을 보내거나 전환하기 전에 항목을 하나 이상 추가하세요.",

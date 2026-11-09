@@ -1407,6 +1407,7 @@
   "sales.recurring.errors.invalidPeriodCount": "Enter a whole number of periods, at least 1.",
   "sales.recurring.errors.invalidStartsOn": "Enter a valid start date.",
   "sales.recurring.errors.recurring_order_invoiced": "A recurring order with issued invoices cannot be deleted.",
+  "sales.recurring.errors.recurring_order_invoiced_stop": "A recurring order with issued invoices can't be canceled or put on hold.",
   "sales.recurring.errors.recurring_order_locked": "This recurring order has been invoiced. Create a new recurring order instead of editing it.",
   "sales.recurring.errors.recurring_order_use_cancel": "A canceled or on-hold order can't keep a recurring schedule. Remove the schedule first.",
   "sales.recurring.errors.recurring_quote_no_lines": "Add at least one line before sending or converting a recurring quote.",

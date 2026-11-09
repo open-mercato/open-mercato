@@ -1407,6 +1407,7 @@
   "sales.recurring.errors.invalidPeriodCount": "Podaj całkowitą liczbę okresów, co najmniej 1.",
   "sales.recurring.errors.invalidStartsOn": "Podaj prawidłową datę rozpoczęcia.",
   "sales.recurring.errors.recurring_order_invoiced": "Nie można usunąć zamówienia cyklicznego z wystawionymi fakturami.",
+  "sales.recurring.errors.recurring_order_invoiced_stop": "Nie można anulować ani wstrzymać zamówienia cyklicznego z wystawionymi fakturami.",
   "sales.recurring.errors.recurring_order_locked": "To zamówienie cykliczne zostało już zafakturowane. Zamiast je edytować, utwórz nowe zamówienie cykliczne.",
   "sales.recurring.errors.recurring_order_use_cancel": "Anulowane lub wstrzymane zamówienie nie może mieć harmonogramu cyklicznego. Najpierw usuń harmonogram.",
   "sales.recurring.errors.recurring_quote_no_lines": "Dodaj co najmniej jedną pozycję przed wysłaniem lub konwersją oferty cyklicznej.",

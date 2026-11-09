@@ -168,6 +168,13 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
       })
       expect(echoed.status(), 'sending the current schedule back with an unlocked edit still saves').toBe(200)
 
+      for (const value of ['canceled', 'on_hold']) {
+        const statusEntryId = await orderStatusEntryId(request, token, value)
+        if (!statusEntryId) continue
+        const response = await apiRequest(request, 'PUT', '/api/sales/orders', { token, data: { id: orderId, statusEntryId } })
+        expectCode(response, await readJson(response), 409, 'recurring_order_invoiced_stop', `status ${value}`)
+      }
+
       const deletion = await apiRequest(request, 'DELETE', `/api/sales/orders?id=${encodeURIComponent(orderId)}`, { token })
       expectCode(deletion, await readJson(deletion), 409, 'recurring_order_invoiced', 'delete order')
       expect((await readOrder(request, token, orderId)).id).toBe(orderId)

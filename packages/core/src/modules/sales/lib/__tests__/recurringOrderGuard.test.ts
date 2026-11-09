@@ -49,6 +49,15 @@ describe('assertRecurringOrderStatusAllowed', () => {
     }
   })
 
+  it.each(['canceled', 'on_hold'])('refuses %s on an invoiced recurring order without pointing at removing the schedule', async (status) => {
+    const { em, mock } = buildEm({ recurrence: { status: 'active' }, periods: 1 })
+    await expect(assertRecurringOrderStatusAllowed(em, order, status)).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'recurring_order_invoiced_stop' },
+    })
+    expect(mock.find.mock.calls[0][1]).toEqual({ order: 'order-1', tenantId: 'ten-1', organizationId: 'org-1' })
+  })
+
   it('allows stopping statuses once the recurrence is finished, and on orders without one', async () => {
     for (const recurrence of [{ status: 'completed' }, { status: 'cancelled' }, null]) {
       const { em } = buildEm({ recurrence })
