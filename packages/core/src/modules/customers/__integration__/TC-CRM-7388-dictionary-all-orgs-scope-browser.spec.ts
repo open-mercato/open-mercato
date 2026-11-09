@@ -172,8 +172,13 @@ test.describe('TC-CRM-7388: customer dictionary org scope under "All organizatio
 
       const statusField = page.locator('[data-crud-field-id="status"]')
       await expect(statusField.getByText('Organization context is required')).toHaveCount(0)
-      await expect(statusField.getByText(dealOrgALabel, { exact: true })).toBeVisible()
-      await statusField.getByRole('combobox').click()
+      // Radix Select mirrors its value into a visually hidden native <select><option>
+      // for autofill support, so a DOM-based getByText() match on the field container
+      // resolves to both it and the visible trigger. Scope to the trigger explicitly
+      // (same pattern as TC-CRM-007.spec.ts) instead.
+      const statusTrigger = statusField.getByRole('combobox')
+      await expect(statusTrigger).toHaveText(dealOrgALabel)
+      await statusTrigger.click()
       await expect(page.getByRole('option', { name: dealOrgALabel, exact: true })).toBeVisible()
       await expect(page.getByRole('option', { name: dealOrgBLabel, exact: true })).toHaveCount(0)
       await page.keyboard.press('Escape')
