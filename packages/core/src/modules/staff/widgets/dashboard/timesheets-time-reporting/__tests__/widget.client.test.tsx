@@ -52,6 +52,7 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 
 import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
 import { setClientDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 import { clockFromApiValue, combineDateAndClock } from '../../../../lib/time-tracking-ui/timeEntryDialogState'
 import TimeReportingWidget from '../widget.client'
 
@@ -109,6 +110,13 @@ describe('TimeReportingWidget start error surfacing (issue #3507)', () => {
 
 describe('TimeReportingWidget entry date', () => {
   const startedAt = '2026-07-20T22:30:00.000Z'
+  const startedAtLocal = new Date(startedAt)
+  const browserDay = [
+    startedAtLocal.getFullYear(),
+    String(startedAtLocal.getMonth() + 1).padStart(2, '0'),
+    String(startedAtLocal.getDate()).padStart(2, '0'),
+  ].join('-')
+  const configuredZone = browserDay === '2026-07-20' ? 'Asia/Tokyo' : 'Pacific/Honolulu'
 
   beforeEach(() => {
     startTimerEntry.mockReset()
@@ -117,7 +125,7 @@ describe('TimeReportingWidget entry date', () => {
       now: new Date(startedAt),
       doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'queueMicrotask', 'nextTick'],
     })
-    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: 'Asia/Tokyo' }, env: noEnv }))
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: configuredZone }, env: noEnv }))
   })
 
   afterEach(() => {
@@ -126,6 +134,7 @@ describe('TimeReportingWidget entry date', () => {
   })
 
   it('stores the browser day so the entry editor rebuilds the same start instant', async () => {
+    expect(todayInZone(configuredZone, startedAtLocal)).not.toBe(browserDay)
     renderWidget()
 
     const projectSelect = (await screen.findByLabelText('Project')) as HTMLSelectElement
@@ -134,7 +143,7 @@ describe('TimeReportingWidget entry date', () => {
 
     await waitFor(() => expect(startTimerEntry).toHaveBeenCalledTimes(1))
     const payload = startTimerEntry.mock.calls[0][0] as { date: string }
-    expect(payload.date).toBe('2026-07-20')
+    expect(payload.date).toBe(browserDay)
     expect(combineDateAndClock(payload.date, clockFromApiValue(startedAt))).toBe(startedAt)
   })
 })
