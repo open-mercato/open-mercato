@@ -146,10 +146,12 @@ The infra stack (`starters/docker/compose.infra.yml`) publishes Postgres, Redis,
 Meilisearch, OpenCode, Keycloak, LocalStack and Verdaccio on `127.0.0.1` only.
 They use dev-default credentials, and on Linux Docker-published ports bypass
 ufw/iptables `INPUT` rules, so binding to all interfaces would expose them on a
-VPS. To reach them from another machine, opt in explicitly:
+VPS. To reach them from another machine, opt in explicitly with
+`INFRA_BIND_HOST` (a non-loopback value also requires a Redis password, see
+`packages/starter/README.md`; Verdaccio has its own `VERDACCIO_HOST`, below):
 
 ```bash
-OM_DOCKER_BIND_ADDRESS=0.0.0.0
+INFRA_BIND_HOST=0.0.0.0
 ```
 
 ### Local Verdaccio for standalone fullapp builds on native Linux
@@ -352,3 +354,9 @@ trust. Drop the CA as a PEM file into `docker/certs/` — both the app and
 opencode image builds pick it up. See `docker/certs/README.md`; the Windows
 launcher (`starters/docker/windows/start-windows.bat`) detects and repairs this
 automatically.
+
+## Production storage privilege smoke test
+
+Run `node docker/tests/storage-init-smoke.mjs` with Docker available. The test builds an isolated runtime fixture using the production Dockerfile's package installation and user/sudo configuration plus the real storage and Railway scripts. Yarn is stubbed, so no database is migrated and no application dependencies are installed.
+
+The only runtime sudo command is the root-owned `/usr/local/sbin/om-init-storage`, with no arguments. It changes ownership of the storage mount directory alone. Existing data must already be provisioned for UID/GID `1001:1001`; see the Railway deployment documentation for backup migration. Deployment maintainer review is required before releasing this startup change.

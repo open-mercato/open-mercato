@@ -9,22 +9,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 // Dev-infra stacks publish backing services with dev-default credentials.
 // Docker-published ports bypass ufw/iptables INPUT rules on Linux, so every
 // published port must bind to the loopback interface unless the operator opts
-// in via OM_DOCKER_BIND_ADDRESS, or a per-service override (OM_<SERVICE>_BIND_ADDRESS
-// or VERDACCIO_HOST) that falls back to it (#6949).
+// in via INFRA_BIND_HOST, or VERDACCIO_HOST for the registry only (#6949).
 const DEV_INFRA_COMPOSE_FILES = [
   'starters/docker/compose.infra.yml',
   'docker-compose.yml',
   'packages/create-app/template/docker-compose.yml',
 ]
 
-const LOOPBACK_DEFAULT = '${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}'
-const LOOPBACK_PREFIX = new RegExp(
-  `^(?:\\$\\{(?:OM_[A-Z]+_BIND_ADDRESS|VERDACCIO_HOST):-${escapeRegExp(LOOPBACK_DEFAULT)}\\}|${escapeRegExp(LOOPBACK_DEFAULT)}):`,
-)
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
+const LOOPBACK_PREFIX = /^\$\{(?:INFRA_BIND_HOST|VERDACCIO_HOST):-127\.0\.0\.1\}:/
 
 function publishedPortEntries(content) {
   const entries = []
@@ -59,12 +51,11 @@ for (const file of DEV_INFRA_COMPOSE_FILES) {
   })
 }
 
-test('a per-service bind override must fall back to the loopback default', () => {
-  assert.ok(LOOPBACK_PREFIX.test('${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432'))
-  assert.ok(
-    LOOPBACK_PREFIX.test('${VERDACCIO_HOST:-${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}}:${VERDACCIO_PORT:-4873}:4873'),
-  )
+test('a bind override must default to the loopback interface', () => {
+  assert.ok(LOOPBACK_PREFIX.test('${INFRA_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432'))
+  assert.ok(LOOPBACK_PREFIX.test('${VERDACCIO_HOST:-127.0.0.1}:${VERDACCIO_PORT:-4873}:4873'))
   assert.equal(LOOPBACK_PREFIX.test('${VERDACCIO_PORT:-4873}:4873'), false)
+  assert.equal(LOOPBACK_PREFIX.test('${INFRA_BIND_HOST:-0.0.0.0}:${POSTGRES_PORT:-5432}:5432'), false)
   assert.equal(LOOPBACK_PREFIX.test('${VERDACCIO_HOST:-0.0.0.0}:${VERDACCIO_PORT:-4873}:4873'), false)
   assert.equal(LOOPBACK_PREFIX.test('0.0.0.0:${POSTGRES_PORT:-5432}:5432'), false)
 })
