@@ -1330,6 +1330,7 @@ function toUserUpdateReplayState(snapshot: UserUndoSnapshot): SerializedUser {
     tenantId: snapshot.tenantId,
     roles: [...snapshot.roles].sort((left, right) => left.localeCompare(right)),
     name: snapshot.name,
+    timezone: snapshot.timezone ?? null,
     isConfirmed: snapshot.isConfirmed,
     ...(snapshot.custom && Object.keys(snapshot.custom).length ? { custom: snapshot.custom } : {}),
   }
@@ -1368,7 +1369,7 @@ function isSelfProfileReplay(
   userId: string,
 ): boolean {
   if (!ctx.auth?.sub || ctx.auth.sub !== userId) return false
-  const allowedKeys = new Set(['id', 'email', 'password'])
+  const allowedKeys = new Set(['id', 'email', 'password', 'timezone'])
   return Object.keys(input).every((key) => allowedKeys.has(key) || input[key] === undefined)
 }
 
