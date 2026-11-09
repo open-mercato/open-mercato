@@ -238,7 +238,6 @@ describe('ResendChannelAdapter', () => {
     const payload = sendMock.mock.calls[0][0]
     expect(payload.headers).toBeUndefined()
   })
-  })
 
   it('returns a failed result when Resend reports an error', async () => {
     sendMock.mockResolvedValueOnce({ error: { message: 'bad domain' } })
