@@ -265,7 +265,7 @@ function buildHarness(fixture: EntityFixture, record: Record<string, unknown> | 
   }
   em.fork.mockReturnValue(em)
   em.transactional.mockImplementation(async (work: (tx: EntityManagerMock) => Promise<unknown>) => work(em))
-  findOneWithDecryptionMock.mockImplementation(async () => (fixture.finder === 'decryption' ? record : null))
+  findOneWithDecryptionMock.mockImplementation(async () => record)
   loadCustomFieldSnapshotMock.mockImplementation(async () => custom)
   const dataEngine = {
     setCustomFields: jest.fn(async () => undefined),
@@ -405,14 +405,10 @@ describe.each(fixtures)('eudr $name update undo', (fixture) => {
     const where = { id: RECORD_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
     const options = { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }
     expect(harness.em.transactional).toHaveBeenCalledTimes(1)
-    if (fixture.finder === 'decryption') {
-      expect(findOneWithDecryptionMock).toHaveBeenCalledWith(harness.em, expect.anything(), where, options, {
-        tenantId: TENANT_ID,
-        organizationId: ORGANIZATION_ID,
-      })
-    } else {
-      expect(harness.em.findOne).toHaveBeenCalledWith(expect.anything(), where, options)
-    }
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(harness.em, expect.anything(), where, options, {
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+    })
   })
 
   it('still re-creates a record that no longer exists', async () => {

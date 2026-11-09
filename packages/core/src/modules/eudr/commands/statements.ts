@@ -22,7 +22,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitEudrLifecycleEvent } from './lifecycle-events'
 import { E } from '#generated/entities.ids.generated'
 import { sql } from 'kysely'
@@ -163,10 +163,12 @@ async function lockStatement(
   em: EntityManager,
   scope: Pick<StatementSnapshot, 'id' | 'tenantId' | 'organizationId'>,
 ): Promise<EudrDueDiligenceStatement | null> {
-  return em.findOne(
+  return findOneWithDecryption(
+    em,
     EudrDueDiligenceStatement,
     { id: scope.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
     { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
 }
 

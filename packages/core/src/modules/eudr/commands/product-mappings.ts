@@ -22,6 +22,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
 import { z } from 'zod'
 import { EudrProductMapping } from '../data/entities'
@@ -128,10 +129,12 @@ async function lockProductMapping(
   em: EntityManager,
   scope: Pick<ProductMappingSnapshot, 'id' | 'tenantId' | 'organizationId'>,
 ): Promise<EudrProductMapping | null> {
-  return em.findOne(
+  return findOneWithDecryption(
+    em,
     EudrProductMapping,
     { id: scope.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
     { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
 }
 
