@@ -56,6 +56,15 @@ jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
   emitCustomerAccountsEvent: jest.fn(async () => undefined),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn(async () => ({
+    selectedId: null,
+    filterIds: null,
+    allowedIds: null,
+    tenantId: TENANT_ID,
+  })),
+}))
+
 function request(method: string, headerVersion: string | null, body?: unknown) {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (headerVersion) headers[OPTIMISTIC_LOCK_HEADER_NAME] = headerVersion

@@ -57,6 +57,12 @@ jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
   emitCustomerAccountsEvent: (...args: unknown[]) => mockEmit(...args),
 }))
 
+const mockResolveOrganizationScope = jest.fn()
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn((args: unknown) => mockResolveOrganizationScope(args)),
+}))
+
 import { DELETE, GET, PUT } from '@open-mercato/core/modules/customer_accounts/api/admin/users/[id]'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -97,19 +103,38 @@ function buildMethodRequest(method: 'GET' | 'PUT' | 'DELETE', body?: unknown) {
   })
 }
 
+function organizationScope(filterIds: string[] | null) {
+  return { selectedId: filterIds?.[0] ?? null, filterIds, allowedIds: filterIds, tenantId }
+}
+
+function matchesOrganizationFilter(filter: unknown, organizationId: string): boolean {
+  if (filter === undefined) return true
+  if (typeof filter === 'string') return filter === organizationId
+  const candidates = (filter as { $in?: unknown })?.$in
+  return Array.isArray(candidates) && candidates.includes(organizationId)
+}
+
+function findForeignUserWhenInScope(entity: unknown, where: Record<string, unknown>) {
+  if (entity !== CustomerUser || where?.id !== userId || where.tenantId !== tenantId) return null
+  return matchesOrganizationFilter(where.organizationId, foreignOrgId) ? foreignTargetUser : null
+}
+
+beforeEach(() => {
+  mockResolveOrganizationScope.mockResolvedValue(organizationScope([orgId]))
+})
+
 describe('admin customer-user detail routes — target organization scope', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockEmFind.mockResolvedValue([])
-    mockEmFindOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
-      if (entity !== CustomerUser || where?.id !== userId) return null
-      return where.organizationId === orgId ? null : foreignTargetUser
-    })
+    mockEmFindOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) =>
+      findForeignUserWhenInScope(entity, where),
+    )
   })
 
-  it('returns 404 for a same-tenant foreign-org GET target', async () => {
+  it('returns 404 for a same-tenant user outside the caller organization scope (GET)', async () => {
     const res = await GET(buildMethodRequest('GET'), { params: { id: userId } })
 
     expect(res.status).toBe(404)
@@ -118,7 +143,7 @@ describe('admin customer-user detail routes — target organization scope', () =
     expect(mockEmit).not.toHaveBeenCalled()
   })
 
-  it('returns 404 before updating a same-tenant foreign-org PUT target', async () => {
+  it('returns 404 before updating a same-tenant user outside the caller organization scope (PUT)', async () => {
     const res = await PUT(
       buildMethodRequest('PUT', { displayName: 'Cross-org overwrite' }),
       { params: { id: userId } },
@@ -134,13 +159,78 @@ describe('admin customer-user detail routes — target organization scope', () =
     expect(mockEmit).not.toHaveBeenCalled()
   })
 
-  it('returns 404 before deleting or revoking sessions for a same-tenant foreign-org DELETE target', async () => {
+  it('returns 404 before deleting or revoking sessions for a same-tenant user outside the caller organization scope (DELETE)', async () => {
     const res = await DELETE(buildMethodRequest('DELETE'), { params: { id: userId } })
 
     expect(res.status).toBe(404)
     expect(mockSoftDelete).not.toHaveBeenCalled()
     expect(mockRevokeAllUserSessions).not.toHaveBeenCalled()
     expect(mockEmit).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 without querying users when the caller has no accessible organization', async () => {
+    mockResolveOrganizationScope.mockResolvedValue(organizationScope([]))
+
+    const res = await GET(buildMethodRequest('GET'), { params: { id: userId } })
+
+    expect(res.status).toBe(404)
+    expect(mockEmFindOne).not.toHaveBeenCalled()
+  })
+
+  it('opens a user from another organization selected in the organization switcher (#5577)', async () => {
+    mockResolveOrganizationScope.mockResolvedValue(organizationScope([foreignOrgId]))
+
+    const res = await GET(buildMethodRequest('GET'), { params: { id: userId } })
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toMatchObject({ ok: true, id: userId, email: foreignTargetUser.email })
+    expect(mockResolveOrganizationScope).toHaveBeenCalledWith(
+      expect.objectContaining({ auth: expect.objectContaining({ tenantId, orgId }), request: expect.any(Request) }),
+    )
+    const userLookup = mockEmFindOne.mock.calls.find((call) => call[0] === CustomerUser)
+    expect(userLookup?.[1]).toMatchObject({ id: userId, tenantId, organizationId: { $in: [foreignOrgId] }, deletedAt: null })
+  })
+
+  it('opens a user from any organization of the tenant under "All organizations" (#5577)', async () => {
+    mockResolveOrganizationScope.mockResolvedValue(organizationScope(null))
+
+    const res = await GET(buildMethodRequest('GET'), { params: { id: userId } })
+
+    expect(res.status).toBe(200)
+    const userLookup = mockEmFindOne.mock.calls.find((call) => call[0] === CustomerUser)
+    expect(userLookup?.[1]).toMatchObject({ id: userId, tenantId, deletedAt: null })
+    expect(userLookup?.[1]).not.toHaveProperty('organizationId')
+  })
+
+  it('resolves roles in the target user organization when updating an in-scope user (#5577)', async () => {
+    mockResolveOrganizationScope.mockResolvedValue(organizationScope([orgId, foreignOrgId]))
+    mockEmCreate.mockImplementation((_entity: unknown, data: unknown) => data)
+    mockEmFind.mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerRole) return [{ id: roleId, name: 'Alpha' }]
+      return []
+    })
+
+    const res = await PUT(buildMethodRequest('PUT', { roleIds: [roleId] }), { params: { id: userId } })
+
+    expect(res.status).toBe(200)
+    const roleFinds = mockEmFind.mock.calls.filter((call) => call[0] === CustomerRole)
+    expect(roleFinds[0][1]).toMatchObject({ tenantId, organizationId: foreignOrgId })
+    expect(mockEmNativeUpdate).toHaveBeenCalledWith(
+      CustomerUser,
+      { id: userId, tenantId, organizationId: foreignOrgId },
+      expect.any(Object),
+    )
+  })
+
+  it('deletes an in-scope user from another organization within that organization (#5577)', async () => {
+    mockResolveOrganizationScope.mockResolvedValue(organizationScope([foreignOrgId]))
+
+    const res = await DELETE(buildMethodRequest('DELETE'), { params: { id: userId } })
+
+    expect(res.status).toBe(200)
+    expect(mockSoftDelete).toHaveBeenCalledWith(userId, { tenantId, organizationId: foreignOrgId })
+    expect(mockRevokeAllUserSessions).toHaveBeenCalledWith(userId)
   })
 })
 

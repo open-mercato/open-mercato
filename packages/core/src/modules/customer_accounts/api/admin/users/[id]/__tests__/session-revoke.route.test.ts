@@ -29,6 +29,15 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn(async ({ auth }: { auth: { orgId: string; tenantId: string } }) => ({
+    selectedId: auth.orgId,
+    filterIds: [auth.orgId],
+    allowedIds: [auth.orgId],
+    tenantId: auth.tenantId,
+  })),
+}))
+
 import { DELETE, openApi } from '@open-mercato/core/modules/customer_accounts/api/admin/users/[id]/sessions/[sessionId]'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -65,7 +74,8 @@ describe('DELETE /api/customer_accounts/admin/users/[id]/sessions/[sessionId]', 
       where: Record<string, unknown>,
     ) => {
       if (entity === CustomerUser) {
-        return where.id === userId && where.tenantId === tenantId && where.organizationId === orgId ? user : null
+        const allowed = (where.organizationId as { $in?: string[] } | undefined)?.$in
+        return where.id === userId && where.tenantId === tenantId && allowed?.includes(orgId) ? user : null
       }
       if (entity === CustomerUserSession) {
         return where.id === sessionId && where.user === userId && where.deletedAt === null ? session : null
@@ -83,15 +93,15 @@ describe('DELETE /api/customer_accounts/admin/users/[id]/sessions/[sessionId]', 
     expect(mockRevokeSession).toHaveBeenCalledWith(sessionId)
   })
 
-  it('scopes the user lookup to the admin tenant and organization', async () => {
+  it('scopes the user lookup to the admin tenant and the switcher organization scope', async () => {
     await callDelete()
 
     const userCall = mockFindOneWithDecryption.mock.calls.find(([, entity]) => entity === CustomerUser)
-    expect(userCall?.[2]).toMatchObject({ id: userId, tenantId, organizationId: orgId, deletedAt: null })
+    expect(userCall?.[2]).toMatchObject({ id: userId, tenantId, organizationId: { $in: [orgId] }, deletedAt: null })
     expect(userCall?.[4]).toEqual({ tenantId, organizationId: orgId })
   })
 
-  it('returns 404 and revokes nothing when the user is outside the admin organization', async () => {
+  it('returns 404 and revokes nothing when the user is outside the admin organization scope', async () => {
     mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId: '33333333-3333-4333-8333-333333333333' })
 
     const res = await callDelete()

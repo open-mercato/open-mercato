@@ -6,8 +6,9 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { CustomerUser, CustomerUserSession } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { CustomerUserSession } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
+import { findAdminScopedCustomerUser } from '@open-mercato/core/modules/customer_accounts/lib/adminCustomerUserLookup'
 
 export const metadata = {}
 
@@ -36,18 +37,11 @@ export async function DELETE(req: Request, { params }: { params: { id: string; s
   }
 
   const em = container.resolve('em') as EntityManager
-  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
-
-  const user = await findOneWithDecryption(
-    em,
-    CustomerUser,
-    { id: userId, tenantId: auth.tenantId, organizationId: auth.orgId, deletedAt: null } as any,
-    undefined,
-    scope,
-  )
+  const user = await findAdminScopedCustomerUser({ container, auth, request: req, em, userId })
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
+  const scope = { tenantId: user.tenantId, organizationId: user.organizationId }
 
   const session = await findOneWithDecryption(
     em,
