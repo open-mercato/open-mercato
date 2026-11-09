@@ -45,7 +45,17 @@ function resolveContainer(ctx: SubscriberContext): ResolverContainer {
   return ctx.container ?? { resolve: ctx.resolve }
 }
 
-export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
+// Exported so `order-deleted-credit-release.ts` (#8406) can reuse the exact same release
+// logic for `sales.order.deleted` — deleting an on-account order must release its credit
+// exposure the same way cancelling it does, and the lookup below is scoped purely by
+// `linkedOrderId`/`tenantId`/`organizationId`, with no dependency on the order row itself
+// still existing.
+export async function handleOrderCreditRelease(
+  payload: unknown,
+  ctx: SubscriberContext,
+  options: { eventId?: string } = {},
+): Promise<void> {
+  const eventId = options.eventId ?? 'sales.order.cancelled'
   const record = toRecord(payload)
   const orderId = readString(record, 'orderId') ?? readString(record, 'id')
   const tenantId = readString(record, 'tenantId') ?? ctx.tenantId ?? null
@@ -99,7 +109,7 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       await creditService.releaseCredit({
         scope: { tenantId, organizationId },
         reserveIdempotencyKey: reservation.idempotencyKey,
-        reason: `sales.order.cancelled:${orderNumber ?? orderId}`,
+        reason: `${eventId}:${orderNumber ?? orderId}`,
       })
     } catch (error) {
       logger.error('[customer_groups:order-cancelled-credit-release] release failed', {
@@ -112,4 +122,8 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       throw error
     }
   }
+}
+
+export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
+  return handleOrderCreditRelease(payload, ctx)
 }

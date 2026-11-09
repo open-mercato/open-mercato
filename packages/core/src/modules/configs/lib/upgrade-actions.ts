@@ -254,6 +254,65 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       await registerAvailabilityReservationSweeperSchedules(container, { tenantId, organizationId })
     },
   },
+  {
+    // #8822: existing tenants that upgraded to Release 5 got none of the checkout,
+    // customer_groups or assisted_selling schedules below, unlike this same release's
+    // own cart/promotions/availability schedules — each of THOSE already shipped an
+    // upgrade action, these three did not. `seedDefaults` only runs for brand-new
+    // tenants; it never re-runs for an existing tenant on `yarn db:migrate`.
+    id: 'checkout.register-schedules',
+    version: '0.10.0',
+    messageKey: 'configs.upgrades.checkoutTransactionSchedules.message',
+    ctaKey: 'configs.upgrades.checkoutTransactionSchedules.cta',
+    successKey: 'configs.upgrades.checkoutTransactionSchedules.success',
+    loadingKey: 'configs.upgrades.checkoutTransactionSchedules.loading',
+    requiredModules: ['checkout'],
+    // `checkout` is a separate package that DEPENDS ON `core` (never the reverse), so
+    // this cannot lazy-import it the way the sibling actions above import a core-internal
+    // module — that would invert the module layering (AGENTS.md § Cross-Module Coupling:
+    // "the upstream/depended-on module MUST NOT import, resolve, or hard-require the
+    // consumer"). Resolves the DI registration `checkout/di.ts` exposes instead — pure
+    // soft coupling, the same `hasRegistration` guard shape every schedule action here
+    // already uses for `schedulerService` itself.
+    run: async ({ container, tenantId, organizationId }) => {
+      const cradle = container as unknown as { hasRegistration?: (name: string) => boolean }
+      if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('checkoutScheduleUpgradeRegistrar')) return
+      const ensureTransactionExpirySchedule = container.resolve<
+        (ctx: { container: AppContainer; tenantId: string; organizationId: string }) => Promise<void>
+      >('checkoutScheduleUpgradeRegistrar')
+      await ensureTransactionExpirySchedule({ container, tenantId, organizationId })
+    },
+  },
+  {
+    id: 'customer_groups.register-schedules',
+    version: '0.10.0',
+    messageKey: 'configs.upgrades.customerGroupsSchedules.message',
+    ctaKey: 'configs.upgrades.customerGroupsSchedules.cta',
+    successKey: 'configs.upgrades.customerGroupsSchedules.success',
+    loadingKey: 'configs.upgrades.customerGroupsSchedules.loading',
+    requiredModules: ['customer_groups'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerCustomerGroupsSchedules } = await import(
+        '@open-mercato/core/modules/customer_groups/lib/scheduling'
+      )
+      await registerCustomerGroupsSchedules(container, { tenantId, organizationId })
+    },
+  },
+  {
+    id: 'assisted_selling.register-schedules',
+    version: '0.10.0',
+    messageKey: 'configs.upgrades.assistedSellingSchedules.message',
+    ctaKey: 'configs.upgrades.assistedSellingSchedules.cta',
+    successKey: 'configs.upgrades.assistedSellingSchedules.success',
+    loadingKey: 'configs.upgrades.assistedSellingSchedules.loading',
+    requiredModules: ['assisted_selling'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerAssistedSellingSchedules } = await import(
+        '@open-mercato/core/modules/assisted_selling/lib/scheduling'
+      )
+      await registerAssistedSellingSchedules(container, { tenantId, organizationId })
+    },
+  },
 ]
 
 export function actionsUpToVersion(version: string): UpgradeActionDefinition[] {

@@ -36,7 +36,13 @@ type SchedulerServiceLike = {
   }) => Promise<void>
 }
 
-async function ensureTransactionExpirySchedule(ctx: {
+// #8822: exported so `di.ts` can register it under a DI key for `configs`'s
+// `checkout.register-schedules` upgrade action to resolve. `configs` lives in
+// `@open-mercato/core`, which `checkout` depends on (never the reverse), so the upgrade
+// action cannot statically import this package — it resolves the DI registration by
+// string key instead, the same soft-coupling shape `AGENTS.md`'s Cross-Module Coupling
+// section already prescribes for an optional peer.
+export async function ensureTransactionExpirySchedule(ctx: {
   container: import('awilix').AwilixContainer
   tenantId: string
   organizationId: string

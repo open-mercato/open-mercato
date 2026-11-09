@@ -185,7 +185,10 @@ describe('promotions order-confirmed-usage-reinstate subscriber', () => {
     expect(code.active).toBe(false)
   })
 
-  it('does nothing for the ordinary initial confirmation (not an uncancel transition)', async () => {
+  // #9073: no longer gated on `previousStatus` at all — `reinstateUsage`/`reinstateCodeUse`
+  // are each scoped to only this order's own reverted rows, so this fires correctly
+  // whichever status immediately preceded the confirmation (including `null`).
+  it('reinstates reverted usage regardless of the payload previousStatus value', async () => {
     const { em, tables } = createFakeEm()
     const promotionUsage = seedPromotionUsage(tables)
     const code = seedCode(tables, { used: 0, active: true })
@@ -193,8 +196,36 @@ describe('promotions order-confirmed-usage-reinstate subscriber', () => {
 
     await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: null }, buildCtx(em))
 
-    expect(promotionUsage.revertedAt).not.toBeNull()
-    expect(codeUsage.revertedAt).not.toBeNull()
+    expect(promotionUsage.revertedAt).toBeNull()
+    expect(codeUsage.revertedAt).toBeNull()
+    expect(code.used).toBe(1)
+  })
+
+  // #9073: the QA-reported shape — Canceled → On hold → Confirmed. The final
+  // `sales.order.confirmed` event's `previousStatus` is `on_hold`, not `canceled`, and
+  // must still reinstate.
+  it('reinstates reverted usage when the order was revived through an intermediate status', async () => {
+    const { em, tables } = createFakeEm()
+    const promotionUsage = seedPromotionUsage(tables)
+    const code = seedCode(tables, { used: 0, active: true })
+    const codeUsage = seedCodeUsage(tables, { codeId: code.id })
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'on_hold' }, buildCtx(em))
+
+    expect(promotionUsage.revertedAt).toBeNull()
+    expect(codeUsage.revertedAt).toBeNull()
+    expect(code.used).toBe(1)
+  })
+
+  it('is a no-op for an ordinary initial confirmation with no reverted usage at all', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { used: 0, active: true })
+
+    await expect(
+      handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: null }, buildCtx(em)),
+    ).resolves.toBeUndefined()
+
+    expect(tables.get(PromotionUsage) ?? []).toHaveLength(0)
     expect(code.used).toBe(0)
   })
 

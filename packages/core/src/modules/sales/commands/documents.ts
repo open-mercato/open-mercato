@@ -7104,6 +7104,26 @@ const deleteOrderCommand: CommandHandler<
         E.sales.sales_document_tag_assignment,
       ),
     ]);
+    // #8406: nothing released an on-account order's held credit (or reverted its
+    // promotion/code usage) on delete — only `sales.order.cancelled` had release
+    // subscribers. `sales.order.deleted` was already declared in events.ts but never
+    // emitted; emit it now so `customer_groups:order-deleted-credit-release` and
+    // `promotions:order-deleted-usage-revert` can run the same release/revert logic
+    // cancellation already uses. Fire-and-forget like the lifecycle events above — the
+    // delete itself already committed.
+    void emitSalesEvent("sales.order.deleted", {
+      id: order.id,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      tenantId: order.tenantId,
+      organizationId: order.organizationId,
+    }).catch((err) => {
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.deleted",
+        orderId: order.id,
+        err,
+      });
+    });
     return { orderId: id };
   },
   buildLog: async ({ snapshots }) => {

@@ -14,6 +14,15 @@ const logger = createLogger('promotions').child({ component: 'order-confirmed-us
 // read as unused again while the order it was spent on was live once more, and could be
 // redeemed a second time. Same shape and same event as `customer_groups`'s own sibling
 // `order-confirmed-credit-reinstate.ts`.
+//
+// #9073: this used to gate on the event payload's own `previousStatus === canceled`,
+// which misses a revival through an intermediate status (Canceled → On hold →
+// Confirmed) — the final event's `previousStatus` is `on_hold`, so the gate skipped it
+// and the code stayed usable a second time. Dropped the gate entirely: `reinstateUsage`
+// and `reinstateCodeUse` are each already scoped to only THIS order's own rows that
+// still carry a `revertedAt` (see their own doc comments), so calling them on every
+// confirmation is a safe no-op for an order that was never cancelled, and correctly
+// fires no matter how many intermediate statuses a revival passes through.
 export const metadata = {
   event: 'sales.order.confirmed',
   persistent: true,
@@ -43,26 +52,11 @@ function resolveContainer(ctx: SubscriberContext): ResolverContainer {
   return ctx.container ?? { resolve: ctx.resolve }
 }
 
-// Duck-typed against the event payload's own status string — never an import of
-// `sales/lib/orderCancellationGuard.ts`, same soft-coupling precedent as this
-// subscriber's sibling `order-cancelled-usage-revert.ts` and `customer_groups`'s
-// `order-confirmed-credit-reinstate.ts`.
-function isCancelledStatusValue(status: string | null): boolean {
-  if (!status) return false
-  const normalized = status.trim().toLowerCase()
-  return normalized === 'canceled' || normalized === 'cancelled'
-}
-
 export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
   const record = toRecord(payload)
   const orderId = readString(record, 'orderId') ?? readString(record, 'id')
   const tenantId = readString(record, 'tenantId') ?? ctx.tenantId ?? null
   const organizationId = readString(record, 'organizationId') ?? ctx.organizationId ?? null
-  const previousStatus = readString(record, 'previousStatus')
-
-  // Only an uncancel transition reinstates usage — the (far more common) initial
-  // confirmation at checkout registers usage itself, before this event even fires.
-  if (!isCancelledStatusValue(previousStatus)) return
 
   if (!orderId || !tenantId || !organizationId) {
     logger.debug('[internal] promotions:order-confirmed-usage-reinstate skipped incomplete payload', {

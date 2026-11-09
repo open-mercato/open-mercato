@@ -14,8 +14,18 @@ const logger = createLogger('customer_groups')
 // released can never be re-reserved under its OWN idempotency key (idempotency rule 3,
 // `customerCreditService.ts` — a key whose reservation was already released is not
 // reusable), so an un-cancelled on-account order stayed live with no credit hold at all.
-// This only fires for a transition OUT of a cancelled status, and always reserves under a
-// FRESH key derived from the released reservation's own key, never a replay of it.
+// Always reserves under a FRESH key derived from the released reservation's own key,
+// never a replay of it.
+//
+// #9073: this used to gate on the event payload's own `previousStatus === canceled`,
+// which broke the moment staff revived an order through an intermediate status
+// (Canceled → On hold → Confirmed) — the final `confirmed` event's `previousStatus` is
+// `on_hold`, not `canceled`, so the reinstate never ran and the order stayed live with no
+// credit hold. There is no need for that gate at all: the loop below already finds only
+// THIS order's own un-reinstated release (scoped by `linkedOrderId`, skipped when no
+// `releaseEntry` exists or a `reinstate:` entry is already linked), so it is a safe no-op
+// on every order's ordinary first confirmation and correctly fires no matter how many
+// intermediate statuses a revival passes through.
 export const metadata = {
   event: 'sales.order.confirmed',
   persistent: true,
@@ -45,25 +55,11 @@ function resolveContainer(ctx: SubscriberContext): ResolverContainer {
   return ctx.container ?? { resolve: ctx.resolve }
 }
 
-// Duck-typed against the event payload's own status string — never an import of
-// `sales/lib/orderCancellationGuard.ts`, same soft-coupling precedent as this subscriber's
-// sibling `order-cancelled-credit-release.ts`.
-function isCancelledStatusValue(status: string | null): boolean {
-  if (!status) return false
-  const normalized = status.trim().toLowerCase()
-  return normalized === 'canceled' || normalized === 'cancelled'
-}
-
 export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
   const record = toRecord(payload)
   const orderId = readString(record, 'orderId') ?? readString(record, 'id')
   const tenantId = readString(record, 'tenantId') ?? ctx.tenantId ?? null
   const organizationId = readString(record, 'organizationId') ?? ctx.organizationId ?? null
-  const previousStatus = readString(record, 'previousStatus')
-
-  // Only an uncancel transition reinstates credit — the (far more common) initial
-  // confirmation at checkout reserves credit itself, before the order is even created.
-  if (!isCancelledStatusValue(previousStatus)) return
 
   if (!orderId || !tenantId || !organizationId) {
     logger.debug('[customer_groups:order-confirmed-credit-reinstate] skipped incomplete payload', {

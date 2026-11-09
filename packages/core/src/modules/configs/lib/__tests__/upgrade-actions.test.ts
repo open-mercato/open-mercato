@@ -171,6 +171,97 @@ describe('payment-session initialization prune upgrade action', () => {
   })
 })
 
+// #8822: existing tenants that upgraded to this release got none of these three
+// schedules, unlike the sibling cart/promotions/availability schedules shipped the same
+// release — each of those already had an upgrade action, these three did not.
+describe('#8822 schedule upgrade actions for existing tenants', () => {
+  it.each([
+    ['customer_groups.register-schedules', 'customer_groups.credit_exposure_audit'],
+    ['customer_groups.register-schedules', 'customer_groups.expire_approvals'],
+  ] as Array<[string, string]>)('%s registers %s', async (actionId, expectedQueue) => {
+    const action = upgradeActions.find((candidate) => candidate.id === actionId)
+    const register = jest.fn().mockResolvedValue(undefined)
+    const container = {
+      hasRegistration: (name: string) => name === 'schedulerService',
+      resolve: jest.fn(() => ({ register })),
+    }
+
+    expect(action).toBeDefined()
+    expect(action?.version).toBe('0.10.0')
+    await action?.run({
+      container: container as never,
+      em: {} as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({ targetQueue: expectedQueue }))
+  })
+
+  it.each([
+    ['assisted_selling.register-schedules', 'assisted_selling.idle_close'],
+    ['assisted_selling.register-schedules', 'assisted_selling.retention'],
+  ] as Array<[string, string]>)('%s registers %s', async (actionId, expectedQueue) => {
+    const action = upgradeActions.find((candidate) => candidate.id === actionId)
+    const register = jest.fn().mockResolvedValue(undefined)
+    const container = {
+      hasRegistration: (name: string) => name === 'schedulerService',
+      resolve: jest.fn(() => ({ register })),
+    }
+
+    expect(action).toBeDefined()
+    expect(action?.version).toBe('0.10.0')
+    await action?.run({
+      container: container as never,
+      em: {} as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({ targetQueue: expectedQueue }))
+  })
+
+  it("checkout.register-schedules resolves the checkout package's own DI registration instead of importing it", async () => {
+    const action = upgradeActions.find((candidate) => candidate.id === 'checkout.register-schedules')
+    const ensureTransactionExpirySchedule = jest.fn().mockResolvedValue(undefined)
+    const container = {
+      hasRegistration: (name: string) => name === 'checkoutScheduleUpgradeRegistrar',
+      resolve: jest.fn(() => ensureTransactionExpirySchedule),
+    }
+
+    expect(action).toBeDefined()
+    expect(action?.version).toBe('0.10.0')
+    await action?.run({
+      container: container as never,
+      em: {} as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+
+    expect(container.resolve).toHaveBeenCalledWith('checkoutScheduleUpgradeRegistrar')
+    expect(ensureTransactionExpirySchedule).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+    )
+  })
+
+  it('checkout.register-schedules is a no-op when checkout is not installed', async () => {
+    const action = upgradeActions.find((candidate) => candidate.id === 'checkout.register-schedules')
+    const container = {
+      hasRegistration: () => false,
+      resolve: jest.fn(),
+    }
+
+    await action?.run({
+      container: container as never,
+      em: {} as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+
+    expect(container.resolve).not.toHaveBeenCalled()
+  })
+})
+
 describe('encryption-map upgrade action cache order', () => {
   it.each([
     ['devices.seed-push-token-encryption-map', ['devices:user_device']],

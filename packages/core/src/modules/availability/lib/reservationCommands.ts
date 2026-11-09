@@ -430,7 +430,20 @@ export async function reserveAvailability(
     ensureOrganizationScope(callerCtx, input.organizationId)
   }
   const scope: ReservationScope = { tenantId: input.tenantId, organizationId: input.organizationId }
-  const em = (container.resolve('em') as EntityManager).fork()
+  // #8414: forking a fresh `container.resolve('em')` here is a SECOND pooled connection
+  // whenever the caller (checkout's `submit.ts`) is already holding its own forked `em`
+  // for the same request — with `DB_POOL_MAX` sized to the request concurrency and no
+  // spare, the `FOR UPDATE` lock below (`wmsReservationService.reserveLinesForCheckout`)
+  // then serializes N concurrent callers' OWN forks against the same contended row, each
+  // holding ITS OWN connection hostage while blocked — exactly the
+  // `approvalGate.ts#resolveCartRequiresApproval` deadlock shape, one call site over.
+  // `callerCtx.transactionalEm` (set by `commands/reservations.ts`'s caller when it is
+  // itself already holding a connection) is used directly instead when present — same
+  // `const callerEm = ctx.transactionalEm; const rootEm = callerEm ?? ...fork()` shape
+  // `sales/commands/documents.ts`'s `convertQuoteToOrderCommand` already uses — so every
+  // nested query below runs on that SAME connection. Omitted by every other caller
+  // preserves the exact previous behavior.
+  const em = callerCtx?.transactionalEm ?? (container.resolve('em') as EntityManager).fork()
   const normalizedItems: NormalizedItem[] = input.items.map((item) => ({
     catalogProductId: item.catalogProductId,
     catalogVariantId: item.catalogVariantId ?? null,
@@ -651,7 +664,10 @@ export async function releaseAvailability(
     ensureOrganizationScope(callerCtx, input.organizationId)
   }
   const scope: ReservationScope = { tenantId: input.tenantId, organizationId: input.organizationId }
-  const em = (container.resolve('em') as EntityManager).fork()
+  // #8414: same fix as `reserveAvailability` above — use the caller's own connection
+  // (checkout's `submit.ts` compensation path calls this for every refused concurrent
+  // submitter) instead of forking a second one.
+  const em = callerCtx?.transactionalEm ?? (container.resolve('em') as EntityManager).fork()
   const wmsService = tryResolveWmsService(container)
   const ctx = buildServiceCtx(container, scope, 'availability.release')
 
@@ -766,7 +782,8 @@ export async function commitAvailability(
     ensureOrganizationScope(callerCtx, input.organizationId)
   }
   const scope: ReservationScope = { tenantId: input.tenantId, organizationId: input.organizationId }
-  const em = (container.resolve('em') as EntityManager).fork()
+  // #8414: same fix as `reserveAvailability`/`releaseAvailability` above.
+  const em = callerCtx?.transactionalEm ?? (container.resolve('em') as EntityManager).fork()
   const wmsService = tryResolveWmsService(container)
   const ctx = buildServiceCtx(container, scope, 'availability.commit')
 

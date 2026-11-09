@@ -272,7 +272,10 @@ export async function compensate(
   flags: CompensationFlags,
   keys: { stockReservationKey: string | null; creditReservationKey: string | null },
 ): Promise<void> {
-  const ctx = buildTrustedCtx(container, scope, `checkout:submit:compensate:${session.id}`)
+  // #8414: thread this request's own connection (same reasoning as the `reserve` call
+  // site above) — every refused concurrent submitter runs this compensation path, so an
+  // un-threaded second connection here is just as costly under a tight pool.
+  const ctx = { ...buildTrustedCtx(container, scope, `checkout:submit:compensate:${session.id}`), transactionalEm: em }
   const failures: string[] = []
 
   if (flags.releaseCredit && keys.creditReservationKey) {
@@ -747,7 +750,13 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
               idempotencyKey: stockReservationKey,
               ttlSeconds: 900,
             },
-            ctx: trustedCtx,
+            // #8414: thread this request's own connection into the nested command instead
+            // of letting `reserveAvailability` fork a second one — with `DB_POOL_MAX`
+            // exactly sized to the concurrent submit volume, N concurrent submits otherwise
+            // each need two simultaneous connections once the `FOR UPDATE` lock on a
+            // contended line serializes their own, independently-forked `availability.
+            // reserve` calls (each holding a connection while blocked on the lock).
+            ctx: { ...trustedCtx, transactionalEm: em },
           })
           if (!reserveResult.reserved) {
             await compensateOnce({ releaseCredit: false, releaseStock: true, unlockCart: true })
@@ -1404,7 +1413,8 @@ export async function completeQuoteOutcome(
   quoteId: string,
   reservationKeys: { stockReservationKey: string | null },
 ): Promise<CheckoutSessionSubmitStageResult> {
-  const trustedCtx = buildTrustedCtx(container, scope, `checkout:submit:complete-quote:${session.id}`)
+  // #8414: thread `em` the same way the other `availability.*` call sites in this file do.
+  const trustedCtx = { ...buildTrustedCtx(container, scope, `checkout:submit:complete-quote:${session.id}`), transactionalEm: em }
   const commandBus = container.resolve('commandBus') as CommandBus
 
   if (reservationKeys.stockReservationKey) {
@@ -1560,7 +1570,8 @@ export async function continueOrderOutcome(
   const { session, scope, orderId, quoteId } = input
   const em = (container.resolve('em') as EntityManager).fork()
   const isOnAccount = input.paymentMethodCode === 'on_account'
-  const trustedCtx = buildTrustedCtx(container, scope, `checkout:submit:continue:${session.id}:${input.attempt}`)
+  // #8414: thread `em` the same way the other `availability.*` call sites in this file do.
+  const trustedCtx = { ...buildTrustedCtx(container, scope, `checkout:submit:continue:${session.id}:${input.attempt}`), transactionalEm: em }
   const commandBus = container.resolve('commandBus') as CommandBus
 
   if (!session.cartId) throw new CrudHttpError(500, { error: '[internal] checkout session has no cart to continue from', code: 'totals_mismatch' })

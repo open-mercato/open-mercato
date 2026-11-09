@@ -145,16 +145,46 @@ describe('customer_groups order-confirmed-credit-reinstate subscriber', () => {
     })
   })
 
-  it('does nothing when the order did not come from a cancelled status', async () => {
+  // #9073: no longer gated on `previousStatus` at all — the loop below already scopes to
+  // only THIS order's own un-reinstated release, so a released reservation is reinstated
+  // whichever status immediately preceded the confirmation.
+  it('reinstates a released reservation regardless of the payload previousStatus value', async () => {
     const { em, tables } = createFakeEm()
-    seedReleasedReservation(tables)
+    const { account, reserveEntry } = seedReleasedReservation(tables)
+    reserveCreditMock.mockResolvedValue({ reserved: true, released: false, entry: null, check: { reason: 'ok' } })
 
     await handle(
       { orderId: ORDER_ID, previousStatus: 'draft', tenantId: TENANT, organizationId: ORG },
       buildCtx(em),
     )
 
-    expect(reserveCreditMock).not.toHaveBeenCalled()
+    expect(reserveCreditMock).toHaveBeenCalledWith({
+      scope: { tenantId: TENANT, organizationId: ORG },
+      buyer: { customerId: account.customerId },
+      currencyCode: account.currencyCode,
+      amount: reserveEntry.amount,
+      sourceType: 'order',
+      sourceId: ORDER_ID,
+      idempotencyKey: `reinstate:${reserveEntry.idempotencyKey}`,
+    })
+  })
+
+  // #9073: the QA-reported shape — Canceled → On hold → Confirmed. The final
+  // `sales.order.confirmed` event's `previousStatus` is `on_hold`, not `canceled`, and
+  // must still reinstate.
+  it('reinstates a released reservation when the order was revived through an intermediate status', async () => {
+    const { em, tables } = createFakeEm()
+    const { reserveEntry } = seedReleasedReservation(tables)
+    reserveCreditMock.mockResolvedValue({ reserved: true, released: false, entry: null, check: { reason: 'ok' } })
+
+    await handle(
+      { orderId: ORDER_ID, previousStatus: 'on_hold', tenantId: TENANT, organizationId: ORG },
+      buildCtx(em),
+    )
+
+    expect(reserveCreditMock).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: `reinstate:${reserveEntry.idempotencyKey}` }),
+    )
   })
 
   it('skips a reservation that is still active (never released)', async () => {

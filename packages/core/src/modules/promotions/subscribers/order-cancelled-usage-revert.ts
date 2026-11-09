@@ -49,7 +49,11 @@ function resolveContainer(ctx: SubscriberContext): ResolverContainer {
   return ctx.container ?? { resolve: ctx.resolve }
 }
 
-export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
+// Exported so `order-deleted-usage-revert.ts` (#8406) can reuse the exact same revert
+// logic for `sales.order.deleted` — deleting an order that used a promotion/code must
+// free its budget and code usage the same way cancelling it does. Both services key
+// purely by `orderId`/`tenantId`/`organizationId`, with no FK to the order row itself.
+export async function handleOrderUsageRevert(payload: unknown, ctx: SubscriberContext): Promise<void> {
   const record = toRecord(payload)
   const orderId = readString(record, 'orderId') ?? readString(record, 'id')
   const tenantId = readString(record, 'tenantId') ?? ctx.tenantId ?? null
@@ -105,4 +109,8 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
     })
     throw error
   }
+}
+
+export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
+  return handleOrderUsageRevert(payload, ctx)
 }
