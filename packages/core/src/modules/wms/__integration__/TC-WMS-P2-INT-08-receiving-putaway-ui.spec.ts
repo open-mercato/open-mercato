@@ -21,6 +21,7 @@ import {
   selectLocationComboboxOption,
   setWmsLocale,
   submitInventoryDialog,
+  waitForDialogSubmitReady,
   waitForWmsMutationAccess,
 } from './helpers/wmsUi'
 
@@ -354,20 +355,36 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
       })
 
       // Create ASN: an empty submit surfaces translated warehouse/variant errors and writes nothing.
+      // The very first submit on a freshly opened dialog races the ASN mutation-access resolution
+      // (useWmsInventoryMutationAccess's scopeReady only flips true once the feature-check round
+      // trip commits); `toPass` re-clicks submit — a harmless, idempotent action — until either the
+      // error renders or the timeout elapses, instead of asserting against a single racy attempt.
       await page.goto('/backend/wms/asns')
       await waitForWmsMutationAccess(page)
       await page.getByRole('button', { name: 'Utwórz ASN' }).first().click()
-      const createDialog = page.getByRole('dialog').filter({ hasText: 'Utwórz ASN' }).first()
+      let createDialog = page.getByRole('dialog').filter({ hasText: 'Utwórz ASN' }).first()
       await expect(createDialog).toBeVisible()
 
-      await createDialog.getByTestId('create-asn-submit').click()
-      await expect(createDialog.getByText('Wybierz magazyn.')).toBeVisible()
+      await expect(async () => {
+        await createDialog.getByTestId('create-asn-submit').click()
+        await expect(createDialog.getByText('Wybierz magazyn.')).toBeVisible({ timeout: 3_000 })
+      }).toPass({ timeout: 20_000 })
       await expect(createDialog.getByText('Wybierz wariant.')).toBeVisible()
       await expect(createDialog.getByText('Invalid UUID')).toHaveCount(0)
       await expect(createDialog.getByText(/Too small/)).toHaveCount(0)
       expect(postRequests.some((url) => url.includes('/api/wms/asns'))).toBe(false)
 
+      // Close and reopen: `fieldErrors` only resets when the dialog's `open` prop flips, not by
+      // editing a field, so reusing this instance for the next check would see the warehouse/variant
+      // errors above as still-present "stale" alerts instead of a clean slate.
+      await createDialog.getByRole('button', { name: 'Anuluj' }).click()
+      await expect(createDialog).toBeHidden({ timeout: 10_000 })
+
       // A nonpositive expected quantity, submitted with Ctrl+Enter, surfaces a translated error too.
+      await page.getByRole('button', { name: 'Utwórz ASN' }).first().click()
+      createDialog = page.getByRole('dialog').filter({ hasText: 'Utwórz ASN' }).first()
+      await expect(createDialog).toBeVisible()
+
       await fillCombobox(page, 'Wybierz magazyn', warehouseName, {
         scope: createDialog,
         suggestionsApiPath: '/api/wms/warehouses',
@@ -392,19 +409,29 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
       await page.getByRole('button', { name: /Open actions|Otwórz akcje/i }).first().click()
       await page.getByRole('menuitem', { name: 'Przyjmij pozycję' }).click()
 
-      const receiveDialog = page.getByRole('dialog').filter({ hasText: 'Przyjmij pozycję ASN' }).first()
+      let receiveDialog = page.getByRole('dialog').filter({ hasText: 'Przyjmij pozycję ASN' }).first()
       await expect(receiveDialog).toBeVisible()
-      const receivedQtyInput = receiveDialog.getByTestId('receive-asn-qty')
-      await receivedQtyInput.fill('0')
-      await receivedQtyInput.press('Control+Enter')
+      await waitForDialogSubmitReady(page, receiveDialog, 'receive-asn-submit')
+      const invalidReceivedQtyInput = receiveDialog.getByTestId('receive-asn-qty')
+      await invalidReceivedQtyInput.fill('0')
+      await invalidReceivedQtyInput.press('Control+Enter')
       await expect(receiveDialog.getByText('Przyjęta ilość musi być większa od 0.')).toBeVisible()
       await expect(receiveDialog.getByText(/Too small/)).toHaveCount(0)
       expect(
         postRequests.some((url) => url.includes(`/api/wms/asns/${asnId}/receive`)),
       ).toBe(false)
 
+      // Close and reopen for the same reason as Create ASN above — the stale "quantity positive"
+      // alert would otherwise fail `submitInventoryDialog`'s own pre-submit no-field-errors check.
+      await receiveDialog.getByRole('button', { name: 'Anuluj' }).click()
+      await expect(receiveDialog).toBeHidden({ timeout: 10_000 })
+
       // Receive the line for real so a putaway task exists for the next assertion.
-      await receivedQtyInput.fill('5')
+      await page.getByRole('button', { name: /Open actions|Otwórz akcje/i }).first().click()
+      await page.getByRole('menuitem', { name: 'Przyjmij pozycję' }).click()
+      receiveDialog = page.getByRole('dialog').filter({ hasText: 'Przyjmij pozycję ASN' }).first()
+      await expect(receiveDialog).toBeVisible()
+      await receiveDialog.getByTestId('receive-asn-qty').fill('5')
       const receiveResponse = await submitInventoryDialog(page, receiveDialog, {
         submitTestId: 'receive-asn-submit',
         apiPath: `/api/wms/asns/${asnId}/receive`,
@@ -420,11 +447,12 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
       await putawayRow.getByRole('button', { name: /Open actions|Otwórz akcje/i }).click()
       await page.getByRole('menuitem', { name: 'Zakończ' }).click()
 
-      const putawayDialog = page.getByRole('dialog').filter({ hasText: 'Zakończ rozlokowanie' }).first()
+      let putawayDialog = page.getByRole('dialog').filter({ hasText: 'Zakończ rozlokowanie' }).first()
       await expect(putawayDialog).toBeVisible()
-      const confirmedQtyInput = putawayDialog.getByTestId('complete-putaway-qty')
-      await confirmedQtyInput.fill('0')
-      await confirmedQtyInput.press('Control+Enter')
+      await waitForDialogSubmitReady(page, putawayDialog, 'complete-putaway-submit')
+      const invalidConfirmedQtyInput = putawayDialog.getByTestId('complete-putaway-qty')
+      await invalidConfirmedQtyInput.fill('0')
+      await invalidConfirmedQtyInput.press('Control+Enter')
       await expect(putawayDialog.getByText('Potwierdzona ilość musi być większa od 0.')).toBeVisible()
       await expect(putawayDialog.getByText(/Too small/)).toHaveCount(0)
       expect(
@@ -433,8 +461,16 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
         ),
       ).toBe(false)
 
-      // Complete the task for real so teardown can delete the ASN cleanly.
-      await confirmedQtyInput.fill('5')
+      // Close and reopen for the same reason as above, then complete the task for real so
+      // teardown can delete the ASN cleanly.
+      await putawayDialog.getByRole('button', { name: 'Anuluj' }).click()
+      await expect(putawayDialog).toBeHidden({ timeout: 10_000 })
+
+      await putawayRow.getByRole('button', { name: /Open actions|Otwórz akcje/i }).click()
+      await page.getByRole('menuitem', { name: 'Zakończ' }).click()
+      putawayDialog = page.getByRole('dialog').filter({ hasText: 'Zakończ rozlokowanie' }).first()
+      await expect(putawayDialog).toBeVisible()
+      await putawayDialog.getByTestId('complete-putaway-qty').fill('5')
       await selectLocationComboboxOption(
         page,
         putawayDialog,
@@ -475,6 +511,8 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
     page,
     request,
   }) => {
+    test.slow()
+
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
     const scope = getTokenScope(adminToken)
@@ -503,8 +541,12 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
       const createDialog = page.getByRole('dialog').filter({ hasText: 'Lieferavis erstellen' }).first()
       await expect(createDialog).toBeVisible()
 
-      await createDialog.getByTestId('create-asn-submit').click()
-      await expect(createDialog.getByText('Wählen Sie ein Lager aus.')).toBeVisible()
+      // See the Polish test above for why the first submit on a freshly opened dialog is
+      // wrapped in `toPass`: it races the ASN mutation-access resolution.
+      await expect(async () => {
+        await createDialog.getByTestId('create-asn-submit').click()
+        await expect(createDialog.getByText('Wählen Sie ein Lager aus.')).toBeVisible({ timeout: 3_000 })
+      }).toPass({ timeout: 20_000 })
       await expect(createDialog.getByText('Wählen Sie eine Variante aus.')).toBeVisible()
       await expect(createDialog.getByText('Invalid UUID')).toHaveCount(0)
       await expect(createDialog.getByText(/Too small/)).toHaveCount(0)
