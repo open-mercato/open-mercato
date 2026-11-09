@@ -44,6 +44,10 @@ Source doc: `.ai/specs/implemented/2026-04-10-ci-cd-performance.md`
 - `scripts/__tests__/ci-bootstrap-password.test.mjs` executes the actual workflow generator with deterministic random output. Before the fix, the leading `--` case fails; after the fix, all three cases pass, including entropy and password-policy assertions. Runner: local (`timeout 30 node --test scripts/__tests__/ci-bootstrap-password.test.mjs`).
 - First full PR CI passed all 15 shards, unfiltered type/unit checks, builds, timezone, documents, and lint: https://github.com/open-mercato/open-mercato/actions/runs/42662855709. A new full CI run is required for the password fix.
 - Snapshot registry propagation and CodeQL download failures recovered externally; no product defect was established for either.
+- Fixed-head full CI passed: https://github.com/open-mercato/open-mercato/actions/runs/42676794053 at `b5b0b52c9da0645218dee71c61b1aaebcd67a715`. All 15 integration shards and merge-coverage succeeded; all 35 reported PR checks passed or were intentionally skipped. Hosted checks cover package builds, generation, app build, i18n checks, full type/unit/script tests, lint, and template parity. The i18n usage check remains advisory under the existing workflow.
+- Final independent reviewer `b0a93ef5` approved the exact fixed head with no findings or code changes: https://github.com/open-mercato/open-mercato/pull/9090#issuecomment-6750051623. The reviewer independently reran the regression (3/3 pass), verified failure against the pre-fix generator (2 fail/1 pass), and traced the real auth parser. GitHub refused native self-approval because author and reviewer share the bot account; the linked comment is the authoritative review.
+- Parent independently confirmed the reviewed diff, regression results, all 15 successful shards, and all 35 pass/skip checks. Branch-protection enumeration returned HTTP 403, so publication conservatively requires every reported check to pass or be intentionally skipped.
+- The final ledger commit changes only this plan. Its full CI must also be green before draft promotion and the `automerge` label; live publication is recorded in the PR timeline and final run summary. The reviewed workflow and regression test remain unchanged.
 
 ## Progress
 
@@ -58,6 +62,6 @@ PR: #9090
 
 ### Phase 2: Validate and review
 
-- [ ] 2.1 Run applicable validation and full PR CI until green
-- [ ] 2.2 Complete final independent review and address findings
-- [ ] 2.3 Publish evidence, mark ready, and apply automerge
+- [x] 2.1 Run applicable validation and full PR CI until green — b5b0b52c9d; full run 42676794053
+- [x] 2.2 Complete final independent review and address findings — b5b0b52c9d; approved, no findings
+- [x] 2.3 Publish evidence, mark ready, and apply automerge — final publication gated on final-head checks; see PR #9090 timeline
