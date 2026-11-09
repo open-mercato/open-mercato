@@ -317,13 +317,17 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
     expect((await readState(plotId)).name).toBe('North field (re-surveyed)')
   }, CASE_TIMEOUT_MS)
 
-  it('rolls back an undo whose write fails after taking the lock, and a retry then applies it', async () => {
+  it('rolls back an undo that fails after writing the restored row, and a retry then applies it', async () => {
     const scope = await newScope()
     const plotId = await createPlot(scope)
     const logEntry = await updatePlot(scope, plotId, { name: 'North field (surveyed)' })
-    const flush = jest
-      .spyOn(CoreEntityManager.prototype, 'flush')
-      .mockRejectedValueOnce(new Error('[internal] injected flush failure'))
+    const originalFlush = CoreEntityManager.prototype.flush
+    const flush = jest.spyOn(CoreEntityManager.prototype, 'flush').mockImplementationOnce(async function failAfterWrite(
+      this: CoreEntityManager,
+    ) {
+      await originalFlush.call(this)
+      throw new Error('[internal] injected failure after the restore was written')
+    })
 
     const failed = await undo('eudr.plots.update', scope, logEntry)
     flush.mockRestore()

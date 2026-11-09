@@ -197,6 +197,7 @@ const fixtures: EntityFixture[] = [
 type EntityManagerMock = {
   fork: jest.Mock
   transactional: jest.Mock
+  findOne: jest.Mock
   count: jest.Mock
   create: jest.Mock
   persist: jest.Mock
@@ -243,6 +244,7 @@ function buildHarness(record: Record<string, unknown> | null, custom: Record<str
   const em: EntityManagerMock = {
     fork: jest.fn(),
     transactional: jest.fn(),
+    findOne: jest.fn(async () => record),
     count: jest.fn(async () => 1),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
     persist: jest.fn(),
