@@ -23,6 +23,7 @@ jest.mock('../../lib/catalogTarget', () => ({
   findCatalogTargetIssue: (...args: unknown[]) => findCatalogTargetIssueMock(...args),
 }))
 
+import { LockMode } from '@mikro-orm/core'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
@@ -34,6 +35,8 @@ const ORG_ID = '11111111-1111-4111-8111-111111111111'
 const PRODUCT_ID = '44444444-4444-4444-8444-444444444444'
 const VARIANT_ID = '33333333-3333-4333-8333-333333333333'
 const POLICY_ID = '55555555-5555-4555-8555-555555555555'
+const LOGGED_UPDATED_AT = '2026-01-01T00:00:00.000Z'
+const NEWER_UPDATED_AT = '2026-01-02T00:00:00.000Z'
 
 class ProductInventoryProfileStub {}
 
@@ -50,7 +53,8 @@ function makeCtx(options: ContainerOptions = {}) {
     return null
   })
   const flush = jest.fn<Promise<void>, []>(async () => {})
-  const em = { findOne, flush, fork: () => em }
+  const em: Record<string, unknown> = { findOne, flush, fork: () => em }
+  em.transactional = async (work: (tx: unknown) => Promise<unknown>) => work(em)
   const dataEngine = { markOrmEntityChange: jest.fn() }
   const container = {
     resolve: (name: string) => {
@@ -86,8 +90,8 @@ function makePolicyRecord(): AvailabilityPolicy {
   record.productId = PRODUCT_ID
   record.isStockManaged = true
   record.isActive = true
-  record.createdAt = new Date()
-  record.updatedAt = new Date()
+  record.createdAt = new Date(LOGGED_UPDATED_AT)
+  record.updatedAt = new Date(LOGGED_UPDATED_AT)
   return record
 }
 
@@ -99,7 +103,7 @@ function makeSnapshot() {
     storeId: null,
     productId: PRODUCT_ID,
     variantId: null,
-    isStockManaged: false,
+    isStockManaged: true,
     allowBackorder: false,
     backorderLeadTimeDays: null,
     preorderReleaseAt: null,
@@ -109,8 +113,8 @@ function makeSnapshot() {
     quantityIncrement: null,
     hideWhenOutOfStock: false,
     isActive: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: LOGGED_UPDATED_AT,
+    updatedAt: LOGGED_UPDATED_AT,
   }
 }
 
@@ -232,7 +236,7 @@ describe('availability.policies undo — duplicate target maps to 409', () => {
     const { ctx, flush } = makeCtx({ policyRecord: record })
     flush.mockRejectedValueOnce(uniqueViolation())
     await expect(
-      updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: makeSnapshot() }) } as never),
+      updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: makeSnapshot(), after: makeSnapshot() }) } as never),
     ).rejects.toMatchObject({ status: 409 })
     expect(emitCrudUndoSideEffects).not.toHaveBeenCalled()
   })
@@ -254,7 +258,7 @@ describe('availability.policies undo — duplicate target maps to 409', () => {
     const failure = new Error('connection lost')
     flush.mockRejectedValueOnce(failure)
     await expect(
-      updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: makeSnapshot() }) } as never),
+      updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: makeSnapshot(), after: makeSnapshot() }) } as never),
     ).rejects.toBe(failure)
   })
 })
@@ -281,7 +285,7 @@ describe('availability.policies undo — emits availability.policy.* side effect
   it('undoing an update restores the snapshot and emits updated', async () => {
     const record = makePolicyRecord()
     const { ctx } = makeCtx({ policyRecord: record })
-    await updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: { ...makeSnapshot(), isStockManaged: null } }) } as never)
+    await updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: { ...makeSnapshot(), isStockManaged: null }, after: makeSnapshot() }) } as never)
     expect(record.isStockManaged).toBeNull()
     expectUndoEmit('updated')
   })
@@ -293,5 +297,88 @@ describe('availability.policies undo — emits availability.policy.* side effect
     await deletePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: makeSnapshot() }) } as never)
     expect(record.deletedAt).toBeNull()
     expectUndoEmit('created')
+  })
+})
+
+describe('availability.policies undo — refuses when the policy changed after the logged action', () => {
+  const undoConflict = { status: 409, body: expect.objectContaining({ code: 'availability.policies.errors.undoConflict' }) }
+
+  function changedByLaterCommand(): AvailabilityPolicy {
+    const record = makePolicyRecord()
+    record.isActive = false
+    record.updatedAt = new Date(NEWER_UPDATED_AT)
+    return record
+  }
+
+  it('undoing an update keeps a later deactivation by another actor and writes nothing', async () => {
+    const record = changedByLaterCommand()
+    const { ctx, flush } = makeCtx({ policyRecord: record })
+    const before = { ...makeSnapshot(), minOrderQuantity: null }
+    const after = { ...makeSnapshot(), minOrderQuantity: 5 }
+    await expect(
+      updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before, after }) } as never),
+    ).rejects.toMatchObject(undoConflict)
+    expect(record.isActive).toBe(false)
+    expect(record.updatedAt.toISOString()).toBe(NEWER_UPDATED_AT)
+    expect(flush).not.toHaveBeenCalled()
+    expect(emitCrudUndoSideEffects).not.toHaveBeenCalled()
+  })
+
+  it('undoing an update of a policy deleted since refuses instead of rewriting the deleted row', async () => {
+    const record = makePolicyRecord()
+    record.deletedAt = new Date(NEWER_UPDATED_AT)
+    const { ctx, flush } = makeCtx({ policyRecord: record })
+    await expect(
+      updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: makeSnapshot(), after: makeSnapshot() }) } as never),
+    ).rejects.toMatchObject(undoConflict)
+    expect(flush).not.toHaveBeenCalled()
+  })
+
+  it('undoing an update without a logged after snapshot refuses', async () => {
+    const record = makePolicyRecord()
+    const { ctx, flush } = makeCtx({ policyRecord: record })
+    await expect(
+      updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: makeSnapshot() }) } as never),
+    ).rejects.toMatchObject(undoConflict)
+    expect(flush).not.toHaveBeenCalled()
+  })
+
+  it('undoing an unchanged update reads the row under a write lock and restores it', async () => {
+    const record = makePolicyRecord()
+    const { ctx, findOne, flush } = makeCtx({ policyRecord: record })
+    const before = { ...makeSnapshot(), minOrderQuantity: null }
+    const after = { ...makeSnapshot(), minOrderQuantity: 5 }
+    record.minOrderQuantity = 5
+    await updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before, after }) } as never)
+    expect(findOne).toHaveBeenCalledWith(
+      AvailabilityPolicy,
+      expect.objectContaining({ id: POLICY_ID, tenantId: TENANT_ID, organizationId: ORG_ID }),
+      expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE }),
+    )
+    expect(record.minOrderQuantity).toBeNull()
+    expect(flush).toHaveBeenCalled()
+  })
+
+  it('undoing an earlier update after the later one was undone succeeds although updatedAt moved on', async () => {
+    const record = makePolicyRecord()
+    record.minOrderQuantity = 5
+    record.updatedAt = new Date(NEWER_UPDATED_AT)
+    const { ctx, flush } = makeCtx({ policyRecord: record })
+    const before = { ...makeSnapshot(), minOrderQuantity: null }
+    const after = { ...makeSnapshot(), minOrderQuantity: 5 }
+    await updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before, after }) } as never)
+    expect(record.minOrderQuantity).toBeNull()
+    expect(flush).toHaveBeenCalled()
+  })
+
+  it('undoing a create keeps a policy another actor edited since and does not delete it', async () => {
+    const record = changedByLaterCommand()
+    const { ctx, flush } = makeCtx({ policyRecord: record })
+    await expect(
+      createPolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ after: makeSnapshot() }) } as never),
+    ).rejects.toMatchObject(undoConflict)
+    expect(record.deletedAt ?? null).toBeNull()
+    expect(flush).not.toHaveBeenCalled()
+    expect(emitCrudUndoSideEffects).not.toHaveBeenCalled()
   })
 })
