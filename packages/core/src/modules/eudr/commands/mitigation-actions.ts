@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import type { RequiredEntityData } from '@mikro-orm/core'
+import { LockMode, type RequiredEntityData } from '@mikro-orm/core'
 import {
   parseWithCustomFields,
   emitCrudSideEffects,
@@ -34,6 +34,7 @@ import {
   type MitigationActionCreateInput,
   type MitigationActionUpdateInput,
 } from '../data/validators'
+import { isUnchangedSince, throwUndoConflict } from '../lib/undo-guard'
 
 const MITIGATION_ACTION_ENTITY_ID = 'eudr:eudr_mitigation_action'
 
@@ -152,9 +153,26 @@ async function findMitigationAction(
     : findOneWithDecryption(em, EudrMitigationAction, { id: entityId, deletedAt: null })
 }
 
+async function lockMitigationAction(
+  em: EntityManager,
+  scope: Pick<MitigationActionSnapshot, 'id' | 'tenantId' | 'organizationId'>,
+): Promise<EudrMitigationAction | null> {
+  return findOneWithDecryption(
+    em,
+    EudrMitigationAction,
+    { id: scope.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+}
+
 async function loadMitigationActionSnapshot(em: EntityManager, entityId: string): Promise<MitigationActionSnapshot | null> {
   const record = await findMitigationAction(em, entityId)
   if (!record) return null
+  return buildMitigationActionSnapshot(em, record)
+}
+
+async function buildMitigationActionSnapshot(em: EntityManager, record: EudrMitigationAction): Promise<MitigationActionSnapshot> {
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: MITIGATION_ACTION_ENTITY_ID,
     recordId: record.id,
@@ -301,12 +319,18 @@ const createMitigationActionCommand: CommandHandler<ScopedMitigationActionCreate
     const after = payload?.after
     if (!after) return
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await findMitigationAction(entityManager, after.id)
+    const { record, stale } = await entityManager.transactional(async (tx) => {
+      const current = await lockMitigationAction(tx, after)
+      if (!current || current.deletedAt) return { record: null, stale: false }
+      ensureTenantScope(ctx, current.tenantId)
+      ensureOrganizationScope(ctx, current.organizationId)
+      if (!isUnchangedSince(await buildMitigationActionSnapshot(tx, current), after)) return { record: current, stale: true }
+      current.deletedAt = new Date()
+      await tx.flush()
+      return { record: current, stale: false }
+    })
+    if (stale) return throwUndoConflict()
     if (!record) return
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    record.deletedAt = new Date()
-    await entityManager.flush()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
@@ -445,20 +469,28 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
     const payload = extractUndoPayload<MitigationActionUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) return throwUndoConflict()
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await findMitigationAction(entityManager, before.id)
-    if (!record) {
-      record = entityManager.create(EudrMitigationAction, mitigationActionSeedFromSnapshot(before))
-      entityManager.persist(record)
-    } else {
+    const { record, stale } = await entityManager.transactional(async (tx) => {
+      const current = await lockMitigationAction(tx, before)
+      if (!current) {
+        const recreated = tx.create(EudrMitigationAction, mitigationActionSeedFromSnapshot(before))
+        tx.persist(recreated)
+        await tx.flush()
+        return { record: recreated, stale: false }
+      }
       ensureTenantScope(ctx, before.tenantId)
       ensureOrganizationScope(ctx, before.organizationId)
-      restoreMitigationAction(record, before)
-    }
-    await entityManager.flush()
+      if (!isUnchangedSince(await buildMitigationActionSnapshot(tx, current), after)) return { record: current, stale: true }
+      restoreMitigationAction(current, before)
+      await tx.flush()
+      return { record: current, stale: false }
+    })
+    if (stale) return throwUndoConflict()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
     await setMitigationActionCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
     await emitCrudUndoSideEffects({
       dataEngine,

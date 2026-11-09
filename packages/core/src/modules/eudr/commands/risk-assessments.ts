@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { RequiredEntityData } from '@mikro-orm/core'
+import { LockMode, type RequiredEntityData } from '@mikro-orm/core'
 import {
   parseWithCustomFields,
   emitCrudSideEffects,
@@ -40,6 +40,7 @@ import {
   type RiskAssessmentUpdateInput,
 } from '../data/validators'
 import { getCountryRiskTier } from '../lib/reference-data'
+import { isUnchangedSince, throwUndoConflict } from '../lib/undo-guard'
 
 const RISK_ASSESSMENT_ENTITY_ID = 'eudr:eudr_risk_assessment'
 
@@ -285,9 +286,26 @@ async function findRiskAssessment(
     : findOneWithDecryption(em, EudrRiskAssessment, { id: entityId, deletedAt: null })
 }
 
+async function lockRiskAssessment(
+  em: EntityManager,
+  scope: Pick<RiskAssessmentSnapshot, 'id' | 'tenantId' | 'organizationId'>,
+): Promise<EudrRiskAssessment | null> {
+  return findOneWithDecryption(
+    em,
+    EudrRiskAssessment,
+    { id: scope.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+}
+
 async function loadRiskAssessmentSnapshot(em: EntityManager, entityId: string): Promise<RiskAssessmentSnapshot | null> {
   const record = await findRiskAssessment(em, entityId)
   if (!record) return null
+  return buildRiskAssessmentSnapshot(em, record)
+}
+
+async function buildRiskAssessmentSnapshot(em: EntityManager, record: EudrRiskAssessment): Promise<RiskAssessmentSnapshot> {
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: RISK_ASSESSMENT_ENTITY_ID,
     recordId: record.id,
@@ -446,12 +464,18 @@ const createRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentCreateInpu
     const after = payload?.after
     if (!after) return
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await findRiskAssessment(entityManager, after.id)
+    const { record, stale } = await entityManager.transactional(async (tx) => {
+      const current = await lockRiskAssessment(tx, after)
+      if (!current || current.deletedAt) return { record: null, stale: false }
+      ensureTenantScope(ctx, current.tenantId)
+      ensureOrganizationScope(ctx, current.organizationId)
+      if (!isUnchangedSince(await buildRiskAssessmentSnapshot(tx, current), after)) return { record: current, stale: true }
+      current.deletedAt = new Date()
+      await tx.flush()
+      return { record: current, stale: false }
+    })
+    if (stale) return throwUndoConflict()
     if (!record) return
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    record.deletedAt = new Date()
-    await entityManager.flush()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
@@ -599,20 +623,28 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
     const payload = extractUndoPayload<RiskAssessmentUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) return throwUndoConflict()
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await findRiskAssessment(entityManager, before.id)
-    if (!record) {
-      record = entityManager.create(EudrRiskAssessment, riskAssessmentSeedFromSnapshot(before))
-      entityManager.persist(record)
-    } else {
+    const { record, stale } = await entityManager.transactional(async (tx) => {
+      const current = await lockRiskAssessment(tx, before)
+      if (!current) {
+        const recreated = tx.create(EudrRiskAssessment, riskAssessmentSeedFromSnapshot(before))
+        tx.persist(recreated)
+        await tx.flush()
+        return { record: recreated, stale: false }
+      }
       ensureTenantScope(ctx, before.tenantId)
       ensureOrganizationScope(ctx, before.organizationId)
-      restoreRiskAssessment(record, before)
-    }
-    await entityManager.flush()
+      if (!isUnchangedSince(await buildRiskAssessmentSnapshot(tx, current), after)) return { record: current, stale: true }
+      restoreRiskAssessment(current, before)
+      await tx.flush()
+      return { record: current, stale: false }
+    })
+    if (stale) return throwUndoConflict()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
     await setRiskAssessmentCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
     await emitCrudUndoSideEffects({
       dataEngine,

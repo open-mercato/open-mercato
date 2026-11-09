@@ -136,6 +136,7 @@
   "eudr.errors.statement_required": "El ID de la declaración de diligencia debida es obligatorio",
   "eudr.errors.submission_required": "El ID del envío de evidencia es obligatorio.",
   "eudr.errors.unauthorized": "No autorizado",
+  "eudr.errors.undoConflict": "Este registro cambió después de la acción que intentas deshacer. Se rechazó la acción de deshacer.",
   "eudr.evidence.attachAfterCreateHint": "Envío de evidencia creado. Ahora puedes adjuntar archivos de evidencia.",
   "eudr.evidenceSubmissions.create.title": "Crear envío de evidencia",
   "eudr.evidenceSubmissions.edit.title": "Editar envío de evidencia",

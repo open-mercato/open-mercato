@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import type { RequiredEntityData } from '@mikro-orm/core'
+import { LockMode, type RequiredEntityData } from '@mikro-orm/core'
 import {
   parseWithCustomFields,
   emitCrudSideEffects,
@@ -41,6 +41,7 @@ import {
   type StatementCreateInput,
   type StatementUpdateInput,
 } from '../data/validators'
+import { isUnchangedSince, throwUndoConflict } from '../lib/undo-guard'
 import {
   EUDR_AMEND_GUARDED_FIELDS,
   canDeleteStatement,
@@ -158,9 +159,24 @@ function statementSeedFromSnapshot(snapshot: StatementSnapshot): RequiredEntityD
   }
 }
 
+async function lockStatement(
+  em: EntityManager,
+  scope: Pick<StatementSnapshot, 'id' | 'tenantId' | 'organizationId'>,
+): Promise<EudrDueDiligenceStatement | null> {
+  return em.findOne(
+    EudrDueDiligenceStatement,
+    { id: scope.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+  )
+}
+
 async function loadStatementSnapshot(em: EntityManager, entityId: string): Promise<StatementSnapshot | null> {
   const record = await em.findOne(EudrDueDiligenceStatement, { id: entityId })
   if (!record) return null
+  return buildStatementSnapshot(em, record)
+}
+
+async function buildStatementSnapshot(em: EntityManager, record: EudrDueDiligenceStatement): Promise<StatementSnapshot> {
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: STATEMENT_ENTITY_ID,
     recordId: record.id,
@@ -693,14 +709,20 @@ const createStatementCommand: CommandHandler<ScopedStatementCreateInput, Stateme
     const after = payload?.after
     if (!after) return
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await entityManager.findOne(EudrDueDiligenceStatement, { id: after.id })
+    const { record, stale } = await entityManager.transactional(async (tx) => {
+      const current = await lockStatement(tx, after)
+      if (!current || current.deletedAt) return { record: null, stale: false }
+      ensureTenantScope(ctx, current.tenantId)
+      ensureOrganizationScope(ctx, current.organizationId)
+      const blocker = await resolveStatementDeleteBlocker(tx, current)
+      if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
+      if (!isUnchangedSince(await buildStatementSnapshot(tx, current), after)) return { record: current, stale: true }
+      current.deletedAt = new Date()
+      await tx.flush()
+      return { record: current, stale: false }
+    })
+    if (stale) return throwUndoConflict()
     if (!record) return
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const blocker = await resolveStatementDeleteBlocker(entityManager, record)
-    if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
-    record.deletedAt = new Date()
-    await entityManager.flush()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
@@ -833,24 +855,32 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
     const payload = extractUndoPayload<StatementUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) return throwUndoConflict()
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await entityManager.findOne(EudrDueDiligenceStatement, { id: before.id })
-    if (!record) {
-      record = entityManager.create(EudrDueDiligenceStatement, statementSeedFromSnapshot(before))
-      entityManager.persist(record)
-    } else {
+    const { record, stale } = await entityManager.transactional(async (tx) => {
+      const current = await lockStatement(tx, before)
+      if (!current) {
+        const recreated = tx.create(EudrDueDiligenceStatement, statementSeedFromSnapshot(before))
+        tx.persist(recreated)
+        await tx.flush()
+        return { record: recreated, stale: false }
+      }
       ensureTenantScope(ctx, before.tenantId)
       ensureOrganizationScope(ctx, before.organizationId)
-      if (record.status !== before.status) {
-        const blocker = await resolveStatementDeleteBlocker(entityManager, record)
+      if (current.status !== before.status) {
+        const blocker = await resolveStatementDeleteBlocker(tx, current)
         if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
       }
-      restoreStatement(record, before)
-    }
-    await entityManager.flush()
+      if (!isUnchangedSince(await buildStatementSnapshot(tx, current), after)) return { record: current, stale: true }
+      restoreStatement(current, before)
+      await tx.flush()
+      return { record: current, stale: false }
+    })
+    if (stale) return throwUndoConflict()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
     await setStatementCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
     await emitCrudUndoSideEffects({
       dataEngine,
