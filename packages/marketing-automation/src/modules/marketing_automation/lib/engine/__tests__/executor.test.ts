@@ -161,6 +161,11 @@ describe('executeRun — wait', () => {
       resumeAt: new Date('2026-09-28T13:00:00.000Z'),
     })
     expect(handler.execute).toHaveBeenCalledTimes(1)
+    // The wait step logs its own outcome on entry — the step funnel counts people from these
+    // entries, so an unlogged wait would report nobody reached it.
+    expect(transition.stepLog).toContainEqual(
+      expect.objectContaining({ stepId: 'w1', type: 'wait', status: 'done' }),
+    )
   })
 
   test('resuming from the parked index runs the remainder', async () => {

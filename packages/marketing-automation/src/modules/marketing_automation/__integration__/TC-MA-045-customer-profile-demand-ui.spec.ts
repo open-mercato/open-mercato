@@ -147,6 +147,12 @@ test.describe('TC-MA-045 customer profile and demand screens', () => {
       await expect(runLink).toHaveAttribute('href', `/backend/marketing/campaigns/${campaignId}/runs`)
       await expect(page.getByRole('listitem').filter({ has: runLink })).toContainText('Completed')
 
+      // "What happened" merges seven tables and only fetches once scrolled near — the run that just
+      // entered and the points it awarded are the two entries this fixture can prove came from there.
+      await page.getByText('What happened').scrollIntoViewIfNeeded()
+      await expect(page.getByText('Entered the campaign')).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByText('+5 points')).toBeVisible()
+
       // Consent: nothing recorded yet, and a decision cannot be written down without saying why.
       await expect(page.getByText('No email preference recorded')).toBeVisible()
       const unsubscribe = page.getByRole('button', { name: 'Record unsubscribe' })
