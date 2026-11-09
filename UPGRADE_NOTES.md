@@ -1,5 +1,18 @@
 # Upgrade Notes
 
+## Staff message leave decisions enforce native permissions (#8884)
+
+Approving or rejecting leave through message actions now requires the same
+`staff.leave_requests.manage` permission as the native staff API. Having
+`messages.actions` alone no longer permits a leave decision. Clients should handle
+the existing 403 response and leave decisions to authorized managers. Operators
+should review scoped role/user grants and grant the existing staff feature only to
+intended decision makers. Custom roles and wildcard managers retain native RBAC
+semantics; API keys use their own effective permissions rather than their owner’s
+identity. No wire shape, schema or credential migration is required. Prior
+unauthorized decisions are not undone automatically; audit historical approvals
+and rejections as appropriate. See the [compatibility spec](.ai/specs/2026-11-06-staff-message-decision-authorization-8884.md).
+
 ## Starter reuse and optional AI
 
 `yarn setup` can continue with pre-existing services after an explicit interactive confirmation. It shows port owners and restart/health states and then leaves those containers untouched, using the URLs already configured in `.env`. Declining shows `yarn om stop` guidance for the original checkout. Non-interactive users must explicitly pass `--no-infra` to use external services.
