@@ -24,6 +24,7 @@ type RecordedQuery = { sql: string; parameters: readonly unknown[] }
 type FakeEntityMetadata = {
   className: string
   tableName: string
+  schema?: string
   primaryKeys: string[]
   properties: Record<string, { fieldNames: string[] }>
 }
@@ -58,6 +59,19 @@ const COMPOSITE_METADATA: FakeEntityMetadata = {
   properties: {
     first: { fieldNames: ['first'] },
     second: { fieldNames: ['second'] },
+    deletedAt: { fieldNames: ['deleted_at'] },
+  },
+}
+const SCHEMA_ENTITY_TYPE = 'example:schema_record'
+const SCHEMA_METADATA: FakeEntityMetadata = {
+  className: 'SchemaRecord',
+  tableName: 'example_schema_records',
+  schema: 'tenant_data',
+  primaryKeys: ['id'],
+  properties: {
+    id: { fieldNames: ['id'] },
+    organizationId: { fieldNames: ['organization_id'] },
+    tenantId: { fieldNames: ['tenant_id'] },
     deletedAt: { fieldNames: ['deleted_at'] },
   },
 }
@@ -107,7 +121,7 @@ function createHarness(baseRows: Array<Record<string, unknown>> | Error) {
       createQueryCompiler: () => new PostgresQueryCompiler(),
     },
   })
-  const allMetadata = [RESOURCE_METADATA, HARD_DELETE_METADATA, CODED_METADATA, COMPOSITE_METADATA]
+  const allMetadata = [RESOURCE_METADATA, SCHEMA_METADATA, HARD_DELETE_METADATA, CODED_METADATA, COMPOSITE_METADATA]
   const em = {
     getKysely: () => db,
     getMetadata: () => ({
@@ -136,6 +150,7 @@ describe('translations cleanup subscriber', () => {
     registerEntityIds({
       resources: { resources_resource: RESOURCE_ENTITY_TYPE },
       example: {
+        schema_record: SCHEMA_ENTITY_TYPE,
         hard_record: HARD_DELETE_ENTITY_TYPE,
         coded_record: CODED_ENTITY_TYPE,
         composite_record: COMPOSITE_ENTITY_TYPE,
@@ -169,6 +184,16 @@ describe('translations cleanup subscriber', () => {
     expect(harness.deletes()).toHaveLength(0)
     expect(harness.selects()[0].sql).toContain('select "removed_at" from "example_coded_records" where "record_code" = $1')
     expect(harness.selects()[0].parameters).toEqual(['code-1'])
+  })
+
+  it('probes a schema-qualified table through its schema', async () => {
+    const harness = createHarness([{ deleted_at: new Date() }])
+
+    await handle(payloadFor(SCHEMA_ENTITY_TYPE, 'sch-1'), harness.ctx)
+
+    expect(harness.deletes()).toHaveLength(0)
+    expect(harness.selects()).toHaveLength(1)
+    expect(harness.selects()[0].sql).toContain('from "tenant_data"."example_schema_records"')
   })
 
   it('keeps translations when the soft-delete check fails', async () => {

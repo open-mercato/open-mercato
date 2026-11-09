@@ -40,7 +40,11 @@ function resolveSourceMetadata(em: EntityManager, entityType: string): QueryInde
 function resolveSoftDeleteSource(em: EntityManager, entityType: string): SoftDeleteSource | null {
   const source = resolveSourceMetadata(em, entityType)
   if (!source) return null
-  const entityMetadata = listEntityMetadata(em).find((candidate) => String(candidate.tableName ?? '') === source.table)
+  const tableName = source.tableName ?? source.table
+  const entityMetadata = listEntityMetadata(em).find((candidate) =>
+    String(candidate.tableName ?? '') === tableName
+    && (candidate.schema && candidate.schema !== '*' ? candidate.schema : undefined) === source.schema,
+  )
   if (!entityMetadata) return null
   const properties = entityMetadata.properties as unknown as Record<string, EntityPropertyMetadata | undefined>
   const deletedAtColumn = resolveSingleColumn(properties.deletedAt)
@@ -64,9 +68,9 @@ export async function isTranslatedRecordSoftDeleted(
 ): Promise<boolean> {
   const source = resolveSoftDeleteSource(em, entityType)
   if (!source) return false
-  let query = em
-    .getKysely<OwnerLookupDatabase>()
-    .selectFrom(source.table)
+  const db = em.getKysely<OwnerLookupDatabase>()
+  let query = (source.schema ? db.withSchema(source.schema) : db)
+    .selectFrom(source.tableName ?? source.table)
     .select(source.deletedAtColumn)
     .where(source.idColumn, '=', recordId)
   if (source.tenantColumn) {
