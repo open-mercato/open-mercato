@@ -3,19 +3,24 @@
 import type { MessageListItemProps } from '@open-mercato/shared/modules/messages/types'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDisplayTime, todayInZone } from '@open-mercato/ui/primitives/date-format'
-import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
+import { resolveDisplayTimeZone, useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
+import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
 
-function formatSentTime(value: Date | null, unknownDate: string, locale: string): string {
+function formatSentTime(
+  value: Date | null,
+  unknownDate: string,
+  locale: string,
+  settings: ResolvedDateLocaleSettings,
+): string {
   if (!value || Number.isNaN(value.getTime())) return unknownDate
 
-  const timeZone = resolveDisplayTimeZone()
+  const timeZone = resolveDisplayTimeZone(settings)
   if (todayInZone(timeZone) === todayInZone(timeZone, value)) {
-    return formatDisplayTime(value, locale) ?? unknownDate
+    return formatDisplayTime(value, locale, settings) ?? unknownDate
   }
 
-  return value.toLocaleDateString(getActiveDateLocaleSettings().locale ?? locale, { month: 'short', day: 'numeric', timeZone })
+  return value.toLocaleDateString(settings.locale ?? locale, { month: 'short', day: 'numeric', timeZone })
 }
 
 function normalizeBody(value: string | null): string {
@@ -26,11 +31,12 @@ function normalizeBody(value: string | null): string {
 export function MessageListComponent({ message, onClick }: MessageListItemProps) {
   const t = useT()
   const locale = useLocale()
+  const dateLocaleSettings = useDateLocaleSettings()
   const senderLabel = message.senderName || '—'
   const body = normalizeBody(message.body)
   const sentAtLabel = message.isDraft
     ? '—'
-    : formatSentTime(message.sentAt, t('messages.unknownDate', 'Unknown date'), locale)
+    : formatSentTime(message.sentAt, t('messages.unknownDate', 'Unknown date'), locale, dateLocaleSettings)
 
   return (
     <div

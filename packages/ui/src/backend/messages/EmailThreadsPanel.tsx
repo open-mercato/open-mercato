@@ -8,6 +8,8 @@ import { Spinner } from '../../primitives/spinner'
 import { Alert, AlertDescription } from '../../primitives/alert'
 import { EmptyState } from '../EmptyState'
 import { formatDisplayDateTime } from '../../primitives/date-format'
+import { useDateLocaleSettings } from '../../primitives/date-locale-settings'
+import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 
@@ -76,8 +78,13 @@ export type EmailThreadsPanelProps = {
   className?: string
 }
 
-function formatWhen(value: string | null, unknownLabel: string, locale: string): string {
-  return value ? formatDisplayDateTime(value, locale) ?? value : unknownLabel
+function formatWhen(
+  value: string | null,
+  unknownLabel: string,
+  locale: string,
+  settings: ResolvedDateLocaleSettings,
+): string {
+  return value ? formatDisplayDateTime(value, locale, settings) ?? value : unknownLabel
 }
 
 /**
@@ -100,6 +107,7 @@ export function EmailThreadsPanel({
 }: EmailThreadsPanelProps) {
   const t = useT()
   const locale = useLocale()
+  const dateLocaleSettings = useDateLocaleSettings()
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null)
 
   // Keep a valid selection as the thread set changes (refresh, new email).
@@ -195,7 +203,7 @@ export function EmailThreadsPanel({
                           {thread.subject || t('ui.email.threads.noSubject', '(no subject)')}
                         </span>
                         <span className="min-w-0 max-w-full break-words text-xs text-muted-foreground">
-                          {formatWhen(thread.lastMessageAt, t('ui.email.threads.unknownDate', 'Unknown date'), locale)}
+                          {formatWhen(thread.lastMessageAt, t('ui.email.threads.unknownDate', 'Unknown date'), locale, dateLocaleSettings)}
                         </span>
                       </div>
                       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
@@ -267,6 +275,7 @@ function EmailMessageCard({
 }) {
   const t = useT()
   const locale = useLocale()
+  const dateLocaleSettings = useDateLocaleSettings()
   const isOutbound = message.direction === 'outbound'
   const fromLabel = message.fromName
     ? `${message.fromName}${message.fromEmail ? ` <${message.fromEmail}>` : ''}`
@@ -305,7 +314,7 @@ function EmailMessageCard({
             </span>
           ) : null}
         </div>
-        <span className="min-w-0 max-w-full break-words text-xs text-muted-foreground">{formatWhen(message.sentAt, t('ui.email.threads.unknownDate', 'Unknown date'), locale)}</span>
+        <span className="min-w-0 max-w-full break-words text-xs text-muted-foreground">{formatWhen(message.sentAt, t('ui.email.threads.unknownDate', 'Unknown date'), locale, dateLocaleSettings)}</span>
       </div>
       <div className="whitespace-pre-wrap break-words text-sm text-foreground">
         {message.bodyText || t('ui.email.threads.noBody', '(no content)')}

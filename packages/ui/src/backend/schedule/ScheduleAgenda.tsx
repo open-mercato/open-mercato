@@ -9,7 +9,8 @@ import { useOptionalLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { expandRecurringItems } from './recurrence'
 import { getScheduleItemStyle, getScheduleStatusTone } from './presentation'
 import { formatDisplayTime } from '../../primitives/date-format'
-import { getActiveDateLocaleSettings } from '../../primitives/date-locale-store'
+import { useDateLocaleSettings } from '../../primitives/date-locale-settings'
+import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -42,11 +43,16 @@ function formatDayLabel(day: Date, locale: string): string {
   return day.toLocaleDateString(locale, { weekday: 'long', month: 'short', day: 'numeric' })
 }
 
-function formatTimeRange(item: ScheduleItem, locale: string, timezone?: string): string {
+function formatTimeRange(
+  item: ScheduleItem,
+  locale: string,
+  dateLocaleSettings: ResolvedDateLocaleSettings,
+  timezone?: string,
+): string {
   // Day columns are bucketed with runtime-local getters, so labels stay in that zone (or the
   // explicit `timezone` prop) until the grid itself becomes zone-aware; only the clock style and
   // pattern follow the date/locale settings.
-  const settings = { ...getActiveDateLocaleSettings(), timeZone: timezone ?? null }
+  const settings = { ...dateLocaleSettings, timeZone: timezone ?? null }
   const startLabel = formatDisplayTime(item.startsAt, locale, settings) ?? ''
   const endLabel = formatDisplayTime(item.endsAt, locale, settings) ?? ''
   return `${startLabel}–${endLabel}`
@@ -73,6 +79,7 @@ export type ScheduleAgendaProps = {
 export function ScheduleAgenda({ items, range, timezone, onItemClick, onSlotClick, className }: ScheduleAgendaProps) {
   const t = useT()
   const locale = useOptionalLocale() ?? 'en'
+  const dateLocaleSettings = useDateLocaleSettings()
   const days = React.useMemo(() => eachDay(range.start, range.end), [range])
   const expandedItems = React.useMemo(() => expandRecurringItems(items, range), [items, range])
 
@@ -119,7 +126,7 @@ export function ScheduleAgenda({ items, range, timezone, onItemClick, onSlotClic
                         {statusLabel ? <Badge variant={getScheduleStatusTone(item.status)} dot className="shrink-0">{statusLabel}</Badge> : null}
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-normal text-muted-foreground">
-                        <span>{formatTimeRange(item, locale, timezone)}</span>
+                        <span>{formatTimeRange(item, locale, dateLocaleSettings, timezone)}</span>
                         <span>{t(`schedule.item.kind.${item.kind}`)}</span>
                       </div>
                     </Button>

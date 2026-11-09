@@ -12,7 +12,7 @@ import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { ChipButton } from './ChipButton'
 import { FilterPopoverShell } from './FilterPopoverShell'
-import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 
 export type CloseDateRange = {
   from: string | null
@@ -34,8 +34,7 @@ function todayAsUtcDay(): Date {
   return new Date(`${todayInZone()}T00:00:00.000Z`)
 }
 
-function formatCalendarDay(value: string, locale: string): string {
-  const formatLocale = getActiveDateLocaleSettings().locale ?? locale
+function formatCalendarDay(value: string, formatLocale: string): string {
   return new Intl.DateTimeFormat(formatLocale, { month: 'short', day: '2-digit', timeZone: 'UTC' }).format(new Date(value))
 }
 
@@ -97,6 +96,7 @@ function buildPresetRange(key: PresetKey): CloseDateRange {
 export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopoverProps): React.ReactElement {
   const t = useT()
   const locale = useLocale()
+  const formatLocale = useDateLocaleSettings().locale ?? locale
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState<CloseDateRange>(value)
 
@@ -111,20 +111,20 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
     // preset name, which read like the filter was already active and confused operators.
     if (!isActive) return translateWithFallback(t, 'customers.deals.kanban.filter.any', 'Any')
     if (value.from && value.to) {
-      const f = formatCalendarDay(value.from, locale)
-      const tt = formatCalendarDay(value.to, locale)
+      const f = formatCalendarDay(value.from, formatLocale)
+      const tt = formatCalendarDay(value.to, formatLocale)
       return `${f} – ${tt}`
     }
     if (value.from && !value.to)
       return translateWithFallback(t, 'customers.deals.kanban.filter.from', 'From {date}', {
-        date: formatCalendarDay(value.from, locale),
+        date: formatCalendarDay(value.from, formatLocale),
       })
     if (!value.from && value.to)
       return translateWithFallback(t, 'customers.deals.kanban.filter.until', 'Until {date}', {
-        date: formatCalendarDay(value.to, locale),
+        date: formatCalendarDay(value.to, formatLocale),
       })
     return ''
-  }, [value.from, value.to, isActive, locale, t])
+  }, [value.from, value.to, isActive, formatLocale, t])
 
   const applyPreset = (key: PresetKey) => setDraft(buildPresetRange(key))
 
