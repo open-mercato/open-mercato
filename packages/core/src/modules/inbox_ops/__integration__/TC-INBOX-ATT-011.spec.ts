@@ -232,10 +232,13 @@ test.describe('TC-INBOX-ATT-011: deleting an email removes its references from o
         await ownerPolicyRequest('DELETE', `/api/attachments?id=${libraryCopyId}`, admin).catch(() => undefined)
         planted.push(libraryCopyId)
       }
+      // The email delete releases its owned files with their bytes, so it runs before the SQL
+      // delete below, which would leave the bytes of a failed run behind. Each step runs even
+      // when an earlier one fails.
+      await cleanupInboundEmails(request, admin, tracker).catch(() => undefined)
       if (planted.length) {
         await withClient((client) => client.query('delete from attachments where id = any($1::uuid[])', [planted])).catch(() => undefined)
       }
-      await cleanupInboundEmails(request, admin, tracker)
     }
   })
 })

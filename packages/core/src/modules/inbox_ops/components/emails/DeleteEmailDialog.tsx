@@ -63,6 +63,10 @@ export function DeleteEmailDialog({ email, onClose, onDeleted }: DeleteEmailDial
   })
   const [isDeleting, setIsDeleting] = React.useState(false)
   const failedMessage = t('inbox_ops.emails.delete.failed', 'Failed to delete email')
+  // Keep showing the last email's subject while the dialog animates closed; actions use `email`.
+  const [lastEmail, setLastEmail] = React.useState(email)
+  if (email !== null && email !== lastEmail) setLastEmail(email)
+  const shownSubject = (email ?? lastEmail)?.subject
 
   const handleDelete = React.useCallback(async () => {
     if (!email || isDeleting) return
@@ -110,7 +114,7 @@ export function DeleteEmailDialog({ email, onClose, onDeleted }: DeleteEmailDial
             {t(
               'inbox_ops.emails.delete.description',
               'The email "{subject}" is removed from the inbox and its attachments are deleted. This cannot be undone.',
-              { subject: email?.subject || t('inbox_ops.emails.delete.untitled', 'Untitled email') },
+              { subject: shownSubject || t('inbox_ops.emails.delete.untitled', 'Untitled email') },
             )}
           </DialogDescription>
         </DialogHeader>

@@ -16,6 +16,11 @@ const ACTION_MAP = {
   entityId: 'inbox_ops:inbox_proposal_action',
   fields: [{ field: 'description' }, { field: 'payload' }, { field: 'execution_error' }, { field: 'source_refs' }],
 }
+/** The action backfill lists only the rule this migration adds; older rules an admin removed stay removed. */
+const ACTION_BACKFILL = {
+  entityId: ACTION_MAP.entityId,
+  fields: [{ field: 'source_refs' }],
+}
 
 type SnapshotTable = {
   name: string
@@ -92,16 +97,24 @@ describe('Migration20261108130000_inbox_ops (inbound attachments)', () => {
     // without `source_refs`; without these statements `encryptEntityPayload` would find no rule
     // and store the new columns as plaintext.
     expect(queries).toContain(buildEncryptionMapBackfillSql(ATTACHMENT_MAP))
-    expect(queries).toContain(buildEncryptionMapBackfillSql(ACTION_MAP))
+    expect(queries).toContain(buildEncryptionMapBackfillSql(ACTION_BACKFILL))
     const backfill = buildEncryptionMapBackfillSql(ATTACHMENT_MAP)
     expect(backfill).toContain(`'inbox_ops:inbox_email_attachment', src."tenant_id", src."organization_id", '[{"field":"file_name"},{"field":"extracted_text"}]'::jsonb`)
-    expect(buildEncryptionMapBackfillSql(ACTION_MAP)).toContain(`|| '[{"field":"source_refs"}]'::jsonb`)
+    expect(buildEncryptionMapBackfillSql(ACTION_BACKFILL)).toContain(`|| '[{"field":"source_refs"}]'::jsonb`)
   })
 
-  it('backfills exactly the fields the module map encrypts', () => {
+  it('never re-adds the proposal-action rules that predate this migration', async () => {
+    const sql = (await collect('up')).join('\n')
+    for (const field of ['description', 'payload', 'execution_error']) {
+      expect(sql).not.toContain(`{"field":"${field}"}`)
+    }
+  })
+
+  it('backfills exactly the fields the module map encrypts, and only the action rule it adds', () => {
     const byEntity = (entityId: string) => defaultEncryptionMaps.find((map) => map.entityId === entityId)?.fields
     expect(byEntity(ATTACHMENT_MAP.entityId)).toEqual(ATTACHMENT_MAP.fields)
     expect(byEntity(ACTION_MAP.entityId)).toEqual(ACTION_MAP.fields)
+    expect(ACTION_MAP.fields).toEqual(expect.arrayContaining(ACTION_BACKFILL.fields))
   })
 
   it('keeps the backfill forward-only and reverts the schema', async () => {

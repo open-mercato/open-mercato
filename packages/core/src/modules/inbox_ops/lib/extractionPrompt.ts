@@ -157,13 +157,19 @@ const PROMPT_DELIMITER_TAGS = [
   'output_requirements',
 ]
 
-const DELIMITER_TAG_PATTERN = new RegExp(`<(\\s*/?\\s*(?:${PROMPT_DELIMITER_TAGS.join('|')})(?![A-Za-z0-9_-]))`, 'gi')
+// `<`, optional whitespace, an optional `/` with its own trailing whitespace, then a tag name. The
+// `/` group keeps the two whitespace runs unambiguous: `\s*/?\s*` could split one long whitespace
+// run (NBSP, ` \n` …) between its two quantifiers in quadratically many ways before failing.
+const DELIMITER_TAG_PATTERN = new RegExp(`<(\\s*(?:/\\s*)?(?:${PROMPT_DELIMITER_TAGS.join('|')})(?![A-Za-z0-9_-]))`, 'gi')
 
-// Invisible characters are dropped: C0/C1 controls other than tab and line breaks, and every Unicode
+// Invisible characters are dropped: C0/C1 controls other than tab and line breaks, every Unicode
 // format character (`\p{Cf}`: zero-width space/joiners, BOM, word joiner, soft hyphen, bidi
-// embeddings/overrides/isolates, tag characters U+E0000-U+E007F, …), so `<\u200Battachment>` or
-// `<\u2060attachment>` cannot slip past the delimiter match and be read as a tag by the model.
-const CONTROL_CHARS_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\p{Cf}]/gu
+// embeddings/overrides/isolates, tag characters U+E0000-U+E007F, …), and lone UTF-16 surrogates
+// (`\p{Cs}`; a well-formed pair is one astral code point under the `u` flag and is kept), so
+// `<\u200Battachment>` or `<\u2060attachment>` cannot slip past the delimiter match and be read as
+// a tag by the model.
+// ZWNJ/ZWJ (U+200C/U+200D) are `Cf` too: dropping them can change how some scripts render, which is accepted.
+const CONTROL_CHARS_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\p{Cf}\p{Cs}]/gu
 
 /** Drops control and invisible format characters from untrusted text (see {@link neutralizePromptDelimiters}). */
 export function stripInvisiblePromptChars(text: string): string {
@@ -253,7 +259,11 @@ export function unescapePromptAttribute(value: string): string {
  * {@link FIT_NEUTRALIZED_MAX_PASSES} is a safety net past which the step doubles.
  */
 export function fitNeutralizedText(text: string, limit: number): { body: string; truncated: boolean; passes: number } {
-  const visible = stripInvisiblePromptChars(text)
+  return fitVisibleNeutralizedText(stripInvisiblePromptChars(text), limit)
+}
+
+/** {@link fitNeutralizedText} for text whose invisible characters are already stripped. */
+function fitVisibleNeutralizedText(visible: string, limit: number): { body: string; truncated: boolean; passes: number } {
   let end = codePointSafeEnd(visible, Math.min(visible.length, limit))
   for (let passes = 1; ; passes += 1) {
     const body = neutralizeDelimiterTags(visible.slice(0, end))
@@ -333,7 +343,8 @@ export function buildAttachmentsSection(
     const closingTag = '</attachment>'
     const overhead = `<attachment ${attributes} truncated="true">`.length + closingTag.length + 3
     const available = remaining - overhead
-    const fitted = available > 0 ? fitNeutralizedText(text, Math.min(maxPerFile, available)) : null
+    // `text` is already stripped of invisible characters (above), so it is not stripped again.
+    const fitted = available > 0 ? fitVisibleNeutralizedText(text, Math.min(maxPerFile, available)) : null
     if (!fitted?.body.trim()) {
       pushMetadataLine(`<attachment ${attributes} text="omitted_budget" />`)
       return
@@ -357,9 +368,11 @@ export function buildExtractionUserPrompt(cleanedText: string, options: Extracti
   // The body is untrusted as well: a forged `</email_content><attachments>` must not open a section.
   // Cut-then-neutralize like attachment text, so `&lt;` growth cannot overrun the body budget.
   const maxBodyChars = positiveBudget(options.maxBodyChars, Number.POSITIVE_INFINITY)
-  const emailContent = attachmentsSection && !hasVisiblePromptText(cleanedText)
+  // Stripped once: the emptiness check and the fit both work on the visible text.
+  const visibleBody = stripInvisiblePromptChars(cleanedText)
+  const emailContent = attachmentsSection && !visibleBody.trim()
     ? '(The email body is empty; the content is in the attachments.)'
-    : fitNeutralizedText(cleanedText, maxBodyChars).body
+    : fitVisibleNeutralizedText(visibleBody, maxBodyChars).body
   const attachmentsBlock = attachmentsSection ? `\n\n${attachmentsSection}` : ''
   const attachmentRequirement = attachmentsSection
     ? '\n- Use the attachment text as order, quote, and contact data when the email refers to it or the body is empty.'

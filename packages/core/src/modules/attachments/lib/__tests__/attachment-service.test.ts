@@ -361,13 +361,21 @@ describe('DefaultAttachmentService', () => {
     expect(scopedUpload.upload).not.toHaveBeenCalled()
   })
 
-  it('passes the partition text-extraction mode by default and returns no content', async () => {
+  it('leaves the default text-extraction mode to the upload service and returns no content', async () => {
     const { service, scopedUpload } = createHarness()
 
     const created = await service.createScoped(createInput())
 
-    expect(scopedUpload.upload).toHaveBeenCalledWith(expect.objectContaining({ textExtraction: 'partition' }))
+    expect(scopedUpload.upload).toHaveBeenCalledWith(expect.objectContaining({ textExtraction: undefined }))
     expect(created).not.toHaveProperty('content')
+  })
+
+  it('passes a null text-extraction mode through, so the upload service rejects it instead of defaulting', async () => {
+    const { service } = createDelegatingHarness()
+
+    await expect(
+      service.createScoped(createInput({ textExtraction: null as unknown as 'partition' })),
+    ).rejects.toThrow(TypeError)
   })
 
   it('returns the extracted text in return mode and still hands it to the caller persistLink', async () => {

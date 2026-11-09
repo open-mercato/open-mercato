@@ -186,10 +186,12 @@ function toConfig(values: z.infer<typeof inboundAttachmentsEnvSchema>, env: Inbo
   }
 }
 
+function formatConfigIssues(error: z.ZodError): string[] {
+  return error.issues.map((issue) => `${issue.path.join('.') || 'config'}: ${issue.message}`)
+}
+
 function toConfigError(error: z.ZodError): InboundAttachmentsConfigError {
-  return new InboundAttachmentsConfigError(
-    error.issues.map((issue) => `${issue.path.join('.') || 'config'}: ${issue.message}`),
-  )
+  return new InboundAttachmentsConfigError(formatConfigIssues(error))
 }
 
 /**
@@ -218,12 +220,38 @@ export type ResolvedInboundAttachmentsConfig = {
  * defaults, a pair known to satisfy the bound. The caller reports `error`.
  */
 export function resolveInboundAttachmentsConfig(env: InboundAttachmentsEnv = process.env): ResolvedInboundAttachmentsConfig {
-  const input = readEnvInput(env)
-  const parsed = inboundAttachmentsEnvSchema.safeParse(input)
-  if (parsed.success) return { config: toConfig(parsed.data, env), error: null }
-  const error = toConfigError(parsed.error)
-  const repaired: Record<string, string | undefined> = { ...input }
-  for (const issue of parsed.error.issues) {
+  let current: Record<string, string | undefined> = { ...readEnvInput(env) }
+  const issues: string[] = []
+  // The object-level lease check only runs once every field parses, so repairing a field can
+  // surface a lease issue on the next pass: repair until the parse succeeds or nothing changes.
+  // Each pass that changes something moves a variable to its fallback, so the passes are bounded.
+  for (let pass = 0; pass <= INBOUND_ATTACHMENTS_ENV_NAMES.length; pass += 1) {
+    const parsed = inboundAttachmentsEnvSchema.safeParse(current)
+    if (parsed.success) {
+      return { config: toConfig(parsed.data, env), error: issues.length > 0 ? new InboundAttachmentsConfigError(issues) : null }
+    }
+    issues.push(...formatConfigIssues(parsed.error))
+    const repaired = repairConfigInput(current, parsed.error.issues)
+    if (INBOUND_ATTACHMENTS_ENV_NAMES.every((name) => repaired[name] === current[name])) break
+    current = repaired
+  }
+  // Unreachable with valid defaults; still fail closed rather than throw.
+  return {
+    config: {
+      ...INBOUND_ATTACHMENTS_CONFIG_DEFAULTS,
+      enabled: false,
+      maxFileBytes: resolveAttachmentMaxBytes(null),
+    },
+    error: new InboundAttachmentsConfigError(issues),
+  }
+}
+
+function repairConfigInput(
+  input: Record<string, string | undefined>,
+  issues: z.ZodError['issues'],
+): Record<string, string | undefined> {
+  const repaired = { ...input }
+  for (const issue of issues) {
     const name = issue.path[0]
     if (name === 'INBOX_OPS_ATTACHMENTS_ENABLED') {
       repaired[name] = 'false'
@@ -234,15 +262,5 @@ export function resolveInboundAttachmentsConfig(env: InboundAttachmentsEnv = pro
       repaired[name] = undefined
     }
   }
-  const retried = inboundAttachmentsEnvSchema.safeParse(repaired)
-  if (retried.success) return { config: toConfig(retried.data, env), error }
-  // Unreachable with valid defaults; still fail closed rather than throw.
-  return {
-    config: {
-      ...INBOUND_ATTACHMENTS_CONFIG_DEFAULTS,
-      enabled: false,
-      maxFileBytes: resolveAttachmentMaxBytes(null),
-    },
-    error,
-  }
+  return repaired
 }

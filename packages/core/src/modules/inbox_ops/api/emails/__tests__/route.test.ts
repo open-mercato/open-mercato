@@ -144,13 +144,16 @@ describe('GET /api/inbox_ops/emails', () => {
   describe('attachmentsRetryable', () => {
     const page = [
       { ...email, id: 'email-pending', attachmentsStatus: 'pending' },
-      { ...email, id: 'email-processing', attachmentsStatus: 'processing' },
+      // A live claim is refused by the reprocess route (409 live_lease), so it offers no retry.
+      { ...email, id: 'email-processing', attachmentsStatus: 'processing', attachmentsClaimedAt: new Date() },
+      { ...email, id: 'email-stranded', attachmentsStatus: 'processing', attachmentsClaimedAt: new Date(Date.now() - 2 * 60 * 60 * 1000) },
+      { ...email, id: 'email-unclaimed', attachmentsStatus: 'processing', attachmentsClaimedAt: null },
       { ...email, id: 'email-timed-out', attachmentsStatus: 'completed' },
       { ...email, id: 'email-completed', attachmentsStatus: 'completed' },
       { ...email, id: 'email-plain', attachmentsStatus: null },
     ]
 
-    it('is true for open ingests and for finished ones with an operator-fixable failed part, from one ledger query', async () => {
+    it('is true for waiting or stranded ingests and for finished ones with an operator-fixable failed part, from one ledger query', async () => {
       mockUserHasAllFeatures.mockResolvedValue(true)
       mockFindAndCountWithDecryption.mockResolvedValue([page, page.length])
       ledgerCalls.length = 0
@@ -161,7 +164,9 @@ describe('GET /api/inbox_ops/emails', () => {
 
       expect(payload.items.map((item: { id: string; attachmentsRetryable: unknown; attachmentsStatus: unknown }) => [item.id, item.attachmentsStatus, item.attachmentsRetryable])).toEqual([
         ['email-pending', 'pending', true],
-        ['email-processing', 'processing', true],
+        ['email-processing', 'processing', false],
+        ['email-stranded', 'processing', true],
+        ['email-unclaimed', 'processing', true],
         ['email-timed-out', 'completed', true],
         ['email-completed', 'completed', false],
         ['email-plain', null, false],
@@ -182,7 +187,7 @@ describe('GET /api/inbox_ops/emails', () => {
 
     it('runs no ledger query for a page without finished ingests', async () => {
       mockUserHasAllFeatures.mockResolvedValue(true)
-      mockFindAndCountWithDecryption.mockResolvedValue([[page[0], page[4]], 2])
+      mockFindAndCountWithDecryption.mockResolvedValue([[page[0], page[6]], 2])
 
       const payload = await (await GET(new Request('http://localhost/api/inbox_ops/emails'))).json()
 

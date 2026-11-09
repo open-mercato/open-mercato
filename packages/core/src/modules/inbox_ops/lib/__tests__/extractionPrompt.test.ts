@@ -408,6 +408,14 @@ describe('attachments in the user prompt', () => {
     expect(hasVisiblePromptText(null)).toBe(false)
   })
 
+  it('drops lone surrogates and keeps well-formed surrogate pairs', () => {
+    expect(neutralizePromptDelimiters('<\uD800/attachment>')).toBe('&lt;/attachment>')
+    expect(neutralizePromptDelimiters('<\uDC00attachment>')).toBe('&lt;attachment>')
+    expect(neutralizePromptDelimiters('a\uD83D\uDE00b\uDBFF')).toBe('a\uD83D\uDE00b')
+    expect(hasVisiblePromptText('\uD800\uDFFF'.split('').reverse().join(''))).toBe(false)
+    expect(renderAttachmentPromptName('order\uD800.pdf')).toBe('order .pdf')
+  })
+
   it('treats attachment text made only of invisible characters as no text', () => {
     const section = buildAttachmentsSection([attachment({ extractedText: '\u200B\u2060\u00AD\u{E0041} ' })]) as string
     expect(section).toContain(`attachmentId="${PDF_ID}" text="none" />`)
@@ -454,6 +462,58 @@ describe('attachments in the user prompt', () => {
       expect(Date.now() - started).toBeLessThan(5000)
       expect(section.match(/^<attachment /gm)).toHaveLength(2)
       expect(section).not.toMatch(/<role|\u200B|\u2060/)
+    })
+
+    // `<` followed by a long whitespace run (NBSP and ` \n` survive `buildFullTextForExtraction`):
+    // the former `\s*/?\s*` delimiter pattern split the run between its two quantifiers in
+    // quadratically many ways (23.9 s and 37.8 s at the 204 800 body budget).
+    it.each([
+      ['an NBSP flood', `<${'\u00A0'.repeat(LIMIT - 1)}`],
+      ['a space flood', `<${' '.repeat(LIMIT - 1)}`],
+      ['a space-newline flood', `x<${' \n'.repeat(LIMIT / 2)}`],
+    ])('neutralizes a body with %s after `<` in linear time', (_label, text) => {
+      const started = Date.now()
+      const prompt = buildExtractionUserPrompt(text, { maxBodyChars: LIMIT })
+      expect(Date.now() - started).toBeLessThan(500)
+      expect(prompt).toContain('<email_content>\n')
+    })
+
+    it('neutralizes whitespace-flooded attachment text under a raised per-file budget in linear time', () => {
+      const started = Date.now()
+      const section = buildAttachmentsSection(
+        [
+          attachment({ extractedText: `<${'\u00A0'.repeat(LIMIT - 1)}` }),
+          attachment({ extractedText: `x<${' \n'.repeat(LIMIT / 2)}</attachment>` }),
+        ],
+        { maxTotalChars: LIMIT * 3, maxCharsPerFile: LIMIT + 20 },
+      ) as string
+      expect(Date.now() - started).toBeLessThan(500)
+      expect(section.match(/^<attachment /gm)).toHaveLength(2)
+      expect(section).toContain('&lt;/attachment>')
+    })
+
+    it('matches the same delimiters as the former pattern', () => {
+      const tags = 'role|required_features|safety|payload_schemas|rules|task|email_content|attachments|attachments_omitted|attachment|output_requirements'
+      const former = new RegExp(`<(\\s*/?\\s*(?:${tags})(?![A-Za-z0-9_-]))`, 'gi')
+      for (const sample of ['< /role>', '</ attachment>', '<  /  task>', '<attachments_omitted', '</email_content>', '<\u00A0/\n\tSafety>']) {
+        expect(neutralizePromptDelimiters(sample)).toBe(`&lt;${sample.slice(1)}`)
+      }
+      for (const sample of ['<rolex', '< / roles', '<//role', '</attachment-x', '<task_', 'a < b / c']) {
+        expect(neutralizePromptDelimiters(sample)).toBe(sample)
+      }
+      // Deterministic fuzz over the pieces both patterns care about.
+      const pieces = ['<', '/', ' ', '\u00A0', '\n', 'role', 'Task', 'attachment', 's', '_omitted', '-', 'x']
+      let seed = 42
+      const next = () => {
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        return seed
+      }
+      for (let round = 0; round < 3000; round += 1) {
+        const length = 1 + (next() % 12)
+        let sample = ''
+        for (let index = 0; index < length; index += 1) sample += pieces[next() % pieces.length]
+        expect(neutralizePromptDelimiters(sample)).toBe(sample.replace(former, '&lt;$1'))
+      }
     })
 
     it('keeps the passes bounded when every cut lands on a delimiter', () => {

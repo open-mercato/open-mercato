@@ -98,4 +98,15 @@ describe('normalizeSourceRefs', () => {
     const [ref] = normalizeSourceRefs([{ kind: 'email_body', snippet: `${'q'.repeat(499)}\u{1F600}tail` }], parts)
     expect(ref.snippet).toBe('q'.repeat(499))
   })
+
+  it('renders each part name once per call, however many name-only refs the model returns', () => {
+    const manyParts = Array.from({ length: 100 }, (_, index) => ({
+      attachmentId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      fileName: `${'n'.repeat(250)}${index}.pdf`,
+    }))
+    const refs = Array.from({ length: 2000 }, () => ({ kind: 'attachment' as const, fileName: 'n'.repeat(255), snippet: 'x' }))
+    const started = Date.now()
+    expect(normalizeSourceRefs(refs, manyParts)).toEqual([])
+    expect(Date.now() - started).toBeLessThan(500)
+  })
 })

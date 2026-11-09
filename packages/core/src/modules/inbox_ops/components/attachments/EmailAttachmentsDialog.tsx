@@ -25,6 +25,10 @@ export type EmailAttachmentsDialogProps = {
  */
 export function EmailAttachmentsDialog({ email, onClose }: EmailAttachmentsDialogProps) {
   const t = useT()
+  // Keep showing the last email while the dialog animates closed, instead of the fallback text.
+  const [lastEmail, setLastEmail] = React.useState(email)
+  if (email !== null && email !== lastEmail) setLastEmail(email)
+  const shown = email ?? lastEmail
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault()
@@ -37,9 +41,9 @@ export function EmailAttachmentsDialog({ email, onClose }: EmailAttachmentsDialo
       <DialogContent className="sm:max-w-lg" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle>{t('inbox_ops.attachments.title', 'Attachments')}</DialogTitle>
-          <DialogDescription>{email?.subject || t('inbox_ops.attachments.dialogDescription', 'Files received with this email')}</DialogDescription>
+          <DialogDescription>{shown?.subject || t('inbox_ops.attachments.dialogDescription', 'Files received with this email')}</DialogDescription>
         </DialogHeader>
-        {email ? <EmailAttachmentsList emailId={email.id} /> : null}
+        {shown ? <EmailAttachmentsList emailId={shown.id} /> : null}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
             {t('common.close', 'Close')}

@@ -5,8 +5,8 @@ import { buildEncryptionMapBackfillSql } from '@open-mercato/shared/lib/encrypti
 // the per-part ledger, the ingest/claim/release columns on `inbox_emails` and the
 // encrypted field provenance on `inbox_proposal_actions`. Additive only.
 //
-// The encryption maps below are literal copies of `inbox_ops/encryption.ts` at the time of
-// this migration (migrations must not follow later edits of the module map). Encryption maps
+// The encryption rules below are literal copies of the rules `inbox_ops/encryption.ts` gained in
+// this change (migrations must not follow later edits of the module map). Encryption maps
 // are seeded per tenant only at tenant creation, so without the backfill existing tenants
 // would store `file_name`, `extracted_text` and `source_refs` as plaintext.
 export class Migration20261108130000_inbox_ops extends Migration {
@@ -31,14 +31,12 @@ export class Migration20261108130000_inbox_ops extends Migration {
         { field: 'extracted_text' },
       ],
     }))
+    // Only the rule this migration introduces: the helper appends every listed rule a scope lacks,
+    // so listing the older `description`/`payload`/`execution_error` rules would re-add any an
+    // admin removed (as in the staff module's backfill).
     this.addSql(buildEncryptionMapBackfillSql({
       entityId: 'inbox_ops:inbox_proposal_action',
-      fields: [
-        { field: 'description' },
-        { field: 'payload' },
-        { field: 'execution_error' },
-        { field: 'source_refs' },
-      ],
+      fields: [{ field: 'source_refs' }],
     }))
   }
 

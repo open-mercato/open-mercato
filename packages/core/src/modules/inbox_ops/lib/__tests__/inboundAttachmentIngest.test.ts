@@ -778,6 +778,31 @@ describe('ingest: claims', () => {
     await expect(harness.run()).resolves.toEqual({ outcome: 'claim_lost' })
     expect(statuses(harness)).toEqual([['resend:a', 'pending', null]])
     expect(harness.emitReceived).not.toHaveBeenCalled()
+    // The attempt ended rather than crashed: its in_flight_at is cleared, so it is not counted as a crash.
+    expect(harness.db.partsOf(harness.email.id)[0]).toMatchObject({ inFlightAt: null, attempts: 0 })
+  })
+
+  it('leaves in_flight_at alone after a lost claim when another run took the part over', async () => {
+    const harness = createHarness({ parts: [{ id: 'a' }] })
+    const takenOverAt = new Date(START.getTime() + MINUTE)
+    harness.createScoped.mockImplementation(async (input: CreateScopedAttachmentInput) => {
+      harness.db.email(harness.email.id).attachmentsClaimToken = 'someone-else'
+      harness.db.partsOf(harness.email.id)[0].inFlightAt = takenOverAt
+      await input.persistLink?.(harness.deps.em, '00000000-0000-4000-8000-0000000000ff', { content: 'x' })
+      return { id: 'never', mimeType: 'application/pdf', fileSize: 3 }
+    })
+    await expect(harness.run()).resolves.toEqual({ outcome: 'claim_lost' })
+    expect(harness.db.partsOf(harness.email.id)[0].inFlightAt).toEqual(takenOverAt)
+  })
+
+  it('clears in_flight_at when the claim is lost while writing the part result', async () => {
+    const harness = createHarness({ parts: [{ id: 'a' }] })
+    harness.fetchImpl.mockImplementation(async () => {
+      harness.db.email(harness.email.id).attachmentsClaimToken = 'someone-else'
+      return new Response('down', { status: 503 })
+    })
+    await expect(harness.run()).resolves.toEqual({ outcome: 'claim_lost' })
+    expect(harness.db.partsOf(harness.email.id)[0]).toMatchObject({ status: 'pending', inFlightAt: null })
   })
 })
 

@@ -49,21 +49,39 @@ export async function countRetryableFailedInboundParts(em: EntityManager, ref: I
 }
 
 /**
+ * Whether a `processing` ingest's claim is past its lease (stranded): the reprocess route requeues
+ * such an ingest and refuses one with a live claim. A missing claim time counts as expired.
+ */
+export function isInboundAttachmentClaimExpired(claimedAt: Date | null | undefined, leaseMs: number, now: Date): boolean {
+  if (!claimedAt) return true
+  return claimedAt.getTime() < now.getTime() - leaseMs
+}
+
+/**
  * The processing log's `attachmentsRetryable` for a page of emails (spec Phase 3), with one ledger
- * query (distinct email ids) for the whole page: an ingest that is `pending` or `processing`, or a finished one with at
- * least one part failed for an operator-fixable reason. The reprocess route still decides; a live
- * lease or running extraction is refused there.
+ * query (distinct email ids) for the whole page: an ingest that is `pending`, or `processing` with
+ * an expired claim (the same check as {@link planInboundAttachmentReprocess}, so a live claim never
+ * offers a retry the route refuses), or a finished one with at least one part failed for an
+ * operator-fixable reason. The reprocess route still decides; a running extraction is refused there.
  */
 export async function resolveInboundAttachmentsRetryable(
   em: EntityManager,
   scope: { tenantId: string; organizationId: string },
-  emails: ReadonlyArray<Pick<InboxEmail, 'id' | 'attachmentsStatus'>>,
+  emails: ReadonlyArray<Pick<InboxEmail, 'id' | 'attachmentsStatus' | 'attachmentsClaimedAt'>>,
+  options: { config?: Pick<InboundAttachmentsConfig, 'leaseMs'>; now?: () => Date } = {},
 ): Promise<Map<string, boolean>> {
   const retryable = new Map<string, boolean>()
   const finished: string[] = []
+  let leaseMs: number | null = null
+  const now = (options.now ?? (() => new Date()))()
   for (const email of emails) {
     const status = email.attachmentsStatus ?? null
-    retryable.set(email.id, status === 'pending' || status === 'processing')
+    if (status === 'processing') {
+      leaseMs ??= (options.config ?? readInboundAttachmentsConfigOrDefaults()).leaseMs
+      retryable.set(email.id, isInboundAttachmentClaimExpired(email.attachmentsClaimedAt, leaseMs, now))
+    } else {
+      retryable.set(email.id, status === 'pending')
+    }
     if (status === 'completed') finished.push(email.id)
   }
   if (finished.length === 0) return retryable
@@ -107,7 +125,7 @@ export async function planInboundAttachmentReprocess(
       if (!claimedAt) return 'requeue_ingest'
       const leaseMs = (options.config ?? readInboundAttachmentsConfigOrDefaults()).leaseMs
       const now = (options.now ?? (() => new Date()))()
-      return claimedAt.getTime() < now.getTime() - leaseMs ? 'requeue_ingest' : 'live_lease'
+      return isInboundAttachmentClaimExpired(claimedAt, leaseMs, now) ? 'requeue_ingest' : 'live_lease'
     }
     case 'completed': {
       if (isQueuedForExtraction(email)) return 'not_applicable'

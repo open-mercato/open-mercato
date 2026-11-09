@@ -469,6 +469,26 @@ function writePartResolution(run: IngestRunContext, tx: EntityManager, rowId: st
 }
 
 /**
+ * The claim was lost while this run worked on a part: the attempt ended rather than crashed, so its
+ * `in_flight_at` is cleared (best effort, without the claim) and the next run does not count it as
+ * a crash. Only while the row is still `pending` with this run's `in_flight_at`: a run that took the
+ * part over meanwhile wrote its own.
+ */
+async function abortLostClaimPart(run: IngestRunContext, rowId: string, inFlightAt: Date): Promise<'aborted'> {
+  try {
+    await run.em.nativeUpdate(
+      InboxEmailAttachment,
+      { ...run.ledgerScope, id: rowId, status: 'pending', inFlightAt },
+      { inFlightAt: null },
+    )
+  } catch (error) {
+    logger.warn('Failed to clear in_flight_at of an inbound attachment part after a lost claim', { emailId: run.ref.id, partId: rowId, err: error })
+  }
+  run.inFlightRowId = null
+  return 'aborted'
+}
+
+/**
  * Step 3 for one part: `in_flight_at` is committed before the first provider call and cleared when
  * the attempt ends, so a part found with it set was interrupted by a crash and counts an attempt.
  * The last allowed attempt stores the file without text; a part beyond it fails `processing_failed`.
@@ -486,20 +506,21 @@ async function processPart(run: IngestRunContext, claim: Claim, row: LedgerRow, 
     return 'resolved'
   }
 
+  const inFlightAt = run.now()
   const started = await withClaim(run.em, claim, run.now, (tx) => tx.nativeUpdate(
     InboxEmailAttachment,
     { ...run.ledgerScope, id: row.id, status: 'pending' },
-    { inFlightAt: run.now(), attempts, updatedAt: run.now() },
+    { inFlightAt, attempts, updatedAt: run.now() },
   ))
   if (!started) return 'aborted'
   run.inFlightRowId = row.id
 
   const textExtraction = attempts >= run.config.maxPartAttempts - 1 ? 'none' : 'return'
   const resolution = await acquireAndPersist(run, claim, row, source, textExtraction)
-  if (resolution === 'aborted') return 'aborted'
+  if (resolution === 'aborted') return abortLostClaimPart(run, row.id, inFlightAt)
 
   const written = await withClaim(run.em, claim, run.now, (tx) => writePartResolution(run, tx, row.id, resolution))
-  if (!written) return 'aborted'
+  if (!written) return abortLostClaimPart(run, row.id, inFlightAt)
   run.inFlightRowId = null
 
   if (resolution.kind === 'status' && resolution.status === 'failed') reportFailedParts(run.ref, resolution.reason, 1)

@@ -131,6 +131,26 @@ describe('resolveInboundAttachmentsConfig', () => {
     expect(resolved.config).toMatchObject({ enabled: true, maxAttachments: 20, maxTextCharsPerFile: 500 })
   })
 
+  it('repairs a field and then the lease check that the field issue had hidden, keeping ingestion on', () => {
+    const resolved = resolveInboundAttachmentsConfig({
+      INBOX_OPS_MAX_ATTACHMENTS: 'abc',
+      INBOX_OPS_ATTACHMENT_LEASE_MS: '120000',
+      INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS_PER_FILE: '500',
+    })
+    expect(resolved.error).toBeInstanceOf(InboundAttachmentsConfigError)
+    expect(resolved.error?.issues).toEqual([
+      expect.stringContaining('INBOX_OPS_MAX_ATTACHMENTS'),
+      expect.stringContaining('INBOX_OPS_ATTACHMENT_LEASE_MS'),
+    ])
+    expect(resolved.config).toMatchObject({
+      enabled: true,
+      maxAttachments: 20,
+      maxTextCharsPerFile: 500,
+      leaseMs: 1_800_000,
+      fetchTimeoutMs: 30_000,
+    })
+  })
+
   it('floors the retry delay: a value below one minute falls back to the default', () => {
     expect(resolveInboundAttachmentsConfig({ INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS: '60000' })).toMatchObject({
       error: null,

@@ -110,13 +110,14 @@ test.describe('TC-INBOX-ATT-004: attachment ids are redacted with the email cont
       expect(proposal.body?.email?.attachmentIds).toEqual(attachmentIds)
       expectNoInternalFields(proposal.body?.email)
     } finally {
+      // Each cleanup runs even when an earlier one fails.
       if (proposalInserted) {
         await withClient(async (client) => {
           await client.query('delete from inbox_proposals where id = $1', [proposalId])
-        })
+        }).catch(() => undefined)
       }
-      await deleteUserIfExists(request, admin, userId)
-      await deleteRoleIfExists(request, admin, roleId)
+      await deleteUserIfExists(request, admin, userId).catch(() => undefined)
+      await deleteRoleIfExists(request, admin, roleId).catch(() => undefined)
       await cleanupInboundEmails(request, admin, tracker)
     }
   })

@@ -137,6 +137,10 @@ export type CreateScopedAttachmentInput = AttachmentOwner & {
    * partition flag, never queues LLM OCR, leaves `Attachment.content` empty, and
    * hands the text to `persistLink` and to the result's `content`. `'none'`
    * extracts nothing and never queues OCR.
+   *
+   * In `'return'` mode a `null` text is ambiguous: the file has no extractable
+   * text, or the extractor failed (logged, never thrown, so the upload still
+   * succeeds). Callers that need to tell them apart must not rely on `content`.
    */
   textExtraction?: AttachmentTextExtractionMode
 }
@@ -147,7 +151,10 @@ export type CreatedScopedAttachment = {
   fileName: string
   mimeType: string
   fileSize: number
-  /** Set only with `textExtraction: 'return'`: the extracted text, or `null` when there is none. */
+  /**
+   * Set only with `textExtraction: 'return'`: the extracted text, or `null` when there is none or
+   * extraction failed (the two are not distinguished; see `textExtraction`).
+   */
   content?: string | null
 }
 
@@ -437,7 +444,9 @@ export class DefaultAttachmentService implements AttachmentService {
       })
     }
 
-    const textExtraction = input.textExtraction ?? 'partition'
+    // Passed through as given: the upload service applies the `'partition'` default and rejects an
+    // unknown mode (a `null` from an untyped caller included) instead of this layer coercing it.
+    const textExtraction = input.textExtraction
     let returnedContent: string | null = null
     // In 'return' mode the text reaches the caller only through `persistLink`'s third argument;
     // wrapping the callback captures it for the result even when the caller passed none.

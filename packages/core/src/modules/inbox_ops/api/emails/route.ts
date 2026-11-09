@@ -81,7 +81,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List received emails',
-      description: 'Processing log of all received emails. Each item carries `attachmentsStatus` (`pending`, `processing`, `completed`, or `null` for an email without attachment ingest) and the computed `attachmentsRetryable` (the ingest is `pending` or `processing`, or at least one part failed with `ingest_timeout`, `quota_exceeded` or `partition_unavailable`); both, like the other content fields, are `null` for callers without `inbox_ops.proposals.view`.',
+      description: 'Processing log of all received emails. Each item carries `attachmentsStatus` (`pending`, `processing`, `completed`, or `null` for an email without attachment ingest) and the computed `attachmentsRetryable` (the ingest is `pending`, or `processing` with a claim past `INBOX_OPS_ATTACHMENT_LEASE_MS`, or at least one part failed with `ingest_timeout`, `quota_exceeded` or `partition_unavailable`); both, like the other content fields, are `null` for callers without `inbox_ops.proposals.view`.',
       responses: [
         { status: 200, description: 'Paginated list of emails' },
       ],

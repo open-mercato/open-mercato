@@ -35,7 +35,7 @@ function positiveInteger(value: number | undefined): number | undefined {
 function resolveCitedPart(
   ref: ExtractedSourceRef,
   partsById: Map<string, CitableAttachmentPart>,
-  parts: CitableAttachmentPart[],
+  nameForms: () => ReadonlyArray<{ part: CitableAttachmentPart; forms: Set<string> }>,
 ): CitableAttachmentPart | null {
   const attachmentId = ref.attachmentId?.trim().toLowerCase()
   if (attachmentId) return partsById.get(attachmentId) ?? null
@@ -43,11 +43,8 @@ function resolveCitedPart(
   const fileName = ref.fileName?.trim()
   if (!fileName) return null
   const echoed = [fileName, unescapePromptAttribute(fileName)]
-  const matches = parts.filter((part) => {
-    const forms = promptNameForms(part.fileName)
-    return echoed.some((form) => forms.has(form))
-  })
-  return matches.length === 1 ? matches[0] : null
+  const matches = nameForms().filter(({ forms }) => echoed.some((form) => forms.has(form)))
+  return matches.length === 1 ? matches[0].part : null
 }
 
 /**
@@ -78,6 +75,9 @@ export function normalizeSourceRefs(
 ): InboxProposalActionSourceRef[] {
   if (!Array.isArray(refs) || refs.length === 0) return []
   const partsById = new Map(storedParts.map((part) => [part.attachmentId.toLowerCase(), part]))
+  // Rendered once per call, not once per ref: the model controls how many refs it returns.
+  let nameForms: Array<{ part: CitableAttachmentPart; forms: Set<string> }> | null = null
+  const getNameForms = () => (nameForms ??= storedParts.map((part) => ({ part, forms: promptNameForms(part.fileName) })))
   const normalized: InboxProposalActionSourceRef[] = []
   for (const ref of refs) {
     if (normalized.length >= INBOX_SOURCE_REFS_MAX_PER_ACTION) break
@@ -87,7 +87,7 @@ export function normalizeSourceRefs(
     if (!snippet) continue
     let candidate: InboxProposalActionSourceRef
     if (ref.kind === 'attachment') {
-      const part = resolveCitedPart(ref, partsById, storedParts)
+      const part = resolveCitedPart(ref, partsById, getNameForms)
       if (!part) continue
       const fileName = clip(part.fileName ?? undefined, INBOX_SOURCE_REF_FILE_NAME_MAX_CHARS)
       const page = positiveInteger(ref.page)
