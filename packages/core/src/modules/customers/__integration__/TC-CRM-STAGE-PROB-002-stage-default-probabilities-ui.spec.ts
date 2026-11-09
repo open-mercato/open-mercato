@@ -214,7 +214,10 @@ test.describe('TC-CRM-STAGE-PROB-002: stage default probabilities in the deal UI
         await page.goto('/backend/customers/deals/create', { waitUntil: 'domcontentloaded' })
         await expect(page.getByRole('button', { name: 'Create deal', exact: true }).first()).toBeEnabled({ timeout: 60_000 })
         await pickOption(page, page.locator('[data-crud-field-id="pipelineId"]'), enabledName)
-        await pickOption(page, page.locator('[data-crud-field-id="pipelineStageId"]'), label('Negotiate'))
+        const negotiateStage = page.locator('[data-crud-field-id="pipelineStageId"]').getByRole('button', { name: label('Negotiate'), exact: true })
+        await activate(page, negotiateStage)
+        await expect(negotiateStage).toHaveAttribute('aria-pressed', 'true')
+        await activate(page, page.getByRole('button', { name: 'More details', exact: true }))
         await expect(page.locator('[data-crud-field-id="probability"] input')).toHaveValue('60')
       })
 
