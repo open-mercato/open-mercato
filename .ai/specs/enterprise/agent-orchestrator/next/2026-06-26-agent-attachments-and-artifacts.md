@@ -283,6 +283,52 @@ Keys under `agent_orchestrator.*` (client `useT()`, server `resolveTranslations(
 - **Backward compatible**: the `files` block is additive and defaults off; existing OpenCode agents render identical deny frontmatter. `submit_outcome.artifacts` is optional; the in-process runtime is untouched. New events are additive (events are ADDITIVE-ONLY per `BACKWARD_COMPATIBILITY.md`). New ACL feature(s) for artifact view/download are additive grants — sync to roles in `setup.ts`.
 - **Docker**: `docker/opencode/entrypoint.sh` generates `permission` per-agent from frontmatter; verify the generated `opencode.jsonc` does not globally re-deny `write`/`edit` for tool-enabled agents (Phase 0).
 
+### Migration & Backward Compatibility
+
+The security correction for [#9117](https://github.com/open-mercato/open-mercato/issues/9117),
+[PR #9127](https://github.com/open-mercato/open-mercato/pull/9127), applies to the
+existing `attachmentStager.ts` and `openCodeAgentRunner.ts` call site. It does not
+implement the remaining roadmap or change file-plane enablement, startup,
+configuration, storage drivers, or runtime architecture.
+
+For a nonempty attachment envelope, the stager requires the actual execution
+principal's `attachments.view`, then authorizes every scoped attachment through
+the existing `assertAttachmentOwnerAccess` read gate. All rows must pass before
+resolving storage, reading bytes, writing sandbox inputs, exposing cached OCR, or
+running OCR. Missing identity, permission, attachment, partition, or required
+owner resolver fails closed. An empty envelope requires no attachment principal
+or permission. The runner supplies `ctx.userId`; workflow invocation already
+resolves the workflow execution principal into that field. Audit-only `runAs`
+and on-behalf-of attribution do not replace it.
+
+This tightens STABLE service/runtime acceptance behavior: previously accepted
+unauthorized inputs now fail the run before prompting. `stageAttachments.userId`
+is additive and optional in TypeScript for source compatibility, but required
+at runtime for nonempty inputs. HTTP request/response shapes, entities, events,
+DI keys and permission identifiers are unchanged. Preserving the old behavior
+through a bridge or opt-in would retain the protected-file disclosure itself,
+so the proposed emergency security exception removes only that bypass.
+
+**Client migration:** custom stager callers supply the actual execution
+principal; clients submit only files readable by that principal and handle run
+failure without escalating identity. **Operator migration:** review existing
+file-agent/workflow permissions and owner sharing, granting `attachments.view`
+and owner access only where intended. No schema or environment migration is
+needed. Earlier staged files, model input and OCR are not erased; operators must
+assess earlier unauthorized runs and their retention separately. Rollback
+reopens the bypass. See [upgrade notes](../../../../../UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117)
+and the [dated contract entry](../../../../../BACKWARD_COMPATIBILITY.md#file-agent-attachment-read-authorization-2026-11-10-9117).
+
+**Verification:** `attachment-stager.test.ts` exercises real owner-policy
+evaluation with controlled persistence/storage/OCR, including denial, foreign
+scope, missing resolvers/partitions, cached OCR and a denied later entry with no
+file effects. `opencode-runner.test.ts` checks direct/workflow principal
+propagation and failure before prompting. The two suites pass 26 tests; the
+original stager fails 13 of the new 16 policy tests. No live HTTP/Playground QA
+is claimed. Full test/app-build validation remains incomplete after bounded
+runs. **Named human-maintainer security-exception acknowledgment remains
+required before merge; this document does not grant it.**
+
 ## Implementation Plan
 
 ### Phase 0: De-risk OpenCode sandboxing — **DONE** (see [`…-phase0-findings.md`](./2026-06-26-agent-attachments-and-artifacts-phase0-findings.md))
@@ -451,6 +497,9 @@ None at design time. Phase 0 isolation verdict is a hard gate: if OpenCode canno
 - **Fully compliant** (design) — ready for implementation, gated on the Phase 0 isolation finding.
 
 ## Changelog
+### 2026-11-10
+- Documented the narrow #9117 correction to existing attachment staging: execution-principal feature and owner-read checks before any file or OCR effect, client/operator migration, regression evidence, and the pending human-maintainer security exception. Remaining roadmap phases retain their existing status.
+
 ### 2026-06-26
 - Initial specification (decisions: OpenCode-only file plane; `read/write/edit` scoped sandbox, `bash` off by default; attachment-id inputs with raw + OCR sidecar; new `AgentRunArtifact` child table; artifact promotion gated by disposition).
 - Pre-implement revisions (post `om-pre-implement-spec`, analysis `ANALYSIS-2026-06-26-agent-attachments-and-artifacts.md`): folded minimal Wave-0 **F1** (`artifactStore.ts`) + **F5** (`encryption.ts`) into Phase 1 so the spec is self-contained; added **undo contracts** for `artifact.capture`/`artifact.promote`; clarified **`AgentResult` is unchanged** (artifacts are separate rows); documented the **two distinct stores** (orchestrator `storage-s3` vs attachments `StorageDriver`); added the **untrusted-input / no-converter-chain** rule + GUARD residual; added a **per-path integration test matrix**.

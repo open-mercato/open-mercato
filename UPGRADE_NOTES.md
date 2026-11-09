@@ -1,5 +1,32 @@
 # Upgrade Notes
 
+## File-agent attachment inputs enforce read permissions (#9117)
+
+OpenCode file-agent runs with nonempty `__files.attachments` now require the
+execution principal to hold `attachments.view` and pass each attachment owner's
+existing read policy. All inputs are authorized before storage reads, sandbox
+writes, cached OCR disclosure, or billable OCR. Previously accepted runs that
+lacked these permissions now fail. Empty envelopes retain their behavior.
+
+**Clients and custom runtimes:** submit only files the execution principal may
+read. Custom callers of `stageAttachments` must supply that principal as `userId`
+for nonempty envelopes. A direct run uses its authenticated subject; workflow
+runs use the workflow execution principal, not the initiating user or audit-only
+`runAs` identity. A denial fails the run before the model is prompted; do not retry
+it with a more privileged identity.
+
+**Operators:** review existing file-agent and workflow grants for
+`attachments.view` and the protected owner's read requirements. Grant only
+intended access through existing permissions and record sharing. No environment,
+startup, dependency, or database migration is required. Already staged files,
+model input, and cached OCR from earlier unauthorized runs are not revoked or
+erased by this change; assess affected run artifacts and retention using your
+existing incident process. Rolling back restores the authorization bypass.
+
+The emergency security exception requires named human-maintainer acknowledgment
+before merge; the automated fix does not supply that approval. See the
+[migration and compatibility specification](.ai/specs/enterprise/agent-orchestrator/next/2026-06-26-agent-attachments-and-artifacts.md#migration--backward-compatibility).
+
 ## Starter reuse and optional AI
 
 `yarn setup` can continue with pre-existing services after an explicit interactive confirmation. It shows port owners and restart/health states and then leaves those containers untouched, using the URLs already configured in `.env`. Declining shows `yarn om stop` guidance for the original checkout. Non-interactive users must explicitly pass `--no-infra` to use external services.

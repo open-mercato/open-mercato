@@ -648,3 +648,21 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## File-agent attachment read authorization (2026-11-10, #9117)
+
+STABLE service/runtime behavior: nonempty file-agent attachment inputs now
+require the execution principal's `attachments.view` and existing owner read
+policy. `stageAttachments` adds optional `userId`; nonempty calls without a
+principal fail closed. Direct and workflow agent runs can no longer stage files
+that tenant/org scoping alone previously allowed. Empty envelopes are unchanged.
+
+The proposed emergency exception is narrow: preserving the old authorization
+branch behind a bridge, flag, or opt-in would continue disclosing protected
+attachment bytes and OCR to unauthorized principals. No such bridge is retained.
+Client/operator migration and previously disclosed data limitations are in
+[UPGRADE_NOTES.md](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117)
+and the [specification](.ai/specs/enterprise/agent-orchestrator/next/2026-06-26-agent-attachments-and-artifacts.md#migration--backward-compatibility).
+**Waiver pending:** a named human maintainer must explicitly acknowledge the
+steps 1–3 security exception on PR #9127 before merge; no automated approval is
+asserted by this entry.
