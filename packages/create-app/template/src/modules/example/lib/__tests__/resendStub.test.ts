@@ -206,6 +206,8 @@ describe('Resend stub through the Resend SDK', () => {
       listed: listed.byId.get('att_one'),
       timeoutMs: 5_000,
       maxBytes: 1024,
+      // The stub serves plain-http download URLs; the worker admits them only while the stub is enabled.
+      allowHttp: true,
     })
     expect(acquired.kind).toBe('downloaded')
     expect(acquired.kind === 'downloaded' ? acquired.buffer.toString('utf8') : null).toBe('first')
@@ -220,6 +222,8 @@ describe('Resend stub through the Resend SDK', () => {
       providerAttachmentId: 'att_two',
       timeoutMs: 5_000,
       maxBytes: 1024,
+      // The stub serves plain-http download URLs; the worker admits them only while the stub is enabled.
+      allowHttp: true,
     })
     expect(failing).toEqual({ kind: 'transient', code: 'download_http_503' })
 
@@ -232,6 +236,8 @@ describe('Resend stub through the Resend SDK', () => {
       providerAttachmentId: 'att_two',
       timeoutMs: 5_000,
       maxBytes: 1024,
+      // The stub serves plain-http download URLs; the worker admits them only while the stub is enabled.
+      allowHttp: true,
     })
     expect(recovered.kind === 'downloaded' ? recovered.buffer.toString('utf8') : null).toBe('a,b')
   })
