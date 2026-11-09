@@ -62,18 +62,30 @@ describe('maybeMigrateLegacyFilterValues', () => {
     warnSpy.mockRestore()
   })
 
-  it('passes through versioned namespaced view payloads unchanged', () => {
+  it('passes through namespaced view payloads that opt in with the __namespaced marker', () => {
     const s: any = {
-      filters: { timeline: { v: 1, groupBy: 'stage', bucket: 'month', status: [] } },
+      filters: { __namespaced: true, timeline: { v: 1, groupBy: 'stage', bucket: 'month', status: [] } },
       searchValue: 'acme',
     }
     expect(maybeMigrateLegacyFilterValues(s)).toEqual(s)
   })
 
-  it('still drops legacy records that mix versioned and plain values', () => {
+  it('drops versioned-looking payloads that do not carry the __namespaced marker', () => {
     const s: any = {
-      filters: { timeline: { v: 1 }, status: ['open'] },
+      filters: { timeline: { v: 1, groupBy: 'stage', bucket: 'month', status: [] } },
     }
+    expect(maybeMigrateLegacyFilterValues(s).filters).toBeUndefined()
+  })
+
+  it('drops marked payloads that mix versioned and plain values', () => {
+    const s: any = {
+      filters: { __namespaced: true, timeline: { v: 1 }, status: ['open'] },
+    }
+    expect(maybeMigrateLegacyFilterValues(s).filters).toBeUndefined()
+  })
+
+  it('drops a marker with no versioned entries', () => {
+    const s: any = { filters: { __namespaced: true } }
     expect(maybeMigrateLegacyFilterValues(s).filters).toBeUndefined()
   })
 

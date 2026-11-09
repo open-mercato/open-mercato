@@ -70,16 +70,34 @@ const booleanQueryParam = z.preprocess((value) => {
   return parsed === null ? value : parsed
 }, z.boolean()).optional()
 
+/**
+ * The only deals-list filters the timeline forwards to `buildDealListFilters`. Close-date
+ * params (`expectedCloseAtFrom`/`To`, `hasExpectedCloseAt`), `isOverdue`, `needsAttention` and the
+ * advanced-filter tree are deliberately absent: the timeline window bounds close dates itself, and
+ * forwarding them would reintroduce the contradictory combinations the deals list rejects.
+ */
+export const TIMELINE_FILTER_QUERY_FIELDS = {
+  search: true,
+  status: true,
+  pipelineId: true,
+  ownerUserId: true,
+  personId: true,
+  companyId: true,
+  valueCurrency: true,
+} as const
+
+export type TimelineFilterQueryKey = keyof typeof TIMELINE_FILTER_QUERY_FIELDS
+
+export function pickTimelineFilterQuery(query: Partial<Record<string, unknown>>): Partial<Record<TimelineFilterQueryKey, unknown>> {
+  const picked: Partial<Record<TimelineFilterQueryKey, unknown>> = {}
+  for (const key of Object.keys(TIMELINE_FILTER_QUERY_FIELDS) as TimelineFilterQueryKey[]) {
+    if (query[key] !== undefined) picked[key] = query[key]
+  }
+  return picked
+}
+
 const querySchema = dealListQuerySchema
-  .pick({
-    search: true,
-    status: true,
-    pipelineId: true,
-    ownerUserId: true,
-    personId: true,
-    companyId: true,
-    valueCurrency: true,
-  })
+  .pick(TIMELINE_FILTER_QUERY_FIELDS)
   .extend({
     bucket: z.enum(DEAL_TIMELINE_BUCKETS).default('week'),
     from: z.string().refine(isValidDateKey, { message: 'Expected YYYY-MM-DD' }).optional(),
@@ -654,15 +672,7 @@ export async function GET(req: Request) {
     request: req,
   }
 
-  const builderQuery = dealListQuerySchema.parse({
-    search: query.search,
-    status: query.status,
-    pipelineId: query.pipelineId,
-    ownerUserId: query.ownerUserId,
-    personId: query.personId,
-    companyId: query.companyId,
-    valueCurrency: query.valueCurrency,
-  })
+  const builderQuery = dealListQuerySchema.parse(pickTimelineFilterQuery(query))
   const builderFilters = await buildDealListFilters(builderQuery, ctx)
   const statusGiven = Array.isArray(query.status) ? query.status.length > 0 : typeof query.status === 'string' && query.status.trim().length > 0
   const excludeClosed = statusGiven ? false : query.excludeClosed ?? true

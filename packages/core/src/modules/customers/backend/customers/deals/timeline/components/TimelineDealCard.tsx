@@ -108,6 +108,12 @@ export type TimelineDealCardProps = {
   onOpen: (item: DealTimelineItem, element: HTMLElement) => void
 }
 
+export function withoutAriaDisabled<T extends { 'aria-disabled'?: unknown }>(attributes: T): Omit<T, 'aria-disabled'> {
+  const next: Partial<T> = { ...attributes }
+  delete next['aria-disabled']
+  return next as Omit<T, 'aria-disabled'>
+}
+
 function TimelineDealCardImpl({
   item,
   laneKey,
@@ -122,11 +128,13 @@ function TimelineDealCardImpl({
 }: TimelineDealCardProps): React.ReactElement {
   const t = useT()
   const locale = useLocale()
+  const dragHintId = React.useId()
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: item.id,
     data: { type: 'timeline-deal', laneKey, column, item },
     disabled: !canDrag,
   })
+  const showDragHint = !canDrag && !!dragDisabledHint
   const overdue = isTimelineDealOverdue(item, todayKey)
   const closedKind = timelineClosedKind(item.status)
   const dateLabel = formatTimelineDate(item.expectedCloseAt, locale)
@@ -173,15 +181,15 @@ function TimelineDealCardImpl({
   return (
     <div
       ref={setNodeRef}
-      {...attributes}
+      {...withoutAriaDisabled(attributes)}
       {...listeners}
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      aria-disabled={undefined}
       aria-label={ariaLabel}
+      aria-describedby={[attributes['aria-describedby'], showDragHint ? dragHintId : null].filter(Boolean).join(' ') || undefined}
       aria-roledescription={translateWithFallback(t, 'customers.deals.timeline.card.roledescription', 'deal card')}
-      title={!canDrag && dragDisabledHint ? dragDisabledHint : undefined}
+      title={showDragHint ? dragDisabledHint ?? undefined : undefined}
       data-timeline-card="true"
       data-deal-id={item.id}
       data-lane-key={laneKey}
@@ -192,6 +200,11 @@ function TimelineDealCardImpl({
         isDragging ? 'opacity-40' : 'hover:shadow-sm'
       } ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${closedKind ? 'opacity-70' : ''}`}
     >
+      {showDragHint ? (
+        <span id={dragHintId} className="sr-only">
+          {dragDisabledHint}
+        </span>
+      ) : null}
       <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${accentClass}`} />
       <div className="flex items-start justify-between gap-2">
         <span className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{title}</span>

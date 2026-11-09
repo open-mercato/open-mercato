@@ -599,6 +599,10 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     [],
   )
 
+  const handleDrawerWriteStarted = React.useCallback((dealId: string) => {
+    setWriteLocks((prev) => lockDealWrite(prev, dealId))
+  }, [])
+
   const handleDrawerChanged = React.useCallback(
     (dealId: string) => {
       lockAfterDrawerWrite(dealId)
@@ -1338,6 +1342,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         onClose={closeDrawer}
         onDealChanged={handleDrawerChanged}
         onRescheduled={handleDrawerRescheduled}
+        onWriteStarted={handleDrawerWriteStarted}
         canManage={permissions.canManage}
         returnFocusRef={returnFocusRef}
         initialItem={drawerItem}

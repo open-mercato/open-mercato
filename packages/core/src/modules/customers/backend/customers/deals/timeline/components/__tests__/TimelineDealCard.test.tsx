@@ -101,4 +101,35 @@ describe('TimelineDealCard', () => {
     expect(screen.getByRole('button').getAttribute('title')).toBe('Closed deals can’t be rescheduled from the timeline.')
     expect(screen.getByText('Won')).toBeTruthy()
   })
+
+  it('exposes the drag-disabled reason to assistive tech and is never announced as disabled', () => {
+    mockUseDraggable.mockReturnValue({
+      attributes: { 'aria-disabled': true, 'aria-describedby': 'DndDescribedBy-0', role: 'button', tabIndex: 0 },
+      listeners: {},
+      setNodeRef: jest.fn(),
+      isDragging: false,
+    })
+    const hint = 'Closed deals can’t be rescheduled from the timeline.'
+    renderCard({ canDrag: false, dragDisabledHint: hint, item: { ...deal, status: 'win' } })
+    const card = screen.getByRole('button')
+    expect(card.hasAttribute('aria-disabled')).toBe(false)
+    const describedBy = (card.getAttribute('aria-describedby') ?? '').split(' ')
+    expect(describedBy).toContain('DndDescribedBy-0')
+    const hintId = describedBy.find((id) => id !== 'DndDescribedBy-0')
+    expect(hintId && document.getElementById(hintId)?.textContent).toBe(hint)
+  })
+
+  it('omits the drag-disabled description for draggable cards', () => {
+    mockUseDraggable.mockReturnValue({
+      attributes: { 'aria-disabled': false, 'aria-describedby': 'DndDescribedBy-0' },
+      listeners: {},
+      setNodeRef: jest.fn(),
+      isDragging: false,
+    })
+    renderCard({ canDrag: true, dragDisabledHint: 'unused hint' })
+    const card = screen.getByRole('button')
+    expect(card.getAttribute('aria-describedby')).toBe('DndDescribedBy-0')
+    expect(card.getAttribute('title')).toBeNull()
+    expect(card.hasAttribute('aria-disabled')).toBe(false)
+  })
 })

@@ -149,7 +149,10 @@ function isPerspectivesState(value: unknown): value is PerspectivesState {
 }
 
 function isVersionedNamespacedFilters(record: Record<string, unknown>): boolean {
-  const entries = Object.values(record)
+  if (record.__namespaced !== true) return false
+  const entries = Object.entries(record)
+    .filter(([key]) => key !== '__namespaced')
+    .map(([, entry]) => entry)
   if (entries.length === 0) return false
   return entries.every(
     (entry) =>
@@ -169,9 +172,10 @@ function isVersionedNamespacedFilters(record: Record<string, unknown>): boolean 
  * if old saved-view JSON were imported.
  *
  * - Tree-shaped state (`v:2` or `root` key) is passed through unchanged.
- * - Versioned namespaced view payloads (every entry an object with a numeric
- *   `v`, e.g. `{ timeline: { v: 1, ... } }` from the deals timeline) are passed
- *   through unchanged.
+ * - Namespaced view payloads that opt in with `__namespaced: true` and whose
+ *   every other entry is an object with a numeric `v` (e.g.
+ *   `{ __namespaced: true, timeline: { v: 1, ... } }` from the deals timeline)
+ *   are passed through unchanged; without the marker they are treated as legacy.
  * - Undefined / null filters are passed through unchanged.
  * - Legacy `FilterValues`-shaped records are dropped (set to `undefined`)
  *   because there is no reliable mapping back to the new operator model;

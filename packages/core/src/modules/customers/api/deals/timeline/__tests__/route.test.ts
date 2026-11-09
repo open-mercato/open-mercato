@@ -48,7 +48,14 @@ jest.mock('../../../utils', () => {
   return { ...actual, findMatchingEntityIdsBySearchTokensAcrossSources: jest.fn() }
 })
 
-import { GET, TIMELINE_COLUMN_CAP, TIMELINE_RESPONSE_CARD_CAP, mergeFieldCondition } from '../route'
+import {
+  GET,
+  TIMELINE_COLUMN_CAP,
+  TIMELINE_FILTER_QUERY_FIELDS,
+  TIMELINE_RESPONSE_CARD_CAP,
+  mergeFieldCondition,
+  pickTimelineFilterQuery,
+} from '../route'
 import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../../utils'
 import {
   CustomerDeal,
@@ -628,6 +635,32 @@ describe('customers deals timeline route', () => {
       'cellLane=__unassigned&cellColumn=',
     ])('rejects %s with 400', async (query) => {
       expect((await callTimeline(query)).status).toBe(400)
+    })
+
+    it('never forwards the contradiction-prone deals-list params to the filter builder', () => {
+      const excluded = ['hasExpectedCloseAt', 'isOverdue', 'expectedCloseAtFrom', 'expectedCloseAtTo', 'needsAttention', 'filter']
+      for (const key of excluded) expect(Object.keys(TIMELINE_FILTER_QUERY_FIELDS)).not.toContain(key)
+      expect(
+        pickTimelineFilterQuery({
+          search: 'acme',
+          status: ['open'],
+          hasExpectedCloseAt: false,
+          isOverdue: true,
+          expectedCloseAtFrom: '2020-01-01',
+          expectedCloseAtTo: '2020-01-02',
+          needsAttention: true,
+        }),
+      ).toEqual({ search: 'acme', status: ['open'] })
+    })
+
+    it('ignores close-date, overdue and attention params instead of applying or rejecting them', async () => {
+      deals = [makeDeal({ expected_close_at: addDays(thisWeek, 1) })]
+      const baseline = await grid('')
+      const withIgnored = await grid(
+        'hasExpectedCloseAt=false&isOverdue=true&expectedCloseAtFrom=2020-01-01&expectedCloseAtTo=2020-01-02&needsAttention=true',
+      )
+      expect(withIgnored.columns.map((column) => column.total)).toEqual(baseline.columns.map((column) => column.total))
+      expect(withIgnored.columns.reduce((sum, column) => sum + column.total, 0)).toBe(1)
     })
 
     it('returns 401 without a tenant', async () => {

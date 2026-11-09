@@ -16,9 +16,10 @@ informational; no migration or configuration is required.
 - `GET /api/customers/deals` accepts an optional `hasExpectedCloseAt` boolean
   (`false` = no close date). Combining `hasExpectedCloseAt=false` with a close-date range,
   or with `isOverdue` while `needsAttention` is not `true`, returns `400`.
-- Perspectives keep saved `settings.filters` payloads whose every entry is a versioned
-  namespaced object (for example `{ timeline: { v: 1, ... } }`) instead of dropping them as a
-  legacy flat filter record on read; other legacy flat records are still dropped.
+- Perspectives keep saved `settings.filters` payloads that opt in with `__namespaced: true` and
+  whose every other entry is a versioned object (for example
+  `{ __namespaced: true, timeline: { v: 1, ... } }`) instead of dropping them as a legacy flat
+  filter record on read; every other legacy flat record is still dropped.
 
 ## Starter reuse and optional AI
 

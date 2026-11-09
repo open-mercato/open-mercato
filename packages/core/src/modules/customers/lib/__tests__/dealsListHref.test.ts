@@ -1,6 +1,6 @@
 import type { AdvancedFilterTree, FilterGroup, FilterRule } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { compileTreeToWhere } from '@open-mercato/shared/lib/query/advanced-filter-tree'
-import { buildDealsListHref, readDealsListUrlState } from '../dealsListHref'
+import { buildDealsListHref, halfOpenCloseDateRangeRules, readDealsListUrlState } from '../dealsListHref'
 
 const OWNER_ID = '0c5e7a1e-4b8d-4a1c-9d2e-1f3a5b7c9d01'
 const PIPELINE_ID = '1d6f8b2f-5c9e-4b2d-8e3f-2a4b6c8d0e12'
@@ -88,6 +88,16 @@ describe('buildDealsListHref', () => {
     const conditions = JSON.stringify(where)
     expect(conditions).toContain('"$lt":"2026-12-01"')
     expect(conditions).toContain('"$gte":"2026-11-01"')
+  })
+
+  it('builds the half-open range as an inclusive between plus an exclusive upper bound on `to`', () => {
+    const rules = halfOpenCloseDateRangeRules('2026-11-01', '2026-12-01')
+    expect(rules).toEqual([
+      { field: 'expected_close_at', operator: 'between', value: ['2026-11-01', '2026-12-01'] },
+      { field: 'expected_close_at', operator: 'is_before', value: '2026-12-01' },
+    ])
+    const href = buildDealsListHref({ excludeClosed: false, closeDateRange: { from: '2026-11-01', to: '2026-12-01' } })
+    expect(rulesOf(hydrate(href).state.filterTree)).toEqual(rules)
   })
 
   it('reads an absent or unknown hasExpectedCloseAt as null and accepts the shared boolean tokens', () => {

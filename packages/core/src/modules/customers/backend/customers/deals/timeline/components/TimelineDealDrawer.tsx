@@ -42,6 +42,7 @@ export type TimelineDealDrawerProps = {
   onClose: () => void
   onDealChanged: (dealId: string) => void
   onRescheduled: (result: { dealId: string; expectedCloseAt: string }) => void
+  onWriteStarted?: (dealId: string) => void
   canManage: boolean
   returnFocusRef?: React.RefObject<HTMLElement | null>
   initialItem?: DealTimelineItem | null
@@ -150,6 +151,7 @@ export function TimelineDealDrawer({
   onClose,
   onDealChanged,
   onRescheduled,
+  onWriteStarted,
   canManage,
   returnFocusRef,
   initialItem,
@@ -210,18 +212,25 @@ export function TimelineDealDrawer({
   })
 
   const runMutationWithContext = React.useCallback<GuardedMutationRunner>(
-    (operation, mutationPayload) =>
-      runMutation({
-        operation,
-        mutationPayload,
-        context: {
-          formId: MUTATION_CONTEXT_ID,
-          resourceKind: 'customers.deal',
-          resourceId: currentDealId ?? '',
-          retryLastMutation,
-        },
-      }),
-    [currentDealId, retryLastMutation, runMutation],
+    async (operation, mutationPayload) => {
+      if (currentDealId) onWriteStarted?.(currentDealId)
+      try {
+        return await runMutation({
+          operation,
+          mutationPayload,
+          context: {
+            formId: MUTATION_CONTEXT_ID,
+            resourceKind: 'customers.deal',
+            resourceId: currentDealId ?? '',
+            retryLastMutation,
+          },
+        })
+      } catch (error) {
+        if (currentDealId) onDealChanged(currentDealId)
+        throw error
+      }
+    },
+    [currentDealId, onDealChanged, onWriteStarted, retryLastMutation, runMutation],
   )
 
   const refreshAfterWrite = React.useCallback(async () => {

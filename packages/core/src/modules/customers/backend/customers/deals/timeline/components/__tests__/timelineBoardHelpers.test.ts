@@ -23,6 +23,12 @@ import {
   useTimelineUrlState,
 } from '../useTimelineUrlState'
 import { addBuckets } from '../../../../../../lib/dealsTimeline'
+import {
+  EMPTY_DEAL_WRITE_LOCKS,
+  lockDealWrite,
+  releaseFreshDealWrites,
+  settleDealWrite,
+} from '../dealWriteLocks'
 
 jest.mock('next/navigation', () => ({
   usePathname: jest.fn(),
@@ -245,5 +251,24 @@ describe('drawer history bookkeeping', () => {
     expect(keepDismissedOnOpen('deal-x', 'deal-y')).toBe('deal-x')
     expect(keepDismissedOnOpen('deal-x', 'deal-x')).toBeNull()
     expect(keepDismissedOnOpen(null, 'deal-y')).toBeNull()
+  })
+})
+
+describe('drawer write locks on the board', () => {
+  const item = { id: 'deal-drawer', expectedCloseAt: '2026-11-12', status: 'open' }
+  const context = (locks: ReturnType<typeof lockDealWrite>) => ({ canManage: true, locked: false, inFlightDealIds: locks })
+
+  it('blocks dragging a deal while a drawer write for it is in flight', () => {
+    const started = lockDealWrite(EMPTY_DEAL_WRITE_LOCKS, item.id)
+    expect(isTimelineItemDraggable(item, context(EMPTY_DEAL_WRITE_LOCKS))).toBe(true)
+    expect(isTimelineItemDraggable(item, context(started))).toBe(false)
+    expect(isTimelineItemDraggable(item, context(releaseFreshDealWrites(started, Number.MAX_SAFE_INTEGER)))).toBe(false)
+  })
+
+  it('releases a failed drawer write on the next fresh fetch after it settles', () => {
+    const started = lockDealWrite(EMPTY_DEAL_WRITE_LOCKS, item.id)
+    const settled = settleDealWrite(started, item.id, 500, false)
+    expect(isTimelineItemDraggable(item, context(releaseFreshDealWrites(settled, 500)))).toBe(false)
+    expect(isTimelineItemDraggable(item, context(releaseFreshDealWrites(settled, 501)))).toBe(true)
   })
 })

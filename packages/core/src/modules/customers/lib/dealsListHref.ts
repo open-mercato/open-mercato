@@ -92,6 +92,19 @@ function uniqueNonEmpty(values: readonly string[] | null | undefined): string[] 
   return Array.from(new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)))
 }
 
+/**
+ * Encodes the timeline's half-open close-date period `[from, to)` for the List's advanced filter.
+ * `between` is inclusive on both ends, so it is paired with `is_before to`: together they compile to
+ * `$gte from AND $lte to AND $lt to`, which excludes a deal closing exactly at `to` (the next
+ * period's first day). Do not collapse this to a single `between` rule.
+ */
+export function halfOpenCloseDateRangeRules(from: string, to: string): FilterRuleInput[] {
+  return [
+    { field: 'expected_close_at', operator: 'between', value: [from, to] },
+    { field: 'expected_close_at', operator: 'is_before', value: to },
+  ]
+}
+
 export function buildDealsListFilterRules(filters: DealsListHrefFilters): FilterRuleInput[] {
   const rules: FilterRuleInput[] = []
   const statuses = uniqueNonEmpty(filters.status)
@@ -105,9 +118,7 @@ export function buildDealsListFilterRules(filters: DealsListHrefFilters): Filter
   const pipelineId = typeof filters.pipelineId === 'string' ? filters.pipelineId.trim() : ''
   if (pipelineId) rules.push({ field: 'pipeline_id', operator: 'is_any_of', value: [pipelineId] })
   if (filters.closeDateRange) {
-    const { from, to } = filters.closeDateRange
-    rules.push({ field: 'expected_close_at', operator: 'between', value: [from, to] })
-    rules.push({ field: 'expected_close_at', operator: 'is_before', value: to })
+    rules.push(...halfOpenCloseDateRangeRules(filters.closeDateRange.from, filters.closeDateRange.to))
   }
   return rules
 }

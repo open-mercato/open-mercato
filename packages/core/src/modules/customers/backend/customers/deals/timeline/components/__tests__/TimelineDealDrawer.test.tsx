@@ -346,6 +346,61 @@ describe('TimelineDealDrawer', () => {
     expect(props.onRescheduled).not.toHaveBeenCalled()
   })
 
+  it('signals a write start before each drawer write request', async () => {
+    mockBackend()
+    mockUpdateCrud.mockResolvedValue({ ok: true })
+    const onWriteStarted = jest.fn()
+    renderDrawer({ onWriteStarted })
+    const drawer = await findDrawer()
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Change close date' }))
+    const input = (await screen.findByLabelText('New close date')) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '2099-12-01' } })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+    })
+    await waitFor(() => expect(mockUpdateCrud).toHaveBeenCalledTimes(1))
+    expect(onWriteStarted).toHaveBeenNthCalledWith(1, DEAL_ID)
+    expect(onWriteStarted.mock.invocationCallOrder[0]).toBeLessThan(mockUpdateCrud.mock.invocationCallOrder[0])
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Change stage' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'confirm-stage', hidden: true }))
+    })
+    await waitFor(() => expect(mockUpdateCrud).toHaveBeenCalledTimes(2))
+    expect(onWriteStarted).toHaveBeenNthCalledWith(2, DEAL_ID)
+    expect(onWriteStarted.mock.invocationCallOrder[1]).toBeLessThan(mockUpdateCrud.mock.invocationCallOrder[1])
+
+    await act(async () => {
+      fireEvent.click(within(drawer).getByRole('button', { name: 'Mark won' }))
+    })
+    await waitFor(() => expect(mockUpdateCrud).toHaveBeenCalledTimes(3))
+    expect(onWriteStarted).toHaveBeenNthCalledWith(3, DEAL_ID)
+    expect(onWriteStarted.mock.invocationCallOrder[2]).toBeLessThan(mockUpdateCrud.mock.invocationCallOrder[2])
+  })
+
+  it('settles the board lock when a drawer write fails', async () => {
+    mockBackend()
+    const conflict = Object.assign(new Error('conflict'), { status: 409 })
+    mockUpdateCrud.mockRejectedValue(conflict)
+    mockSurfaceRecordConflict.mockReturnValue(true)
+    const onWriteStarted = jest.fn()
+    const props = renderDrawer({ onWriteStarted })
+    const drawer = await findDrawer()
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Change close date' }))
+    const input = (await screen.findByLabelText('New close date')) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '2099-12-01' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    })
+
+    await waitFor(() => expect(props.onDealChanged).toHaveBeenCalledWith(DEAL_ID))
+    expect(onWriteStarted).toHaveBeenCalledWith(DEAL_ID)
+    expect(onWriteStarted.mock.invocationCallOrder[0]).toBeLessThan(props.onDealChanged.mock.invocationCallOrder[0])
+    expect(props.onRescheduled).not.toHaveBeenCalled()
+  })
+
   it('re-reads the deal when the board bumps the refresh token', async () => {
     mockBackend()
     const props = {

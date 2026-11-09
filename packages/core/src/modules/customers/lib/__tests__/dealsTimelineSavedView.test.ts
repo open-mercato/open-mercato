@@ -92,8 +92,10 @@ describe('dealsTimelineSavedView', () => {
       bucket: 'month',
       search: 'beta',
     })
+    expect(settings.filters.__namespaced).toBe(true)
     expect(dealTimelineSavedViewSchema.safeParse(settings.filters.timeline).success).toBe(true)
     expect(parseDealTimelineSavedView(settings).view).toMatchObject({ status: ['win'], bucket: 'month', search: 'beta' })
+    expect(parseDealTimelineSavedView(settings).droppedFields).toEqual([])
   })
 
   describe('validateDealTimelineSavedViewForSave', () => {

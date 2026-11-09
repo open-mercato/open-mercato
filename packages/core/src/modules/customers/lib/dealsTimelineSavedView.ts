@@ -20,7 +20,7 @@ export type DealTimelineSavedView = {
 }
 
 export type DealTimelinePerspectiveSettings = {
-  filters: { timeline: z.infer<typeof dealTimelineSavedViewSchema> }
+  filters: { __namespaced: true; timeline: z.infer<typeof dealTimelineSavedViewSchema> }
   searchValue?: string
 }
 
@@ -96,6 +96,7 @@ export function parseDealTimelineSavedView(input: unknown): ParsedDealTimelineSa
 export function buildDealTimelinePerspectiveSettings(view: DealTimelineSavedView): DealTimelinePerspectiveSettings {
   const settings: DealTimelinePerspectiveSettings = {
     filters: {
+      __namespaced: true,
       timeline: {
         v: DEAL_TIMELINE_SAVED_VIEW_VERSION,
         status: normalizeTimelineStatusSelection(view.status, view.excludeClosed),
