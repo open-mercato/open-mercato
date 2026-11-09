@@ -45,6 +45,8 @@ jest.mock('../../../../../events', () => ({ emitCatalogEvent }))
 jest.mock('../../../../../lib/aiCategorization/autoApply', () => ({ maybeAutoApplySuggestion }))
 
 import { POST } from '../route'
+import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 
 function makeRequest() {
   return new Request(`http://localhost/api/catalog/products/${productId}/category-suggestion`, { method: 'POST' })
@@ -164,6 +166,47 @@ describe('catalog product category-suggestion route', () => {
       categoryPathIds: [],
       confidence: null,
     }))
+  })
+
+  describe('transforming mutation guard', () => {
+    const rewrittenProductId = '99999999-9999-4999-8999-999999999999'
+
+    afterEach(() => {
+      registerMutationGuards([])
+    })
+
+    it('builds the product state from the guard-rewritten product id, not the request id', async () => {
+      const transformingGuard: MutationGuard = {
+        id: 'test.suggest-id-rewrite',
+        targetEntity: 'catalog.category_suggestion',
+        operations: ['create'],
+        async validate() {
+          return { ok: true, modifiedPayload: { productId: rewrittenProductId } }
+        },
+      }
+      registerMutationGuards([{ moduleId: 'test', guards: [transformingGuard] }])
+      walkCategoryTree.mockResolvedValue({ outcome: 'no_match' })
+      persistCategorySuggestion.mockResolvedValue({
+        id: 'suggestion-rewritten',
+        product: rewrittenProductId,
+        organizationId,
+        tenantId,
+        outcome: 'no_match',
+        categoryId: null,
+        categoryPathIds: [],
+        confidence: null,
+        levels: [],
+        status: 'pending',
+        trigger: 'manual',
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-01-01T00:00:00Z'),
+      })
+
+      const response = await POST(makeRequest(), { params: { id: productId } })
+      expect(response.status).toBe(201)
+      expect(buildProductState).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ productId: rewrittenProductId }))
+      expect(persistCategorySuggestion).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ productId: rewrittenProductId }))
+    })
   })
 
   describe('auto-apply', () => {

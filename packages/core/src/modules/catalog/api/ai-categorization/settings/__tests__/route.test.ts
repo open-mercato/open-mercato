@@ -209,6 +209,27 @@ describe('catalog ai-categorization settings route', () => {
     expect(setValueMock).not.toHaveBeenCalled()
   })
 
+  it('returns 422 when a transforming guard enables the feature while the decision model is unavailable', async () => {
+    getStatusMock.mockResolvedValue({
+      available: false,
+      reason: 'not_configured',
+      enabled: false,
+      effective: false,
+      settings: DEFAULT_SETTINGS,
+    })
+    runRouteMutationGuardsMock.mockResolvedValue({
+      ok: true,
+      modifiedPayload: { ...DEFAULT_SETTINGS, enabled: true },
+      runAfterSuccess: runAfterSuccessMock,
+    })
+    // The raw request body keeps `enabled: false`, so the pre-guard check at the
+    // top of PUT passes; only the guard's modifiedPayload turns it on.
+    const response = await PUT(makePutRequest({ ...DEFAULT_SETTINGS, enabled: false }))
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({ code: 'decision_model_unavailable', reason: 'not_configured' })
+    expect(setValueMock).not.toHaveBeenCalled()
+  })
+
   it('persists a guard-transformed payload, not the original request body', async () => {
     runRouteMutationGuardsMock.mockResolvedValue({
       ok: true,

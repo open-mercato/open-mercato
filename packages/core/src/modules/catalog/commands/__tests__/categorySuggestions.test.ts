@@ -112,6 +112,20 @@ describe('catalog.category_suggestions.accept', () => {
     expect(result.categoryIdsAfter).toEqual([CATEGORY])
   })
 
+  it('scopes the current-category-assignments lookup by the product tenant and organization', async () => {
+    findWithDecryption.mockResolvedValueOnce([])
+    const suggestion = buildSuggestion()
+    const em = buildEm({ suggestion, category: buildCategory() })
+    await acceptCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em))
+    expect(findWithDecryption).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      { product: PRODUCT, tenantId: TENANT, organizationId: ORG },
+      expect.objectContaining({ populate: ['category'] }),
+      { tenantId: TENANT, organizationId: ORG },
+    )
+  })
+
   it('appends the category last when the product already has categories', async () => {
     findWithDecryption.mockResolvedValueOnce([
       { position: 0, category: { id: 'existing-1' } },

@@ -67,6 +67,63 @@ describe('persistCategorySuggestion', () => {
     expect(existingPending.status).toBe('superseded')
   })
 
+  it('scopes the pending-suggestion lookup by tenant and organization, not just product', async () => {
+    const { trx } = buildTrx({ pending: [] })
+    const em = buildEm(trx)
+    await persistCategorySuggestion(em, {
+      productId: PRODUCT,
+      tenantId: TENANT,
+      organizationId: ORG,
+      outcome: 'no_match',
+      trigger: 'manual',
+    })
+    expect(trx.find).toHaveBeenCalledWith(expect.anything(), {
+      product: PRODUCT,
+      tenantId: TENANT,
+      organizationId: ORG,
+      status: 'pending',
+    })
+  })
+
+  it('never supersedes a pending suggestion for the same product FK in a foreign tenant/organization', async () => {
+    const FOREIGN_TENANT = '77777777-7777-4777-8777-777777777777'
+    const FOREIGN_ORG = '88888888-8888-4888-8888-888888888888'
+    const foreignPending: FakeSuggestion = {
+      id: 'foreign-id',
+      status: 'pending',
+      product: PRODUCT,
+      tenantId: FOREIGN_TENANT,
+      organizationId: FOREIGN_ORG,
+    }
+    const homePending: FakeSuggestion = { id: 'home-id', status: 'pending', product: PRODUCT, tenantId: TENANT, organizationId: ORG }
+    // Simulates a real DB: `find` only returns rows matching every criterion it was called with.
+    const allRows = [foreignPending, homePending]
+    const trx = {
+      findOne: jest.fn().mockResolvedValue({ id: PRODUCT }),
+      find: jest.fn().mockImplementation(async (_entity: unknown, criteria: Record<string, unknown>) =>
+        allRows.filter((row) =>
+          row.product === criteria.product
+          && row.tenantId === criteria.tenantId
+          && row.organizationId === criteria.organizationId
+          && row.status === criteria.status,
+        ),
+      ),
+      create: jest.fn().mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({ id: 'new-id', ...payload } as FakeSuggestion)),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+    }
+    const em = buildEm(trx)
+    await persistCategorySuggestion(em, {
+      productId: PRODUCT,
+      tenantId: TENANT,
+      organizationId: ORG,
+      outcome: 'no_match',
+      trigger: 'manual',
+    })
+    expect(foreignPending.status).toBe('pending')
+    expect(homePending.status).toBe('superseded')
+  })
+
   // MikroORM v7's UnitOfWork orders INSERT changesets before UPDATE
   // changesets within one flush, so flushing both together would race the
   // replacement's INSERT against the still-`pending` old row and trip the

@@ -28,6 +28,8 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 import { POST } from '../route'
+import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 
 function makeRequest() {
   return new Request(`http://localhost/api/catalog/category-suggestions/${suggestionId}/reject`, { method: 'POST' })
@@ -77,5 +79,31 @@ describe('catalog category-suggestions reject route', () => {
     }))
     const body = await response.json() as { suggestion: { status: string } }
     expect(body.suggestion.status).toBe('rejected')
+  })
+
+  describe('transforming mutation guard', () => {
+    const rewrittenSuggestionId = '55555555-5555-4555-8555-555555555555'
+
+    afterEach(() => {
+      registerMutationGuards([])
+    })
+
+    it('dispatches the reject command against the guard-rewritten suggestion id, not the request id', async () => {
+      const transformingGuard: MutationGuard = {
+        id: 'test.reject-id-rewrite',
+        targetEntity: 'catalog.category_suggestion',
+        operations: ['update'],
+        async validate() {
+          return { ok: true, modifiedPayload: { id: rewrittenSuggestionId } }
+        },
+      }
+      registerMutationGuards([{ moduleId: 'test', guards: [transformingGuard] }])
+
+      const response = await POST(makeRequest(), { params: { id: suggestionId } })
+      expect(response.status).toBe(200)
+      expect(executeMock).toHaveBeenCalledWith('catalog.category_suggestions.reject', expect.objectContaining({
+        input: { id: rewrittenSuggestionId },
+      }))
+    })
   })
 })
