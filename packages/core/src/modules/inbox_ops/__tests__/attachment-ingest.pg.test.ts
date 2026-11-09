@@ -545,7 +545,7 @@ maybe('inbound attachment ingest SQL against PostgreSQL', () => {
       const timeout = await seedPart(id, 'timeout', 'failed')
       const gone = await seedPart(id, 'gone', 'failed')
       await seedPart(id, 'stored', 'stored', randomUUID())
-      await orm.em.fork().nativeUpdate(InboxEmailAttachment, { id: timeout }, { reason: 'ingest_timeout' })
+      await orm.em.fork().nativeUpdate(InboxEmailAttachment, { id: timeout }, { reason: 'ingest_timeout', attempts: 2, inFlightAt: new Date() })
       await orm.em.fork().nativeUpdate(InboxEmailAttachment, { id: gone }, { reason: 'fetch_failed' })
       const ref = { id, tenantId: TENANT_ID, organizationId: ORG_ID }
 
@@ -563,6 +563,7 @@ maybe('inbound attachment ingest SQL against PostgreSQL', () => {
         ['resend:stored', 'stored', null],
         ['resend:timeout', 'pending', null],
       ])
+      expect(rows.find((row) => row.partKey === 'resend:timeout')).toMatchObject({ attempts: 0, inFlightAt: null })
 
       await orm.em.fork().nativeUpdate(InboxEmail, { id }, { attachmentsStatus: 'completed', deletedAt: new Date() })
       expect(await resetFinalizedInboundAttachmentIngest(orm.em.fork(), ref, now)).toBe(false)

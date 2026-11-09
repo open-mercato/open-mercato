@@ -125,6 +125,17 @@ describe('downloadWithSizeCap', () => {
     expect(await downloadWithSizeCap('https://files.example.test/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl })).toEqual({ kind: 'http', status: 404 })
   })
 
+  it('refuses http: download URLs unless the Resend stub allows them', async () => {
+    const fetchImpl = jest.fn(async () => new Response(streamOf([10]), { status: 200 }))
+    expect(await downloadWithSizeCap('http://files.example.test/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl })).toEqual({ kind: 'transient', code: 'invalid_url' })
+    expect(await downloadWithSizeCap('http://files.example.test/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl, allowHttp: false })).toEqual({ kind: 'transient', code: 'invalid_url' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+    const allowed = await downloadWithSizeCap('http://localhost:3000/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl, allowHttp: true })
+    expect(allowed.kind).toBe('ok')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(await downloadWithSizeCap('ftp://files.example.test/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl, allowHttp: true })).toEqual({ kind: 'transient', code: 'invalid_url' })
+  })
+
   it('times out the whole transfer', async () => {
     const fetchImpl = jest.fn((_url: string, init?: RequestInit) => new Promise<Response>((_, reject) => {
       init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))

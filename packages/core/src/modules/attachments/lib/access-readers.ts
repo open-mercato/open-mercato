@@ -8,6 +8,15 @@ import { getAttachmentAccessRegistry } from './access-registry'
 export const KNOWN_DIRECT_ATTACHMENT_READER_MODULES: readonly string[] = Object.freeze(['agent_orchestrator'])
 
 /**
+ * The access registry failed to build in this process (the app's generated registrations failed
+ * at bootstrap). Owner modules check it before {@link listUnguardedAttachmentReaders}, which then
+ * fails closed, so a broken process defers its work instead of recording a permanent outcome.
+ */
+export function isAttachmentAccessRegistryInvalid(): boolean {
+  return getAttachmentAccessRegistry().invalid
+}
+
+/**
  * Enabled modules from `KNOWN_DIRECT_ATTACHMENT_READER_MODULES` that have not declared
  * `enforcesOwnerAccessOnDirectReads` in their `data/attachment-access.ts`. Owner modules
  * call it before storing files that must not reach such a reader. Unregistered modules

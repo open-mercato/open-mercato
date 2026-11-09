@@ -78,9 +78,9 @@ function seedFinalized(values: Partial<Row> = {}): Row {
     ...values,
   })
   db.addPart(email.id, 'stored', { status: 'stored', attachmentId: '00000000-0000-4000-8000-000000000001' })
-  db.addPart(email.id, 'timeout', { status: 'failed', reason: 'ingest_timeout' })
-  db.addPart(email.id, 'quota', { status: 'failed', reason: 'quota_exceeded' })
-  db.addPart(email.id, 'gone', { status: 'failed', reason: 'fetch_failed' })
+  db.addPart(email.id, 'timeout', { status: 'failed', reason: 'ingest_timeout', attempts: 2, inFlightAt: new Date(Date.now() - 7 * 60 * MINUTE) })
+  db.addPart(email.id, 'quota', { status: 'failed', reason: 'quota_exceeded', attempts: 1 })
+  db.addPart(email.id, 'gone', { status: 'failed', reason: 'fetch_failed', attempts: 3 })
   db.addPart(email.id, 'huge', { status: 'skipped', reason: 'too_large' })
   return email
 }
@@ -223,6 +223,13 @@ describe('manual retry of a finalized ingest with retryable failed parts', () =>
       ['resend:quota', 'pending', null],
       ['resend:gone', 'failed', 'fetch_failed'],
       ['resend:huge', 'skipped', 'too_large'],
+    ])
+    expect(db.partsOf(email.id).map((row) => [row.partKey, row.attempts, row.inFlightAt])).toEqual([
+      ['resend:stored', 0, null],
+      ['resend:timeout', 0, null],
+      ['resend:quota', 0, null],
+      ['resend:gone', 3, null],
+      ['resend:huge', 0, null],
     ])
     expect(emittedEvents()).toEqual(['inbox_ops.email.reprocessed'])
     expect(mockEnqueue.mock.calls.map((call) => call[0])).toEqual([

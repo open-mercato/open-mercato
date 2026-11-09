@@ -21,7 +21,7 @@ import {
 type ListState =
   | { kind: 'loading' }
   | { kind: 'error' }
-  | { kind: 'hidden' }
+  | { kind: 'unavailable' }
   | { kind: 'ready'; items: InboxEmailAttachmentListItem[] }
 
 export type EmailAttachmentsListProps = {
@@ -39,9 +39,11 @@ export type EmailAttachmentsListProps = {
 
 /**
  * The ledger of an inbound email's attachment parts (`GET /api/inbox_ops/emails/[id]/attachments`).
- * A 401, 403 or 404 hides the list, so viewers who may not read the email see nothing — including a
- * signed-out reader of a public message link, who must not be bounced to the session refresh. Downloads
- * go through the attachments file route, which the inbox_ops owner access resolver guards.
+ * In a section (`asSection` or `hideWhenEmpty`), a 401, 403 or 404 hides the list, so viewers who may
+ * not read the email see nothing — including a signed-out reader of a public message link, who must
+ * not be bounced to the session refresh. Standalone (the processing log's dialog) it shows an
+ * "unavailable" message instead of a blank body. Downloads go through the attachments file route,
+ * which the inbox_ops owner access resolver guards.
  */
 export function EmailAttachmentsList({ emailId, asSection = false, hideWhenEmpty = false, knownEmpty = false }: EmailAttachmentsListProps) {
   const t = useT()
@@ -65,7 +67,7 @@ export function EmailAttachmentsList({ emailId, asSection = false, hideWhenEmpty
     })
       .then((call) => {
         if (controller.signal.aborted) return
-        if (call.status === 401 || call.status === 403 || call.status === 404) setState({ kind: 'hidden' })
+        if (call.status === 401 || call.status === 403 || call.status === 404) setState({ kind: 'unavailable' })
         else if (call.ok && Array.isArray(call.result?.items)) setState({ kind: 'ready', items: call.result.items })
         else setState({ kind: 'error' })
       })
@@ -78,7 +80,7 @@ export function EmailAttachmentsList({ emailId, asSection = false, hideWhenEmpty
   const statuses = attachmentStatusLabels(t)
   const reasons = attachmentReasonLabels(t)
 
-  if (state.kind === 'hidden') return null
+  if (state.kind === 'unavailable' && (asSection || hideWhenEmpty)) return null
   // A list that may turn out hidden or empty stays invisible while it loads, so the host layout doesn't jump.
   if (state.kind === 'loading' && hideWhenEmpty) return null
   if (state.kind === 'ready' && state.items.length === 0 && hideWhenEmpty) return null
@@ -86,6 +88,12 @@ export function EmailAttachmentsList({ emailId, asSection = false, hideWhenEmpty
   let content: React.ReactNode
   if (state.kind === 'loading') {
     content = <LoadingMessage label={t('inbox_ops.attachments.loading', 'Loading attachments...')} />
+  } else if (state.kind === 'unavailable') {
+    content = (
+      <ErrorMessage
+        label={t('inbox_ops.attachments.unavailable', 'This email is no longer available or you cannot view its attachments.')}
+      />
+    )
   } else if (state.kind === 'error') {
     content = (
       <ErrorMessage

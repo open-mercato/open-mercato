@@ -57,7 +57,11 @@ export { syncAttachmentAccessProtection } from './lib/access-protection'
 export { createAttachmentAccessContext, evaluateAttachmentAccess } from './lib/access-runner'
 export type { AttachmentAccessContext, AttachmentAccessResult } from './lib/access-runner'
 export { buildAttachmentAccessAuth, evaluateAttachmentRowAccess } from './lib/access-rows'
-export { KNOWN_DIRECT_ATTACHMENT_READER_MODULES, listUnguardedAttachmentReaders } from './lib/access-readers'
+export {
+  isAttachmentAccessRegistryInvalid,
+  KNOWN_DIRECT_ATTACHMENT_READER_MODULES,
+  listUnguardedAttachmentReaders,
+} from './lib/access-readers'
 export type {
   AttachmentAccessDestination,
   AttachmentAccessPrincipal,

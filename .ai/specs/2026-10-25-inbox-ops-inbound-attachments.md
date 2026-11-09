@@ -1,6 +1,6 @@
 # InboxOps Inbound Email Attachments
 
-**Status**: Draft
+**Status**: Implemented (Phases 1–3, 2026-11-08; in review); follow-up specs not delivered here
 **Created**: 2026-10-25
 **Issue**: [#6282](https://github.com/open-mercato/open-mercato/issues/6282)
 **Modules**: `inbox_ops` (primary), `attachments` (additive service contract, access resolver adoption)

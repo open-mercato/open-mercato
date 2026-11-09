@@ -260,6 +260,11 @@ export interface AttachmentService {
    * one storage-reference read per deleted row), so it is meant for owners with a bounded number
    * of rows, such as an inbound email (at most its ledger's parts); an owner with an unbounded
    * number of rows needs a batched release instead.
+   *
+   * A row created for, or assigned to, `owner` by a transaction that commits concurrently with the
+   * lock statement may be missed (the statement does not see it). Callers MUST fence new writes
+   * for the owner (commit a change that makes every later write for it fail, as inbox_ops does by
+   * clearing the email's ingest claim in the soft delete) before releasing.
    */
   releaseOwnedScoped?(input: ReleaseOwnedScopedAttachmentsInput): Promise<ReleaseOwnedScopedAttachmentsResult>
 }
@@ -687,7 +692,11 @@ export class DefaultAttachmentService implements AttachmentService {
     for (const partitionCode of await listOwnedAttachmentPartitionCodes(this.em, owner, scope)) {
       try {
         await resolveDriver(partitionCode)
-      } catch {
+      } catch (error) {
+        logger.warn('Storage driver resolution failed before an owned attachment release; retried under the lock if needed', {
+          partitionCode,
+          err: error,
+        })
         drivers.delete(partitionCode)
       }
     }

@@ -177,6 +177,11 @@ export async function releaseInboundEmailAttachments(
 
   let ownedReleased = false
   if (typeof service.releaseOwnedScoped === 'function') {
+    // `releaseOwnedScoped` may miss a row committed for this email concurrently with its lock, so
+    // new writes are fenced first: the committed soft delete cleared the ingest claim token, and
+    // ingest links a part only through `persistLink`, which renews that claim (conditional on the
+    // token and `deleted_at is null`) under the email row lock inside the upload transaction. An
+    // upload that won the row lock committed before the soft delete; any later one rolls back.
     try {
       await service.releaseOwnedScoped({
         owner: { entityId: INBOUND_ATTACHMENT_OWNER_ENTITY_ID, recordId: email.id },

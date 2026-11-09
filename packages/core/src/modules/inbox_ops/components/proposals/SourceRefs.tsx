@@ -30,6 +30,7 @@ export function SourceRefs({ refs }: { refs?: InboxProposalActionSourceRef[] | n
       <span className="text-xs text-muted-foreground">{t('inbox_ops.attachments.sourceRefs.label', 'Sources')}</span>
       {refs.map((ref, index) => {
         const Icon = ref.kind === 'attachment' ? FileText : Mail
+        const source = describeRef(t, ref)
         return (
           <SimpleTooltip
             key={`${ref.kind}-${ref.attachmentId ?? 'body'}-${index}`}
@@ -37,10 +38,12 @@ export function SourceRefs({ refs }: { refs?: InboxProposalActionSourceRef[] | n
           >
             <span
               tabIndex={0}
-              className="inline-flex max-w-xs items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-xs text-muted-foreground"
+              role="note"
+              aria-label={t('inbox_ops.attachments.sourceRefs.ariaLabel', 'Source: {source}. Quoted: "{snippet}"', { source, snippet: ref.snippet })}
+              className="inline-flex max-w-xs items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-xs text-muted-foreground focus-visible:outline-none focus-visible:shadow-focus"
             >
               <Icon className="h-3 w-3 shrink-0" aria-hidden />
-              <span className="truncate">{describeRef(t, ref)}</span>
+              <span className="truncate">{source}</span>
             </span>
           </SimpleTooltip>
         )

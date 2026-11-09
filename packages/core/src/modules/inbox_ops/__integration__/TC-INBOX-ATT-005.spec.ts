@@ -131,11 +131,15 @@ test.describe('TC-INBOX-ATT-005: inbound attachments are hidden from colleagues 
       expect(draft.status).toBe(201)
       draftId = draft.body?.id ?? null
       expect(draftId).toBeTruthy()
-      const linked = await ownerPolicyRequest<{ error?: string }>('POST', `/api/messages/${draftId}/attachments`, colleague, {
+      const linked = await ownerPolicyRequest<{ error?: string; code?: string }>('POST', `/api/messages/${draftId}/attachments`, colleague, {
         attachmentIds: [attachmentId],
       })
       expect(linked.status).toBe(403)
-      expect(linked.body?.error).toBe('You cannot attach one or more of these files.')
+      // The messages route answers this denial without an error code, so only a translated
+      // message is asserted (any locale); the unchanged owner below proves the denial.
+      expect(linked.body?.code).toBeUndefined()
+      expect(typeof linked.body?.error).toBe('string')
+      expect(linked.body?.error?.trim().length).toBeGreaterThan(0)
 
       const rows = await readEmailAttachmentRows(received.emailId)
       expect(rows.map((row) => ({ id: row.id, entityId: row.entity_id }))).toEqual([

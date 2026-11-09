@@ -72,6 +72,7 @@ function createHarness(options: {
   fetch?: FetchBehavior
   config?: Partial<InboundAttachmentsConfig>
   readers?: string[]
+  registryInvalid?: boolean
   attachmentService?: boolean
 } = {}): Harness {
   const db = new FakeInboxDb()
@@ -111,6 +112,7 @@ function createHarness(options: {
     queue,
     config: { ...config, ...options.config },
     listUnguardedReaders: () => options.readers ?? [],
+    isAccessRegistryInvalid: () => options.registryInvalid ?? false,
     now: () => new Date(clock.now),
     newClaimToken: () => `token-${(tokens += 1)}`,
   }
@@ -582,6 +584,37 @@ describe('ingest: unexpected errors', () => {
   })
 })
 
+describe('ingest: download URL scheme', () => {
+  function httpListed(harness: Harness) {
+    harness.api.list.mockImplementation(async () => ({
+      data: {
+        has_more: false,
+        data: [{ ...descriptor('a', harness.clock), download_url: 'http://localhost:3000/stub/a' }],
+      },
+      error: null,
+    }))
+  }
+
+  it('does not fetch an http: download URL while the Resend stub is off', async () => {
+    const harness = createHarness({ parts: [{ id: 'a' }] })
+    httpListed(harness)
+    harness.api.get.mockImplementation(async () => ({
+      data: { ...descriptor('a', harness.clock), download_url: 'http://localhost:3000/stub/a' },
+      error: null,
+    }))
+    await expect(harness.run()).rejects.toBeInstanceOf(InboundAttachmentIngestRetryError)
+    expect(harness.fetchImpl).not.toHaveBeenCalled()
+    expect(statuses(harness)).toEqual([['resend:a', 'pending', null]])
+  })
+
+  it('fetches an http: download URL while the Resend stub is on', async () => {
+    const harness = createHarness({ parts: [{ id: 'a' }], config: { resendStubEnabled: true } })
+    httpListed(harness)
+    await expect(harness.run()).resolves.toMatchObject({ outcome: 'completed', storedCount: 1 })
+    expect(harness.fetchImpl).toHaveBeenCalledWith('http://localhost:3000/stub/a', expect.anything())
+  })
+})
+
 describe('ingest: upload outcomes', () => {
   it('keeps the email when the quota is exceeded and reports the part', async () => {
     const harness = createHarness({ parts: [{ id: 'a' }] })
@@ -627,6 +660,28 @@ describe('ingest: gate', () => {
     readers = ['agent_orchestrator']
     await expect(harness.run(2)).resolves.toMatchObject({ outcome: 'completed', storedCount: 1 })
     expect(statuses(harness)).toEqual([['resend:a', 'stored', null], ['resend:b', 'skipped', 'unguarded_reader']])
+  })
+
+  it('leaves every part pending and reports access_registry_invalid, instead of skipping, while the access registry is invalid', async () => {
+    const harness = createHarness({ readers: ['agent_orchestrator'], registryInvalid: true })
+    await expect(harness.run()).rejects.toBeInstanceOf(InboundAttachmentIngestRetryError)
+    expect(statuses(harness)).toEqual([['resend:a', 'pending', null], ['resend:b', 'pending', null]])
+    expect(harness.db.email(harness.email.id)).toMatchObject({
+      attachmentsStatus: 'pending',
+      attachmentsClaimToken: null,
+      attachmentsFirstFailureAt: START,
+    })
+    expect(harness.api.list).not.toHaveBeenCalled()
+    expect(harness.createScoped).not.toHaveBeenCalled()
+    expect(harness.emitReceived).not.toHaveBeenCalled()
+    expect(reportedCodes()).toEqual(['inbox_ops.attachment_store_failed'])
+    expect(mockReportError.mock.calls[0][1]).toMatchObject({
+      attributes: expect.objectContaining({ code: 'access_registry_invalid', parts: 2, transient: true }),
+    })
+
+    harness.deps.isAccessRegistryInvalid = () => false
+    harness.deps.listUnguardedReaders = () => []
+    await expect(harness.run(2)).resolves.toMatchObject({ outcome: 'completed', storedCount: 2 })
   })
 
   it('still finishes an already pending email after the kill switch is turned off', async () => {

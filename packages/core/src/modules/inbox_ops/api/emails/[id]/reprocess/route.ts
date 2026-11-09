@@ -10,6 +10,7 @@ import {
   extractPathSegment,
   UnauthorizedError,
 } from '../../../routeHelpers'
+import { resolveErrorTranslate } from '../../../../lib/errorTranslate'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -194,14 +195,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     if (err instanceof ReprocessConflictError) {
-      const { translate } = await resolveTranslations()
+      const translate = await resolveErrorTranslate()
       return NextResponse.json({
         error: translate('inbox_ops.errors.actionsAlreadyExecuted', err.message),
       }, { status: 409 })
     }
 
     logger.error('Reprocess failed', { err })
-    const { translate } = await resolveTranslations()
+    const translate = await resolveErrorTranslate()
     return NextResponse.json({
       error: translate('inbox_ops.errors.reprocessFailed', 'Failed to reprocess email'),
     }, { status: 500 })

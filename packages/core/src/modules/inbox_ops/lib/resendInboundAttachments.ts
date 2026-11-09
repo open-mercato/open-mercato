@@ -138,10 +138,14 @@ export type DownloadResult =
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
-/** Streams a download URL with a size cap; the whole transfer is bounded by `timeoutMs`. */
+/**
+ * Streams a download URL with a size cap; the whole transfer is bounded by `timeoutMs`. Only
+ * `https:` URLs are fetched; `allowHttp` (the test-only Resend stub, `resendStubEnabled`) also
+ * admits `http:`.
+ */
 export async function downloadWithSizeCap(
   url: string,
-  options: { timeoutMs: number; maxBytes: number; fetchImpl?: FetchLike },
+  options: { timeoutMs: number; maxBytes: number; fetchImpl?: FetchLike; allowHttp?: boolean },
 ): Promise<DownloadResult> {
   let parsed: URL
   try {
@@ -149,7 +153,8 @@ export async function downloadWithSizeCap(
   } catch {
     return { kind: 'transient', code: 'invalid_url' }
   }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return { kind: 'transient', code: 'invalid_url' }
+  const allowedProtocol = parsed.protocol === 'https:' || (options.allowHttp === true && parsed.protocol === 'http:')
+  if (!allowedProtocol) return { kind: 'transient', code: 'invalid_url' }
 
   const fetchImpl = options.fetchImpl ?? fetch
   const controller = new AbortController()
@@ -206,6 +211,8 @@ export type AcquireInboundPartInput = {
   timeoutMs: number
   maxBytes: number
   fetchImpl?: FetchLike
+  /** Admit `http:` download URLs: only while the test-only Resend stub is enabled. */
+  allowHttp?: boolean
   now?: () => Date
 }
 
@@ -247,6 +254,7 @@ export async function acquireInboundPartBytes(input: AcquireInboundPartInput): P
       timeoutMs: input.timeoutMs,
       maxBytes: input.maxBytes,
       fetchImpl: input.fetchImpl,
+      allowHttp: input.allowHttp,
     })
     if (download.kind === 'ok') return { kind: 'downloaded', buffer: download.buffer }
     if (download.kind === 'too_large') return download

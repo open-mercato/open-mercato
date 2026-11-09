@@ -19,6 +19,7 @@ import {
   extractPathSegment,
   UnauthorizedError,
 } from '../../routeHelpers'
+import { resolveErrorTranslate } from '../../../lib/errorTranslate'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { canViewEmailContent, serializeInboxEmail } from '../response'
 import {
@@ -48,8 +49,8 @@ function tryResolve<T>(container: { resolve: (name: string) => unknown }, name: 
 }
 
 export async function GET(req: Request) {
-  const { translate } = await resolveTranslations()
   try {
+    const { translate } = await resolveTranslations()
     const url = new URL(req.url)
     const id = extractPathSegment(url, 'emails')
 
@@ -80,6 +81,7 @@ export async function GET(req: Request) {
     const includeContent = await canViewEmailContent(ctx)
     return NextResponse.json({ email: serializeInboxEmail(email, includeContent) })
   } catch (err) {
+    const translate = await resolveErrorTranslate()
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: translate('inbox_ops.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }
@@ -89,8 +91,8 @@ export async function GET(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { translate } = await resolveTranslations()
   try {
+    const { translate } = await resolveTranslations()
     const url = new URL(req.url)
     const id = extractPathSegment(url, 'emails')
 
@@ -176,6 +178,7 @@ export async function DELETE(req: Request) {
 
     return NextResponse.json({ ok: true })
   } catch (err) {
+    const translate = await resolveErrorTranslate()
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: translate('inbox_ops.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }

@@ -16,6 +16,7 @@ const mockEmit = jest.fn()
 const mockReportError = jest.fn()
 const mockEnsureSchedule = jest.fn()
 const mockReaders = jest.fn((): string[] => [])
+const mockRegistryInvalid = jest.fn((): boolean => false)
 const mockWarn = jest.fn()
 const mockLoggerError = jest.fn()
 const mockState: { db: FakeInboxDb | null; attachmentService: boolean } = { db: null, attachmentService: true }
@@ -52,6 +53,7 @@ jest.mock('@open-mercato/queue', () => ({
 }))
 jest.mock('@open-mercato/core/modules/attachments', () => ({
   listUnguardedAttachmentReaders: () => mockReaders(),
+  isAttachmentAccessRegistryInvalid: () => mockRegistryInvalid(),
 }))
 jest.mock('../../../lib/resendClient', () => ({
   createInboundResendClient: () => ({ emails: { receiving: { get: (...args: unknown[]) => mockReceivingGet(...args) } } }),
@@ -204,6 +206,7 @@ beforeEach(() => {
   process.env.RESEND_WEBHOOK_SIGNING_SECRET = SIGNING_SECRET
   jest.clearAllMocks()
   mockReaders.mockReturnValue([])
+  mockRegistryInvalid.mockReturnValue(false)
   mockEnqueue.mockImplementation(async () => 'job-id')
   mockEmit.mockResolvedValue(undefined)
   mockEnsureSchedule.mockResolvedValue('scheduler_unavailable')
@@ -502,6 +505,51 @@ describe('Resend email with attachments while an unguarded reader is enabled (D1
       'Stored inbound email attachments are readable through modules that read attachments without owner checks',
       { modules: ['agent_orchestrator'] },
     )
+  })
+
+  it('hands the parts to the worker with the provider id instead of blocking them while the access registry is invalid', async () => {
+    mockRegistryInvalid.mockReturnValue(true)
+    mockReaders.mockReturnValue(['agent_orchestrator'])
+    const email = resendEmail({ attachments: [logo('logo'), pdf('offer')] })
+
+    expect((await POST(resendRequest(email))).status).toBe(200)
+
+    const [stored] = emailsOf(db)
+    expect(stored).toMatchObject({
+      attachmentsStatus: 'pending',
+      metadata: { attachmentIngest: { provider: 'resend', providerEmailId: 'resend-email-1' } },
+      attachmentsCurrentGeneration: 1,
+    })
+    expect(ledgerOf(db, stored.id)).toEqual([
+      ['resend:logo', 'logo.png', 'skipped', 'inline_decoration'],
+      ['resend:offer', 'offer.pdf', 'pending', null],
+    ])
+    expect(enqueuedJobs()).toEqual([{ emailId: stored.id, tenantId: TENANT_ID, organizationId: ORG_ID, generation: 1 }])
+    expect(mockEmit).not.toHaveBeenCalled()
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      'Inbound attachments handed to the ingest worker unchecked: the attachments access registry is invalid',
+      { parts: 2 },
+    )
+
+    // A worker with a valid registry still applies D19 to the handed-over parts.
+    const createScoped = jest.fn()
+    const result = await runInboundAttachmentIngest(
+      { emailId: stored.id, tenantId: TENANT_ID, organizationId: ORG_ID, generation: 1 },
+      { attemptNumber: 1 },
+      {
+        em: db.entityManager(),
+        attachmentService: { createScoped },
+        encryptionService: { encryptEntityPayload: async (_entityId, payload) => payload },
+        emitReceived: jest.fn(async () => undefined),
+        queue: { enqueue: jest.fn(async () => 'job') },
+        config: { ...INBOUND_ATTACHMENTS_CONFIG_DEFAULTS, maxFileBytes: 25 * MIB },
+        listUnguardedReaders: () => ['agent_orchestrator'],
+        isAccessRegistryInvalid: () => false,
+      },
+    )
+    expect(result).toMatchObject({ outcome: 'completed', storedCount: 0 })
+    expect(ledgerOf(db, stored.id).map((row) => [row[2], row[3]])).toEqual([['skipped', 'inline_decoration'], ['skipped', 'unguarded_reader']])
+    expect(createScoped).not.toHaveBeenCalled()
   })
 
   it('warns once per process naming the module, and ingests again once the module declares', async () => {

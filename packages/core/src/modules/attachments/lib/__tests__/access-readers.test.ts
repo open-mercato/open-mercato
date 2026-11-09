@@ -1,6 +1,10 @@
 import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import { registerAttachmentAccessResolvers } from '../access-registry'
-import { KNOWN_DIRECT_ATTACHMENT_READER_MODULES, listUnguardedAttachmentReaders } from '../access-readers'
+import {
+  isAttachmentAccessRegistryInvalid,
+  KNOWN_DIRECT_ATTACHMENT_READER_MODULES,
+  listUnguardedAttachmentReaders,
+} from '../access-readers'
 
 jest.mock('@open-mercato/shared/lib/modules/registry', () => ({ tryGetModules: jest.fn() }))
 
@@ -49,6 +53,9 @@ describe('listUnguardedAttachmentReaders', () => {
     registerAttachmentAccessResolvers([{ moduleId: 'agent_orchestrator', resolvers: [], enforcesOwnerAccessOnDirectReads: true }])
     expect(() => registerAttachmentAccessResolvers([{ moduleId: '', resolvers: [] }])).toThrow()
     expect(listUnguardedAttachmentReaders()).toEqual(['agent_orchestrator'])
+    expect(isAttachmentAccessRegistryInvalid()).toBe(true)
+    registerAttachmentAccessResolvers([])
+    expect(isAttachmentAccessRegistryInvalid()).toBe(false)
   })
 
   it('records the declaration only for modules that set it to true', () => {

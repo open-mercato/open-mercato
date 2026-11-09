@@ -12,6 +12,7 @@ import {
 } from '../../../../data/validators'
 import { INBOUND_ATTACHMENT_LEDGER_MAX_ROWS } from '../../../../lib/inboundAttachments'
 import { extractPathSegment, resolveRequestContext, UnauthorizedError } from '../../../routeHelpers'
+import { resolveErrorTranslate } from '../../../../lib/errorTranslate'
 
 const logger = createLogger('inbox_ops').child({ component: 'email-attachments' })
 
@@ -61,8 +62,8 @@ function toListItem(row: InboxEmailAttachment): InboxEmailAttachmentListItem {
 }
 
 export async function GET(req: Request) {
-  const { translate } = await resolveTranslations()
   try {
+    const { translate } = await resolveTranslations()
     const ctx = await resolveRequestContext(req)
     const params = inboxEmailIdParamsSchema.safeParse({ id: extractPathSegment(new URL(req.url), 'emails') })
     const notFound = () => NextResponse.json(
@@ -98,6 +99,7 @@ export async function GET(req: Request) {
     const body: InboxEmailAttachmentListResponse = { items: rows.map(toListItem) }
     return NextResponse.json(body)
   } catch (err) {
+    const translate = await resolveErrorTranslate()
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: translate('inbox_ops.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }
@@ -122,6 +124,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Email not found' },
+        { status: 500, description: 'Failed to load email attachments' },
       ],
     },
   },

@@ -34,4 +34,21 @@ describe('SourceRefs', () => {
     fireEvent.focus(screen.getByText('offer.pdf (page 2)').parentElement as HTMLElement)
     expect((await screen.findAllByText('Quoted: "10 x Widget at 4.50"')).length).toBeGreaterThan(0)
   })
+
+  it('exposes each focusable reference as a labelled note', () => {
+    renderWithProviders(
+      <SourceRefs
+        refs={[
+          { kind: 'attachment', attachmentId: 'att-1', fileName: 'offer.pdf', page: 2, snippet: '10 x Widget at 4.50' },
+          { kind: 'email_body', snippet: 'Please ship by Friday' },
+        ]}
+      />,
+    )
+    const notes = screen.getAllByRole('note')
+    expect(notes.map((note) => note.getAttribute('aria-label'))).toEqual([
+      'Source: offer.pdf (page 2). Quoted: "10 x Widget at 4.50"',
+      'Source: Email body. Quoted: "Please ship by Friday"',
+    ])
+    expect(notes.every((note) => note.tabIndex === 0)).toBe(true)
+  })
 })

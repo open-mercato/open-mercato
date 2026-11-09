@@ -94,6 +94,14 @@ describe('EmailAttachmentsList', () => {
     await waitFor(() => expect(container.textContent).toBe(''))
   })
 
+  it.each([401, 403, 404])('hides the Messages thread section on %s', async (status) => {
+    respond(status, { error: 'Forbidden' })
+    const { container } = renderWithProviders(<EmailAttachmentsList emailId={EMAIL_ID} asSection hideWhenEmpty />)
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(container.textContent).toBe(''))
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('renders the empty state without a request when the caller knows the email has no parts', () => {
     renderWithProviders(<EmailAttachmentsList emailId={EMAIL_ID} asSection knownEmpty />)
     expect(screen.getByText('No attachments were recorded for this email.')).toBeTruthy()
@@ -162,5 +170,13 @@ describe('EmailAttachmentsDialog', () => {
 
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', metaKey: true })
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([401, 403, 404])('shows an unavailable message instead of a blank body on %s', async (status) => {
+    respond(status, { error: 'Forbidden' })
+    renderWithProviders(<EmailAttachmentsDialog email={{ id: EMAIL_ID, subject: 'Offer 42' }} onClose={jest.fn()} />)
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('This email is no longer available or you cannot view its attachments.')
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
   })
 })

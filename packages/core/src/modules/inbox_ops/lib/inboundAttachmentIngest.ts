@@ -6,7 +6,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
-import type { AttachmentService } from '@open-mercato/core/modules/attachments'
+import { isAttachmentAccessRegistryInvalid, type AttachmentService } from '@open-mercato/core/modules/attachments'
 import {
   InboxEmail,
   InboxEmailAttachment,
@@ -20,6 +20,7 @@ import {
 } from '../data/validators'
 import { emitInboxOpsEvent } from '../events'
 import {
+  INBOUND_UPLOAD_ACCESS_REGISTRY_INVALID_CODE,
   INBOX_OPS_ATTACHMENT_INGEST_QUEUE_ATTEMPTS,
   persistInboundPart,
   reenqueueInboundAttachmentIngest,
@@ -98,6 +99,7 @@ export type InboundAttachmentIngestDeps = {
   queue?: InboundAttachmentIngestEnqueuer
   config?: InboundAttachmentsConfig
   listUnguardedReaders?: () => string[]
+  isAccessRegistryInvalid?: () => boolean
   now?: () => Date
   newClaimToken?: () => string
 }
@@ -414,6 +416,7 @@ async function acquireAndPersist(
     timeoutMs: run.config.fetchTimeoutMs,
     maxBytes: run.config.maxFileBytes,
     fetchImpl: run.deps.fetchImpl,
+    allowHttp: run.config.resendStubEnabled,
     now: run.now,
   })
   if (acquired.kind === 'not_found') return { kind: 'status', status: 'failed', reason: 'fetch_failed' }
@@ -656,8 +659,61 @@ async function openPartSource(
   return { kind: 'source', api, providerEmailId, listed }
 }
 
+/**
+ * An invalid attachments access registry (this process failed its bootstrap) cannot tell whether a
+ * reader is unguarded, so the D19 gate is not applied: the pending parts stay `pending` on the
+ * transient path (reported, retried with backoff, finalized as `ingest_timeout`) without provider
+ * calls, and a healthy worker stores or skips them later.
+ */
+async function deferWhileAccessRegistryInvalid(run: IngestRunContext, claim: Claim, email: InboxEmail): Promise<InboundAttachmentIngestRunResult> {
+  const pending = (await loadLedger(run)).filter((row) => row.status === 'pending')
+  if (pending.length === 0) return finish(run, claim, email)
+  logger.error('Inbound attachment ingest deferred: the attachments access registry is invalid', {
+    emailId: run.ref.id,
+    parts: pending.length,
+    code: INBOUND_UPLOAD_ACCESS_REGISTRY_INVALID_CODE,
+  })
+  reportInboundAttachmentError(
+    new Error('[internal] inbound attachment ingest deferred: attachments access registry is invalid'),
+    'inbox_ops.attachment_store_failed',
+    {
+      emailId: run.ref.id,
+      tenantId: run.ref.tenantId,
+      code: INBOUND_UPLOAD_ACCESS_REGISTRY_INVALID_CODE,
+      parts: pending.length,
+      transient: true,
+    },
+  )
+  return retryTransientParts(run, claim, email)
+}
+
+/** Starts the 6-hour clock, finalizes once it ran out, otherwise retries later. */
+async function retryTransientParts(run: IngestRunContext, claim: Claim, email: InboxEmail): Promise<InboundAttachmentIngestRunResult> {
+  const clockStarted = await withClaim(run.em, claim, run.now, (tx) => tx.nativeUpdate(
+    InboxEmail,
+    {
+      id: claim.id,
+      tenantId: claim.tenantId,
+      organizationId: claim.organizationId,
+      attachmentsClaimToken: claim.token,
+      attachmentsFirstFailureAt: null,
+    },
+    { attachmentsFirstFailureAt: run.now() },
+  ))
+  if (!clockStarted) return { outcome: 'claim_lost' }
+
+  if (await finalizeIfTimedOut(run, claim)) {
+    const result = await finish(run, claim, email)
+    return result.outcome === 'completed' ? { ...result, outcome: 'finalized' } : result
+  }
+  return retryLater(run, claim, 'transient_parts')
+}
+
 /** Steps 2–5 under a claim. */
 async function ingestClaimed(run: IngestRunContext, claim: Claim, email: InboxEmail): Promise<InboundAttachmentIngestRunResult> {
+  if ((run.deps.isAccessRegistryInvalid ?? isAttachmentAccessRegistryInvalid)()) {
+    return deferWhileAccessRegistryInvalid(run, claim, email)
+  }
   const readers = unguardedAttachmentReadersBlockingIngest({ config: run.config, listReaders: run.deps.listUnguardedReaders })
   if (readers.length > 0) {
     try {
@@ -695,25 +751,7 @@ async function ingestClaimed(run: IngestRunContext, claim: Claim, email: InboxEm
     }
   }
   if (transientParts === 0) return finish(run, claim, email)
-
-  const clockStarted = await withClaim(run.em, claim, run.now, (tx) => tx.nativeUpdate(
-    InboxEmail,
-    {
-      id: claim.id,
-      tenantId: claim.tenantId,
-      organizationId: claim.organizationId,
-      attachmentsClaimToken: claim.token,
-      attachmentsFirstFailureAt: null,
-    },
-    { attachmentsFirstFailureAt: run.now() },
-  ))
-  if (!clockStarted) return { outcome: 'claim_lost' }
-
-  if (await finalizeIfTimedOut(run, claim)) {
-    const result = await finish(run, claim, email)
-    return result.outcome === 'completed' ? { ...result, outcome: 'finalized' } : result
-  }
-  return retryLater(run, claim, 'transient_parts')
+  return retryTransientParts(run, claim, email)
 }
 
 /**

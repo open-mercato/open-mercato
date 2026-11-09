@@ -5,6 +5,7 @@ import { FakeInboxDb, ORG_ID, TENANT_ID } from '../../../../../lib/__tests__/sup
 
 const mockGetAuth = jest.fn()
 const mockState: { db: FakeInboxDb | null } = { db: null }
+const mockTranslationsFailure = { enabled: false }
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => require('../../../../../lib/__tests__/support/fakeInboxDb').fakeDecryption.findWithDecryption(...args),
@@ -18,6 +19,16 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
     resolve: (token: string): unknown => (token === 'em' ? mockState.db?.entityManager() : null),
   })),
 }))
+jest.mock('@open-mercato/shared/lib/i18n/server', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/i18n/server')
+  return {
+    ...actual,
+    resolveTranslations: async (...args: unknown[]) => {
+      if (mockTranslationsFailure.enabled) throw new Error('[internal] dictionary unavailable')
+      return actual.resolveTranslations(...args)
+    },
+  }
+})
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/eventBus', () => ({
   resolveOptionalEventBus: jest.fn(() => null),
 }))
@@ -37,6 +48,7 @@ function request(emailId: string): Request {
 beforeEach(() => {
   db = new FakeInboxDb()
   mockState.db = db
+  mockTranslationsFailure.enabled = false
   mockGetAuth.mockResolvedValue({ sub: 'user-1', tenantId: TENANT_ID, orgId: ORG_ID })
 })
 
@@ -44,6 +56,7 @@ describe('GET /api/inbox_ops/emails/[id]/attachments', () => {
   it('requires inbox_ops.proposals.view and documents the response schema', () => {
     expect(metadata.GET).toEqual({ requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] })
     expect(openApi.methods.GET?.responses?.[0]).toMatchObject({ status: 200, schema: inboxEmailAttachmentListResponseSchema })
+    expect(openApi.methods.GET?.errors?.map((error) => error.status)).toEqual([401, 404, 500])
   })
 
   it('lists the ledger in attachment order without inline decorations or extracted text', async () => {
@@ -136,5 +149,14 @@ describe('GET /api/inbox_ops/emails/[id]/attachments', () => {
     const response = await GET(request(db.addEmail().id))
 
     expect(response.status).toBe(401)
+  })
+
+  it('answers the formatted 500 when the translations cannot be loaded', async () => {
+    mockTranslationsFailure.enabled = true
+
+    const response = await GET(request(db.addEmail().id))
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ error: 'Failed to load email attachments' })
   })
 })

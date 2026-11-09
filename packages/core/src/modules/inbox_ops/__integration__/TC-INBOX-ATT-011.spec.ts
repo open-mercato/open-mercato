@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { ownerPolicyRequest } from '@open-mercato/core/helpers/integration/attachmentAccessFixtures'
-import { uploadAttachmentFixture } from '@open-mercato/core/helpers/integration/attachmentsFixtures'
+import { deleteAttachmentIfExists, uploadAttachmentFixture } from '@open-mercato/core/helpers/integration/attachmentsFixtures'
 import { withClient, type IntegrationDbClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   INBOUND_EMAIL_ENTITY_ID,
@@ -89,6 +89,9 @@ test.describe('TC-INBOX-ATT-011: deleting an email removes its references from o
     const tracker = createInboundTracker()
     const planted: string[] = []
     let libraryCopyId: string | null = null
+    // Set while the uploaded file is still library-owned: the finally deletes it through the API
+    // (with its bytes), because the email delete covers it only once it is re-owned.
+    let libraryOwnedUploadId: string | null = null
     const run = uniqueRunId('TC-INBOX-ATT-011')
     try {
       const received = await receiveInboundEmail(request, admin, tracker, {
@@ -115,6 +118,7 @@ test.describe('TC-INBOX-ATT-011: deleting an email removes its references from o
         buffer: Buffer.from(ownBytes, 'utf8'),
       })
       planted.push(uploaded.id)
+      libraryOwnedUploadId = uploaded.id
       const uploadedDownload = await ownerPolicyRequest('GET', `/api/attachments/file/${uploaded.id}`, admin)
       expect(uploadedDownload.status, 'The uploaded object should be readable before the delete').toBe(200)
       expect(uploadedDownload.bytes.toString('utf8')).toBe(ownBytes)
@@ -131,6 +135,7 @@ test.describe('TC-INBOX-ATT-011: deleting an email removes its references from o
           `update attachments set entity_id = $2, record_id = $3, storage_metadata = $4::jsonb where id = $1`,
           [uploaded.id, INBOUND_EMAIL_ENTITY_ID, emailId, JSON.stringify({ assignments: [emailAssignment] })],
         )
+        libraryOwnedUploadId = null
         const ownObject = await readAttachment(client, uploaded.id)
         if (!ownObject) throw new Error('[internal] the uploaded attachment row is missing')
         expect(ownObject.storage_path, 'The uploaded row should have its own stored object').not.toBe(source.storage_path)
@@ -227,6 +232,7 @@ test.describe('TC-INBOX-ATT-011: deleting an email removes its references from o
       expect(after.otherScope).toEqual(ids.otherScopeBefore)
       expect(after.email).toEqual({ released: true })
     } finally {
+      if (libraryOwnedUploadId) await deleteAttachmentIfExists(request, admin, libraryOwnedUploadId)
       if (libraryCopyId) {
         // The library copy holds the last reference to the stored bytes: delete it through the API so they go too.
         await ownerPolicyRequest('DELETE', `/api/attachments?id=${libraryCopyId}`, admin).catch(() => undefined)

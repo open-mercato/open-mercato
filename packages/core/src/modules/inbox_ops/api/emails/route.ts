@@ -4,8 +4,8 @@ import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/
 import { InboxEmail } from '../../data/entities'
 import { emailListQuerySchema } from '../../data/validators'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
+import { resolveErrorTranslate } from '../../lib/errorTranslate'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { canViewEmailContent, serializeInboxEmailListItem } from './response'
 import { resolveInboundAttachmentsRetryable } from '../../lib/inboundAttachmentReprocess'
 
@@ -16,7 +16,6 @@ export const metadata = {
 }
 
 export async function GET(req: Request) {
-  const { translate } = await resolveTranslations()
   try {
     const url = new URL(req.url)
     const query = emailListQuerySchema.parse({
@@ -67,6 +66,7 @@ export async function GET(req: Request) {
       totalPages: Math.ceil(total / query.pageSize),
     })
   } catch (err) {
+    const translate = await resolveErrorTranslate()
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: translate('inbox_ops.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }

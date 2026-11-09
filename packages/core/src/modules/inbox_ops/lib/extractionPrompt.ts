@@ -169,6 +169,9 @@ const DELIMITER_TAG_PATTERN = new RegExp(`<(\\s*(?:/\\s*)?(?:${PROMPT_DELIMITER_
 // `<\u200Battachment>` or `<\u2060attachment>` cannot slip past the delimiter match and be read as
 // a tag by the model.
 // ZWNJ/ZWJ (U+200C/U+200D) are `Cf` too: dropping them can change how some scripts render, which is accepted.
+// Blank-looking characters outside `Cf` (Hangul fillers U+115F/U+1160/U+3164/U+FFA0, the Braille
+// blank U+2800, …) are letters or symbols and are kept, since dropping them would alter legitimate
+// text; a delimiter tag disguised with one is not neutralized here, which is accepted.
 const CONTROL_CHARS_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\p{Cf}\p{Cs}]/gu
 
 /** Drops control and invisible format characters from untrusted text (see {@link neutralizePromptDelimiters}). */

@@ -64,7 +64,10 @@ write time.
   owners with a bounded number of rows (an inbound email holds at most its ledger's parts);
   do not use it for an owner whose row count is unbounded. Storage drivers are resolved
   before the transaction from a non-locking read of the owner's partitions; only a partition
-  first seen under the lock is resolved while the rows are locked. Provider byte cleanup runs after commit and
+  first seen under the lock is resolved while the rows are locked. A row created for or assigned to
+  `owner` by a transaction that commits concurrently with the lock statement may be missed, so
+  callers MUST fence new writes for the owner (commit a change that makes every later write for it
+  fail) before releasing. Provider byte cleanup runs after commit and
   is best-effort: failures are logged and reported as `attachments.release_cleanup_failed`,
   never thrown. It emits no CRUD events and does not update the query index (same as
   `releaseScoped`).
@@ -80,7 +83,10 @@ write time.
   count) out of `GET /api/attachments/library` (records, count, tag facets). The
   exclusion is persisted on partitions (`library_excluded_entities`, union-merged, never
   removed) and applied globally across all partitions, so it survives disabling the
-  declaring module. Record-scoped `GET /api/attachments` is unaffected.
+  declaring module. Record-scoped `GET /api/attachments` is unaffected. Like
+  `access_resolver_requirements`, a malformed `library_excluded_entities` on a partition with
+  declared protection fails uploads to it closed (the protection check parses it strictly);
+  only the library listing reads it leniently.
 - Rows MAY share a stored object (`partition_code` + `storage_path`). Any other
   code deleting a row with its bytes MUST use `removeAttachmentRecord`
   (`lib/storageReferences.ts`, outside a transaction) and delete the bytes only

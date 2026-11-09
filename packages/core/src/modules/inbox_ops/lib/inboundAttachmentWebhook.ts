@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isAttachmentAccessRegistryInvalid } from '@open-mercato/core/modules/attachments'
 import { InboxEmail, InboxEmailAttachment } from '../data/entities'
 import {
   resendInboundAttachmentSchema,
@@ -31,6 +32,7 @@ import {
   SELECT_STRANDED_INBOUND_ATTACHMENT_EMAILS_IN_SCOPE_SQL,
 } from './inboundAttachmentMaintenance'
 import type { InboundAttachmentsConfig } from './inboundAttachmentsConfig'
+import { isInboundAttachmentClaimExpired } from './inboundAttachmentReprocess'
 
 /**
  * The attachment side of the inbound webhook (spec "Webhook (`api/webhook/inbound.ts`)"): which
@@ -80,6 +82,9 @@ export function readResendInboundAttachments(raw: unknown): ResendInboundAttachm
  *   nothing is left to fetch; the email is completed with its ledger rows and emitted at once,
  *   like `blocked`, without an ingest job.
  * - `ingest`: the email is persisted `pending` with its ledger rows and handed to the ingest worker.
+ *   Also chosen when this process's attachments access registry is invalid: it cannot tell whether
+ *   a reader is unguarded, the webhook stores nothing, and the worker applies the D19 gate when it
+ *   runs (it defers while its own registry is invalid), so no part is lost as `blocked`.
  */
 export type InboundAttachmentIntake =
   | { kind: 'none'; attachmentIds: string[] }
@@ -98,6 +103,7 @@ export type ResolveInboundAttachmentIntakeInput = {
   attachmentServiceAvailable: boolean
   config?: InboundAttachmentsConfig
   listReaders?: () => string[]
+  isAccessRegistryInvalid?: () => boolean
 }
 
 /**
@@ -114,7 +120,13 @@ export function resolveInboundAttachmentIntake(input: ResolveInboundAttachmentIn
   const gate = { config, listReaders: input.listReaders }
   const { plans, omittedParts } = capInboundAttachmentPlans(planInboundAttachmentParts(input.parts, config))
   if (omittedParts > 0) logger.warn('Inbound email lists more attachment parts than the ledger records', { omittedParts })
-  if (!isInboundAttachmentIngestEnabled(gate)) {
+  const registryInvalid = (input.isAccessRegistryInvalid ?? isAttachmentAccessRegistryInvalid)()
+  if (registryInvalid) {
+    logger.error('Inbound attachments handed to the ingest worker unchecked: the attachments access registry is invalid', {
+      parts: plans.length,
+    })
+  }
+  if (!registryInvalid && !isInboundAttachmentIngestEnabled(gate)) {
     return { kind: 'blocked', attachmentIds, readers: unguardedAttachmentReadersBlockingIngest(gate), plans, omittedParts }
   }
   if (!plans.some((plan) => plan.status === 'pending')) return { kind: 'settled', attachmentIds, plans, omittedParts }
@@ -269,9 +281,7 @@ export function needsInboundAttachmentReenqueue(
   if (email.deletedAt) return false
   if (email.attachmentsStatus === 'pending') return true
   if (email.attachmentsStatus !== 'processing') return false
-  const claimedAt = email.attachmentsClaimedAt
-  if (!claimedAt) return true
-  return claimedAt.getTime() < options.now.getTime() - options.leaseMs()
+  return isInboundAttachmentClaimExpired(email.attachmentsClaimedAt, options.leaseMs(), options.now)
 }
 
 export type DuplicateInboundAttachmentReenqueueOutcome = 'not_needed' | 'enqueued' | 'not_reserved' | 'enqueue_failed'

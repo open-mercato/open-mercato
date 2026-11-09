@@ -112,7 +112,10 @@ export async function skipUnlessResendStubAvailable(): Promise<void> {
   const probe = await stubRequest<{ ok?: boolean }>('DELETE', `/fixtures/${randomUUID()}`)
   if (probe.status === 200 && probe.body?.ok === true) return
   if (stubFlag) {
-    throw new Error(`[internal] Resend stub probe answered ${probe.status} although OM_ENABLE_RESEND_STUB is on in this process`)
+    throw new Error(
+      `[internal] Resend stub probe answered ${probe.status} although OM_ENABLE_RESEND_STUB is on in this process; `
+        + 'a reused environment may have been started without the stub, so restart it (for example with --no-reuse-env)',
+    )
   }
   test.skip(true, `Resend stub routes are not served by the app under test (probe answered ${probe.status})`)
 }

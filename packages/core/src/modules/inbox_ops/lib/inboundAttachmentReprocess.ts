@@ -154,7 +154,8 @@ export async function clearInboundAttachmentFirstFailure(em: EntityManager, ref:
  * Resets a finalized ingest for another run, inside the caller's transaction: the email goes back
  * to `received` with its ingest `pending` (conditional on `deleted_at is null` and
  * `attachments_status = 'completed'`, so a concurrent deletion or reprocess is never overwritten),
- * and its parts failed for an operator-fixable reason go back to `pending`. Permanently failed parts
+ * and its parts failed for an operator-fixable reason go back to `pending` with a fresh attempt count
+ * (so an earlier crash count cannot hold a reset part back) and no in-flight mark. Permanently failed parts
  * and policy skips stay. Returns `false`, writing nothing, when the email update matched no row.
  */
 export async function resetFinalizedInboundAttachmentIngest(
@@ -193,7 +194,7 @@ export async function resetFinalizedInboundAttachmentIngest(
       reason: { $in: [...RETRYABLE_INBOUND_ATTACHMENT_FAILURE_REASONS] },
       deletedAt: null,
     },
-    { status: 'pending', reason: null, inFlightAt: null, updatedAt: now },
+    { status: 'pending', reason: null, attempts: 0, inFlightAt: null, updatedAt: now },
   )
   return true
 }
