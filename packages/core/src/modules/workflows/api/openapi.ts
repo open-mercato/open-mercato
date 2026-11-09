@@ -678,6 +678,15 @@ export const sendSignalByCorrelationResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),
   count: z.number().int().nonnegative(),
+  failures: z
+    .array(
+      z.object({
+        instanceId: z.string().uuid(),
+        code: z.string(),
+        message: z.string(),
+      }),
+    )
+    .optional(),
 })
 
 // ---------------------------------------------------------------------------
