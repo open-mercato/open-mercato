@@ -14,6 +14,7 @@ import {
 } from '../lib/thread-token'
 import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
 import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../lib/outbound-reply-ref'
+import { adoptProviderConversationRef } from '../lib/outbound-conversation-ref'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { Message } from '../../messages/data/entities'
@@ -24,6 +25,7 @@ import {
   MessageChannelLink,
 } from '../data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const moduleLogger = createLogger('communication_channels').child({ component: 'deliver-outbound-message' })
 
@@ -150,12 +152,24 @@ const deliverOutboundMessageCommand: CommandHandler<
       return NO_THREAD_MAPPING_RESULT
     }
 
-    // (1 cont.) Look up the channel link via ChannelThreadMapping.threadId.
+    let link = await findOneWithDecryption(
+      em,
+      MessageChannelLink,
+      {
+        messageId: message.id,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      },
+      undefined,
+      dscope,
+    )
+
     const mapping = await findOneWithDecryption(
       em,
       ChannelThreadMapping,
       {
         messageThreadId: message.threadId,
+        ...(link ? { externalConversationId: link.externalConversationId } : {}),
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
       },
@@ -199,17 +213,6 @@ const deliverOutboundMessageCommand: CommandHandler<
     }
 
     // (3) Idempotently upsert a 'pending' MessageChannelLink.
-    let link = await findOneWithDecryption(
-      em,
-      MessageChannelLink,
-      {
-        messageId: message.id,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      },
-      undefined,
-      dscope,
-    )
     if (
       link &&
       (link.deliveryStatus === 'queued' ||
@@ -496,6 +499,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         channel.status = 'connected'
       }
 
+      const providerConversationId = stringOrUndefined(sendResult.conversationId)
       link.deliveryStatus = sendResult.status === 'sent' ? 'sent' : 'queued'
       link.externalMessageId = externalMessageRowId
       link.channelMetadata = {
@@ -512,12 +516,59 @@ const deliverOutboundMessageCommand: CommandHandler<
         // (`normalizeMimeInbound` strips), so the JWZ matcher and sent-folder dedup —
         // which compare against stripped ids — resolve it. `assembleRfc2822`
         // re-applies brackets when this id is later used to build reply headers.
+        // A provider that rewrites the header on send (Gmail mints its own
+        // Message-ID) reports the id it actually sent in `sendResult.metadata.messageId`;
+        // that one wins, because it is the id the provider's copy and every reply carry.
         messageId: stripBrackets(
-          stringOrUndefined((converted.metadata as Record<string, unknown> | undefined)?.messageId) ??
+          stringOrUndefined((sendResult.metadata as Record<string, unknown> | undefined)?.messageId) ??
+            stringOrUndefined((converted.metadata as Record<string, unknown> | undefined)?.messageId) ??
             sendResult.externalMessageId,
         ),
+        // The provider conversation this message was actually sent under. The
+        // shared conversation can be re-keyed to a different provider ref by a
+        // concurrent first send (see `adoptProviderConversationRef`), so the
+        // message keeps its own association here instead of relying on the
+        // conversation's ref.
+        ...(providerConversationId ? { providerConversationId } : {}),
       }
       await em.flush()
+
+      // A first send through `sendAsUser` sits in an `outbound:<thread>` placeholder
+      // conversation. Adopt the provider's own conversation id so the provider's copy
+      // of this message and the replies to it land in this conversation instead of
+      // opening a second one. Best-effort and after the success flush: the message is
+      // already sent, so a failure here must never turn into a retry (double send).
+      try {
+        const adoption = await adoptProviderConversationRef(em, {
+          mapping,
+          channelId: channel.id,
+          providerConversationRef: sendResult.conversationId,
+          scope: dscope,
+        })
+        if (adoption === 'conflict') {
+          moduleLogger.info('provider conversation id already belongs to another conversation, keeping the outbound placeholder', {
+            messageId: message.id,
+            channelId: channel.id,
+            conversationId: mapping.externalConversationId,
+            providerConversationId,
+          })
+        }
+      } catch (adoptErr) {
+        moduleLogger.warn('could not adopt the provider conversation id, keeping the outbound placeholder', {
+          messageId: message.id,
+          conversationId: mapping.externalConversationId,
+          err: adoptErr,
+        })
+        try {
+          getTelemetryRuntime()?.reportError(adoptErr, {
+            module: 'communication_channels',
+            code: 'communication_channels.provider_conversation_adoption_failed',
+            attributes: { messageId: message.id, channelId: channel.id },
+          })
+        } catch (telemetryErr) {
+          moduleLogger.warn('could not report a conversation adoption failure to telemetry', { err: telemetryErr })
+        }
+      }
 
       await emitCommunicationChannelsEvent(
         'communication_channels.message.sent',
