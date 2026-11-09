@@ -1,0 +1,106 @@
+{
+  "name": "companies-v1",
+  "seed": 20261103,
+  "description": "20,000 companies over five tenants; the measured organization holds 10,000. Use for numbers you publish.",
+  "measuredTarget": "t1/main",
+  "tenants": [
+    {
+      "key": "t1",
+      "provision": "init",
+      "orgs": [
+        {
+          "key": "main",
+          "provision": "init",
+          "companies": 10000
+        },
+        {
+          "key": "eu",
+          "provision": "api",
+          "name": "Acme Corp EU",
+          "companies": 2000
+        }
+      ]
+    },
+    {
+      "key": "t2",
+      "provision": "setup",
+      "orgName": "Bench Tenant 2",
+      "orgs": [
+        {
+          "key": "main",
+          "provision": "setup",
+          "companies": 2000
+        }
+      ]
+    },
+    {
+      "key": "t3",
+      "provision": "setup",
+      "orgName": "Bench Tenant 3",
+      "orgs": [
+        {
+          "key": "main",
+          "provision": "setup",
+          "companies": 2000
+        }
+      ]
+    },
+    {
+      "key": "t4",
+      "provision": "setup",
+      "orgName": "Bench Tenant 4",
+      "orgs": [
+        {
+          "key": "main",
+          "provision": "setup",
+          "companies": 2000
+        }
+      ]
+    },
+    {
+      "key": "t5",
+      "provision": "setup",
+      "orgName": "Bench Tenant 5",
+      "orgs": [
+        {
+          "key": "main",
+          "provision": "setup",
+          "companies": 2000
+        }
+      ]
+    }
+  ],
+  "distribution": {
+    "status": {
+      "active": 55,
+      "pending": 15,
+      "inactive": 20,
+      "archived": 10
+    },
+    "lifecycleStage": {
+      "customer": 35,
+      "prospect": 25,
+      "lead": 25,
+      "churned": 10,
+      "other": 5
+    },
+    "source": {
+      "web_form": 25,
+      "partner_referral": 15,
+      "customer_referral": 15,
+      "linkedin": 15,
+      "event": 10,
+      "cold_outreach": 10,
+      "email": 10
+    },
+    "nullRates": {
+      "primaryEmail": 0.1,
+      "primaryPhone": 0.25,
+      "description": 0.4,
+      "legalName": 0.3,
+      "annualRevenue": 0.5,
+      "cf_executive_notes": 0.6
+    },
+    "names": "adjective + noun + suffix from fixed lists (25,600 combinations), so duplicate display names occur naturally"
+  }
+}
