@@ -127,7 +127,7 @@ describeWithPostgres('availability policy undo against later policy writes on re
     const result = await command.execute(input, ctx)
     const after = await command.captureAfter!(input, result, ctx)
     const log = await command.buildLog!({ snapshots: { ...before, after }, result, ctx })
-    return { commandPayload: log?.payload }
+    return { commandPayload: JSON.parse(JSON.stringify(log?.payload)) }
   }
 
   async function readState(seed: Seed): Promise<PolicyState> {
@@ -147,7 +147,9 @@ describeWithPostgres('availability policy undo against later policy writes on re
     while (Date.now() < deadline) {
       if (settled) return
       const rows = await rootEm().execute<Array<{ waiting: number }>>(
-        `select count(*)::int as waiting from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+        `select count(*)::int as waiting
+           from pg_stat_activity
+          where datname = current_database() and wait_event_type = 'Lock' and query ilike '%availability_policies%'`,
       )
       if (rows[0].waiting >= 1) return
       await new Promise((resolve) => setTimeout(resolve, WAITER_POLL_MS))
@@ -268,7 +270,7 @@ describeWithPostgres('availability policy undo against later policy writes on re
       const result = (await command.execute(input, ctx)) as { policyId: string }
       const after = await command.captureAfter!(input, result, ctx)
       const log = await command.buildLog!({ snapshots: { after }, result, ctx })
-      return { policyId: result.policyId, logEntry: { commandPayload: log?.payload } }
+      return { policyId: result.policyId, logEntry: { commandPayload: JSON.parse(JSON.stringify(log?.payload)) } }
     })()
     const created: Seed = { ...seed, policyId: createLog.policyId }
     await runUpdate(created, { isActive: false })

@@ -114,10 +114,10 @@ test.describe('TC-AVAIL-006: availability policy undo refuses a stale snapshot',
       )
       await page.getByRole('button', { name: /save changes/i }).first().click()
       expect((await saved).status()).toBe(200)
+      await updatePolicy(request, otherToken, { id: policyId, isActive: false })
 
       const undoButton = page.getByRole('button', { name: 'Undo', exact: true })
-      await expect(undoButton).toBeVisible({ timeout: 15_000 })
-      await updatePolicy(request, otherToken, { id: policyId, isActive: false })
+      await expect(undoButton).toBeVisible({ timeout: 5_000 })
       await undoButton.click()
 
       await expect(page.getByText(UNDO_CONFLICT_MESSAGE).first()).toBeVisible({ timeout: 15_000 })
