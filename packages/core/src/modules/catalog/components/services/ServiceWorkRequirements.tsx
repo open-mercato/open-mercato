@@ -348,7 +348,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                   />
                 </label>
 
-                <div className="flex min-w-0 items-end justify-end sm:col-span-2">
+                <div className={`flex min-w-0 items-end justify-end ${row.targetType === 'generic' ? 'sm:col-span-2' : ''}`}>
                   <IconButton variant="ghost" size="default" onClick={() => removeRow(index)} aria-label={t('catalog.services.work.actions.remove', 'Remove')}>
                     <Trash2 className="h-4 w-4" />
                   </IconButton>

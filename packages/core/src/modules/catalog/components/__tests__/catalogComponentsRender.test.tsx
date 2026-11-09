@@ -641,6 +641,11 @@ describe('catalog module components', () => {
         expect(cell.className).not.toContain('[')
       }
     }
+    const [genericGrid, staffGrid] = grids
+    expect(genericGrid.children).toHaveLength(5)
+    expect(genericGrid.lastElementChild).toHaveClass('sm:col-span-2')
+    expect(staffGrid.children).toHaveLength(6)
+    expect(staffGrid.lastElementChild).not.toHaveClass('sm:col-span-2')
   })
 
   it('only loads work requirement references the user may read, without forbidden redirects', async () => {
