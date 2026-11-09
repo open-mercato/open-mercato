@@ -28,7 +28,12 @@ export class Migration20261002110000_marketing_trigger_context extends Migration
        where jsonb_typeof("context" -> 'trigger') = 'object'
          and "context" -> 'trigger' <> '{}'::jsonb;
     `)
-    this.addSql(`update "marketing_campaign_runs" set "context" = "context" - 'trigger';`)
+    this.addSql(`
+      update "marketing_campaign_runs"
+         set "context" = "context" - 'trigger'
+       where jsonb_typeof("context" -> 'trigger') = 'object'
+         and "context" -> 'trigger' <> '{}'::jsonb;
+    `)
   }
 
   override async down(): Promise<void> {
