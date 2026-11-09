@@ -13,8 +13,9 @@
 import { EntityManager, LockMode } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
+  UserTask,
   WorkflowDefinition,
   WorkflowInstance,
   WorkflowEvent,
@@ -22,6 +23,11 @@ import {
   type WorkflowInstanceErrorHandlerMetadata,
 } from '../data/entities'
 import { compensateWorkflow } from './compensation-handler'
+import {
+  ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES,
+  readPendingAsyncJobIds,
+  resolveAsyncActivityWait,
+} from './async-activity-wait'
 import { WORKFLOW_ENGINE_VERSION, isEngineVersionSupported } from './engine-version'
 import {
   WORKFLOW_ERROR_CONTEXT_KEY,
@@ -1482,6 +1488,28 @@ export async function completeWorkflow(
   }
 
   // Original completion logic (no compensation needed or status is COMPLETED/CANCELLED)
+
+  // A cancelled run has no recovery path, so its open tasks can never become
+  // actionable again: close them in the same flush as the status. CANCELLED
+  // only — a FAILED run parked on a task is retried against that same task.
+  // Loaded before the run is mutated so no read sits between a scalar change
+  // and the flush that persists it.
+  const cancelledTasks =
+    status === 'CANCELLED'
+      ? await findWithDecryption(
+          em as PostgreSqlEntityManager,
+          UserTask,
+          {
+            workflowInstanceId: instance.id,
+            tenantId: instance.tenantId,
+            organizationId: instance.organizationId,
+            status: { $in: ['PENDING', 'IN_PROGRESS'] },
+          },
+          undefined,
+          { tenantId: instance.tenantId, organizationId: instance.organizationId }
+        )
+      : []
+
   const now = new Date()
   instance.status = status
   instance.updatedAt = now
@@ -1509,7 +1537,26 @@ export async function completeWorkflow(
 
   await writeRunOutcome(em, instance, status)
 
+  for (const task of cancelledTasks) {
+    task.status = 'CANCELLED'
+    task.updatedAt = now
+  }
+
   await em.flush()
+
+  // Logged before the terminal event so WORKFLOW_CANCELLED stays last in the
+  // run's timeline.
+  for (const task of cancelledTasks) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instanceId,
+      stepInstanceId: task.stepInstanceId,
+      ...(task.branchInstanceId ? { branchInstanceId: task.branchInstanceId } : {}),
+      eventType: 'USER_TASK_CANCELLED',
+      eventData: { taskId: task.id, taskName: task.taskName, reason: 'workflow-cancelled' },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+  }
 
   // Log completion event
   const eventType =
@@ -1635,33 +1682,31 @@ export async function resumeWorkflowAfterActivities(
       throw new Error('Workflow instance not waiting for activities')
     }
 
-    const pendingJobIds = (instance.context._pendingAsyncActivities as any[]) || []
+    const pendingJobIds = readPendingAsyncJobIds(instance.context._pendingAsyncActivities)
 
-    const completedActivities = await trx.count(WorkflowEvent, {
-      workflowInstanceId: instanceId,
-      eventType: 'ACTIVITY_COMPLETED',
-      eventData: { async: true },
-    })
+    const outcomeEvents = pendingJobIds.length === 0
+      ? []
+      : await trx.find(
+        WorkflowEvent,
+        {
+          workflowInstanceId: instanceId,
+          eventType: { $in: [...ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES] },
+          eventData: { async: true, jobId: { $in: pendingJobIds } },
+        },
+        { orderBy: { occurredAt: 'asc', id: 'asc' } },
+      )
+    const wait = resolveAsyncActivityWait(pendingJobIds, outcomeEvents)
 
-    const failedActivities = await trx.count(WorkflowEvent, {
-      workflowInstanceId: instanceId,
-      eventType: 'ACTIVITY_FAILED',
-      eventData: { async: true },
-    })
-
-    const totalProcessed = completedActivities + failedActivities
-
-    if (totalProcessed < pendingJobIds.length) {
+    if (!wait.settled) {
       throw new Error('Activities still pending')
     }
 
-    if (failedActivities > 0) {
-      const failedEvents = await trx.find(WorkflowEvent, {
-        workflowInstanceId: instanceId,
-        eventType: 'ACTIVITY_FAILED',
-        eventData: { async: true },
-      })
+    const completedEvents = wait.completed
+    const failedEvents = wait.failed
+    const completedActivities = completedEvents.length
+    const failedActivities = failedEvents.length
 
+    if (failedActivities > 0) {
       instance.status = 'FAILED'
       instance.errorMessage = `${failedActivities} async activities failed`
       instance.errorDetails = {
@@ -1687,12 +1732,6 @@ export async function resumeWorkflowAfterActivities(
 
       return { continueExecution: false }
     }
-
-    const completedEvents = await trx.find(WorkflowEvent, {
-      workflowInstanceId: instanceId,
-      eventType: 'ACTIVITY_COMPLETED',
-      eventData: { async: true },
-    })
 
     for (const event of completedEvents) {
       if (event.eventData.output) {
@@ -2047,6 +2086,7 @@ async function logWorkflowEvent(
   event: {
     workflowInstanceId: string
     stepInstanceId?: string
+    branchInstanceId?: string
     eventType: string
     eventData: any
     userId?: string

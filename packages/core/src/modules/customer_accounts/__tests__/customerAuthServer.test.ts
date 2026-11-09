@@ -132,12 +132,12 @@ describe('getCustomerAuthFromCookies — session claim binding', () => {
     expect(result!.customerEntityId).not.toBe(forgedCustomerEntityId)
   })
 
-  it('rejects a token whose claimed tenant/org no longer matches the persisted record (#2244)', async () => {
-    const otherTenantId = 'ssssssss-ssss-4sss-8sss-ssssssssssss'
+  it.each(['tenantId', 'organizationId'] as const)('rejects a token whose %s no longer matches the persisted record (#2244)', async (field) => {
     findOneWithDecryption.mockResolvedValueOnce({
       id: userId,
-      tenantId: otherTenantId,
+      tenantId,
       organizationId,
+      [field]: 'ssssssss-ssss-4sss-8sss-ssssssssssss',
       customerEntityId: null,
       personEntityId: null,
       sessionsRevokedAt: null,
@@ -147,5 +147,7 @@ describe('getCustomerAuthFromCookies — session claim binding', () => {
     setCustomerCookie(signCustomerToken())
 
     await expect(getCustomerAuthFromCookies()).resolves.toBeNull()
+    expect(loadAcl).not.toHaveBeenCalled()
+    expect(getEffectiveFeatures).not.toHaveBeenCalled()
   })
 })

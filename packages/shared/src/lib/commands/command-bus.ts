@@ -297,6 +297,8 @@ export class CommandBus {
         auth: baseOptions.ctx.auth ?? null,
         selectedOrganizationId: baseOptions.ctx.selectedOrganizationId ?? baseOptions.ctx.auth?.orgId ?? null,
         container: baseOptions.ctx.container,
+        organizationScope: baseOptions.ctx.organizationScope ?? null,
+        request: baseOptions.ctx.request ?? null,
       }
       const beforeResult = await runCommandInterceptorsBefore(
         allInterceptors, commandId, baseOptions.input, interceptorCtx, resolvedUserFeatures,
@@ -338,16 +340,40 @@ export class CommandBus {
     }
 
     const executeCore = async (coreOptions: CommandExecutionOptions<TInput>) => {
-      const sourceLog = coreOptions.redoLogEntry ?? null
-      const snapshots = await this.prepareSnapshots(handler, coreOptions)
+      const snapshots: { before?: unknown } = {}
+      let executionOptions = coreOptions
+      if (handler.prepareSnapshotInsideTransaction && handler.prepare) {
+        const prepare = handler.prepare
+        const originalCtx = coreOptions.ctx
+        const originalBeforeTransactionalWrite = originalCtx.beforeTransactionalWrite
+        let prepared = false
+        let transactionalCtx: CommandRuntimeContext
+        transactionalCtx = {
+          ...originalCtx,
+          beforeTransactionalWrite: async (em, input) => {
+            await originalBeforeTransactionalWrite?.(em, input)
+            if (prepared) return
+            Object.assign(
+              snapshots,
+              (await prepare(coreOptions.input, { ...transactionalCtx, transactionalEm: em })) ?? {},
+            )
+            prepared = true
+          },
+        }
+        executionOptions = { ...coreOptions, ctx: transactionalCtx }
+      } else {
+        Object.assign(snapshots, await this.prepareSnapshots(handler, coreOptions))
+      }
+      effectiveOptions = executionOptions
+      const sourceLog = executionOptions.redoLogEntry ?? null
       const result =
         sourceLog && typeof handler.redo === 'function'
-          ? await handler.redo({ input: coreOptions.input, ctx: coreOptions.ctx, logEntry: sourceLog })
-          : await handler.execute(coreOptions.input, coreOptions.ctx)
-      const afterSnapshot = await this.captureAfter(handler, coreOptions, result)
+          ? await handler.redo({ input: executionOptions.input, ctx: executionOptions.ctx, logEntry: sourceLog })
+          : await handler.execute(executionOptions.input, executionOptions.ctx)
+      const afterSnapshot = await this.captureAfter(handler, executionOptions, result)
       const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
-      const logMeta = await this.buildLog(handler, coreOptions, result, snapshotsWithAfter)
-      let mergedMeta = this.mergeMetadata(coreOptions.metadata, logMeta)
+      const logMeta = await this.buildLog(handler, executionOptions, result, snapshotsWithAfter)
+      let mergedMeta = this.mergeMetadata(executionOptions.metadata, logMeta)
       // Interceptors opt into audit-log enrichment with a reserved `logContext` key rather
       // than the generic `context` one, so the metadata an interceptor already passes to its
       // own afterExecute hook is never silently promoted into audit storage.
@@ -362,7 +388,7 @@ export class CommandBus {
           ...logContextRecord,
         }
       }
-      const baseContext = asRecord(coreOptions.metadata?.context) ?? {}
+      const baseContext = asRecord(executionOptions.metadata?.context) ?? {}
       const logMetaContext = asRecord(logMeta?.context) ?? {}
       if (Object.keys(interceptorContextMerged).length > 0 || Object.keys(baseContext).length > 0 || Object.keys(logMetaContext).length > 0) {
         mergedMeta = mergedMeta ?? {}
@@ -376,7 +402,7 @@ export class CommandBus {
       if (undoable && mergedMeta?.replayable !== false) {
         mergedMeta = mergedMeta ?? {}
         if (!mergedMeta.undoToken) mergedMeta.undoToken = defaultUndoToken()
-        if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = coreOptions.ctx.auth?.sub ?? null
+        if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = executionOptions.ctx.auth?.sub ?? null
       } else if (mergedMeta?.replayable === false) {
         mergedMeta.undoToken = null
       }
@@ -405,7 +431,7 @@ export class CommandBus {
           if (inferred) mergedMeta.changes = inferred
         }
       }
-      const logEntry = await this.persistLog(commandId, coreOptions, mergedMeta)
+      const logEntry = await this.persistLog(commandId, executionOptions, mergedMeta)
       return { result, mergedMeta, logEntry }
     }
 
@@ -474,6 +500,8 @@ export class CommandBus {
           auth: effectiveOptions.ctx.auth ?? null,
           selectedOrganizationId: effectiveOptions.ctx.selectedOrganizationId ?? effectiveOptions.ctx.auth?.orgId ?? null,
           container: effectiveOptions.ctx.container,
+          organizationScope: effectiveOptions.ctx.organizationScope ?? null,
+          request: effectiveOptions.ctx.request ?? null,
         }
         const afterResult = await runCommandInterceptorsAfter(
           allInterceptors, commandId, effectiveOptions.input, result, interceptorCtx,
@@ -545,6 +573,8 @@ export class CommandBus {
         auth: replayCtx.auth ?? null,
         selectedOrganizationId: replayCtx.selectedOrganizationId ?? replayCtx.auth?.orgId ?? null,
         container: replayCtx.container,
+        organizationScope: replayCtx.organizationScope ?? null,
+        request: replayCtx.request ?? null,
       }
       const beforeResult = await runCommandInterceptorsBeforeUndo(
         allInterceptors, log.commandId, undoCtx, interceptorCtx, resolvedUserFeatures,
@@ -659,6 +689,8 @@ export class CommandBus {
           auth: ctx.auth ?? null,
           selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
           container: ctx.container,
+          organizationScope: ctx.organizationScope ?? null,
+          request: ctx.request ?? null,
         }
         await runCommandInterceptorsAfterUndo(
           allInterceptors, log.commandId, undoCtx, interceptorCtx,

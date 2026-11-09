@@ -276,12 +276,12 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     expect(result!.customerEntityId).not.toBe(forgedCustomerEntityId)
   })
 
-  it('rejects a token whose claimed tenant/org no longer matches the persisted record (#2244)', async () => {
-    const otherTenantId = 'ssssssss-ssss-4sss-8sss-ssssssssssss'
+  it.each(['tenantId', 'organizationId'] as const)('rejects a token whose %s no longer matches the persisted record (#2244)', async (field) => {
     findOneWithDecryption.mockResolvedValueOnce({
       id: userId,
-      tenantId: otherTenantId,
+      tenantId,
       organizationId: orgId,
+      [field]: 'ssssssss-ssss-4sss-8sss-ssssssssssss',
       customerEntityId: null,
       personEntityId: null,
       sessionsRevokedAt: null,
@@ -294,6 +294,8 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     })
 
     await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+    expect(loadAcl).not.toHaveBeenCalled()
+    expect(getEffectiveFeatures).not.toHaveBeenCalled()
   })
 })
 

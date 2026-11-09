@@ -286,6 +286,10 @@ describe('runAgenticSetup ownership modes', () => {
     ) as { files: ManifestEntry[] }
     expect(manifest.files.find((item) => item.path === '.ai/lessons.md')?.userEditable).toBe(true)
     expect(manifest.files.find((item) => item.path === '.ai/lessons/_template.md')?.userEditable).toBe(true)
+    expect(
+      manifest.files.find((item) => item.path === '.ai/guides/production-deployment.md'),
+    ).toMatchObject({ source: 'generated', userEditable: false })
+    expect(existsSync(join(appDir, '.ai', 'guides', 'production-deployment.md'))).toBe(true)
     expect(existsSync(join(appDir, 'scripts', 'check-lessons.mjs'))).toBe(true)
     if (process.platform !== 'win32') {
       expect(statSync(join(appDir, 'scripts', 'install-skills.sh')).mode & 0o111).not.toBe(0)

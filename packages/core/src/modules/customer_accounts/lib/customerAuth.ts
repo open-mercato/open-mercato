@@ -3,6 +3,7 @@ import { verifyAudienceJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CUSTOMER_JWT_AUDIENCE } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
+import { isCustomerTenantActive } from './tenantEligibility'
 
 export interface CustomerAuthContext {
   sub: string
@@ -84,13 +85,10 @@ export type UserValidationResult =
       valid: true
       resolvedFeatures: string[]
       isPortalAdmin: boolean
-      // Trusted scope (#2244): re-derived from the persisted CustomerUser record, never from
-      // the JWT's own claims — callers must use these, not the token's tenantId/orgId, to
-      // decide which company's data/users the caller can manage.
-      tenantId: string
-      organizationId: string
-      customerEntityId: string | null
-      personEntityId: string | null
+      tenantId?: string
+      organizationId?: string
+      customerEntityId?: string | null
+      personEntityId?: string | null
     }
 
 export async function validateUserState(
@@ -114,6 +112,7 @@ export async function validateUserState(
   if (user.sessionsRevokedAt && typeof iat === 'number' && iat * 1000 < user.sessionsRevokedAt.getTime()) {
     return { valid: false }
   }
+  if (!(await isCustomerTenantActive(em, tenantId))) return { valid: false }
 
   // Trusted scope (#2244): the JWT's tenantId/orgId are a hint only, same as the staff auth
   // contract (resolveCanonicalStaffAuthContext). A token issued before a tenant/org change —
@@ -202,7 +201,7 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
       organizationId,
       payload.iat,
     )
-    if (!userState.valid) return null
+    if (!userState.valid || !userState.tenantId || !userState.organizationId) return null
 
     return {
       sub: userId,
@@ -214,8 +213,8 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
       orgId: userState.organizationId,
       email: String(payload.email || ''),
       displayName: String(payload.displayName || ''),
-      customerEntityId: userState.customerEntityId,
-      personEntityId: userState.personEntityId,
+      customerEntityId: userState.customerEntityId ?? null,
+      personEntityId: userState.personEntityId ?? null,
       resolvedFeatures: userState.resolvedFeatures,
       isPortalAdmin: userState.isPortalAdmin,
     }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "baseBranch": "develop",
+  "baseBranch": "main",
   "tracker": "github",
   "browser": {
     "provider": "playwright"
@@ -26,6 +26,11 @@
     "risk": ["risk-low", "risk-medium", "risk-high"]
   },
   "qaGate": true,
+  "automerge": {
+    "humanOnlyLabels": ["feature"],
+    "humanOnlyAuthors": ["zielivia"],
+    "complexQa": "always"
+  },
   "paths": {
     "runs": ".ai/runs",
     "analysis": ".ai/analysis",
@@ -33,5 +38,43 @@
     "scripts": ".ai/scripts",
     "qa": ".ai/qa"
   },
-  "reviewChecklist": ".ai/review-checklist.md"
+  "reviewChecklist": ".ai/review-checklist.md",
+  "securityChecklist": ".ai/security-checklist.md",
+  "securityReport": {
+    "publish": "pr",
+    "disclosure": "withhold-live"
+  },
+  "help": {
+    "data": [".ai/skills/om-help/references/workflow-sequences.md"]
+  },
+  "sessionShare": {
+    "enabled": true,
+    "issueRepo": "open-mercato/open-mercato",
+    "storageRepo": "open-mercato/open-mercato"
+  },
+  "smartTest": {
+    "map": ".ai/test-map.json",
+    "suites": [
+      {
+        "name": "unit",
+        "full": "yarn test",
+        "files": [
+          "**/__tests__/**/*.test.ts",
+          "**/__tests__/**/*.test.tsx"
+        ],
+        "direct": "yarn jest {tests} --passWithNoTests",
+        "related": "yarn jest --findRelatedTests {sources} --passWithNoTests",
+        "needsApp": false
+      },
+      {
+        "name": "integration",
+        "full": "yarn test:integration",
+        "files": [
+          "**/__integration__/**/*.spec.ts"
+        ],
+        "direct": "yarn playwright test {tests} --config=.ai/qa/tests/playwright.config.ts",
+        "needsApp": true
+      }
+    ]
+  }
 }

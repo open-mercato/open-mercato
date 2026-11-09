@@ -87,7 +87,7 @@ export async function getCustomerAuthFromCookies(
       organizationId,
       payload.iat,
     )
-    if (!userState.valid) return null
+    if (!userState.valid || !userState.tenantId || !userState.organizationId) return null
 
     return {
       sub: userId,
@@ -99,8 +99,8 @@ export async function getCustomerAuthFromCookies(
       orgId: userState.organizationId,
       email: String(payload.email || ''),
       displayName: String(payload.displayName || ''),
-      customerEntityId: userState.customerEntityId,
-      personEntityId: userState.personEntityId,
+      customerEntityId: userState.customerEntityId ?? null,
+      personEntityId: userState.personEntityId ?? null,
       resolvedFeatures: userState.resolvedFeatures,
       isPortalAdmin: userState.isPortalAdmin,
     }
