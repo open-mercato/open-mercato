@@ -3,10 +3,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { mock, test } from 'node:test'
-import { pathToFileURL } from 'node:url'
 
 const script = new URL('../../agentic/shared/scripts/execution-sandbox.mjs', import.meta.url)
-const { linuxMergedUsrSymlinkArgs } = await import(pathToFileURL(script.pathname).href) as {
+const { linuxMergedUsrSymlinkArgs } = await import(script.href) as {
   linuxMergedUsrSymlinkArgs: () => string[]
 }
 
