@@ -142,4 +142,14 @@ describe('invalid patterns', () => {
     expect(resolveDateLocaleSettings({ env: noEnv, tenant: { locale: 'th-TH-u-ca-buddhist' } }).locale).toBeNull()
     expect(resolveDateLocaleSettings({ env: { OM_DEFAULT_LOCALE: 'en-US-u-ca-islamic' } }).locale).toBeNull()
   })
+
+  it('ignores a stored or env locale whose default calendar is not Gregorian', () => {
+    const stored = resolveDateLocaleSettings({ env: noEnv, tenant: { locale: 'th-TH' } })
+    expect(stored.locale).toBeNull()
+    expect(stored.sources.locale).toBe('fallback')
+    const withEnv = resolveDateLocaleSettings({ env: { ...noEnv, locale: 'en-GB' }, tenant: { locale: 'th-TH' } })
+    expect(withEnv.locale).toBe('en-GB')
+    expect(withEnv.sources.locale).toBe('env')
+    expect(readDateLocaleEnv({ OM_DEFAULT_LOCALE: 'th-TH' }).locale).toBeNull()
+  })
 })

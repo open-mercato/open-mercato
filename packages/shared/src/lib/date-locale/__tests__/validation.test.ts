@@ -77,6 +77,16 @@ describe('canonicalizeLocale', () => {
     expect(canonicalizeLocale('de-DE-u-co-phonebk')).toBeNull()
     expect(canonicalizeLocale('en-US-x-acme')).toBeNull()
   })
+
+  it('rejects locales whose default calendar is not Gregorian', () => {
+    expect(canonicalizeLocale('th-TH')).toBeNull()
+    expect(canonicalizeLocale('th')).toBeNull()
+    expect(canonicalizeLocale('fa-IR')).toBeNull()
+  })
+
+  it.each(['ar-EG', 'ja-JP', 'pl-PL', 'en-US'])('keeps the Gregorian locale %s', (tag) => {
+    expect(canonicalizeLocale(tag)).toBe(tag)
+  })
 })
 
 describe('parseFirstDayOfWeek', () => {
@@ -142,6 +152,12 @@ describe('dateLocaleSettingsInputSchema', () => {
     const result = dateLocaleSettingsInputSchema.safeParse({ locale: 'th-TH-u-ca-buddhist' })
     expect(result.success).toBe(false)
     expect(result.success ? [] : result.error.issues.map((issue) => issue.message)).toContain('configs.dateLocale.errors.locale')
+  })
+
+  it('rejects a locale whose default calendar is not Gregorian', () => {
+    const result = dateLocaleSettingsInputSchema.safeParse({ locale: 'th-TH' })
+    expect(result.success).toBe(false)
+    expect(result.success ? [] : result.error.issues.map((issue) => issue.message)).toEqual(['configs.dateLocale.errors.locale'])
   })
 
   it('rejects a UTC offset as a tenant time zone', () => {

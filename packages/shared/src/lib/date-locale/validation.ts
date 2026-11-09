@@ -75,7 +75,8 @@ export function validateDateFormatPattern(pattern: string): DateFormatPatternIss
  *
  * Tags with Unicode (`-u-`) or private-use (`-x-`) extensions are rejected: an extension such as
  * `th-TH-u-ca-buddhist` switches the `Intl` calendar but not the `date-fns` one, so the year would
- * change depending on whether a custom pattern is set.
+ * change depending on whether a custom pattern is set. For the same reason, locales whose default
+ * `Intl` calendar is not Gregorian (`th-TH` → Buddhist, `fa-IR` → Persian) are rejected too.
  */
 export function canonicalizeLocale(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
@@ -85,7 +86,9 @@ export function canonicalizeLocale(value: string | null | undefined): string | n
     const parsed = new Intl.Locale(trimmed)
     if (parsed.toString() !== parsed.baseName) return null
     const [supported] = Intl.DateTimeFormat.supportedLocalesOf([trimmed])
-    return supported ?? null
+    if (!supported) return null
+    const calendar = new Intl.DateTimeFormat(supported).resolvedOptions().calendar
+    return calendar === 'gregory' || calendar === 'iso8601' ? supported : null
   } catch {
     return null
   }

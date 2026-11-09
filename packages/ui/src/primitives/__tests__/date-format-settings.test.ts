@@ -154,6 +154,14 @@ describe('zone helpers', () => {
     )
   })
 
+  it('keeps a wall time that only falls in the runtime zone DST gap of the year 2000', () => {
+    const instant = new Date('2026-04-02T02:30:00Z')
+    expect(toZonedWallClock(instant, 'UTC').getHours()).toBe(2)
+    expect(formatDisplayDateTime(instant, 'en-US', settings({ timeZone: 'UTC', dateTimeFormat: 'yyyy-MM-dd HH:mm xxx' }))).toBe(
+      '2026-04-02 02:30 +00:00',
+    )
+  })
+
   it('returns the original date for an unknown zone', () => {
     const date = new Date(INSTANT)
     expect(toZonedWallClock(date, 'Mars/Olympus')).toBe(date)

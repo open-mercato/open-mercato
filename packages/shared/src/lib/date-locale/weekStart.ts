@@ -15,10 +15,15 @@ export type ResolvedFirstDayOfWeek = {
 type WeekInfo = { firstDay?: number }
 type LocaleWithWeekInfo = Intl.Locale & { getWeekInfo?: () => WeekInfo; weekInfo?: WeekInfo }
 
-// Fallback for runtimes without `Intl.Locale` week info, keyed by the maximized region (CLDR).
-// Every region not listed starts on Monday.
-const SUNDAY_FIRST_REGIONS = new Set(['US', 'CA', 'MX', 'BR', 'JP', 'KR', 'IL', 'IN', 'PH', 'TW', 'HK', 'ZA'])
-const SATURDAY_FIRST_REGIONS = new Set(['AF', 'IR', 'EG', 'DZ'])
+// Fallback for runtimes without `Intl.Locale` week info, keyed by the maximized region (CLDR
+// supplemental `weekData` `firstDay`). Every region not listed starts on Monday.
+const FRIDAY_FIRST_REGIONS = new Set(['MV'])
+const SATURDAY_FIRST_REGIONS = new Set(['AF', 'BH', 'DJ', 'DZ', 'EG', 'IQ', 'IR', 'JO', 'KW', 'LY', 'OM', 'QA', 'SD', 'SY'])
+const SUNDAY_FIRST_REGIONS = new Set([
+  'AG', 'AS', 'BD', 'BR', 'BS', 'BT', 'BW', 'BZ', 'CA', 'CO', 'DM', 'DO', 'ET', 'GT', 'GU', 'HK', 'HN', 'ID', 'IL', 'IN',
+  'IS', 'JM', 'JP', 'KE', 'KH', 'KR', 'LA', 'MH', 'MM', 'MO', 'MT', 'MX', 'MZ', 'NI', 'NP', 'PA', 'PE', 'PH', 'PK', 'PR',
+  'PT', 'PY', 'SA', 'SG', 'SV', 'TH', 'TT', 'TW', 'UM', 'US', 'VE', 'VI', 'WS', 'YE', 'ZA', 'ZW',
+])
 
 /**
  * The first day of the week a full locale tag uses (`en-GB` → Monday, `en-US` → Sunday), or `null`
@@ -40,6 +45,7 @@ export function firstDayOfWeekForLocale(tag: string | null | undefined): FirstDa
   if (!region) return null
   if (SUNDAY_FIRST_REGIONS.has(region)) return 0
   if (SATURDAY_FIRST_REGIONS.has(region)) return 6
+  if (FRIDAY_FIRST_REGIONS.has(region)) return 5
   return 1
 }
 

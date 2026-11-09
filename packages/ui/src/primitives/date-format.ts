@@ -183,24 +183,33 @@ function getWallClockFormatter(timeZone: string): Intl.DateTimeFormat {
   return created
 }
 
+type WallClockParts = { year: number; month: number; day: number; hour: number; minute: number; second: number }
+
+function readWallClockParts(date: Date, timeZone: string): WallClockParts {
+  const parts = getWallClockFormatter(timeZone).formatToParts(date)
+  const read = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0)
+  return { year: read('year'), month: read('month'), day: read('day'), hour: read('hour'), minute: read('minute'), second: read('second') }
+}
+
 /**
  * The wall-clock reading of `date` in `timeZone`, as a local `Date` whose getters return that
  * reading. Lets a `date-fns` pattern render an instant in a zone other than the runtime's, the
  * same technique `date-fns-tz` `toZonedTime` uses. Returns `date` unchanged when the zone is
  * unknown.
  *
- * Known limitation (shared with `toZonedTime`): a wall time that falls in the RUNTIME zone's DST gap
- * cannot be represented as a local `Date`, so it renders one hour late. Only patterns that print
- * the hour are affected, and only for the skipped hour of the runtime zone's spring-forward day.
+ * Known limitation (shared with `toZonedTime`): a wall time that falls in the RUNTIME zone's own
+ * DST gap on that same date cannot be represented as a local `Date`, so it renders one hour late.
+ * Only patterns that print the hour are affected, and only for the skipped hour of the runtime
+ * zone's spring-forward day.
  */
 export function toZonedWallClock(date: Date, timeZone: string | null | undefined): Date {
   if (!timeZone) return date
   try {
-    const parts = getWallClockFormatter(timeZone).formatToParts(date)
-    const read = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0)
-    const wall = new Date(2000, read('month') - 1, read('day'), read('hour'), read('minute'), read('second'), date.getMilliseconds())
-    // Set separately: the Date constructor reads years 0–99 as 1900–1999.
-    wall.setFullYear(read('year'), read('month') - 1, read('day'))
+    const parts = readWallClockParts(date, timeZone)
+    // Built at noon and set field by field: the Date constructor reads years 0–99 as 1900–1999.
+    const wall = new Date(2000, 0, 1, 12)
+    wall.setFullYear(parts.year, parts.month - 1, parts.day)
+    wall.setHours(parts.hour, parts.minute, parts.second, date.getMilliseconds())
     return wall
   } catch {
     return date
@@ -210,9 +219,14 @@ export function toZonedWallClock(date: Date, timeZone: string | null | undefined
 const ZONE_TOKEN_LETTERS = new Set(['X', 'x', 'O', 'z', 't', 'T'])
 
 function offsetMinutesIn(date: Date, timeZone: string): number {
-  const wall = toZonedWallClock(date, timeZone)
-  const wallAsUtcDate = new Date(Date.UTC(2000, 0, 1, wall.getHours(), wall.getMinutes(), wall.getSeconds()))
-  wallAsUtcDate.setUTCFullYear(wall.getFullYear(), wall.getMonth(), wall.getDate())
+  let parts: WallClockParts
+  try {
+    parts = readWallClockParts(date, timeZone)
+  } catch {
+    return -date.getTimezoneOffset()
+  }
+  const wallAsUtcDate = new Date(Date.UTC(2000, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second))
+  wallAsUtcDate.setUTCFullYear(parts.year, parts.month - 1, parts.day)
   const wallAsUtc = wallAsUtcDate.getTime()
   return Math.round((wallAsUtc - Math.floor(date.getTime() / 1000) * 1000) / 60_000)
 }
