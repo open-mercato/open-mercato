@@ -14,7 +14,7 @@ import {
   portalLogin,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 
-export const integrationMeta = { dependsOnModules: ['customer_accounts', 'portal'] }
+export const integrationMeta = { dependsOnModules: ['customer_accounts', 'customers', 'portal'] }
 
 test.describe('TC-PORTAL-013: portal authentication uses persisted scope', () => {
   test.beforeEach(() => {
