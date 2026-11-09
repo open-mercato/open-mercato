@@ -652,3 +652,7 @@ STABLE behavior BREAK, protected owners only (e.g. Documents): the `attachments.
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## InboxOps inbound attachments (2026-11-09, #6282)
+
+STABLE additive. Intentional: webhook duplicate 200 (was 500), enqueue failure 500; reprocess requeues pending ingest (was 409); non-uuid email id 404 (was 500); `inbox_ops.email.received` for Resend mail with attachments is emitted after storage. [Migration](UPGRADE_NOTES.md#inboxops-stores-the-attachments-of-resend-inbound-mail-6282)
