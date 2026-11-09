@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { dropUnauthorizedDetailIncludes } from '../../../lib/detailIncludeAccess'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -432,6 +433,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   if (!parse.success) return NextResponse.json({ error: 'Invalid company id' }, { status: 400 })
 
   const includeTokens = parseIncludeParams(_req)
+  const container = await createRequestContainer()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
+  await dropUnauthorizedDetailIncludes({ includeTokens, container, auth, scope })
+
   const includeActivities = includeTokens.has('activities')
   const includeAddresses = includeTokens.has('addresses')
   const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
@@ -441,8 +446,6 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const includePeople = includeTokens.has('people')
   const plannedPreviewLimit = 5
 
-  const container = await createRequestContainer()
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
   const em = (container.resolve('em') as EntityManager)
   const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, scope?.tenantId ?? auth.tenantId)
   const interactionMode = interactionFlags.unified ? 'canonical' : 'legacy'

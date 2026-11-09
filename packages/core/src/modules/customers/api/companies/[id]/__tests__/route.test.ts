@@ -19,9 +19,14 @@ const mockEm = {
   })),
 }
 
+const mockRbacService = {
+  userHasAllFeatures: jest.fn(async () => true),
+}
+
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
+    if (token === 'rbacService') return mockRbacService
     return null
   }),
 }

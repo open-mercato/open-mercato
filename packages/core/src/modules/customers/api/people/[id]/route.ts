@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { dropUnauthorizedDetailIncludes } from '../../../lib/detailIncludeAccess'
 import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -447,7 +448,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const includeActivities = includeTokens.has('activities')
   const includeAddresses = includeTokens.has('addresses')
   const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
-  const includeDeals = includeTokens.has('deals')
+  let includeDeals = includeTokens.has('deals')
   const includeInteractions = includeTokens.has('interactions')
   const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
   const plannedPreviewLimit = 5
@@ -495,6 +496,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     profiler.mark('container_resolved')
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
+    await dropUnauthorizedDetailIncludes({ includeTokens, container, auth, scope })
+    includeDeals = includeTokens.has('deals')
     const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, scope?.tenantId ?? auth.tenantId)
     const interactionMode = interactionFlags.unified ? 'canonical' : 'legacy'
     profiler.mark('scope_resolved', {
