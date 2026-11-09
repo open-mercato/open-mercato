@@ -70,10 +70,19 @@ function renderItem(notification: NotificationDto, t: TranslateFn) {
 }
 
 describe('NotificationItem action-taken label', () => {
+  it.each(['unread', 'read'] as const)('does not show a completed-action badge for a %s notification', (status) => {
+    renderItem(buildNotification({ status, actionTaken: null }), makeTranslate(PL_TRANSLATIONS))
+
+    expect(screen.queryByText(/Wykonana akcja/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Zatwierdź' })).toBeInTheDocument()
+  })
+
   it('shows the translated button label for the clicked action, not the internal action id', () => {
     renderItem(buildNotification({ actionTaken: 'approve' }), makeTranslate(PL_TRANSLATIONS))
 
-    expect(screen.getByText('Wykonana akcja: Zatwierdź')).toBeInTheDocument()
+    const badge = screen.getByText('Wykonana akcja: Zatwierdź')
+    expect(badge).toHaveClass('bg-status-neutral-bg')
+    expect(badge.parentElement).toContainElement(screen.getByText('Leave request pending'))
     expect(screen.queryByText(/approve/)).not.toBeInTheDocument()
   })
 

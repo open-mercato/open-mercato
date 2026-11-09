@@ -75,6 +75,7 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
       "export const setup = {\n"
         + "  defaultRoleFeatures: { admin: ['facts.manage'], employee: ['facts.view'] },\n"
         + "  async onTenantCreated() {},\n"
+        + "  async onOrganizationCreated() {},\n"
         + "  seedDefaults: async () => {},\n"
         + "}\n",
     )
@@ -317,7 +318,10 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
 
   it('extracts setup hooks and role identifiers only', () => {
     const setup = ownedById(facts, 'setup', 'facts:setup')
-    expect(setup?.metadata).toEqual({ hooks: ['onTenantCreated', 'seedDefaults'], roles: ['admin', 'employee'] })
+    expect(setup?.metadata).toEqual({
+      hooks: ['onOrganizationCreated', 'onTenantCreated', 'seedDefaults'],
+      roles: ['admin', 'employee'],
+    })
   })
 
   it('extracts encryption entity ids with declared field names', () => {
