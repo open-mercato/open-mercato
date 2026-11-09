@@ -26,18 +26,39 @@ For each demonstrated improvement, create an independently reviewable patch/PR, 
 
 Global ORM reuse across changing entity registrations is explicitly out of scope. Dynamic imports can introduce concurrent initialization or configuration races and may not reduce Turbopack graph memory. Aggressive cache eviction may trade lower residency for recompilation latency. Node/Next versions and process-tree accounting must match within each pair; package graph size alone is not memory evidence. The approximate 30% target remains unproven.
 
+## Qualification results
+
+The ORM race was reproduced against the packaged standalone app with 269 real
+entities and eight simultaneous callers. Three fresh-process comparisons each
+returned eight distinct ORMs before the fix and one afterward; all eight database
+queries passed. Median physical footprint fell from 288.8 to 168.8 MiB in that
+specific scenario. The ordinary UI/edit workload did not show an additional
+whole-application saving, including when combined with generator-isolation
+PR #9052. No additive percentage or 30% whole-app reduction is claimed.
+
+Independent lazy embedding, Stripe and email SDK candidates, full Turbopack
+eviction, input-source-map disabling and task GC did not demonstrate a convincing
+post-edit physical-footprint saving. They remain outside this PR. Every candidate
+completed six-page navigation, customer create/read/version-protected delete,
+message compose, AI open/dock/close, ten verified structural revisions and a
+post-edit customer-list check. Full measurements and scope are in the source doc.
+
+The publication gate uses the local runner because no compose app service is
+running. Node 24.22.2 is used for validation; all memory comparisons used
+Node 24.13.1. The full configured gate and final code review are still pending.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Establish evidence
 
-- [ ] 1.1 Reproduce remaining consumers and restore the standalone measurement fixture.
+- [x] 1.1 Reproduce remaining consumers and restore the standalone measurement fixture. — 80004fd3ba; real-database and whole-app measurements recorded in the source doc.
 
 ### Phase 2: Implement and qualify
 
-- [ ] 2.1 Implement and verify qualified runtime/import candidates.
-- [ ] 2.2 Measure candidates independently and together with generator isolation.
+- [x] 2.1 Implement and verify qualified runtime/import candidates. — 80004fd3ba; only the proven ORM race fix is included.
+- [x] 2.2 Measure candidates independently and together with generator isolation. — ten verified revisions per scenario; no additional whole-app saving claimed.
 
 ### Phase 3: Deliver
 
