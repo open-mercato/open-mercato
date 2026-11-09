@@ -45,7 +45,12 @@ post-edit customer-list check. Full measurements and scope are in the source doc
 
 The publication gate uses the local runner because no compose app service is
 running. Node 24.22.2 is used for validation; all memory comparisons used
-Node 24.13.1. The full configured gate and final code review are still pending.
+Node 24.13.1. All configured gates passed: package build, generation, package
+rebuild, translation sync and usage, typecheck, full tests and production app
+build. The shared package passed 265 suites / 3300 tests, with 7 suites / 27 tests
+skipped by existing configuration. Final self-review found no blocking code or
+compatibility findings. Build tracing and test teardown warnings remain outside
+this change. PR #9123 publishes only the ORM fix, regression tests and evidence.
 
 ## Progress
 
@@ -62,4 +67,4 @@ Node 24.13.1. The full configured gate and final code review are still pending.
 
 ### Phase 3: Deliver
 
-- [ ] 3.1 Validate, document, review and publish only demonstrated improvements.
+- [x] 3.1 Validate, document, review and publish only demonstrated improvements. — 80004fd3ba, 4f9d7376a9; PR #9123, final gate results recorded in this completion commit.
