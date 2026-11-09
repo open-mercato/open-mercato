@@ -615,14 +615,21 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               // concurrent permission edit cannot silently overwrite (#2055). CrudForm
               // surfaces the 409 as the unified conflict bar.
               const aclLockHeader = buildOptimisticLockHeader(aclUpdatedAt)
-              const saveUserAcl = () => updateCrud('auth/users/acl', { userId: id, ...aclData }, {
-                errorMessage: t('auth.users.form.errors.aclUpdate', 'Failed to update user access control'),
-              })
-              if (Object.keys(aclLockHeader).length > 0) {
-                await withScopedApiRequestHeaders(aclLockHeader, saveUserAcl)
-              } else {
-                await saveUserAcl()
-              }
+              const submittedAclData = aclData
+              const saveUserAcl = () => updateCrud<{ ok: boolean; sanitized: boolean; updatedAt: string | null }>(
+                'auth/users/acl',
+                { userId: id, ...submittedAclData },
+                { errorMessage: t('auth.users.form.errors.aclUpdate', 'Failed to update user access control') },
+              )
+              const { result: aclSaveResult } = Object.keys(aclLockHeader).length > 0
+                ? await withScopedApiRequestHeaders(aclLockHeader, saveUserAcl)
+                : await saveUserAcl()
+              // Refresh the baseline and version against what was just persisted —
+              // otherwise a retry after a later user-update failure (e.g. a duplicate
+              // email) re-sends this already-saved ACL with its stale version and
+              // gets refused before the corrected user update can even run.
+              aclBaselineRef.current = submittedAclData
+              setAclUpdatedAt(aclSaveResult?.updatedAt ?? aclUpdatedAt)
             }
             const userOptimisticLockHeader = buildOptimisticLockHeader(initialUser?.updatedAt)
             if (Object.keys(userOptimisticLockHeader).length > 0) {

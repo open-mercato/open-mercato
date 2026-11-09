@@ -22,6 +22,7 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 
 const crudFormPropsCapture: { current: Record<string, any> | null } = { current: null }
 const apiCallMock = jest.fn()
+let scopedHeadersHistory: Record<string, string>[] = []
 
 jest.mock('#generated/entities.ids.generated', () => ({ E: { auth: { user: 'auth:user' } } }), { virtual: true })
 
@@ -45,7 +46,10 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
-  withScopedApiRequestHeaders: (_headers: unknown, run: () => unknown) => run(),
+  withScopedApiRequestHeaders: (headers: Record<string, string>, run: () => unknown) => {
+    scopedHeadersHistory.push(headers)
+    return run()
+  },
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
@@ -75,6 +79,7 @@ jest.mock('@open-mercato/ui/backend/injection/recordContext', () => ({
 
 import EditUserPage from '../[id]/edit/page'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 const updateCrudMock = updateCrud as jest.Mock
 
@@ -109,6 +114,7 @@ describe('users edit page — composite user+ACL save', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     crudFormPropsCapture.current = null
+    scopedHeadersHistory = []
     mockUsersResponse({ id: 'user-1', email: 'admin@acme.com', roles: [], roleIds: [], isConfirmed: true, updatedAt: '2026-01-01T00:00:00.000Z' })
   })
 
@@ -166,5 +172,88 @@ describe('users edit page — composite user+ACL save', () => {
     const calledResources = updateCrudMock.mock.calls.map((call) => call[0])
     expect(calledResources).toEqual(['auth/users/acl'])
     expect(calledResources).not.toContain('auth/users')
+  })
+
+  /**
+   * Regression for the retry-after-partial-save defect found in the
+   * post-#8714 re-review: a successful ACL write never refreshed
+   * `aclBaselineRef`/`aclUpdatedAt`, so a retry after a *later* user-update
+   * failure (duplicate email) re-sent the already-saved ACL with its now-stale
+   * version and got refused by the optimistic lock before the corrected user
+   * update could even run.
+   */
+  it('refreshes the ACL baseline and version after a successful write, so a corrected retry does not resend it', async () => {
+    renderWithProviders(<EditUserPage params={{ id: 'user-1' }} />)
+
+    await waitFor(() => expect(crudFormPropsCapture.current?.onSubmit).toBeTruthy())
+
+    act(() => {
+      const acl = getAclEditorElement().props
+      acl.onVersionChange(null)
+      acl.onChange({ isSuperAdmin: false, features: [], organizations: null })
+    })
+
+    // Operator grants a feature, then the user update fails validation
+    // (e.g. a duplicate email) *after* the ACL write already succeeded.
+    act(() => {
+      getAclEditorElement().props.onChange({ isSuperAdmin: false, features: ['example.view'], organizations: null })
+    })
+
+    const duplicateEmailError = Object.assign(new Error('Email already in use.'), { status: 400 })
+    updateCrudMock.mockImplementation(async (resource: string) => {
+      if (resource === 'auth/users/acl') {
+        return { ok: true, result: { ok: true, sanitized: false, updatedAt: '2026-01-02T00:00:00.000Z' } }
+      }
+      if (resource === 'auth/users') throw duplicateEmailError
+      return { ok: true }
+    })
+
+    // The onSubmit promise rejects (the user update fails), but the ACL write
+    // and its baseline/version refresh already ran before that happened — any
+    // pending state update from a throwing async act() callback is dropped by
+    // React's test renderer, so the rejection is caught *inside* the act()
+    // callback to let that update flush normally.
+    let firstSubmitError: unknown
+    await act(async () => {
+      try {
+        await crudFormPropsCapture.current!.onSubmit(baseValues)
+      } catch (err) {
+        firstSubmitError = err
+      }
+    })
+    expect((firstSubmitError as Error)?.message).toBe('Email already in use.')
+    expect(updateCrudMock.mock.calls.map((call) => call[0])).toEqual(['auth/users/acl', 'auth/users'])
+
+    // Corrected retry: the ACL panel is unchanged since the save above, so the
+    // baseline refresh must skip the ACL write entirely this time. Make the
+    // mock throw on `auth/users/acl` so an unwanted re-send would fail the test.
+    updateCrudMock.mockClear()
+    updateCrudMock.mockImplementation(async (resource: string) => {
+      if (resource === 'auth/users/acl') throw new Error('must not resend the unchanged ACL on retry')
+      return { ok: true }
+    })
+
+    await act(async () => {
+      await crudFormPropsCapture.current!.onSubmit(baseValues)
+    })
+
+    expect(updateCrudMock.mock.calls.map((call) => call[0])).toEqual(['auth/users'])
+
+    // A further, genuine ACL edit after the partial save must still write —
+    // and must carry the *refreshed* version from the earlier successful save,
+    // not the stale one from the initial page load (which would 409).
+    act(() => {
+      getAclEditorElement().props.onChange({ isSuperAdmin: false, features: ['example.view', 'example.manage'], organizations: null })
+    })
+    updateCrudMock.mockClear()
+    scopedHeadersHistory = []
+    updateCrudMock.mockImplementation(async () => ({ ok: true, result: { ok: true, sanitized: false, updatedAt: '2026-01-03T00:00:00.000Z' } }))
+
+    await act(async () => {
+      await crudFormPropsCapture.current!.onSubmit(baseValues)
+    })
+
+    expect(updateCrudMock.mock.calls.map((call) => call[0])).toEqual(['auth/users/acl', 'auth/users'])
+    expect(scopedHeadersHistory[0]).toEqual({ [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-01-02T00:00:00.000Z' })
   })
 })

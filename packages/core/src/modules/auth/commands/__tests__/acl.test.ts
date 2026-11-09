@@ -278,7 +278,7 @@ describe('auth ACL audit commands', () => {
         organizationsJson: null,
         tenantId,
       })
-      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1' })
+      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1', updatedAt: null })
     })
 
     it('scopes every ACL lookup by role and tenant', async () => {
@@ -346,7 +346,7 @@ describe('auth ACL audit commands', () => {
 
       const result = await roleHandler().execute(roleInput, harness.ctx)
 
-      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1' })
+      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1', updatedAt: null })
       expect(harness.calls.commit).toBe(1)
       expect(harness.invalidatedTenants).toEqual([])
     })
@@ -362,7 +362,7 @@ describe('auth ACL audit commands', () => {
 
       const result = await roleHandler().execute(roleInput, harness.ctx)
 
-      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1' })
+      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1', updatedAt: null })
       expect(harness.calls.commit).toBe(1)
       expect(harness.deletedTags).toEqual([])
       // At `error`, not `debug`: a nav cache still serving revoked grants has to
@@ -491,7 +491,7 @@ describe('auth ACL audit commands', () => {
         featuresJson: ['audit_logs.view_self'],
         organizationsJson: ['org-1'],
       })
-      expect(result).toEqual({ resourceId: userId, tenantId, organizationId: 'org-1' })
+      expect(result).toEqual({ resourceId: userId, tenantId, organizationId: 'org-1', updatedAt: null })
     })
 
     it('scopes every ACL lookup by user and tenant', async () => {
