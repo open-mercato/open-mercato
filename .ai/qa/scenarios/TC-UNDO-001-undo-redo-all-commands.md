@@ -170,8 +170,10 @@ For each command, run: **create state → execute command → UNDO → (then) RE
 ### 3.10 feature_toggles
 | Command | Entity | Fields |
 |---|---|---|
-| `feature_toggles.global.create/update/delete` | FeatureToggle | key, state, description, `deleted_at` |
+| `feature_toggles.global.create/update/delete` | FeatureToggle | identifier, name, description, category, type, defaultValue, `deleted_at` |
 | `feature_toggles.overrides.changeState` | FeatureToggleOverride | `value` restored, or override deleted/recreated per `before` snapshot |
+
+Global writes require superadmin; tenant admins manage overrides. Both command families are undoable, as resolved in #2506 / #2552. Automated coverage lives in `feature_toggles/__integration__/TC-UNDO-001-{global,overrides}.spec.ts` and honors `OM_INTEGRATION_UNDO_TESTS_DISABLED`. Focused `test.fixme` cases track global create-undo physical deletion (#7664) and override create-redo identity (#7665).
 
 ### 3.11 scheduler
 | Command | Entity | Fields |

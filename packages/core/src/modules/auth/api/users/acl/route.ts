@@ -39,7 +39,10 @@ const putSchema = z.object({
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
+  // `honorsBodyTenantId`: the body's `tenantId` can target a tenant other than the actor's own
+  // (superadmin-gated below) — the dispatcher's tenant-selection gate must fail closed on this
+  // route when it cannot peek the body (issue #7877).
+  PUT: { requireAuth: true, requireFeatures: ['auth.acl.manage'], honorsBodyTenantId: true },
 }
 
 const userAclResponseSchema = z.object({
@@ -171,7 +174,11 @@ export async function GET(req: Request) {
     }
   }
   const acl = tenantId
-    ? await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId })
+    ? await em.findOne(UserAcl, {
+        user: parsed.data.userId as unknown as User,
+        tenantId,
+        deletedAt: null,
+      } as FilterQuery<UserAcl>)
     : null
   const response = acl
     ? {
@@ -268,7 +275,11 @@ export async function PUT(req: Request) {
     }
   }
 
-  const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId })
+  const acl = await em.findOne(UserAcl, {
+    user: parsed.data.userId as unknown as User,
+    tenantId,
+    deletedAt: null,
+  } as FilterQuery<UserAcl>)
   // Optimistic lock: refuse a stale per-user ACL overwrite so concurrent edits
   // cannot silently clobber each other (#2055). Strictly additive — a no-op when
   // the client sends no expected-version header; skipped when no ACL row exists.
@@ -330,7 +341,11 @@ export async function PUT(req: Request) {
 
   if (!actorIsSuperAdmin) {
     if (requestedIsSuperAdmin && !existingIsSuperAdmin) {
-      throw forbidden('Only super administrators can grant super admin access.')
+      const { translate } = await resolveTranslations()
+      throw forbidden(translate(
+        'auth.acl.errors.superAdminGrantDenied',
+        'Only super administrators can grant super admin access.',
+      ))
     }
     if (existingIsSuperAdmin && requestedIsSuperAdmin === false) {
       effectiveIsSuperAdmin = false
