@@ -1,0 +1,4 @@
+{
+  "cli.init.errors.superadminPasswordPolicy": "Das Superadmin-Passwort für die Produktion erfüllt die konfigurierte Passwortrichtlinie nicht. Flags zum Umgehen der Passwortrichtlinie gelten nur außerhalb der Produktion.",
+  "cli.init.errors.superadminPasswordRequired": "Die Produktionsinitialisierung erfordert ein eindeutiges Superadmin-Passwort über OM_INIT_SUPERADMIN_PASSWORD oder --password; integrierte Platzhalter sind nicht zulässig."
+}

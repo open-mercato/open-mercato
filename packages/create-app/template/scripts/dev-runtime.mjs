@@ -59,10 +59,10 @@ function resolveMemorySamplerImport() {
   throw new Error('Unable to resolve dev memory sampler module')
 }
 
-function resolveDevSessionGuardImport() {
+function resolveDevSessionRecoveryImport() {
   const candidates = [
-    new URL('./dev-session-guard.mjs', import.meta.url),
-    new URL('../../../scripts/dev-session-guard.mjs', import.meta.url),
+    new URL('./dev-session-recovery.mjs', import.meta.url),
+    new URL('../../../scripts/dev-session-recovery.mjs', import.meta.url),
   ]
 
   for (const candidate of candidates) {
@@ -133,7 +133,7 @@ const {
   inferDevMemoryMarkerFromLine,
   resolveMemoryTraceIntervalMs,
 } = await import(resolveMemorySamplerImport())
-const { acquireDevSession } = await import(resolveDevSessionGuardImport())
+const { acquireDevSessionWithRecovery: acquireDevSession } = await import(resolveDevSessionRecoveryImport())
 
 const mercatoInvocation = resolveMercatoInvocation()
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
@@ -166,8 +166,6 @@ const maxBufferedLogLines = 2000
 const failureLogTailLines = 20
 const RESET = '\u001B[0m'
 const BRIGHT_CYAN = '\u001B[96m'
-const CYAN_BORDER = '\u001B[46m\u001B[30m'
-const ERROR_BANNER = '\u001B[41m\u001B[97m'
 const warmupRequestTimeoutsMs = [45000, 120000]
 const maxWarmupRetryAttempts = 3
 const backgroundWorkerMode = resolveAutoSpawnMode(process.env, 'AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS_LAZY')
@@ -260,7 +258,7 @@ const devSessionUrl = process.env.APP_URL?.trim()
   || `http://localhost:${process.env.PORT?.trim() || '3000'}`
 let devSession
 try {
-  devSession = acquireDevSession({
+  devSession = await acquireDevSession({
     workspaceRoot: resolveDevSessionWorkspaceRoot(),
     mode: `app-runtime:${classic ? 'classic' : verbose ? 'verbose' : 'compact'}`,
     url: devSessionUrl,
@@ -413,7 +411,7 @@ function printBackgroundServicesSummary() {
     ? `${detailItems.length} active queue/scheduler runtimes`
     : `${detailItems.length} active`
   printCompactSummary(
-    '⚙️',
+    '🔧',
     `Background services (${formatBackgroundServiceMode()}, ${activeLabel})`,
     detailItems.map((item, index) => `${index === 0 ? '🕒' : '🧵'} ${item}`),
   )
@@ -1107,7 +1105,7 @@ async function runTargetedRouteWarmup() {
     }
 
     reportWarmupStep(
-      `🗂️ Warmed authenticated /backend in ${formatDuration(Date.now() - backendStartedAt)} (${backendResponse.status})`,
+      `📂 Warmed authenticated /backend in ${formatDuration(Date.now() - backendStartedAt)} (${backendResponse.status})`,
       progressLabel,
     )
     markMemoryTrace('warmup:route-end', 'GET /backend', {
@@ -1169,7 +1167,7 @@ async function runTargetedRouteWarmup() {
         return
       }
       const retryBaseMessage = runtimeWarmupState.tenantId && looksLikeTenantSelectionError(reason)
-        ? '🏷️ Warmup resolved tenant context, retrying authenticated backend warmup'
+        ? '🔖 Warmup resolved tenant context, retrying authenticated backend warmup'
         : '⏳ Warmup delayed while the runtime settles, retrying'
       const retryMessage = `${retryBaseMessage} (${attempt}/${maxWarmupRetryAttempts})`
       updateSplashState({
@@ -1193,7 +1191,7 @@ async function runTargetedRouteWarmup() {
     const errorMessage = error instanceof Error ? error.message : 'unknown error'
     markMemoryTrace('warmup:failure', 'Warmup failed', { reason: errorMessage })
     const isCredentialsFailure = error instanceof LoginError && error.status === 401
-    const warmupWarning = `⚠️ Warmup incomplete: ${errorMessage}`
+    const warmupWarning = `❗ Warmup incomplete: ${errorMessage}`
     const loginUrl = runtimeWarmupState.baseUrl
       ? `${runtimeWarmupState.baseUrl}/login`
       : null
@@ -1223,7 +1221,7 @@ async function runTargetedRouteWarmup() {
     if (isCredentialsFailure) {
       writeWarmupReadyFile('warmup-credentials-failed')
       console.log(formatStatusOutput(
-        '⚠️ Warmup login returned 401 — credentials invalid. Set OM_INIT_SUPERADMIN_EMAIL/PASSWORD in .env or run: yarn initialize',
+        '❗ Warmup login returned 401 — credentials invalid. Set OM_INIT_SUPERADMIN_EMAIL/PASSWORD in .env or run: yarn initialize',
         runtimeReadyProgressCurrent,
         'App is ready',
       ))
@@ -1326,7 +1324,7 @@ async function finalizeRuntimeProcess(exitCode) {
   try {
     await memoryTrace?.stop()
   } catch (error) {
-    console.warn(`⚠️ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
+    console.warn(`❗ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
   }
   devSession.release()
   process.exit(exitCode)
@@ -1426,55 +1424,33 @@ function rememberRawLog(line) {
   bufferRawLog(line)
 
   if (logsVisible) {
-    process.stdout.write(`${line}\n`)
+    process.stdout.write(`   ${line}\n`)
   }
-}
-
-function printTerminalBanner(style, lines) {
-  if (!Array.isArray(lines) || lines.length === 0) return
-  const contentWidth = Math.max(...lines.map((line) => line.length), 36)
-  const terminalWidth = Number.isFinite(process.stdout.columns) ? process.stdout.columns : 0
-  const width = terminalWidth > 8
-    ? Math.max(contentWidth, terminalWidth - 4)
-    : contentWidth
-  const border = `${style}${'━'.repeat(width + 4)}${RESET}`
-  console.log(border)
-  for (const line of lines) {
-    console.log(`${style} ${line.padEnd(width + 2)}${RESET}`)
-  }
-  console.log(border)
 }
 
 function printLogToggleHint() {
   if (!interactiveLogToggle) return
-  printTerminalBanner(CYAN_BORDER, [
-    ' DEBUG LOGS',
-    ' Press [d] to show or hide raw logs',
-  ])
+  console.log('📋 Press [d] to show or hide raw logs')
 }
 
 function showBufferedLogs(reason) {
   if (!interactiveLogToggle || logsVisible) return
   logsVisible = true
-  printTerminalBanner(ERROR_BANNER, [
-    ' RAW DEBUG LOGS',
-    ` ${reason}`,
-    ' Press [d] again to hide logs',
-  ])
+  console.log(`   📖 ${reason} · press [d] to hide`)
   if (rawLogBuffer.length === 0) {
-    console.log('📭 No buffered logs yet')
+    console.log('   📭 No buffered logs yet')
     return
   }
 
   for (const line of rawLogBuffer.slice(-200)) {
-    process.stdout.write(`${line}\n`)
+    process.stdout.write(`   ${line}\n`)
   }
 }
 
 function hideBufferedLogs() {
   if (!interactiveLogToggle || !logsVisible) return
   logsVisible = false
-  console.log(`${BRIGHT_CYAN}📕 Raw logs hidden. Press [d] to show them again.${RESET}`)
+  console.log(`${BRIGHT_CYAN}   📕 Raw logs hidden. Press [d] to show them again.${RESET}`)
 }
 
 function installLogToggle() {
@@ -1499,7 +1475,7 @@ function installLogToggle() {
       if (logsVisible) {
         hideBufferedLogs()
       } else {
-        showBufferedLogs('📖 Raw logs shown')
+        showBufferedLogs('Raw logs shown')
       }
     }
   })
@@ -1688,12 +1664,9 @@ function createFilteredReporter(label, classifyLine) {
       return
     }
 
-    printTerminalBanner(ERROR_BANNER, [
-      ' RAW DEBUG LOGS',
-      ` ❌ ${label} emitted raw output`,
-    ])
+    console.error(`   ❌ ${label} emitted raw output`)
     for (const bufferedLine of rawLogBuffer.slice(-200)) {
-      console.error(bufferedLine)
+      console.error(`   ${bufferedLine}`)
     }
   }
 }
@@ -1713,7 +1686,7 @@ function classifyWatchLine(line) {
   if (line.startsWith('[generate:watch] Regenerating')) {
     return {
       type: 'status',
-      message: '♻️ Structural change detected; regenerating generated files',
+      message: '🔄 Structural change detected; regenerating generated files',
       splashPhase: startupSplashPhase,
       splashDetail: 'Regenerating generated files',
       activity: 'Regenerating generated files',
@@ -1724,7 +1697,7 @@ function classifyWatchLine(line) {
   if (line === '[generate:watch] Generators completed.') {
     return {
       type: 'status',
-      message: '♻️ Generated files refreshed',
+      message: '🔄 Generated files refreshed',
       splashPhase: startupSplashPhase,
       splashDetail: 'Generated files refreshed',
       activity: 'Generated files refreshed',
@@ -1745,7 +1718,7 @@ function classifyWatchLine(line) {
   }
   const watchDurationMatch = line.match(/Done in (\d+(?:\.\d+)?ms|\d+(?:\.\d+)?s)/)
   if (watchDurationMatch) {
-    const timing = `♻️ Generated files refreshed in ${parseDurationToken(watchDurationMatch[1])}`
+    const timing = `🔄 Generated files refreshed in ${parseDurationToken(watchDurationMatch[1])}`
     return {
       type: 'status',
       message: timing,
@@ -1759,7 +1732,7 @@ function classifyWatchLine(line) {
   if (line.includes('All generators completed')) {
     return {
       type: 'status',
-      message: '♻️ Generated files refreshed',
+      message: '🔄 Generated files refreshed',
       progressCurrent: 2,
       progressLabel: 'Watching structural module files',
     }
@@ -1816,7 +1789,7 @@ function classifyServerLine(line) {
       : formatBackgroundServiceStatus('Starting background services', modes)
     return {
       type: 'status',
-      message: `⚙️ ${status}`,
+      message: `🔧 ${status}`,
       splashPhase: startupSplashPhase,
       splashDetail: status,
       activity: status,
@@ -1828,7 +1801,7 @@ function classifyServerLine(line) {
     const status = formatLazyWorkerArmedStatus(line)
     return {
       type: 'status',
-      message: `⚙️ ${status}`,
+      message: `🔧 ${status}`,
       splashPhase: startupSplashPhase,
       splashDetail: status,
       activity: status,
@@ -1840,7 +1813,7 @@ function classifyServerLine(line) {
     const status = 'Scheduler armed (lazy)'
     return {
       type: 'status',
-      message: `⚙️ ${status}`,
+      message: `🔧 ${status}`,
       splashPhase: startupSplashPhase,
       splashDetail: status,
       activity: status,
@@ -1855,7 +1828,7 @@ function classifyServerLine(line) {
     const status = 'Starting shared worker (lazy shared)'
     return {
       type: 'status',
-      message: `⚙️ ${status}`,
+      message: `🔧 ${status}`,
       splashPhase: startupSplashPhase,
       splashDetail: status,
       activity: status,
@@ -1868,7 +1841,7 @@ function classifyServerLine(line) {
     const status = `Starting worker "${lazyWorkerStartMatch[1]}" (lazy per-queue)`
     return {
       type: 'status',
-      message: `⚙️ ${status}`,
+      message: `🔧 ${status}`,
       splashPhase: startupSplashPhase,
       splashDetail: status,
       activity: status,
@@ -1970,7 +1943,7 @@ function classifyServerLine(line) {
   }
   const compilingMatch = line.match(/^(?:○|◌)\s+Compiling\s+(.+?)(?:\s+\.\.\.)?$/)
   if (compilingMatch) {
-    const message = `🛠️ Compiling ${compilingMatch[1].trim()}`
+    const message = `🔨 Compiling ${compilingMatch[1].trim()}`
     return {
       type: 'status',
       message,

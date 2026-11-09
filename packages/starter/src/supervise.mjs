@@ -87,7 +87,7 @@ export async function stopDetached(repoRoot, { log = console.log, graceMs = 8000
   const state = readRunState(repoRoot)
   if (!state || !isPidAlive(state.pid)) {
     if (state) fs.rmSync(runStatePath(repoRoot), { force: true })
-    log('ℹ️ No detached dev runtime is running.')
+    log('💡 No detached dev runtime is running.')
     return true
   }
   log(`Stopping dev runtime (pid ${state.pid}) ...`)
@@ -199,7 +199,7 @@ export function tailLogs(repoRoot, { follow = false, lines = 60, log = console.l
     files = []
   }
   if (files.length === 0) {
-    log(`ℹ️ No logs yet under ${path.relative(repoRoot, logDir)} — start the stack first.`)
+    log(`💡 No logs yet under ${path.relative(repoRoot, logDir)} — start the stack first.`)
     return
   }
   const newest = files[0]
