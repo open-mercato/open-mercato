@@ -320,10 +320,14 @@ describe('customers commands undo custom fields', () => {
     )
     expect(existingEntity.displayName).toBe('Before Name')
     const lockCallIndex = em.findOne.mock.calls.findIndex(
-      ([ctor, , opts]: any[]) => ctor === CustomerEntity && opts?.lockMode === LockMode.PESSIMISTIC_WRITE,
+      ([ctor, , opts]: unknown[]) =>
+        ctor === CustomerEntity && (opts as { lockMode?: LockMode } | undefined)?.lockMode === LockMode.PESSIMISTIC_WRITE,
     )
-    const profileCallIndex = em.findOne.mock.calls.findIndex(([ctor]: any[]) => ctor === CustomerPersonProfile)
+    const profileCallIndex = em.findOne.mock.calls.findIndex(([ctor]: unknown[]) => ctor === CustomerPersonProfile)
     expect(lockCallIndex).toBeGreaterThanOrEqual(0)
+    const lockWhere = em.findOne.mock.calls[lockCallIndex][1] as Record<string, unknown>
+    expect(lockWhere).toEqual({ id: 'person-1', tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(lockWhere).not.toHaveProperty('deletedAt')
     expect(profileCallIndex).toBeGreaterThan(lockCallIndex)
     expect(em.findOne.mock.invocationCallOrder[lockCallIndex]).toBeLessThan(em.flush.mock.invocationCallOrder[0])
   })

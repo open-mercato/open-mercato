@@ -417,7 +417,7 @@ async function lockPersonRow(em: EntityManager, entity: CustomerEntity): Promise
   await findOneWithDecryption(
     em,
     CustomerEntity,
-    { id: entity.id },
+    { id: entity.id, tenantId: entity.tenantId, organizationId: entity.organizationId },
     { lockMode: LockMode.PESSIMISTIC_WRITE },
     { tenantId: entity.tenantId, organizationId: entity.organizationId },
   )
