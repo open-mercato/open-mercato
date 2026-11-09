@@ -258,13 +258,13 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
         </p>
       ) : null}
 
-      <div className="@container space-y-3">
+      <div className="space-y-3">
         {rows.map((row, index) => {
           const targetOptions = referenceOptionsFor(row, lookups[row.targetType] ?? [])
           return (
             <div key={`${row.id ?? 'new'}-${index}`} className="rounded-md border p-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 @6xl:grid-cols-12">
-                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground @6xl:col-span-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                   <span>{t('catalog.services.work.field.targetType', 'Target')}</span>
                   <Select
                     value={row.targetType}
@@ -286,7 +286,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                   </Select>
                 </label>
 
-                <label className={`min-w-0 space-y-1 text-xs font-medium text-muted-foreground ${row.targetType === 'generic' ? '@6xl:col-span-6' : '@6xl:col-span-3'}`}>
+                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                   <span>{t('catalog.services.work.field.label', 'Label')}</span>
                   <Input
                     className="h-9 w-full min-w-0"
@@ -296,7 +296,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                 </label>
 
                 {row.targetType === 'generic' ? null : (
-                  <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground @6xl:col-span-3">
+                  <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                     <span>{t('catalog.services.work.field.reference', 'Reference')}</span>
                     <Select
                       value={row.targetId ?? NO_REFERENCE_VALUE}
@@ -315,7 +315,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                   </label>
                 )}
 
-                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground @6xl:col-span-2">
+                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                   <span>{t('catalog.services.work.field.allocationMode', 'Mode')}</span>
                   <Select
                     value={row.allocationMode}
@@ -337,7 +337,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                   </Select>
                 </label>
 
-                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground @6xl:col-span-1">
+                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
                   <span>{t('catalog.services.work.field.value', 'Value')}</span>
                   <Input
                     className="h-9 w-full min-w-0"
@@ -348,7 +348,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                   />
                 </label>
 
-                <div className="flex min-w-0 items-end justify-end sm:col-span-2 @6xl:col-span-1 @6xl:col-start-12">
+                <div className="flex min-w-0 items-end justify-end sm:col-span-2">
                   <IconButton variant="ghost" size="default" onClick={() => removeRow(index)} aria-label={t('catalog.services.work.actions.remove', 'Remove')}>
                     <Trash2 className="h-4 w-4" />
                   </IconButton>

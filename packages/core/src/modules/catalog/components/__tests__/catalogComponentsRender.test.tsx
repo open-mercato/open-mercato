@@ -621,7 +621,7 @@ describe('catalog module components', () => {
     expect(unlabelledSelect.selectedOptions[0]?.textContent).toBe('#3f1d2c4b')
   })
 
-  it('lays work requirements out on a container-width grid, widening the label when there is no reference', () => {
+  it('lays work requirements out on a two-column grid without arbitrary values', () => {
     const { container } = render(
       <ServiceWorkRequirements
         value={[
@@ -632,16 +632,15 @@ describe('catalog module components', () => {
       />,
     )
 
-    expect(container.querySelector('.\\@container')).not.toBeNull()
     const grids = Array.from(container.querySelectorAll('.grid'))
     expect(grids).toHaveLength(2)
     for (const grid of grids) {
-      expect(grid).toHaveClass('@6xl:grid-cols-12')
+      expect(grid).toHaveClass('grid-cols-1', 'sm:grid-cols-2')
       expect(grid.className).not.toContain('[')
+      for (const cell of Array.from(grid.children)) {
+        expect(cell.className).not.toContain('[')
+      }
     }
-    const [genericLabel, staffLabel] = screen.getAllByLabelText('Label').map((input) => input.closest('label'))
-    expect(genericLabel).toHaveClass('@6xl:col-span-6')
-    expect(staffLabel).toHaveClass('@6xl:col-span-3')
   })
 
   it('only loads work requirement references the user may read, without forbidden redirects', async () => {
