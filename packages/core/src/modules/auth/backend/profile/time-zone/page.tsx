@@ -15,8 +15,8 @@ import { listSupportedTimeZones } from '@open-mercato/shared/lib/date/timezone'
 
 const ORGANIZATION_DEFAULT = 'organization'
 
-type ProfileResponse = { timezone?: string | null }
-type TimeZoneFormValues = { timezone: string }
+type ProfileResponse = { timezone?: string | null; updatedAt?: string | null }
+type TimeZoneFormValues = { timezone: string; updatedAt?: string | null }
 
 export default function ProfileTimeZonePage() {
   const t = useT()
@@ -24,6 +24,7 @@ export default function ProfileTimeZonePage() {
   const router = useRouter()
   const settings = useDateLocaleSettings()
   const [timezone, setTimezone] = React.useState<string | null | undefined>(undefined)
+  const [updatedAt, setUpdatedAt] = React.useState<string | null>(null)
   const [loadError, setLoadError] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
@@ -33,6 +34,7 @@ export default function ProfileTimeZonePage() {
         errorMessage: t('auth.profile.timeZone.errors.load', 'Failed to load your time zone.'),
       })
       setTimezone(payload.timezone ?? null)
+      setUpdatedAt(payload.updatedAt ?? null)
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : t('auth.profile.timeZone.errors.load', 'Failed to load your time zone.'))
     }
@@ -82,11 +84,10 @@ export default function ProfileTimeZonePage() {
 
   const handleSubmit = React.useCallback(async (values: TimeZoneFormValues) => {
     const next = values.timezone && values.timezone !== ORGANIZATION_DEFAULT ? values.timezone : null
-    // optimistic-lock-exempt: a personal preference only its owner can edit through
-    // /api/auth/profile; there is no concurrent editor whose change could be lost.
-    await updateCrud('auth/profile', { timezone: next }, {
+    const saved = await updateCrud<ProfileResponse>('auth/profile', { timezone: next }, {
       errorMessage: t('auth.profile.timeZone.errors.save', 'Failed to save your time zone.'),
     })
+    setUpdatedAt(saved.result?.updatedAt ?? null)
     setTimezone(next)
     flash(t('auth.profile.timeZone.saved', 'Time zone saved.'), 'success')
     router.refresh()
@@ -101,15 +102,14 @@ export default function ProfileTimeZonePage() {
           <LoadingMessage label={t('auth.profile.timeZone.loading', 'Loading your time zone…')} />
         ) : (
           <CrudForm<TimeZoneFormValues>
-            key={timezone ?? ORGANIZATION_DEFAULT}
+            key={`${timezone ?? ORGANIZATION_DEFAULT}:${updatedAt ?? ''}`}
             title={t('auth.profile.timeZone.pageTitle', 'Time zone')}
             fields={fields}
-            initialValues={{ timezone: timezone ?? ORGANIZATION_DEFAULT }}
+            initialValues={{ timezone: timezone ?? ORGANIZATION_DEFAULT, updatedAt }}
             // Zone options use the zone name as both value and label, which ComboboxInput treats
             // as an unresolved placeholder and will not paint into a focused input, so focusing
             // the only field on load would show the saved zone as an empty box.
             disableInitialFocus
-            disableOptimisticLock
             submitLabel={t('auth.profile.timeZone.save', 'Save time zone')}
             onSubmit={handleSubmit}
           />

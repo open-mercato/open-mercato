@@ -16,6 +16,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { resolveUserDataSubject } from '@open-mercato/core/modules/auth/lib/userDataSubject'
 import { userTimeZoneSchema } from '@open-mercato/shared/lib/date-locale/validation'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 
 const logger = createLogger('auth').child({ component: 'profile' })
 
@@ -24,6 +25,7 @@ const profileResponseSchema = z.object({
   name: z.string().nullable().optional(),
   roles: z.array(z.string()),
   timezone: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
 })
 
 const passwordSchema = buildPasswordSchema()
@@ -76,6 +78,7 @@ const profileUpdateResponseSchema = z.object({
   ok: z.literal(true),
   email: z.string().email(),
   timezone: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
 })
 
 export const metadata = {
@@ -127,6 +130,7 @@ export async function GET(req: Request) {
       name: displayName.length > 0 ? displayName : null,
       roles: auth.roles ?? [],
       timezone: user.timezone ?? null,
+      updatedAt: user.updatedAt instanceof Date ? user.updatedAt.toISOString() : null,
     })
   } catch (err) {
     logger.error('Profile load failed', { err })
@@ -159,17 +163,23 @@ export async function PUT(req: Request) {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const authService = container.resolve('authService') as AuthService
+    const user = await findOneWithDecryption(
+      em,
+      User,
+      { id: auth.sub, deletedAt: null },
+      undefined,
+      { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+    )
+    if (!user) {
+      return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
+    }
+    await enforceCommandOptimisticLockWithGuards(container, {
+      resourceKind: 'auth.user',
+      resourceId: auth.sub,
+      current: user.updatedAt,
+      request: req,
+    })
     if (parsed.data.password) {
-      const user = await findOneWithDecryption(
-        em,
-        User,
-        { id: auth.sub, deletedAt: null },
-        undefined,
-        { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
-      )
-      if (!user) {
-        return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
-      }
       const currentPassword = parsed.data.currentPassword?.trim() ?? ''
       const isCurrentPasswordValid = await authService.verifyPassword(user, currentPassword)
       if (!isCurrentPasswordValid) {
@@ -204,6 +214,7 @@ export async function PUT(req: Request) {
       ok: true,
       email: String(result.email),
       ...(parsed.data.timezone !== undefined ? { timezone: result.timezone ?? null } : {}),
+      updatedAt: result.updatedAt instanceof Date ? result.updatedAt.toISOString() : null,
     })
     // Only credential changes renew the session token; a preference save must not extend the session.
     if (parsed.data.email === undefined && !parsed.data.password) return res
@@ -253,7 +264,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update current profile',
-      description: 'Updates the email address, password or personal time zone for the signed-in user. A null time zone returns to the organization default.',
+      description: 'Updates the email address, password or personal time zone for the signed-in user. A null time zone returns to the organization default. Send the `updatedAt` from GET as the optimistic-lock header to reject a save over a newer change with 409.',
       requestBody: {
         contentType: 'application/json',
         schema: updateSchema,
@@ -263,6 +274,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Interactive session required', schema: z.object({ error: z.string() }) },
+        { status: 404, description: 'User not found', schema: z.object({ error: z.string() }) },
+        { status: 409, description: 'The profile changed since it was loaded (optimistic lock conflict)', schema: z.object({ error: z.string() }) },
       ],
     },
   },
