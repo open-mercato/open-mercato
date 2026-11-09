@@ -12,7 +12,7 @@ import { startTimerEntry } from '../../../lib/timesheets-ui/startTimer'
 import { resolveTimerActionError } from '../../../lib/timesheets-ui/timerErrors'
 import { DEFAULT_SETTINGS, hydrateSettings, type TimeReportingSettings } from './config'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { todayInZone } from '@open-mercato/ui/primitives/date-format'
+import { todayIso } from '../../../lib/time-tracking-ui/timesheetPeriod'
 
 const logger = createLogger('staff')
 
@@ -140,7 +140,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
     if (timerRunning) return
     setActionLoading(true)
     try {
-      const today = todayInZone()
+      const today = todayIso()
       // Single atomic create+start request (issue #3311): a partial failure can
       // no longer leave an orphaned, unstarted timer entry, and a rejected start
       // now surfaces here instead of being silently ignored. The call is routed

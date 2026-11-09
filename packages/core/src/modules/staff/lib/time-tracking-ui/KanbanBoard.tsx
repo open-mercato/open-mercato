@@ -72,7 +72,7 @@ import {
   type BoardTask,
 } from './kanbanBoardData'
 import { SUPPORT_ACTIVITY_EVENT } from './supportTicketData'
-import { todayInZone } from '@open-mercato/ui/primitives/date-format'
+import { todayIso } from './timesheetPeriod'
 
 const logger = createLogger('staff').child({ component: 'KanbanBoard' })
 
@@ -827,7 +827,7 @@ export function KanbanBoard({
                 body: JSON.stringify({
                   staffMemberId: selfStaffMemberId,
                   timeProjectId,
-                  date: todayInZone(),
+                  date: todayIso(),
                   notes: task?.title ?? null,
                 }),
               },
