@@ -8,7 +8,7 @@ import {
   enforceWebSearchRateLimit,
   resolveSpentAdapterBudgets,
 } from '../../../lib/webSearch/guardrails'
-import { hostnameOf, isHostAllowed, resolveWebSearchSettings } from '../../../lib/webSearch/policy'
+import { applyAnswerDomainPolicy, hostnameOf, isHostAllowed, resolveWebSearchSettings } from '../../../lib/webSearch/policy'
 import { buildWebSearchEngine } from '../../../lib/webSearch/registry'
 import { agentOrchestratorTag } from '../../openapi'
 
@@ -108,13 +108,14 @@ export async function POST(req: Request) {
       const host = hostnameOf(url)
       return host === null || !isHostAllowed(host, settings.guardrails)
     }
+    const { answer, ...answerDiagnostics } = applyAnswerDomainPolicy(result.answer, settings.guardrails)
 
     return NextResponse.json({
       query: parsed.data.query,
       settleMode: settings.policy.settleMode,
       fused: result.results.filter((hit) => !blockedByGuardrails(hit.url)),
-      answer: result.answer,
-      diagnostics: result.diagnostics,
+      answer,
+      diagnostics: { ...result.diagnostics, ...answerDiagnostics },
       // Guardrails are reported rather than applied here: an operator tuning a
       // deny list needs to see that a source returned a hit and that the list
       // removed it, which silent filtering would hide.

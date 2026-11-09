@@ -223,6 +223,40 @@ describe('resolveOrganizationScopeForRequest caching (Phase 4)', () => {
     expect(cache.set).not.toHaveBeenCalled()
   })
 
+  it('evicts a delegated-key scope when the owner organization ACL changes', async () => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '60000'
+    const em = createMockEm([
+      { id: 'org-home', descendantIds: [] },
+      { id: 'org-other', descendantIds: [] },
+    ])
+    const rbac = createMockRbac(['org-home'])
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+    const ownerId = '00000000-0000-4000-8000-000000000001'
+    const keyAuth = { ...auth(), sub: 'api_key:key-1', userId: ownerId, isApiKey: true, orgId: null } as AuthContext
+    const first = await resolveOrganizationScopeForRequest({ container, auth: keyAuth, selectedId: null })
+    expect(first.filterIds).toEqual(['org-home'])
+    ;(rbac.loadAcl as jest.Mock).mockResolvedValue({ isSuperAdmin: false, features: [], organizations: ['org-other'] })
+    await invalidateOrganizationScopeCacheForUser(container, ownerId, 'tenant-1')
+    const second = await resolveOrganizationScopeForRequest({ container, auth: keyAuth, selectedId: null })
+    expect(second.filterIds).toEqual(['org-other'])
+  })
+
+  it('ignores pre-ceiling API-key scope cache entries without owner invalidation tags', async () => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '60000'
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }])
+    const rbac = createMockRbac([])
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+    const keyAuth = { ...auth(), sub: 'api_key:key-1', userId: auth()!.sub, isApiKey: true, orgId: null } as AuthContext
+    cache.store.set('org-scope:v2:api_key:key-1:tenant-1:none:none', {
+      value: { selectedId: null, filterIds: ['org-home'], allowedIds: ['org-home'], tenantId: 'tenant-1' },
+      tags: [],
+    })
+    const scope = await resolveOrganizationScopeForRequest({ container, auth: keyAuth, selectedId: null })
+    expect(scope.filterIds).toEqual([])
+  })
+
   it('memoizes resolution per request, deduping the double resolution (issue #2259)', async () => {
     // TTL off: the cross-request cache is disabled, so any dedupe must come from
     // the per-request memo keyed on the shared Request instance.

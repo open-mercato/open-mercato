@@ -487,6 +487,21 @@ beforeAll(async () => {
 })
 
 describe('sales order line transaction serialization (#6463)', () => {
+  it.each([
+    ['upsert_many', 'upsert'],
+    ['upsert', 'upsert_many'],
+    ['upsert_many', 'upsert_many'],
+  ])('serializes overlapping %s and %s writes without losing either append', async (firstCommand, secondCommand) => {
+    const world = createWorld()
+    const single = lineInput()
+    const batch = { body: { orderId: ORDER_ID, organizationId: ORGANIZATION_ID, tenantId: TENANT_ID, lines: [single.body] } }
+    await overlap(world, firstCommand === 'upsert_many' ? batch : single, secondCommand === 'upsert_many' ? batch : single, secondCommand, firstCommand)
+    expectConsistentGraph(world, 40, 4)
+    expect(world.trace.indexOf('second:lines-read')).toBeGreaterThan(world.trace.indexOf('first:commit'))
+    expect(world.trace.indexOf('first:event')).toBeGreaterThan(world.trace.indexOf('first:commit'))
+    expect(world.trace.indexOf('second:event')).toBeGreaterThan(world.trace.indexOf('second:commit'))
+  })
+
   it('keeps both headerless parallel appends and assigns distinct positions', async () => {
     const world = createWorld()
     const [first, second] = await overlap(world, lineInput(), lineInput({ unitPriceNet: 7, unitPriceGross: 7 }))

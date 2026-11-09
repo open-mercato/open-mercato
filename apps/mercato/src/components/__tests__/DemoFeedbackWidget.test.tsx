@@ -4,8 +4,10 @@
 
 import '@testing-library/jest-dom'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { DemoFeedbackWidget } from '../DemoFeedbackWidget'
 import { HIDE_CONTACT_FLAG_KEY } from '../demoFeedbackFlag'
+import { ContentSecurityPolicyProvider } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 
 jest.mock('next/image', () => ({
   __esModule: true,
@@ -25,6 +27,12 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 describe('DemoFeedbackWidget', () => {
+  it('uses the document nonce for its animation stylesheet', () => {
+    render(<ContentSecurityPolicyProvider nonce="trustedDocumentNonce"><DemoFeedbackWidget demoModeEnabled={true} /></ContentSecurityPolicyProvider>)
+    const stylesheet = Array.from(document.querySelectorAll('style')).find((style) => style.textContent?.includes('@keyframes subtle-bounce'))
+    expect(stylesheet?.nonce).toBe('trustedDocumentNonce')
+  })
+
   afterEach(() => {
     window.localStorage.clear()
     document.body.querySelectorAll('[data-open-surface]').forEach((node) => node.remove())
@@ -76,6 +84,54 @@ describe('DemoFeedbackWidget', () => {
     unmount()
 
     expect(document.body.hasAttribute('data-demo-feedback-fab')).toBe(false)
+  })
+
+  it('rests as a 44px icon-only circle with the caption collapsed', () => {
+    render(<DemoFeedbackWidget demoModeEnabled={true} />)
+
+    const button = screen.getByRole('button', { name: 'Open feedback form' })
+    const caption = button.querySelector('span')
+
+    expect(button).toHaveClass('h-11', 'min-w-11', 'rounded-full', 'px-3')
+    expect(caption).toHaveClass('max-w-0', 'opacity-0', 'overflow-hidden')
+  })
+
+  it('reveals the caption on hover and keyboard focus only', () => {
+    render(<DemoFeedbackWidget demoModeEnabled={true} />)
+
+    const button = screen.getByRole('button', { name: 'Open feedback form' })
+    const caption = button.querySelector('span')
+
+    expect(button).toHaveClass('group', 'hover:px-5', 'focus-visible:px-5', 'focus-visible:ring-2')
+    expect(caption).toHaveClass(
+      'group-hover:max-w-40',
+      'group-hover:opacity-100',
+      'group-focus-visible:max-w-40',
+      'group-focus-visible:opacity-100',
+    )
+    expect(caption?.className).not.toMatch(/(^|\s)(max-w-40|opacity-100)(\s|$)/)
+  })
+
+  it('opens the feedback dialog on click', async () => {
+    const user = userEvent.setup()
+    render(<DemoFeedbackWidget demoModeEnabled={true} />)
+
+    await user.click(screen.getByRole('button', { name: 'Open feedback form' }))
+
+    expect(await screen.findByText('Talk to Open Mercato team')).toBeInTheDocument()
+  })
+
+  it('is reachable with Tab and opens the feedback dialog with Enter', async () => {
+    const user = userEvent.setup()
+    render(<DemoFeedbackWidget demoModeEnabled={true} />)
+
+    const button = screen.getByRole('button', { name: 'Open feedback form' })
+    await user.tab()
+    expect(button).toHaveFocus()
+
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByText('Talk to Open Mercato team')).toBeInTheDocument()
   })
 
   it.each([

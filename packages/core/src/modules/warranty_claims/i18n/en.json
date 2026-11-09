@@ -1,5 +1,6 @@
 {
   "notifications.categories.warranty_claims": "Warranty claims",
+  "search.entityType.warranty_claims.warranty_claim": "Warranty Claim",
   "warranty_claims.ai.apply": "Apply",
   "warranty_claims.ai.assess.attachment": "Attachment",
   "warranty_claims.ai.assess.attachmentsError": "Failed to load line attachments.",

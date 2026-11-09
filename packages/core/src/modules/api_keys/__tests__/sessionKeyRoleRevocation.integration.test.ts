@@ -134,9 +134,10 @@ it('revokes an issued session credential immediately across independently warmed
   }))
   for (const worker of workers) {
     const auth = await authenticate(session.secret)
-    expect(auth).toMatchObject({ keyId: session.keyId, isSuperAdmin: true })
+    expect(auth).toMatchObject({ keyId: session.keyId, isSuperAdmin: false })
     const acl = await worker.rbac.loadAcl(auth!.sub, scope)
-    await worker.cache.set(`rbac:${auth!.sub}:${tenantId}:null`, acl)
+    expect(acl.isSuperAdmin).toBe(true)
+    await worker.cache.set(`rbac:delegated-v1:${auth!.sub}:${tenantId}:null`, acl)
     await expect(worker.rbac.userHasAllFeatures(auth!.sub, ['customers.people.edit'], scope)).resolves.toBe(true)
     const independentAuth = await authenticate(independent.secret)
     await expect(worker.rbac.userHasAllFeatures(independentAuth!.sub, ['customers.people.edit'], scope)).resolves.toBe(true)
