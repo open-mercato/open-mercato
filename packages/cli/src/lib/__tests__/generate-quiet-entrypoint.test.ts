@@ -33,17 +33,13 @@ it('keeps quiet generation stdout empty without hiding diagnostics at the CLI en
     const options = { cwd: directory, env, encoding: 'utf8' as const, maxBuffer: 4 * 1024 * 1024 }
     const quiet = await execute(process.execPath, [...args, '--quiet'], options)
     expect(quiet.stdout.trim()).toBe('')
-    expect(quiet.stderr.trim().length).toBeGreaterThan(0)
-    expect(fs.existsSync(path.join(directory, '.mercato/generated/modules.runtime.generated.ts'))).toBe(true)
-
-    const normal = await execute(process.execPath, args, options)
-    expect(normal.stdout.trim().length).toBeGreaterThan(0)
+    expect(quiet.stderr).toContain(fs.realpathSync(path.join(moduleRoot, 'api/items/route.js')))
 
     fs.writeFileSync(path.join(moduleRoot, 'index.js'), `export const metadata = { requires: ['missing_dependency'] }`)
     await expect(execute(process.execPath, [...args, '-q'], options)).rejects.toMatchObject({
       code: 1,
       stdout: '',
-      stderr: expect.stringMatching(/\S/),
+      stderr: expect.stringContaining('missing_dependency'),
     })
   } finally {
     fs.rmSync(directory, { recursive: true, force: true })

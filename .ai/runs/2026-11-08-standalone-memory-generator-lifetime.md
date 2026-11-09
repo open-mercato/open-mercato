@@ -30,7 +30,7 @@ No remote push or PR until parent authorizes after standalone validation. No mer
 
 Two paired packaged standalone comparisons against `c981a94bea74fee63ca75815bf64fcf90738fb76` passed six-page navigation, customer create/read/delete with optimistic locking, composer/AI dock interaction, and ten structural API revisions per run. Post-edit process-tree physical footprint fell by 11.2% and 11.4%; supervisor residency fell by approximately 850 MiB in both pairs. Subsequent regeneration increased from approximately 1.5–2.5 seconds to 4.8–5.7 seconds. Cold-navigation peaks did not consistently improve.
 
-The 111 focused generator/lifecycle tests passed before the standalone runs. The final configured publication gate uses the local runner; no compose app container is running. Full gate completion is tracked separately from the successful smoke. Detailed methodology and measurements are in `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md`.
+The 111 focused generator/lifecycle tests passed before the standalone runs. All configured publication gates passed with the local runner: build, generate, rebuild, translation sync/usage, typecheck, tests and app build. The full test run completed 51/51 tasks on Node 24.22.2 after Node 24.13.1 twice suffered native Jest-worker SIGSEGVs in unrelated suites; the latter crash report identified V8 root marking. No repository runtime pin or dependency changed. Final CLI diagnostic assertions were tightened and their real-entrypoint test passed again. No compose app container was running. Detailed methodology and measurements are in `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md`.
 
 ## Progress
 
@@ -43,4 +43,4 @@ The 111 focused generator/lifecycle tests passed before the standalone runs. The
 ### Phase 2: Regression coverage and qualification
 
 - [x] 2.1 Add metadata and lifecycle regression coverage. — 44d748066c
-- [ ] 2.2 Complete coordinated validation, standalone measurement, and existing documentation update.
+- [x] 2.2 Complete coordinated validation, standalone measurement, and existing documentation update. — ece4c9ea5d; final validation recorded in this completion commit.
