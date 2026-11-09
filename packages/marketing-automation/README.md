@@ -122,7 +122,7 @@ Numbers below were counted against this head, not carried over from an earlier d
 | Backend / portal screens | **0.** Nothing under `backend/`, `frontend/` or a portal path yet — campaigns and runs are only reachable through the command bus and the workers |
 | ACL features | 6, with publishing gated separately from editing |
 | Translations | 5 locales, 769 keys, zero hardcoded strings per `yarn i18n:check-hardcoded` |
-| Tests | **1051 unit**, plus **13 integration tests** (`*.pg.test.ts`, gated on `OM_MARKETING_AUTOMATION_PG_URL`) against a real PostgreSQL: claim races, the enable/delete/save_graph lock, `trigger_context` ciphertext on disk, and score-event retry collisions |
+| Tests | **1092 unit**, plus **23 integration tests** (`*.pg.test.ts`, gated on `OM_MARKETING_AUTOMATION_PG_URL`) against a real PostgreSQL: claim races, the enable/delete/save_graph lock, `trigger_context` ciphertext on disk, score-event retry collisions, and the partial unique indexes on `marketing_campaign_runs` |
 
 Routes, backend/portal screens and the larger browser-driven suite are a later phase, not this
 one — see the phased-delivery spec for what ships when.
