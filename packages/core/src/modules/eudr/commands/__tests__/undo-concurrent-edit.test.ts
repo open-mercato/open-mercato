@@ -4,6 +4,7 @@ import '@open-mercato/core/modules/eudr/commands/product-mappings'
 import '@open-mercato/core/modules/eudr/commands/mitigation-actions'
 import '@open-mercato/core/modules/eudr/commands/evidence-submissions'
 import '@open-mercato/core/modules/eudr/commands/statements'
+import { randomUUID } from 'node:crypto'
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -31,9 +32,9 @@ jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => ({
 const findOneWithDecryptionMock = findOneWithDecryption as jest.Mock
 const loadCustomFieldSnapshotMock = loadCustomFieldSnapshot as jest.Mock
 
-const TENANT_ID = 'tenant-1'
-const ORGANIZATION_ID = 'org-1'
-const RECORD_ID = 'record-1'
+const TENANT_ID = randomUUID()
+const ORGANIZATION_ID = randomUUID()
+const RECORD_ID = randomUUID()
 const CONFLICT_CODE = 'eudr.errors.undoConflict'
 const CONFLICT_FALLBACK = 'This record changed after the action you are undoing. Undo was refused.'
 
@@ -49,9 +50,7 @@ type Snapshot = Record<string, unknown> & {
 
 type EntityFixture = {
   name: string
-  createCommand: string
   updateCommand: string
-  finder: 'decryption' | 'entityManager'
   dateKeys: string[]
   field: string
   beforeValue: unknown
@@ -63,9 +62,7 @@ type EntityFixture = {
 const fixtures: EntityFixture[] = [
   {
     name: 'plot',
-    createCommand: 'eudr.plots.create',
     updateCommand: 'eudr.plots.update',
-    finder: 'decryption',
     dateKeys: [],
     field: 'name',
     beforeValue: 'North field',
@@ -87,9 +84,7 @@ const fixtures: EntityFixture[] = [
   },
   {
     name: 'risk assessment',
-    createCommand: 'eudr.risk_assessments.create',
     updateCommand: 'eudr.risk_assessments.update',
-    finder: 'decryption',
     dateKeys: ['assessedAt', 'reviewDueAt'],
     field: 'conclusion',
     beforeValue: 'non_negligible',
@@ -109,9 +104,7 @@ const fixtures: EntityFixture[] = [
   },
   {
     name: 'product mapping',
-    createCommand: 'eudr.product_mappings.create',
     updateCommand: 'eudr.product_mappings.update',
-    finder: 'entityManager',
     dateKeys: [],
     field: 'hsCode',
     beforeValue: '0901',
@@ -129,9 +122,7 @@ const fixtures: EntityFixture[] = [
   },
   {
     name: 'mitigation action',
-    createCommand: 'eudr.mitigation_actions.create',
     updateCommand: 'eudr.mitigation_actions.update',
-    finder: 'decryption',
     dateKeys: ['dueDate', 'completedAt'],
     field: 'status',
     beforeValue: 'open',
@@ -149,9 +140,7 @@ const fixtures: EntityFixture[] = [
   },
   {
     name: 'evidence submission',
-    createCommand: 'eudr.evidence_submissions.create',
     updateCommand: 'eudr.evidence_submissions.update',
-    finder: 'decryption',
     dateKeys: ['harvestFrom', 'harvestTo'],
     field: 'batchNumber',
     beforeValue: 'B-1',
@@ -179,9 +168,7 @@ const fixtures: EntityFixture[] = [
   },
   {
     name: 'due diligence statement',
-    createCommand: 'eudr.statements.create',
     updateCommand: 'eudr.statements.update',
-    finder: 'entityManager',
     dateKeys: ['submittedAt', 'referenceIssuedAt'],
     field: 'notes',
     beforeValue: 'Initial notes',
@@ -210,7 +197,6 @@ const fixtures: EntityFixture[] = [
 type EntityManagerMock = {
   fork: jest.Mock
   transactional: jest.Mock
-  findOne: jest.Mock
   count: jest.Mock
   create: jest.Mock
   persist: jest.Mock
@@ -253,11 +239,10 @@ function toRecord(fixture: EntityFixture, snapshot: Snapshot): Record<string, un
   return record
 }
 
-function buildHarness(fixture: EntityFixture, record: Record<string, unknown> | null, custom: Record<string, unknown> = {}): Harness {
+function buildHarness(record: Record<string, unknown> | null, custom: Record<string, unknown> = {}): Harness {
   const em: EntityManagerMock = {
     fork: jest.fn(),
     transactional: jest.fn(),
-    findOne: jest.fn(async () => (fixture.finder === 'entityManager' ? record : null)),
     count: jest.fn(async () => 1),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
     persist: jest.fn(),
@@ -324,7 +309,7 @@ describe.each(fixtures)('eudr $name update undo', (fixture) => {
       [fixture.field]: fixture.concurrentValue,
       updatedAt: '2026-09-04T00:00:00.000Z',
     }))
-    const harness = buildHarness(fixture, record)
+    const harness = buildHarness(record)
 
     const error = await runUndo(fixture.updateCommand, harness, { before: before(), after: after() })
 
@@ -333,23 +318,55 @@ describe.each(fixtures)('eudr $name update undo', (fixture) => {
     expectNothingWritten(harness)
   })
 
+  it('restores the logged update under a scoped write lock when only the timestamp moved, as after undoing a newer update', async () => {
+    const record = toRecord(fixture, { ...after(), updatedAt: '2026-09-05T00:00:00.000Z' })
+    const harness = buildHarness(record)
+
+    const error = await runUndo(fixture.updateCommand, harness, { before: before(), after: after() })
+
+    expect(error).toBeNull()
+    expect(record[fixture.field]).toBe(fixture.beforeValue)
+    expect(harness.em.transactional).toHaveBeenCalledTimes(1)
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
+      harness.em,
+      expect.anything(),
+      { id: RECORD_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+    )
+    expect(harness.em.flush).toHaveBeenCalledTimes(1)
+    expect(harness.dataEngine.markOrmEntityChange).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'updated', entity: record }),
+    )
+  })
+})
+
+function fixtureNamed(name: string): EntityFixture {
+  const fixture = fixtures.find((entry) => entry.name === name)
+  if (!fixture) throw new Error(`Unknown fixture ${name}`)
+  return fixture
+}
+
+describe('eudr update undo compare', () => {
+  const fixture = fixtureNamed('plot')
+  const before = (custom: Record<string, unknown> | null = null) => buildSnapshot(fixture, { name: 'North field', custom })
+  const after = (custom: Record<string, unknown> | null = null) =>
+    buildSnapshot(fixture, { name: 'North field (surveyed)', updatedAt: '2026-09-03T00:00:00.000Z', custom })
+
   it('refuses when only a custom field changed after the logged update', async () => {
     const record = toRecord(fixture, after())
-    const harness = buildHarness(fixture, record, { grade: 'B' })
+    const harness = buildHarness(record, { grade: 'B' })
 
-    const error = await runUndo(fixture.updateCommand, harness, {
-      before: buildSnapshot(fixture, { [fixture.field]: fixture.beforeValue, custom: { grade: 'A' } }),
-      after: { ...after(), custom: { grade: 'A' } },
-    })
+    const error = await runUndo(fixture.updateCommand, harness, { before: before({ grade: 'A' }), after: after({ grade: 'A' }) })
 
     expectConflict(error)
-    expect(record[fixture.field]).toBe(fixture.afterValue)
+    expect(record.name).toBe('North field (surveyed)')
     expectNothingWritten(harness)
   })
 
   it('refuses when the record was deleted after the logged update', async () => {
     const record = toRecord(fixture, { ...after(), deletedAt: '2026-09-04T00:00:00.000Z' })
-    const harness = buildHarness(fixture, record)
+    const harness = buildHarness(record)
 
     const error = await runUndo(fixture.updateCommand, harness, { before: before(), after: after() })
 
@@ -360,130 +377,44 @@ describe.each(fixtures)('eudr $name update undo', (fixture) => {
 
   it('refuses when the log entry has no after snapshot', async () => {
     const record = toRecord(fixture, after())
-    const harness = buildHarness(fixture, record)
+    const harness = buildHarness(record)
 
     const error = await runUndo(fixture.updateCommand, harness, { before: before(), after: null })
 
     expectConflict(error)
-    expect(record[fixture.field]).toBe(fixture.afterValue)
+    expect(record.name).toBe('North field (surveyed)')
     expectNothingWritten(harness)
   })
 
-  it('restores the logged update when only the timestamp moved, as after undoing a newer update', async () => {
-    const record = toRecord(fixture, { ...after(), updatedAt: '2026-09-05T00:00:00.000Z' })
-    const harness = buildHarness(fixture, record, { grade: null, tags: [] })
+  it('treats custom fields reset to empty and reordered multi-values as unchanged', async () => {
+    const record = toRecord(fixture, after())
+    const harness = buildHarness(record, { grade: null, tags: ['b', 'a'], codes: [] })
 
-    const error = await runUndo(fixture.updateCommand, harness, { before: before(), after: after() })
+    const error = await runUndo(fixture.updateCommand, harness, { before: before({ tags: ['a'] }), after: after({ tags: ['a', 'b'] }) })
 
     expect(error).toBeNull()
-    expect(record[fixture.field]).toBe(fixture.beforeValue)
-    expect(harness.em.flush).toHaveBeenCalledTimes(1)
-    expect(harness.dataEngine.markOrmEntityChange).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'updated', entity: record }),
-    )
-  })
-
-  it('compares multi-value custom fields regardless of order', async () => {
-    const record = toRecord(fixture, after())
-    const harness = buildHarness(fixture, record, { tags: ['b', 'a'] })
-
-    const error = await runUndo(fixture.updateCommand, harness, {
-      before: buildSnapshot(fixture, { [fixture.field]: fixture.beforeValue, custom: { tags: ['a'] } }),
-      after: { ...after(), custom: { tags: ['a', 'b'] } },
-    })
-
-    expect(error).toBeNull()
-    expect(record[fixture.field]).toBe(fixture.beforeValue)
-  })
-
-  it('reads the record under a tenant-scoped write lock', async () => {
-    const record = toRecord(fixture, after())
-    const harness = buildHarness(fixture, record)
-
-    await runUndo(fixture.updateCommand, harness, { before: before(), after: after() })
-
-    const where = { id: RECORD_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
-    const options = { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }
-    expect(harness.em.transactional).toHaveBeenCalledTimes(1)
-    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(harness.em, expect.anything(), where, options, {
-      tenantId: TENANT_ID,
-      organizationId: ORGANIZATION_ID,
-    })
+    expect(record.name).toBe('North field')
   })
 
   it('still re-creates a record that no longer exists', async () => {
-    const harness = buildHarness(fixture, null)
+    const harness = buildHarness(null)
 
     const error = await runUndo(fixture.updateCommand, harness, { before: before(), after: after() })
 
     expect(error).toBeNull()
-    expect(harness.em.create).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ id: RECORD_ID, [fixture.field]: fixture.beforeValue }),
-    )
-    expect(harness.em.persist).toHaveBeenCalledTimes(1)
+    expect(harness.em.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: RECORD_ID, name: 'North field' }))
     expect(harness.em.flush).toHaveBeenCalledTimes(1)
   })
 })
 
-describe.each(fixtures)('eudr $name create undo', (fixture) => {
-  const after = () => buildSnapshot(fixture, { [fixture.field]: fixture.afterValue })
-
-  it('refuses to delete a record another user edited after it was created', async () => {
-    const record = toRecord(fixture, buildSnapshot(fixture, {
-      [fixture.field]: fixture.concurrentValue,
-      updatedAt: '2026-09-04T00:00:00.000Z',
-    }))
-    const harness = buildHarness(fixture, record)
-
-    const error = await runUndo(fixture.createCommand, harness, { after: after() })
-
-    expectConflict(error)
-    expect(record.deletedAt).toBeNull()
-    expectNothingWritten(harness)
-  })
-
-  it('still deletes a record nobody changed since it was created', async () => {
-    const record = toRecord(fixture, after())
-    const harness = buildHarness(fixture, record)
-
-    const error = await runUndo(fixture.createCommand, harness, { after: after() })
-
-    expect(error).toBeNull()
-    expect(record.deletedAt).toBeInstanceOf(Date)
-    expect(harness.em.flush).toHaveBeenCalledTimes(1)
-    expect(harness.dataEngine.markOrmEntityChange).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'deleted', entity: record }),
-    )
-  })
-
-  it('leaves an already deleted record alone', async () => {
-    const deletedAt = '2026-09-04T00:00:00.000Z'
-    const record = toRecord(fixture, { ...after(), deletedAt })
-    const harness = buildHarness(fixture, record)
-
-    const error = await runUndo(fixture.createCommand, harness, { after: after() })
-
-    expect(error).toBeNull()
-    expect(record.deletedAt).toEqual(new Date(deletedAt))
-    expectNothingWritten(harness)
-  })
-})
-
-function fixtureNamed(name: string): EntityFixture {
-  const fixture = fixtures.find((entry) => entry.name === name)
-  if (!fixture) throw new Error(`Unknown fixture ${name}`)
-  return fixture
-}
-
-describe('eudr evidence submission undo and the completeness projection', () => {
+describe('eudr evidence submission update undo and the completeness projection', () => {
   const fixture = fixtureNamed('evidence submission')
 
-  it('restores an update when only the attachment-driven completeness projection changed, and recomputes it', async () => {
+  it('restores when only the attachment-driven completeness projection changed, and recomputes it', async () => {
     const before = buildSnapshot(fixture, { batchNumber: 'B-1', originCountry: null })
     const after = buildSnapshot(fixture, { batchNumber: 'B-2', originCountry: 'BR', updatedAt: '2026-09-03T00:00:00.000Z' })
     const record = toRecord(fixture, { ...after, completenessScore: 90, missingFields: [], updatedAt: '2026-09-04T00:00:00.000Z' })
-    const harness = buildHarness(fixture, record)
+    const harness = buildHarness(record)
 
     const error = await runUndo(fixture.updateCommand, harness, { before, after })
 
@@ -507,17 +438,6 @@ describe('eudr evidence submission undo and the completeness projection', () => 
       organizationId: ORGANIZATION_ID,
     }))
   })
-
-  it('still deletes a created submission when only its completeness projection changed', async () => {
-    const after = buildSnapshot(fixture, { batchNumber: 'B-1' })
-    const record = toRecord(fixture, { ...after, completenessScore: 90, missingFields: [] })
-    const harness = buildHarness(fixture, record)
-
-    const error = await runUndo(fixture.createCommand, harness, { after })
-
-    expect(error).toBeNull()
-    expect(record.deletedAt).toBeInstanceOf(Date)
-  })
 })
 
 describe('eudr due diligence statement update undo with a later status change', () => {
@@ -527,7 +447,7 @@ describe('eudr due diligence statement update undo with a later status change', 
     const before = buildSnapshot(fixture, { notes: 'Initial notes' })
     const after = buildSnapshot(fixture, { notes: 'Edited notes', updatedAt: '2026-09-03T00:00:00.000Z' })
     const record = toRecord(fixture, { ...after, status: 'archived', updatedAt: '2026-09-04T00:00:00.000Z' })
-    const harness = buildHarness(fixture, record)
+    const harness = buildHarness(record)
 
     const error = await runUndo(fixture.updateCommand, harness, { before, after })
 

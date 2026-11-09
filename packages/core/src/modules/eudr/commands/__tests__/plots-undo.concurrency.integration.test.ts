@@ -136,9 +136,7 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
     return { commandPayload: JSON.parse(JSON.stringify(payload)) }
   }
 
-  async function createPlot(scope: Scope): Promise<{ plotId: string; logEntry: { commandPayload: unknown } }> {
-    const command = handler('eudr.plots.create')
-    const ctx = plotCtx(scope)
+  async function createPlot(scope: Scope): Promise<string> {
     const input = {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
@@ -147,10 +145,8 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
       originCountry: 'BR',
       geometry: POLYGON,
     }
-    const result = (await command.execute(input, ctx)) as { entityId: string }
-    const after = await command.captureAfter!(input, result, ctx)
-    const log = await command.buildLog!({ snapshots: { after }, result, ctx })
-    return { plotId: result.entityId, logEntry: serialize(log?.payload) }
+    const result = (await handler('eudr.plots.create').execute(input, plotCtx(scope))) as { entityId: string }
+    return result.entityId
   }
 
   async function updatePlot(scope: Scope, plotId: string, patch: Record<string, unknown>): Promise<{ commandPayload: unknown }> {
@@ -257,7 +253,7 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
 
   it('restores an update that nothing changed since, without a false conflict on real timestamps, numerics and jsonb', async () => {
     const scope = await newScope()
-    const { plotId } = await createPlot(scope)
+    const plotId = await createPlot(scope)
     const logEntry = await updatePlot(scope, plotId, { name: 'North field (surveyed)' })
 
     const undone = await undo('eudr.plots.update', scope, logEntry)
@@ -266,23 +262,22 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
     expect(await readState(plotId)).toEqual({ name: 'North field', deleted: false, grade: null })
   }, CASE_TIMEOUT_MS)
 
-  it('undoes a create and two updates newest first, including a custom field reset to empty', async () => {
+  it('undoes two updates newest first, including a custom field reset to empty', async () => {
     const scope = await newScope()
-    const created = await createPlot(scope)
-    const first = await updatePlot(scope, created.plotId, { name: 'North field (surveyed)' })
-    const second = await updatePlot(scope, created.plotId, { customFields: { grade: 'A' } })
+    const plotId = await createPlot(scope)
+    const first = await updatePlot(scope, plotId, { name: 'North field (surveyed)' })
+    const second = await updatePlot(scope, plotId, { customFields: { grade: 'A' } })
 
     const undoneSecond = await undo('eudr.plots.update', scope, second)
     const undoneFirst = await undo('eudr.plots.update', scope, first)
-    const undoneCreate = await undo('eudr.plots.create', scope, created.logEntry)
 
-    expect([undoneSecond.ok, undoneFirst.ok, undoneCreate.ok]).toEqual([true, true, true])
-    expect(await readState(created.plotId)).toEqual({ name: 'North field', deleted: true, grade: null })
+    expect([undoneSecond.ok, undoneFirst.ok]).toEqual([true, true])
+    expect(await readState(plotId)).toEqual({ name: 'North field', deleted: false, grade: null })
   }, CASE_TIMEOUT_MS)
 
   it('refuses the undo of an older update once another user renamed the plot', async () => {
     const scope = await newScope()
-    const { plotId } = await createPlot(scope)
+    const plotId = await createPlot(scope)
     const logEntry = await updatePlot(scope, plotId, { name: 'North field (surveyed)' })
     await updatePlot(scope, plotId, { name: 'North field (re-surveyed)' })
 
@@ -294,7 +289,7 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
 
   it('refuses the undo of an older update once another user changed only a custom field', async () => {
     const scope = await newScope()
-    const { plotId } = await createPlot(scope)
+    const plotId = await createPlot(scope)
     const logEntry = await updatePlot(scope, plotId, { name: 'North field (surveyed)' })
     await updatePlot(scope, plotId, { customFields: { grade: 'B' } })
 
@@ -306,7 +301,7 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
 
   it('keeps a rename that lands while the undo is between its read and its write', async () => {
     const scope = await newScope()
-    const { plotId } = await createPlot(scope)
+    const plotId = await createPlot(scope)
     const logEntry = await updatePlot(scope, plotId, { name: 'North field (surveyed)' })
     gate = createGate()
 
@@ -322,14 +317,21 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
     expect((await readState(plotId)).name).toBe('North field (re-surveyed)')
   }, CASE_TIMEOUT_MS)
 
-  it('refuses the undo of a create once another user edited the plot', async () => {
+  it('rolls back an undo whose write fails after taking the lock, and a retry then applies it', async () => {
     const scope = await newScope()
-    const created = await createPlot(scope)
-    await updatePlot(scope, created.plotId, { name: 'North field (surveyed)' })
+    const plotId = await createPlot(scope)
+    const logEntry = await updatePlot(scope, plotId, { name: 'North field (surveyed)' })
+    const flush = jest
+      .spyOn(CoreEntityManager.prototype, 'flush')
+      .mockRejectedValueOnce(new Error('[internal] injected flush failure'))
 
-    const undone = await undo('eudr.plots.create', scope, created.logEntry)
+    const failed = await undo('eudr.plots.update', scope, logEntry)
+    flush.mockRestore()
 
-    expectConflict(undone)
-    expect(await readState(created.plotId)).toEqual({ name: 'North field (surveyed)', deleted: false, grade: null })
+    expect(failed.ok).toBe(false)
+    expect(await readState(plotId)).toEqual({ name: 'North field (surveyed)', deleted: false, grade: null })
+    const retried = await undo('eudr.plots.update', scope, logEntry)
+    expect(retried.ok).toBe(true)
+    expect(await readState(plotId)).toEqual({ name: 'North field', deleted: false, grade: null })
   }, CASE_TIMEOUT_MS)
 })

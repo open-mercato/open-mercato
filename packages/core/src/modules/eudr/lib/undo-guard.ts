@@ -1,8 +1,17 @@
+import { LockMode, type EntityName, type FilterQuery } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { snapshotsEqual } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const UNDO_CONFLICT_CODE = 'eudr.errors.undoConflict'
+
+type UndoTarget = {
+  id: string
+  tenantId: string
+  organizationId: string
+}
 
 type UndoSnapshot = {
   createdAt: string
@@ -47,4 +56,19 @@ export async function throwUndoConflict(): Promise<never> {
     error: translate(UNDO_CONFLICT_CODE, 'This record changed after the action you are undoing. Undo was refused.'),
     code: UNDO_CONFLICT_CODE,
   })
+}
+
+export async function lockForUndo<T extends object>(
+  em: EntityManager,
+  entityName: EntityName<T>,
+  target: UndoTarget,
+): Promise<T | null> {
+  const { id, tenantId, organizationId } = target
+  return findOneWithDecryption(
+    em,
+    entityName,
+    { id, tenantId, organizationId } as FilterQuery<T>,
+    { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    { tenantId, organizationId },
+  )
 }

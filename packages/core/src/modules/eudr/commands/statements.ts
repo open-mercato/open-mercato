@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { LockMode, type RequiredEntityData } from '@mikro-orm/core'
+import type { RequiredEntityData } from '@mikro-orm/core'
 import {
   parseWithCustomFields,
   emitCrudSideEffects,
@@ -22,7 +22,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitEudrLifecycleEvent } from './lifecycle-events'
 import { E } from '#generated/entities.ids.generated'
 import { sql } from 'kysely'
@@ -41,7 +41,7 @@ import {
   type StatementCreateInput,
   type StatementUpdateInput,
 } from '../data/validators'
-import { isUnchangedSince, throwUndoConflict } from '../lib/undo-guard'
+import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
 import {
   EUDR_AMEND_GUARDED_FIELDS,
   canDeleteStatement,
@@ -157,19 +157,6 @@ function statementSeedFromSnapshot(snapshot: StatementSnapshot): RequiredEntityD
     updatedAt: new Date(snapshot.updatedAt),
     deletedAt: toDate(snapshot.deletedAt),
   }
-}
-
-async function lockStatement(
-  em: EntityManager,
-  scope: Pick<StatementSnapshot, 'id' | 'tenantId' | 'organizationId'>,
-): Promise<EudrDueDiligenceStatement | null> {
-  return findOneWithDecryption(
-    em,
-    EudrDueDiligenceStatement,
-    { id: scope.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
-    { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
-  )
 }
 
 async function loadStatementSnapshot(em: EntityManager, entityId: string): Promise<StatementSnapshot | null> {
@@ -711,20 +698,14 @@ const createStatementCommand: CommandHandler<ScopedStatementCreateInput, Stateme
     const after = payload?.after
     if (!after) return
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const { record, stale } = await entityManager.transactional(async (tx) => {
-      const current = await lockStatement(tx, after)
-      if (!current || current.deletedAt) return { record: null, stale: false }
-      ensureTenantScope(ctx, current.tenantId)
-      ensureOrganizationScope(ctx, current.organizationId)
-      const blocker = await resolveStatementDeleteBlocker(tx, current)
-      if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
-      if (!isUnchangedSince(await buildStatementSnapshot(tx, current), after)) return { record: current, stale: true }
-      current.deletedAt = new Date()
-      await tx.flush()
-      return { record: current, stale: false }
-    })
-    if (stale) return throwUndoConflict()
+    const record = await entityManager.findOne(EudrDueDiligenceStatement, { id: after.id })
     if (!record) return
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
+    const blocker = await resolveStatementDeleteBlocker(entityManager, record)
+    if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
+    record.deletedAt = new Date()
+    await entityManager.flush()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
@@ -859,27 +840,26 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
     if (!before) return
     const after = payload?.after
     if (!after) return throwUndoConflict()
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const { record, stale } = await entityManager.transactional(async (tx) => {
-      const current = await lockStatement(tx, before)
+    const record = await entityManager.transactional(async (tx) => {
+      const current = await lockForUndo(tx, EudrDueDiligenceStatement, before)
       if (!current) {
         const recreated = tx.create(EudrDueDiligenceStatement, statementSeedFromSnapshot(before))
         tx.persist(recreated)
         await tx.flush()
-        return { record: recreated, stale: false }
+        return recreated
       }
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
       if (current.status !== before.status) {
         const blocker = await resolveStatementDeleteBlocker(tx, current)
         if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
       }
-      if (!isUnchangedSince(await buildStatementSnapshot(tx, current), after)) return { record: current, stale: true }
+      if (!isUnchangedSince(await buildStatementSnapshot(tx, current), after)) await throwUndoConflict()
       restoreStatement(current, before)
       await tx.flush()
-      return { record: current, stale: false }
+      return current
     })
-    if (stale) return throwUndoConflict()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)

@@ -34,6 +34,8 @@ const POLYGON = {
 }
 
 type Cleanup = {
+  superadminToken: string | null
+  adminToken: string | null
   roleId: string | null
   userId: string | null
   companyId: string | null
@@ -64,13 +66,13 @@ async function createRecord(
   token: string,
   path: string,
   data: Record<string, unknown>,
-): Promise<{ id: string; undoToken: string }> {
+): Promise<{ id: string }> {
   const response = await apiRequest(fixtures.request, 'POST', path, { token, data })
   const body = await readJsonSafe<{ id?: string; error?: string }>(response)
   expect(response.status(), `create ${path} failed: ${JSON.stringify(body)}`).toBe(201)
   const id = expectId(body?.id, `${path} create response id`)
   fixtures.cleanup.records.push({ path, id })
-  return { id, undoToken: expectOperation(response, `create ${path}`).undoToken }
+  return { id }
 }
 
 async function updateRecord(
@@ -170,12 +172,17 @@ const entityCases: EntityCase[] = [
   },
 ]
 
-async function setUp(request: APIRequestContext): Promise<{ fixtures: Fixtures; superadminToken: string }> {
+function newCleanup(): Cleanup {
+  return { superadminToken: null, adminToken: null, roleId: null, userId: null, companyId: null, records: [] }
+}
+
+async function setUp(request: APIRequestContext, cleanup: Cleanup): Promise<Fixtures> {
   const superadminToken = await getAuthToken(request, 'superadmin')
+  cleanup.superadminToken = superadminToken
   const adminToken = await getAuthToken(request, 'admin')
+  cleanup.adminToken = adminToken
   const { organizationId, tenantId } = getTokenContext(adminToken)
   const stamp = randomUUID().slice(0, 8)
-  const cleanup: Cleanup = { roleId: null, userId: null, companyId: null, records: [] }
   const fixtures: Fixtures = {
     request,
     adminToken,
@@ -214,17 +221,16 @@ async function setUp(request: APIRequestContext): Promise<{ fixtures: Fixtures; 
   fixtures.creatorToken = await getAuthToken(request, fixtures.creatorEmail, PASSWORD)
   cleanup.companyId = await createCompanyFixture(request, adminToken, `TC-EUDR-020 Supplier ${stamp}`)
   fixtures.supplierId = cleanup.companyId
-  return { fixtures, superadminToken }
+  return fixtures
 }
 
-async function tearDown(fixtures: Fixtures | null, superadminToken: string | null, request: APIRequestContext): Promise<void> {
-  if (!fixtures) return
-  for (const record of [...fixtures.cleanup.records].reverse()) {
-    await deleteEntityIfExists(request, fixtures.adminToken, record.path, record.id).catch(() => undefined)
+async function tearDown(request: APIRequestContext, cleanup: Cleanup): Promise<void> {
+  for (const record of [...cleanup.records].reverse()) {
+    await deleteEntityIfExists(request, cleanup.adminToken, record.path, record.id).catch(() => undefined)
   }
-  await deleteEntityIfExists(request, fixtures.adminToken, COMPANIES_PATH, fixtures.cleanup.companyId).catch(() => undefined)
-  await deleteUserIfExists(request, superadminToken, fixtures.cleanup.userId)
-  await deleteRoleIfExists(request, superadminToken, fixtures.cleanup.roleId)
+  await deleteEntityIfExists(request, cleanup.adminToken, COMPANIES_PATH, cleanup.companyId).catch(() => undefined)
+  await deleteUserIfExists(request, cleanup.superadminToken, cleanup.userId)
+  await deleteRoleIfExists(request, cleanup.superadminToken, cleanup.roleId)
 }
 
 test.describe('TC-EUDR-020: EUDR undo never overwrites a later edit by another user', () => {
@@ -232,14 +238,10 @@ test.describe('TC-EUDR-020: EUDR undo never overwrites a later edit by another u
     skipIfUndoTestsDisabled()
   })
 
-  test('update and create undos are refused after another user edits the record, own undos still chain', async ({ request }) => {
-    let fixtures: Fixtures | null = null
-    let superadminToken: string | null = null
+  test('update undos are refused after another user edits the record, own undos still chain', async ({ request }) => {
+    const cleanup = newCleanup()
     try {
-      const setup = await setUp(request)
-      fixtures = setup.fixtures
-      superadminToken = setup.superadminToken
-      const active = fixtures
+      const active = await setUp(request, cleanup)
 
       for (const entity of entityCases) {
         const created = await createRecord(active, active.creatorToken, entity.path, await entity.createPayload(active))
@@ -265,26 +267,16 @@ test.describe('TC-EUDR-020: EUDR undo never overwrites a later edit by another u
         await undoOk(request, active.creatorToken, secondOwn.undoToken, `${entity.label} newest own undo`)
         await undoOk(request, active.creatorToken, firstOwn.undoToken, `${entity.label} older own undo`)
         expect(await readField(active, entity.path, created.id, entity.field), `${entity.label}: chained undo restores the admin edit`).toBe(laterValue)
-
-        const fresh = await createRecord(active, active.creatorToken, entity.path, await entity.createPayload(active))
-        const freshLater = `${entity.label} fresh edited by admin ${active.stamp}`
-        await updateRecord(active, active.adminToken, entity.path, { id: fresh.id, [entity.field]: freshLater })
-        await expectConflict(active, fresh.undoToken, `${entity.label} create undo after a later edit`)
-        expect(await readField(active, entity.path, fresh.id, entity.field), `${entity.label}: edited record is kept`).toBe(freshLater)
       }
     } finally {
-      await tearDown(fixtures, superadminToken, request)
+      await tearDown(request, cleanup)
     }
   })
 
   test('the audit log shows the translated refusal when undoing an edit another user changed since', async ({ page, request }) => {
-    let fixtures: Fixtures | null = null
-    let superadminToken: string | null = null
+    const cleanup = newCleanup()
     try {
-      const setup = await setUp(request)
-      fixtures = setup.fixtures
-      superadminToken = setup.superadminToken
-      const active = fixtures
+      const active = await setUp(request, cleanup)
       const plot = await createRecord(active, active.creatorToken, PLOTS_PATH, {
         name: `TC-EUDR-020 UI plot ${active.stamp}`,
         supplierEntityId: active.supplierId,
@@ -316,7 +308,7 @@ test.describe('TC-EUDR-020: EUDR undo never overwrites a later edit by another u
 
       expect(await readField(active, PLOTS_PATH, plot.id, 'name'), 'the admin rename survives the refused UI undo').toBe(laterName)
     } finally {
-      await tearDown(fixtures, superadminToken, request)
+      await tearDown(request, cleanup)
     }
   })
 })

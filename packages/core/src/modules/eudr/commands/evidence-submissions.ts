@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { LockMode, type RequiredEntityData } from '@mikro-orm/core'
+import type { RequiredEntityData } from '@mikro-orm/core'
 import {
   parseWithCustomFields,
   emitCrudSideEffects,
@@ -34,8 +34,8 @@ import {
   type EvidenceSubmissionCreateInput,
   type EvidenceSubmissionUpdateInput,
 } from '../data/validators'
-import { computeSubmissionCompleteness, type CompletenessContext } from '../lib/completeness'
-import { isUnchangedSince, throwUndoConflict } from '../lib/undo-guard'
+import { computeSubmissionCompleteness, countActivePlots, type CompletenessContext } from '../lib/completeness'
+import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
 
 const EVIDENCE_SUBMISSION_ENTITY_ID = 'eudr:eudr_evidence_submission'
 
@@ -170,19 +170,6 @@ async function findEvidenceSubmission(
     : findOneWithDecryption(em, EudrEvidenceSubmission, { id: entityId, deletedAt: null })
 }
 
-async function lockEvidenceSubmission(
-  em: EntityManager,
-  scope: Pick<EvidenceSubmissionSnapshot, 'id' | 'tenantId' | 'organizationId'>,
-): Promise<EudrEvidenceSubmission | null> {
-  return findOneWithDecryption(
-    em,
-    EudrEvidenceSubmission,
-    { id: scope.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
-    { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
-  )
-}
-
 async function loadEvidenceSubmissionSnapshot(em: EntityManager, entityId: string): Promise<EvidenceSubmissionSnapshot | null> {
   const record = await findEvidenceSubmission(em, entityId)
   if (!record) return null
@@ -302,29 +289,8 @@ async function validateSubmissionPlots(input: {
   return uniquePlotIds.length
 }
 
-async function countActiveSubmissionPlots(em: EntityManager, record: EudrEvidenceSubmission): Promise<number> {
-  const plotIds = Array.from(new Set(Array.isArray(record.plotIds) ? record.plotIds : []))
-  if (plotIds.length === 0) return 0
-  return em.count(EudrPlot, {
-    id: { $in: plotIds },
-    tenantId: record.tenantId,
-    organizationId: record.organizationId,
-    deletedAt: null,
-    isActive: true,
-  })
-}
-
 function withoutCompleteness(snapshot: EvidenceSubmissionSnapshot): EvidenceSubmissionSnapshot {
   return { ...snapshot, completenessScore: 0, missingFields: [] }
-}
-
-async function isSubmissionUnchangedSince(
-  em: EntityManager,
-  record: EudrEvidenceSubmission,
-  expected: EvidenceSubmissionSnapshot,
-): Promise<boolean> {
-  const current = await buildEvidenceSubmissionSnapshot(em, record)
-  return isUnchangedSince(withoutCompleteness(current), withoutCompleteness(expected))
 }
 
 function applySubmissionUpdate(record: EudrEvidenceSubmission, parsed: EvidenceSubmissionUpdateInput): void {
@@ -482,18 +448,12 @@ const createEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionCr
     const after = payload?.after
     if (!after) return
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const { record, stale } = await entityManager.transactional(async (tx) => {
-      const current = await lockEvidenceSubmission(tx, after)
-      if (!current || current.deletedAt) return { record: null, stale: false }
-      ensureTenantScope(ctx, current.tenantId)
-      ensureOrganizationScope(ctx, current.organizationId)
-      if (!(await isSubmissionUnchangedSince(tx, current, after))) return { record: current, stale: true }
-      current.deletedAt = new Date()
-      await tx.flush()
-      return { record: current, stale: false }
-    })
-    if (stale) return throwUndoConflict()
+    const record = await findEvidenceSubmission(entityManager, after.id)
     if (!record) return
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
+    record.deletedAt = new Date()
+    await entityManager.flush()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
@@ -621,27 +581,28 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
     if (!before) return
     const after = payload?.after
     if (!after) return throwUndoConflict()
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const { record, stale } = await entityManager.transactional(async (tx) => {
-      const current = await lockEvidenceSubmission(tx, before)
+    const record = await entityManager.transactional(async (tx) => {
+      const current = await lockForUndo(tx, EudrEvidenceSubmission, before)
       if (!current) {
         const recreated = tx.create(EudrEvidenceSubmission, evidenceSubmissionSeedFromSnapshot(before))
         tx.persist(recreated)
         await tx.flush()
-        return { record: recreated, stale: false }
+        return recreated
       }
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
-      if (!(await isSubmissionUnchangedSince(tx, current, after))) return { record: current, stale: true }
+      const currentSnapshot = await buildEvidenceSubmissionSnapshot(tx, current)
+      if (!isUnchangedSince(withoutCompleteness(currentSnapshot), withoutCompleteness(after))) await throwUndoConflict()
+      const completenessContext = {
+        activePlotCount: await countActivePlots(tx, before),
+        linkedAttachmentCount: await countLinkedAttachments(tx, before, current.id),
+      }
       restoreEvidenceSubmission(current, before)
-      refreshSubmissionCompleteness(current, {
-        activePlotCount: await countActiveSubmissionPlots(tx, current),
-        linkedAttachmentCount: await countLinkedAttachments(tx, current, current.id),
-      })
+      refreshSubmissionCompleteness(current, completenessContext)
       await tx.flush()
-      return { record: current, stale: false }
+      return current
     })
-    if (stale) return throwUndoConflict()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
