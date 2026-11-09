@@ -126,9 +126,11 @@ export async function delegateComposeToSender(
       ),
     )
   }
-  // `SendAsUserInput` carries recipients, subject, body and threading headers
-  // and nothing else. Refusing is the only honest answer while that is true —
-  // accepting would drop the payload after the message had already been sent.
+  // `SendAsUserInput.attachments` takes files by owning record, but the
+  // composer has not decided which owner its uploads carry on this path or
+  // whether a mailbox send re-parents them to the message (#6261). Until it
+  // does, refusing is the only honest answer — accepting would drop the files
+  // after the message had already been sent.
   if (
     (input.attachmentIds?.length ?? 0) > 0 ||
     (input.objects?.length ?? 0) > 0 ||

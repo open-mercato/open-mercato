@@ -3,7 +3,7 @@ import type {
   ConvertOutboundInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import {
-  assembleRfc2822,
+  composeEmailMessage,
   escapeQuotes,
   generateMessageId,
   htmlToText,
@@ -11,6 +11,7 @@ import {
   stringOrUndefined,
   toAddressList,
 } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { resolveOutboundAttachmentBytes } from '@open-mercato/core/modules/communication_channels/lib/outbound-attachments'
 import { GMAIL_THREAD_REF_PREFIX } from './normalize-inbound'
 
 /**
@@ -19,7 +20,9 @@ import { GMAIL_THREAD_REF_PREFIX } from './normalize-inbound'
  * Unlike IMAP/SMTP (which hands the message to nodemailer), the Gmail adapter
  * builds the RFC2822 message itself and sends via `gmail.users.messages.send`.
  * The converter pre-builds the raw message so `sendMessage` is a pure
- * "base64url-encode + POST" call, with no SMTP transport involved.
+ * "base64url-encode + POST" call, with no SMTP transport involved. Attachments
+ * are stitched in from their bytes (`content` or a `data:` URL); a remote URL
+ * is refused rather than fetched.
  *
  * Output metadata fields:
  *   - rawMessage: Buffer  — the assembled RFC2822 message
@@ -87,7 +90,7 @@ export async function convertOutboundForGmail(
   const html = input.bodyFormat === 'html' ? input.body : undefined
   const text = input.bodyFormat === 'html' ? htmlToText(input.body) : input.body
 
-  const rawMessage = assembleRfc2822({
+  const rawMessage = await composeEmailMessage({
     from: input.fromName ? `"${escapeQuotes(input.fromName)}" <${input.fromAddress}>` : input.fromAddress,
     to,
     cc,
@@ -98,6 +101,12 @@ export async function convertOutboundForGmail(
     inReplyTo,
     references,
     messageId,
+    attachments: (input.attachments ?? []).map((attachment) => ({
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+      content: resolveOutboundAttachmentBytes(attachment),
+      inline: attachment.inline,
+    })),
   })
 
   const metadata: GmailEmailNativeMetadata = {
