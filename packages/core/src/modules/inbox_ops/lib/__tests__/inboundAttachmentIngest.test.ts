@@ -16,6 +16,7 @@ import {
 } from '../inboundAttachments'
 import { runInboundAttachmentMaintenance } from '../inboundAttachmentMaintenance'
 import { releaseInboundEmailAttachments, softDeleteInboxEmailForRelease } from '../inboundAttachmentRelease'
+import { RETRYABLE_INBOUND_ATTACHMENT_FAILURE_REASONS } from '../inboundAttachmentReprocess'
 import { INBOUND_ATTACHMENTS_CONFIG_DEFAULTS, type InboundAttachmentsConfig } from '../inboundAttachmentsConfig'
 import type { ResendInboundAttachmentsApi } from '../resendInboundAttachments'
 import { InboxEmailAttachment } from '../../data/entities'
@@ -682,6 +683,23 @@ describe('ingest: gate', () => {
     harness.deps.isAccessRegistryInvalid = () => false
     harness.deps.listUnguardedReaders = () => []
     await expect(harness.run(2)).resolves.toMatchObject({ outcome: 'completed', storedCount: 2 })
+  })
+
+  it('finalizes parts deferred by an invalid access registry as retryable ingest_timeout after the 6-hour window and emits', async () => {
+    const harness = createHarness({
+      email: { attachmentsFirstFailureAt: new Date(START.getTime() - INBOX_OPS_ATTACHMENT_FINALIZE_AFTER_MS - MINUTE) },
+      readers: ['agent_orchestrator'],
+      registryInvalid: true,
+    })
+    await expect(harness.run()).resolves.toEqual({ outcome: 'finalized', storedCount: 0 })
+    expect(statuses(harness)).toEqual([['resend:a', 'failed', 'ingest_timeout'], ['resend:b', 'failed', 'ingest_timeout']])
+    expect(harness.api.list).not.toHaveBeenCalled()
+    expect(harness.fetchImpl).not.toHaveBeenCalled()
+    expect(harness.createScoped).not.toHaveBeenCalled()
+    expect(harness.emitReceived).toHaveBeenCalledTimes(1)
+    expect(harness.db.email(harness.email.id).attachmentsStatus).toBe('completed')
+    expect(reportedCodes()).toEqual(['inbox_ops.attachment_store_failed', 'inbox_ops.attachment_ingest_timeout'])
+    expect(RETRYABLE_INBOUND_ATTACHMENT_FAILURE_REASONS).toContain('ingest_timeout')
   })
 
   it('still finishes an already pending email after the kill switch is turned off', async () => {

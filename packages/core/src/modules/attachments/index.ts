@@ -53,7 +53,11 @@ export type {
   ProtectedAttachmentTarget,
 } from './lib/access-types'
 export { registerAttachmentAccessResolvers } from './lib/access-registry'
-export { syncAttachmentAccessProtection } from './lib/access-protection'
+export {
+  ATTACHMENT_ACCESS_REGISTRY_INVALID_MESSAGE,
+  isAttachmentAccessRegistryInvalidError,
+  syncAttachmentAccessProtection,
+} from './lib/access-protection'
 export { createAttachmentAccessContext, evaluateAttachmentAccess } from './lib/access-runner'
 export type { AttachmentAccessContext, AttachmentAccessResult } from './lib/access-runner'
 export { buildAttachmentAccessAuth, evaluateAttachmentRowAccess } from './lib/access-rows'

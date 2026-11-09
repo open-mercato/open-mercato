@@ -12,7 +12,6 @@ import {
 } from '../../../routeHelpers'
 import { resolveErrorTranslate } from '../../../../lib/errorTranslate'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   reenqueueInboundAttachmentIngest,
   reportInboundAttachmentError,
@@ -35,7 +34,7 @@ class ReprocessConflictError extends Error {}
 
 class AttachmentIngestResetMissedError extends Error {}
 
-type Translate = Awaited<ReturnType<typeof resolveTranslations>>['translate']
+type Translate = Awaited<ReturnType<typeof resolveErrorTranslate>>
 
 function notFound(translate: Translate): NextResponse {
   return NextResponse.json({ error: translate('inbox_ops.errors.emailNotFound', 'Email not found') }, { status: 404 })
@@ -82,7 +81,7 @@ export async function POST(req: Request) {
     }
 
     const ctx = await resolveRequestContext(req)
-    const { translate } = await resolveTranslations()
+    const translate = await resolveErrorTranslate()
 
     const email = await findOneWithDecryption(
       ctx.em,

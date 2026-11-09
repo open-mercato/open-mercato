@@ -5,6 +5,7 @@ import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encry
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
+  isAttachmentAccessRegistryInvalidError,
   listUnguardedAttachmentReaders,
   type AttachmentPersistLink,
   type AttachmentService,
@@ -19,7 +20,6 @@ import {
 } from '../data/entities'
 import type { InboundAttachmentIngestJob, ResendInboundAttachment } from '../data/validators'
 import { resolveInboundAttachmentsConfig, type InboundAttachmentsConfig } from './inboundAttachmentsConfig'
-import { isAttachmentAccessRegistryInvalidError } from '@open-mercato/core/modules/attachments/lib/access-protection'
 
 /**
  * Inbound email attachments of Resend mail (spec `2026-10-25-inbox-ops-inbound-attachments.md`):

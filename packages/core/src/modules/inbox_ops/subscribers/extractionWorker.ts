@@ -15,7 +15,7 @@ import { extractionOutputSchema } from '../data/validators'
 import { matchContacts } from '../lib/contactMatcher'
 import {
   buildExtractionSystemPrompt,
-  buildExtractionUserPrompt,
+  composeExtractionUserPrompt,
   hasVisiblePromptText,
   type ExtractionPromptAttachment,
 } from '../lib/extractionPrompt'
@@ -168,15 +168,27 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     const storedParts: CitableAttachmentPart[] = attachments
       .filter((row) => row.status === 'stored' && row.attachmentId)
       .map((row) => ({ attachmentId: row.attachmentId as string, fileName: row.fileName }))
-    // Text made only of invisible characters (zero-width, bidi, tag characters…) counts as none:
-    // the prompt builder drops them, so it would reach the model empty.
-    const hasAttachmentText = attachments.some(
-      (row) => row.status === 'stored' && hasVisiblePromptText(row.extractedText),
-    )
 
-    if (!hasVisiblePromptText(fullText) && !hasAttachmentText) {
+    // The user prompt: the builder cuts the body and neutralizes it within this budget.
+    // A malformed value falls back to the default instead of lifting the limit.
+    const parsedMaxTextSize = parseInt(process.env.INBOX_OPS_MAX_TEXT_SIZE || '204800', 10)
+    const maxTextSize = Number.isFinite(parsedMaxTextSize) && parsedMaxTextSize > 0 ? parsedMaxTextSize : 204800
+    const attachmentBudget = attachments.length > 0 ? resolveAttachmentTextBudget() : null
+    const userPromptBuild = attachmentBudget
+      ? composeExtractionUserPrompt(fullText, {
+          maxBodyChars: maxTextSize,
+          attachments,
+          maxAttachmentTextChars: attachmentBudget.maxTextChars,
+          maxAttachmentTextCharsPerFile: attachmentBudget.maxTextCharsPerFile,
+        })
+      : composeExtractionUserPrompt(fullText, { maxBodyChars: maxTextSize })
+    const userPrompt = userPromptBuild.prompt
+
+    // No content for the model: an empty body and no attachment text in the prompt — none stored,
+    // only invisible characters (the builder drops them), or every block past the text budget.
+    if (!hasVisiblePromptText(fullText) && !userPromptBuild.attachmentTextEmitted) {
       if (storedParts.length > 0) {
-        // Only files without text (images, scans, archives): a person handles it from the log page.
+        // Only files without text (images, scans, archives) or past the text budget: a person handles it from the log page.
         email.status = 'needs_review'
         email.processingError = 'No text content found in email or its attachments'
       } else {
@@ -201,21 +213,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     )
 
     // Step 3: Call LLM for extraction
-    // The prompt builder cuts the body and neutralizes it within this budget.
-    // A malformed value falls back to the default instead of lifting the limit.
-    const parsedMaxTextSize = parseInt(process.env.INBOX_OPS_MAX_TEXT_SIZE || '204800', 10)
-    const maxTextSize = Number.isFinite(parsedMaxTextSize) && parsedMaxTextSize > 0 ? parsedMaxTextSize : 204800
-
     const systemPrompt = await buildExtractionSystemPrompt(contactMatches, catalogProducts, undefined, workingLanguage)
-    const attachmentBudget = attachments.length > 0 ? resolveAttachmentTextBudget() : null
-    const userPrompt = attachmentBudget
-      ? buildExtractionUserPrompt(fullText, {
-          maxBodyChars: maxTextSize,
-          attachments,
-          maxAttachmentTextChars: attachmentBudget.maxTextChars,
-          maxAttachmentTextCharsPerFile: attachmentBudget.maxTextCharsPerFile,
-        })
-      : buildExtractionUserPrompt(fullText, { maxBodyChars: maxTextSize })
 
     let extractionResult: ReturnType<typeof extractionOutputSchema.parse>
     let tokensUsed = 0

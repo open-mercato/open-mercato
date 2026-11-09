@@ -26,10 +26,11 @@ function clip(value: string | undefined, max: number): string | undefined {
   return trimmed.length > max ? trimmed.slice(0, codePointSafeEnd(trimmed, max)) : trimmed
 }
 
+/** A page/row the stored schema accepts (`int().positive()`, so at most `MAX_SAFE_INTEGER`), else `undefined`. */
 function positiveInteger(value: number | undefined): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
   const rounded = Math.trunc(value)
-  return rounded > 0 ? rounded : undefined
+  return rounded > 0 && rounded <= Number.MAX_SAFE_INTEGER ? rounded : undefined
 }
 
 function resolveCitedPart(

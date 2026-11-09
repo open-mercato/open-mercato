@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { InboxProposalActionSourceRef } from './entities'
 
 const uuid = () => z.string().uuid()
 const coerceNumericString = z.preprocess(
@@ -221,6 +222,15 @@ export const inboxProposalActionSourceRefsSchema = z
   .max(INBOX_SOURCE_REFS_MAX_PER_ACTION)
 
 export type InboxProposalActionSourceRefInput = z.infer<typeof inboxProposalActionSourceRefSchema>
+
+/** Type-level only: `true` when `A` and `B` are the same type, else `false`. */
+type IsSameType<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
+type AssertTrue<T extends true> = T
+/**
+ * Compile-time check, no runtime code: `tsc` fails here when the entity's hand-written
+ * `InboxProposalActionSourceRef` drifts from the type of `inboxProposalActionSourceRefSchema`.
+ */
+export type InboxProposalActionSourceRefMatchesSchema = AssertTrue<IsSameType<InboxProposalActionSourceRef, InboxProposalActionSourceRefInput>>
 
 export const extractedActionSchema = z.object({
   actionType: z.enum([

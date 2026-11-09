@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { listUnguardedAttachmentReaders } from '@open-mercato/core/modules/attachments'
+import { isAttachmentAccessRegistryInvalid, listUnguardedAttachmentReaders } from '@open-mercato/core/modules/attachments'
 import { completeDeletedInboundAttachmentIngest } from './inboundAttachmentIngest'
 import { releaseInboundEmailAttachments, type InboundAttachmentReleaseService } from './inboundAttachmentRelease'
 import {
@@ -85,6 +85,7 @@ export type InboundAttachmentMaintenanceDeps = {
   queue?: InboundAttachmentIngestEnqueuer
   config?: Pick<InboundAttachmentsConfig, 'leaseMs'>
   listUnguardedReaders?: () => string[]
+  isAccessRegistryInvalid?: () => boolean
   now?: () => Date
 }
 
@@ -183,8 +184,12 @@ export async function runInboundAttachmentMaintenance(
   }
 
   try {
-    const readers = (deps.listUnguardedReaders ?? listUnguardedAttachmentReaders)()
-    result.storedReadableByUnguardedReader = await warnIfStoredInboundAttachmentsReadableByUnguardedReaders(em, readers, now)
+    // An invalid access registry lists every known reader (fail closed) without knowing whether one
+    // is enabled, so it would warn falsely; the ingest reports that registry state on its own.
+    if (!(deps.isAccessRegistryInvalid ?? isAttachmentAccessRegistryInvalid)()) {
+      const readers = (deps.listUnguardedReaders ?? listUnguardedAttachmentReaders)()
+      result.storedReadableByUnguardedReader = await warnIfStoredInboundAttachmentsReadableByUnguardedReaders(em, readers, now)
+    }
   } catch (error) {
     logger.warn('Failed to check stored inbound attachments against unguarded readers', { err: error })
   }

@@ -94,6 +94,21 @@ describe('normalizeSourceRefs', () => {
     expect(refs[0]).toEqual({ kind: 'attachment', attachmentId: CSV_ID, fileName: 'lines.csv', page: 1, sheet: 'S'.repeat(100), snippet: 'q'.repeat(500) })
   })
 
+  it('drops only an out-of-range page or row and keeps the rest of the ref', () => {
+    expect(
+      normalizeSourceRefs(
+        [
+          { kind: 'attachment', attachmentId: PDF_ID, page: 1e20, row: 4, snippet: 'page out of range' },
+          { kind: 'attachment', attachmentId: CSV_ID, page: 2, row: Number.MAX_SAFE_INTEGER + 2, snippet: 'row out of range' },
+        ],
+        parts,
+      ),
+    ).toEqual([
+      { kind: 'attachment', attachmentId: PDF_ID, fileName: 'order.pdf', row: 4, snippet: 'page out of range' },
+      { kind: 'attachment', attachmentId: CSV_ID, fileName: 'lines.csv', page: 2, snippet: 'row out of range' },
+    ])
+  })
+
   it('never splits a surrogate pair at the clip limit', () => {
     const [ref] = normalizeSourceRefs([{ kind: 'email_body', snippet: `${'q'.repeat(499)}\u{1F600}tail` }], parts)
     expect(ref.snippet).toBe('q'.repeat(499))

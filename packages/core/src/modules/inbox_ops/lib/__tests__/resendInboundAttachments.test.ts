@@ -136,6 +136,46 @@ describe('downloadWithSizeCap', () => {
     expect(await downloadWithSizeCap('ftp://files.example.test/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl, allowHttp: true })).toEqual({ kind: 'transient', code: 'invalid_url' })
   })
 
+  it('refuses a redirect to a protocol the initial URL could not use, without reading the body', async () => {
+    let pulls = 0
+    let cancelled = false
+    const redirected = (finalUrl: string) => {
+      const response = new Response(new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulls += 1
+          controller.enqueue(new Uint8Array(10))
+          controller.close()
+        },
+        cancel() {
+          cancelled = true
+        },
+      }, { highWaterMark: 0 }), { status: 200 })
+      Object.defineProperty(response, 'url', { value: finalUrl })
+      Object.defineProperty(response, 'redirected', { value: true })
+      return response
+    }
+    const fetchImpl = jest.fn(async () => redirected('http://files.example.test/a'))
+    expect(await downloadWithSizeCap('https://files.example.test/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl })).toEqual({ kind: 'transient', code: 'invalid_url' })
+    expect(await downloadWithSizeCap('https://files.example.test/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl, allowHttp: false })).toEqual({ kind: 'transient', code: 'invalid_url' })
+    expect(pulls).toBe(0)
+    expect(cancelled).toBe(true)
+
+    // A redirect to an unparsable or non-http final URL is refused even while the stub admits http:.
+    fetchImpl.mockImplementationOnce(async () => redirected('file:///etc/passwd'))
+    expect(await downloadWithSizeCap('https://files.example.test/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl, allowHttp: true })).toEqual({ kind: 'transient', code: 'invalid_url' })
+    fetchImpl.mockImplementationOnce(async () => redirected('not a url'))
+    expect(await downloadWithSizeCap('https://files.example.test/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl, allowHttp: true })).toEqual({ kind: 'transient', code: 'invalid_url' })
+    expect(pulls).toBe(0)
+
+    // The stub still admits an http: final URL, and an https: one is always fine.
+    const viaStub = await downloadWithSizeCap('https://files.example.test/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl, allowHttp: true })
+    expect(viaStub.kind === 'ok' ? viaStub.buffer.length : -1).toBe(10)
+    fetchImpl.mockImplementationOnce(async () => redirected('https://cdn.example.test/a'))
+    expect((await downloadWithSizeCap('http://localhost:3000/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl, allowHttp: true })).kind).toBe('ok')
+    fetchImpl.mockImplementationOnce(async () => redirected('https://cdn.example.test/a'))
+    expect((await downloadWithSizeCap('https://files.example.test/a', { timeoutMs: 1000, maxBytes: 100, fetchImpl })).kind).toBe('ok')
+  })
+
   it('times out the whole transfer', async () => {
     const fetchImpl = jest.fn((_url: string, init?: RequestInit) => new Promise<Response>((_, reject) => {
       init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))

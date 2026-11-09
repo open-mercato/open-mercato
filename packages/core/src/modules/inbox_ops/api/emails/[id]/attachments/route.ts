@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { InboxEmail, InboxEmailAttachment } from '../../../../data/entities'
 import {
@@ -63,7 +62,7 @@ function toListItem(row: InboxEmailAttachment): InboxEmailAttachmentListItem {
 
 export async function GET(req: Request) {
   try {
-    const { translate } = await resolveTranslations()
+    const translate = await resolveErrorTranslate()
     const ctx = await resolveRequestContext(req)
     const params = inboxEmailIdParamsSchema.safeParse({ id: extractPathSegment(new URL(req.url), 'emails') })
     const notFound = () => NextResponse.json(

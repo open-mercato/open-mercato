@@ -151,8 +151,25 @@ describe('GET /api/inbox_ops/emails/[id]/attachments', () => {
     expect(response.status).toBe(401)
   })
 
-  it('answers the formatted 500 when the translations cannot be loaded', async () => {
+  it('still lists the ledger and answers 404 in English when the translations cannot be loaded', async () => {
     mockTranslationsFailure.enabled = true
+    const email = db.addEmail()
+    db.addPart(email.id, 'offer')
+
+    const response = await GET(request(email.id))
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.items.map((item: { partKey: string }) => item.partKey)).toEqual(['resend:offer'])
+
+    const missing = await GET(request('7a1e4b6c-0000-4000-8000-000000000000'))
+    expect(missing.status).toBe(404)
+    await expect(missing.json()).resolves.toEqual({ error: 'Email not found' })
+  })
+
+  it('answers the formatted 500 when the request fails and the translations cannot be loaded', async () => {
+    mockTranslationsFailure.enabled = true
+    mockGetAuth.mockRejectedValue(new Error('[internal] auth backend unavailable'))
 
     const response = await GET(request(db.addEmail().id))
 

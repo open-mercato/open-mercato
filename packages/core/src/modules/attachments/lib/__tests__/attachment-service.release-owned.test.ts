@@ -343,6 +343,24 @@ describe('DefaultAttachmentService.releaseOwnedScoped', () => {
     expect(mockClearThumbnailCache).not.toHaveBeenCalled()
   })
 
+  it('re-points a row whose primary owner is the email but whose assignments never listed it', async () => {
+    const { release, committed, providerDelete } = createHarness([
+      row('a', { storageMetadata: { assignments: [
+        { type: 'messages:message', id: 'message-1' },
+        { type: 'documents:document', id: 'document-1' },
+      ] } }),
+    ])
+
+    await expect(release()).resolves.toEqual({ deleted: 0, repointed: 1, detached: 0 })
+
+    expect(committed.get('a')).toMatchObject({
+      entityId: 'messages:message', recordId: 'message-1',
+      storageMetadata: { assignments: [{ type: 'messages:message', id: 'message-1' }, { type: 'documents:document', id: 'document-1' }] },
+    })
+    expect(providerDelete).not.toHaveBeenCalled()
+    expect(mockClearThumbnailCache).not.toHaveBeenCalled()
+  })
+
   it('only removes the email assignment from a row owned by something else, legacy object shape included', async () => {
     const { release, committed, providerDelete } = createHarness([
       row('library', { entityId: 'attachments:library', recordId: 'library', storageMetadata: { assignments: [

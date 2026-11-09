@@ -52,7 +52,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt', () => ({
   buildExtractionSystemPrompt: jest.fn(() => Promise.resolve('mock system prompt')),
-  buildExtractionUserPrompt: jest.fn(() => 'mock user prompt'),
+  // The real builder, spied: the worker decides on its `attachmentTextEmitted` report.
+  composeExtractionUserPrompt: jest.fn(
+    jest.requireActual('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt').composeExtractionUserPrompt,
+  ),
   hasVisiblePromptText: jest.requireActual('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt').hasVisiblePromptText,
 }))
 
@@ -915,7 +918,7 @@ describe('extractionWorker', () => {
     const IMAGE_ID = '22222222-2222-4222-8222-222222222222'
     const FOREIGN_ID = '33333333-3333-4333-8333-333333333333'
     const mockedPrompt = jest.requireMock('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt') as {
-      buildExtractionUserPrompt: jest.Mock
+      composeExtractionUserPrompt: jest.Mock
     }
 
     function ledgerRow(overrides: Record<string, unknown>) {
@@ -958,7 +961,7 @@ describe('extractionWorker', () => {
       await handle(basePayload, mockCtx as any)
 
       expect(mockFindWithDecryption).not.toHaveBeenCalled()
-      expect(mockedPrompt.buildExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 204800 })
+      expect(mockedPrompt.composeExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 204800 })
     })
 
     it.each(['abc', '0', '-5', ''])('falls back to the 204800 body budget for INBOX_OPS_MAX_TEXT_SIZE=%p', async (value) => {
@@ -971,7 +974,7 @@ describe('extractionWorker', () => {
 
         await handle(basePayload, mockCtx as any)
 
-        expect(mockedPrompt.buildExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 204800 })
+        expect(mockedPrompt.composeExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 204800 })
       } finally {
         if (saved === undefined) delete process.env.INBOX_OPS_MAX_TEXT_SIZE
         else process.env.INBOX_OPS_MAX_TEXT_SIZE = saved
@@ -988,7 +991,7 @@ describe('extractionWorker', () => {
 
         await handle(basePayload, mockCtx as any)
 
-        expect(mockedPrompt.buildExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 5000 })
+        expect(mockedPrompt.composeExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 5000 })
       } finally {
         if (saved === undefined) delete process.env.INBOX_OPS_MAX_TEXT_SIZE
         else process.env.INBOX_OPS_MAX_TEXT_SIZE = saved
@@ -1021,7 +1024,7 @@ describe('extractionWorker', () => {
         expect.anything(),
         { tenantId: 'tenant-1', organizationId: 'org-1' },
       )
-      const [, options] = mockedPrompt.buildExtractionUserPrompt.mock.calls[0]
+      const [, options] = mockedPrompt.composeExtractionUserPrompt.mock.calls[0]
       expect(options.attachments).toEqual([
         { attachmentId: PDF_ID, fileName: 'order.pdf', mimeType: 'application/pdf', status: 'stored', reason: null, extractedText: '20 x Widget Alpha at 12.50 EUR' },
         { attachmentId: null, fileName: 'setup.exe', mimeType: 'application/x-msdownload', status: 'skipped', reason: 'dangerous_executable', extractedText: null },
@@ -1047,7 +1050,7 @@ describe('extractionWorker', () => {
 
         await handle(basePayload, mockCtx as any)
 
-        const [, options] = mockedPrompt.buildExtractionUserPrompt.mock.calls[0]
+        const [, options] = mockedPrompt.composeExtractionUserPrompt.mock.calls[0]
         expect(options.maxAttachmentTextChars).toBe(60000)
         expect(options.maxAttachmentTextCharsPerFile).toBe(20000)
         expect(mockRunExtraction).toHaveBeenCalledTimes(1)
@@ -1103,6 +1106,32 @@ describe('extractionWorker', () => {
       expect(mockRunExtraction).not.toHaveBeenCalled()
       expect(email.status).toBe('needs_review')
       expect(email.processingError).toContain('No text content')
+    })
+
+    it('skips the LLM and sets needs_review for an empty body whose attachment text is all past the text budget', async () => {
+      const saved = process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS
+      // Too small for any block's tag lines, so every stored file is listed as text="omitted_budget".
+      process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS = '10'
+      try {
+        mockNativeUpdate.mockResolvedValue(1)
+        const email = makeEmail({ rawText: '', rawHtml: null, cleanedText: '', attachmentsStatus: 'completed' })
+        mockFindOneWithDecryption.mockResolvedValueOnce(email)
+        mockFindWithDecryption.mockResolvedValueOnce([ledgerRow({})])
+
+        await handle(basePayload, mockCtx as any)
+
+        const [, options] = mockedPrompt.composeExtractionUserPrompt.mock.calls[0]
+        expect(options.maxAttachmentTextChars).toBe(10)
+        expect(mockedPrompt.composeExtractionUserPrompt.mock.results[0].value).toMatchObject({ attachmentTextEmitted: false })
+        expect(mockedPrompt.composeExtractionUserPrompt.mock.results[0].value.prompt).toContain('text="omitted_budget"')
+        expect(mockRunExtraction).not.toHaveBeenCalled()
+        expect(email.status).toBe('needs_review')
+        expect(email.processingError).toContain('No text content')
+        expect(mockCreate).not.toHaveBeenCalledWith(InboxProposal, expect.anything())
+      } finally {
+        if (saved === undefined) delete process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS
+        else process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS = saved
+      }
     })
 
     it('still fails an empty body when no part was stored', async () => {

@@ -53,8 +53,9 @@ write time.
   other row shares the stored object); a row owned by `owner` with other assignments is
   re-pointed to the first remaining assignment in stored order; a row owned by
   something else only loses `owner`'s assignment (array and legacy single-object
-  `storage_metadata.assignments` shapes). Only rows of the given tenant and organization
-  change. It commits its own transaction (it refuses an ambient one), locks the owner's
+  `storage_metadata.assignments` shapes); a re-pointed or detached row's `storage_metadata`
+  is written back normalized (`assignments` and `tags` in their canonical shape). Only rows
+  of the given tenant and organization change. It commits its own transaction (it refuses an ambient one), locks the owner's
   rows together with every row sharing their stored objects in one id-ordered statement
   (so only a concurrent single-object `releaseScoped` is guaranteed not to deadlock with it;
   other writers can still abort it with 40P01 or a serialization failure, which it throws

@@ -474,7 +474,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {canDeleteEmail && email && (
-            <Button type="button" variant="outline" size="sm" className="h-11 md:h-9" onClick={() => setIsDeleteEmailOpen(true)} disabled={isProcessing} aria-label={t('inbox_ops.emails.delete.action', 'Delete email')}>
+            <Button type="button" variant="destructive-outline" size="sm" className="h-11 md:h-9" onClick={() => setIsDeleteEmailOpen(true)} disabled={isProcessing} aria-label={t('inbox_ops.emails.delete.action', 'Delete email')}>
               <Trash2 className="h-4 w-4 md:mr-1" />
               <span className="hidden md:inline">{t('inbox_ops.emails.delete.action', 'Delete email')}</span>
             </Button>

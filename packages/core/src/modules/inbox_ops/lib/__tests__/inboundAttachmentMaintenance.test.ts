@@ -200,6 +200,16 @@ describe('maintenance sweep: releases', () => {
     resetInboundAttachmentGateWarningsForTests()
     expect((await sweep(db, { listUnguardedReaders: () => [] })).storedReadableByUnguardedReader).toBe(false)
   })
+
+  it('skips the unguarded-reader warning while the access registry is invalid', async () => {
+    const db = new FakeInboxDb()
+    const email = db.addEmail({ attachmentsStatus: 'completed' })
+    db.addPart(email.id, 'a', { status: 'stored', attachmentId: '44444444-4444-4444-8444-444444444444' })
+    const listUnguardedReaders = jest.fn(() => ['agent_orchestrator'])
+    expect((await sweep(db, { listUnguardedReaders, isAccessRegistryInvalid: () => true })).storedReadableByUnguardedReader).toBe(false)
+    expect(listUnguardedReaders).not.toHaveBeenCalled()
+    expect((await sweep(db, { listUnguardedReaders, isAccessRegistryInvalid: () => false })).storedReadableByUnguardedReader).toBe(true)
+  })
 })
 
 describe('releaseInboundEmailAttachments', () => {

@@ -311,14 +311,23 @@ export function buildAttachmentsSection(
   attachments: ExtractionPromptAttachment[],
   options: { maxTotalChars?: number; maxCharsPerFile?: number } = {},
 ): string | null {
+  return renderAttachmentsSection(attachments, options).section
+}
+
+/** {@link buildAttachmentsSection} that also reports whether any `<attachment>` text block was emitted. */
+function renderAttachmentsSection(
+  attachments: ExtractionPromptAttachment[],
+  options: { maxTotalChars?: number; maxCharsPerFile?: number },
+): { section: string | null; textEmitted: boolean } {
   const maxTotal = positiveBudget(options.maxTotalChars, INBOUND_ATTACHMENTS_CONFIG_DEFAULTS.maxTextChars)
   const maxPerFile = positiveBudget(options.maxCharsPerFile, INBOUND_ATTACHMENTS_CONFIG_DEFAULTS.maxTextCharsPerFile)
   const listed = attachments.filter(
     (attachment) => attachment.status !== 'released' && attachment.reason !== 'inline_decoration',
   )
-  if (listed.length === 0) return null
+  if (listed.length === 0) return { section: null, textEmitted: false }
 
   let remaining = maxTotal
+  let textEmitted = false
   let metadataLines = 0
   let omitted = 0
   const lines: string[] = []
@@ -355,19 +364,33 @@ export function buildAttachmentsSection(
     const block = [`<attachment ${attributes}${fitted.truncated ? ' truncated="true"' : ''}>`, fitted.body, closingTag]
     remaining -= block.join('\n').length + 1
     lines.push(...block)
+    textEmitted = true
   })
   if (omitted > 0) lines.push(`<attachments_omitted count="${omitted}" />`)
 
-  return `<attachments>\n${lines.join('\n')}\n</attachments>`
+  return { section: `<attachments>\n${lines.join('\n')}\n</attachments>`, textEmitted }
 }
 
 export function buildExtractionUserPrompt(cleanedText: string, options: ExtractionUserPromptOptions = {}): string {
-  const attachmentsSection = options.attachments?.length
-    ? buildAttachmentsSection(options.attachments, {
+  return composeExtractionUserPrompt(cleanedText, options).prompt
+}
+
+/**
+ * {@link buildExtractionUserPrompt} that also reports whether the prompt carries any attachment
+ * text (`attachmentTextEmitted`): false when no stored file has text or every text block fell
+ * outside the budget (`text="omitted_budget"`), so an empty body leaves the prompt without content.
+ */
+export function composeExtractionUserPrompt(
+  cleanedText: string,
+  options: ExtractionUserPromptOptions = {},
+): { prompt: string; attachmentTextEmitted: boolean } {
+  const rendered = options.attachments?.length
+    ? renderAttachmentsSection(options.attachments, {
         maxTotalChars: options.maxAttachmentTextChars,
         maxCharsPerFile: options.maxAttachmentTextCharsPerFile,
       })
     : null
+  const attachmentsSection = rendered?.section ?? null
   // The body is untrusted as well: a forged `</email_content><attachments>` must not open a section.
   // Cut-then-neutralize like attachment text, so `&lt;` growth cannot overrun the body budget.
   const maxBodyChars = positiveBudget(options.maxBodyChars, Number.POSITIVE_INFINITY)
@@ -381,7 +404,7 @@ export function buildExtractionUserPrompt(cleanedText: string, options: Extracti
     ? '\n- Use the attachment text as order, quote, and contact data when the email refers to it or the body is empty.'
     : ''
 
-  return `<task>
+  const prompt = `<task>
 Extract actionable ERP proposals from this email thread.
 </task>
 
@@ -394,6 +417,7 @@ ${emailContent}
 - Keep payloads concise and schema-valid.${attachmentRequirement}
 - For each proposed action, optionally include sourceRefs naming where its values were found: kind "email_body", or kind "attachment" with the attachmentId and name of the cited <attachment>; snippet is a short verbatim quote (under 200 characters).
 </output_requirements>`
+  return { prompt, attachmentTextEmitted: rendered?.textEmitted ?? false }
 }
 
 /** @deprecated Use the generated inbox action registry instead */

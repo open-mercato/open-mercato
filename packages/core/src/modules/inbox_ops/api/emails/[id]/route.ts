@@ -7,7 +7,6 @@ import {
   enforceCommandOptimisticLockWithGuards,
   enforceRecordGoneIsConflict,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -50,7 +49,7 @@ function tryResolve<T>(container: { resolve: (name: string) => unknown }, name: 
 
 export async function GET(req: Request) {
   try {
-    const { translate } = await resolveTranslations()
+    const translate = await resolveErrorTranslate()
     const url = new URL(req.url)
     const id = extractPathSegment(url, 'emails')
 
@@ -92,7 +91,7 @@ export async function GET(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { translate } = await resolveTranslations()
+    const translate = await resolveErrorTranslate()
     const url = new URL(req.url)
     const id = extractPathSegment(url, 'emails')
 

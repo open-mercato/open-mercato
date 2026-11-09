@@ -138,10 +138,15 @@ export type DownloadResult =
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
+function isAllowedDownloadProtocol(protocol: string, allowHttp: boolean | undefined): boolean {
+  return protocol === 'https:' || (allowHttp === true && protocol === 'http:')
+}
+
 /**
  * Streams a download URL with a size cap; the whole transfer is bounded by `timeoutMs`. Only
  * `https:` URLs are fetched; `allowHttp` (the test-only Resend stub, `resendStubEnabled`) also
- * admits `http:`.
+ * admits `http:`. The rule holds for the final URL too: a redirect to another protocol is refused
+ * like the URL itself, without reading the body.
  */
 export async function downloadWithSizeCap(
   url: string,
@@ -153,8 +158,7 @@ export async function downloadWithSizeCap(
   } catch {
     return { kind: 'transient', code: 'invalid_url' }
   }
-  const allowedProtocol = parsed.protocol === 'https:' || (options.allowHttp === true && parsed.protocol === 'http:')
-  if (!allowedProtocol) return { kind: 'transient', code: 'invalid_url' }
+  if (!isAllowedDownloadProtocol(parsed.protocol, options.allowHttp)) return { kind: 'transient', code: 'invalid_url' }
 
   const fetchImpl = options.fetchImpl ?? fetch
   const controller = new AbortController()
@@ -165,6 +169,12 @@ export async function downloadWithSizeCap(
   }, options.timeoutMs)
   try {
     const response = await fetchImpl(parsed.toString(), { signal: controller.signal, redirect: 'follow' })
+    // `fetch` follows redirects; `url` is the final one (empty only for a constructed Response).
+    if (response.url && !isAllowedFinalUrl(response.url, options.allowHttp)) {
+      await response.body?.cancel().catch(() => undefined)
+      controller.abort()
+      return { kind: 'transient', code: 'invalid_url' }
+    }
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined)
       return { kind: 'http', status: response.status }
@@ -193,6 +203,14 @@ export async function downloadWithSizeCap(
     return { kind: 'transient', code: timedOut ? TIMEOUT_CODE : 'network' }
   } finally {
     clearTimeout(timer)
+  }
+}
+
+function isAllowedFinalUrl(url: string, allowHttp: boolean | undefined): boolean {
+  try {
+    return isAllowedDownloadProtocol(new URL(url).protocol, allowHttp)
+  } catch {
+    return false
   }
 }
 
