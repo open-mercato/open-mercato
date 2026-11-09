@@ -203,6 +203,18 @@ serves metadata, so packages published earlier pick up the new address.
 The registry config allows anonymous publish of `@open-mercato/*`, so do not
 bind it to `0.0.0.0` on a machine reachable from the internet.
 
+Run the live route regression on a native-Linux Docker host:
+
+```bash
+OM_RUN_VERDACCIO_LINUX_SMOKE=1 node --test scripts/__tests__/verdaccio-linux-registry.test.mjs
+```
+
+It creates a separate registry, network and storage volume, checks the loopback
+default and explicit bridge binding, publishes a disposable fixture, and verifies
+advertised tarball download plus a cold Yarn 4.17.1 install from a container.
+It removes its own containers and volumes afterwards. The normal script suite
+skips this opt-in Docker check; it does not replace the standalone fullapp build.
+
 ## Windows + Docker Developer Command Cookbook
 
 Windows users who develop through Docker can run any monorepo command using the `docker:*` wrapper scripts. These scripts detect the active container automatically and execute the command inside it — no WSL required.
