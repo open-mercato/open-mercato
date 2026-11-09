@@ -56,16 +56,28 @@ export const plannerAvailabilityRuleUpdateSchema = z.object({
   unavailabilityReasonValue: z.string().trim().min(1).max(150).optional().nullable(),
 })
 
+const timeOfDayPattern = /^([01]\d|2[0-3]):[0-5]\d$/
+
+function requireEndAfterStart(window: { start: string; end: string }, ctx: z.RefinementCtx) {
+  if (!timeOfDayPattern.test(window.start) || !timeOfDayPattern.test(window.end)) return
+  if (window.end > window.start) return
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['end'],
+    message: 'planner.availability.errors.windowEndBeforeStart',
+  })
+}
+
 const weeklyWindowSchema = z.object({
   weekday: z.number().int().min(0).max(6),
-  start: z.string().regex(/^\d{2}:\d{2}$/),
-  end: z.string().regex(/^\d{2}:\d{2}$/),
-})
+  start: z.string().regex(timeOfDayPattern),
+  end: z.string().regex(timeOfDayPattern),
+}).superRefine(requireEndAfterStart)
 
 const dateSpecificWindowSchema = z.object({
-  start: z.string().regex(/^\d{2}:\d{2}$/),
-  end: z.string().regex(/^\d{2}:\d{2}$/),
-})
+  start: z.string().regex(timeOfDayPattern),
+  end: z.string().regex(timeOfDayPattern),
+}).superRefine(requireEndAfterStart)
 
 const dateSpecificDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
