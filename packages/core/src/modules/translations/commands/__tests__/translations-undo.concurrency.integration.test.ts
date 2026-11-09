@@ -153,6 +153,16 @@ describeWithPostgres('translations undo against concurrent saves on real Postgre
     return JSON.parse(JSON.stringify(log)) as LogEntry
   }
 
+  async function runSaveWithLaterSaveBeforeCapture(translations: Translations, laterTranslations: Translations): Promise<LogEntry> {
+    const input = { ...KEY, translations }
+    const prepared = await save.prepare!(input, ctx())
+    const result = await save.execute(input, ctx())
+    await runSave(laterTranslations)
+    const after = await save.captureAfter!(input, result, ctx())
+    const log = await save.buildLog!({ input, result, ctx: ctx(), snapshots: { before: prepared?.before, after } } as never)
+    return JSON.parse(JSON.stringify(log)) as LogEntry
+  }
+
   async function runDelete(): Promise<LogEntry> {
     const prepared = await remove.prepare!(KEY, ctx())
     const result = await remove.execute(KEY, ctx())
@@ -278,6 +288,23 @@ describeWithPostgres('translations undo against concurrent saves on real Postgre
     } finally {
       client.release()
     }
+    expect(await current()).toEqual(newer)
+  })
+
+  it('refuses the undo when another save committed between the save and its after snapshot', async () => {
+    await runSave({ en: { name: 'Shoe' } })
+    const newer = { en: { name: 'Sneaker' }, fr: { name: 'Baskets' } }
+    const log = await runSaveWithLaterSaveBeforeCapture({ en: { name: 'Sneaker' } }, newer)
+
+    expect(await settle(undo(save, log))).toEqual(CONFLICT)
+    expect(await current()).toEqual(newer)
+  })
+
+  it('refuses a create undo when another save committed between the create and its after snapshot', async () => {
+    const newer = { en: { name: 'Shoe' }, de: { name: 'Schuh' } }
+    const log = await runSaveWithLaterSaveBeforeCapture({ en: { name: 'Shoe' } }, newer)
+
+    expect(await settle(undo(save, log))).toEqual(CONFLICT)
     expect(await current()).toEqual(newer)
   })
 

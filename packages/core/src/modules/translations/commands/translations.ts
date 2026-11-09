@@ -36,6 +36,15 @@ type TranslationsDatabase = {
   }
 }
 
+type TranslationRow = {
+  id: string
+  entity_type: string
+  entity_id: string
+  translations: TranslationSnapshot['translations']
+  organization_id: string | null
+  tenant_id: string
+}
+
 type SaveInput = {
   entityType: string
   entityId: string
@@ -70,9 +79,12 @@ async function loadTranslationSnapshot(
     .where('entity_id', '=', entityId)
     .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
     .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
-    .executeTakeFirst() as Record<string, any> | undefined
+    .executeTakeFirst() as TranslationRow | undefined
 
-  if (!row) return null
+  return row ? toTranslationSnapshot(row) : null
+}
+
+function toTranslationSnapshot(row: TranslationRow): TranslationSnapshot {
   return {
     id: row.id,
     entityType: row.entity_type,
@@ -101,7 +113,7 @@ function sameTranslations(
   return isDeepStrictEqual(current ?? null, expected ?? null)
 }
 
-const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
+const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; snapshot: TranslationSnapshot | null }> = {
   id: 'translations.translation.save',
 
   async prepare(input, ctx) {
@@ -116,7 +128,7 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
 
     // Run the lookup + upsert + id read in one transaction so a concurrent
     // writer cannot slip between the existence check and the insert/update.
-    const rowId = await db.transaction().execute(async (trx: any) => {
+    const snapshot = await db.transaction().execute(async (trx: any) => {
       const existing = await trx
         .selectFrom('entity_translations')
         .select(['id'])
@@ -152,14 +164,14 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
 
       const saved = await trx
         .selectFrom('entity_translations')
-        .select(['id'])
+        .selectAll()
         .where('entity_type', '=', input.entityType)
         .where('entity_id', '=', input.entityId)
         .where(sql<boolean>`tenant_id is not distinct from ${input.tenantId}`)
         .where(sql<boolean>`organization_id is not distinct from ${input.organizationId}`)
-        .executeTakeFirst() as { id: string } | undefined
+        .executeTakeFirst() as TranslationRow | undefined
 
-      return saved?.id ?? ''
+      return saved ? toTranslationSnapshot(saved) : null
     })
 
     // Emit AFTER the write commits — never announce a change that rolled back.
@@ -170,12 +182,11 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
       tenantId: input.tenantId,
     }, { persistent: true }).catch(() => undefined)
 
-    return { rowId }
+    return { rowId: snapshot?.id ?? '', snapshot }
   },
 
-  async captureAfter(input, _result, ctx) {
-    const db = resolveDb(ctx)
-    return await loadTranslationSnapshot(db, input.entityType, input.entityId, input.tenantId, input.organizationId)
+  async captureAfter(_input, result) {
+    return result.snapshot
   },
 
   async buildLog({ snapshots, result }) {

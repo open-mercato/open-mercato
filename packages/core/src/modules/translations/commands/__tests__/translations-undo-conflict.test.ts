@@ -167,6 +167,21 @@ async function runSave(handler: SaveHandler, ctx: CommandRuntimeContext, transla
   return JSON.parse(JSON.stringify(log)) as LogEntry
 }
 
+async function runSaveWithLaterSaveBeforeCapture(
+  handler: SaveHandler,
+  ctx: CommandRuntimeContext,
+  translations: Translations,
+  laterTranslations: Translations,
+): Promise<LogEntry> {
+  const input = { ...KEY, translations }
+  const prepared = await handler.prepare!(input, ctx)
+  const result = await handler.execute(input, ctx)
+  await runSave(handler, ctx, laterTranslations)
+  const after = await handler.captureAfter!(input, result, ctx)
+  const log = await handler.buildLog!({ input, result, ctx, snapshots: { before: prepared?.before, after } } as never)
+  return JSON.parse(JSON.stringify(log)) as LogEntry
+}
+
 async function runDelete(handler: DeleteHandler, ctx: CommandRuntimeContext): Promise<LogEntry> {
   const prepared = await handler.prepare!(KEY, ctx)
   const result = await handler.execute(KEY, ctx)
@@ -227,6 +242,32 @@ describe('translations undo refuses to overwrite later changes', () => {
     await expect(undo(save, ctx, updateLog)).rejects.toEqual(conflict)
 
     expect(db.rows[0].translations).toEqual({ en: { name: 'Sneaker' }, fr: { name: 'Baskets' } })
+  })
+
+  it('refuses to undo an update when another save committed before its after snapshot was taken', async () => {
+    const { save } = loadHandlers()
+    const db = new FakeDb()
+    const ctx = makeCtx(db)
+    await runSave(save, ctx, { en: { name: 'Shoe' } })
+    const newer = { en: { name: 'Sneaker' }, fr: { name: 'Baskets' } }
+    const updateLog = await runSaveWithLaterSaveBeforeCapture(save, ctx, { en: { name: 'Sneaker' } }, newer)
+
+    await expect(undo(save, ctx, updateLog)).rejects.toEqual(conflict)
+
+    expect(db.rows[0].translations).toEqual(newer)
+  })
+
+  it('refuses to undo a create when another save committed before its after snapshot was taken', async () => {
+    const { save } = loadHandlers()
+    const db = new FakeDb()
+    const ctx = makeCtx(db)
+    const newer = { en: { name: 'Shoe' }, de: { name: 'Schuh' } }
+    const createLog = await runSaveWithLaterSaveBeforeCapture(save, ctx, { en: { name: 'Shoe' } }, newer)
+
+    await expect(undo(save, ctx, createLog)).rejects.toEqual(conflict)
+
+    expect(db.rows).toHaveLength(1)
+    expect(db.rows[0].translations).toEqual(newer)
   })
 
   it('refuses to undo an update after another operator deleted the record', async () => {
