@@ -307,16 +307,20 @@ export function inventoryOperationsSection(page: Page) {
   })
 }
 
-export async function ensureEnglishLocale(page: Page) {
+export async function setWmsLocale(page: Page, locale: string) {
   const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
   await page.context().addCookies([
     {
       name: 'locale',
-      value: 'en',
+      value: locale,
       url: baseUrl,
       sameSite: 'Lax',
     },
   ])
+}
+
+export async function ensureEnglishLocale(page: Page) {
+  await setWmsLocale(page, 'en')
 }
 
 export async function filterInventoryConsoleTable(
