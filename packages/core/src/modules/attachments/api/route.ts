@@ -651,13 +651,18 @@ async function uploadAttachment(req: Request) {
       // check above ran before storage/OCR; an editor's share or the owner
       // itself can be revoked/archived while that work was in flight. Use a
       // fresh context so this evaluation never reuses the earlier subject or
-      // resolver cache.
+      // resolver cache. `commitBoundary: true` tells a resolver that owns a
+      // locking protocol for its aggregate (e.g. Documents' pessimistic write
+      // lock on archive/share mutations) to take that same lock on `tx` here,
+      // so this recheck is serialized against those mutations rather than
+      // racing them with a plain read (#8975 review).
       await assertAttachmentOwnerAccess({
         em: tx,
         context: createAttachmentAccessContext(container),
         auth: scopedAuth,
         attachment: att,
         action: 'create',
+        commitBoundary: true,
       })
       await tx.persist(att).flush()
       if (dataEngine) {

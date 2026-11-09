@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 
 export type AttachmentAccessAction = 'read' | 'render' | 'metadata' | 'reassign' | 'delete' | 'export' | 'create'
@@ -55,6 +56,25 @@ export type AttachmentAccessInput = Readonly<{
   container: AwilixContainer
   cache: Map<string, unknown>
   signal: AbortSignal
+  /**
+   * The caller's live EntityManager, present only when this evaluation runs
+   * inside the mutating transaction it is gating (the upload route's
+   * commit-boundary recheck). A resolver that mutates an owning aggregate
+   * under a pessimistic lock elsewhere (e.g. archive/share commands) MUST
+   * take the same lock here with this `em` when `commitBoundary` is true, so
+   * the recheck is actually serialized against those commands rather than
+   * racing a plain, unlocked read against them (#8975).
+   */
+  em?: EntityManager
+  /**
+   * True only for the recheck performed right before the attachment row is
+   * flushed, inside the same transaction as that write. False (or absent)
+   * for every other evaluation — including the upload's own pre-storage
+   * check — where `em` is not transactionally tied to the decision and
+   * taking a pessimistic lock would be both unnecessary and unsafe (no open
+   * transaction to hold it in).
+   */
+  commitBoundary?: boolean
 }>
 
 export type AttachmentAccessDecision =
