@@ -106,7 +106,8 @@ async function hydrateWithTool(
     return null
   }
   try {
-    const result = await tool.handler(inputArgs as never, toolContext)
+    const toolCallContext = { ...toolContext, tool }
+    const result = await tool.handler(inputArgs as never, toolCallContext)
     if (!result || typeof result !== 'object') return null
     if ((result as { found?: boolean }).found === false) return null
     return result

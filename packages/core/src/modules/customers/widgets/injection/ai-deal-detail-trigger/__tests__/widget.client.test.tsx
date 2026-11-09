@@ -58,6 +58,7 @@ describe('customers computeCustomersAiDealDetailPageContext (Step 5.15)', () => 
     })
     expect(ctx).toEqual({
       view: 'customers.deal.detail',
+      entityType: 'customers.deal',
       recordType: 'deal',
       recordId: 'deal-1',
       extra: { stage: 'won', pipelineStageId: 'stage-3' },
@@ -78,6 +79,7 @@ describe('customers computeCustomersAiDealDetailPageContext (Step 5.15)', () => 
     )
     expect(ctx).toEqual({
       view: 'customers.deal.detail',
+      entityType: 'customers.deal',
       recordType: 'deal',
       recordId: 'deal-2',
       extra: { stage: 'open', pipelineStageId: 'stage-7' },

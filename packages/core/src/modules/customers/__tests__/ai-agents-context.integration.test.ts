@@ -190,7 +190,11 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
     })
     expect(handler).toHaveBeenCalledWith(
       { dealId: VALID_UUID_A, includeRelated: true },
-      expect.objectContaining({ tenantId: 'tenant-1' }),
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+        tool: expect.objectContaining({ name: 'customers.get_deal' }),
+      }),
     )
     expect(result).toContain('## Page context — Deal')
     expect(result).toContain('Q3 renewal')
