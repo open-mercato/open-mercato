@@ -19,12 +19,15 @@ a service in the caller's organization (quotes/orders: not archived; invoices/cr
 service archived since the order). Shipments reject order lines that reference a catalog service, and a line with
 shipped quantity can no longer change its kind or catalog references. Products navigation and
 page titles now read "Products" instead of "Products & services". Line upserts accept an explicit
-`null` to clear a line's unit, product, variant or catalog snapshot, so in the exported
-`OrderLineCreateInput`/`QuoteLineCreateInput` types `quantityUnit`, `productId` and `productVariantId`
-are now `string | null | undefined` and `catalogSnapshot` is `Record<string, unknown> | null | undefined`;
-both types also gain `serviceId?: string | null`, and the `lines` items of `InvoiceCreateInput`/`CreditMemoCreateInput`
-gain `serviceId` (credit memo lines also `kind`). Code that reads these fields as non-nullable needs a
-type update. Editing a line without a product recomputes
+`null` to clear a line's unit, product, variant or catalog snapshot. Every quote/order line input
+shape shares one line schema, so the change reaches `OrderLineCreateInput`, `OrderLineUpdateInput`,
+`QuoteLineCreateInput`, `QuoteLineUpdateInput`, the `lines` items of `OrderCreateInput` and
+`QuoteCreateInput`, and the `lines` entries of `OrderLineBulkUpsertInput` (with the matching
+`POST /api/sales/orders`, `POST /api/sales/quotes`, line and bulk line request bodies): `quantityUnit`,
+`productId` and `productVariantId` are now `string | null | undefined`, `catalogSnapshot` is
+`Record<string, unknown> | null | undefined`, and each gains `serviceId?: string | null`. The `lines`
+items of `InvoiceCreateInput`/`CreditMemoCreateInput` gain `serviceId` (credit memo lines also `kind`).
+Code that reads these fields as non-nullable needs a type update. Editing a line without a product recomputes
 its normalized quantity, unit and unit snapshot from the quantity and unit, replacing any values an API
 caller supplied when creating the line.
 When an update changes a line's product without naming a unit, the stored unit is kept if the new

@@ -187,6 +187,41 @@ describe.each([
     expect(persistedLine).toMatchObject({ kind: 'service', productId: PRODUCT_ID, serviceId: null })
   })
 
+  it('accepts a custom line that sends explicit null references, unit and snapshot', async () => {
+    const { ctx, created } = buildHarness()
+
+    const result = await getHandler().execute(
+      buildInput([
+        {
+          lineNumber: 1,
+          kind: 'product',
+          name: 'Freeform',
+          quantity: 3,
+          currencyCode: 'USD',
+          productId: null,
+          productVariantId: null,
+          serviceId: null,
+          quantityUnit: null,
+          catalogSnapshot: null,
+          unitPriceNet: 10,
+        },
+      ]) as never,
+      ctx,
+    )
+
+    expect(result[resultKey]).toEqual(expect.any(String))
+    const persistedLine = created.find((record) => record.name === 'Freeform' && 'kind' in record)
+    expect(persistedLine).toMatchObject({
+      kind: 'product',
+      productId: null,
+      productVariantId: null,
+      serviceId: null,
+      quantityUnit: null,
+      catalogSnapshot: null,
+    })
+    expect(catalogServiceQueries(findWithDecryption as jest.Mock)).toHaveLength(0)
+  })
+
   it('rejects a line that references a service and a product at the same time', async () => {
     const { ctx } = buildHarness()
 

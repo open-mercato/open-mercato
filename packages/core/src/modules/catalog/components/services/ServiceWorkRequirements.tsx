@@ -131,6 +131,12 @@ async function loadOptions(path: string): Promise<LookupOption[]> {
     .filter((entry): entry is LookupOption => entry !== null)
 }
 
+function referenceOptionsFor(row: ServiceWorkRequirementDraft, loaded: LookupOption[]): LookupOption[] {
+  const targetId = text(row.targetId)
+  if (!targetId || loaded.some((option) => option.value === targetId)) return loaded
+  return [{ value: targetId, label: text(row.labelSnapshot) ?? compactReference(targetId) }, ...loaded]
+}
+
 function targetTypeLabel(t: ReturnType<typeof useT>, type: CatalogServiceWorkTargetType): string {
   const labels: Record<CatalogServiceWorkTargetType, string> = {
     staff_team: t('catalog.services.work.target.staffTeam', 'Staff team'),
@@ -254,11 +260,11 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
 
       <div className="space-y-3">
         {rows.map((row, index) => {
-          const targetOptions = lookups[row.targetType] ?? []
+          const targetOptions = referenceOptionsFor(row, lookups[row.targetType] ?? [])
           return (
             <div key={`${row.id ?? 'new'}-${index}`} className="rounded-md border p-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-[minmax(7rem,0.8fr)_minmax(12rem,1.2fr)_minmax(14rem,1.5fr)_minmax(7rem,0.8fr)_minmax(5.5rem,0.6fr)_2rem]">
-                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-12">
+                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground 2xl:col-span-2">
                   <span>{t('catalog.services.work.field.targetType', 'Target')}</span>
                   <Select
                     value={row.targetType}
@@ -280,7 +286,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                   </Select>
                 </label>
 
-                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground 2xl:col-span-3">
                   <span>{t('catalog.services.work.field.label', 'Label')}</span>
                   <Input
                     className="h-9 w-full min-w-0"
@@ -290,7 +296,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                 </label>
 
                 {row.targetType === 'generic' ? null : (
-                  <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+                  <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground 2xl:col-span-3">
                     <span>{t('catalog.services.work.field.reference', 'Reference')}</span>
                     <Select
                       value={row.targetId ?? NO_REFERENCE_VALUE}
@@ -309,7 +315,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                   </label>
                 )}
 
-                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground 2xl:col-span-2">
                   <span>{t('catalog.services.work.field.allocationMode', 'Mode')}</span>
                   <Select
                     value={row.allocationMode}
@@ -331,7 +337,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                   </Select>
                 </label>
 
-                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+                <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground 2xl:col-span-1">
                   <span>{t('catalog.services.work.field.value', 'Value')}</span>
                   <Input
                     className="h-9 w-full min-w-0"
@@ -342,7 +348,7 @@ export function ServiceWorkRequirements({ value, onChange, showHeader = true }: 
                   />
                 </label>
 
-                <div className="flex min-w-0 items-end justify-end sm:col-span-2 2xl:col-span-1 2xl:col-start-6">
+                <div className="flex min-w-0 items-end justify-end sm:col-span-2 2xl:col-span-1 2xl:col-start-12">
                   <IconButton variant="ghost" size="default" onClick={() => removeRow(index)} aria-label={t('catalog.services.work.actions.remove', 'Remove')}>
                     <Trash2 className="h-4 w-4" />
                   </IconButton>

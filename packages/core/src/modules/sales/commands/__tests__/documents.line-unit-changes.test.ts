@@ -360,4 +360,53 @@ describe('sales line writes — unit handling on product changes', () => {
       expect(Number(line.unitPriceNet)).toBe(10)
     })
   })
+
+  describe('bulk order line writes', () => {
+    const bulkProductChange = {
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      orderId: ORDER_ID,
+      lines: [
+        {
+          id: FIRST_LINE_ID,
+          kind: 'product',
+          currencyCode: 'USD',
+          productId: OTHER_PRODUCT_ID,
+          productVariantId: null,
+          quantity: 2,
+          unitPriceNet: 120,
+          unitPriceGross: 120,
+          taxRate: 0,
+        },
+      ],
+    }
+
+    it('keeps the stored unit when the new product sells in it', async () => {
+      setWorld(
+        [storedBoxLine()],
+        [productA, { id: OTHER_PRODUCT_ID, defaultUnit: 'pc', defaultSalesUnit: 'pc' }],
+        { [PRODUCT_ID]: [boxConversionA], [OTHER_PRODUCT_ID]: [{ id: 'conv-b-box', unitCode: 'box', toBaseFactor: '6' }] },
+      )
+
+      const line = (await runCommand('sales.orders.lines.upsert_many', bulkProductChange)).get(FIRST_LINE_ID)!
+
+      expect(line.quantityUnit).toBe('box')
+      expect(Number(line.normalizedQuantity)).toBe(12)
+      expect(Number(line.unitPriceNet)).toBe(120)
+    })
+
+    it("falls back to the new product's default unit when it cannot resolve the stored unit", async () => {
+      setWorld(
+        [storedBoxLine()],
+        [productA, { id: OTHER_PRODUCT_ID, defaultUnit: 'kg', defaultSalesUnit: 'kg' }],
+        { [PRODUCT_ID]: [boxConversionA], [OTHER_PRODUCT_ID]: [] },
+      )
+
+      const line = (await runCommand('sales.orders.lines.upsert_many', bulkProductChange)).get(FIRST_LINE_ID)!
+
+      expect(line.quantityUnit).toBe('kg')
+      expect(Number(line.normalizedQuantity)).toBe(2)
+      expect(Number(line.unitPriceNet)).toBe(120)
+    })
+  })
 })

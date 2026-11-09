@@ -575,6 +575,52 @@ describe('catalog module components', () => {
     ]))
   })
 
+  it('keeps showing a saved reference that is not among the loaded options', async () => {
+    const savedMemberId = '3f1d2c4b-5a6e-4f70-8a91-b2c3d4e5f607'
+    const loadedMemberId = 'f818c729-3cac-4e19-9655-cd605abe6079'
+    mockApiCall.mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      result: url === '/api/auth/feature-check'
+        ? { granted: ['staff.view'] }
+        : {
+            items: url.startsWith('/api/staff/team-members')
+              ? [{ id: loadedMemberId, display_name: 'Filip Kubala' }]
+              : [],
+          },
+    }))
+
+    render(
+      <ServiceWorkRequirements
+        value={[
+          {
+            targetType: 'staff_member',
+            targetId: savedMemberId,
+            labelSnapshot: 'Anna Nowak',
+            allocationMode: 'ratio',
+            allocationValue: '1',
+            sortOrder: 0,
+          },
+          {
+            targetType: 'staff_member',
+            targetId: savedMemberId,
+            labelSnapshot: '',
+            allocationMode: 'ratio',
+            allocationValue: '1',
+            sortOrder: 1,
+          },
+        ]}
+        onChange={jest.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getAllByRole('option', { name: 'Filip Kubala' })).toHaveLength(2))
+    const [labelledSelect, unlabelledSelect] = screen.getAllByLabelText('Reference') as HTMLSelectElement[]
+    expect(labelledSelect.value).toBe(savedMemberId)
+    expect(labelledSelect.selectedOptions[0]?.textContent).toBe('Anna Nowak')
+    expect(unlabelledSelect.value).toBe(savedMemberId)
+    expect(unlabelledSelect.selectedOptions[0]?.textContent).toBe('#3f1d2c4b')
+  })
+
   it('only loads work requirement references the user may read, without forbidden redirects', async () => {
     mockApiCall.mockImplementation((url: string) => Promise.resolve({
       ok: true,
