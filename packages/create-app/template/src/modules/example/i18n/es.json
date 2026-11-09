@@ -506,6 +506,7 @@
   "example.umes.queryExtensions.subscribers.run": "Run subscriber collection probe",
   "example.umes.queryExtensions.subscribers.title": "N.2 Sync Query Event Subscribers",
   "example.umes.queryExtensions.title": "UMES Phase N — Query Engine Extensibility",
+  "example.widgets.catalogSeoReport.docs": "Este widget se inyecta en la tabla de productos mediante el sistema de inyección.",
   "example.widgets.catalogSeoReport.edit": "Editar",
   "example.widgets.catalogSeoReport.error": "Error al cargar el informe SEO.",
   "example.widgets.catalogSeoReport.example": "Ejemplo",

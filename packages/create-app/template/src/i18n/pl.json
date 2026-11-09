@@ -317,7 +317,7 @@
   "example.products.table.column.status": "Status",
   "example.products.table.column.variants": "Warianty",
   "example.publicPage": "Publiczna strona przykładowa.",
-  "example.widgets.catalogSeoReport.docs": "This widget is injected into the products table via the injection system.",
+  "example.widgets.catalogSeoReport.docs": "Ten widget jest wstrzykiwany do tabeli produktów za pomocą systemu wstrzykiwania.",
   "example.widgets.notes.empty": "Brak notatek. Przejdź do ustawień, aby dodać tekst.",
   "example.widgets.notes.settings.label": "Notatki",
   "example.widgets.notes.settings.placeholder": "Napisz szybkie notatki, które chcesz mieć pod ręką.",
