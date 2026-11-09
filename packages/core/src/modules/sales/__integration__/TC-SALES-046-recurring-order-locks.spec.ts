@@ -4,6 +4,7 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { createShipmentFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import {
   expectOperation,
+  redoOk,
   skipIfUndoTestsDisabled,
   undoByToken,
   undoOk,
@@ -92,6 +93,30 @@ async function orderStatusEntryId(request: APIRequestContext, token: string, val
   const items = ((await readJson(response)).items ?? []) as JsonRecord[]
   const entry = items.find((item) => item.value === value)
   return typeof entry?.id === 'string' ? entry.id : null
+}
+
+async function createPaymentMethod(request: APIRequestContext, token: string): Promise<string> {
+  const stamp = `${Date.now()}${Math.floor(Math.random() * 1000)}`
+  const response = await apiRequest(request, 'POST', '/api/sales/payment-methods', {
+    token,
+    data: { name: `QA TC-SALES-046 method ${stamp}`, code: `qa_046_${stamp}` },
+  })
+  expect(response.status(), 'POST /api/sales/payment-methods should be 201').toBe(201)
+  return (await readJson(response)).id as string
+}
+
+async function recordPayment(
+  request: APIRequestContext,
+  token: string,
+  orderId: string,
+  paymentMethodId: string,
+): Promise<APIResponse> {
+  const response = await apiRequest(request, 'POST', '/api/sales/payments', {
+    token,
+    data: { orderId, paymentMethodId, amount: 10, currencyCode: 'USD' },
+  })
+  expect(response.status(), 'POST /api/sales/payments should be 201').toBe(201)
+  return response
 }
 
 function expectCode(response: APIResponse, body: JsonRecord, status: number, code: string, label: string): void {
@@ -252,6 +277,76 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
     } finally {
       await deletePeriods(orderId)
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
+
+  test('records payments on a locked order without giving it a payment method', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const startsOn = isoDayFromToday(3)
+    let orderId: string | null = null
+    let methodId: string | null = null
+    let paymentId: string | null = null
+    try {
+      methodId = await createPaymentMethod(request, token)
+      orderId = await createRecurringOrder(request, token, startsOn)
+      await insertPeriod(orderId, startsOn)
+
+      const payment = await recordPayment(request, token, orderId, methodId)
+      paymentId = (await readJson(payment)).id as string
+
+      const order = await readOrder(request, token, orderId)
+      expect(order.paymentMethodId, 'the payment must not set the locked order\'s payment method').toBeNull()
+      expect(order.paymentMethodCode).toBeNull()
+      expect(Number(order.paidTotalAmount), 'the payment itself is still recorded').toBe(10)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/payments', paymentId)
+      await deletePeriods(orderId)
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+      await deleteSalesEntityIfExists(request, token, '/api/sales/payment-methods', methodId)
+    }
+  })
+
+  test('keeps a locked order\'s payment method when a payment is undone or redone', async ({ request }) => {
+    skipIfUndoTestsDisabled()
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    const startsOn = isoDayFromToday(3)
+    const orderIds: string[] = []
+    const paymentIds: string[] = []
+    let methodId: string | null = null
+    try {
+      methodId = await createPaymentMethod(request, token)
+
+      const undoneOrderId = await createRecurringOrder(request, token, startsOn)
+      orderIds.push(undoneOrderId)
+      const undonePayment = await recordPayment(request, token, undoneOrderId, methodId)
+      paymentIds.push((await readJson(undonePayment)).id as string)
+      expect((await readOrder(request, token, undoneOrderId)).paymentMethodId, 'an unbilled order adopts the method').toBe(methodId)
+      await insertPeriod(undoneOrderId, startsOn)
+      await undoOk(request, token, expectOperation(undonePayment, 'payment create').undoToken, 'payment create after billing')
+      expect(
+        (await readOrder(request, token, undoneOrderId)).paymentMethodId,
+        'undo must not clear the locked order\'s payment method',
+      ).toBe(methodId)
+
+      const redoneOrderId = await createRecurringOrder(request, token, startsOn)
+      orderIds.push(redoneOrderId)
+      const redonePayment = await recordPayment(request, token, redoneOrderId, methodId)
+      paymentIds.push((await readJson(redonePayment)).id as string)
+      const undoLogId = await undoOk(request, token, expectOperation(redonePayment, 'payment create').undoToken, 'payment create before billing')
+      expect((await readOrder(request, token, redoneOrderId)).paymentMethodId, 'undo before billing clears the adopted method').toBeNull()
+      await insertPeriod(redoneOrderId, startsOn)
+      await redoOk(request, token, undoLogId, 'payment create after billing')
+      const redone = await readOrder(request, token, redoneOrderId)
+      expect(redone.paymentMethodId, 'redo must not set the locked order\'s payment method').toBeNull()
+      expect(Number(redone.paidTotalAmount), 'redo restores the payment itself').toBe(10)
+    } finally {
+      for (const paymentId of paymentIds) await deleteSalesEntityIfExists(request, token, '/api/sales/payments', paymentId)
+      for (const orderId of orderIds) {
+        await deletePeriods(orderId)
+        await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+      }
+      await deleteSalesEntityIfExists(request, token, '/api/sales/payment-methods', methodId)
     }
   })
 
