@@ -1,9 +1,12 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { OcrService } from '@open-mercato/core/modules/attachments/lib/ocrService'
+import { createAttachmentAccessContext } from '@open-mercato/core/modules/attachments/lib/access-runner'
+import { assertAttachmentOwnerAccess } from '@open-mercato/core/modules/attachments/lib/access-query'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AgentFileInput } from './fileInput'
 
@@ -31,6 +34,11 @@ type StorageDriverFactoryLike = {
   ): Promise<StorageDriverLike>
 }
 type MinimalContainer = { resolve<T = unknown>(name: string): T }
+type AttachmentRbacService = {
+  userHasAllFeatures(userId: string, required: string[], scope: {
+    tenantId: string; organizationId: string
+  }): Promise<boolean>
+}
 
 export type StagedInput = { fileName: string; hasSidecar: boolean }
 
@@ -47,11 +55,20 @@ export async function stageAttachments(args: {
   inDir: string
   tenantId: string
   organizationId: string
+  userId?: string
 }): Promise<StagedInput[]> {
   if (args.files.attachments.length === 0) return []
-  const factory = args.container.resolve<StorageDriverFactoryLike>('storageDriverFactory')
   const scope = { tenantId: args.tenantId, organizationId: args.organizationId }
-  const staged: StagedInput[] = []
+  if (!args.userId?.trim()) {
+    throw new Error('[internal] attachment staging requires an execution principal')
+  }
+  const rbac = args.container.resolve<AttachmentRbacService>('rbacService')
+  if (await rbac.userHasAllFeatures(args.userId, ['attachments.view'], scope) !== true) {
+    throw new Error('[internal] attachment staging requires attachments.view')
+  }
+  const auth = { sub: args.userId, tenantId: args.tenantId, orgId: args.organizationId }
+  const context = createAttachmentAccessContext(args.container as AwilixContainer)
+  const authorized: { entry: AgentFileInput['attachments'][number]; attachment: Attachment }[] = []
 
   for (const entry of args.files.attachments) {
     const attachment = await findOneWithDecryption(
@@ -65,6 +82,13 @@ export async function stageAttachments(args: {
       throw new Error(`[internal] attachment ${entry.attachmentId} not found in this tenant/org; cannot stage`)
     }
 
+    await assertAttachmentOwnerAccess({ em: args.em, context, auth, attachment, action: 'read' })
+    authorized.push({ entry, attachment })
+  }
+
+  const factory = args.container.resolve<StorageDriverFactoryLike>('storageDriverFactory')
+  const staged: StagedInput[] = []
+  for (const { entry, attachment } of authorized) {
     const driver = await factory.resolveForPartition(attachment.partitionCode, scope)
     const { buffer } = await driver.read(attachment.partitionCode, attachment.storagePath)
     const fileName = safeName(entry.as ?? attachment.fileName)

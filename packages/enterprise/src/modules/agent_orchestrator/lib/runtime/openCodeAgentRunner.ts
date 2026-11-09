@@ -307,6 +307,7 @@ export class OpenCodeAgentRunner {
             inDir: workspace.inDir,
             tenantId: ctx.tenantId,
             organizationId: ctx.organizationId,
+            userId: ctx.userId,
           })
         } catch (err) {
           const detail = err instanceof Error ? err.message : String(err)
