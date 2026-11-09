@@ -3,9 +3,12 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Bell, AlertTriangle, CheckCircle2, XCircle, Info, Loader2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
+import { StatusBadge } from '../../primitives/status-badge'
 import { IconButton } from '../../primitives/icon-button'
+import { flash } from '../FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { NotificationDto, NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
 import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
@@ -111,6 +114,7 @@ export function NotificationItem({
   const sourceLabel = humanizeModuleId(notification.sourceModule)
 
   const handleClick = async () => {
+    if (executing !== null) return
     if (isUnread) await onMarkAsRead()
     if (notification.linkHref) router.push(notification.linkHref)
   }
@@ -135,6 +139,18 @@ export function NotificationItem({
   const handleDismiss = async (event?: React.MouseEvent) => {
     event?.stopPropagation()
     await onDismiss()
+  }
+
+  const handleActionClick = (actionId: string, event: React.MouseEvent) => {
+    void handleAction(actionId, event).catch((error) => {
+      try {
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'notifications',
+          code: 'notifications.action_failed',
+        })
+      } catch {}
+      flash(t('notifications.error.action', 'Failed to execute action'), 'error')
+    })
   }
 
   const rendererActions: NotificationTypeAction[] = notification.actions.map((action) => ({
@@ -183,9 +199,10 @@ export function NotificationItem({
         isUnread && 'bg-muted/20'
       )}
       onClick={handleClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
           handleClick()
         }
       }}
@@ -205,9 +222,18 @@ export function NotificationItem({
 
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         {/* Title row */}
-        <p className="text-sm font-medium leading-5 tracking-tight text-foreground">
-          {titleText}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium leading-5 tracking-tight text-foreground">
+            {titleText}
+          </p>
+          {notification.status === 'actioned' && notification.actionTaken ? (
+            <StatusBadge variant="neutral" className="whitespace-normal">
+              {t('notifications.actionTaken', 'Action taken: {action}', {
+                action: resolveActionLabel(notification.actionTaken, notification.actions, t),
+              })}
+            </StatusBadge>
+          ) : null}
+        </div>
 
         {/* Description row: time · source */}
         <div className="flex flex-wrap items-center gap-1 text-xs leading-4 text-muted-foreground">
@@ -240,7 +266,7 @@ export function NotificationItem({
                     'h-8 rounded-md px-2.5 py-1.5 text-sm font-medium',
                     isPrimary && 'bg-accent-indigo text-accent-indigo-foreground hover:bg-accent-indigo/90',
                   )}
-                  onClick={(event) => handleAction(action.id, event)}
+                  onClick={(event) => handleActionClick(action.id, event)}
                   disabled={executing !== null}
                 >
                   {translateActionLabel(action, t)}
@@ -249,14 +275,6 @@ export function NotificationItem({
               )
             })}
           </div>
-        ) : null}
-
-        {notification.status === 'actioned' && notification.actionTaken ? (
-          <p className="mt-1 text-xs italic text-muted-foreground">
-            {t('notifications.actionTaken', 'Action taken: {action}', {
-              action: resolveActionLabel(notification.actionTaken, notification.actions, t),
-            })}
-          </p>
         ) : null}
       </div>
 
