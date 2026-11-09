@@ -2,6 +2,9 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import {
   createCompanyFixture,
   createPersonFixture,
+  createPipelineFixture,
+  createPipelineStageFixture,
+  deleteEntityByBody,
   deleteEntityIfExists,
   readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
@@ -94,10 +97,11 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       await login(page, 'admin');
       await page.goto('/backend/customers/deals/create', { waitUntil: 'domcontentloaded' });
 
-      // Readiness: the redesigned page renders the DS FormHeader back-link and the first
-      // section card uses "Create deal" as its title (rendered via DealSectionCard, not an <h1>).
-      // Wait for the section card title plus the required field before interacting.
+      // Readiness: the pinned action bar renders the back-link; the page title lives in the app
+      // breadcrumb and an sr-only h1 (#5109). Wait for the link plus the required field before
+      // interacting.
       await expect(page.getByRole('link', { name: /Back to deals/i })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole('heading', { level: 1, name: 'Create deal' })).toBeAttached();
 
       // CRITICAL — wait for the form to be fully hydrated before typing. Deal title lives in client
       // state and the "Create deal" submit button stays disabled until the async custom-field load
@@ -116,6 +120,13 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       const titleInput = page.getByLabel(/Deal title/i);
       await expect(titleInput).toBeVisible();
       await titleInput.fill(dealTitle);
+
+      // Probability and the custom attributes sit under "More details" (#5109). The fixture's
+      // required custom field opens the disclosure on load; expand it explicitly otherwise.
+      const moreDetailsToggle = page.getByRole('button', { name: 'More details', exact: true });
+      await expect(moreDetailsToggle).toBeVisible();
+      if ((await moreDetailsToggle.getAttribute('aria-expanded')) !== 'true') await moreDetailsToggle.click();
+      await expect(moreDetailsToggle).toHaveAttribute('aria-expanded', 'true');
 
       // Value + probability use SuffixInput (currency-code / % adornment); both render placeholder "0".
       const valueInput = page.getByPlaceholder('0').first();
@@ -193,8 +204,33 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       expect(detailResponse.ok(), `GET /api/customers/deals/:id returned ${detailResponse.status()}`).toBeTruthy();
       const detailPayload = (await readJsonSafe(detailResponse)) as {
         customFields?: Record<string, unknown>;
+        deal?: { pipelineId?: string | null; pipelineStageId?: string | null };
       };
       expect(detailPayload.customFields?.[customFieldKey]).toBe(customFieldValue);
+
+      // The form starts on the default pipeline and its first stage (#5109).
+      const pipelinesResponse = await apiRequest(request, 'GET', '/api/customers/pipelines', { token });
+      expect(pipelinesResponse.ok(), `GET /api/customers/pipelines returned ${pipelinesResponse.status()}`).toBeTruthy();
+      const pipelinesPayload = (await readJsonSafe(pipelinesResponse)) as {
+        items?: Array<{ id: string; isDefault?: boolean }>;
+      };
+      const pipelines = pipelinesPayload.items ?? [];
+      const defaultPipeline = pipelines.find((entry) => entry.isDefault) ?? pipelines[0] ?? null;
+      expect(detailPayload.deal?.pipelineId ?? null).toBe(defaultPipeline?.id ?? null);
+      if (defaultPipeline) {
+        const stagesResponse = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/pipeline-stages?pipelineId=${encodeURIComponent(defaultPipeline.id)}`,
+          { token },
+        );
+        expect(stagesResponse.ok(), `GET /api/customers/pipeline-stages returned ${stagesResponse.status()}`).toBeTruthy();
+        const stagesPayload = (await readJsonSafe(stagesResponse)) as {
+          items?: Array<{ id: string; order: number }>;
+        };
+        const firstStage = [...(stagesPayload.items ?? [])].sort((left, right) => left.order - right.order)[0] ?? null;
+        expect(detailPayload.deal?.pipelineStageId ?? null).toBe(firstStage?.id ?? null);
+      }
     } finally {
       // Best-effort: resolve the deal id by title if the UI flow failed before the API check.
       if (token && !dealId) {
@@ -218,4 +254,173 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       await deleteCustomFieldDefinition(request, token, customFieldKey);
     }
   });
+
+  test('a failed stage lookup blocks saving, shows a retry, and recovers', async ({ page, request }) => {
+    test.slow();
+
+    const stamp = Date.now();
+    const dealTitle = `QA TC-CRM-071 Retry ${stamp}`;
+    let token: string | null = null;
+    let dealId: string | null = null;
+    let pipelineId: string | null = null;
+    let stageId: string | null = null;
+    const postedDeals: Array<Record<string, unknown>> = [];
+
+    try {
+      token = await getAuthToken(request);
+      pipelineId = await createPipelineFixture(request, token, { name: `QA TC-CRM-071 Pipeline ${stamp}` });
+      stageId = await createPipelineStageFixture(request, token, { pipelineId, label: `QA TC-CRM-071 Stage ${stamp}`, order: 0 });
+      await login(page, 'admin');
+
+      await page.route('**/api/customers/pipelines', async (route) => {
+        const upstream = await route.fetch();
+        const body = (await upstream.json()) as { items?: Array<{ id: string }> };
+        const items = (body.items ?? [])
+          .filter((pipeline) => pipeline.id === pipelineId)
+          .map((pipeline) => ({ ...pipeline, isDefault: true }));
+        await route.fulfill({ response: upstream, json: { ...body, items } });
+      });
+
+      let failStages = true;
+      await page.route('**/api/customers/pipeline-stages?**', async (route) => {
+        if (failStages) {
+          await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Injected failure' }) });
+          return;
+        }
+        await route.fallback();
+      });
+      page.on('request', (sent) => {
+        if (sent.method() === 'POST' && new URL(sent.url()).pathname === '/api/customers/deals') {
+          postedDeals.push(sent.postDataJSON() as Record<string, unknown>);
+        }
+      });
+
+      await page.goto('/backend/customers/deals/create', { waitUntil: 'domcontentloaded' });
+      const failure = page.getByRole('alert').filter({ hasText: 'Could not load the stages of this pipeline.' });
+      await expect(failure).toBeVisible({ timeout: 30_000 });
+      const submitButton = page.getByRole('button', { name: 'Create deal', exact: true }).first();
+      await expect(submitButton).toBeDisabled();
+
+      const titleInput = page.getByLabel(/Deal title/i);
+      await titleInput.fill(dealTitle);
+      await expect(titleInput).toHaveValue(dealTitle);
+      await expect(submitButton).toBeDisabled();
+      expect(postedDeals, 'no deal is sent while the stages are unresolved').toHaveLength(0);
+
+      failStages = false;
+      await failure.getByRole('button', { name: 'Try again' }).click();
+      await expect(failure).toHaveCount(0);
+      const selectedStage = page.locator('[data-crud-field-id="pipelineStageId"]').getByRole('button', { pressed: true });
+      await expect(selectedStage).toBeVisible({ timeout: 30_000 });
+      await expect(titleInput, 'the retry keeps what was typed').toHaveValue(dealTitle);
+
+      await expect(submitButton).toBeEnabled({ timeout: 30_000 });
+      const saved = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === '/api/customers/deals' && response.request().method() === 'POST',
+      );
+      await submitButton.click();
+      const response = await saved;
+      expect(response.status()).toBe(201);
+      const created = (await response.json()) as { id?: string; entityId?: string };
+      dealId = created.id ?? created.entityId ?? null;
+      expect(postedDeals).toHaveLength(1);
+      expect(postedDeals[0].pipelineId, 'the deal is created on the selected pipeline').toBe(pipelineId);
+      expect(postedDeals[0].pipelineStageId, 'the recovered stage is submitted').toBe(stageId);
+    } finally {
+      await page.unroute('**/api/customers/pipeline-stages?**');
+      await page.unroute('**/api/customers/pipelines');
+      await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
+      await deleteEntityByBody(request, token, '/api/customers/pipeline-stages', stageId);
+      await deleteEntityByBody(request, token, '/api/customers/pipelines', pipelineId);
+    }
+  });
+
+  for (const scenario of [
+    {
+      locale: 'pl',
+      labels: { title: /Tytuł szansy/, amount: 'Wartość szansy', currency: 'Waluta', submit: 'Utwórz szansę' },
+      typed: '12,50',
+      shown: '12.50',
+      posted: 12.5,
+      stored: '12.50',
+    },
+    {
+      locale: 'en',
+      labels: { title: /Deal title/, amount: 'Deal value', currency: 'Currency', submit: 'Create deal' },
+      typed: '1,250',
+      shown: '1250',
+      posted: 1250,
+      stored: '1250.00',
+    },
+  ]) {
+    test(`saves the amount typed as ${scenario.typed} in ${scenario.locale} as ${scenario.stored} PLN`, async ({ page, request, baseURL }) => {
+      test.slow();
+
+      const dealTitle = `QA TC-CRM-071 Amount ${scenario.locale} ${Date.now()}`;
+      let token: string | null = null;
+      let dealId: string | null = null;
+
+      try {
+        token = await getAuthToken(request);
+        await login(page, 'admin');
+        await page.context().addCookies([{ name: 'locale', value: scenario.locale, url: baseURL! }]);
+        await page.route('**/api/customers/dictionaries/currency', (route) =>
+          route.fulfill({
+            json: {
+              id: 'qa-tc-crm-071-currency',
+              entries: [{ id: 'qa-tc-crm-071-pln', value: 'PLN', label: 'Polish zloty' }],
+            },
+          }),
+        );
+
+        await page.goto('/backend/customers/deals/create', { waitUntil: 'domcontentloaded' });
+        const submitButton = page.getByRole('button', { name: scenario.labels.submit, exact: true }).first();
+        await expect(submitButton).toBeEnabled({ timeout: 30_000 });
+
+        const titleInput = page.getByLabel(scenario.labels.title);
+        await titleInput.fill(dealTitle);
+        await expect(titleInput).toHaveValue(dealTitle);
+
+        const currencySelect = page.getByRole('combobox', { name: scenario.labels.currency });
+        await currencySelect.click();
+        await page.getByRole('option', { name: /^PLN/ }).click();
+        await expect(currencySelect).toHaveText(/PLN/);
+
+        const amountInput = page.getByLabel(scenario.labels.amount);
+        await amountInput.click();
+        await amountInput.pressSequentially(scenario.typed);
+        await expect(amountInput).toHaveValue(scenario.shown);
+
+        const saved = page.waitForResponse(
+          (response) => new URL(response.url()).pathname === '/api/customers/deals' && response.request().method() === 'POST',
+        );
+        await submitButton.click();
+        const response = await saved;
+        expect(response.status(), `POST /api/customers/deals returned ${response.status()}`).toBe(201);
+        const created = (await response.json()) as { id?: string; entityId?: string };
+        dealId = created.id ?? created.entityId ?? null;
+        expect(dealId, 'created deal has no id').toBeTruthy();
+
+        const posted = response.request().postDataJSON() as { valueAmount?: unknown; valueCurrency?: unknown };
+        expect(posted.valueAmount).toBe(scenario.posted);
+        expect(posted.valueCurrency).toBe('PLN');
+
+        const detailResponse = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/deals/${encodeURIComponent(dealId!)}`,
+          { token },
+        );
+        expect(detailResponse.ok(), `GET /api/customers/deals/:id returned ${detailResponse.status()}`).toBeTruthy();
+        const detail = (await readJsonSafe(detailResponse)) as {
+          deal?: { valueAmount?: string | null; valueCurrency?: string | null };
+        };
+        expect(detail.deal?.valueAmount).toBe(scenario.stored);
+        expect(detail.deal?.valueCurrency).toBe('PLN');
+      } finally {
+        await page.unroute('**/api/customers/dictionaries/currency');
+        await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
+      }
+    });
+  }
 });
