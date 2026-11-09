@@ -1,0 +1,4 @@
+{
+      // The loader must follow JSONC extends references.
+      "extends": "./tsconfig.base.json",
+    }
