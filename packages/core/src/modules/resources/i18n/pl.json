@@ -259,6 +259,7 @@
   "resources.resources.availability.scope.label": "Zastosuj do",
   "resources.resources.availability.scope.weekday": "Dzień tygodnia:",
   "resources.resources.availability.scope.weekdayShort": "Wszystkie {{weekday}}",
+  "resources.resources.availability.section.title": "Dostępność",
   "resources.resources.availability.timezone": "Strefa czasowa",
   "resources.resources.availability.timezone.placeholder": "Szukaj stref czasowych...",
   "resources.resources.availability.timezone.saveError": "Nie udało się zapisać strefy czasowej.",
