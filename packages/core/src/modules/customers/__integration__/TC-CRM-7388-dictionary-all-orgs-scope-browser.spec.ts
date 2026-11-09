@@ -162,6 +162,14 @@ test.describe('TC-CRM-7388: customer dictionary org scope under "All organizatio
         'the deal status field must scope to the deal\'s own organization and succeed under "All organizations"',
       ).toBeTruthy()
 
+      // The deal detail form zone renders as a collapsed rail below the
+      // side-by-side breakpoint — the fields still mount and fetch (the dict
+      // request above already proved that) but stay hidden until expanded.
+      const expandFormPanel = page.getByRole('button', { name: 'Expand form panel' })
+      if (await expandFormPanel.isVisible().catch(() => false)) {
+        await expandFormPanel.click()
+      }
+
       const statusField = page.locator('[data-crud-field-id="status"]')
       await expect(statusField.getByText('Organization context is required')).toHaveCount(0)
       await expect(statusField.getByText(dealOrgALabel, { exact: true })).toBeVisible()
