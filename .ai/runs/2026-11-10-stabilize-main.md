@@ -37,14 +37,24 @@ Source doc: `.ai/specs/implemented/2026-04-10-ci-cd-performance.md`
 - Adding `ci-full` does not schedule a run by itself. The stabilization branch selects full scope from its initial PR event.
 - A docs-only outcome uses the skill's docs-only gate exemption. Code changes require the configured ordered validation gate; hosted CI provides the full-suite evidence.
 
+## Diagnosis and validation evidence
+
+- Independent investigation `12e5b310` inventoried 24 active workflows. Parent verified its zero-file diff and the failed QA deployment log at https://github.com/open-mercato/open-mercato/actions/runs/34504173608: CLI package build aborts with ENOENT for `/app/AGENTS.md`. Current preview builder and runner stages both still omit that file and `BACKWARD_COMPATIBILITY.md`, required unconditionally by CLI/create-app builds. Both stages now copy the required root guides. No deployment, publication, or runtime policy changes.
+- The regression derives required guide inputs from both package build scripts and checks every preview build stage before its package-build instruction. It fails on the original Dockerfile and passes after the fix. Runner: local, `timeout 30 node --test scripts/__tests__/dockerfile-runtime-copy.test.mjs scripts/__tests__/docker-production-runtime.test.mjs` (7/7 pass). An attempted broader Docker-ignore test could not load the uninstalled `@balena/dockerignore` dependency; hosted CI covers it. No app container was running in the probed compose configurations; local mode selected.
+- Full preview image build is being validated locally. The first command could not start because this host lacks Buildx and rejects `--progress`; the legacy-builder invocation is running instead. No deployment is requested.
+- Standalone snapshot 42686862827 failed an invitation-cancellation button lookup; subsequent successful 42701434354 passed that scenario only on retry. No cause is established yet. Latest snapshot 42708819146 published successfully but standalone validation is still waiting for registry metadata. These are observations, not claimed passes or product diagnoses.
+- Baseline PR full CI 42717768431 selects all 15 shards despite the plan-only diff; package/app builds and static checks passed and integrations remain in progress. The Docker fix requires a new full PR run.
+
 ## Progress
+
+PR: #9125
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose and verify scope
 
-- [ ] 1.1 Independently investigate current main failures and previously landed fixes
-- [ ] 1.2 Verify full-suite selection and address demonstrated remaining defects
+- [x] 1.1 Independently investigate current main failures and previously landed fixes — 20ded252f1; investigation 12e5b310 validated
+- [x] 1.2 Verify full-suite selection and address demonstrated remaining defects — 370fe936d1
 
 ### Phase 2: Validate and review
 
