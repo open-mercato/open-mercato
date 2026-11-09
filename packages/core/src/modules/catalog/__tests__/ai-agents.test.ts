@@ -215,6 +215,7 @@ describe('catalog.catalog_assistant agent definition', () => {
       container: {} as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
   })
@@ -378,6 +379,7 @@ describe('catalog.merchandising_assistant agent definition (Step 4.9 / Spec §10
       container: {} as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
   })
@@ -388,8 +390,12 @@ const VALID_UUID_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const VALID_UUID_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
 function buildContainer() {
+  const services: Record<string, unknown> = {
+    em: { count: jest.fn() },
+    rbacService: { loadAcl: jest.fn(async () => ({ isSuperAdmin: false, features: [], organizations: null })) },
+  }
   return {
-    resolve: (name: string) => (name === 'em' ? { count: jest.fn() } : null),
+    resolve: (name: string) => services[name] ?? null,
   }
 }
 
@@ -441,6 +447,7 @@ describe('catalog.catalog_assistant resolvePageContext hydration (Step 5.2)', ()
       container: buildContainer() as any,
       tenantId: null,
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(handler).not.toHaveBeenCalled()
@@ -458,6 +465,7 @@ describe('catalog.catalog_assistant resolvePageContext hydration (Step 5.2)', ()
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledTimes(1)
     expect(handler.mock.calls[0][0]).toEqual({ productId: VALID_UUID_A })
@@ -475,6 +483,7 @@ describe('catalog.catalog_assistant resolvePageContext hydration (Step 5.2)', ()
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
   })
@@ -493,6 +502,7 @@ describe('catalog.catalog_assistant resolvePageContext hydration (Step 5.2)', ()
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(warn).toHaveBeenCalled()
@@ -513,6 +523,7 @@ describe('catalog.catalog_assistant resolvePageContext hydration (Step 5.2)', ()
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledTimes(1)
     expect(handler.mock.calls[0][0]).toEqual({ productIds: [VALID_UUID_A, VALID_UUID_B] })
@@ -536,6 +547,7 @@ describe('catalog.catalog_assistant resolvePageContext hydration (Step 5.2)', ()
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledTimes(1)
     expect(handler.mock.calls[0][0].productIds).toHaveLength(10)
@@ -550,6 +562,7 @@ describe('catalog.catalog_assistant resolvePageContext hydration (Step 5.2)', ()
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(handler).not.toHaveBeenCalled()
@@ -584,6 +597,7 @@ describe('catalog.merchandising_assistant resolvePageContext hydration (Step 5.2
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledWith(
       { productId: VALID_UUID_A },
@@ -611,6 +625,7 @@ describe('catalog.merchandising_assistant resolvePageContext hydration (Step 5.2
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledTimes(1)
     expect(handler.mock.calls[0][0]).toEqual({ productIds: [VALID_UUID_A, VALID_UUID_B] })
@@ -629,6 +644,7 @@ describe('catalog.merchandising_assistant resolvePageContext hydration (Step 5.2
       container: buildContainer() as any,
       tenantId: null,
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(handler).not.toHaveBeenCalled()
@@ -651,6 +667,7 @@ describe('catalog.merchandising_assistant resolvePageContext hydration (Step 5.2
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(warn).toHaveBeenCalled()
@@ -668,6 +685,7 @@ describe('catalog.merchandising_assistant resolvePageContext hydration (Step 5.2
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(handler).not.toHaveBeenCalled()

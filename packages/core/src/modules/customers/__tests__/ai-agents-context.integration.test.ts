@@ -55,11 +55,18 @@ type HydrateInput = {
   container: unknown
   tenantId: string | null
   organizationId: string | null
+  userId?: string | null
 }
 
-function buildFakeContainer() {
+const CALLER_ACL = { isSuperAdmin: false, features: ['customers.people.view'], organizations: ['org-1'] }
+
+function buildFakeContainer(loadAcl: jest.Mock = jest.fn(async () => CALLER_ACL)) {
+  const services: Record<string, unknown> = {
+    em: { count: jest.fn() },
+    rbacService: { loadAcl },
+  }
   return {
-    resolve: (name: string) => (name === 'em' ? { count: jest.fn() } : null),
+    resolve: (name: string) => services[name] ?? null,
   }
 }
 
@@ -118,10 +125,17 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledWith(
       { personId: VALID_UUID_A, includeRelated: true },
-      expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        userId: 'user-1',
+        isSuperAdmin: false,
+        userFeatures: ['customers.people.view'],
+      }),
     )
     expect(result).not.toBeNull()
     expect(result).toContain('## Page context — Person')
@@ -147,6 +161,7 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledWith(
       { companyId: VALID_UUID_A, includeRelated: true },
@@ -171,6 +186,7 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledWith(
       { dealId: VALID_UUID_A, includeRelated: true },
@@ -193,6 +209,7 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(handler).not.toHaveBeenCalled()
@@ -210,6 +227,7 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(handler).not.toHaveBeenCalled()
@@ -231,9 +249,64 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledTimes(1)
     expect(result).toBeNull()
+  })
+
+  it('hydrates with the caller ACL loaded for the request scope, never a forged super-admin', async () => {
+    const handler = jest.fn(async () => ({ found: true, person: { id: VALID_UUID_A } }))
+    const loadAcl = jest.fn(async () => CALLER_ACL)
+    const resolvePageContext = await loadWithMockedToolPack('customers.get_person', handler)
+    await resolvePageContext({
+      entityType: 'person',
+      recordId: VALID_UUID_A,
+      container: buildFakeContainer(loadAcl) as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+    })
+    expect(loadAcl).toHaveBeenCalledWith('user-1', { tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(handler).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ isSuperAdmin: false }),
+    )
+  })
+
+  it.each([undefined, null, ''])('skips hydration when the caller identity is missing (userId=%p)', async (userId) => {
+    const handler = jest.fn(async () => ({ found: true, person: { id: VALID_UUID_A } }))
+    const loadAcl = jest.fn(async () => CALLER_ACL)
+    const resolvePageContext = await loadWithMockedToolPack('customers.get_person', handler)
+    const result = await resolvePageContext({
+      entityType: 'person',
+      recordId: VALID_UUID_A,
+      container: buildFakeContainer(loadAcl) as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId,
+    })
+    expect(result).toBeNull()
+    expect(loadAcl).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('skips hydration when the caller ACL cannot be loaded', async () => {
+    const handler = jest.fn(async () => ({ found: true, person: { id: VALID_UUID_A } }))
+    const loadAcl = jest.fn(async () => {
+      throw new Error('rbac down')
+    })
+    const resolvePageContext = await loadWithMockedToolPack('customers.get_person', handler)
+    const result = await resolvePageContext({
+      entityType: 'person',
+      recordId: VALID_UUID_A,
+      container: buildFakeContainer(loadAcl) as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+    })
+    expect(result).toBeNull()
+    expect(handler).not.toHaveBeenCalled()
   })
 
   it('leaves input unchanged and logs a warn when the underlying service throws', async () => {
@@ -250,6 +323,7 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
