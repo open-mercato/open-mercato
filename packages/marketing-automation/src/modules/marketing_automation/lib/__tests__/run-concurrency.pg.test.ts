@@ -63,7 +63,7 @@ maybe('run claim/create concurrency against PostgreSQL', () => {
       resumeAt: new Date(Date.now() - 1000),
       attempts: 0,
     })
-    await em.persistAndFlush(run)
+    await em.flush()
 
     const now = new Date()
     const [a, b] = await Promise.all([
@@ -90,7 +90,7 @@ maybe('run claim/create concurrency against PostgreSQL', () => {
       resumeAt: new Date(Date.now() - 1000),
       attempts: 0,
     })
-    await em.persistAndFlush(run)
+    await em.flush()
 
     const now = new Date()
     const first = await claimRun(orm.em.fork(), run.id, scope, now)
