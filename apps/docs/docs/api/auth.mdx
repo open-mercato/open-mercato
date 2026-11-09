@@ -60,12 +60,18 @@ The login endpoint uses two-layer rate limiting: **20 attempts per 60s** per IP 
 
 ### List Users — `GET /auth/users`
 
-**Feature:** `auth.users.list`  
+**Feature:** `auth.users.list`
+
+For non-superadmins, this feature grants tenant-wide staff identity visibility: the list is restricted to the authenticated tenant and excludes superadmin accounts, but can include users assigned to other organizations or no organization. Neither the active organization nor the caller's organization visibility list narrows the default directory. Directory visibility is separate from permission to access organization-owned records.
+
+Use `organizationId` or `scopeToActiveOrganization=1` to narrow results explicitly. These are optional list filters, not authorization boundaries; omitting them restores the tenant-wide default for non-superadmins. Superadmins can scope the list through the topbar tenant and organization selection; without a selected tenant, their list can span tenants.
+
 **Query parameters:**
 
 - `page` / `pageSize` &mdash; pagination (defaults `1` / `50`, max `100`).
 - `search` &mdash; case-insensitive match on email.
-- `organizationId` &mdash; filter to a particular organization UUID.
+- `organizationId` &mdash; additional filter to an exact organization UUID.
+- `scopeToActiveOrganization` &mdash; pass `1` to restrict results to the caller's exact active organization, as used by recipient and assignee pickers. When the caller has no active organization, this returns only users with no organization. If `organizationId` is also supplied, both filters apply.
 - `roleIds` &mdash; comma-separated role UUIDs.
 
 ```bash

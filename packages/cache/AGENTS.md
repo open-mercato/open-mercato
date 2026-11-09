@@ -21,6 +21,16 @@ The memory strategy is bounded so a process-shared instance (`OM_BOOTSTRAP_CACHE
 - **Amortized expired-entry sweep** — expired entries are reclaimed by a budgeted sweep that runs every 256 writes (no per-instance timer, so the per-request default stays leak-free). Each pass scans a bounded slice from the LRU head, so it stays `O(budget)` rather than scanning the whole store. Expired entries beyond the budget are still reclaimed on access, by LRU eviction, or via an explicit `cleanup()`.
 - **Observability** — `stats()` on a memory-backed service surfaces `evictions`, `sweeps`, and `lastSweepReclaimed` (process-global counters) alongside the tenant-scoped `size`/`expired`, so operators can tell whether the bound is actively protecting the process. Other backends omit these fields.
 
+## Value Compression
+
+The redis and sqlite strategies can compress serialized entries (`packages/cache/src/codec.ts`); memory and jsonfile never do.
+
+- **`CACHE_COMPRESSION`** — `off` (default) | `zstd` | `gzip`. zstd runs at level 1, gzip at level 6. A `zstd` setting falls back to `gzip` with one warning on a runtime without zstd (the `node:zlib` zstd API is marked experimental).
+- **`CACHE_COMPRESSION_MIN_BYTES`** — entries smaller than this (default `1024`) stay plain JSON; a compressed form is kept only when it is smaller.
+- **Reads detect the format by magic bytes**, whatever the current setting, so legacy JSON, zstd and gzip entries coexist and switching the setting never strands an entry. Decompression is capped at 64 MiB; a corrupt frame is dropped as a miss.
+- **When to enable:** Redis on another host, or memory-bound Redis — fewer bytes over the network and in memory. Redis on localhost or SQLite saves memory/disk only, at a small read cost.
+- **Rollout:** deploy with compression `off`, enable it only once every instance runs a version with the codec, and set it back to `off` before rolling back to an older version (older versions read compressed entries as misses and delete them).
+
 ## Always
 
 1. **MUST resolve via DI** — always use `container.resolve('cache')`, never instantiate cache directly. The DI token is `cache` (registered in `packages/core/src/bootstrap.ts`); there is no `cacheService` registration.

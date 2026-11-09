@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { slugify } from "@open-mercato/shared/lib/slugify";
 import { parseObjectLike } from "@open-mercato/shared/lib/json/parseObjectLike";
-import { parseLocaleNumber } from "@open-mercato/shared/lib/number";
+import { formatLocaleNumberInput, parseLocaleNumber } from "@open-mercato/shared/lib/number";
 import type { ReferenceUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import {
   CATALOG_CONFIGURABLE_PRODUCT_TYPES,
@@ -186,11 +186,13 @@ export type ProductFormValues = {
   canonicalUrl: string;
 };
 
+const INVALID_NUMBER_MESSAGE = "catalog.products.validation.invalidNumber";
+
 const optionalPositiveNumberInput = z.preprocess((value) => {
   if (value === null || value === undefined) return undefined;
   if (typeof value === "string" && value.trim().length === 0) return undefined;
   return value;
-}, z.coerce.number().positive().optional());
+}, z.coerce.number({ error: INVALID_NUMBER_MESSAGE }).positive().optional());
 
 const optionalBoundedIntegerInput = (min: number, max: number) =>
   z.preprocess((value) => {
@@ -267,7 +269,7 @@ export const productFormSchema = z
         z.object({
           id: z.string().nullable().optional(),
           unitCode: z.string().trim().max(50),
-          toBaseFactor: z.coerce.number().positive(),
+          toBaseFactor: z.coerce.number({ error: INVALID_NUMBER_MESSAGE }).positive(),
           sortOrder: z.coerce.number().int().min(0).max(100000).optional(),
           isActive: z.boolean().optional(),
         }),
@@ -352,8 +354,8 @@ export const productFormSchema = z
 // The UoM fields below stay raw locale-typed text while the user is editing them
 // (`ProductUomSection`, issue #5828), so `z.coerce.number()` — which only accepts a dot
 // decimal separator — cannot parse them directly. Convert to a canonical dot-decimal string
-// right before validation; an unparseable value is left as-is so the schema's own "expected
-// number" error still fires.
+// right before validation; an unparseable value is left as-is so the schema rejects it with
+// the localized `catalog.products.validation.invalidNumber` message (issue #6311).
 function toCanonicalDecimalString(raw: string, locale?: string): string {
   if (!raw.trim()) return raw;
   const parsed = parseLocaleNumber(raw, locale);
@@ -380,6 +382,41 @@ export function withCanonicalUomFields(
           toBaseFactor:
             typeof conversion?.toBaseFactor === "string"
               ? toCanonicalDecimalString(conversion.toBaseFactor, locale)
+              : conversion?.toBaseFactor,
+        }))
+      : values.unitConversions,
+  };
+}
+
+// The inverse of `withCanonicalUomFields`: renders the canonical dot-decimal UoM strings in
+// the locale's own decimal separator, so the form redisplays `2,5` rather than `2.5` once a
+// save merges the submitted values back into the visible fields (issue #6309).
+function toLocaleDecimalString(raw: string, locale?: string): string {
+  if (!raw.trim()) return raw;
+  const parsed = parseLocaleNumber(raw, locale);
+  return parsed === null ? raw : formatLocaleNumberInput(parsed, locale);
+}
+
+export function withLocaleUomFields(
+  values: ProductFormValues,
+  locale?: string,
+): ProductFormValues {
+  return {
+    ...values,
+    defaultSalesUnitQuantity:
+      typeof values.defaultSalesUnitQuantity === "string"
+        ? toLocaleDecimalString(values.defaultSalesUnitQuantity, locale)
+        : values.defaultSalesUnitQuantity,
+    unitPriceBaseQuantity:
+      typeof values.unitPriceBaseQuantity === "string"
+        ? toLocaleDecimalString(values.unitPriceBaseQuantity, locale)
+        : values.unitPriceBaseQuantity,
+    unitConversions: Array.isArray(values.unitConversions)
+      ? values.unitConversions.map((conversion) => ({
+          ...conversion,
+          toBaseFactor:
+            typeof conversion?.toBaseFactor === "string"
+              ? toLocaleDecimalString(conversion.toBaseFactor, locale)
               : conversion?.toBaseFactor,
         }))
       : values.unitConversions,

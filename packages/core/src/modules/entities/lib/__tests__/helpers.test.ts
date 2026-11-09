@@ -53,6 +53,130 @@ function createEnabledEncryptionService(): TenantDataEncryptionService {
 }
 
 describe('setRecordCustomFields', () => {
+  describe('empty multi-value writes', () => {
+    const scope = { entityId: 'example:todo', recordId: 'record-1', organizationId: 'org-1', tenantId: 'tenant-1' }
+
+    function createValueStore(encrypted = false) {
+      const definitions = [
+        { key: 'labels', kind: 'text', configJson: { multi: true, encrypted } },
+        { key: 'assignee', kind: 'select', configJson: { multi: true } },
+        { key: 'counts', kind: 'integer', configJson: { multi: true, encrypted } },
+        { key: 'flags', kind: 'boolean', configJson: { multi: true, encrypted } },
+        { key: 'priority', kind: 'integer', configJson: {} },
+        { key: 'blocked', kind: 'boolean', configJson: {} },
+        { key: 'description', kind: 'text', configJson: {} },
+      ].map((definition) => ({ ...scope, ...definition, isActive: true, deletedAt: null }))
+      const rows: Array<Record<string, unknown>> = []
+      const emMock = {
+        find: jest.fn(async (entity: unknown, where: Record<string, unknown>) =>
+          (entity === CustomFieldDef ? definitions : rows).filter((row) => matchesWhere(row, where))),
+        nativeDelete: jest.fn(async (_entity: unknown, where: Record<string, unknown>) => {
+          const removed = rows.filter((row) => matchesWhere(row, where))
+          for (const row of removed) rows.splice(rows.indexOf(row), 1)
+          return removed.length
+        }),
+        create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data, id: `value-${rows.length}` })),
+        persist: jest.fn((created: Array<Record<string, unknown>>) => rows.push(...created)),
+        flush: jest.fn(async () => undefined),
+        begin: jest.fn(async () => undefined),
+        commit: jest.fn(async () => undefined),
+        rollback: jest.fn(async () => undefined),
+        isInTransaction: jest.fn(() => false),
+      }
+      return { rows, emMock, em: emMock as unknown as EntityManager }
+    }
+
+    it('keeps empty fields absent and all other values intact when an unrelated edit echoes nulls', async () => {
+      const { rows, em, emMock } = createValueStore()
+      await setRecordCustomFields(em, { ...scope, values: { priority: 3, blocked: false, description: 'Keep me' } })
+      const before = structuredClone(rows)
+      const onChanged = jest.fn()
+
+      await setRecordCustomFields(em, {
+        ...scope,
+        values: { labels: null, assignee: null, priority: 3, blocked: false },
+        onChanged,
+      })
+
+      expect(rows).toEqual(before)
+      expect(rows.filter((row) => row.fieldKey === 'labels' || row.fieldKey === 'assignee')).toEqual([])
+      expect(onChanged).toHaveBeenCalledTimes(1)
+      expect(onChanged).toHaveBeenCalledWith(scope)
+      expect(emMock.commit).toHaveBeenCalledTimes(2)
+      expect(emMock.rollback).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      { empty: null },
+      { empty: [] },
+      { empty: [null] },
+      { empty: [undefined, null] },
+    ])('clears a populated multi-value field with $empty without empty rows', async ({ empty }) => {
+      const { rows, em } = createValueStore()
+      await setRecordCustomFields(em, { ...scope, values: { labels: ['frontend', 'backend'], assignee: ['alice'] } })
+      const assignee = structuredClone(rows.filter((row) => row.fieldKey === 'assignee'))
+
+      await setRecordCustomFields(em, { ...scope, values: { labels: empty } })
+
+      expect(rows).toEqual(assignee)
+    })
+
+    it('skips undefined writes and preserves false, zero, empty strings and populated selections', async () => {
+      const { rows, em } = createValueStore()
+      await setRecordCustomFields(em, {
+        ...scope,
+        values: { labels: [null, '', 'frontend', undefined], counts: [0, null, 2], flags: [false, null, true] },
+      })
+      const before = structuredClone(rows)
+      await setRecordCustomFields(em, { ...scope, values: { labels: undefined } })
+
+      expect(rows).toEqual(before)
+      expect(rows.filter((row) => row.fieldKey === 'labels').map((row) => row.valueText)).toEqual(['', 'frontend'])
+      expect(rows.filter((row) => row.fieldKey === 'counts').map((row) => row.valueInt)).toEqual([0, 2])
+      expect(rows.filter((row) => row.fieldKey === 'flags').map((row) => row.valueBool)).toEqual([false, true])
+    })
+
+    it('retains scalar null clearing', async () => {
+      const { rows, em } = createValueStore()
+      await setRecordCustomFields(em, { ...scope, values: { description: 'Clear me' } })
+      await setRecordCustomFields(em, { ...scope, values: { description: null } })
+
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({ fieldKey: 'description', valueText: null })
+    })
+
+    it('retains tenant and pinned organization boundaries during empty replacement', async () => {
+      const { rows, em } = createValueStore()
+      const otherTenant = { ...scope, tenantId: 'tenant-2' }
+      const otherOrganization = { ...scope, organizationId: 'org-2' }
+      for (const target of [scope, otherTenant, otherOrganization]) {
+        await setRecordCustomFields(em, { ...target, pinOrganizationId: true, values: { labels: ['keep'] } })
+      }
+      const others = structuredClone(rows.filter((row) => row.tenantId !== scope.tenantId || row.organizationId !== scope.organizationId))
+
+      await setRecordCustomFields(em, { ...scope, pinOrganizationId: true, values: { labels: null } })
+
+      expect(rows).toEqual(others)
+      expect(rows).toHaveLength(2)
+    })
+
+    it('encrypts present values and clears encrypted multi-value fields without creating null ciphertext rows', async () => {
+      const { rows, em } = createValueStore(true)
+      const encryptionService = createEnabledEncryptionService()
+      await setRecordCustomFields(em, {
+        ...scope, encryptionService,
+        values: { labels: [null, 'private'], counts: [null, 0], flags: [false, undefined] },
+      })
+
+      expect(rows).toHaveLength(3)
+      expect(rows.map((row) => decryptWithAesGcm(String(row.valueText), TEST_DEK))).toEqual(['private', '0', 'false'])
+      await setRecordCustomFields(em, {
+        ...scope, encryptionService, values: { labels: null, counts: [], flags: [null] },
+      })
+      expect(rows).toEqual([])
+    })
+  })
+
   it('persists dynamic keys for trusted command writes (whitelist is enforced upstream)', async () => {
     const definition = {
       key: 'priority',
@@ -359,6 +483,108 @@ describe('setRecordCustomFields', () => {
       // is what produced the ambiguous multi-row read this reconciliation removes.
       expect(first.valueInt).toBe(7)
       expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-b'] } })
+    })
+
+    describe('array echoed back for a single-value field (#6468)', () => {
+      const textDefinition = { ...definition, key: 'note', kind: 'text' }
+
+      it('heals the duplicates to one row, keeping the value the caller\'s scope already holds', async () => {
+        const stale = { id: 'value-org-a', organizationId: 'org-a', tenantId: 'tenant-1', valueText: 'A-stale' }
+        const current = { id: 'value-org-b', organizationId: 'org-b', tenantId: 'tenant-1', valueText: 'B-ui' }
+        const { em, nativeDelete, create, persist } = makeEm([stale, current], textDefinition)
+
+        await setRecordCustomFields(em, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          organizationId: 'org-b',
+          tenantId: 'tenant-1',
+          values: { note: ['A-stale', 'B-ui'] },
+        })
+
+        // Without the fix the array took the multi-value branch: one key-wide delete, then
+        // both values re-created under org-b — still two live rows for a single-value field.
+        expect(nativeDelete).toHaveBeenCalledTimes(1)
+        expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-org-a'] } })
+        expect(current.valueText).toBe('B-ui')
+        expect(create).not.toHaveBeenCalled()
+        expect(persist).not.toHaveBeenCalled()
+      })
+
+      it('writes exactly one row when no duplicate lives in the caller\'s scope', async () => {
+        const staleA = { id: 'value-org-a', organizationId: 'org-a', tenantId: 'tenant-1', valueText: 'first' }
+        const staleC = { id: 'value-org-c', organizationId: 'org-c', tenantId: 'tenant-1', valueText: 'second' }
+        const { em, nativeDelete, create, persist } = makeEm([staleA, staleC], textDefinition)
+
+        await setRecordCustomFields(em, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          organizationId: 'org-b',
+          tenantId: 'tenant-1',
+          values: { note: ['first', 'second'] },
+        })
+
+        expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-org-a', 'value-org-c'] } })
+        expect(create).toHaveBeenCalledTimes(1)
+        expect(persist).toHaveBeenCalledWith([
+          expect.objectContaining({ fieldKey: 'note', organizationId: 'org-b', valueText: 'second' }),
+        ])
+      })
+
+      it('stores null for an empty array instead of leaving the field multi-valued', async () => {
+        const current = { id: 'value-org-b', organizationId: 'org-b', tenantId: 'tenant-1', valueText: 'B-ui' }
+        const { em } = makeEm([current], textDefinition)
+
+        await setRecordCustomFields(em, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          organizationId: 'org-b',
+          tenantId: 'tenant-1',
+          values: { note: [] },
+        })
+
+        expect(current.valueText).toBeNull()
+      })
+
+      it('keeps replacing every row for a multi-value field', async () => {
+        const multiDefinition = { ...textDefinition, configJson: { multi: true } }
+        const { em, nativeDelete, persist } = makeEm([], multiDefinition)
+
+        await setRecordCustomFields(em, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          organizationId: 'org-b',
+          tenantId: 'tenant-1',
+          values: { note: ['x', 'y'] },
+        })
+
+        expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          fieldKey: 'note',
+          $or: [{ tenantId: 'tenant-1' }, { tenantId: null }],
+        })
+        expect(persist).toHaveBeenCalledWith([
+          expect.objectContaining({ valueText: 'x' }),
+          expect.objectContaining({ valueText: 'y' }),
+        ])
+      })
+
+      it('keeps the multi-value branch for an undeclared key, whose arity is unknown', async () => {
+        const { em, persist } = makeEm([], textDefinition)
+
+        await setRecordCustomFields(em, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          organizationId: 'org-b',
+          tenantId: 'tenant-1',
+          values: { tags: ['x', 'y'] },
+        })
+
+        expect(persist).toHaveBeenCalledWith([
+          expect.objectContaining({ fieldKey: 'tags', valueText: 'x' }),
+          expect.objectContaining({ fieldKey: 'tags', valueText: 'y' }),
+        ])
+      })
     })
 
     it('does not delete anything when the record has never left its scope', async () => {

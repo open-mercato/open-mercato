@@ -130,6 +130,7 @@ describe('resolveOrganizationScope', () => {
       })
       expect(result.filterIds).toBeNull()
       expect(result.selectedId).toBeNull()
+      expect(result.allowedIds).toBeNull()
     })
 
     it('scopes to specific org + descendants when superAdmin selects one', async () => {
@@ -203,10 +204,69 @@ describe('resolveOrganizationScope', () => {
       })
       expect(result.selectedId).toBe('org-home')
       expect(result.filterIds).toEqual(expect.arrayContaining(['org-home', 'org-home-child']))
+      expect(result.allowedIds).toBeNull()
     })
   })
 
   describe('non-superAdmin with restricted ACL (specific org list)', () => {
+    it('preserves an explicit empty ACL as deny-all instead of falling back to the home org', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({
+        isSuperAdmin: false,
+        features: ['some.feature'],
+        organizations: [],
+      })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: false, orgId: 'org-home' }),
+      })
+
+      expect(result.selectedId).toBeNull()
+      expect(result.filterIds).toEqual([])
+      expect(result.allowedIds).toEqual([])
+    })
+
+    it('rejects an explicitly selected organization when the ACL is deny-all', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({
+        isSuperAdmin: false,
+        features: ['some.feature'],
+        organizations: [],
+      })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: false, orgId: 'org-home' }),
+        selectedId: 'org-home',
+      })
+
+      expect(result.selectedId).toBeNull()
+      expect(result.filterIds).toEqual([])
+      expect(result.allowedIds).toEqual([])
+      expect(result.selectionRejected).toBe(true)
+    })
+
+    it('allows the home organization when it is explicitly present in the ACL', async () => {
+      const em = createMockEm(ALL_ORGS)
+      const rbac = createMockRbac({
+        isSuperAdmin: false,
+        features: ['some.feature'],
+        organizations: ['org-home'],
+      })
+      const result = await resolveOrganizationScope({
+        em,
+        rbac,
+        auth: createAuth({ sub: 'user-1', isSuperAdmin: false, orgId: 'org-home' }),
+        selectedId: 'org-home',
+      })
+
+      expect(result.selectedId).toBe('org-home')
+      expect(result.filterIds).toEqual(['org-home', 'org-home-child'])
+      expect(result.allowedIds).toEqual(['org-home', 'org-home-child'])
+      expect(result.selectionRejected).toBeFalsy()
+    })
+
     it('does not widen to all orgs when "All Organizations" is selected but ACL is restricted', async () => {
       const em = createMockEm(ALL_ORGS)
       const rbac = createMockRbac({

@@ -31,7 +31,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 jest.mock('next/link', () => {
   const React = require('react')
   return React.forwardRef(({ children, href, ...rest }: any, ref: React.ForwardedRef<HTMLAnchorElement>) => (
-    <a href={typeof href === 'string' ? href : href?.toString?.()} ref={ref} {...rest}>
+    <a href={typeof href === 'string' ? href : href?.toString?.()} ref={ref} data-client-link="true" {...rest}>
       {children}
     </a>
   ))
@@ -262,6 +262,34 @@ describe('PortalShell', () => {
     await waitFor(() => {
       expect(apiCallMock).not.toHaveBeenCalled()
     })
+  })
+
+  // The (frontend) layout sits above [...slug] and does not re-run on a client-side
+  // navigation, so a signed-in customer hopping from a public auth route (session
+  // withheld) to the portal root would keep an empty context and see the logged-out
+  // landing page. The public chrome's home links must be full page loads (#6362).
+  it('links the public chrome back to the portal root with a full page load', () => {
+    render(
+      <PortalLayoutShell
+        orgSlug="acme"
+        organizationName="Acme"
+        tenantId="tenant-1"
+        organizationId="org-1"
+        authenticated={false}
+        userName={null}
+        userEmail={null}
+        customerAuth={null}
+      >
+        <div>Login form</div>
+      </PortalLayoutShell>,
+    )
+
+    const homeLinks = screen.getAllByRole('link').filter((link) => link.getAttribute('href') === '/acme/portal')
+    expect(homeLinks).toHaveLength(2)
+    for (const link of homeLinks) {
+      expect(link).not.toHaveAttribute('data-client-link')
+    }
+    expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute('data-client-link', 'true')
   })
 
   it('renders the authenticated chrome for the props the layout passes on a signed-in route', async () => {

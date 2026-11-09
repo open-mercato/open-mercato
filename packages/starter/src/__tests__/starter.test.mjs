@@ -5,15 +5,16 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { parseComposePsOutput, resolveRepoRoot } from '../compose.mjs'
+import { detectDocker, parseComposePsOutput, resolveRepoRoot } from '../compose.mjs'
 import { hostTrustEnv, summarizeProbeResults, writeCaBundle } from '../certs.mjs'
 import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '../constants.mjs'
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, buildToolchainStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
+import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, hostGatewayStep, infraUpStep, serviceConfigurationStep, serviceConnectionsStep, buildUpSteps, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
 import { ensureEnvFiles } from '../env-setup.mjs'
-import { removeLeftoverComposeResources } from '../infra.mjs'
+import { describeInfraProblem, devRuntimeArgs, externalDatabaseHost, removeLeftoverComposeResources, resolveUpMode, startInfra } from '../infra.mjs'
+import { detectDockerRuntime, detectWsl, findPortConflicts, findUnhealthyServices, formatInfraProblem, startInfraServices } from '../infra-preflight.mjs'
 import { checkBuildToolchain, defenderExclusionCovers, detectHostGateway, hostIpCandidates } from '../doctor.mjs'
 
 function makeTempDir(prefix) {
@@ -204,7 +205,7 @@ test('resolveSpawnCommand rejects cmd metacharacters instead of degrading into i
 })
 
 function quietCtx(overrides = {}) {
-  return { log: () => {}, flags: {}, company: { steps: { disable: [], extra: [] } }, ...overrides }
+  return { assertDatabaseWriteAllowedImpl: async () => ({ remote: false }), log: () => {}, flags: {}, company: { steps: { disable: [], extra: [] } }, ...overrides }
 }
 
 test('runSteps skips satisfied steps, applies unsatisfied ones, and stops on StepBlocked with guidance', async () => {
@@ -358,6 +359,29 @@ test('buildToolchainStep warns instead of blocking when the workspace install al
   // A pending lockfile change re-arms the hard block.
   fs.writeFileSync(path.join(repo, 'yarn.lock'), 'changed\n')
   await assert.rejects(() => buildToolchainStep.check(ctx), (error) => error instanceof StepBlocked)
+})
+
+test('workspaceBuildStep rebuilds packages after generate, like the root yarn build', async () => {
+  const calls = []
+  await workspaceBuildStep.apply({ repoRoot: makeFakeRepo(), runYarnImpl: (_ctx, args) => calls.push(args.join(' ')) })
+  assert.deepEqual(calls, ['build:packages', 'generate', 'build:packages'])
+})
+
+test('workspaceBuildStep only converges once core dist/generated exists, not just the cli binary', async () => {
+  const repo = makeFakeRepo()
+  const ctx = { repoRoot: repo }
+  const writeArtifact = (...segments) => {
+    fs.mkdirSync(path.join(repo, ...segments.slice(0, -1)), { recursive: true })
+    fs.writeFileSync(path.join(repo, ...segments), '')
+  }
+
+  writeArtifact('packages', 'cli', 'dist', 'bin.js')
+  assert.equal((await workspaceBuildStep.check(ctx)).ok, false)
+
+  writeArtifact('packages', 'core', 'dist', 'generated', 'entities.ids.generated.js')
+  assert.equal((await workspaceBuildStep.check(ctx)).ok, true)
+
+  assert.equal((await workspaceBuildStep.check({ ...ctx, installChanged: true })).ok, false)
 })
 
 test('removeLeftoverComposeResources sweeps fixed-name containers and volumes down cannot see', () => {
@@ -531,4 +555,464 @@ test('databaseIsInitialized reads the seeded-users probe and tolerates a missing
   assert.equal(databaseIsInitialized(ctx, { runComposeImpl: () => ({ status: 0, stdout: '-1\n' }) }), false)
   assert.equal(databaseIsInitialized(ctx, { runComposeImpl: () => ({ status: 1, stdout: '' }) }), null)
   assert.equal(databaseIsInitialized(ctx, { runComposeImpl: () => { throw new Error('down') } }), null)
+})
+
+function fakeDockerProbe(responses) {
+  const calls = []
+  const probe = (args) => {
+    calls.push(args.join(' '))
+    return responses[args[0]] ?? { status: 0, stdout: '' }
+  }
+  return { probe, calls }
+}
+
+test('detectDockerRuntime distinguishes missing CLI, missing compose, stopped daemon, no permission and a hung daemon', () => {
+  const missingCli = fakeDockerProbe({ '--version': { error: Object.assign(new Error('spawn docker ENOENT'), { code: 'ENOENT' }) } })
+  assert.equal(detectDockerRuntime({ probe: missingCli.probe }).code, 'cli-missing')
+  assert.deepEqual(missingCli.calls, ['--version'])
+
+  assert.equal(detectDockerRuntime(fakeDockerProbe({ compose: { status: 1, stderr: "docker: 'compose' is not a docker command." } })).code, 'compose-missing')
+  assert.equal(detectDockerRuntime(fakeDockerProbe({ info: { status: 1, stderr: 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?' } })).code, 'daemon-stopped')
+  assert.equal(detectDockerRuntime(fakeDockerProbe({ info: { status: 1, stderr: 'permission denied while trying to connect to the Docker daemon socket' } })).code, 'daemon-permission')
+  assert.equal(detectDockerRuntime(fakeDockerProbe({ info: { error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }) } })).code, 'daemon-unresponsive')
+
+  const ok = detectDockerRuntime(fakeDockerProbe({ info: { status: 0, stdout: '27.3.1\n' } }))
+  assert.equal(ok.ok, true)
+  assert.equal(ok.serverVersion, '27.3.1')
+})
+
+test('detectDocker keeps the human reason for doctor and adds the problem code', () => {
+  const stopped = detectDocker(fakeDockerProbe({ info: { status: 1, stderr: 'Cannot connect to the Docker daemon' } }))
+  assert.deepEqual(stopped, { ok: false, code: 'daemon-stopped', reason: 'docker engine not running' })
+})
+
+test('formatInfraProblem explains the fix and always offers the --no-infra opt-out', () => {
+  for (const code of ['cli-missing', 'compose-missing', 'daemon-stopped', 'daemon-unresponsive', 'daemon-permission', 'compose-failed']) {
+    const lines = formatInfraProblem({ code }, { platform: 'linux', wsl: false })
+    assert.ok(lines.length >= 3, code)
+    assert.match(lines.join('\n'), /yarn setup --no-infra/, code)
+  }
+  assert.match(formatInfraProblem({ code: 'cli-missing' }, { platform: 'darwin' }).join('\n'), /never installs Docker/)
+  assert.match(formatInfraProblem({ code: 'daemon-stopped' }, { platform: 'linux', wsl: false }).join('\n'), /systemctl start docker/)
+  const ports = formatInfraProblem({ code: 'port-conflict', ports: [{ service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' }] }).join('\n')
+  assert.match(ports, /Port 5432 \(postgres\) is already in use/)
+  assert.match(ports, /POSTGRES_PORT in \.env/)
+  const unhealthy = formatInfraProblem({ code: 'unhealthy', services: [{ service: 'meilisearch', state: 'running', health: 'unhealthy' }], logsCommand: 'docker compose logs meilisearch' }).join('\n')
+  assert.match(unhealthy, /meilisearch: running \(unhealthy\)/)
+  assert.match(unhealthy, /docker compose logs meilisearch/)
+})
+
+test('findPortConflicts only probes services that are not already running in the project', async () => {
+  const probed = []
+  const conflicts = await findPortConflicts([
+    { service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' },
+    { service: 'redis', port: 6379, envKey: 'REDIS_PORT' },
+  ], { running: new Set(['postgres']), probe: async (port) => { probed.push(port); return true } })
+  assert.deepEqual(probed, [6379])
+  assert.deepEqual(conflicts.map((entry) => entry.service), ['redis'])
+})
+
+test('findUnhealthyServices flags missing, exited and failing-healthcheck services', () => {
+  const entries = parseComposePsOutput([
+    JSON.stringify({ Service: 'postgres', State: 'running', Health: 'healthy' }),
+    JSON.stringify({ Service: 'redis', State: 'exited', Health: '' }),
+    JSON.stringify({ Service: 'meilisearch', State: 'running', Health: 'unhealthy' }),
+    JSON.stringify({ Service: 'opencode', State: 'running', Health: '' }),
+  ].join('\n'))
+  assert.deepEqual(findUnhealthyServices(entries, ['postgres', 'redis', 'meilisearch', 'opencode', 'keycloak']).map((entry) => entry.service), ['redis', 'meilisearch', 'keycloak'])
+})
+
+function fakeComposeSpawn({ psBefore = [], psAfter = psBefore, upStatus = 0 } = {}) {
+  const calls = []
+  let upRan = false
+  const spawnSyncImpl = (command, args) => {
+    calls.push(args.join(' '))
+    if (args.includes('ps')) return { status: 0, stdout: (upRan ? psAfter : psBefore).map((entry) => JSON.stringify(entry)).join('\n') }
+    if (args.includes('up')) {
+      upRan = true
+      return { status: upStatus }
+    }
+    return { status: 0, stdout: '' }
+  }
+  return { spawnSyncImpl, calls }
+}
+
+const SERVICES = [
+  { service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' },
+  { service: 'redis', port: 6379, envKey: 'REDIS_PORT' },
+]
+
+test('startInfraServices stops before compose up when the runtime or a port is not usable', async () => {
+  const stopped = fakeComposeSpawn()
+  const noDaemon = await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES, spawnSyncImpl: stopped.spawnSyncImpl,
+    detect: () => ({ ok: false, code: 'daemon-stopped', detail: 'docker engine not running' }), log: () => {},
+  })
+  assert.equal(noDaemon.problem.code, 'daemon-stopped')
+  assert.deepEqual(stopped.calls, [])
+
+  const busy = fakeComposeSpawn()
+  const conflict = await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES, spawnSyncImpl: busy.spawnSyncImpl,
+    detect: () => ({ ok: true }), portProbe: async (port) => port === 5432, log: () => {},
+  })
+  assert.equal(conflict.problem.code, 'port-conflict')
+  assert.deepEqual(conflict.problem.ports.map((entry) => entry.port), [5432])
+  assert.ok(!busy.calls.some((call) => call.includes(' up ') || call.startsWith('up')))
+})
+
+test('startInfraServices reuses running containers, waits on health, and never removes volumes', async () => {
+  const fake = fakeComposeSpawn({ psBefore: [{ Service: 'postgres', State: 'running', Health: 'healthy' }] })
+  const logs = []
+  const outcome = await startInfraServices({
+    composeArgs: (extra) => ['compose', '-f', 'x.yml', ...extra], services: SERVICES, upArgs: ['--profile', 'agents'],
+    spawnSyncImpl: fake.spawnSyncImpl, detect: () => ({ ok: true }), portProbe: async () => false, log: (line) => logs.push(line),
+  })
+  assert.equal(outcome.ok, true)
+  assert.deepEqual(outcome.reused, ['postgres'])
+  assert.ok(fake.calls.includes('compose -f x.yml --profile agents up -d --wait'))
+  assert.ok(!fake.calls.some((call) => /down|--volumes|\brm\b/.test(call)))
+  assert.match(logs.join('\n'), /reusing running containers: postgres/)
+})
+
+test('startInfraServices runs slow preparation only after the cheap checks pass and before compose up', async () => {
+  const order = []
+  const fake = fakeComposeSpawn()
+  const spawnSyncImpl = (command, args, options) => {
+    if (args.includes('up')) order.push('up')
+    return fake.spawnSyncImpl(command, args, options)
+  }
+  await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES, spawnSyncImpl,
+    detect: () => ({ ok: true }), portProbe: async () => false, beforeUp: () => order.push('prepare'), log: () => {},
+  })
+  assert.deepEqual(order, ['prepare', 'up'])
+
+  const skipped = []
+  await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES, spawnSyncImpl: fakeComposeSpawn().spawnSyncImpl,
+    detect: () => ({ ok: true }), portProbe: async () => true, beforeUp: () => skipped.push('prepare'), log: () => {},
+  })
+  assert.deepEqual(skipped, [])
+})
+
+test('startInfraServices reports which services failed their healthcheck after compose up fails', async () => {
+  const fake = fakeComposeSpawn({ upStatus: 1, psAfter: [
+    { Service: 'postgres', State: 'running', Health: 'healthy' },
+    { Service: 'redis', State: 'running', Health: 'unhealthy' },
+  ] })
+  const outcome = await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES,
+    spawnSyncImpl: fake.spawnSyncImpl, detect: () => ({ ok: true }), portProbe: async () => false, log: () => {},
+  })
+  assert.equal(outcome.problem.code, 'unhealthy')
+  assert.deepEqual(outcome.problem.services.map((entry) => entry.service), ['redis'])
+  assert.equal(outcome.problem.logsCommand, 'docker compose logs redis')
+
+  const opaque = fakeComposeSpawn({ upStatus: 1, psAfter: [
+    { Service: 'postgres', State: 'running', Health: 'healthy' },
+    { Service: 'redis', State: 'running', Health: 'healthy' },
+  ] })
+  const failed = await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES,
+    spawnSyncImpl: opaque.spawnSyncImpl, detect: () => ({ ok: true }), portProbe: async () => false, log: () => {},
+  })
+  assert.equal(failed.problem.code, 'compose-failed')
+})
+
+test('--no-infra: database probes return no verdict without invoking docker compose', () => {
+  const repo = makeFakeRepo()
+  fs.mkdirSync(path.join(repo, 'apps', 'mercato'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL=postgres://me:pw@db.example.com:5432/app\n')
+  const ctx = { repoRoot: repo, flags: { noInfra: true } }
+  const forbidden = () => { throw new Error('docker compose must not run with --no-infra') }
+  assert.equal(readAppliedMigrationModules(ctx, { runComposeImpl: forbidden }), null)
+  assert.equal(probePostgresCredentials(ctx, { runComposeImpl: forbidden }), null)
+  assert.equal(databaseIsInitialized(ctx, { runComposeImpl: forbidden }), null)
+})
+
+test('--no-infra: the container runtime, host gateway and infra steps are skipped and the dev runtime gets the flag', () => {
+  const ctx = { mode: 'hybrid', flags: { noInfra: true } }
+  assert.equal(containerRuntimeStep.appliesTo(ctx), false)
+  assert.equal(hostGatewayStep.appliesTo(ctx), false)
+  assert.equal(infraUpStep.appliesTo(ctx), false)
+  assert.equal(infraUpStep.appliesTo({ mode: 'hybrid', flags: { noInfra: false } }), true)
+
+  assert.deepEqual(devRuntimeArgs(['--verbose'], { noInfra: true }), ['--verbose', '--no-infra'])
+  assert.deepEqual(devRuntimeArgs(['--no-infra'], { noInfra: true }), ['--no-infra'])
+  assert.deepEqual(devRuntimeArgs(['--verbose'], { noInfra: false }), ['--verbose'])
+})
+
+test('--no-infra overrides explicit and remembered docker modes for the current run', () => {
+  const explicitMode = 'docker'
+  const rememberedMode = 'docker'
+  assert.equal(resolveUpMode(explicitMode, { noInfra: true }), 'hybrid')
+  assert.equal(resolveUpMode(rememberedMode, { noInfra: true }), 'hybrid')
+  assert.equal(resolveUpMode('docker', { noInfra: false }), 'docker')
+  assert.equal(resolveUpMode('hybrid', { noInfra: true }), 'hybrid')
+})
+
+test('monorepo infra reports an external DATABASE_URL before starting local containers', async () => {
+  const repo = makeFakeRepo()
+  fs.mkdirSync(path.join(repo, 'apps', 'mercato'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL=postgres://me:pw@db.example.com:5432/shared\n')
+  const lines = []
+  const outcome = await startInfra(repo, {
+    env: {},
+    log: (line) => lines.push(String(line)),
+    startImpl: async () => ({ ok: true }),
+  })
+  assert.equal(outcome.ok, true)
+  assert.equal(externalDatabaseHost(repo, {}), 'db.example.com')
+  assert.match(lines.join('\n'), /DATABASE_URL points at db\.example\.com; it is kept as is/)
+  assert.match(lines.join('\n'), /--no-infra/)
+})
+
+test('an automatic infra failure stops the pipeline before the database step', async () => {
+  const order = []
+  const ctx = quietCtx({
+    mode: 'hybrid',
+    flags: { noInfra: false, profiles: [] },
+    ensureOpencodeImageImpl: () => order.push('opencode-image'),
+    startInfraImpl: async (repoRoot, { beforeUp }) => {
+      assert.equal(typeof beforeUp, 'function')
+      order.push('infra')
+      return { ok: false, problem: { code: 'port-conflict', ports: [{ service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' }] } }
+    },
+  })
+  const lines = []
+  ctx.log = (line) => lines.push(String(line))
+  const outcome = await runSteps([
+    { ...infraUpStep, async check() { return { ok: false, detail: 'starting: postgres' } } },
+    { id: 'database', title: 'Database', async check() { order.push('database'); return { ok: false } }, async apply() {} },
+  ], ctx)
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.failedStep, 'infra-up')
+  assert.deepEqual(order, ['infra'], 'a failed preflight never pulls or builds the OpenCode image')
+  assert.match(lines.join('\n'), /Port 5432 \(postgres\) is already in use/)
+  assert.match(lines.join('\n'), /yarn setup --no-infra/)
+})
+
+test('root package.json exposes yarn setup through the starter while keeping om, infra and dev entries', () => {
+  const rootPackage = JSON.parse(fs.readFileSync(new URL('../../../../package.json', import.meta.url), 'utf8'))
+  assert.equal(rootPackage.scripts.setup, 'node packages/starter/bin/om-start.mjs up')
+  assert.equal(rootPackage.scripts.om, 'node packages/starter/bin/om-start.mjs')
+  assert.equal(rootPackage.scripts['infra:up'], 'node packages/starter/bin/om-start.mjs infra up')
+  assert.equal(rootPackage.scripts['infra:down'], 'node packages/starter/bin/om-start.mjs infra down')
+  assert.ok(rootPackage.scripts.dev)
+  assert.ok(rootPackage.scripts['dev:greenfield'])
+})
+
+test('the generated-app copy of the infra preflight is byte-identical to the starter module', () => {
+  const source = fs.readFileSync(new URL('../infra-preflight.mjs', import.meta.url))
+  const mirror = fs.readFileSync(new URL('../../../create-app/template/scripts/dev-infra-preflight.mjs', import.meta.url))
+  assert.ok(source.equals(mirror), 'run yarn template:sync:fix')
+})
+
+test('WSL users are sent to Docker Desktop WSL integration instead of installing a second engine', () => {
+  assert.equal(detectWsl({ env: { WSL_DISTRO_NAME: 'Ubuntu' }, readFile: () => '' }), true)
+  assert.equal(detectWsl({ env: {}, readFile: () => 'Linux version 5.15.153.1-microsoft-standard-WSL2' }), true)
+  assert.equal(detectWsl({ env: {}, readFile: () => 'Linux version 6.8.0-45-generic (buildd@lcy02)' }), false)
+  assert.equal(detectWsl({ env: {}, readFile: () => { throw new Error('ENOENT') } }), false)
+
+  const missing = formatInfraProblem({ code: 'cli-missing' }, { platform: 'linux', wsl: true }).join('\n')
+  assert.match(missing, /WSL integration/)
+  assert.doesNotMatch(missing, /Install Docker Engine with the compose plugin/)
+  assert.match(formatInfraProblem({ code: 'daemon-stopped' }, { platform: 'linux', wsl: true }).join('\n'), /Docker Desktop on Windows/)
+  assert.match(formatInfraProblem({ code: 'cli-missing' }, { platform: 'linux', wsl: false }).join('\n'), /Install Docker Engine/)
+})
+
+test('compose failures point at port allocation errors, with the reserved-range check on Windows', () => {
+  const linux = formatInfraProblem({ code: 'compose-failed' }, { platform: 'linux', wsl: false }).join('\n')
+  assert.match(linux, /port is already allocated/)
+  assert.doesNotMatch(linux, /excludedportrange/)
+  assert.match(formatInfraProblem({ code: 'compose-failed' }, { platform: 'win32' }).join('\n'), /excludedportrange/)
+})
+
+test('monorepo port conflicts name apps/mercato/.env and the fixed mercato-* container names', () => {
+  const problem = { code: 'port-conflict', ports: [{ service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' }] }
+  const monorepo = describeInfraProblem(problem, { platform: 'darwin' }).join('\n')
+  assert.match(monorepo, /DATABASE_URL \(apps\/mercato\/\.env\)/)
+  assert.match(monorepo, /MERCATO_STACK/)
+  assert.match(monorepo, /yarn setup --no-infra/)
+  const standalone = formatInfraProblem(problem, { platform: 'darwin' }).join('\n')
+  assert.match(standalone, /DATABASE_URL \(\.env\)/)
+  assert.doesNotMatch(standalone, /MERCATO_STACK/)
+})
+
+test('startInfraServices skips the port check when compose ps fails instead of blaming our own containers', async () => {
+  const calls = []
+  const logs = []
+  const spawnSyncImpl = (command, args) => {
+    calls.push(args.join(' '))
+    if (args.includes('ps')) return { status: 1, stdout: '', stderr: 'invalid interpolation format' }
+    if (args.includes('up')) return { status: 1 }
+    return { status: 0, stdout: '' }
+  }
+  const probed = []
+  const outcome = await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES, spawnSyncImpl,
+    detect: () => ({ ok: true }), portProbe: async (port) => { probed.push(port); return true }, log: (line) => logs.push(line),
+  })
+  assert.deepEqual(probed, [])
+  assert.equal(outcome.problem.code, 'compose-failed')
+  assert.ok(calls.some((call) => call.includes('up -d --wait')))
+  assert.match(logs.join('\n'), /skipping the port check/)
+})
+
+test('infraUpStep.check only converges once every container is healthy, not merely running', async () => {
+  const psWith = (entries) => () => ({ status: 0, stdout: entries.map((entry) => JSON.stringify(entry)).join('\n') })
+  const healthy = [
+    { Service: 'postgres', State: 'running', Health: 'healthy' },
+    { Service: 'redis', State: 'running', Health: 'healthy' },
+    { Service: 'meilisearch', State: 'running', Health: 'healthy' },
+    { Service: 'opencode', State: 'running', Health: '' },
+  ]
+  const ready = await infraUpStep.check({ repoRoot: '/repo', flags: {}, runComposeImpl: psWith(healthy) })
+  assert.equal(ready.ok, true)
+
+  const ctx = { repoRoot: '/repo', flags: {}, runComposeImpl: psWith([{ ...healthy[0], Health: 'starting' }, ...healthy.slice(1)]) }
+  const starting = await infraUpStep.check(ctx)
+  assert.equal(starting.ok, false)
+  assert.deepEqual(ctx.infraMissing, ['postgres'])
+  assert.match(starting.detail, /postgres \(starting\)/)
+})
+
+test('the database step initializes with --skip-if-initialized so a re-run never aborts on existing users', async () => {
+  const repo = makeFakeRepo()
+  fs.mkdirSync(path.join(repo, 'apps', 'mercato'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL=postgres://me:pw@db.example.com:5432/shared\n')
+  const invocations = []
+  const ctx = quietCtx({
+    repoRoot: repo,
+    env: {},
+    flags: { noInfra: true },
+    logs: { raw() {}, suspend() {}, resume() {} },
+    runStreamingImpl: (command, args, options) => {
+      invocations.push({ command, args, env: options.env })
+      return 0
+    },
+  })
+  const checked = await databaseStep.check(ctx)
+  assert.equal(checked.ok, false)
+  await databaseStep.apply(ctx)
+  assert.deepEqual(invocations.map((entry) => entry.args), [['db:migrate'], ['initialize', '--', '--skip-if-initialized']])
+  assert.equal(invocations[1].env.OM_INIT_DEV_AUTOSTART, '1')
+  assert.equal(Number(invocations[1].env.OM_INIT_SUMMARY_COLUMNS) + 3, process.stdout.columns || 80)
+  assert.equal(invocations[1].env.OM_INIT_SUMMARY_COLOR, process.stdout.isTTY ? '1' : '0')
+
+  invocations.length = 0
+  const emptied = quietCtx({ ...ctx, dbReinitialize: true, env: { NO_COLOR: '1' } })
+  await databaseStep.apply(emptied)
+  assert.deepEqual(invocations.map((entry) => entry.args), [['db:migrate'], ['initialize']])
+  assert.equal(invocations[1].env.OM_INIT_SUMMARY_COLOR, '0')
+})
+
+
+test('service configuration uses app URLs and root Compose env before build and database', async () => {
+  const repo = makeFakeRepo()
+  let called
+  let cleaned = false
+  const ctx = {
+    repoRoot: repo,
+    mode: 'hybrid',
+    flags: { serviceMode: 'ephemeral', noInfra: true },
+    env: { KEEP: 'value' },
+    log() {},
+    company: { steps: { disable: [], extra: [] } },
+    async configureServiceModeImpl(options) {
+      called = options
+      return { ok: true, env: { DATABASE_URL: 'postgres://temporary' }, cleanup: async () => { cleaned = true } }
+    },
+  }
+  const steps = buildUpSteps(ctx).map((step) => step.id)
+  assert.ok(steps.indexOf('service-configuration') > steps.indexOf('workspace-install'))
+  assert.ok(steps.indexOf('service-configuration') < steps.indexOf('workspace-build'))
+  assert.ok(steps.indexOf('service-configuration') < steps.indexOf('database'))
+  await serviceConfigurationStep.apply(ctx)
+  assert.equal(called.mode, 'ephemeral')
+  assert.equal(called.projectDir, path.join(repo, 'apps', 'mercato'))
+  assert.deepEqual(called.envFiles, [path.join(repo, '.env')])
+  assert.deepEqual(called.services.map((service) => service.service), ['postgres', 'redis', 'meilisearch'])
+  assert.equal(ctx.env.DATABASE_URL, 'postgres://temporary')
+  assert.equal(ctx.env.KEEP, 'value')
+  await ctx.cleanupServices()
+  assert.equal(cleaned, true)
+})
+
+test('reuse and ephemeral service choices skip Compose-dependent steps', () => {
+  for (const serviceMode of ['reuse', 'ephemeral']) {
+    const ctx = { mode: 'hybrid', flags: { noInfra: true, serviceMode } }
+    assert.equal(containerRuntimeStep.appliesTo(ctx), false)
+    assert.equal(infraUpStep.appliesTo(ctx), false)
+    assert.equal(hostGatewayStep.appliesTo(ctx), false)
+    assert.deepEqual(devRuntimeArgs([], ctx.flags), ['--no-infra'])
+  }
+})
+
+test('failed service configuration does not reach subsequent setup steps', async () => {
+  let laterStepRan = false
+  const outcome = await runSteps([serviceConfigurationStep, {
+    id: 'database', title: 'database',
+    async apply() { laterStepRan = true },
+  }], {
+    repoRoot: makeFakeRepo(), mode: 'hybrid', flags: { serviceMode: 'ephemeral' }, env: {}, log() {},
+    async configureServiceModeImpl() { throw new Error('Docker unavailable') },
+  })
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.failedStep, 'service-configuration')
+  assert.equal(laterStepRan, false)
+})
+
+
+test('cancelling an earlier asynchronous step prevents services and database setup', async () => {
+  let servicesStarted = false
+  let databaseRan = false
+  const ctx = { repoRoot: makeFakeRepo(), mode: 'hybrid', flags: { serviceMode: 'ephemeral' }, env: {}, log() {}, cancelled: false,
+    async configureServiceModeImpl() { servicesStarted = true; return { ok: true, env: {} } },
+  }
+  const outcome = await runSteps([
+    { id: 'earlier', title: 'earlier', async apply(context) { await Promise.resolve(); context.cancelled = true } },
+    serviceConfigurationStep,
+    { id: 'database', title: 'database', async apply() { databaseRan = true } },
+  ], ctx)
+  assert.equal(outcome.ok, false)
+  assert.equal(servicesStarted, false)
+  assert.equal(databaseRan, false)
+})
+
+test('random-port reconfiguration reconverges healthy Compose services before database setup', async () => {
+  const calls = []
+  const ctx = quietCtx({
+    repoRoot: makeFakeRepo(), mode: 'hybrid', flags: { serviceMode: 'random', profiles: [], noInfra: false }, env: {},
+    async configureServiceModeImpl() { calls.push('configure'); return { ok: true, env: {} } },
+    runComposeImpl() { return { status: 0, stdout: ['postgres', 'redis', 'meilisearch', 'opencode'].map((service) => JSON.stringify({ Service: service, State: 'running', Health: 'healthy' })).join('\n') } },
+    async startInfraImpl() { calls.push('converge'); return { ok: true } },
+  })
+  const outcome = await runSteps([serviceConfigurationStep, infraUpStep, { id: 'database', title: 'database', async apply() { calls.push('database') } }], ctx)
+  assert.equal(outcome.ok, true)
+  assert.deepEqual(calls, ['configure', 'converge', 'database'])
+})
+
+
+test('credential verification runs after infrastructure and blocks database setup on rejection', async () => {
+  const ctx = quietCtx({ repoRoot: makeFakeRepo(), mode: 'hybrid', flags: { serviceMode: 'reuse' }, env: {}, company: { steps: { disable: [], extra: [] } },
+    async verifyServiceConnectionsImpl() { throw new Error('PostgreSQL rejected configured credentials; check DATABASE_URL in .env') },
+  })
+  const ids = buildUpSteps(ctx).map((step) => step.id)
+  assert.ok(ids.indexOf('service-connections') > ids.indexOf('infra-up'))
+  assert.ok(ids.indexOf('service-connections') < ids.indexOf('database'))
+  let databaseRan = false
+  const outcome = await runSteps([serviceConnectionsStep, { id: 'database', title: 'database', async apply() { databaseRan = true } }], ctx)
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.failedStep, 'service-connections')
+  assert.equal(databaseRan, false)
+})
+
+test('infrastructure starting detail is separated from its step heading by a blank line', async () => {
+  const messages = []
+  await runSteps([{ id: 'infra-up', title: 'Infrastructure', check: async () => ({ ok: false, detail: 'starting: postgres' }), apply: async () => {} }], quietCtx({ log: (line) => messages.push(line) }))
+  const detail = messages.findIndex((line) => line.includes('starting: postgres'))
+  assert.ok(detail > 0)
+  assert.equal(messages[detail - 1], '')
 })

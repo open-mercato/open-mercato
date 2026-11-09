@@ -367,3 +367,76 @@ describe('OpenAIAdapter — safety identifier + moderation capability', () => {
     expect(provider.supportsInputModeration).toBe(false)
   })
 })
+
+describe('OpenAIAdapter wire protocol (apiMode)', () => {
+  type ModelWithProvider = { provider: string }
+
+  function modelProvider(preset: OpenAICompatiblePreset): string {
+    const model = createOpenAICompatibleProvider(preset).createModel({
+      apiKey: 'test-key',
+      modelId: preset.defaultModel || 'local-model',
+    }) as ModelWithProvider
+    return model.provider
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('builds a Chat Completions model when the preset omits apiMode', () => {
+    expect(modelProvider(DEEPINFRA_PRESET)).toBe('openai.chat')
+  })
+
+  it('builds a Responses API model when the preset opts into apiMode "responses"', () => {
+    expect(modelProvider({ ...DEEPINFRA_PRESET, apiMode: 'responses' })).toBe('openai.responses')
+  })
+
+  it('keeps the native OpenAI preset on the Responses API and every compatible preset on Chat Completions', () => {
+    for (const preset of OPENAI_COMPATIBLE_PRESETS) {
+      const expected = preset.id === 'openai' ? 'openai.responses' : 'openai.chat'
+      expect({ id: preset.id, provider: modelProvider(preset) }).toEqual({
+        id: preset.id,
+        provider: expected,
+      })
+    }
+  })
+
+  it('posts DeepInfra turns to /chat/completions instead of /responses', async () => {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'chatcmpl-1',
+          object: 'chat.completion',
+          created: 0,
+          model: 'zai-org/GLM-5.1',
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'ok' },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+    const model = createOpenAICompatibleProvider(DEEPINFRA_PRESET).createModel({
+      apiKey: 'test-key',
+      modelId: 'zai-org/GLM-5.1',
+    }) as {
+      doGenerate: (options: {
+        prompt: Array<{ role: 'user'; content: Array<{ type: 'text'; text: string }> }>
+      }) => Promise<unknown>
+    }
+
+    await model.doGenerate({
+      prompt: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    })
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(String(fetchSpy.mock.calls[0][0])).toBe(
+      'https://api.deepinfra.com/v1/openai/chat/completions',
+    )
+  })
+})

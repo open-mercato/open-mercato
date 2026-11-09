@@ -1,4 +1,4 @@
-import { assertAttachmentScopeInvariant, checkAttachmentAccess } from '../access'
+import { assertAttachmentScopeInvariant, checkAttachmentAccess, isSuperAdminAuth } from '../access'
 
 function attachment(overrides: Record<string, unknown> = {}) {
   return { tenantId: 'tenant-1', organizationId: 'org-1', ...overrides } as any
@@ -68,6 +68,26 @@ describe('checkAttachmentAccess — cross-tenant public partition fix', () => {
     const superAuth = auth({ isSuperAdmin: true, tenantId: 'other-tenant' })
     expect(checkAttachmentAccess(superAuth, attachment(), partition(false)).ok).toBe(true)
     expect(checkAttachmentAccess(superAuth, attachment(), partition(true)).ok).toBe(true)
+  })
+
+  it('does not grant superadmin access from a mutable role name', () => {
+    const roleOnlyAuth = auth({
+      isSuperAdmin: false,
+      roles: ['admin', 'superadmin'],
+      tenantId: 'other-tenant',
+      orgId: 'other-org',
+    })
+
+    expect(isSuperAdminAuth(roleOnlyAuth)).toBe(false)
+    expect(checkAttachmentAccess(roleOnlyAuth, attachment(), partition(false))).toEqual({
+      ok: false,
+      status: 403,
+    })
+  })
+
+  it('recognizes only the canonical superadmin flag', () => {
+    expect(isSuperAdminAuth(auth({ isSuperAdmin: true, roles: [] }))).toBe(true)
+    expect(isSuperAdminAuth(auth({ isSuperAdmin: false, roles: [' SUPERADMIN '] }))).toBe(false)
   })
 })
 
