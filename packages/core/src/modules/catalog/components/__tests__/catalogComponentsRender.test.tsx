@@ -621,6 +621,29 @@ describe('catalog module components', () => {
     expect(unlabelledSelect.selectedOptions[0]?.textContent).toBe('#3f1d2c4b')
   })
 
+  it('lays work requirements out on a container-width grid, widening the label when there is no reference', () => {
+    const { container } = render(
+      <ServiceWorkRequirements
+        value={[
+          { targetType: 'generic', targetId: null, labelSnapshot: 'Setup', allocationMode: 'ratio', allocationValue: '1', sortOrder: 0 },
+          { targetType: 'staff_member', targetId: null, labelSnapshot: '', allocationMode: 'ratio', allocationValue: '1', sortOrder: 1 },
+        ]}
+        onChange={jest.fn()}
+      />,
+    )
+
+    expect(container.querySelector('.\\@container')).not.toBeNull()
+    const grids = Array.from(container.querySelectorAll('.grid'))
+    expect(grids).toHaveLength(2)
+    for (const grid of grids) {
+      expect(grid).toHaveClass('@6xl:grid-cols-12')
+      expect(grid.className).not.toContain('[')
+    }
+    const [genericLabel, staffLabel] = screen.getAllByLabelText('Label').map((input) => input.closest('label'))
+    expect(genericLabel).toHaveClass('@6xl:col-span-6')
+    expect(staffLabel).toHaveClass('@6xl:col-span-3')
+  })
+
   it('only loads work requirement references the user may read, without forbidden redirects', async () => {
     mockApiCall.mockImplementation((url: string) => Promise.resolve({
       ok: true,

@@ -21,8 +21,9 @@ shipped quantity can no longer change its kind or catalog references. Products n
 page titles now read "Products" instead of "Products & services". Line upserts accept an explicit
 `null` to clear a line's unit, product, variant or catalog snapshot. Every quote/order line input
 shape shares one line schema, so the change reaches `OrderLineCreateInput`, `OrderLineUpdateInput`,
-`QuoteLineCreateInput`, `QuoteLineUpdateInput`, the `lines` items of `OrderCreateInput` and
-`QuoteCreateInput`, and the `lines` entries of `OrderLineBulkUpsertInput` (with the matching
+`QuoteLineCreateInput`, `QuoteLineUpdateInput`, the `lines` items of `OrderCreateInput`,
+`OrderUpdateInput`, `QuoteCreateInput` and `QuoteUpdateInput`, and the `lines` entries of
+`OrderLineBulkUpsertInput` (with the matching
 `POST /api/sales/orders`, `POST /api/sales/quotes`, line and bulk line request bodies): `quantityUnit`,
 `productId` and `productVariantId` are now `string | null | undefined`, `catalogSnapshot` is
 `Record<string, unknown> | null | undefined`, and each gains `serviceId?: string | null`. The `lines`

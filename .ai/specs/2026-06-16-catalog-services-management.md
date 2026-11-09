@@ -61,6 +61,7 @@ Catalog currently models service-like examples through products and custom field
 
 ## Changelog
 
+- 2026-11-09: Thirteenth review follow-ups. `UPGRADE_NOTES.md` also names the `lines` of `OrderUpdateInput`/`QuoteUpdateInput`. The work-requirements editor switches to its one-row layout on its own width (container query `@6xl`) instead of the viewport, so it no longer cramps inside the form's main column, and the label widens on generic rows that have no reference column. Tests cover the layout classes and the no-unit fallback through bulk order line writes.
 - 2026-11-09: Twelfth review follow-ups. `UPGRADE_NOTES.md` names every quote/order line input shape that shares the widened line schema (line create/update, the `lines` of order/quote create, bulk line entries). The work-requirements editor keeps a saved reference that is not among the loaded staff/resource options selectable, labelled by its stored label snapshot, and lays out on a 12-column grid instead of an arbitrary template. Tests cover order/quote create with explicit null references, unit and snapshot, and the carried-unit fallback through bulk order line writes.
 
 - 2026-11-07: Eleventh review follow-ups. `UPGRADE_NOTES.md` lists every widened line input type (`quantityUnit`, `productId`, `productVariantId`, `catalogSnapshot` nullable; new `serviceId`, and `kind` on credit memo lines). A command-level test covers a carried unit whose default-unit fallback is rejected too (400, line unchanged).

@@ -408,5 +408,21 @@ describe('sales line writes — unit handling on product changes', () => {
       expect(Number(line.normalizedQuantity)).toBe(2)
       expect(Number(line.unitPriceNet)).toBe(120)
     })
+
+    it('falls back to no unit when the new product has no units at all', async () => {
+      setWorld(
+        [storedBoxLine()],
+        [productA, { id: OTHER_PRODUCT_ID, defaultUnit: null, defaultSalesUnit: null }],
+        { [PRODUCT_ID]: [boxConversionA], [OTHER_PRODUCT_ID]: [] },
+      )
+
+      const line = (await runCommand('sales.orders.lines.upsert_many', bulkProductChange)).get(FIRST_LINE_ID)!
+
+      expect(line.quantityUnit ?? null).toBeNull()
+      expect(Number(line.normalizedQuantity)).toBe(2)
+      expect(line.normalizedUnit ?? null).toBeNull()
+      expect(line.uomSnapshot ?? null).toBeNull()
+      expect(Number(line.unitPriceNet)).toBe(120)
+    })
   })
 })
