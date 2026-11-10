@@ -43,6 +43,8 @@ Catalog currently models service-like examples through products and custom field
 
 - Catalog integration: create service with category, default price, media, and work requirements; edit it; list/search it; delete it.
 - Sales integration: create quote/order line with `kind: "service"` and `serviceId`; verify totals and Quote → Order conversion preserve the service reference and snapshot.
+- Catalog access and scope (`TC-CAT-047`): a user without `catalog.services.view` gets 403 on list/create; a view-only user gets 403 on create/update/delete; a user limited to one organization never lists another organization's service (by search, `id` or `ids`).
+- Sales service-line scope (`TC-SALES-051`): quote lines, order create and order lines referencing a service from another organization are rejected with 400 and not persisted; the same writes with an own-organization service succeed.
 - E2E/manual QA: verify the Catalog service create/edit/list flow and the Sales quote-to-order service-line flow in an upstream-safe application environment before marking the PR ready.
 
 ## Migration & Backward Compatibility
@@ -61,6 +63,7 @@ Catalog currently models service-like examples through products and custom field
 
 ## Changelog
 
+- 2026-11-10: PR review follow-up (#9092). Integration coverage for the permission and organization boundaries: `TC-CAT-047-services-access-scope.spec.ts` and `TC-SALES-051-service-line-org-scope.spec.ts`. `TC-SALES-050` now expects a 400 for a line that references both a service and a product, matching the third-round rule (a `kind: 'service'` line with a matched product and no `serviceId` is accepted). The four service specs pass against an ephemeral app.
 - 2026-11-09: Fourteenth review follow-ups. The work-requirements editor stacks into one column on narrow screens and uses two columns from `sm` up; the one-row `@6xl` layout from the thirteenth round was dropped because the form column it sits in never reaches that width. The remove action fills the cell next to Value on rows with a reference and takes its own row only on generic rows. The service edit page translates its navigation group (`pageGroupKey`).
 - 2026-11-09: Thirteenth review follow-ups. `UPGRADE_NOTES.md` also names the `lines` of `OrderUpdateInput`/`QuoteUpdateInput`. The work-requirements editor switches to its one-row layout on its own width (container query `@6xl`) instead of the viewport, so it no longer cramps inside the form's main column, and the label widens on generic rows that have no reference column. Tests cover the layout classes and the no-unit fallback through bulk order line writes.
 - 2026-11-09: Twelfth review follow-ups. `UPGRADE_NOTES.md` names every quote/order line input shape that shares the widened line schema (line create/update, the `lines` of order/quote create, bulk line entries). The work-requirements editor keeps a saved reference that is not among the loaded staff/resource options selectable, labelled by its stored label snapshot, and lays out on a 12-column grid instead of an arbitrary template. Tests cover order/quote create with explicit null references, unit and snapshot, and the carried-unit fallback through bulk order line writes.

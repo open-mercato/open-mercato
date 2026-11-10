@@ -14,7 +14,7 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
  * Verifies:
  * - a quote line with `kind: 'service'` stores the catalog `serviceId` and catalog snapshot
  * - a line referencing a service without the service kind is rejected (400)
- * - a service line referencing a product is rejected (400)
+ * - a line referencing both a service and a product is rejected (400)
  * - quote → order conversion keeps `service_id` and `catalog_snapshot.service` on the order line
  *
  * Self-contained: the catalog service, quote and order are created through the API and removed in `finally`.
@@ -121,14 +121,15 @@ test.describe('TC-SALES-050: service lines', () => {
         data: {
           quoteId,
           kind: 'service',
+          serviceId,
           productId: randomUUID(),
-          name: 'QA mismatched service line',
+          name: 'QA service and product line',
           quantity: 1,
           unitPriceNet: 10,
           currencyCode: 'USD',
         },
       })
-      expect(productOnServiceLine.status(), 'a productId on a service line is rejected').toBe(400)
+      expect(productOnServiceLine.status(), 'a line referencing both a service and a product is rejected').toBe(400)
 
       expect(
         await readLines(request, token, 'quote-lines', 'quoteId', quoteId),
