@@ -105,4 +105,14 @@ describe('availability replace commands with a window whose end is not after its
     expect(rule.deletedAt).toBeInstanceOf(Date)
     expect(em.create).toHaveBeenCalledTimes(1)
   })
+
+  it('date-specific replace still swaps the existing rule for a valid window', async () => {
+    const { rule, em, ctx } = setup(ONCE_RULE)
+    const handler = commandRegistry.get('planner.availability.date-specific.replace')
+
+    await handler!.execute({ ...scope, dates: ['2026-06-15'], kind: 'availability', windows: [{ start: '10:00', end: '12:00' }] }, ctx)
+
+    expect(rule.deletedAt).toBeInstanceOf(Date)
+    expect(em.create).toHaveBeenCalledTimes(1)
+  })
 })

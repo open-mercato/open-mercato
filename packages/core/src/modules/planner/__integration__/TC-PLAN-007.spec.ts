@@ -6,13 +6,13 @@ import {
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/generalFixtures'
 
-type RuleItem = { id?: string; rrule?: string }
+type RuleItem = { id?: string }
 
 async function listRuleSetRules(request: APIRequestContext, token: string, ruleSetId: string): Promise<RuleItem[]> {
   const response = await apiRequest(
     request,
     'GET',
-    `/api/planner/availability?subjectType=ruleset&subjectIds=${encodeURIComponent(ruleSetId)}&pageSize=100`,
+    `/api/planner/availability?subjectType=ruleset&subjectIds=${encodeURIComponent(ruleSetId)}&pageSize=100&probe=${Date.now()}`,
     { token },
   )
   expect(response.status(), 'GET /api/planner/availability should return 200').toBe(200)

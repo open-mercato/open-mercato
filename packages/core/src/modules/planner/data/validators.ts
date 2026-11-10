@@ -58,22 +58,21 @@ export const plannerAvailabilityRuleUpdateSchema = z.object({
 
 const timeOfDayPattern = /^([01]\d|2[0-3]):[0-5]\d$/
 
-function addInvalidWindowIssues(windows: Array<{ start: string; end: string }>, ctx: z.RefinementCtx) {
-  windows.forEach((window, index) => {
-    const startValid = timeOfDayPattern.test(window.start)
-    if (startValid && timeOfDayPattern.test(window.end) && window.end > window.start) return
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['windows', index, startValid ? 'end' : 'start'],
-      message: 'planner.availability.errors.invalidWindow',
-    })
-  })
+function invalidWindowField(window: { start: string; end: string }): 'start' | 'end' | null {
+  if (!timeOfDayPattern.test(window.start)) return 'start'
+  if (!timeOfDayPattern.test(window.end) || window.end <= window.start) return 'end'
+  return null
 }
+
+const invalidWindowMessage = 'planner.availability.errors.invalidWindow'
 
 const weeklyWindowSchema = z.object({
   weekday: z.number().int().min(0).max(6),
   start: z.string().regex(/^\d{2}:\d{2}$/),
   end: z.string().regex(/^\d{2}:\d{2}$/),
+}).superRefine((window, ctx) => {
+  const field = invalidWindowField(window)
+  if (field) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: invalidWindowMessage })
 })
 
 const dateSpecificWindowSchema = z.object({
@@ -89,7 +88,7 @@ export const plannerAvailabilityWeeklyReplaceSchema = z.object({
   subjectId: z.string().uuid(),
   timezone: z.string().min(1),
   windows: z.array(weeklyWindowSchema).default([]),
-}).superRefine((value, ctx) => addInvalidWindowIssues(value.windows, ctx))
+})
 
 export type PlannerAvailabilityWeeklyReplaceInput = z.infer<typeof plannerAvailabilityWeeklyReplaceSchema>
 
@@ -117,7 +116,11 @@ export const plannerAvailabilityDateSpecificReplaceSchema = z.object({
     })
   }
   const kind = value.kind ?? (value.isAvailable === false ? 'unavailability' : 'availability')
-  if (kind !== 'unavailability') addInvalidWindowIssues(value.windows, ctx)
+  if (kind === 'unavailability') return
+  value.windows.forEach((window, index) => {
+    const field = invalidWindowField(window)
+    if (field) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['windows', index, field], message: invalidWindowMessage })
+  })
 })
 
 export type PlannerAvailabilityDateSpecificReplaceInput = z.infer<typeof plannerAvailabilityDateSpecificReplaceSchema>
