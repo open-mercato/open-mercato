@@ -693,9 +693,10 @@ export class PromotionCodeService {
       orderId: input.orderId,
       revertedAt: { $ne: null },
     })
-    if (usageRows.length === 0) return { ok: true, reinstatedCount: 0 }
+    if (usageRows.length === 0) return { ok: true, reinstatedCount: 0, blockedCount: 0 }
 
     let reinstatedCount = 0
+    let blockedCount = 0
     for (const seedUsage of usageRows) {
       let reinstated = false
       let refusalReason: 'generated_code_claimed' | 'code_cap_exceeded' | null = null
@@ -780,6 +781,10 @@ export class PromotionCodeService {
         // in telemetry. `refusalReason` stays null for the harmless "another caller already
         // reinstated this row" skip, so that path never fires a false-positive notification.
         if (refusalReason) {
+          // #8268 review Major 4: only a GENUINE refusal counts toward `blockedCount` —
+          // the benign "another caller already reinstated this row" skip above (bare
+          // `!reinstated` with no `refusalReason`) left nothing uncounted for the order.
+          blockedCount += 1
           try {
             await emitPromotionsEvent(
               'promotions.code.exhausted',
@@ -810,6 +815,6 @@ export class PromotionCodeService {
       )
     }
 
-    return { ok: true, reinstatedCount }
+    return { ok: true, reinstatedCount, blockedCount }
   }
 }

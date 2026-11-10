@@ -270,7 +270,7 @@
   "promotions.list.searchPlaceholder": "Szukaj promocji...",
   "promotions.list.title": "Promocje",
   "promotions.nav.group": "Promocje",
-  "promotions.notifications.usageReinstateBlocked.body": "Przywrócenie zamówienia {orderId} nie mogło odtworzyć jego użycia promocji/kodu bez przekroczenia limitu — zamówienie wciąż zawiera pierwotny rabat i wymaga ręcznego rozliczenia.",
+  "promotions.notifications.usageReinstateBlocked.body": "Przywrócenie zamówienia {orderId} nie mogło odtworzyć jego użycia promocji/kodu bez przekroczenia limitu, więc zamówienie zostało automatycznie przywrócone do statusu anulowane, aby nie zachować rabatu bez pokrycia.",
   "promotions.notifications.usageReinstateBlocked.title": "Nie można przywrócić użycia promocji",
   "promotions.operators.eq": "Równe",
   "promotions.operators.gt": "Większe niż",

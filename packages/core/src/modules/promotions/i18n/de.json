@@ -270,7 +270,7 @@
   "promotions.list.searchPlaceholder": "Promotions durchsuchen...",
   "promotions.list.title": "Promotions",
   "promotions.nav.group": "Promotions",
-  "promotions.notifications.usageReinstateBlocked.body": "Beim Wiederherstellen der Bestellung {orderId} konnte die Promotion-/Code-Nutzung nicht ohne Überschreitung des Limits wiederhergestellt werden — die Bestellung behält ihren ursprünglichen Rabatt und benötigt eine manuelle Abstimmung.",
+  "promotions.notifications.usageReinstateBlocked.body": "Beim Wiederherstellen der Bestellung {orderId} konnte die Promotion-/Code-Nutzung nicht ohne Überschreitung des Limits wiederhergestellt werden. Die Bestellung wurde daher automatisch wieder auf „storniert“ gesetzt, anstatt einen nicht gedeckten Rabatt zu behalten.",
   "promotions.notifications.usageReinstateBlocked.title": "Promotion-Nutzung konnte nicht wiederhergestellt werden",
   "promotions.operators.eq": "Gleich",
   "promotions.operators.gt": "Größer als",

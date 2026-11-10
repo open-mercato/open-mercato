@@ -8,7 +8,7 @@
 import { randomUUID } from 'crypto'
 import handle from '../order-confirmed-usage-reinstate'
 import { Code, CodeUsage, GeneratedCode } from '../../data/entities'
-import { PromotionUsage } from '../../data/entities'
+import { Promotion, PromotionUsage } from '../../data/entities'
 import { PromotionCodeService } from '../../lib/code-service'
 import { PromotionUsageService } from '../../lib/promotion-usage-service'
 
@@ -43,6 +43,7 @@ type FakeEm = {
   fork: () => FakeEm
   execute: (sql: string, params?: unknown[]) => Promise<unknown>
   getConnection: () => { execute: (sql: string, params?: unknown[]) => Promise<Row[]> }
+  getKysely: () => { selectFrom: (table: string) => unknown }
   transactional: <T>(cb: (tx: FakeEm) => Promise<T>) => Promise<T>
 }
 
@@ -97,6 +98,21 @@ function createFakeEm(options: { orderStatus?: string | null } = {}): { em: Fake
     getConnection: () => ({
       execute: async () => (orderStatus == null ? [] : [{ status: orderStatus }]),
     }),
+    // #8268 review Major 4: the enforced refusal policy resolves the 'canceled' dictionary
+    // entry through this exact `dictionary_entries`/`dictionaries` join
+    // (`resolveCanceledStatusEntryId`) before re-cancelling an order whose revival got
+    // blocked — a minimal stand-in good enough for that one lookup, not a general Kysely fake.
+    getKysely: () => ({
+      selectFrom: (table: string) => {
+        const builder = {
+          innerJoin: () => builder,
+          select: () => builder,
+          where: () => builder,
+          executeTakeFirst: async () => (table === 'dictionary_entries' ? { id: 'status-canceled' } : undefined),
+        }
+        return builder
+      },
+    }),
     transactional: async (cb) => {
       await em.begin()
       try {
@@ -135,6 +151,25 @@ function seedPromotionUsage(tables: Map<Function, Row[]>, overrides: Partial<Row
   const rows = tables.get(PromotionUsage) ?? []
   rows.push(row)
   tables.set(PromotionUsage, rows)
+  return row
+}
+
+function seedPromotion(tables: Map<Function, Row[]>, overrides: Partial<Row> = {}): Row {
+  const row: Row = {
+    id: randomUUID(),
+    organizationId: ORG,
+    tenantId: TENANT,
+    name: 'Promo',
+    order: 0,
+    active: true,
+    maxBudget: null,
+    budgetCurrency: null,
+    deletedAt: null,
+    ...overrides,
+  }
+  const rows = tables.get(Promotion) ?? []
+  rows.push(row)
+  tables.set(Promotion, rows)
   return row
 }
 
@@ -179,18 +214,23 @@ function seedCodeUsage(tables: Map<Function, Row[]>, overrides: Partial<Row> = {
   return row
 }
 
-function buildCtx(em: FakeEm) {
+function buildCtx(em: FakeEm, options: { commandBusExecute?: jest.Mock } = {}) {
   const codeService = new PromotionCodeService({
     resolve: () => {
       throw new Error('[internal] unexpected DI resolve in test: rateLimiterService')
     },
   })
   const usageService = new PromotionUsageService()
+  // #8268 review Major 4: the enforced refusal policy resolves `commandBus` to re-cancel
+  // the order when a revival gets blocked — defaults to a mock that succeeds, so every
+  // pre-existing test below (none of which trigger a blocked revival) never needs it.
+  const commandBus = { execute: options.commandBusExecute ?? jest.fn(async () => ({ result: {} })) }
   return {
     resolve: <T = unknown>(name: string): T => {
       if (name === 'em') return asEm(em) as unknown as T
       if (name === 'promotionCodeService') return codeService as unknown as T
       if (name === 'promotionUsageService') return usageService as unknown as T
+      if (name === 'commandBus') return commandBus as unknown as T
       throw new Error(`[internal] unexpected DI resolve in test: ${name}`)
     },
   }
@@ -323,5 +363,77 @@ describe('promotions order-confirmed-usage-reinstate subscriber', () => {
     expect(promotionUsage.revertedAt).not.toBeNull()
     expect(codeUsage.revertedAt).not.toBeNull()
     expect(code.used).toBe(0)
+  })
+
+  it('does not re-cancel the order when every reinstatement succeeds', async () => {
+    const { em, tables } = createFakeEm()
+    seedPromotionUsage(tables)
+    const code = seedCode(tables, { used: 0, active: true })
+    seedCodeUsage(tables, { codeId: code.id })
+    const commandBusExecute = jest.fn(async () => ({ result: {} }))
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute }))
+
+    expect(commandBusExecute).not.toHaveBeenCalled()
+  })
+
+  // #8268 review Major 4: cancel A (frees the promotion's budget), B spends it, then
+  // revive A — reinstating A's usage is correctly refused (the budget is already
+  // consumed), but a confirmed order A must not be left carrying its original discount
+  // with no usage backing it anywhere. The enforced refusal policy re-cancels A instead.
+  it('#8268 review Major 4: re-cancels the order when a promotion budget reinstatement is refused', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables, { maxBudget: '10.00', budgetCurrency: 'USD' })
+    seedPromotionUsage(tables, {
+      promotionId: promotion.id,
+      totalDiscountAmount: '10.00',
+      currency: 'USD',
+      orderId: 'order-b',
+      revertedAt: null,
+    })
+    const promotionUsageA = seedPromotionUsage(tables, {
+      promotionId: promotion.id,
+      totalDiscountAmount: '10.00',
+      currency: 'USD',
+    })
+    const commandBusExecute = jest.fn(async () => ({ result: {} }))
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute }))
+
+    // The refusal left the ledger exactly where it was — never silently reinstated.
+    expect(promotionUsageA.revertedAt).not.toBeNull()
+    expect(commandBusExecute).toHaveBeenCalledWith('sales.orders.update', expect.objectContaining({
+      input: { id: ORDER_ID, statusEntryId: 'status-canceled' },
+    }))
+  })
+
+  // #8268 review Major 4: same policy, the code-usage half (`reinstateCodeUse`'s own
+  // "cancel A, redeem on B, revive A" cap-overflow refusal).
+  it('#8268 review Major 4: re-cancels the order when a code-usage reinstatement is refused', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'USEDONCE', usage: 'single', used: 1, active: false })
+    const usageA = seedCodeUsage(tables, { codeId: code.id, orderId: ORDER_ID })
+    // B's live (never-reverted) use is what brought `used` back up to the cap.
+    seedCodeUsage(tables, { codeId: code.id, orderId: 'order-b', revertedAt: null })
+    const commandBusExecute = jest.fn(async () => ({ result: {} }))
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute }))
+
+    expect(usageA.revertedAt).not.toBeNull()
+    expect(commandBusExecute).toHaveBeenCalledWith('sales.orders.update', expect.objectContaining({
+      input: { id: ORDER_ID, statusEntryId: 'status-canceled' },
+    }))
+  })
+
+  it('#8268 review Major 4: propagates a failure to enforce the refusal policy so the queue retries', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables, { maxBudget: '10.00', budgetCurrency: 'USD' })
+    seedPromotionUsage(tables, { promotionId: promotion.id, totalDiscountAmount: '10.00', currency: 'USD', orderId: 'order-b', revertedAt: null })
+    seedPromotionUsage(tables, { promotionId: promotion.id, totalDiscountAmount: '10.00', currency: 'USD' })
+    const commandBusExecute = jest.fn(async () => { throw new Error('sales.orders.update unavailable') })
+
+    await expect(
+      handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute })),
+    ).rejects.toThrow('sales.orders.update unavailable')
   })
 })

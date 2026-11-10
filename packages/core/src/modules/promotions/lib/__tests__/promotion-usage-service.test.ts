@@ -549,7 +549,7 @@ describe('PromotionUsageService.reinstateUsage', () => {
 
     const result = await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 1 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 1, blockedCount: 0 })
     const rows = tables.get(PromotionUsage) ?? []
     expect(rows).toHaveLength(1)
     expect(rows[0].revertedAt).toBeNull()
@@ -580,7 +580,7 @@ describe('PromotionUsageService.reinstateUsage', () => {
     await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
     const second = await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
 
-    expect(second).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(second).toEqual({ ok: true, reinstatedCount: 0, blockedCount: 0 })
     const rows = tables.get(PromotionUsage) ?? []
     expect(rows).toHaveLength(1)
   })
@@ -603,7 +603,7 @@ describe('PromotionUsageService.reinstateUsage', () => {
 
     const result = await service.reinstateUsage(asEm(em), { orderId: 'order-1' } as RevertUsageInput, SCOPE)
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 0, blockedCount: 0 })
   })
 
   it('is a no-op success when no matching row exists', async () => {
@@ -612,7 +612,7 @@ describe('PromotionUsageService.reinstateUsage', () => {
 
     const result = await service.reinstateUsage(asEm(em), { orderId: 'no-such-order' } as RevertUsageInput, SCOPE)
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 0, blockedCount: 0 })
   })
 
   // #8268 review Medium 9 (#8940 item 2): cancel order A (reverts its usage, freeing
@@ -651,7 +651,7 @@ describe('PromotionUsageService.reinstateUsage', () => {
 
     const result = await service.reinstateUsage(asEm(em), { orderId: 'order-a' } as RevertUsageInput, SCOPE)
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 0, blockedCount: 1 })
     const rows = tables.get(PromotionUsage) ?? []
     const rowA = rows.find((row) => row.orderId === 'order-a')
     expect(rowA?.revertedAt).not.toBeNull()

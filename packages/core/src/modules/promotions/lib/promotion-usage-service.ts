@@ -316,16 +316,22 @@ export class PromotionUsageService {
     em: EntityManager,
     input: RevertUsageInput,
     scope: PromotionsUsageScope,
-  ): Promise<{ ok: true; reinstatedCount: number }> {
+    // #8268 review Major 4: `blockedCount` lets the caller (`order-confirmed-usage-
+    // reinstate.ts`) tell "every reverted row reinstated" apart from "at least one
+    // refusal left the order carrying usage no ledger backs" — the event emitted below
+    // makes the refusal visible to telemetry/notifications, but only the caller is
+    // positioned to act on it at the ORDER level.
+  ): Promise<{ ok: true; reinstatedCount: number; blockedCount: number }> {
     const rows = await em.find(PromotionUsage, {
       orderId: input.orderId,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       revertedAt: { $ne: null },
     })
-    if (rows.length === 0) return { ok: true, reinstatedCount: 0 }
+    if (rows.length === 0) return { ok: true, reinstatedCount: 0, blockedCount: 0 }
 
     const reinstatedRows: PromotionUsage[] = []
+    let blockedCount = 0
     for (const row of rows) {
       let blocked = false
       await withAtomicFlush(
@@ -354,6 +360,7 @@ export class PromotionUsageService {
         { transaction: true, label: 'promotions.usage.reinstate' },
       )
       if (blocked) {
+        blockedCount += 1
         usageLogger.warn('[internal] reinstateUsage refused — promotion is already at its budget cap', {
           orderId: input.orderId,
           promotionId: row.promotionId,
@@ -363,13 +370,13 @@ export class PromotionUsageService {
         reinstatedRows.push(row)
       }
     }
-    if (reinstatedRows.length === 0) return { ok: true, reinstatedCount: 0 }
+    if (reinstatedRows.length === 0) return { ok: true, reinstatedCount: 0, blockedCount }
 
     const distinctPromotionIds = Array.from(new Set(reinstatedRows.map((row) => row.promotionId)))
     for (const promotionId of distinctPromotionIds) {
       await emitRegisteredEvent(promotionId, input.orderId, scope)
     }
 
-    return { ok: true, reinstatedCount: reinstatedRows.length }
+    return { ok: true, reinstatedCount: reinstatedRows.length, blockedCount }
   }
 }

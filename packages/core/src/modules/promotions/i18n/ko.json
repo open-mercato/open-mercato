@@ -270,7 +270,7 @@
   "promotions.list.searchPlaceholder": "프로모션 검색...",
   "promotions.list.title": "프로모션",
   "promotions.nav.group": "프로모션",
-  "promotions.notifications.usageReinstateBlocked.body": "주문 {orderId}을 복구하면서 한도를 초과하지 않고는 프로모션/코드 사용을 복원할 수 없었습니다 — 주문은 여전히 원래 할인을 유지하고 있으며 수동 조정이 필요합니다.",
+  "promotions.notifications.usageReinstateBlocked.body": "주문 {orderId}을 복구하면서 한도를 초과하지 않고는 프로모션/코드 사용을 복원할 수 없어, 보장되지 않는 할인을 유지하는 대신 주문이 자동으로 취소 상태로 되돌려졌습니다.",
   "promotions.notifications.usageReinstateBlocked.title": "프로모션 사용을 복원할 수 없습니다",
   "promotions.operators.eq": "같음",
   "promotions.operators.gt": "초과",

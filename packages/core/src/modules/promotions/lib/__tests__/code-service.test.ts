@@ -1185,7 +1185,7 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
       SCOPE,
     )
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 1 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 1, blockedCount: 0 })
     expect(code.used).toBe(1)
     expect(code.active).toBe(false)
     expect(usage.revertedAt).toBeNull()
@@ -1206,7 +1206,7 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
       SCOPE,
     )
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 1 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 1, blockedCount: 0 })
     expect(generatedCode.active).toBe(false)
     expect(code.used).toBe(0)
     expect(usage.revertedAt).toBeNull()
@@ -1230,8 +1230,8 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
       SCOPE,
     )
 
-    expect(first).toEqual({ ok: true, reinstatedCount: 1 })
-    expect(second).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(first).toEqual({ ok: true, reinstatedCount: 1, blockedCount: 0 })
+    expect(second).toEqual({ ok: true, reinstatedCount: 0, blockedCount: 0 })
     expect(code.used).toBe(1)
   })
 
@@ -1247,7 +1247,7 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
       SCOPE,
     )
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 0, blockedCount: 0 })
     expect(code.used).toBe(1)
   })
 
@@ -1261,7 +1261,7 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
       SCOPE,
     )
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 0, blockedCount: 0 })
   })
 
   it('never reinstates another tenant\'s usage row, even on an id collision', async () => {
@@ -1284,7 +1284,7 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
       SCOPE,
     )
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 0, blockedCount: 0 })
     expect(otherTenantUsage.revertedAt).not.toBeNull()
     expect(code.used).toBe(0)
     expect(code.active).toBe(true)
@@ -1314,7 +1314,7 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
       SCOPE,
     )
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 0, blockedCount: 1 })
     expect(code.used).toBe(1)
     expect(usageA.revertedAt).not.toBeNull()
     // #8268 review Major 7: the refusal must surface somewhere a human can act on it,
@@ -1347,7 +1347,7 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
       SCOPE,
     )
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 0, blockedCount: 1 })
     expect(generatedCode.active).toBe(false)
     expect(usageA.revertedAt).not.toBeNull()
     expect(emitPromotionsEvent).toHaveBeenCalledWith(
@@ -1371,7 +1371,7 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
       SCOPE,
     )
 
-    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(result).toEqual({ ok: true, reinstatedCount: 0, blockedCount: 0 })
     expect(emitPromotionsEvent).not.toHaveBeenCalled()
   })
 })

@@ -121,7 +121,10 @@ export interface RevertCodeUseResult { ok: true; revertedCount: number }
 // (never `cartId`): a cart's own reservation lifecycle (`reserveCode`/`releaseCode`) is
 // unrelated to an order's cancel/undo cycle.
 export interface ReinstateCodeUseInput { orderId: string }
-export interface ReinstateCodeUseResult { ok: true; reinstatedCount: number }
+// #8268 review Major 4: `blockedCount` lets the caller (`order-confirmed-usage-
+// reinstate.ts`) tell "every reverted row reinstated" apart from "at least one refusal
+// left the order carrying usage no ledger backs".
+export interface ReinstateCodeUseResult { ok: true; reinstatedCount: number; blockedCount: number }
 
 // Usage (D-R4-12, D-R4-26)
 export interface RegisterUsageInput {

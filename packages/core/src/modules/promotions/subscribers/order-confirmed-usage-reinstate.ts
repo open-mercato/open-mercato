@@ -1,6 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { buildTrustedCommandContext } from '@open-mercato/shared/lib/commands/trusted-context'
 import { PromotionCodeService, type PromotionsCodeScope } from '../lib/code-service'
 import { PromotionUsageService } from '../lib/promotion-usage-service'
 
@@ -52,6 +54,79 @@ function resolveContainer(ctx: SubscriberContext): ResolverContainer {
   return ctx.container ?? { resolve: ctx.resolve }
 }
 
+// #8268 review Major 4: enforced order-level REFUSAL policy. A refused reinstatement
+// (budget/code cap already exhausted by another order — see `reinstateUsage`'s own doc
+// comment for the exact "cancel A, spend on B, revive A" race) used to leave A CONFIRMED
+// while retaining its original discount with no usage counted against it anywhere — a
+// real, unreconciled revenue leak the staff notification alone only described, never
+// closed. Of the three policy shapes the review names (refusal / repricing /
+// compensation), refusal is the one this subscriber can enforce safely and reversibly
+// from promotions alone: re-cancelling the order removes the unbacked discount by
+// removing the live order entirely (through the EXACT same `sales.order.cancelled`
+// cascade a normal cancel uses, so stock/credit/other modules unwind consistently too),
+// is undone by staff reviving the order again once the underlying cap clears, and reuses
+// the established cancel-on-failure pattern checkout's own `compensateByCancellingOrder`
+// already relies on elsewhere in this release. Repricing (silently changing a CONFIRMED
+// order's total) or a promotions-only compensating ledger entry (leaving the order live
+// with a discount no one priced) were both rejected as carrying either billing/compliance
+// risk or no actual fix to the live total — this is deliberately the conservative default,
+// not the only valid one; override it if product guidance says otherwise.
+async function resolveCanceledStatusEntryId(
+  em: EntityManager,
+  scope: PromotionsCodeScope,
+): Promise<string | null> {
+  const row = await em
+    .getKysely<{
+      dictionaries: { id: string; tenant_id: string; organization_id: string; key: string; deleted_at: Date | null }
+      dictionary_entries: { id: string; dictionary_id: string; tenant_id: string; organization_id: string; normalized_value: string }
+    }>()
+    .selectFrom('dictionary_entries')
+    .innerJoin('dictionaries', 'dictionaries.id', 'dictionary_entries.dictionary_id')
+    .select(['dictionary_entries.id as id'])
+    .where('dictionaries.tenant_id', '=', scope.tenantId)
+    .where('dictionaries.organization_id', '=', scope.organizationId)
+    .where('dictionaries.key', '=', 'sales.order_status')
+    .where('dictionaries.deleted_at', 'is', null)
+    .where('dictionary_entries.tenant_id', '=', scope.tenantId)
+    .where('dictionary_entries.organization_id', '=', scope.organizationId)
+    .where('dictionary_entries.normalized_value', 'in', ['canceled', 'cancelled'])
+    .executeTakeFirst()
+  return row?.id ?? null
+}
+
+async function refuseRevivalForUnreconciledUsage(
+  container: ResolverContainer,
+  em: EntityManager,
+  orderId: string,
+  scope: PromotionsCodeScope,
+): Promise<void> {
+  const canceledEntryId = await resolveCanceledStatusEntryId(em, scope)
+  if (!canceledEntryId) {
+    logger.error('[internal] promotions:order-confirmed-usage-reinstate could not resolve a canceled status entry to enforce the refusal policy', {
+      orderId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+    getTelemetryRuntime()?.reportError(new Error('[internal] no sales.order_status "canceled" dictionary entry'), {
+      module: 'promotions',
+      code: 'promotions.order_confirmed_usage_reinstate_refusal_policy_failed',
+      attributes: { orderId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    })
+    return
+  }
+  const commandBus = container.resolve<CommandBus>('commandBus')
+  const { ctx: trustedCtx } = buildTrustedCommandContext({
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    actorType: 'system',
+    reason: `promotions:order-confirmed-usage-reinstate:refuse:${orderId}`,
+  })
+  await commandBus.execute('sales.orders.update', {
+    input: { id: orderId, statusEntryId: canceledEntryId },
+    ctx: { ...trustedCtx, container } as unknown as CommandRuntimeContext,
+  })
+}
+
 export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
   const record = toRecord(payload)
   const orderId = readString(record, 'orderId') ?? readString(record, 'id')
@@ -87,6 +162,7 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
   // as `order-cancelled-usage-revert.ts`'s revert handler — see that file's comment for
   // the exact race this closes.
   const lockKey = `promotions_usage_lifecycle:${orderId}`
+  let revivalRefused = false
   try {
     await em.transactional(async (tx) => {
       await tx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [lockKey])
@@ -120,10 +196,12 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       // dependency between them, so this is a documentation-matching choice, not a
       // correctness requirement.
       const usageService = container.resolve<PromotionUsageService>('promotionUsageService')
-      await usageService.reinstateUsage(tx, { orderId }, scope)
+      const usageResult = await usageService.reinstateUsage(tx, { orderId }, scope)
 
       const codeService = container.resolve<PromotionCodeService>('promotionCodeService')
-      await codeService.reinstateCodeUse(tx, { orderId }, scope)
+      const codeResult = await codeService.reinstateCodeUse(tx, { orderId }, scope)
+
+      revivalRefused = usageResult.blockedCount > 0 || codeResult.blockedCount > 0
     })
   } catch (error) {
     logger.error('[internal] promotions:order-confirmed-usage-reinstate failed', {
@@ -135,6 +213,29 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
     getTelemetryRuntime()?.reportError(error, {
       module: 'promotions',
       code: 'promotions.order_confirmed_usage_reinstate_failed',
+      attributes: { orderId, tenantId, organizationId },
+    })
+    throw error
+  }
+
+  if (!revivalRefused) return
+
+  // Outside the advisory-lock transaction above: `sales.orders.update` manages its own
+  // transaction/EM fork and re-emits `sales.order.cancelled`, which this same subscriber
+  // pair (and every other module's own cancel-side handler) must be free to react to —
+  // nesting it inside the lock would only risk a cross-transaction deadlock for no benefit.
+  try {
+    await refuseRevivalForUnreconciledUsage(container, em, orderId, scope)
+  } catch (error) {
+    logger.error('[internal] promotions:order-confirmed-usage-reinstate failed to enforce the refusal policy', {
+      err: error,
+      orderId,
+      tenantId,
+      organizationId,
+    })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'promotions',
+      code: 'promotions.order_confirmed_usage_reinstate_refusal_policy_failed',
       attributes: { orderId, tenantId, organizationId },
     })
     throw error
