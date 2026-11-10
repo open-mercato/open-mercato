@@ -401,11 +401,26 @@ describe('company VAT / tax ID (required company field)', () => {
     expect(buildCompanyEditPayload(blanked.data as any).taxId).toBeNull()
   })
 
-  it('requires the VAT ID when creating a company but not when editing a legacy record', () => {
+  it('keeps the VAT ID optional on both the create and the edit form by default', () => {
     const t = (_key: string, fallback?: string) => fallback ?? _key
     const createField = createCompanyFormFields(t as any).find((entry) => entry.id === 'taxId')
-    expect(createField).toMatchObject({ required: true, type: 'text' })
+    expect(createField).toMatchObject({ required: false, type: 'text' })
     const editField = createCompanyEditFields(t as any).find((entry) => entry.id === 'taxId')
     expect(editField).toMatchObject({ required: false, type: 'text' })
+  })
+
+  it('lets a host opt into a required VAT ID on either form', () => {
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    const createField = createCompanyFormFields(t as any, { requireTaxId: true }).find((entry) => entry.id === 'taxId')
+    expect(createField).toMatchObject({ required: true })
+    const editField = createCompanyEditFields(t as any, { requireTaxId: true }).find((entry) => entry.id === 'taxId')
+    expect(editField).toMatchObject({ required: true })
+  })
+
+  it('accepts a new company without a VAT ID', () => {
+    const parsed = createCompanyFormSchema().safeParse({ displayName: 'Acme', addresses: [] })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    expect(buildCompanyPayload(parsed.data as any)).not.toHaveProperty('taxId')
   })
 })
