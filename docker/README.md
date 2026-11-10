@@ -147,8 +147,9 @@ Meilisearch, OpenCode, Keycloak, LocalStack and Verdaccio on `127.0.0.1` only.
 They use dev-default credentials, and on Linux Docker-published ports bypass
 ufw/iptables `INPUT` rules, so binding to all interfaces would expose them on a
 VPS. To reach them from another machine, opt in explicitly with
-`INFRA_BIND_HOST` (a non-loopback value also requires a Redis password, see
-`packages/starter/README.md`; Verdaccio has its own `VERDACCIO_HOST`, below):
+`INFRA_BIND_HOST`. Configure authentication, strong credentials and network
+access controls before exposing any development service. Verdaccio has its own
+`VERDACCIO_HOST`, below:
 
 ```bash
 INFRA_BIND_HOST=0.0.0.0
