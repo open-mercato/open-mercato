@@ -375,12 +375,12 @@ function applyInteractionListFilters(
     // encryption.ts) GET leaves `search` out of these filters and matches the
     // decrypted candidates of a bounded scan instead.
     const searchTerm = `%${escapeLikePattern(query.search)}%`
-    q = q.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
+    q = q.where(sql<boolean>`(coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm})`)
   }
   if (query.recurrenceMasters === 'true') {
     q = q.where('recurrence_rule', 'is not', null)
     if (query.from) {
-      q = q.where(sql<boolean>`recurrence_end is null or recurrence_end >= ${query.from}`)
+      q = q.where(sql<boolean>`(recurrence_end is null or recurrence_end >= ${query.from})`)
     }
     if (query.to) {
       q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
