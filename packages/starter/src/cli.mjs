@@ -21,8 +21,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
 
-import { detectDocker, resolveRepoRoot, runCompose, runStreamingSync, spawnStreaming } from './compose.mjs'
+import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runStreaming, spawnStreaming } from './compose.mjs'
 import { readEnvValue } from './env-file.mjs'
+import { chooseServiceMode, printManualSetup } from './service-modes.mjs'
+import { FRESH_CLONE_NO_INFRA_COMMAND, acquireSetupSession, selectStarterServiceMode } from './setup-session.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
 import { loadCompanyConfig } from './company.mjs'
 import { printDoctorReport, runDoctor } from './doctor.mjs'
@@ -30,6 +32,7 @@ import { describeInfraProblem, devRuntimeArgs, infraDown, ensureMcpSharedDir, re
 import { buildUpSteps, clearConvergenceState, createStepContext, ensureOpencodeImage, runSteps, yarnInvocation } from './steps.mjs'
 import { collectStatus, printStatus, readRunState, isPidAlive, startDetached, stopDetached, tailLogs } from './supervise.mjs'
 import { ensureWindowsUtf8Console } from './spawn.mjs'
+import { createSetupLogs } from './setup-logs.mjs'
 import { color, guideBox, printBanner, statusLine } from './ui.mjs'
 import { waitForHealthyServices, waitForHttp } from './waits.mjs'
 
@@ -51,9 +54,12 @@ function parseArgs(argv) {
     detach: false,
     follow: false,
     nonInteractive: false,
+    verbose: false,
     skipLlmPrompt: false,
     skipDb: false,
     noInfra: false,
+    serviceArgs: [],
+    remoteDatabaseArgs: [],
     rebuild: false,
     clean: false,
     volumes: false,
@@ -81,6 +87,9 @@ function parseArgs(argv) {
       case '-f':
         flags.follow = true
         break
+      case '--verbose':
+        flags.verbose = true
+        break
       case '--non-interactive':
         flags.nonInteractive = true
         break
@@ -91,7 +100,15 @@ function parseArgs(argv) {
         flags.skipDb = true
         break
       case '--no-infra':
-        flags.noInfra = true
+      case '--reuse-services':
+      case '--ephemeral':
+      case '--random-ports':
+      case '--infra':
+        flags.serviceArgs.push(arg)
+        break
+      case '--allow-remote-database':
+        flags.remoteDatabaseArgs.push(arg)
+        if (args[0] && !args[0].startsWith('-')) flags.remoteDatabaseArgs.push(args.shift())
         break
       case '--rebuild':
         flags.rebuild = true
@@ -116,6 +133,7 @@ function parseArgs(argv) {
         if (command === 'infra') flags.infraAction = arg
         break
       default:
+        if (arg.startsWith('--allow-remote-database=')) { flags.remoteDatabaseArgs.push(arg); break }
         console.error(`Unknown option: ${arg} (see starters/README.md)`)
         process.exit(1)
     }
@@ -157,7 +175,50 @@ async function confirm(question, { nonInteractive }) {
 
 async function commandUp(flags) {
   const selectedMode = resolveMode(flags.mode)
-  const mode = resolveUpMode(selectedMode, flags)
+  const containerized = flags.mode === 'docker' && flags.serviceArgs.length === 0
+  let session = null
+  if (!containerized) {
+    try {
+      session = await acquireSetupSession(repoRoot, { interactive: flags.nonInteractive ? false : undefined })
+    } catch (error) {
+      console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+      console.error('   No service configuration, .env file or container was changed.')
+      process.exitCode = 2
+      return
+    }
+  }
+  const state = { handedOff: false }
+  try {
+    return await runUp(flags, { selectedMode, containerized, session, state })
+  } finally {
+    if (!state.handedOff) session?.release()
+  }
+}
+
+async function runUp(flags, { selectedMode, containerized, session, state }) {
+  if (containerized) {
+    flags.serviceMode = 'compose'
+  } else {
+    try {
+      flags.serviceMode = await chooseServiceMode({
+        argv: [...flags.serviceArgs, ...(flags.nonInteractive ? ['--non-interactive'] : [])],
+        selectDefault: () => selectStarterServiceMode(repoRoot),
+      })
+    } catch (error) {
+      if (!error.problem) throw error
+      console.error(`❌ ${error.message}`)
+      printInfraProblem(error.problem, { optOutCommand: FRESH_CLONE_NO_INFRA_COMMAND })
+      process.exitCode = 2
+      return
+    }
+  }
+  flags.noInfra = ['reuse', 'ephemeral'].includes(flags.serviceMode)
+  if (flags.serviceMode === 'ephemeral' && flags.detach) {
+    console.error('Ephemeral services belong to a foreground setup session. Omit --detach or use --random-ports for persistent local services.')
+    process.exitCode = 2
+    return
+  }
+  const mode = flags.serviceMode === 'random' ? 'hybrid' : resolveUpMode(selectedMode, flags)
   if (flags.clean) {
     // Full re-converge: drop the completed-step markers (keeps the mode, all
     // data, and the one-time initialize state — `reset` is the destructive
@@ -167,11 +228,38 @@ async function commandUp(flags) {
     console.log(color.dim(`  --clean: cleared ${cleared.length} convergence marker(s) — install, build, and migrations will re-run (data untouched).`))
   }
   const ctx = await createStepContext(repoRoot, { mode, flags })
+  if (session) Object.assign(ctx.env, session.childEnv)
+  let devChild
+  let signalExitCode
+  let shutdownTimer
+  let closing = false
+  const finish = async (code) => {
+    if (closing) return
+    closing = true
+    clearTimeout(shutdownTimer)
+    try { await ctx.cleanupServices?.() }
+    catch (error) { console.error(`Could not clean up ephemeral services: ${error.message}`); code = 1 }
+    session?.release()
+    process.exit(code)
+  }
+  if (flags.serviceMode === 'ephemeral') {
+    for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+      process.once(signal, () => {
+        signalExitCode = code
+        ctx.cancelled = true
+        if (devChild) {
+          devChild.kill(signal)
+          shutdownTimer = setTimeout(() => devChild.kill('SIGKILL'), 5000)
+          shutdownTimer.unref()
+        }
+      })
+    }
+  }
   printBanner(`dev environment starter — mode: ${mode}${ctx.company.name ? ` — company profile: ${ctx.company.name}` : ''}`)
   console.log(color.dim(`  Repo: ${repoRoot}`))
   console.log(color.dim('  Every step is idempotent — re-running always resumes where it stopped.'))
   if (selectedMode !== mode) {
-    console.log(color.dim('  --no-infra: using the host runtime for this run so no Docker command is invoked.'))
+    console.log(color.dim('  Using the host runtime for the selected service mode.'))
   }
 
   if (mode === 'docker') return commandUpDocker(ctx, flags)
@@ -182,7 +270,10 @@ async function commandUp(flags) {
       'Fix the item above and re-run the same command — completed steps are skipped.',
       'Full environment audit with an IT handout:  yarn om doctor   (or: npx @open-mercato/starter doctor)',
     ])
-    process.exit(2)
+    await ctx.cleanupServices?.()
+    printManualSetup({ monorepo: true })
+    process.exitCode = signalExitCode ?? 2
+    return
   }
 
   const ports = resolveStackPorts(repoRoot)
@@ -193,21 +284,26 @@ async function commandUp(flags) {
   console.log(`  MCP:      ${color.cyan(urls.mcp)}`)
   console.log(`  OpenCode: ${color.cyan(`http://127.0.0.1:${ports.opencode}`)}`)
   console.log(color.dim(`  Superadmin sign-in: ${readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_EMAIL')?.trim() || 'superadmin@acme.com'} / ${readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')?.trim() || 'secret'}`))
-  console.log(color.dim('  Stop: Ctrl+C (infra containers keep running; `stop` shuts everything down)'))
+  console.log(color.dim(flags.serviceMode === 'ephemeral'
+    ? '  Stop: Ctrl+C (ephemeral services are removed and their previous configuration is restored)'
+    : flags.serviceMode === 'reuse' ? '  Stop: Ctrl+C (your existing services are left running)' : '  Stop: Ctrl+C (Compose containers keep running; `stop` shuts them down)'))
   console.log('')
 
-  const devArgs = devRuntimeArgs(flags.passthrough, { noInfra: flags.noInfra })
+  const devArgs = devRuntimeArgs([...flags.passthrough, ...(ctx.remoteDatabaseArgument ? [ctx.remoteDatabaseArgument] : flags.remoteDatabaseArgs)], { noInfra: flags.noInfra })
   if (flags.detach) {
-    startDetached(repoRoot, devArgs, { env: ctx.env })
+    const pid = startDetached(repoRoot, devArgs, { env: ctx.env })
+    session?.registerChild({ pid }, 'dev-runner')
     console.log('Manage it with the status / logs / stop subcommands.')
     return
   }
   const dev = yarnInvocation(ctx, ['dev', ...devArgs])
-  const child = spawnStreaming(dev.command, dev.args, { cwd: repoRoot, env: ctx.env })
-  child.on('close', (code) => process.exit(code ?? 0))
-  child.on('error', (error) => {
+  devChild = spawnStreaming(dev.command, dev.args, { cwd: repoRoot, env: ctx.env })
+  state.handedOff = true
+  session?.registerChild(devChild, 'dev-runner')
+  devChild.on('close', (code) => { void finish(signalExitCode ?? code ?? 0) })
+  devChild.on('error', (error) => {
     console.error(`❌ Could not start yarn dev: ${error.message}`)
-    process.exit(1)
+    void finish(1)
   })
 }
 
@@ -215,39 +311,56 @@ async function commandUpDocker(ctx, flags) {
   // Containerized mode: converge trust/env, then let compose own the stack.
   const steps = buildUpSteps(ctx).filter((step) => ['prerequisites', 'container-runtime', 'corporate-certs', 'env-files', 'llm-provider'].includes(step.id))
   const outcome = await runSteps(steps, ctx)
-  if (!outcome.ok) process.exit(2)
+  if (!outcome.ok) { printManualSetup({ monorepo: true }); process.exit(2) }
 
   ensureMcpSharedDir(repoRoot)
-  ensureOpencodeImage(ctx)
   const composeFile = FULLAPP_DEV_COMPOSE_FILE
   const upArgs = ['up', '-d']
   if (flags.rebuild) upArgs.push('--build')
   console.log('')
   console.log('── Starting the containerized stack (this builds the app image on the first run) ──')
-  const up = runCompose(repoRoot, upArgs, { composeFile })
-  if ((up.status ?? 1) !== 0) {
-    console.error('❌ docker compose up failed — see above. TLS errors inside builds usually mean the corporate CA changed: re-run with --rebuild.')
-    process.exit(up.status ?? 1)
+  const logs = ctx.logs
+  const log = (...args) => { console.log(...args); logs.record(...args) }
+  let up
+  logs.start()
+  ctx.log = (...args) => logs.log(...args)
+  try {
+    await ensureOpencodeImage(ctx)
+    up = await runStreaming('docker', composeArgs(repoRoot, upArgs, composeFile), { cwd: repoRoot, env: ctx.env, logs })
+    if (up !== 0) logs.show('Containerized stack failed')
+  } catch (error) {
+    logs.show('Containerized stack failed')
+    logs.record(error instanceof Error ? error.message : String(error))
+    throw error
+  } finally {
+    ctx.log = console.log
+    logs.stop()
+  }
+  if (up !== 0) {
+    log('❌ docker compose up failed — see above. TLS errors inside builds usually mean the corporate CA changed: re-run with --rebuild.')
+    process.exit(up)
   }
 
   const ports = resolveStackPorts(repoRoot)
   const urls = stackUrls(ports)
-  console.log(color.dim('  Startup order: infra healthy -> app serving -> MCP -> OpenCode -> end-to-end wiring check.'))
-  const infraOk = await waitForHealthyServices(repoRoot, composeFile, ['postgres', 'redis', 'meilisearch'], { log: console.log })
+  log(color.dim('  Startup order: infra healthy -> app serving -> MCP -> OpenCode -> end-to-end wiring check.'))
+  const infraOk = await waitForHealthyServices(repoRoot, composeFile, ['postgres', 'redis', 'meilisearch'], { log })
+  logs.record(`Infrastructure health: ${infraOk.ok ? 'ready' : infraOk.failed}`)
   if (!infraOk.ok) process.exit(1)
-  console.log(color.dim('  First boot runs migrations + seed inside the app container — expect several minutes.'))
-  if (!(await waitForHttp(urls.app, { label: `app ${urls.app}`, timeoutMs: 30 * 60 * 1000 }))) process.exit(1)
-  const mcpOk = await waitForHttp(urls.mcpHealth, { label: 'MCP /health' })
-  const opencodeOk = await waitForHttp(urls.opencodeHealth, { label: 'OpenCode /global/health' })
+  log(color.dim('  First boot runs migrations + seed inside the app container — expect several minutes.'))
+  if (!(await waitForHttp(urls.app, { label: `app ${urls.app}`, timeoutMs: 30 * 60 * 1000, log }))) process.exit(1)
+  const mcpOk = await waitForHttp(urls.mcpHealth, { label: 'MCP /health', log })
+  const opencodeOk = await waitForHttp(urls.opencodeHealth, { label: 'OpenCode /global/health', log })
   if (mcpOk && opencodeOk) {
     await waitForHttp(urls.opencodeMcpStatus, {
       label: 'OpenCode <-> MCP wiring',
+      log,
       timeoutMs: 2 * 60 * 1000,
       validate: (body) => body.includes('connected'),
     })
   }
   console.log('')
-  console.log(color.bold(color.green('Stack is up.')))
+  log(color.bold(color.green('Stack is up.')))
   const superEmail = readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_EMAIL')?.trim() || 'superadmin@acme.com'
   const superPassword = readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')?.trim() || 'secret'
   console.log(`  App:      ${color.cyan(urls.app)}  ${color.dim(`(sign in: ${superEmail} / ${superPassword})`)}`)
@@ -274,7 +387,7 @@ async function commandStop(flags) {
       process.exit(status)
     }
   }
-  console.log('ℹ️ Infra containers left running (--keep-infra or no docker). Foreground `yarn dev` sessions stop with Ctrl+C.')
+  console.log('💡 Infra containers left running (--keep-infra or no docker). Foreground `yarn dev` sessions stop with Ctrl+C.')
 }
 
 async function commandStatus(flags) {
@@ -318,7 +431,7 @@ async function commandReset(flags) {
     // down only sees THIS project's resources; fixed-name containers/volumes
     // created by another checkout of the repo survive it — sweep by name.
     if (!removeLeftoverComposeResources(repoRoot, { composeFile })) {
-      console.warn('⚠️ Some volumes could not be removed — the next run would reuse the old data. Fix the items above and re-run reset.')
+      console.warn('❗ Some volumes could not be removed — the next run would reuse the old data. Fix the items above and re-run reset.')
     }
   }
   fs.rmSync(path.join(repoRoot, STARTER_STATE_DIR), { recursive: true, force: true })
@@ -331,38 +444,64 @@ async function commandReset(flags) {
 }
 
 async function commandInfra(flags) {
-  const docker = detectDocker()
-  if (!docker.ok) {
-    printInfraProblem({ code: docker.code, detail: docker.reason })
-    console.error('   Full environment audit: yarn om doctor')
-    process.exit(2)
-  }
-  if (flags.infraAction === 'down') {
-    if (flags.volumes && !flags.yes) {
-      console.error('❌ --volumes DELETES all database/search data. Re-run with --yes to confirm.')
-      process.exit(1)
+  const logs = createSetupLogs({ repoRoot, name: 'infra', ...flags })
+  const log = (...args) => { console.log(...args); logs.record(...args) }
+  logs.start()
+  try {
+    const docker = detectDocker()
+    if (!docker.ok) {
+      printInfraProblem({ code: docker.code, detail: docker.reason }, log)
+      log('   Full environment audit: yarn om doctor')
+      process.exitCode = 2
+      return
     }
-    process.exit(infraDown(repoRoot, { volumes: flags.volumes }))
+    if (flags.infraAction === 'down') {
+      if (flags.volumes && !flags.yes) {
+        log('❌ --volumes DELETES all database/search data. Re-run with --yes to confirm.')
+        process.exitCode = 1
+        return
+      }
+      statusLine('info', 'Stopping infrastructure containers', { log })
+      const status = await runStreaming('docker', composeArgs(repoRoot, ['down', ...(flags.volumes ? ['--volumes'] : [])]), { cwd: repoRoot, logs })
+      if (status !== 0) {
+        logs.show('Infrastructure shutdown failed')
+        statusLine('fail', `Infrastructure shutdown failed (exit ${status})`, { log })
+      } else statusLine('ok', flags.volumes ? 'Infra containers stopped and volumes deleted.' : 'Infra containers stopped (data preserved).', { log })
+      process.exitCode = status
+      return
+    }
+    statusLine('info', 'Starting infrastructure containers (first run may pull and build images)', { log })
+    const outcome = await startInfra(repoRoot, {
+      profiles: flags.profiles,
+      logs,
+      log: (...args) => logs.log(...args),
+      beforeUp: () => ensureOpencodeImage({ repoRoot, env: process.env, flags, logs, log: (...args) => logs.log(...args) }),
+    })
+    if (!outcome.ok) {
+      logs.show('Infrastructure startup failed')
+      printInfraProblem(outcome.problem, log)
+      process.exitCode = 2
+      return
+    }
+    const ports = resolveStackPorts(repoRoot)
+    log('')
+    log(`✅ Infra containers are up (opencode :${ports.opencode}, postgres :${ports.postgres}, redis :${ports.redis}, meilisearch :${ports.meilisearch}).`)
+    log('   Next: yarn dev (starts the app and the MCP server on this machine)')
+  } catch (error) {
+    logs.show('Infrastructure failed')
+    statusLine('fail', error instanceof Error ? error.message : String(error), { log })
+    process.exitCode = 1
+  } finally {
+    logs.stop()
   }
-  const outcome = await startInfra(repoRoot, {
-    profiles: flags.profiles,
-    beforeUp: () => ensureOpencodeImage({ repoRoot, env: process.env, flags: { rebuild: flags.rebuild }, log: console.log }),
-  })
-  if (!outcome.ok) {
-    printInfraProblem(outcome.problem)
-    process.exit(2)
-  }
-  const ports = resolveStackPorts(repoRoot)
-  console.log('')
-  console.log(`✅ Infra containers are up (opencode :${ports.opencode}, postgres :${ports.postgres}, redis :${ports.redis}, meilisearch :${ports.meilisearch}).`)
-  console.log('   Next: yarn dev (starts the app and the MCP server on this machine)')
-  process.exit(0)
 }
 
-function printInfraProblem(problem) {
-  const [title, ...rest] = describeInfraProblem(problem)
-  console.error(`❌ ${title}`)
-  for (const line of rest) console.error(` ${line}`)
+function printInfraProblem(problem, options = {}) {
+  const log = typeof options === 'function' ? options : console.error
+  if (typeof options === 'function') options = {}
+  const [title, ...rest] = describeInfraProblem(problem, options)
+  log(`❌ ${title}`)
+  for (const line of rest) log(` ${line}`)
 }
 
 async function main() {
@@ -388,4 +527,10 @@ async function main() {
   }
 }
 
-await main()
+try {
+  await main()
+} catch (error) {
+  console.error(`\n❌ Setup failed: ${error instanceof Error ? error.message : String(error)}`)
+  printManualSetup({ monorepo: true })
+  process.exitCode = 2
+}
