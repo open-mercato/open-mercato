@@ -4,7 +4,6 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName as resolveFallbackEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
-import { resolveSearchConfig, stripBlocklistedDocFields } from '@open-mercato/shared/lib/search/config'
 import {
   buildCustomFieldDefinitionIndexFromRows,
   normalizeDefinitionKey,
@@ -15,7 +14,7 @@ import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
+import { resolveSearchConfig, stripBlocklistedDocFields } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
