@@ -50,7 +50,7 @@ flowchart LR
   end
   subgraph Restore [restore / resume — in]
     M --> V[verify trusted digest]
-    V --> PRE[pre-data in one txn]
+    V --> PRE[pre-data in journalled transaction batches]
     PRE --> L[COPY FROM per chunk + journal row, one txn each]
     L --> POST[post-data: indexes, constraints, sequences]
     POST --> R[report, drop journal schema]
@@ -96,7 +96,7 @@ Neither entry point calls `createRequestContainer()` for `verify`, `restore`, `e
 
 ### Backup engine (out)
 
-1. **Plan.** Open a read-only `REPEATABLE READ` control session, `pg_export_snapshot()`, record `xmax` of `pg_current_snapshot()` as the epoch horizon. Enumerate user tables (skipping the engine's own journal schema), estimate rows (`reltuples`) and bytes (`pg_relation_size`), and choose a chunk strategy per entity:
+1. **Plan.** Open a read-only `REPEATABLE READ` control session, `pg_export_snapshot()`, record the full `pg_current_snapshot()` descriptor (`xmin`, `xmax`, `xip_list`, using full-width transaction IDs) and a cluster-incarnation identity as the epoch evidence. Enumerate user tables (skipping the engine's own journal schema), estimate rows (`reltuples`) and bytes (`pg_relation_size`), and choose a chunk strategy per entity:
    - **keyset** — tables with a primary key or a non-null unique key: `COPY (SELECT * FROM t WHERE (key) > $last ORDER BY key LIMIT n) TO STDOUT (FORMAT binary)`. Chunk boundaries are key values, so they survive a resume.
    - **ctid-range** — tables without a usable key: page ranges, valid only within one snapshot epoch.
    - **large objects** — OID-ordered; small objects batched per chunk, an object larger than the chunk target split by byte offset (`lo_get(oid, offset, length)`). OIDs come from pre-data, which creates empty large objects; because schema SQL is rendered with `--no-owner`, those objects are owned by the restore role, which is what `lo_put` needs from a non-superuser. Restore writes content with `lo_open`/`lo_put` into the existing OID, never `lo_from_bytea`.
@@ -114,9 +114,9 @@ Neither entry point calls `createRequestContainer()` for `verify`, `restore`, `e
 
 - Acquire the run lock (below), validate the journal (each referenced chunk exists and rehashes), discard any `.partial` file and any chunk without a journal line.
 - **Same epoch** (the snapshot holder is still alive — transient worker or connection failure inside one process): the engine retries failed chunks in-process up to 3 times with backoff before failing; consistency stays `single-snapshot`.
-- **New epoch** (process died, snapshot gone): open a new snapshot. Compare the new `xmax` horizon with the previous epoch's. Unchanged → no write transaction committed in between; consistency becomes or stays `quiesced`. Advanced → `multi-snapshot`. The horizon is cluster-wide (the engine's own sessions are read-only and assign no transaction ids), so writes in another database on the same cluster also advance it: the check can only err towards the weaker label, never claim a false `quiesced`. Finished entities are kept; the interrupted keyset entity continues from its last journalled key **only** when consistency is `quiesced`, otherwise it restarts from its first chunk (old chunks for that entity are tombstoned in the journal) so every entity is internally consistent at one snapshot. ctid-range entities always restart.
+- **New epoch** (process died, snapshot gone): open a new snapshot. Compare the full snapshot evidence with the previous epoch's. The boundary is proven quiescent only when cluster-incarnation identity matches, the full-width `xmax` is unchanged, and **both snapshots have empty `xip_list`**. Equal `xmax` alone is insufficient: a transaction already in progress below that horizon can commit between snapshots without advancing it. Any active transaction, advanced horizon, changed incarnation or unavailable evidence makes the boundary `multi-snapshot`; `--quiesced` refuses before changing existing partial state. The incarnation evidence must distinguish cluster replacement, recovery and timeline changes; inability to establish that identity is not proof. Classification is cumulative across all epochs: once `multi-snapshot`, it never upgrades to `quiesced`. The check is cluster-wide and deliberately conservative (the engine's own sessions are read-only and assign no transaction ids); unrelated activity may force the weaker label. Finished entities are kept; the interrupted keyset entity continues from its last journalled key **only** when consistency is `quiesced`, otherwise it restarts from its first chunk (old chunks for that entity are tombstoned in the journal) so every entity is internally consistent at one snapshot. ctid-range entities always restart.
 - Schema chunks are retaken in the newest epoch if a DDL change is detected (catalog fingerprint of relations, columns, constraints differs) — and then **all** data entities restart, because chunk layouts may no longer match. A changed catalog is printed as the reason.
-- `--quiesced` asks the engine to fail rather than produce `multi-snapshot`: if the horizon advanced, resume refuses (exit 3) and tells the operator to stop writers or drop the flag. In practice `quiesced` needs a real maintenance window: any writer on the cluster — pg_cron jobs, monitoring agents writing stats tables, another application database — advances the horizon. The runbook lists these.
+- `--quiesced` asks the engine to fail rather than produce `multi-snapshot`: if the conservative boundary proof above fails, resume refuses (exit 3) and tells the operator to stop writers or drop the flag. In practice `quiesced` needs a real maintenance window: any writer on the cluster — pg_cron jobs, monitoring agents writing stats tables, another application database — advances the horizon. The runbook lists these.
 - Resume needs the run key: from `--workspace` on the same host, or from `run-key.age` with `--identity-file` elsewhere. Without either, resume refuses (exit 3) and the operator starts a new backup.
 - A resume uses the encryption recipients and compression recorded in the partial journal header; passing different ones refuses.
 
@@ -215,7 +215,7 @@ Rules: show running entities, the 3 most recent completions, failures, then a `�
 
 **Manifest:** `schemaVersion: 1`, `state: 'complete'`, `backupId`, `startedAt/completedAt` (UTC), `scope: 'whole-database'`, `kind: 'postgresql-logical-chunked'`, `encryption: {mode: 'age-v1'|'none', recipientSetFingerprint?}`, `compression: 'gzip'`, `consistency: {mode: 'single-snapshot'|'quiesced'|'multi-snapshot', epochs}`, tool versions, source PostgreSQL version, non-secret instance/database identity digest, encoding/collation, application release and migration-set digest, `index: {path, sizeBytes, sha256}`, `chunkCount`, `totalCipherBytes`, `exclusions: ['external-files','object-stores','vault','redis','cluster-globals','wal']`.
 
-**Index (encrypted):** entities `{entityKey, schema, table, label?, strategy, rows, plainBytes, chunks: [{seq, keyFrom?, keyTo?, rows, plainBytes, cipherBytes, sha256, epoch}]}`, sequences `{name, value}`, schema chunk digests, catalog fingerprint, consistency evidence `{epoch, xmaxHorizon}`. Bounded to 1,000,000 chunks and 64 MiB plaintext.
+**Index (encrypted):** entities `{entityKey, schema, table, label?, strategy, rows, plainBytes, chunks: [{seq, keyFrom?, keyTo?, rows, plainBytes, cipherBytes, sha256, epoch}]}`, sequences `{name, value}`, schema chunk digests, catalog fingerprint, consistency evidence `{epoch, clusterIncarnation, snapshot: {xmin, xmax, xipList}, boundaryClassification}` (full-width transaction IDs encoded as decimal strings). Bounded to 1,000,000 chunks and 64 MiB plaintext.
 
 **Journal v1 (creation only):** append-only JSON lines — a header `{backupId, recipientSetFingerprint|none, compression, chunkTarget, plan digest}`, then epoch, chunk, tombstone and schema records. Each line carries a running SHA-256 chain so truncation or edits are detected; an invalid tail line is dropped, an invalid middle line refuses resume.
 
@@ -286,7 +286,7 @@ Target provisioned from `template0`, empty except a reviewed baseline (or, on re
 | Risk | Severity / area | Mitigation | Residual risk |
 |---|---|---|---|
 | Cross-tenant disclosure via artifact, logs, progress or scratch | Critical / all tenants | Encryption default, encrypted index hides entity names, plaintext only with confirmation and policy lock, sanitized logs, owner-only files | Operators choosing `--no-encryption`; host root and identity custodians see all tenants. |
-| Resumed backup silently inconsistent | High / recovery | Epoch horizon check, consistency label in manifest/report/progress, `--quiesced` mode, restart of interrupted entity, NOT VALID + VALIDATE FKs | `multi-snapshot` backups may need manual reconciliation; documented as weaker than single-snapshot. |
+| Resumed backup silently inconsistent | High / recovery | Conservative full-snapshot boundary proof, cumulative consistency label in manifest/report/progress, `--quiesced` mode, restart of interrupted entity, NOT VALID + VALIDATE FKs | `multi-snapshot` backups may need manual reconciliation; documented as weaker than single-snapshot. |
 | Restore resume merges wrong data | High / target DB | Journal bound to backup, manifest digest and run id; chunk + journal row in one transaction | Operator bypassing the CLI with raw SQL. |
 | Wrong destination | Critical / DB | Identity challenge, emptiness check, no overwrite flags, sandbox | Privileged operators remain trusted. |
 | Key loss makes backups unreadable | High / recovery | Multiple recipients incl. offline escrow, identity check before decrypt, rotation runbook | Lost identities are unrecoverable by design. |
@@ -304,7 +304,7 @@ No tests ship with this spec-only PR; this is the implementation acceptance matr
 | B02 | create/restore/exercise | Full roundtrip | Row counts, content digests, constraints, sequences, large objects, encrypted canaries readable with correct DEKs. |
 | B03 | create | `--no-encryption` with/without confirmation; `OM_BACKUP_REQUIRE_ENCRYPTION=true` | Refused without confirmation and under policy; plaintext marked everywhere; roundtrip still passes. |
 | B04 | create resume | SIGKILL at random chunk boundaries (fault-injected at every fsync/rename point), quiet source | Resume completes, `quiesced`/`single-snapshot` as expected, no duplicate or missing rows. |
-| B05 | create resume | Writes and DDL between crash and resume | `multi-snapshot` label, interrupted entity restarted, DDL triggers full restart; `--quiesced` refuses. |
+| B05 | create resume | Writes and DDL between crash and resume; an older in-flight writer commits below unchanged `xmax`; prepared transaction; cluster-incarnation change; quiet resume after a multi-snapshot epoch | Changed visibility is never labelled `quiesced`; non-empty boundary `xip_list` or missing/mismatched identity conservatively yields `multi-snapshot`; interrupted entity restarts; DDL triggers full restart; `--quiesced` refuses without changing partial state; weakest classification persists across later quiet epochs. |
 | B06 | create | In-process worker connection drop | Chunk retried in the same epoch, consistency stays `single-snapshot`. |
 | B07 | restore resume | SIGKILL mid-chunk, mid post-data, mid FK validation | Resume skips committed chunks, reloads the rolled-back one, final data equals B02. |
 | B08 | restore resume | Wrong target, wrong backup, edited journal, live lock elsewhere | Refusals before writes; takeover only with stale heartbeat or explicit flag. |
@@ -343,6 +343,8 @@ Verdict: **design review only; not approved for implementation** until Q2/Q3 sec
 
 ## Changelog
 
+- 2026-11-10 (rev 2.2): Re-review corrected false quiescence detection from `xmax` alone: require matching cluster-incarnation evidence, an unchanged full-width horizon and empty in-progress sets at both epoch boundaries; preserve the weakest consistency across resumes and add the in-flight-commit race, prepared transactions and identity-change acceptance cases. Aligned the architecture diagram with batched pre-data restore.
+
 - 2026-11-06 (rev 2): Per PR author direction — moved to enterprise (`backups` module CLI, `.ai/specs/enterprise/`); whole-backup encryption by default with per-chunk age files and an explicit, policy-lockable unencrypted option; replaced the no-resume design with chunked, journalled, resumable backup and restore with epoch-based consistency labels; added per-entity progress bars for backup and restore (TTY, plain, NDJSON); replaced the B01–B20 matrix with B01–B18 and refreshed phasing.
 - 2026-11-06 (rev 2.1): Addressed specification review — encrypted journal via an ephemeral run key; `pg_restore` used only as a SQL renderer so schema steps share engine transactions; FKs from captured definitions with `NOT VALID`; atomic restore init and `restore_steps` journal; report finalized before journal drop; sequences reconciled with column max for non-single-snapshot backups; large objects written with `lo_put` and split by offset; bootstrap-free `mercato-backup` bin owning stdout; exit-code/status/resumability table; adaptive chunk sizing; ProgressJob scope; registration and template sync in Phase 0. Re-review: batched pre-data (lock limits), integrity based solely on the hash chain (age is not sender-authenticated) with hash-on-load, licence as the real enterprise boundary, i18n without bootstrap.
 - 2026-11-06: Initial OSS manual backup/restore CLI design (non-resumable, `packages/cli`).
@@ -358,7 +360,7 @@ Verdict: **design review only; not approved for implementation** until Q2/Q3 sec
 
 3. Schemas, process/resource adapters, preflight, encryption policy (B01, B03, B12, B13, B15).
 4. Snapshot holder, chunk planner, chunk pipeline, journal, sealing; progress model and TTY/plain/JSON renderers for backup (B01, B10).
-5. Backup resume: run key and encrypted journal, epochs, horizon check, `--quiesced`, DDL detection, sequence max reconciliation, locks (B04, B05, B06, B11, B18).
+5. Backup resume: run key and encrypted journal, epochs, conservative full-snapshot boundary proof, `--quiesced`, DDL detection, sequence max reconciliation, locks (B04, B05, B06, B11, B18).
 
 ### Phase 2 — Verify and resumable restore
 
