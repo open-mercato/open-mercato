@@ -100,6 +100,14 @@ describe('settings-aware display helpers', () => {
   })
 })
 
+describe('British English formatting locale', () => {
+  it('uses the British clock and date order for automatic and localized tokens', () => {
+    expect(formatDisplayDateTime(INSTANT, 'en', settings({ timeZone: 'UTC', locale: 'en-GB', dateFormat: 'dd/MM/yyyy' }))).toBe('31/12/2026 23:30')
+    expect(formatDisplayTime(INSTANT, 'en', settings({ timeZone: 'UTC', locale: 'en-GB', timeFormat: 'p' }))).toBe('23:30')
+    expect(formatDisplayDate(INSTANT, 'en', settings({ timeZone: 'UTC', locale: 'en-GB', dateFormat: 'P' }))).toBe('31/12/2026')
+  })
+})
+
 describe('formatLocalDisplayValue', () => {
   const picked = new Date(2026, 4, 9, 10, 30)
 

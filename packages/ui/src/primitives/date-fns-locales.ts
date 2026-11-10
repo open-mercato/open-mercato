@@ -1,5 +1,6 @@
 import type { Locale as DateFnsLocale } from 'date-fns/locale'
 import { de } from 'date-fns/locale/de'
+import { enGB } from 'date-fns/locale/en-GB'
 import { enUS } from 'date-fns/locale/en-US'
 import { es } from 'date-fns/locale/es'
 import { ko } from 'date-fns/locale/ko'
@@ -11,13 +12,16 @@ import { pl } from 'date-fns/locale/pl'
  * critically, `weekStartsOn`. Without one the picker falls back to the bundled `enUS`:
  * English month/weekday names and a Sunday-first week for every tenant.
  *
- * The five entries mirror `locales` in `@open-mercato/shared/lib/i18n/config`. They are
- * imported statically rather than loaded on demand because a picker renders its calendar
+ * The language entries mirror `locales` in `@open-mercato/shared/lib/i18n/config`; a
+ * regional entry (`en-GB`) covers a formatting locale whose date order or clock differs from
+ * its language default, and wins over the language for that exact tag. They are imported
+ * statically rather than loaded on demand because a picker renders its calendar
  * synchronously — an async locale would flash an English month header first.
  */
 const DATE_FNS_LOCALES: Record<string, DateFnsLocale> = {
   de,
   en: enUS,
+  'en-GB': enGB,
   es,
   ko,
   pl,
@@ -31,6 +35,8 @@ const DATE_FNS_LOCALES: Record<string, DateFnsLocale> = {
  * of pinning English on a deployment that added a locale this map has not caught up with.
  */
 export function resolveDateFnsLocale(locale?: string | null): DateFnsLocale | undefined {
-  const code = locale?.split('-')[0]?.toLowerCase()
-  return code ? DATE_FNS_LOCALES[code] : undefined
+  const [language, region] = (locale ?? '').split('-')
+  const code = language?.toLowerCase()
+  if (!code) return undefined
+  return (region ? DATE_FNS_LOCALES[`${code}-${region.toUpperCase()}`] : undefined) ?? DATE_FNS_LOCALES[code]
 }
