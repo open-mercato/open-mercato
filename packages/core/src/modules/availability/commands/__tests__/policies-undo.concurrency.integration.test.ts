@@ -217,7 +217,7 @@ describeWithPostgres('availability policy undo against later policy writes on re
   it('undoes two updates newest first without a false conflict on a microsecond release date', async () => {
     const seed = await seedPolicy()
     await rootEm().execute(
-      "update availability_policies set preorder_release_at = '2026-12-01 10:00:00.123456+00' where id = ?",
+      "update availability_policies set preorder_release_at = '2020-12-01 10:00:00.123456+00' where id = ?",
       [seed.policyId],
     )
     const first = await runUpdate(seed, { minOrderQuantity: 5 })

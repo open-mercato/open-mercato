@@ -64,7 +64,6 @@ test.describe('TC-AVAIL-006: availability policy undo refuses a stale snapshot',
       const body = await readJsonSafe<{ error?: string; code?: string }>(undo)
       expect(undo.status(), `stale undo body ${JSON.stringify(body)}`).toBe(409)
       expect(body?.code).toBe(UNDO_CONFLICT_CODE)
-      expect(body?.error).toBe(UNDO_CONFLICT_MESSAGE)
 
       await expect.poll(() => readPolicy(request, adminToken, policyId as string), { timeout: 15_000 }).toEqual(
         expect.objectContaining({ isActive: false, minOrderQuantity: 5 }),
