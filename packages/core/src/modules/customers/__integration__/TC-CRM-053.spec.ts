@@ -212,12 +212,13 @@ test.describe('TC-CRM-053: Activity validation — date/time required, phone val
       await expect(logCallItem).toBeVisible({ timeout: 15_000 })
       await logCallItem.click()
 
-      // The DateTimeFields component renders required asterisks via a
-      // DS-token span (`text-status-error-foreground`). On the Call tab both
-      // Date and Start Time inputs render (so two markers appear).
-      const requiredMarkers = page.locator('span[aria-hidden="true"].text-status-error-foreground')
+      // Required asterisks render via a DS-token span
+      // (`text-status-error-foreground`). On the Call tab the Title, Date and
+      // Start Time fields are required (so three markers appear).
+      const dialog = page.getByRole('dialog')
+      const requiredMarkers = dialog.locator('span[aria-hidden="true"].text-status-error-foreground')
       await expect(requiredMarkers.first()).toBeVisible({ timeout: 15_000 })
-      await expect(requiredMarkers).toHaveCount(2)
+      await expect(requiredMarkers).toHaveCount(3)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
