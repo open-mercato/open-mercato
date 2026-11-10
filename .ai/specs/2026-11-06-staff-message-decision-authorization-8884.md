@@ -52,3 +52,9 @@ With enterprise record locking enabled, post-mutation cleanup must not query hum
 - 2026-11-06: Document existing permission enforcement at the owning command boundary.
 
 - 2026-11-10: source re-review replaces the new permission guard's raw HTTP error with the shared forbidden helper; scoped authorization and translated403 body remain identical.
+
+## Native decision version guard
+
+Complex QA with two distinct scoped managers found that accept/reject's existing `staff.leave_request` mutation-guard key had no optimistic-lock reader: generic CRUD registration uses canonical `staff.leave.request`. Staff DI now registers a scoped `StaffLeaveRequest` reader for the existing custom-route key before requests run. Stable resource-kind strings, generic message-header scope, API shapes and no-header clients are unchanged; stale native decision headers receive the existing structured409 before any mutation. Unit coverage proves reader lookup/scoping without importing a CRUD route; the native API regression covers stale refusal and a fresh-version successful control for both decisions.
+
+- 2026-11-10: repair the native decision reader registration discovered by actual second-actor browserQA; retain both the source authorization fix and command/guard side effects.

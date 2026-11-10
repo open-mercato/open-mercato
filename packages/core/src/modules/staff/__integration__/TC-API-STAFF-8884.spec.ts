@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import { z } from 'zod'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures } from '@open-mercato/core/helpers/integration/authFixtures'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 export const integrationMeta = { dependsOnModules: ['staff', 'messages', 'planner', 'api_keys'] }
 
@@ -16,7 +18,7 @@ async function state(requestId: string, memberId: string, messageId: string) {
   })
 }
 
-async function scenario(request: APIRequestContext, decision: 'accept' | 'reject', grant: string | null, foreignScope?: 'tenant' | 'organization', asApiKey = false) {
+async function scenario(request: APIRequestContext, decision: 'accept' | 'reject', grant: string | null, foreignScope?: 'tenant' | 'organization', asApiKey = false, checkNativeVersion = false) {
   const adminToken = await getAuthToken(request, 'superadmin')
   const scope = getTokenScope(await getAuthToken(request, 'admin'))
   const stamp = randomUUID()
@@ -67,6 +69,26 @@ async function scenario(request: APIRequestContext, decision: 'accept' | 'reject
     expect(composed?.id).toBeTruthy()
     messageId = composed!.id
     const before = await state(requestId, memberId, messageId)
+    if (checkNativeVersion) {
+      const endpoint = `/api/staff/leave-requests/${decision}`
+      const stale = await apiRequest(request, 'POST', endpoint, {
+        token, data: { id: requestId },
+        headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: '2000-01-01T00:00:00.000Z' },
+      })
+      expect(stale.status()).toBe(409)
+      expect(await readJsonSafe<{ code?: string }>(stale)).toMatchObject({ code: 'optimistic_lock_conflict' })
+      expect(await state(requestId, memberId, messageId)).toEqual(before)
+      const currentVersion = z.object({ updated_at: z.string() }).parse(before.leave[0]?.value).updated_at
+      const current = await apiRequest(request, 'POST', endpoint, {
+        token, data: { id: requestId }, headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: currentVersion },
+      })
+      expect(current.status()).toBe(200)
+      const after = await state(requestId, memberId, messageId)
+      expect(after.leave[0]).toMatchObject({ value: { status: decision === 'accept' ? 'approved' : 'rejected' } })
+      expect(after.rules).toHaveLength(decision === 'accept' ? 1 : 0)
+      expect(after.message).toEqual(before.message)
+      return
+    }
     if (!grant) {
       const native = await apiRequest(request, 'POST', `/api/staff/leave-requests/${decision}`, { token, data: { id: requestId } })
       expect(native.status()).toBe(403)
@@ -120,6 +142,9 @@ async function scenario(request: APIRequestContext, decision: 'accept' | 'reject
 
 test.describe('TC-API-STAFF-8884: message leave decisions enforce staff authorization', () => {
   for (const decision of ['accept', 'reject'] as const) {
+    test(`${decision}: native decisions reject a stale version and accept the current one`, async ({ request }) => {
+      await scenario(request, decision, 'staff.leave_requests.manage', undefined, false, true)
+    })
     for (const grant of [null, 'staff.leave_requests.manage', 'staff.*', '*']) {
       test(`${decision}: ${grant ?? 'ordinary recipient'} retains native permissions`, async ({ request }) => {
         await scenario(request, decision, grant)

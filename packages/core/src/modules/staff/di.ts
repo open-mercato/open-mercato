@@ -1,5 +1,8 @@
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { createGenericOptimisticLockReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
+import { StaffLeaveRequest } from './data/entities'
 import {
   resolveAvailabilityWriteAccess,
   type AvailabilityAccessContext,
@@ -41,6 +44,10 @@ import {
   type ProjectCodeContext,
 } from './lib/time-tracking/projectCode'
 import type { ScopedResolverContext } from './lib/time-tracking/registries/scope'
+
+registerOptimisticLockReaders({
+  'staff.leave_request': createGenericOptimisticLockReader({ entity: StaffLeaveRequest }),
+})
 
 export type AvailabilityAccessResolver = {
   resolveAvailabilityWriteAccess(
