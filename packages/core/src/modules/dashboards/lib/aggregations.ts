@@ -63,6 +63,16 @@ export function buildDateTruncExpression(column: string, granularity: DateGranul
   return `DATE_TRUNC('${granularity}', ${column})`
 }
 
+/**
+ * Group key for a date bucket. `DATE_TRUNC` on a timestamptz column starts each bucket at
+ * midnight in the database session zone, so the raw instant reads as a different calendar day
+ * (or month, quarter, year) in any other zone. Re-anchoring the bucket's wall-clock start at UTC
+ * midnight makes the key carry the bucket's calendar date, which clients label in UTC.
+ */
+function buildDateBucketExpression(column: string, granularity: DateGranularity, weekStartsOn?: number): string {
+  return `((${buildDateTruncExpression(column, granularity, weekStartsOn)})::timestamp AT TIME ZONE 'UTC')`
+}
+
 export function buildJsonbFieldExpression(column: string, path: string): string {
   const parts = path.split('.')
   for (const part of parts) {
@@ -151,7 +161,7 @@ export function resolveGroupExpression(
 
   if (groupMapping.type === 'timestamp' && groupBy.granularity) {
     return {
-      expression: buildDateTruncExpression(groupMapping.dbColumn, groupBy.granularity, weekStartsOn),
+      expression: buildDateBucketExpression(groupMapping.dbColumn, groupBy.granularity, weekStartsOn),
       dbColumn: groupMapping.dbColumn,
       jsonPath: null,
     }

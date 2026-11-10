@@ -288,7 +288,8 @@ describe('aggregations', () => {
         groupBy: { field: 'placedAt', granularity: 'week' },
         weekStartsOn: 0,
       })
-      const bucket = "(DATE_TRUNC('week', placed_at + INTERVAL '1 days') - INTERVAL '1 days')"
+      const bucket =
+        "(((DATE_TRUNC('week', placed_at + INTERVAL '1 days') - INTERVAL '1 days'))::timestamp AT TIME ZONE 'UTC')"
       expect(result?.sql).toContain(`SELECT ${bucket} AS group_key`)
       expect(result?.sql).toContain(`GROUP BY ${bucket}`)
     })
@@ -593,7 +594,7 @@ describe('aggregations', () => {
         granularity: 'month',
       })
       expect(resolved).toEqual({
-        expression: "DATE_TRUNC('month', placed_at)",
+        expression: "((DATE_TRUNC('month', placed_at))::timestamp AT TIME ZONE 'UTC')",
         dbColumn: 'placed_at',
         jsonPath: null,
       })

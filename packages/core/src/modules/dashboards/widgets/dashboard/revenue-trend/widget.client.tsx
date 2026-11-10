@@ -20,11 +20,9 @@ import {
 import type { DateGranularity } from '@open-mercato/shared/modules/analytics'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueTrendSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { createCurrencyFormatters } from '../../../lib/formatters'
+import { createCurrencyFormatters, formatDateBucketLabel } from '../../../lib/formatters'
 import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { toZonedWallClock } from '@open-mercato/ui/primitives/date-format'
-import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 const logger = createLogger('dashboards').child({ component: 'revenue-trend' })
 
@@ -46,35 +44,6 @@ async function fetchRevenueTrendData(settings: RevenueTrendSettings, fetchWidget
   }
 
   return fetchWidgetData<WidgetDataResponse>(body)
-}
-
-function formatDate(dateStr: string | null, granularity: DateGranularity, locale?: string): string {
-  if (!dateStr) return '--'
-  try {
-    const date = new Date(dateStr)
-    const localeStr = locale ?? undefined
-    const timeZone = resolveDisplayTimeZone()
-    const format = (options: Intl.DateTimeFormatOptions) =>
-      new Intl.DateTimeFormat(localeStr, { ...options, timeZone }).format(date)
-    switch (granularity) {
-      case 'day':
-      case 'week':
-        return format({ month: 'short', day: 'numeric' })
-      case 'month':
-        return format({ month: 'short', year: 'numeric' })
-      case 'quarter': {
-        const zoned = toZonedWallClock(date, timeZone)
-        const quarter = Math.floor(zoned.getMonth() / 3) + 1
-        return `Q${quarter} ${zoned.getFullYear()}`
-      }
-      case 'year':
-        return format({ year: 'numeric' })
-      default:
-        return format({ month: 'short', day: 'numeric' })
-    }
-  } catch {
-    return String(dateStr)
-  }
 }
 
 const GRANULARITY_OPTIONS: { value: DateGranularity; labelKey: string }[] = [
@@ -139,7 +108,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
         return aTime - bTime
       })
       const chartData = sortedData.map((item) => ({
-        date: formatDate(item.groupKey as string | null, hydrated.granularity, locale),
+        date: formatDateBucketLabel(item.groupKey as string | null, hydrated.granularity, locale),
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
