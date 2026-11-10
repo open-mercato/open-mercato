@@ -1127,6 +1127,9 @@ jobs:
           OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
           OM_INTEGRATION_MODULES: ${{ needs.prepare.outputs.affected_modules }}
         run: |
+          OM_INIT_SUPERADMIN_PASSWORD="$(node -e "process.stdout.write('aA1!' + require('node:crypto').randomBytes(32).toString('base64url'))")"
+          echo "::add-mask::$OM_INIT_SUPERADMIN_PASSWORD"
+          export OM_INIT_SUPERADMIN_PASSWORD
           SHARD_FLAG="${{ steps.shard-meta.outputs.shard_flag }}"
           if [ -n "$SHARD_FLAG" ]; then
             yarn test:integration:coverage $SHARD_FLAG
