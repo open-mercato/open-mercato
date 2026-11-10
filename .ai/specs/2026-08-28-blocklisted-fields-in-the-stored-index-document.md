@@ -7,7 +7,8 @@ path and the `search_text` aggregate (#4624). Neither of the two functions that
 build an index document consults it, so a blocklisted column is copied into
 `entity_indexes.doc` verbatim and stored there in full. With the default
 blocklist that means `doc->>'password_hash'` is the bcrypt verifier and
-`doc->>'token'` is the session token, for every entity type that stays indexed.
+`doc->>'token'` is the session token's HMAC digest (tokens are hashed at rest since
+#1465), for every entity type that stays indexed.
 `stripBlocklistedDocFields()` removes them at both builders, before encryption
 runs.
 
@@ -221,16 +222,18 @@ record restores the key.
 ## Testing
 
 - `packages/core/src/modules/query_index/__tests__/index-document-blocklist.test.ts`
-  — 13 cases over the batch builder: each blocklist pattern removed, the display
+  — 15 cases over the batch builder: each blocklist pattern removed, the display
   field kept beside it, an untouched ordinary document, the aggregate unchanged,
   an env-added global entry, the entity-scoped narrowing, `credential` still not
-  blocklisted, and the `cf:`/`l10n:` exemption.
+  blocklisted, the `cf:`/`l10n:` exemption, and a `hashField` column stripped like
+  any other match.
 - `packages/core/src/modules/query_index/__tests__/indexer.test.ts` — two cases
   on the event path, in the existing fake-kysely harness.
-- **Not vacuous, measured rather than asserted.** With the `buildIndexDocument`
-  call reverted, 7 tests fail and every negative control passes; with the
-  `buildIndexDoc` call reverted, exactly 1 fails — the event-path case. Each
-  chokepoint has its own failing test and neither covers for the other.
+- **Not vacuous, measured rather than asserted** (re-measured on `main`, 2026-11-10).
+  With the `buildIndexDocument` call reverted, 8 tests fail and every negative
+  control passes; with the `buildIndexDoc` call reverted, exactly 1 fails — the
+  event-path case. Each chokepoint has its own failing test and neither covers for
+  the other.
 
 Suite totals, against a pristine baseline in a separate worktree:
 

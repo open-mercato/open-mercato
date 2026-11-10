@@ -82,21 +82,9 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   for (const source of docSources) {
     for (const [k, v] of Object.entries(source)) doc[k] = v
   }
-  // Resolved once and passed to both consumers below. `resolveSearchConfig()` parses ten
-  // `process.env` reads plus the blocklist, and this path runs on every ordinary write.
   const searchConfig = resolveSearchConfig()
-  // The event path builds its document here rather than through
-  // `buildIndexDocument`, so it needs its own call: stripping only the batch
-  // path would give a reindex that removes the column and an ordinary write
-  // that puts it straight back. Placed before the `cf:`/`l10n:` merges below,
-  // so the strip only ever sees base columns and cannot reach their exemption.
-  //
-  // A column named by an encryption rule's `hashField` is stripped like any other match and
-  // is NOT re-injected later: `encryptFields()` skips a value that already decrypts under the
-  // current DEK, and that `continue` sits before the `hashField` block, so in steady state -
-  // where the base column is already ciphertext - the hash is never written back. Nothing
-  // reads a `*_hash` out of this document; strict equality on an encrypted field goes through
-  // the base table's deterministic column (`packages/shared/src/lib/query/engine.ts`).
+  // The event path builds its own document, so it strips here as well: otherwise a reindex
+  // would remove the column and the next ordinary write would put it straight back.
   stripBlocklistedDocFields(doc, searchConfig)
 
   // Attach custom fields under flat keys 'cf:<key>'
