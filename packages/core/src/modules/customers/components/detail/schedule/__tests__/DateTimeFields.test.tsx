@@ -148,3 +148,95 @@ describe('DateTimeFields — pickers follow the app locale', () => {
     expect(screen.getByText('02:30 PM')).toBeInTheDocument()
   })
 })
+
+describe('DateTimeFields — recurrence card', () => {
+  type RecurrenceEndType = 'never' | 'count' | 'date'
+
+  function RecurrenceHarness({ onCount, onEndDate }: { onCount: (value: number) => void; onEndDate: (value: string) => void }) {
+    const [endType, setEndType] = React.useState<RecurrenceEndType>('never')
+    const [count, setCount] = React.useState(3)
+    const [days, setDays] = React.useState([true, false, false, false, false, false, false])
+    return (
+      <DateTimeFields
+        visible={FIELD_VISIBILITY.meeting}
+        activityType="meeting"
+        date="2026-01-15"
+        setDate={() => {}}
+        startTime="14:30"
+        setStartTime={() => {}}
+        duration={30}
+        setDuration={() => {}}
+        allDay={false}
+        setAllDay={() => {}}
+        recurrenceEnabled
+        setRecurrenceEnabled={() => {}}
+        recurrenceDays={days}
+        toggleRecurrenceDay={(index) => setDays((current) => current.map((value, position) => (position === index ? !value : value)))}
+        recurrenceEndType={endType}
+        setRecurrenceEndType={setEndType}
+        recurrenceCount={count}
+        setRecurrenceCount={(value) => {
+          setCount(value)
+          onCount(value)
+        }}
+        recurrenceEndDate=""
+        setRecurrenceEndDate={onEndDate}
+      />
+    )
+  }
+
+  function renderCard(locale = 'en') {
+    const onCount = jest.fn()
+    const onEndDate = jest.fn()
+    renderWithProviders(<RecurrenceHarness onCount={onCount} onEndDate={onEndDate} />, {
+      locale,
+      dict: locale === 'pl' ? polishTranslations : {},
+    })
+    return { onCount, onEndDate }
+  }
+
+  it('has no inert Edit button', () => {
+    renderCard()
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+  })
+
+  it('lets the user set how many occurrences the series runs for', () => {
+    const { onCount } = renderCard()
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'After occurrences' }))
+    expect(screen.getByRole('button', { name: 'After occurrences' })).toHaveAttribute('aria-pressed', 'true')
+
+    const countInput = screen.getByRole('spinbutton', { name: 'After occurrences' })
+    expect(countInput).toHaveValue(3)
+    fireEvent.change(countInput, { target: { value: '12' } })
+    expect(onCount).toHaveBeenLastCalledWith(12)
+
+    fireEvent.change(countInput, { target: { value: '0' } })
+    expect(onCount).toHaveBeenLastCalledWith(1)
+  })
+
+  it('shows an end date picker only for the date ending', () => {
+    const { container } = renderWithProviders(<RecurrenceHarness onCount={() => {}} onEndDate={() => {}} />)
+    const pickerCount = () => container.querySelectorAll('[data-slot="date-picker-trigger"]').length
+    const before = pickerCount()
+
+    fireEvent.click(screen.getByRole('button', { name: 'On date' }))
+    expect(pickerCount()).toBe(before + 1)
+    expect(screen.getByRole('button', { name: 'On date', pressed: true })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Never' }))
+    expect(pickerCount()).toBe(before)
+  })
+
+  it('labels the weekdays in the app locale and exposes their state', () => {
+    renderCard('pl')
+    const monday = screen.getByRole('button', { name: 'PN' })
+    expect(monday).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'WT' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('button', { name: 'Mo' })).not.toBeInTheDocument()
+
+    fireEvent.click(monday)
+    expect(monday).toHaveAttribute('aria-pressed', 'false')
+  })
+})

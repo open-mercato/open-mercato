@@ -6,6 +6,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { TimePicker } from '@open-mercato/ui/backend/inputs/TimePicker'
 import {
   Select,
@@ -44,7 +45,15 @@ const DURATION_OPTIONS: Array<{ value: number; key: string; fallback: string }> 
   { value: 90, key: 'customers.schedule.duration.option.1h30m', fallback: '1h 30m' },
   { value: 120, key: 'customers.schedule.duration.option.2hours', fallback: '2 hours' },
 ]
-const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const RECURRENCE_DAY_KEYS: Array<[string, string]> = [
+  ['customers.calendar.day.mon', 'MON'],
+  ['customers.calendar.day.tue', 'TUE'],
+  ['customers.calendar.day.wed', 'WED'],
+  ['customers.calendar.day.thu', 'THU'],
+  ['customers.calendar.day.fri', 'FRI'],
+  ['customers.calendar.day.sat', 'SAT'],
+  ['customers.calendar.day.sun', 'SUN'],
+]
 
 interface DateTimeFieldsProps {
   visible: Set<ScheduleFieldId>
@@ -156,6 +165,7 @@ export function DateTimeFields({
                 timeMissing ? 'border-status-error-border' : undefined,
               )}
               showNowButton
+              popoverModal
               showClearButton={!timeRequired}
             />
             {timeMissing ? (
@@ -227,44 +237,75 @@ export function DateTimeFields({
 
       {/* Recurrence config */}
       {showRecurrence && recurrenceEnabled && (
-        <div className="rounded-lg border border-status-warning-border bg-status-warning-bg p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Repeat className="size-3.5" />
-              {t('customers.schedule.recurrence.title', 'Recurrence')}
-            </span>
-            <Button type="button" variant="ghost" size="sm" className="h-auto text-xs font-medium text-foreground">
-              {t('customers.schedule.recurrence.edit', 'Edit')}
-            </Button>
-          </div>
-          <div className="flex gap-2">
-            {DAYS_OF_WEEK.map((day, i) => (
+        <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3">
+          <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Repeat className="size-3.5" />
+            {t('customers.schedule.recurrence.title', 'Recurrence')}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {RECURRENCE_DAY_KEYS.map(([key, fallback], index) => (
               <Button
-                key={day}
+                key={key}
                 type="button"
-                variant="ghost"
+                variant={recurrenceDays[index] ? 'default' : 'ghost'}
                 size="sm"
-                onClick={() => toggleRecurrenceDay(i)}
+                aria-pressed={recurrenceDays[index]}
+                onClick={() => toggleRecurrenceDay(index)}
                 className={cn(
                   'h-auto flex size-8 items-center justify-center rounded-full text-xs font-medium transition-colors p-0',
-                  recurrenceDays[i] ? 'bg-primary text-primary-foreground' : 'border border-border bg-background text-muted-foreground hover:bg-muted',
+                  !recurrenceDays[index] && 'border border-border bg-background text-muted-foreground hover:bg-muted',
                 )}
               >
-                {day.slice(0, 2)}
+                {t(key, fallback).slice(0, 2)}
               </Button>
             ))}
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>{t('customers.schedule.recurrence.ends', 'Ends')}:</span>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('never')} className={cn('h-auto rounded-full px-3 py-1 text-xs font-medium', recurrenceEndType === 'never' ? 'bg-background border border-border text-foreground' : 'text-muted-foreground')}>
-              {t('customers.schedule.recurrence.never', 'Never')}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('count')} className={cn('h-auto rounded-full px-3 py-1 text-xs font-medium', recurrenceEndType === 'count' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}>
-              {t('customers.schedule.recurrence.afterCount', 'After {{count}} occurrences', { count: recurrenceCount })}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('date')} className={cn('h-auto rounded-full px-3 py-1 text-xs font-medium', recurrenceEndType === 'date' ? 'bg-background border border-border text-foreground' : 'text-muted-foreground')}>
-              {recurrenceEndDate || t('customers.schedule.recurrence.onDate', 'On date')}
-            </Button>
+            {([
+              ['never', t('customers.schedule.recurrence.never', 'Never')],
+              ['count', t('customers.schedule.recurrence.afterOccurrences', 'After occurrences')],
+              ['date', t('customers.schedule.recurrence.onDate', 'On date')],
+            ] as const).map(([endType, label]) => (
+              <Button
+                key={endType}
+                type="button"
+                variant={recurrenceEndType === endType ? 'default' : 'ghost'}
+                size="sm"
+                aria-pressed={recurrenceEndType === endType}
+                onClick={() => setRecurrenceEndType(endType)}
+                className={cn(
+                  'h-auto rounded-full px-3 py-1 text-xs font-medium',
+                  recurrenceEndType !== endType && 'border border-border bg-background text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {label}
+              </Button>
+            ))}
+            {recurrenceEndType === 'count' ? (
+              <Input
+                type="number"
+                size="sm"
+                min={1}
+                value={recurrenceCount}
+                onChange={(event) => {
+                  const parsed = parseInt(event.target.value, 10)
+                  setRecurrenceCount(Number.isFinite(parsed) && parsed > 0 ? parsed : 1)
+                }}
+                aria-label={t('customers.schedule.recurrence.afterOccurrences', 'After occurrences')}
+                className="w-20"
+              />
+            ) : null}
+            {recurrenceEndType === 'date' ? (
+              <DatePicker
+                value={parseIsoDate(recurrenceEndDate)}
+                onChange={(next) => setRecurrenceEndDate(formatIsoDate(next))}
+                placeholder={t('customers.schedule.recurrence.onDate', 'On date')}
+                aria-label={t('customers.schedule.recurrence.onDate', 'On date')}
+                size="sm"
+                className="w-40"
+              />
+            ) : null}
           </div>
         </div>
       )}
