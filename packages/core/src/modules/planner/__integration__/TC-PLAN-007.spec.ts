@@ -8,6 +8,8 @@ import {
 
 type RuleItem = { id?: string }
 
+const INVALID_WINDOW_MESSAGE = 'Window times must be between 00:00 and 23:59, with the end after the start.'
+
 async function listRuleSetRules(request: APIRequestContext, token: string, ruleSetId: string): Promise<RuleItem[]> {
   const response = await apiRequest(
     request,
@@ -50,21 +52,20 @@ test.describe('TC-PLAN-007: availability replace rejects a window whose end is n
       const before = await listRuleSetRules(request, token, ruleSetId)
       expect(before, 'One weekly and one date-specific rule should exist').toHaveLength(2)
 
-      for (const window of [{ start: '09:00', end: '09:00' }, { start: '17:00', end: '09:00' }]) {
+      for (const window of [{ start: '09:00', end: '09:00' }, { start: '17:00', end: '09:00' }, { start: '08:00', end: '24:00' }]) {
         const weeklyBad = await apiRequest(request, 'POST', '/api/planner/availability-weekly', {
           token,
           data: { ...weeklyBase, windows: [{ weekday: 1, ...window }] },
         })
         expect(weeklyBad.status(), `Weekly ${window.start}-${window.end} should return 400`).toBe(400)
-        const weeklyBody = await readJsonSafe<{ ok?: boolean; error?: string }>(weeklyBad)
-        expect(weeklyBody?.ok).toBeUndefined()
-        expect(typeof weeklyBody?.error).toBe('string')
+        expect((await readJsonSafe<{ error?: string }>(weeklyBad))?.error).toBe(INVALID_WINDOW_MESSAGE)
 
         const dateBad = await apiRequest(request, 'POST', '/api/planner/availability-date-specific', {
           token,
           data: { ...weeklyBase, dates: [date], kind: 'availability', windows: [window] },
         })
         expect(dateBad.status(), `Date-specific ${window.start}-${window.end} should return 400`).toBe(400)
+        expect((await readJsonSafe<{ error?: string }>(dateBad))?.error).toBe(INVALID_WINDOW_MESSAGE)
       }
 
       const after = await listRuleSetRules(request, token, ruleSetId)

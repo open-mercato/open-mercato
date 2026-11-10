@@ -1,7 +1,6 @@
 /** @jest-environment node */
 
 import { createContainer, asValue, InjectionMode } from 'awilix'
-import { ZodError } from 'zod'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -68,6 +67,8 @@ const badWindows = [
   ['out-of-range', '08:00', '24:00'],
 ]
 
+const invalidWindowError = { status: 400, body: { error: 'planner.availability.errors.invalidWindow' } }
+
 describe('availability replace commands with a window whose end is not after its start', () => {
   beforeAll(async () => {
     commandRegistry.clear?.()
@@ -79,7 +80,7 @@ describe('availability replace commands with a window whose end is not after its
     const { rule, em, ctx } = setup(WEEKLY_RULE)
     const handler = commandRegistry.get('planner.availability.weekly.replace')
 
-    await expect(handler!.execute({ ...scope, windows: [{ weekday: 1, start, end }] }, ctx)).rejects.toBeInstanceOf(ZodError)
+    await expect(handler!.execute({ ...scope, windows: [{ weekday: 1, start, end }] }, ctx)).rejects.toMatchObject(invalidWindowError)
 
     expect(rule.deletedAt).toBeNull()
     expect(em.transactional).not.toHaveBeenCalled()
@@ -90,10 +91,30 @@ describe('availability replace commands with a window whose end is not after its
     const handler = commandRegistry.get('planner.availability.date-specific.replace')
     const input = { ...scope, dates: ['2026-06-15'], kind: 'availability', windows: [{ start, end }] }
 
-    await expect(handler!.execute(input, ctx)).rejects.toBeInstanceOf(ZodError)
+    await expect(handler!.execute(input, ctx)).rejects.toMatchObject(invalidWindowError)
 
     expect(rule.deletedAt).toBeNull()
     expect(em.transactional).not.toHaveBeenCalled()
+  })
+
+  it('date-specific replace rejects a window that the DST gap inverts on that date', async () => {
+    const { rule, em, ctx } = setup(ONCE_RULE)
+    const handler = commandRegistry.get('planner.availability.date-specific.replace')
+    const input = { ...scope, timezone: 'Europe/Warsaw', dates: ['2026-03-29'], kind: 'availability', windows: [{ start: '02:30', end: '03:30' }] }
+
+    await expect(handler!.execute(input, ctx)).rejects.toMatchObject(invalidWindowError)
+
+    expect(rule.deletedAt).toBeNull()
+    expect(em.transactional).not.toHaveBeenCalled()
+  })
+
+  it('date-specific unavailability still ignores its windows', async () => {
+    const { em, ctx } = setup(ONCE_RULE)
+    const handler = commandRegistry.get('planner.availability.date-specific.replace')
+
+    await handler!.execute({ ...scope, dates: ['2026-06-15'], kind: 'unavailability', windows: [{ start: '17:00', end: '09:00' }] }, ctx)
+
+    expect(em.create).toHaveBeenCalledTimes(1)
   })
 
   it('weekly replace still swaps the existing rule for a valid window', async () => {
