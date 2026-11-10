@@ -9,7 +9,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
+import { useDateLocaleSettings, useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 import { packOverlaps } from '../../lib/calendar/layout'
 import { getVisibleRange } from '../../lib/calendar/range'
 import {
@@ -169,6 +169,7 @@ export function TimeGrid({
 }: TimeGridProps) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const nowMs = Date.now()
   const today = startOfDay(new Date())
@@ -451,7 +452,7 @@ export function TimeGrid({
                       {t('customers.calendar.actions.newEvent', 'New event')}
                     </span>
                     <span className="text-overline text-muted-foreground">
-                      {formatTimeRange(locale, dragRange.start, dragRange.end)}
+                      {formatTimeRange(locale, dragRange.start, dragRange.end, dateSettings)}
                     </span>
                   </div>
                 ) : null}

@@ -8,7 +8,7 @@ import { isToday } from 'date-fns/isToday'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
+import { useDateLocaleSettings, useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 import type { FirstDayOfWeek } from '@open-mercato/shared/lib/date-locale/types'
 import { getVisibleRange } from '../../lib/calendar/range'
 import { eventDisplayTitle } from '../../lib/calendar/labels'
@@ -61,9 +61,10 @@ function groupItemsByDay(items: CalendarItem[]): Map<string, CalendarItem[]> {
 function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (item: CalendarItem) => void }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const canceled = item.status === 'canceled'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
-  const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end)}`
+  const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end, dateSettings)}`
   const tintStyle = item.color
     ? { backgroundColor: `${item.color}${SOFT_TINT_ALPHA}`, color: item.color }
     : undefined
