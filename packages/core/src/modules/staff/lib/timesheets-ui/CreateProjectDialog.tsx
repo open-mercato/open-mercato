@@ -17,7 +17,6 @@ import {
   createProjectFormSchema,
   type ProjectFormValues,
 } from '../../backend/staff/time-tracking/projects/projectFormConfig'
-import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 
 type CreateProjectDialogProps = {
   open: boolean
@@ -90,7 +89,7 @@ export function CreateProjectDialog({ open, onOpenChange, onProjectCreated }: Cr
               if (staffMemberId) {
                 await createCrud('staff/timesheets/time-projects/' + newId + '/employees', {
                   staffMemberId,
-                  assignedStartDate: todayInZone(),
+                  assignedStartDate: new Date().toISOString().slice(0, 10),
                   status: 'active',
                 }, { errorMessage: '' })
               }

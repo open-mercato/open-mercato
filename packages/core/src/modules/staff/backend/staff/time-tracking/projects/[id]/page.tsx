@@ -38,7 +38,7 @@ import { readResolvedProjectAccessScope } from '../../../../../lib/time-tracking
 import { ProjectBudgetCell } from '../../../../../lib/timesheets-projects-ui/ProjectBudgetCell'
 import { computeBudgetBurn } from '../../../../../lib/timesheets-projects/budgetBurn'
 import { resolveProjectColorHex } from '../../../../../lib/timesheets-ui/colors'
-import { formatDisplayDate, todayInZone } from '@open-mercato/ui/primitives/date-format'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 
 const logger = createLogger('staff')
 
@@ -611,7 +611,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const openAddDialog = React.useCallback(() => {
     setAddStaffMemberId(null)
     setAddRole('')
-    setAddStartDate(todayInZone())
+    setAddStartDate(new Date().toISOString().slice(0, 10))
     setStaffLookupError(null)
     setAddDialogOpen(true)
   }, [])

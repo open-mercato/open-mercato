@@ -39,7 +39,7 @@ import {
   type AssignedMember,
   type AssignmentState,
 } from './projectTeamAssignment'
-import { todayInZone } from '@open-mercato/ui/primitives/date-format'
+import { todayIso } from './timesheetPeriod'
 
 const logger = createLogger('staff').child({ component: 'ProjectTeamDrawer' })
 
@@ -491,7 +491,7 @@ export function ProjectTeamDrawer({
   // project aggregate itself, so no expected-updated-at header applies here.
   const persistChanges = React.useCallback(async () => {
     const employeesPath = `staff/timesheets/time-projects/${projectId}/employees`
-    const startDate = todayInZone()
+    const startDate = todayIso()
 
     for (const staffMemberId of changes.additions) {
       await createCrud(employeesPath, {
