@@ -635,6 +635,12 @@ jobs:
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
       needs.lint.result == 'success'
     services:
+      # `@open-mercato/queue` translates its `coalesce` option into BullMQ deduplication,
+      # and the rest of its tests — which mock BullMQ — prove only that the right options
+      # reach `queue.add`. The guarantee callers rely on is BullMQ's own behaviour, and a
+      # semantic change behind an unchanged option name would pass both the mock and the
+      # installed-BullMQ name guard. One server makes that suite run for real.
+      #
       # Shared by the queue coalescing suite and the explicit Redis cache test step.
       # Their fixtures use separate Redis databases.
       redis:
