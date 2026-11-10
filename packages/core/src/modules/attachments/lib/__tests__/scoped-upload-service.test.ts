@@ -130,6 +130,15 @@ describe('ScopedAttachmentUploadService', () => {
     })
   })
 
+  it('stores with the ASCII name but keeps the readable name on the record (#8727)', async () => {
+    const { service, attachment, driver } = makeHarness()
+
+    await service.upload({ ...input, fileName: 'Zdjęcie uszkodzenia ź.pdf' })
+
+    expect(driver.store).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'Zdj_cie_uszkodzenia.pdf' }))
+    expect(attachment.fileName).toBe('Zdjęcie uszkodzenia ź.pdf')
+  })
+
   it('deletes stored content and releases quota when database persistence fails', async () => {
     const { service, order, driver, quota, dataEngine } = makeHarness({ persistFails: true })
 

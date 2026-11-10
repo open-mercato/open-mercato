@@ -97,6 +97,32 @@ export function sanitizeUploadedFileName(input: string | null | undefined): stri
   return extension ? `${safeBaseName}.${extension.toLowerCase()}` : safeBaseName
 }
 
+const DISPLAY_NAME_DISALLOWED_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}/\\:*?"<>|]/gu
+
+/**
+ * The human-facing counterpart of `sanitizeUploadedFileName`: letters in any script survive, while
+ * control, bidi-override and path characters are dropped. The extension is always the one the ASCII
+ * name resolves to, so the executable and active-content checks — which run on the ASCII name —
+ * describe exactly the file a user sees and downloads.
+ */
+export function sanitizeAttachmentDisplayName(input: string | null | undefined): string {
+  const safeName = sanitizeUploadedFileName(input)
+  const extension = getAttachmentExtension(safeName)
+  const parts = String(input ?? '')
+    .normalize('NFC')
+    .replace(DISPLAY_NAME_DISALLOWED_CHARS, ' ')
+    .replace(/\s+/g, ' ')
+    .split('.')
+  if (extension && parts.length > 1) parts.pop()
+  const baseName = parts.map((part) => part.trim()).filter(Boolean).join('_')
+  if (!baseName) return safeName
+  return extension ? `${baseName}.${extension}` : baseName
+}
+
+function encodeRfc5987Value(value: string): string {
+  return encodeURIComponent(value).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+}
+
 function detectMimeTypeFromBuffer(buffer: Buffer): string | null {
   if (buffer.length >= 8) {
     const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
@@ -181,5 +207,6 @@ export function buildAttachmentContentDisposition(
   dispositionType: 'attachment' | 'inline' = 'attachment',
 ): string {
   const safeFileName = sanitizeUploadedFileName(fileName)
-  return `${dispositionType}; filename="${safeFileName}"; filename*=UTF-8''${encodeURIComponent(safeFileName)}`
+  const displayName = sanitizeAttachmentDisplayName(fileName)
+  return `${dispositionType}; filename="${safeFileName}"; filename*=UTF-8''${encodeRfc5987Value(displayName)}`
 }
