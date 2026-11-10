@@ -6,6 +6,10 @@ import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integr
 import { deleteCarrierShipmentInDb, getCarrierShipmentRowFromDb, insertCarrierShipmentInDb } from './helpers/db'
 
 const routes = ['/api/shipping-carriers/cancel', '/api/shipping-carriers/tracking/refresh']
+const localizedErrors = [
+  { headers: {}, error: 'Shipment not found' },
+  { headers: { 'Accept-Language': 'pl' }, error: 'Nie znaleziono przesyłki' },
+]
 
 test.describe('TC-SHIP-021: Cancel and tracking refresh return 404 for shipments outside the caller scope', () => {
   test('returns 404 for an unknown shipment id and for another organization shipment, leaving it untouched', async ({ request }) => {
@@ -14,7 +18,6 @@ test.describe('TC-SHIP-021: Cancel and tracking refresh return 404 for shipments
     if (!tenantId) throw new Error('[internal] Test token has no tenant context')
     const foreignShipmentId = randomUUID()
     let foreignOrganizationId: string | null = null
-    let shipmentInserted = false
 
     try {
       foreignOrganizationId = await createOrganizationFixture(request, token, {
@@ -25,16 +28,18 @@ test.describe('TC-SHIP-021: Cancel and tracking refresh return 404 for shipments
         id: foreignShipmentId, orderId: randomUUID(), providerKey: 'mock_carrier',
         carrierShipmentId: `tc-ship-021-${foreignShipmentId}`, organizationId: foreignOrganizationId, tenantId,
       })
-      shipmentInserted = true
 
       for (const path of routes) {
         for (const shipmentId of [randomUUID(), foreignShipmentId]) {
-          const response = await apiRequest(request, 'POST', path, {
-            token,
-            data: { providerKey: 'mock_carrier', shipmentId },
-          })
-          expect(response.status(), `${path} must return 404 for ${shipmentId}`).toBe(404)
-          expect(await readJsonSafe(response)).toEqual({ error: 'Shipment not found' })
+          for (const { headers, error } of localizedErrors) {
+            const response = await apiRequest(request, 'POST', path, {
+              token,
+              headers,
+              data: { providerKey: 'mock_carrier', shipmentId },
+            })
+            expect(response.status(), `${path} must return 404 for ${shipmentId}`).toBe(404)
+            expect(await readJsonSafe(response)).toEqual({ error })
+          }
         }
       }
 
@@ -43,8 +48,8 @@ test.describe('TC-SHIP-021: Cancel and tracking refresh return 404 for shipments
       expect(row?.lastPolledAt).toBeNull()
       expect(row?.organizationId).toBe(foreignOrganizationId)
     } finally {
-      if (shipmentInserted) await deleteCarrierShipmentInDb(foreignShipmentId).catch(() => undefined)
-      await deleteOrganizationIfExists(request, token, foreignOrganizationId).catch(() => undefined)
+      await deleteCarrierShipmentInDb(foreignShipmentId)
+      await deleteOrganizationIfExists(request, token, foreignOrganizationId)
     }
   })
 })
