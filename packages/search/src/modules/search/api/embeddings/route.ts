@@ -14,6 +14,8 @@ import {
   getEffectiveDimension,
 } from '../../lib/embedding-config'
 import type { EmbeddingConfigSource } from '../../lib/embedding-config'
+import { localizeProviderAvailability } from '../../lib/provider-diagnostics'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { checkAllProviders } from '../../lib/provider-probe'
 import type { EmbeddingProviderProbe, ProviderAvailabilityEntry } from '../../lib/provider-probe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -84,11 +86,12 @@ function resolveProbe(container: { resolve: <T = unknown>(name: string) => T }):
 
 async function resolveProviderAvailability(
   container: { resolve: <T = unknown>(name: string) => T },
+  t: TranslateFn,
 ): Promise<ProviderAvailabilityEntry[]> {
   const probe = resolveProbe(container)
   if (!probe) return []
   try {
-    return await checkAllProviders(probe)
+    return (await checkAllProviders(probe)).map((entry) => localizeProviderAvailability(entry, t))
   } catch {
     return []
   }
@@ -125,6 +128,7 @@ async function getVectorDocumentCount(
 }
 
 export async function GET(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) return await unauthorized()
 
@@ -144,7 +148,7 @@ export async function GET(req: Request) {
       scope: { tenantId: auth.tenantId },
     })
     const configuredProviders = getConfiguredProviders()
-    const providerAvailability = await resolveProviderAvailability(container)
+    const providerAvailability = await resolveProviderAvailability(container, t)
     const indexedDimension = await getIndexedDimension(container)
 
     const effectiveDimension = embeddingConfig
@@ -276,13 +280,14 @@ export async function POST(req: Request) {
             : undefined,
         )
         if (!availability.available) {
+          const localized = localizeProviderAvailability(availability, t)
           return NextResponse.json(
             {
               error: t(
                 'search.api.errors.providerUnavailable',
-                `Provider ${providerInfo.name} is not available: ${availability.reason ?? 'unreachable'}`,
+                'The selected provider is not available.',
               ),
-              reason: availability.reason ?? null,
+              reason: localized.reason ?? null,
             },
             { status: 409 },
           )
@@ -370,7 +375,7 @@ export async function POST(req: Request) {
         embeddingConfig,
         embeddingConfigSource,
         configuredProviders: getConfiguredProviders(),
-        providerAvailability: await resolveProviderAvailability(container),
+        providerAvailability: await resolveProviderAvailability(container, t),
         indexedDimension,
         reindexRequired,
         documentCount: updatedDocumentCount,

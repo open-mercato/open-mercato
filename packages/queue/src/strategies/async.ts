@@ -69,7 +69,7 @@ interface BullMQModule {
 }
 
 /** The `bullmq-otel` package (optional). Loaded only when an OTLP backend is active. */
-type BullMQOtelModule = { BullMQOtel: new (tracerName: string) => object }
+type BullMQOtelModule = { BullMQOtel: new (options: { tracerName: string }) => object }
 
 const REMOVABLE_JOB_STATES = ['waiting', 'delayed', 'prioritized', 'paused', 'waiting-children']
 
@@ -366,7 +366,7 @@ export function createAsyncQueue<T = unknown>(
         if (!getTelemetryRuntime()?.canUseGlobalTracePropagation()) return undefined
         try {
           const mod = (await import('bullmq-otel')) as unknown as BullMQOtelModule
-          return new mod.BullMQOtel('open-mercato')
+          return new mod.BullMQOtel({ tracerName: 'open-mercato' })
         } catch {
           packageLogger.warn('bullmq-otel not available; using built-in trace carrier', { queue: name })
           return undefined
