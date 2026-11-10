@@ -14,7 +14,7 @@ import test from 'node:test'
 // what setup forwarded to it.
 
 const TEMPLATE_SCRIPTS = fileURLToPath(new URL('../../template/scripts/', import.meta.url))
-const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-env-secrets.mjs', 'dev-service-modes.mjs', 'dev-service-connections.mjs', 'dev-database-write-guard.mjs', 'dev-session-guard.mjs']
+const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-env-secrets.mjs', 'dev-service-modes.mjs', 'dev-service-connections.mjs', 'dev-database-write-guard.mjs', 'dev-session-guard.mjs', 'dev-session-recovery.mjs']
 const skip = process.platform === 'win32' ? 'fake docker shim is a POSIX shell script' : false
 
 const FAKE_DOCKER = `#!/bin/sh

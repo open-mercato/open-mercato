@@ -361,9 +361,11 @@ New CrudForm component group "roles" in Zone 1 (column 1, below "details" group)
 │  Service Owner:  [— assign —    ▾]  │
 │  Account Mgr:    [Anna Nowak    ✕]  │
 │                                     │
-│  [+ Add role]                       │
+│  [+ Assign role]                    │
 └─────────────────────────────────────┘
 ```
+
+**Assignment and reassignment (Rev 7, #7490).** Both go through the shared `AssignRoleDialog`. An empty role card's **Choose person** opens it with that role preselected (Select person → Confirm); the generic **Assign role** shortcut starts at Role type and is rendered only while an unassigned role type remains. **Change user** on an assigned card opens the same dialog in reassign mode: the role stays fixed, the incumbent is preselected and marked *Current*, the title reads *Change assignee*, and confirming calls `PUT …/roles?roleId=<assignmentId>` (the assignment keeps its id). Confirming the unchanged incumbent or cancelling writes nothing; a failed save keeps the dialog and selection for a retry. **Manage role types** stays the dictionary-management action. `RoleAssignmentRow` keeps its inline lookup only as a fallback when a host does not pass `onChangeUser`.
 
 #### Data Model
 
@@ -1226,7 +1228,7 @@ Verify CrudForm is NOT dirty after activity save
 Navigate: /backend/customers/companies-v2/{id}
 
 Verify Roles section visible in Zone 1
-Click [+ Add role]:
+Click [+ Assign role]:
   - Select role type: "Sales Owner"
   - Search and select user: "Jan Kowalski"
   - Verify role appears in section
@@ -1240,6 +1242,12 @@ Click ✕ on "Sales Owner":
 
 Reload page:
   - Verify "Service Owner: Anna Nowak" persisted
+
+Click [Change user] on "Service Owner":
+  - Same dialog opens as "Change assignee", role fixed, "Anna Nowak" preselected
+  - Pick "Jan Kowalski" → [Save change] → card shows Jan Kowalski (PUT, same assignment id)
+  - Reopen, press Escape → nothing written
+When every role type is assigned, [+ Assign role] is not rendered
 ```
 
 ### TC-UX-004: Stage Progress Bar
@@ -1428,6 +1436,7 @@ Third-party modules need no migration to keep working. Consumers that want to:
 | ---- | ------ |
 | 2026-11-05 | Integrated the verified calendar containment and nullable-edit repair into selected-day scheduling. Composer actions wrap and activity types use two columns on narrow viewports; native coverage checks page and control-label bounds at 390px and 1440px before preserving the existing selected-date save/reopen flow (#7478, #8382). API contracts and keyboard callback behavior remain unchanged. |
 | 2026-11-03 | Preserved the zero-argument `useScheduleDialog.openSchedule` callback contract alongside the selected-Date overload (#7478). Direct React mouse/keyboard handlers ignore event payloads when choosing the default day; a real shared Button regression covers the consuming boundary. |
+| 2026-11-01 | Rev 7 (#7490): one modal flow for role assignment and reassignment. `AssignRoleDialog` gains optional `editingAssignment` + `onReassign` (role fixed, incumbent preselected, `PUT …/roles?roleId=`), `RoleAssignmentRow` gains optional `onChangeUser`, the generic shortcut is labelled *Assign role* and hidden once every role type is assigned. Existing routes, commands, schema and ACLs unchanged; the inline lookup remains as a fallback for hosts that do not pass `onChangeUser` |
 | 2026-10-25 | Corrected selected-day time defaults after review: future tasks use 17:00 and timed activities use 09:00; today preserves forward scheduling including next-day rollover, and historical dates retain their existing time behavior. Added regressions for future days after 17:00, today after 23:30, and historical dates. |
 | 2026-10-22 | Implement the four advertised Sales order/quote stage-bar and closure render-widget hosts (#7782), with live canonical declarations, unchanged native lifecycle, context/compatibility documentation, and rendering coverage. |
 | 2026-10-15 | Corrected activity creation to inherit the explicitly selected local calendar day on company, person and deal pages (#7478), preserving type-specific defaults and edit timestamps through optional callback inputs. |
