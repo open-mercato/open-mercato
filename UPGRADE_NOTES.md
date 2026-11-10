@@ -1,5 +1,39 @@
 # Upgrade Notes
 
+## CRM preset enables the scheduler (#8804)
+
+New apps scaffolded with `create-mercato-app --preset crm` now enable the
+`scheduler` module. Without it, `communication_channels` registers no polling
+schedules, so connected IMAP and Gmail mailboxes received new mail only after a
+manual "Poll now", and Gmail push watches were never renewed. With the default
+`QUEUE_STRATEGY=local`, `mercato server dev` and `mercato server start` start the
+scheduler automatically once the module is enabled (`AUTO_SPAWN_SCHEDULER`
+defaults to on), so new apps need no extra step.
+
+**Existing `crm` apps:** add `{ id: 'scheduler', from: '@open-mercato/scheduler' }`
+to `src/modules.ts` (the package is already a template dependency), then run
+`yarn generate` and `yarn db:migrate` for the scheduler tables. The schedules are
+registered when defaults are seeded or an organization is created, so
+organizations that already exist need them seeded once:
+
+```bash
+yarn mercato seed:defaults --module communication_channels
+yarn mercato seed:defaults --module integrations
+yarn mercato seed:defaults --module ai_assistant
+yarn mercato auth sync-role-acls
+```
+
+Each command is idempotent. The `integrations` and `ai_assistant` runs register
+the integration health probes and the AI assistant cleanup jobs, which those
+modules also skip without a scheduler. `auth sync-role-acls` grants the
+scheduler's default role features (`scheduler.*` for admins,
+`scheduler.jobs.view` for employees) to existing tenants, which `seed:defaults`
+does not do for the built-in roles. The profile page "My communication channels"
+now warns when a connected channel relies on polling but no scheduler is enabled
+or the organization's poll schedule is missing or disabled, and
+`GET /api/communication_channels/me/channels` returns an additive
+`automaticSyncEnabled` boolean that drives that warning.
+
 ## Starter reuse and optional AI
 
 `yarn setup` can continue with pre-existing services after an explicit interactive confirmation. It shows port owners and restart/health states and then leaves those containers untouched, using the URLs already configured in `.env`. Declining shows `yarn om stop` guidance for the original checkout. Non-interactive users must explicitly pass `--no-infra` to use external services.

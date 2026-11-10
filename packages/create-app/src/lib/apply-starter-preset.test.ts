@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { resolvePreset, generateModulesTs, applyStarterPreset } from './apply-starter-preset.js'
-import type { ModuleEntry } from './starter-presets.js'
+import { STARTER_PRESETS, type ModuleEntry } from './starter-presets.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -59,10 +59,10 @@ test('resolvePreset: empty returns 13-module list', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: crm returns 24-module list extending empty (includes attachments + messages + currencies + progress + integrations + communication_channels + channel_imap + channel_gmail + ai_assistant + search)', () => {
+test('resolvePreset: crm returns 25-module list extending empty (includes attachments + messages + currencies + progress + integrations + communication_channels + channel_imap + channel_gmail + scheduler + ai_assistant + search)', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 24)
+  assert.equal(result.modules.length, 25)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -92,6 +92,9 @@ test('resolvePreset: crm returns 24-module list extending empty (includes attach
   assert.equal(result.modules.find((m) => m.id === 'channel_imap')?.from, '@open-mercato/channel-imap')
   assert.ok(ids.includes('channel_gmail'))
   assert.equal(result.modules.find((m) => m.id === 'channel_gmail')?.from, '@open-mercato/channel-gmail')
+  // scheduler drives the hub's mailbox poll tick and Gmail watch renewal (issue #8804)
+  assert.ok(ids.includes('scheduler'))
+  assert.equal(result.modules.find((m) => m.id === 'scheduler')?.from, '@open-mercato/scheduler')
   // ai_assistant must be included so customers AI widgets can register
   // (issue #1849 — CRM mode must enable AI assistant module)
   assert.ok(ids.includes('ai_assistant'))
@@ -181,6 +184,8 @@ test('generateModulesTs: produces valid content for crm modules', () => {
   assert.ok(content.includes("id: 'progress'"))
   assert.ok(content.includes("id: 'channel_imap'"))
   assert.ok(content.includes("id: 'channel_gmail'"))
+  assert.ok(content.includes("id: 'scheduler'"))
+  assert.ok(content.includes("from: '@open-mercato/scheduler'"))
   // ai_assistant must register from its own package
   assert.ok(content.includes("id: 'ai_assistant'"))
   assert.ok(content.includes("from: '@open-mercato/ai-assistant'"))
@@ -261,7 +266,7 @@ test('applyStarterPreset: empty writes 12-module modules.ts and keeps example so
   }
 })
 
-test('applyStarterPreset: crm writes 23-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: crm writes 25-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
@@ -285,6 +290,10 @@ test('applyStarterPreset: crm writes 23-module modules.ts and keeps example sour
     assert.ok(content.includes("from: '@open-mercato/channel-imap'"))
     assert.ok(content.includes("id: 'channel_gmail'"))
     assert.ok(content.includes("from: '@open-mercato/channel-gmail'"))
+    // scheduler must register so connected mailboxes are polled without "Poll now"
+    // (regression coverage for issue #8804)
+    assert.ok(content.includes("id: 'scheduler'"))
+    assert.ok(content.includes("from: '@open-mercato/scheduler'"))
     // ai_assistant must register so customers AI widgets work in the CRM preset
     // (regression coverage for issue #1849)
     assert.ok(content.includes("id: 'ai_assistant'"))
@@ -511,6 +520,30 @@ test('any preset enabling communication_channels also enables integrations and a
     assert.ok(
       providers.length > 0,
       `preset "${presetId}" enables communication_channels but no enabled module injects a connect button into "${CONNECT_SPOT}" — the profile page has no way to connect a channel`,
+    )
+  }
+})
+
+// Drift guard: `communication_channels` polls connected mailboxes and renews Gmail push
+// watches only through schedules it registers with `schedulerService`, and its setup skips
+// that registration silently when the scheduler module is absent. A preset enabling the hub
+// without `scheduler` ships mailboxes that never sync on their own — issue #8804.
+test('any preset enabling communication_channels also enables scheduler', () => {
+  const setupSource = readFileSync(
+    join(moduleSourceDir({ id: 'communication_channels', from: '@open-mercato/core' }), 'setup.ts'),
+    'utf-8',
+  )
+  assert.ok(
+    setupSource.includes('schedulerService.register('),
+    'expected communication_channels setup to register its polling schedules through schedulerService',
+  )
+
+  for (const presetId of Object.keys(STARTER_PRESETS)) {
+    const ids = new Set(resolvePreset(presetId).modules.map((m) => m.id))
+    if (!ids.has('communication_channels')) continue
+    assert.ok(
+      ids.has('scheduler'),
+      `preset "${presetId}" enables communication_channels but not scheduler — connected mailboxes are never polled automatically`,
     )
   }
 })
