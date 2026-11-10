@@ -23,15 +23,17 @@ Main's latest CI is green, but Main Snapshot Release has failing standalone inte
 
 ## Run identity
 Claim-Run: 6e6ad2bd-2df1-4241-93c5-68ad83b64383
-Runner: pending environment probe.
+Runner: local (no running compose app found). TMPDIR=/tmp avoids this host's overlong tsx IPC socket path.
 Engine: om-auto-create-pr (steps: 4, --loop: no)
 
 ## Progress
 
+PR: #9176
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose and fix
-- [ ] 1.1 Audit main failures and repair demonstrated root causes with focused regression coverage
+- [x] 1.1 Audit main failures and repair demonstrated root causes with focused regression coverage — e0682b319
 
 ### Phase 2: Validate
 - [ ] 2.1 Run the configured validation gate and complete PR CI with every integration shard
@@ -41,3 +43,7 @@ Engine: om-auto-create-pr (steps: 4, --loop: no)
 - [ ] 3.2 Mark ready and add automerge after green full-suite CI and approval
 
 Slot resolution: The original dated branch and plan belong to completed, merged PR #9125. This new run uses the `-v2` suffix and a separate plan to preserve that history. Latest main snapshot 42741422500 has new standalone integration failures.
+
+## Diagnosis and evidence
+
+Main snapshot 42741422500 reports 2973 passed, 152 skipped, and three TC-PORTAL-013 failures. Each fails before fixture setup because `process.env.OM_INTEGRATION_TEST` is undefined. Both standalone lanes put the flag into the app .env but omit it from the test-process environment. Their disposable Postgres service and fixture URL agree on mercato_test. Mirror the existing isolation flag into each Playwright step; retain the safety assertion. New workflow regressions fail on both original workflows and pass after the two-line fix. Focused workflow and full-scope tests: 36/36 pass. Dependency installation completed with native-build warnings; full gate outcomes are recorded separately.
