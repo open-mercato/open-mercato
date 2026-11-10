@@ -24,7 +24,7 @@ Each CRM pipeline gets an opt-in checkbox, **"Use default stage probabilities"**
    - …and the request did **not** send `probability`. An explicit value always wins, so it acts as the user override.
    - …and the target stage's pipeline has `stageProbabilitiesEnabled = true` and the stage has a non-null `defaultProbability`.
    - Then `deal.probability = stage.defaultProbability`.
-4. **Client prefill in forms.** The deal edit form (`DealForm`) and the create form (`CreateDealForm`) send `probability` explicitly, so the server rule alone would not fire. When the user picks a stage in these forms, the form copies that stage's default into the Probability field, where the user sees it and can still edit it before saving. The Kanban quick-add dialog pre-fills the lane's stage default instead of the hard-coded 25% when the pipeline has defaults enabled.
+4. **Client prefill in forms.** The deal edit form (`DealForm`) and the create form (`CreateDealForm`) send `probability` explicitly, so the server rule alone would not fire. When the user picks a stage in these forms, the form copies that stage's default into the Probability field, where the user sees it and can still edit it before saving. On the create page this also applies when the form selects a stage on its own (the default pipeline's first stage, or the first stage after a pipeline switch). A value the form filled earlier is replaced, or cleared when the new stage has no default or the pipeline is opted out; a value the user typed is kept. The Kanban quick-add dialog pre-fills the lane's stage default instead of the hard-coded 25% when the pipeline has defaults enabled.
 5. **Settings UI.** Both pipeline management surfaces get the same controls:
    - the *Customers → Configuration* accordion (`components/PipelineSettings.tsx`)
    - *Settings → Pipeline stages* (`backend/config/customers/pipeline-stages/page.tsx`)
@@ -118,6 +118,7 @@ All changes are additive. Field names are optional on write and always present o
 2. A manual override (42) saved from the deal header persists together with the new stage (verified through the API).
 3. Deal edit form on an opted-out pipeline: changing the stage leaves Probability unchanged.
 4. Create-deal page: picking the pipeline and the 60% stage fills 60.
+   - Switching to a second opted-in pipeline replaces that 60 with its first stage's 35, and the created deal stores 35 (verified through the API).
 5. Kanban quick-add on the 0% lane prefills 0, and the created deal stores 0.
 6. Kanban quick-add on a lane without a default keeps the historic 25.
 
@@ -172,3 +173,6 @@ Browser verification: the settings UI, Kanban drag, the deal detail stepper, and
   - The deal detail response now carries `pipelineStageProbabilitiesEnabled`, and the detail page seeds it into `DealForm`. Before this, a stage change made before `GET /api/customers/pipelines` resolved (or for roles without `customers.pipelines.view`, which get a 403 there) kept the old probability and saved it as an override.
   - Added `DealForm` regressions for pending and forbidden pipeline metadata, for a manual edit surviving late metadata, and for an opted-out seed.
   - `TC-CRM-STAGE-PROB-002` records pipeline fixture IDs as soon as they are created, so a failed setup step no longer leaves a pipeline behind.
+- 2026-11-10: Review follow-up (PR #7792).
+  - The create page applies the stage default on every stage change, including the automatic first-stage selection after a pipeline switch. Before this, a default prefilled from a stage of one pipeline stayed in Probability after switching pipelines and was saved as an explicit override, so the server skipped the new stage's default.
+  - Added `CreateDealForm.stageProbability.test.tsx` and a two-pipeline step in `TC-CRM-STAGE-PROB-002` that checks the stored value.

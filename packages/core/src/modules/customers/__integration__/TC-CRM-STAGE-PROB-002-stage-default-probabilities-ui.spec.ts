@@ -137,6 +137,7 @@ test.describe('TC-CRM-STAGE-PROB-002: stage default probabilities in the deal UI
     const stamp = Date.now()
     const enabledName = `QA STAGE-PROB-002 On ${stamp}`
     const disabledName = `QA STAGE-PROB-002 Off ${stamp}`
+    const switchTargetName = `QA STAGE-PROB-002 Switch ${stamp}`
     const label = (name: string) => `${name} ${stamp}`
     const fixtures: Fixtures = { pipelineIds: [], stageIds: [], dealIds: [] }
 
@@ -149,6 +150,14 @@ test.describe('TC-CRM-STAGE-PROB-002: stage default probabilities in the deal UI
           { label: label('Negotiate'), defaultProbability: 60 },
           { label: label('Review'), defaultProbability: null },
           { label: label('Parked'), defaultProbability: 0 },
+        ],
+      })
+      const switchTarget = await configurePipeline(request, token, fixtures, {
+        name: switchTargetName,
+        enabled: true,
+        stages: [
+          { label: label('Discover'), defaultProbability: 35 },
+          { label: label('Commit'), defaultProbability: 80 },
         ],
       })
       const disabled = await configurePipeline(request, token, fixtures, {
@@ -219,6 +228,25 @@ test.describe('TC-CRM-STAGE-PROB-002: stage default probabilities in the deal UI
         await expect(negotiateStage).toHaveAttribute('aria-pressed', 'true')
         await activate(page, page.getByRole('button', { name: 'More details', exact: true }))
         await expect(page.locator('[data-crud-field-id="probability"] input')).toHaveValue('60')
+      })
+
+      await test.step('create-deal page replaces the prefill when a pipeline switch picks the first stage', async () => {
+        const probability = page.locator('[data-crud-field-id="probability"] input')
+        await pickOption(page, page.locator('[data-crud-field-id="pipelineId"]'), switchTargetName)
+        const discoverStage = page.locator('[data-crud-field-id="pipelineStageId"]').getByRole('button', { name: label('Discover'), exact: true })
+        await expect(discoverStage).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 })
+        await expect(probability).toHaveValue('35')
+
+        const title = `QA STAGE-PROB-002 Create Switch ${stamp}`
+        await page.locator('[data-crud-field-id="title"] input').fill(title)
+        await activate(page, page.getByRole('button', { name: 'Create deal', exact: true }).first())
+        const discoverStageId = switchTarget.stageIds[0]
+        await expect.poll(() => findDealIdInStage(request, token, discoverStageId, title), { timeout: 30_000 }).not.toBeNull()
+        const createdDealId = (await findDealIdInStage(request, token, discoverStageId, title)) as string
+        fixtures.dealIds.push(createdDealId)
+        const deal = await readDeal(request, token, createdDealId)
+        expect(deal.pipelineId).toBe(switchTarget.pipelineId)
+        expect(deal.probability).toBe(35)
       })
 
       await test.step('Kanban quick-add seeds a 0% lane default and stores it', async () => {

@@ -62,13 +62,6 @@ export function DealDetailsFields({
   tr,
 }: DealDetailsFieldsProps) {
   const locale = useOptionalLocale()
-  const resolveStageProbabilityPatch = (stageId: string): Partial<BaseValues> => {
-    const pipeline = pipelines.find((option) => option.id === values.pipelineId)
-    const stage = stages.find((option) => option.id === stageId)
-    if (!pipeline?.stageProbabilitiesEnabled || typeof stage?.defaultProbability !== 'number') return {}
-    return { probability: String(stage.defaultProbability) }
-  }
-
   return (
     <>
       <DealSectionCard>
@@ -114,7 +107,7 @@ export function DealDetailsFields({
             <DealStagePath
               stages={stages}
               value={values.pipelineStageId || null}
-              onChange={(id) => patch({ pipelineStageId: id, ...resolveStageProbabilityPatch(id) })}
+              onChange={(id) => patch({ pipelineStageId: id })}
               disabled={isSubmitting}
               label={pipelineName ?? tr('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage')}
             />
