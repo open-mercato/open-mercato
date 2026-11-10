@@ -8,6 +8,7 @@ import {
   type PlannerAvailabilityWeeklyReplaceInput,
 } from '../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { badRequest } from '@open-mercato/shared/lib/crud/errors'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import {
   enforceCommandOptimisticLock,
@@ -190,6 +191,12 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
+    const anchors = parsed.windows.map((window) => zonedWeeklyAnchor(window.weekday, window.start, window.end, parsed.timezone, now))
+    const validAnchors = anchors.filter((anchor): anchor is { start: Date; end: Date } => anchor !== null && anchor.start < anchor.end)
+    if (validAnchors.length !== anchors.length) {
+      const { translate } = await resolveTranslations()
+      throw badRequest(translate('planner.availability.errors.invalidWindow', 'Window times must be between 00:00 and 23:59, with the end after the start.'))
+    }
 
     // The weekly rules of a rule set are a sub-resource of that rule set: the
     // parent is the optimistic-lock consistency boundary. Guard the parent's
@@ -246,11 +253,16 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
         trx.persist(toDelete)
       }
 
+<<<<<<< HEAD
       parsed.windows.forEach((window) => {
         const start = toDateForWeekday(window.weekday, window.start)
         const end = toDateForWeekday(window.weekday, window.end)
         if (!start || !end || start >= end) return
         const rrule = buildWeeklyRrule(start, end)
+=======
+      validAnchors.forEach(({ start, end }) => {
+        const rrule = buildWeeklyRrule(start, end, parsed.timezone)
+>>>>>>> 43f920900 (fix(planner): preserve hours when invalid windows are submitted (#9175))
         const record = trx.create(PlannerAvailabilityRule, {
           tenantId: parsed.tenantId,
           organizationId: parsed.organizationId,

@@ -2,6 +2,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { badRequest } from '@open-mercato/shared/lib/crud/errors'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { PlannerAvailabilityRule } from '../data/entities'
 import {
@@ -209,6 +210,17 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
     const unavailabilityReasonEntryId = isAvailable ? null : parsed.unavailabilityReasonEntryId ?? null
     const unavailabilityReasonValue = isAvailable ? null : parsed.unavailabilityReasonValue ?? null
     const now = new Date()
+    const ranges = isAvailable
+      ? Array.from(dates).flatMap((date) => windows.map((window) => ({
+        start: toDateForDay(date, window.start, parsed.timezone),
+        end: toDateForDay(date, window.end, parsed.timezone),
+      })))
+      : []
+    const validRanges = ranges.filter((range): range is { start: Date; end: Date } => range.start !== null && range.end !== null && range.start < range.end)
+    if (validRanges.length !== ranges.length) {
+      const { translate } = await resolveTranslations()
+      throw badRequest(translate('planner.availability.errors.invalidWindow', 'Window times must be between 00:00 and 23:59, with the end after the start.'))
+    }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (trx) => {
@@ -264,6 +276,7 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
           trx.persist(record)
         })
       } else {
+<<<<<<< HEAD
         dates.forEach((date) => {
           windows.forEach((window) => {
             const start = toDateForDay(date, window.start)
@@ -286,7 +299,26 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
               updatedAt: now,
             })
             trx.persist(record)
+=======
+        validRanges.forEach(({ start, end }) => {
+          const rrule = buildAvailabilityRrule(start, end)
+          const record = trx.create(PlannerAvailabilityRule, {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+            subjectType: parsed.subjectType,
+            subjectId: parsed.subjectId,
+            timezone: parsed.timezone,
+            rrule,
+            exdates: [],
+            kind: 'availability',
+            note: null,
+            unavailabilityReasonEntryId: null,
+            unavailabilityReasonValue: null,
+            createdAt: now,
+            updatedAt: now,
+>>>>>>> 43f920900 (fix(planner): preserve hours when invalid windows are submitted (#9175))
           })
+          trx.persist(record)
         })
       }
 
