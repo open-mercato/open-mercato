@@ -715,13 +715,13 @@ describe('Fulltext Index Worker', () => {
       }),
     )
 
-    // The row must NOT carry organizationId. The unrestricted indexer-status view
-    // filters on `organization_id IS NULL` (query_index/api/status.ts), which is where
-    // every other fulltext row lands - a non-null org would hide this row in exactly
-    // the view an operator opens to ask "did indexing run?".
-    expect(recordIndexerLog).not.toHaveBeenCalledWith(
+    // The row carries the payload's organization, like the index, batch-index and error
+    // rows beside it. The all-organizations status view lists every organization of the
+    // caller's tenant (query_index/api/status.ts), and an organization-scoped caller sees
+    // the row for their own organization instead of losing it.
+    expect(recordIndexerLog).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ organizationId: expect.anything() }),
+      expect.objectContaining({ organizationId: 'org-456' }),
     )
 
     // ...and the log line must be readable without OM_SEARCH_DEBUG=1, at the level the
@@ -1104,6 +1104,10 @@ describe('Fulltext Index Worker', () => {
       expect.anything(),
       expect.objectContaining({ handler: 'worker:fulltext:purge', tenantId: 'tenant-123' }),
     )
+    const purgeCall = (recordIndexerLog as jest.Mock).mock.calls.find(
+      ([, input]) => input?.handler === 'worker:fulltext:purge',
+    )
+    expect(purgeCall?.[1].organizationId ?? null).toBeNull()
   })
 
 })
