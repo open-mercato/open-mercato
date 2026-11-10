@@ -66,6 +66,55 @@ describe('checkout repair-gateway-payments worker', () => {
     return { em, findMock, findOneMock, kyselyExecuteMock }
   }
 
+  // #8268 review Major 6 (re-review): `buildEm` above always returns its whole fixture
+  // array regardless of the query, which is enough for the single-page tests but cannot
+  // exercise keyset pagination. This builds a small in-memory stand-in for the real
+  // `updatedAt >= cutoff` + `(updatedAt, id)` cursor query the worker now issues, so these
+  // tests prove the ACTUAL page-advancing behavior rather than asserting against a mock
+  // that could never fail to advance.
+  function buildPaginatedEm(options: {
+    transactions: CheckoutTransaction[]
+    recordedPayments?: Array<{ order_id: string; payment_reference: string | null; captured_amount: string }>
+  }) {
+    const recordedPayments = options.recordedPayments ?? []
+    const findMock = jest.fn(async (_entity: unknown, where: any, queryOptions: any) => {
+      const cutoff = where.updatedAt?.$gte as Date
+      let rows = options.transactions.filter((t) => (t.updatedAt as Date) >= cutoff)
+      if (where.$or) {
+        const [afterClause, tieClause] = where.$or as Array<Record<string, any>>
+        const cursorUpdatedAt = afterClause.updatedAt.$gt as Date
+        const cursorId = tieClause.id.$gt as string
+        rows = rows.filter((t) => {
+          const u = t.updatedAt as Date
+          if (u.getTime() > cursorUpdatedAt.getTime()) return true
+          return u.getTime() === cursorUpdatedAt.getTime() && (t.id as string) > cursorId
+        })
+      }
+      rows = [...rows].sort((a, b) => {
+        const diff = (a.updatedAt as Date).getTime() - (b.updatedAt as Date).getTime()
+        if (diff !== 0) return diff
+        return (a.id as string) < (b.id as string) ? -1 : 1
+      })
+      const limit = queryOptions?.limit as number | undefined
+      return typeof limit === 'number' ? rows.slice(0, limit) : rows
+    })
+    const findOneMock = jest.fn(async () => ({ id: 'session-repair-1', tenantId: TENANT_ID, organizationId: ORG_ID } as CheckoutSession))
+    const kyselyExecuteMock = jest.fn(async () => recordedPayments)
+    const builder: Record<string, unknown> = {
+      selectFrom: () => builder,
+      select: () => builder,
+      where: () => builder,
+      execute: () => kyselyExecuteMock(),
+    }
+    const em = {
+      fork: () => em,
+      find: (...args: unknown[]) => findMock(...args),
+      findOne: (...args: unknown[]) => findOneMock(...args),
+      getKysely: () => builder,
+    }
+    return { em, findMock, kyselyExecuteMock, recordedPayments }
+  }
+
   function buildCtx(em: unknown): JobContext & { resolve: <T = unknown>(name: string) => T } {
     return {
       resolve: <T = unknown>(name: string): T => {
@@ -161,5 +210,74 @@ describe('checkout repair-gateway-payments worker', () => {
     await expect(handle(buildJob({} as RepairGatewayPaymentsJob), buildCtx(em))).rejects.toThrow(
       '[internal] tenantId and organizationId are required in RepairGatewayPaymentsJob',
     )
+  })
+
+  it('#8268 review Major 6 (re-review): keyset-pages across multiple database round trips instead of loading the whole window at once', async () => {
+    const now = Date.now()
+    // 250 outstanding transactions > the worker's 200-row page size, oldest first, so a
+    // single page alone cannot satisfy this run's batchSize of 250 — a second `em.find`
+    // call, advanced past the first page's cursor, is required to reach them all.
+    const transactions = Array.from({ length: 250 }, (_, index) => makeTransaction({
+      id: `txn-${String(index).padStart(3, '0')}`,
+      orderId: `order-${String(index).padStart(3, '0')}`,
+      gatewayTransactionId: `gw-${String(index).padStart(3, '0')}`,
+      updatedAt: new Date(now - (250 - index) * 60 * 1000),
+    }))
+    const { em, findMock } = buildPaginatedEm({ transactions })
+    const { default: handle } = await import('../repair-gateway-payments.worker')
+
+    await handle(buildJob({ tenantId: TENANT_ID, organizationId: ORG_ID, batchSize: 250 }), buildCtx(em))
+
+    expect(findMock.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(mockRecordGatewayPayment).toHaveBeenCalledTimes(250)
+    // Oldest-first: the very first and very last repair calls must be the window's actual
+    // oldest and newest candidates, proving the cursor advanced through every one exactly
+    // once rather than skipping or re-fetching the first page's rows.
+    expect(mockRecordGatewayPayment.mock.calls[0][4]).toBe('order-000')
+    expect(mockRecordGatewayPayment.mock.calls[249][4]).toBe('order-249')
+  })
+
+  it('#8268 review Major 6 (re-review): a repeated sweep does not re-repair a transaction the previous sweep already recorded', async () => {
+    const transaction = makeTransaction({
+      id: 'txn-repeat',
+      orderId: 'order-repeat',
+      gatewayTransactionId: 'gw-repeat',
+      updatedAt: new Date(Date.now() - 60 * 60 * 1000),
+    })
+    const recordedPayments: Array<{ order_id: string; payment_reference: string | null; captured_amount: string }> = []
+    mockRecordGatewayPayment.mockImplementation(async () => {
+      recordedPayments.push({ order_id: 'order-repeat', payment_reference: 'gw-repeat', captured_amount: '42.00' })
+    })
+    const { em } = buildPaginatedEm({ transactions: [transaction], recordedPayments })
+    const { default: handle } = await import('../repair-gateway-payments.worker')
+
+    await handle(buildJob({ tenantId: TENANT_ID, organizationId: ORG_ID }), buildCtx(em))
+    expect(mockRecordGatewayPayment).toHaveBeenCalledTimes(1)
+
+    await handle(buildJob({ tenantId: TENANT_ID, organizationId: ORG_ID }), buildCtx(em))
+    expect(mockRecordGatewayPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('#8268 review Major 6 (re-review): excludes a transaction whose updatedAt already left the 48-hour lookback window', async () => {
+    const now = Date.now()
+    const agedOut = makeTransaction({
+      id: 'txn-aged-out',
+      orderId: 'order-aged-out',
+      gatewayTransactionId: 'gw-aged-out',
+      updatedAt: new Date(now - 49 * 60 * 60 * 1000),
+    })
+    const stillInWindow = makeTransaction({
+      id: 'txn-in-window',
+      orderId: 'order-in-window',
+      gatewayTransactionId: 'gw-in-window',
+      updatedAt: new Date(now - 1 * 60 * 60 * 1000),
+    })
+    const { em } = buildPaginatedEm({ transactions: [agedOut, stillInWindow] })
+    const { default: handle } = await import('../repair-gateway-payments.worker')
+
+    await handle(buildJob({ tenantId: TENANT_ID, organizationId: ORG_ID }), buildCtx(em))
+
+    expect(mockRecordGatewayPayment).toHaveBeenCalledTimes(1)
+    expect(mockRecordGatewayPayment.mock.calls[0][4]).toBe('order-in-window')
   })
 })

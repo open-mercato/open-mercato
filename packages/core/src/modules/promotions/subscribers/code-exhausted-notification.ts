@@ -1,5 +1,6 @@
 import { createUsageReinstateBlockedNotification, type ResolverContainer } from '../lib/usageAccountingNotifications'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('promotions')
 
@@ -48,6 +49,9 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
     return
   }
 
+  // #8268 review Major 7: a persistent subscriber's failure must propagate so the queue
+  // retries the job — swallowing it here silently drops the staff alert on a transient
+  // notification-service failure.
   try {
     await createUsageReinstateBlockedNotification(resolveContainer(ctx), {
       tenantId,
@@ -56,6 +60,12 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       reason: 'code_exhausted',
     })
   } catch (err) {
-    logger.warn('[promotions:code-exhausted-notification] create failed', { err })
+    logger.error('[internal] promotions:code-exhausted-notification create failed', { err, orderId, tenantId, organizationId })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'promotions',
+      code: 'promotions.code_exhausted_notification_failed',
+      attributes: { orderId, tenantId, organizationId },
+    })
+    throw err
   }
 }

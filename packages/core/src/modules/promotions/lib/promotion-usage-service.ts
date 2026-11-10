@@ -77,11 +77,23 @@ async function emitRegisteredEvent(promotionId: string, orderId: string, scope: 
   }
 }
 
-async function emitBudgetExhaustedEvent(promotionId: string, orderId: string, scope: PromotionsUsageScope): Promise<void> {
+async function emitBudgetExhaustedEvent(
+  promotionId: string,
+  orderId: string,
+  scope: PromotionsUsageScope,
+  // #8268 review Major 8: `register` means checkout's first `registerUsage` call refused
+  // the budget — the caller (`submit.ts`) compensates/cancels the order synchronously, so
+  // there is nothing left for staff to reconcile. `reinstate` means `reinstateUsage`
+  // refused to revive a PREVIOUSLY-reverted usage row on order confirmation — the order
+  // keeps its original discount with no usage counted anywhere, which IS the actionable gap
+  // `promotions.usage.reinstate_blocked` exists for. The notification subscriber uses this
+  // to notify only on the actionable case.
+  origin: 'register' | 'reinstate',
+): Promise<void> {
   try {
     await emitPromotionsEvent(
       'promotions.promotion.budget_exhausted',
-      { promotionId, orderId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      { promotionId, orderId, tenantId: scope.tenantId, organizationId: scope.organizationId, origin },
       { persistent: true },
     )
   } catch (err) {
@@ -229,7 +241,7 @@ export class PromotionUsageService {
     }
 
     if (blocked) {
-      await emitBudgetExhaustedEvent(applied.promotionId, input.orderId, scope)
+      await emitBudgetExhaustedEvent(applied.promotionId, input.orderId, scope, 'register')
       return true
     }
 
@@ -346,7 +358,7 @@ export class PromotionUsageService {
           orderId: input.orderId,
           promotionId: row.promotionId,
         })
-        await emitBudgetExhaustedEvent(row.promotionId, input.orderId, scope)
+        await emitBudgetExhaustedEvent(row.promotionId, input.orderId, scope, 'reinstate')
       } else {
         reinstatedRows.push(row)
       }

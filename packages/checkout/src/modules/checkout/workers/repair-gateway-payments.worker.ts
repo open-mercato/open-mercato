@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -29,6 +29,21 @@ type RepairScope = { tenantId: string; organizationId: string }
 // own 3 immediate in-process retries cover almost every case; this worker exists only for
 // the rare leftover, so a generous-but-finite lookback catches it without unbounded growth.
 const REPAIR_LOOKBACK_MS = 48 * 60 * 60 * 1000
+
+// #8268 review Major 6 (re-review): the previous fix bounded the batch this worker ACTS
+// on (`batchSize`), but still loaded the ENTIRE lookback window with one unbounded
+// `em.find` and built one `IN (orderIds...)` lookup from all of it before slicing — on a
+// busy store that query, its memory footprint and its parameter count all grow with
+// however many transactions completed in 48 hours, unbounded. Scanning now keyset-pages
+// through the window in fixed-size slices instead, so both stay flat regardless of volume.
+const REPAIR_PAGE_SIZE = 200
+// Hard stop on a single job run's scan, independent of `batchSize`: caps this worker's
+// own cost (worst case `REPAIR_MAX_PAGES * REPAIR_PAGE_SIZE` rows/IN-lookup per run) when
+// a large backlog of already-recorded (no-op) transactions would otherwise make it page
+// through the whole window every single run looking for the few still-outstanding ones.
+const REPAIR_MAX_PAGES = 25
+
+type TransactionCursor = { updatedAt: Date; id: string }
 
 /**
  * #8268 review Medium 7: `recordGatewayPayment` (`commands/submit.ts`) already retries 3
@@ -68,6 +83,34 @@ export async function repairOneGatewayPayment(
   })
 }
 
+async function fetchCandidatePage(
+  em: EntityManager,
+  scope: RepairScope,
+  cutoff: Date,
+  cursor: TransactionCursor | null,
+): Promise<CheckoutTransaction[]> {
+  const where: FilterQuery<CheckoutTransaction> = {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    status: 'completed',
+    sessionId: { $ne: null },
+    orderId: { $ne: null },
+    updatedAt: { $gte: cutoff },
+  }
+  if (cursor) {
+    // Keyset pagination tiebreaker: `updatedAt` alone can repeat across rows, `id` never
+    // does, so `(updatedAt, id)` ascending is a stable total order to page through.
+    ;(where as Record<string, unknown>).$or = [
+      { updatedAt: { $gt: cursor.updatedAt } },
+      { updatedAt: cursor.updatedAt, id: { $gt: cursor.id } },
+    ]
+  }
+  return em.find(CheckoutTransaction, where, {
+    orderBy: { updatedAt: 'ASC', id: 'ASC' },
+    limit: REPAIR_PAGE_SIZE,
+  })
+}
+
 export default async function handle(job: QueuedJob<RepairGatewayPaymentsJob>, ctx: HandlerContext): Promise<void> {
   if (!job.payload?.tenantId || !job.payload?.organizationId) {
     throw new Error('[internal] tenantId and organizationId are required in RepairGatewayPaymentsJob')
@@ -79,21 +122,38 @@ export default async function handle(job: QueuedJob<RepairGatewayPaymentsJob>, c
   const container = { resolve: ctx.resolve } as unknown as CommandRuntimeContext['container']
   const cutoff = new Date(Date.now() - REPAIR_LOOKBACK_MS)
 
-  const candidates = await em.find(
-    CheckoutTransaction,
-    {
+  const outstanding: CheckoutTransaction[] = []
+  let cursor: TransactionCursor | null = null
+  let pagesScanned = 0
+
+  while (outstanding.length < batchSize && pagesScanned < REPAIR_MAX_PAGES) {
+    const page = await fetchCandidatePage(em, scope, cutoff, cursor)
+    pagesScanned += 1
+    if (page.length === 0) break
+    const last = page[page.length - 1]
+    cursor = { updatedAt: last.updatedAt, id: last.id }
+    outstanding.push(...(await filterOutstandingGatewayPayments(em, scope, page)))
+    if (page.length < REPAIR_PAGE_SIZE) break
+  }
+
+  // Observability for the recovery policy the bounded scan trades away: a sweep that
+  // exhausts its page budget without clearing the backlog down to `batchSize` means more
+  // outstanding work sits further back in the window than this run reached. Nothing here
+  // is lost yet — the next run resumes from the same oldest-first ordering — but if the
+  // backlog persists for close to `REPAIR_LOOKBACK_MS`, the oldest entries will leave the
+  // `updatedAt >= cutoff` window unrepaired. This is this worker's only signal of that risk.
+  if (pagesScanned >= REPAIR_MAX_PAGES) {
+    logger.warn('[internal] repair-gateway-payments: scan hit its page cap before clearing the backlog — older outstanding transactions may be close to aging out of the lookback window', {
       tenantId,
       organizationId,
-      status: 'completed',
-      sessionId: { $ne: null },
-      orderId: { $ne: null },
-      updatedAt: { $gte: cutoff },
-    },
-    { orderBy: { updatedAt: 'ASC' } },
-  )
-  if (candidates.length === 0) return
+      pagesScanned,
+      pageSize: REPAIR_PAGE_SIZE,
+      lookbackMs: REPAIR_LOOKBACK_MS,
+      outstandingFound: outstanding.length,
+    })
+  }
 
-  const outstanding = await filterOutstandingGatewayPayments(em, scope, candidates)
+  if (outstanding.length === 0) return
   const batch = outstanding.slice(0, batchSize)
 
   for (const transaction of batch) {
