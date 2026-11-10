@@ -99,6 +99,7 @@
   "planner.availability.errors.unauthorized": "권한이 없습니다",
   "planner.availability.errors.updateDateSpecific": "날짜별 가용성을 저장하지 못했습니다.",
   "planner.availability.errors.updateWeekly": "주간 가용성을 저장하지 못했습니다.",
+  "planner.availability.errors.windowEndBeforeStart": "종료 시간은 시작 시간 이후여야 합니다.",
   "planner.availabilityRuleSets.actions.add": "새 일정",
   "planner.availabilityRuleSets.actions.backToList": "일정 목록으로 돌아가기",
   "planner.availabilityRuleSets.actions.delete": "삭제",

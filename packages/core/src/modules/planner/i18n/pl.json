@@ -99,6 +99,7 @@
   "planner.availability.errors.unauthorized": "Brak autoryzacji",
   "planner.availability.errors.updateDateSpecific": "Nie udało się zapisać dostępności dla dat.",
   "planner.availability.errors.updateWeekly": "Nie udało się zapisać tygodniowej dostępności.",
+  "planner.availability.errors.windowEndBeforeStart": "Godzina zakończenia musi być późniejsza niż godzina rozpoczęcia.",
   "planner.availabilityRuleSets.actions.add": "Nowy harmonogram",
   "planner.availabilityRuleSets.actions.backToList": "Powrót do harmonogramów",
   "planner.availabilityRuleSets.actions.delete": "Usuń",
