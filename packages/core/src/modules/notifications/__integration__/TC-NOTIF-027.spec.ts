@@ -14,10 +14,17 @@ import {
 import {
   createNotificationFixture,
   dismissNotificationIfExists,
-  listNotifications,
 } from '@open-mercato/core/helpers/integration/notificationsFixtures'
 
 const PASSWORD = 'Valid1!Pass'
+
+type UserSession = { token: string; selectedOrgId?: string }
+
+function sendAsUser(request: APIRequestContext, method: string, path: string, session: UserSession) {
+  return session.selectedOrgId
+    ? apiRequestWithSelectedOrg(request, method, path, { token: session.token, selectedOrgId: session.selectedOrgId })
+    : apiRequest(request, method, path, { token: session.token })
+}
 
 async function createNotificationInOrganization(
   request: APIRequestContext,
@@ -35,25 +42,40 @@ async function createNotificationInOrganization(
   return expectId(body?.id, 'Notification creation response should include id')
 }
 
-async function markAllAsRead(request: APIRequestContext, token: string): Promise<void> {
-  const response = await apiRequest(request, 'PUT', '/api/notifications/mark-all-read', { token })
+async function listNotificationIds(
+  request: APIRequestContext,
+  session: UserSession,
+  query: Record<string, string>,
+): Promise<string[]> {
+  const params = new URLSearchParams({ ...query, pageSize: '10' })
+  const response = await sendAsUser(request, 'GET', `/api/notifications?${params.toString()}`, session)
+  expect(response.status(), 'GET /api/notifications should return 200').toBe(200)
+  const body = await readJsonSafe<{ items?: Array<{ id?: string }> }>(response)
+  return (body?.items ?? []).map((item) => String(item.id)).sort((left, right) => left.localeCompare(right))
+}
+
+async function markAllAsRead(request: APIRequestContext, session: UserSession): Promise<void> {
+  const response = await sendAsUser(request, 'PUT', '/api/notifications/mark-all-read', session)
   expect(response.status(), 'PUT /api/notifications/mark-all-read should return 200').toBe(200)
 }
 
-async function listUnreadIds(request: APIRequestContext, token: string, type: string): Promise<string[]> {
-  const list = await listNotifications(request, token, { type, status: 'unread', pageSize: 10 })
-  return list.items.map((item) => String(item.id)).sort()
+async function readUnreadCount(request: APIRequestContext, session: UserSession): Promise<number | undefined> {
+  const response = await sendAsUser(request, 'GET', '/api/notifications/unread-count', session)
+  expect(response.status(), 'GET /api/notifications/unread-count should return 200').toBe(200)
+  const body = await readJsonSafe<{ unreadCount?: number }>(response)
+  return body?.unreadCount
 }
 
 test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications the bell shows', () => {
-  test('clears tenant-wide notifications along with the selected organization', async ({ request }) => {
+  test('clears child-organization and tenant-wide notifications when a parent organization is selected', async ({ request }) => {
     const stamp = Date.now()
     const type = `qa.notif.027.selected.${stamp}`
     const email = `qa-notif-027-selected-${stamp}@acme.com`
 
     let superadminToken: string | null = null
     let userToken: string | null = null
-    let organizationId: string | null = null
+    let parentOrganizationId: string | null = null
+    let childOrganizationId: string | null = null
     let roleId: string | null = null
     let userId: string | null = null
     const notificationIds: string[] = []
@@ -61,14 +83,27 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
     try {
       superadminToken = await getAuthToken(request, 'superadmin')
       const { tenantId } = getTokenScope(superadminToken)
-      organizationId = await createOrganizationFixture(request, superadminToken, { name: `QA TC-NOTIF-027 A ${stamp}`, tenantId })
+      parentOrganizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-NOTIF-027 parent ${stamp}`,
+        tenantId,
+      })
+      childOrganizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-NOTIF-027 child ${stamp}`,
+        tenantId,
+        parentId: parentOrganizationId,
+      })
       roleId = await createRoleFixture(request, superadminToken, { name: `qa_notif_027_selected_${stamp}`, tenantId })
       await setRoleAclFeatures(request, superadminToken, { roleId, features: ['notifications.view'], organizations: null })
-      userId = await createUserFixture(request, superadminToken, { email, password: PASSWORD, organizationId, roles: [roleId] })
+      userId = await createUserFixture(request, superadminToken, {
+        email,
+        password: PASSWORD,
+        organizationId: childOrganizationId,
+        roles: [roleId],
+      })
 
-      notificationIds.push(await createNotificationInOrganization(request, superadminToken, organizationId, {
+      notificationIds.push(await createNotificationInOrganization(request, superadminToken, childOrganizationId, {
         type,
-        title: 'TC-NOTIF-027 organization notification',
+        title: 'TC-NOTIF-027 child organization notification',
         recipientUserId: userId,
       }))
       notificationIds.push(await createNotificationFixture(request, superadminToken, {
@@ -78,22 +113,22 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
       }))
 
       userToken = await getAuthToken(request, email, PASSWORD)
-      const visible = await listNotifications(request, userToken, { type, pageSize: 10 })
-      expect(visible.items.map((item) => String(item.id)).sort()).toEqual([...notificationIds].sort())
+      const session: UserSession = { token: userToken, selectedOrgId: parentOrganizationId }
+      expect(await listNotificationIds(request, session, { type }))
+        .toEqual([...notificationIds].sort((left, right) => left.localeCompare(right)))
 
-      await markAllAsRead(request, userToken)
+      await markAllAsRead(request, session)
 
-      expect(await listUnreadIds(request, userToken, type)).toEqual([])
-      const unreadCountResponse = await apiRequest(request, 'GET', '/api/notifications/unread-count', { token: userToken })
-      expect(unreadCountResponse.status()).toBe(200)
-      expect(await readJsonSafe<{ unreadCount?: number }>(unreadCountResponse)).toEqual({ unreadCount: 0 })
+      expect(await listNotificationIds(request, session, { type, status: 'unread' })).toEqual([])
+      expect(await readUnreadCount(request, session)).toBe(0)
     } finally {
       for (const notificationId of notificationIds) {
         await dismissNotificationIfExists(request, userToken, notificationId)
       }
       await deleteUserIfExists(request, superadminToken, userId)
       await deleteRoleIfExists(request, superadminToken, roleId)
-      await deleteOrganizationIfExists(request, superadminToken, organizationId)
+      await deleteOrganizationIfExists(request, superadminToken, childOrganizationId)
+      await deleteOrganizationIfExists(request, superadminToken, parentOrganizationId)
     }
   })
 
@@ -141,18 +176,26 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
       })
 
       userToken = await getAuthToken(request, email, PASSWORD)
-      const visible = await listNotifications(request, userToken, { type, pageSize: 10 })
-      expect(visible.items.map((item) => String(item.id))).toEqual([tenantWideNotificationId])
+      const session: UserSession = { token: userToken }
+      expect(await listNotificationIds(request, session, { type })).toEqual([tenantWideNotificationId])
 
-      await markAllAsRead(request, userToken)
+      await markAllAsRead(request, session)
 
+      expect(await readUnreadCount(request, session)).toBe(0)
       await setRoleAclFeatures(request, superadminToken, {
         roleId,
         features: ['notifications.view'],
         organizations: [homeOrganizationId, visibleOrganizationId],
       })
-      expect(await listUnreadIds(request, userToken, type)).toEqual([hiddenNotificationId])
+      expect(await listNotificationIds(request, session, { type, status: 'unread' })).toEqual([hiddenNotificationId])
     } finally {
+      if (superadminToken && roleId && homeOrganizationId && visibleOrganizationId) {
+        await setRoleAclFeatures(request, superadminToken, {
+          roleId,
+          features: ['notifications.view'],
+          organizations: [homeOrganizationId, visibleOrganizationId],
+        }).catch(() => undefined)
+      }
       await dismissNotificationIfExists(request, userToken, hiddenNotificationId)
       await dismissNotificationIfExists(request, userToken, tenantWideNotificationId)
       await deleteUserIfExists(request, superadminToken, userId)

@@ -653,9 +653,9 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           // notifications that were never in the bell, inflating the returned
           // count past what the badge showed.
           .where(inAppVisibleSql() as any)
-        if (Array.isArray(ctx.organizationIds)) {
-          const organizationScope = buildNotificationReadScopeSql(ctx)
-          if (organizationScope) chain = chain.where(organizationScope)
+        const organizationScope = buildNotificationReadScopeSql(ctx)
+        if (organizationScope) {
+          chain = chain.where(organizationScope)
         } else if (ctx.organizationId) {
           chain = chain.where('organization_id' as any, '=', ctx.organizationId)
         }
