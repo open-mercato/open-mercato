@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { hash } from 'bcryptjs'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken, retryApiKeyVerification } from '@open-mercato/core/helpers/integration/api'
 import {
   createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists,
   setRoleAclFeatures, setUserAclVisibility,
@@ -68,19 +68,21 @@ for (const { keyKind, floating } of [
       }
       expect(secret).toMatch(/^omk_/)
       const checkFeatures = async (token: string, expected: string[]) => {
-        const response = await apiRequest(request, 'POST', '/api/auth/feature-check', {
+        const send = () => apiRequest(request, 'POST', '/api/auth/feature-check', {
           token, data: { features: ['customers.people.view', 'customers.people.manage'] },
           headers: token.startsWith('omk_') ? { 'x-api-key': token } : {},
         })
+        const response = token.startsWith('omk_') ? await retryApiKeyVerification(send) : await send()
         expect(response.status()).toBe(200)
         const result = await readJsonSafe<{ granted: string[] }>(response)
         expect(result?.granted).toEqual(expected)
       }
       const checkPeople = async (token: string, expectedId: string) => {
-        const people = await apiRequest(request, 'GET', `/api/customers/people?ids=${personIds.join(',')}&pageSize=100`, {
+        const send = () => apiRequest(request, 'GET', `/api/customers/people?ids=${personIds.join(',')}&pageSize=100`, {
           token,
           headers: { Cookie: 'om_selected_org=__all__', ...(token.startsWith('omk_') ? { 'x-api-key': token } : {}) },
         })
+        const people = token.startsWith('omk_') ? await retryApiKeyVerification(send) : await send()
         expect(people.status()).toBe(200)
         const result = await readJsonSafe<{ items: Array<{ id: string }> }>(people)
         expect(result?.items.map((item) => item.id)).toEqual([expectedId])
@@ -90,11 +92,12 @@ for (const { keyKind, floating } of [
         await checkFeatures(secret!, ['customers.people.view'])
         for (const token of [ownerToken, secret!]) {
           await checkPeople(token, personIds[0])
-          const denied = await apiRequest(request, 'PUT', '/api/customers/people', {
+          const send = () => apiRequest(request, 'PUT', '/api/customers/people', {
             token,
             headers: token.startsWith('omk_') ? { 'x-api-key': token } : {},
             data: { id: personIds[0], displayName: `Denied ${stamp}` },
           })
+          const denied = token.startsWith('omk_') ? await retryApiKeyVerification(send) : await send()
           expect(denied.status()).toBe(403)
         }
       }

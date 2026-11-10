@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import {
   apiRequest,
+  retryApiKeyVerification,
   getAuthToken,
   postForm,
   withCredentialIsolatedRequest,
@@ -130,7 +131,7 @@ test.describe('TC-AUTH-070: tenant suspension blocks staff, portal, and API-key 
           expect((await apiRequest(request, 'GET', '/api/auth/profile', { token: staffToken })).status()).toBe(200)
           expect((await request.get('/api/customer_accounts/portal/profile', { headers: { Cookie: portalCookie } })).status()).toBe(200)
           expect((await request.post('/api/customer_accounts/portal/sessions-refresh', { headers: { Cookie: portalCookie } })).status()).toBe(200)
-          expect((await authenticateKey()).status(), 'the key must authenticate before suspension').toBe(200)
+          expect((await retryApiKeyVerification(authenticateKey)).status(), 'the key must authenticate before suspension').toBe(200)
           expect((await authenticateKey()).status(), 'the successful key cache must be warm before suspension').toBe(200)
 
           const suspensionResponse = suspension === 'inactive'

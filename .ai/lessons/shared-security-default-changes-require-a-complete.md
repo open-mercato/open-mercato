@@ -1,6 +1,6 @@
 ---
 title: "Shared security-default changes require a complete consumer audit"
-modules: ["shared","auth","cache","events","example","create_app","sso","api_keys"]
+modules: ["shared","auth","cache","events","example","create_app","sso","api_keys","ai_assistant","agent_orchestrator"]
 areas: ["integration","testing","module-data"]
 topics: ["access-control","data-scoping","events","testing"]
 ---
@@ -14,6 +14,8 @@ topics: ["access-control","data-scoping","events","testing"]
 **Rule**: When changing a shared security default, enumerate every production call site and remove local overrides that bypass the contract. Centralize repeated key derivation in the owning module and add tests for direct, one-proxy, multi-proxy, and fallback behavior.
 
 **Applies to**: shared auth, rate-limit, origin, session, encryption, and tenant-scoping helpers and every module that consumes them.
+
+- 2026-11-06 · api_keys/ai_assistant/agent_orchestrator: throttle is not credential invalidity. Returning false on crypto admission exhaustion poisoned the negative cache and could trigger provisioning rotation. Use a typed retryable error, audit direct verifier callers as well as lookup callers, map HTTP overload to 429 with Retry-After, and preserve configuration/credentials. Bound rotation candidate selection by the existing unique prefix; test legacy and overlapping keys plus separate invalid/overloaded outcomes.
 
 - 2026-11-01 · api_keys: raising bcrypt cost on random API secrets also raises unauthenticated verification cost. A public key prefix and distinct wrong suffixes bypass full-secret negative caching; audit application and MCP callers for pre-verification admission and bounded work before increasing the factor. Successful create/verify regressions alone do not prove the change improves security (review of #8376).
 

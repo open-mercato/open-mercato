@@ -1,3 +1,6 @@
+let mockVerificationTime = 0
+jest.mock('node:perf_hooks', () => ({ performance: { now: () => mockVerificationTime } }))
+
 import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createMemoryStrategy } from '@open-mercato/cache'
@@ -129,9 +132,12 @@ it('revokes an issued session credential immediately across independently warmed
     cache, rbac: new RbacService(entityManager, cache),
   }))
   const scope = { tenantId, organizationId: null }
-  const authenticate = (secret: string) => getAuthFromRequest(new Request('https://example.test/api/customers/people', {
-    headers: { 'x-api-key': secret },
-  }))
+  const authenticate = (secret: string) => {
+    mockVerificationTime += 1000
+    return getAuthFromRequest(new Request('https://example.test/api/customers/people', {
+      headers: { 'x-api-key': secret },
+    }))
+  }
   for (const worker of workers) {
     const auth = await authenticate(session.secret)
     expect(auth).toMatchObject({ keyId: session.keyId, isSuperAdmin: false })

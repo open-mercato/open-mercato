@@ -1,3 +1,4 @@
+import { API_KEY_VERIFICATION_THROTTLE_HEADER } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type ApiRouteBeforeAuth, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -506,13 +507,19 @@ async function handleRequest(
     // Auth could not be verified because of a transient/unexpected failure (DB
     // unavailable, pool exhausted, timeout). Do NOT clear the session cookies or
     // return 401 — that would force-log-out every active user at once during a
-    // shared infrastructure blip (issue #4176). Return a retryable 503 instead
+    // shared infrastructure blip (issue #4176). Return a retryable 503 or verification-throttle 429 instead
     // and leave the cookies intact so the session survives once the DB recovers.
     if (authResolution.status === 'error' && authError.status === 401) {
-      const response = NextResponse.json(
-        { error: t('api.errors.serviceUnavailable', 'Service temporarily unavailable') },
-        { status: 503, headers: { 'retry-after': '2' } },
-      )
+      const retryAfterMs = authResolution.retryAfterMs
+      const response = retryAfterMs !== undefined
+        ? NextResponse.json(
+          { error: t('api.errors.rateLimit', 'Too many requests. Please try again later.') },
+          { status: 429, headers: { 'retry-after': String(Math.ceil(retryAfterMs / 1000)), [API_KEY_VERIFICATION_THROTTLE_HEADER]: '1' } },
+        )
+        : NextResponse.json(
+          { error: t('api.errors.serviceUnavailable', 'Service temporarily unavailable') },
+          { status: 503, headers: { 'retry-after': '2' } },
+        )
       await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
         ...receivedPayload,
         status: response.status,

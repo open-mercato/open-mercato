@@ -1,3 +1,4 @@
+import { ApiKeyVerificationRateLimitError } from '@open-mercato/shared/lib/auth/apiKeyVerificationRateLimit'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -109,6 +110,7 @@ export async function authenticateMcpRequest(
       isSuperAdmin: acl.isSuperAdmin,
     }
   } catch (error) {
+    if (error instanceof ApiKeyVerificationRateLimitError) throw error
     const message = error instanceof Error ? error.message : String(error)
     logger.error('MCP authentication failed', { err: error })
     return { success: false, error: 'Authentication failed' }

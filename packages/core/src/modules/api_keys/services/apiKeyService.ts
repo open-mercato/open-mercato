@@ -1,6 +1,7 @@
 import { randomBytes, createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { hash, compare } from 'bcryptjs'
+import { hash } from 'bcryptjs'
+import { verifyApiKeyHash } from './apiKeyVerification'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { ApiKey } from '../data/entities'
 import { createKmsService, resolveEncryptionMode } from '@open-mercato/shared/lib/encryption/kms'
@@ -16,7 +17,7 @@ import {
 
 const logger = createLogger('api_keys').child({ component: 'api-key-service' })
 
-const BCRYPT_COST = 10
+const BCRYPT_COST = 12
 
 // =============================================================================
 // Session Secret Encryption Helpers
@@ -128,7 +129,7 @@ export async function hashApiKey(secret: string): Promise<string> {
 }
 
 export async function verifyApiKey(secret: string, keyHash: string): Promise<boolean> {
-  return compare(secret, keyHash)
+  return verifyApiKeyHash(secret, keyHash)
 }
 
 export async function createApiKey(

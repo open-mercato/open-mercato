@@ -2,6 +2,7 @@ import { randomInt } from 'node:crypto'
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import {
   apiRequest,
+  retryApiKeyVerification,
   getAuthToken,
   withCredentialIsolatedRequest,
 } from '@open-mercato/core/helpers/integration/api'
@@ -253,10 +254,10 @@ async function updateRoleNameWithApiKey(
   roleId: string,
   name: string,
 ): Promise<void> {
-  const response = await apiKeyRequest(request, 'PUT', '/api/auth/roles', secret, {
+  const response = await retryApiKeyVerification(() => apiKeyRequest(request, 'PUT', '/api/auth/roles', secret, {
     id: roleId,
     name,
-  })
+  }))
   expect(response.status(), await response.text()).toBe(200)
 }
 
@@ -287,10 +288,10 @@ async function updateUserNameWithApiKey(
   userId: string,
   name: string,
 ): Promise<void> {
-  const response = await apiKeyRequest(request, 'PUT', '/api/auth/users', secret, {
+  const response = await retryApiKeyVerification(() => apiKeyRequest(request, 'PUT', '/api/auth/users', secret, {
     id: userId,
     name,
-  })
+  }))
   expect(response.status(), await response.text()).toBe(200)
 }
 

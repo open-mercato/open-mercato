@@ -1,3 +1,6 @@
+let mockVerificationTime = 0
+jest.mock('node:perf_hooks', () => ({ performance: { now: () => mockVerificationTime } }))
+
 import type { AwilixContainer } from 'awilix'
 import { hash } from 'bcryptjs'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
@@ -147,6 +150,7 @@ function seedGrant(
 }
 
 describe('agent OAuth client-credentials token server (Wave 4 Phase 3)', () => {
+  beforeEach(() => { mockVerificationTime += 1000 })
   const prevSecret = process.env.JWT_SECRET
   beforeAll(() => {
     process.env.JWT_SECRET = 'test-jwt-secret-for-agent-oauth'
@@ -199,6 +203,27 @@ describe('agent OAuth client-credentials token server (Wave 4 Phase 3)', () => {
       requestedScope: 'deals:read orders:delete', // orders:delete is NOT granted
     })
     expect(result!.scope).toBe('deals:read')
+  })
+
+  it('verifies a rotated secret without comparing an older live secret first', async () => {
+    const em = createFakeEm()
+    const principal = await seedPrincipalWithSecret(em, {
+      tenantId: TENANT_A, organizationId: ORG_A, agentUserId: AGENT_USER_A,
+    })
+    seedGrant(em, principal)
+    const rotatedSecret = 'omk_98765432.rotated-client-secret'
+    em.__seed(ApiKey, {
+      name: `__agent_oauth_client__${principal.id}__`, createdBy: AGENT_USER_A,
+      organizationId: ORG_A, tenantId: TENANT_A, keyHash: await hash(rotatedSecret, 12),
+      keyPrefix: rotatedSecret.slice(0, 12), deletedAt: null, expiresAt: null,
+    })
+    await expect(issueAgentToken(createContainer(em), {
+      clientId: principal.id, clientSecret: rotatedSecret,
+    })).resolves.toMatchObject({ scope: 'deals:read' })
+    mockVerificationTime += 1000
+    await expect(issueAgentToken(createContainer(em), {
+      clientId: principal.id, clientSecret: CLIENT_SECRET,
+    })).resolves.toMatchObject({ scope: 'deals:read' })
   })
 
   it('returns null (→ 401) for an invalid client secret', async () => {

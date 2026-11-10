@@ -1,3 +1,7 @@
+// Keep SCIM quota time fixed while spacing independent API-key verifications.
+let mockVerificationNow = 0
+jest.mock('node:perf_hooks', () => ({ performance: { now: () => mockVerificationNow } }))
+
 import { createCacheService } from '@open-mercato/cache/service'
 import { NextRequest } from 'next/server'
 import { findApiRouteManifestMatch } from '@open-mercato/shared/modules/registry'
@@ -93,7 +97,7 @@ describe('SCIM admission through the API dispatcher', () => {
     resetSharedApiKeyAuthCacheForTests()
     limiter = new RateLimiterService({ enabled: true, strategy: 'memory', keyPrefix: 'dispatcher-scim', trustProxyDepth: 0 })
     jest.mocked(getCachedRateLimiterService).mockReturnValue(limiter)
-    find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: 'known-hash' }] : [])
+    find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: '$2b$12$' + 'a'.repeat(53) }] : [])
     findOne.mockResolvedValue(null)
     const em = { find, findOne, nativeUpdate: jest.fn().mockResolvedValue(1) } as unknown as EntityManager
     const cache = createCacheService({ strategy: 'memory' })
@@ -121,6 +125,7 @@ describe('SCIM admission through the API dispatcher', () => {
   })
 
   async function dispatch(operation: typeof operations[number], suffix: number, route: Record<string, unknown> = operation.route, kind: 'route-file' | 'legacy' = 'route-file', bearerToken = `invalid-${suffix}`) {
+    mockVerificationNow += 10_000
     jest.mocked(findApiRouteManifestMatch).mockReturnValue({
       route: { moduleId: 'sso', kind, path: `/sso/scim/v2/${operation.path}`, methods: [operation.method], load: async () => route },
       params: { id: 'user-1' },
@@ -160,7 +165,7 @@ describe('SCIM admission through the API dispatcher', () => {
     const wrongSuffix = `${rawToken.slice(0, 12)}${'c'.repeat(59)}`
     findOne.mockImplementation(async (entity: unknown) => entity === ScimToken ? null : { id: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1', isActive: true, jitEnabled: false })
     find.mockImplementation(async (entity: unknown) => entity === ApiKey
-      ? [{ keyHash: 'known-hash' }]
+      ? [{ keyHash: '$2b$12$' + 'a'.repeat(53) }]
       : [{ id: 'active-token', tokenHash: 'scim-hash', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1' }])
     mockCompare.mockImplementation(async (raw: string, tokenHash: string) => raw === rawToken && tokenHash === 'scim-hash')
     listUsers.mockResolvedValue({ Resources: [], totalResults: 0 })
@@ -188,7 +193,7 @@ describe('SCIM admission through the API dispatcher', () => {
     findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => entity === ScimToken
       ? where.tokenLookupHash === tokenLookupHash ? { id: 'cold-token', tenantId: 'tenant-1', organizationId: 'org-1' } : null
       : { id: 'config-1', organizationId: 'org-1', isActive: true, jitEnabled: false })
-    find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: 'known-hash' }]
+    find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: '$2b$12$' + 'a'.repeat(53) }]
       : [{ id: 'cold-token', tokenLookupHash, tokenHash: 'scim-hash', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1' }])
     mockCompare.mockImplementation(async (raw: string, tokenHash: string) => raw === rawToken && tokenHash === 'scim-hash')
     listUsers.mockResolvedValue({ Resources: [], totalResults: 0 })

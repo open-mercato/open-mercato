@@ -1,3 +1,4 @@
+import { fetchWithApiKeyVerificationRetry } from '@open-mercato/shared/lib/auth/apiKeyVerificationFetch'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { EvaluationContext } from './expression-evaluator'
 import { getNestedValue, resolveSpecialValue } from './value-resolver'
@@ -577,7 +578,7 @@ async function handleCallOpenMercato(
       if (context.entityType) headers['X-Business-Rule-Entity-Type'] = context.entityType
       if (context.entityId) headers['X-Business-Rule-Entity-Id'] = context.entityId
 
-      const response = await fetch(fullUrl, {
+      const response = await fetchWithApiKeyVerificationRetry(fullUrl, {
         method,
         headers,
         body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
