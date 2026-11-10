@@ -5,9 +5,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
 /**
  * TC-NOTIF-026: GET /api/notifications rejects an invalid query parameter with a 400.
  *
- * The list handler used to call a throwing `parse()` on the query string, so an unknown `status`,
- * a non-numeric `page` or an out-of-range `pageSize` escaped as an unhandled 500. Read-only: the
- * admin's own inbox is listed, nothing is created.
+ * Read-only: the admin's own inbox is listed, nothing is created.
  */
 
 const invalidQueries: Array<{ query: string; field: string }> = [
@@ -26,7 +24,7 @@ test.describe('TC-NOTIF-026: notification list query validation', () => {
       const res = await apiRequest(request, 'GET', `/api/notifications?${query}`, { token })
       expect(res.status(), query).toBe(400)
       const body = await readJsonSafe<{ error?: string }>(res)
-      expect(body?.error, query).toContain(field)
+      expect(body?.error, query).toContain(`${field}:`)
     }
 
     const valid = await apiRequest(request, 'GET', '/api/notifications?status=unread&page=1&pageSize=5', { token })

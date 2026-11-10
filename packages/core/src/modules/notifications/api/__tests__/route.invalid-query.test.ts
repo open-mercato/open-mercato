@@ -51,7 +51,7 @@ describe('GET /api/notifications query validation', () => {
 
     expect(response.status).toBe(400)
     const body = (await response.json()) as { error?: string }
-    expect(body.error).toContain(field)
+    expect(body.error).toContain(`${field}:`)
     expect(find).not.toHaveBeenCalled()
     expect(count).not.toHaveBeenCalled()
   })
