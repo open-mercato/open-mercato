@@ -213,6 +213,7 @@ function buildHarness(opts: {
   customerGroupsServiceAvailable?: boolean
   cartServiceAvailable?: boolean
   paymentsCreateError?: Error
+  cancelPaymentError?: Error
   terms?: FakeRow
 } = {}): Harness {
   const seededSessions = [opts.session ?? makeSession()]
@@ -299,8 +300,20 @@ function buildHarness(opts: {
     }
     if (id === 'sales.payments.create') {
       if (opts.paymentsCreateError) throw opts.paymentsCreateError
-      seededPayments.push({ ...options.input, id: `payment-${seededPayments.length + 1}`, order_id: options.input.orderId, payment_reference: options.input.paymentReference ?? null, tenant_id: options.input.tenantId, organization_id: options.input.organizationId, deleted_at: null })
+      seededPayments.push({ ...options.input, id: `payment-${seededPayments.length + 1}`, order_id: options.input.orderId, payment_reference: options.input.paymentReference ?? null, tenant_id: options.input.tenantId, organization_id: options.input.organizationId, captured_amount: options.input.capturedAmount ?? '0', deleted_at: null })
       return { result: { paymentId: `payment-${seededPayments.length}` } }
+    }
+    if (id === 'sales.payments.update') {
+      const payment = seededPayments.find((row) => row.id === options.input.id)
+      if (payment) {
+        if (options.input.capturedAmount !== undefined) {
+          payment.capturedAmount = options.input.capturedAmount
+          payment.captured_amount = options.input.capturedAmount
+        }
+        if (options.input.capturedAt !== undefined) payment.capturedAt = options.input.capturedAt
+        if (options.input.statusEntryId !== undefined) payment.statusEntryId = options.input.statusEntryId
+      }
+      return { result: { paymentId: options.input.id } }
     }
     throw new Error(`Unexpected command id: ${id}`)
   })
@@ -312,6 +325,9 @@ function buildHarness(opts: {
           transaction: { id: 'gateway-txn-1', unifiedStatus: 'captured', expiresAt: null },
           session: { sessionId: 'gateway-session-1', status: 'captured' },
         })),
+        cancelPayment: opts.cancelPaymentError
+          ? jest.fn(async () => { throw opts.cancelPaymentError })
+          : jest.fn(async () => ({ status: 'cancelled' })),
       }
 
   const promotionsService = opts.promotionsServiceAvailable === false
@@ -906,7 +922,7 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
 
   it('stops with 409 when recovery already moved the session out of submitting before the awaiting_payment write', async () => {
     const h = buildHarness({ createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'pending', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'pending' } } })
-    const paymentGatewayService = h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock }
+    const paymentGatewayService = h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock; cancelPayment: jest.Mock }
     const originalCreatePaymentSession = paymentGatewayService.createPaymentSession.getMockImplementation()!
     paymentGatewayService.createPaymentSession.mockImplementation(async (...args: unknown[]) => {
       h.seededSessions[0].status = 'failed'
@@ -920,6 +936,44 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
 
     expect(h.seededSessions[0].status).toBe('failed')
     expect(h.cartService.unlock).toHaveBeenCalled()
+    // #8268 review Medium 8: the just-created gateway session must not be left live and
+    // payable against a session (and order) a concurrent recovery already moved on from.
+    expect(paymentGatewayService.cancelPayment).toHaveBeenCalledWith('checkout-txn-1', 'checkout_submit_recovered', { tenantId: TENANT_ID, organizationId: ORG_ID })
+    expect(h.seededPayments).toHaveLength(0)
+  })
+
+  it('reconciles a captured payment onto the order when the lost-CAS gateway session cannot be cancelled because it already captured', async () => {
+    const h = buildHarness({
+      createPaymentSessionResult: { transaction: { id: 'gw-1', gatewayPaymentId: 'gw-captured-1', unifiedStatus: 'captured', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'captured' } },
+      cancelPaymentError: Object.assign(new Error('Cannot cancel a payment in status "captured"'), { status: 409 }),
+    })
+    const paymentGatewayService = h.ctx.container.resolve('paymentGatewayService') as { cancelPayment: jest.Mock }
+    const originalCreatePaymentSession = (h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock }).createPaymentSession.getMockImplementation()!
+    ;(h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock }).createPaymentSession.mockImplementation(async (...args: unknown[]) => {
+      h.seededSessions[0].status = 'failed'
+      return originalCreatePaymentSession(...args)
+    })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({ status: 409 })
+
+    expect(paymentGatewayService.cancelPayment).toHaveBeenCalled()
+    // Money was actually captured despite losing the race — never silently lose track of it.
+    expect(h.seededPayments).toHaveLength(1)
+    expect(h.seededPayments[0]).toMatchObject({ paymentReference: 'gw-captured-1', capturedAmount: h.seededPayments[0].amount })
+  })
+
+  it('extends the cart lock to the gateway payment expiry PLUS a 15-minute margin (spec R11/§6)', async () => {
+    const paymentExpiresAt = new Date(Date.now() + 10 * 60 * 1000)
+    const h = buildHarness({
+      createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'pending', expiresAt: paymentExpiresAt }, session: { sessionId: 'gw-session-1', status: 'pending' } },
+    })
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    const lastLockCall = h.cartService.lock.mock.calls[h.cartService.lock.mock.calls.length - 1][0]
+    const expectedTtlMs = paymentExpiresAt.getTime() + 15 * 60 * 1000 - Date.now()
+    expect(lastLockCall.lockTtlMs).toBeGreaterThan(expectedTtlMs - 5_000)
+    expect(lastLockCall.lockTtlMs).toBeLessThanOrEqual(expectedTtlMs + 5_000)
   })
 
   it('availability.commit (step 6a) is called BEFORE the gateway call (step 7) — ordering assertion', async () => {

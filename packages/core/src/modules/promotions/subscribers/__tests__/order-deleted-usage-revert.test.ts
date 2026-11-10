@@ -35,10 +35,15 @@ type FakeEm = {
   rollback: () => Promise<void>
   isInTransaction: () => boolean
   fork: () => FakeEm
+  getConnection: () => { execute: (sql: string, params?: unknown[]) => Promise<Row[]> }
 }
 
-function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
+// Sentinel table standing in for `sales_orders` — the deleted-event guard runs a raw SQL
+// existence check against it (never imports the `sales` entity). Empty by default (order
+// genuinely deleted); tests that simulate "the order was restored by undo" push a row in.
+function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]>; salesOrders: Row[] } {
   const tables = new Map<Function, Row[]>()
+  const salesOrders: Row[] = []
   let inTransaction = false
   let pendingCreates: Array<{ entity: Function; row: Row }> = []
 
@@ -76,8 +81,14 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
     },
     isInTransaction: () => inTransaction,
     fork: () => em,
+    getConnection: () => ({
+      execute: async (sql: string) => {
+        if (sql.includes('from sales_orders')) return salesOrders
+        return []
+      },
+    }),
   }
-  return { em, tables }
+  return { em, tables, salesOrders }
 }
 
 function asEm(fake: FakeEm): import('@mikro-orm/postgresql').EntityManager {
@@ -202,5 +213,23 @@ describe('promotions order-deleted-usage-revert subscriber', () => {
     await expect(
       handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG }, buildCtx(em)),
     ).resolves.toBeUndefined()
+  })
+
+  it('#8268 review Major 2: skips a stale redelivery once the order has been restored by undo', async () => {
+    const { em, tables, salesOrders } = createFakeEm()
+    const promotionUsage = seedPromotionUsage(tables)
+    const code = seedCode(tables)
+    const codeUsage = seedCodeUsage(tables, { codeId: code.id })
+    // Simulate undo-of-delete: the order row exists again (re-created by
+    // `restoreOrderGraph`, which re-emits `sales.order.confirmed` so the reinstate
+    // subscribers already re-registered this usage) by the time this persistent
+    // `sales.order.deleted` event is redelivered.
+    salesOrders.push({ id: ORDER_ID, tenantId: TENANT, organizationId: ORG })
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG }, buildCtx(em))
+
+    expect(promotionUsage.revertedAt).toBeNull()
+    expect(codeUsage.revertedAt).toBeNull()
+    expect(code.used).toBe(1)
   })
 })

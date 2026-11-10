@@ -1283,4 +1283,57 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
     expect(code.used).toBe(0)
     expect(code.active).toBe(true)
   })
+
+  // #8268 review Medium 9 (#8940 item 2): cancel A (frees the single-use code), B redeems
+  // the now-free code, then revive A — reinstating A unconditionally would push the code's
+  // live usage to 2 against a cap of 1. Refuse this reinstatement instead of overflowing it.
+  it('refuses to reinstate a static code use that would exceed its own usage cap (cancel A, redeem on B, revive A)', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'USEDONCE', usage: 'single', used: 1, active: false })
+    const usageA = seedCodeUsage(tables, {
+      codeId: code.id,
+      customerId: 'cust-a',
+      cartId: 'cart-a',
+      orderId: 'order-a',
+      revertedAt: new Date(),
+    })
+    // B's live (never-reverted) use is what brought `used` back up to the cap.
+    seedCodeUsage(tables, { codeId: code.id, customerId: 'cust-b', cartId: 'cart-b', orderId: 'order-b' })
+    const service = new PromotionCodeService(fakeContainer())
+
+    const result = await service.reinstateCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'order-a' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(code.used).toBe(1)
+    expect(usageA.revertedAt).not.toBeNull()
+  })
+
+  it('refuses to reinstate a dynamic/generated code use already claimed by another order', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'dynamic', code: null, used: 0 })
+    const generatedCode = seedGeneratedCode(tables, { codeId: code.id, code: 'DYNAMIC-ABC', active: false })
+    const usageA = seedCodeUsage(tables, {
+      codeId: code.id,
+      customerId: 'cust-a',
+      cartId: 'cart-a',
+      orderId: 'order-a',
+      generatedCodeId: generatedCode.id,
+      revertedAt: new Date(),
+    })
+    const service = new PromotionCodeService(fakeContainer())
+
+    const result = await service.reinstateCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'order-a' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(generatedCode.active).toBe(false)
+    expect(usageA.revertedAt).not.toBeNull()
+  })
 })

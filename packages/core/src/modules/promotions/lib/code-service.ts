@@ -7,6 +7,8 @@ import { CrudHttpError, isCrudHttpError, isUniqueViolation } from '@open-mercato
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Code, CodeReservation, CodeUsage, GeneratedCode, type PromotionCodeType } from '../data/entities'
 import type {
   CodeReservationResult,
@@ -19,6 +21,8 @@ import type {
   ReserveCodeInput,
   UseCodeInput,
 } from './types'
+
+const logger = createLogger('promotions')
 
 // SPEC-055 §Code Lifecycle / §Amendment A.2a (Release 4 PLAN.md Step 6.2). This file is
 // `promotions`' own `lib/code-service.ts` named by the spec's Implementation Plan
@@ -703,14 +707,37 @@ export class PromotionCodeService {
               { lockMode: LockMode.PESSIMISTIC_WRITE },
             )
             if (!lockedUsage || !lockedUsage.revertedAt) return
-            reinstated = true
 
+            // #8268 review Medium 9 (#8940 item 2): this reinstatement deliberately never
+            // re-runs `evaluateCodeEligibility` (see this method's own doc comment) — a
+            // per-customer cap or an admin disabling the code in the meantime must not
+            // retroactively refuse restoring a use that already legitimately happened. But
+            // between the original use and this revival, the SAME code/generated-code can
+            // have been redeemed by someone else (cancel A -> code freed -> B redeems it ->
+            // revive A) — reinstating A unconditionally would then push a 'single'/capped
+            // code's live usage past its own cap, or double-claim one generated code across
+            // two orders. That is a hard numeric/identity invariant, not a business-eligibility
+            // judgement call, so it is enforced here even though eligibility is not re-run:
+            // refuse THIS reinstatement (leave the usage row reverted) rather than silently
+            // overflow the cap.
             if (lockedUsage.generatedCodeId) {
               const lockedGeneratedCode = await em.findOne(
                 GeneratedCode,
                 { id: lockedUsage.generatedCodeId, tenantId: scope.tenantId, organizationId: scope.organizationId },
                 { lockMode: LockMode.PESSIMISTIC_WRITE },
               )
+              if (lockedGeneratedCode && lockedGeneratedCode.active === false) {
+                logger.warn('[internal] promotions:reinstateCodeUse refused — generated code already claimed by another order', {
+                  orderId: input.orderId,
+                  generatedCodeId: lockedUsage.generatedCodeId,
+                })
+                getTelemetryRuntime()?.reportError(
+                  new Error('[internal] code reinstatement refused: generated code already claimed by another order'),
+                  { module: 'promotions', code: 'promotions.reinstate_code_use_refused', attributes: { orderId: input.orderId, generatedCodeId: lockedUsage.generatedCodeId } },
+                )
+                return
+              }
+              reinstated = true
               if (lockedGeneratedCode) lockedGeneratedCode.active = false
             } else {
               const lockedCode = await em.findOne(
@@ -718,6 +745,18 @@ export class PromotionCodeService {
                 { id: lockedUsage.codeId, tenantId: scope.tenantId, organizationId: scope.organizationId },
                 { lockMode: LockMode.PESSIMISTIC_WRITE },
               )
+              if (lockedCode && !hasRemainingGlobalUses(lockedCode)) {
+                logger.warn('[internal] promotions:reinstateCodeUse refused — code is already at its usage cap', {
+                  orderId: input.orderId,
+                  codeId: lockedUsage.codeId,
+                })
+                getTelemetryRuntime()?.reportError(
+                  new Error('[internal] code reinstatement refused: code is already at its usage cap'),
+                  { module: 'promotions', code: 'promotions.reinstate_code_use_refused', attributes: { orderId: input.orderId, codeId: lockedUsage.codeId } },
+                )
+                return
+              }
+              reinstated = true
               if (lockedCode) {
                 lockedCode.used += 1
                 if (!hasRemainingGlobalUses(lockedCode)) lockedCode.active = false

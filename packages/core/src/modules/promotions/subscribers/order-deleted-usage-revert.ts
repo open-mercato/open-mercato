@@ -23,5 +23,5 @@ export const metadata = {
 }
 
 export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
-  return handleOrderUsageRevert(payload, ctx)
+  return handleOrderUsageRevert(payload, ctx, { eventId: 'sales.order.deleted' })
 }

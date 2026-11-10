@@ -4770,6 +4770,7 @@ async function restoreOrderGraph(
       organizationId: snapshot.order.organizationId,
     },
   );
+  const existedBeforeRestore = Boolean(order);
   let existingLines: SalesOrderLine[] = [];
   if (order) {
     existingLines = await em.find(
@@ -4869,11 +4870,14 @@ async function restoreOrderGraph(
   }
   // Captured BEFORE `applyOrderSnapshot` overwrites `order.status` below — the status the
   // order actually had right before this restore (e.g. `canceled`, being undone back to
-  // `confirmed`). For a from-scratch recreate (order didn't exist), `order.status` here
-  // already equals the snapshot's own status (set by `em.create` above), so this correctly
-  // comes out equal to the restored status and no lifecycle event fires below (#8404: there
-  // is no real prior live order to resume stock/credit reservations for).
-  const previousStatus = order.status ?? null;
+  // `confirmed`). For a from-scratch recreate (order didn't exist — only `deleteOrderCommand`'s
+  // undo hits this branch), there is no real prior row to read a status from, so `previousStatus`
+  // is `null` rather than the restored status itself: #8406's delete handler now releases credit
+  // and reverts promotion/code usage, so undo-of-delete must still emit the confirmed lifecycle
+  // event (when the restored status is `confirmed`) to let `customer_groups:order-confirmed-credit-reinstate`
+  // and `promotions:order-confirmed-usage-reinstate` reverse that release/revert — treating the
+  // restored status as "no transition" would silently skip them.
+  const previousStatus = existedBeforeRestore ? (order.status ?? null) : null;
   applyOrderSnapshot(order, snapshot.order);
   await em.flush();
   const existingAdjustments = await em.find(

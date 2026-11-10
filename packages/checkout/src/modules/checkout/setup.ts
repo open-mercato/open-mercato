@@ -6,6 +6,7 @@ import { CHECKOUT_EXPIRY_QUEUE } from './workers/transaction-expiry.worker'
 import { CHECKOUT_RECOVER_STUCK_SUBMITS_QUEUE } from './workers/recover-stuck-submits.worker'
 import { CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE } from './workers/expire-awaiting-payment.worker'
 import { CHECKOUT_EXPIRE_SESSIONS_QUEUE } from './workers/expire-checkout-sessions.worker'
+import { CHECKOUT_REPAIR_GATEWAY_PAYMENTS_QUEUE } from './workers/repair-gateway-payments.worker'
 export { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from './lib/defaults'
 
 function stableUuidFromString(input: string): string {
@@ -126,6 +127,28 @@ export async function ensureTransactionExpirySchedule(ctx: {
     timezone: 'UTC',
     targetType: 'queue',
     targetQueue: CHECKOUT_EXPIRE_SESSIONS_QUEUE,
+    targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    sourceType: 'module',
+    sourceModule: 'checkout',
+    isEnabled: true,
+  })
+
+  // PR 8268 review fix (Medium 7): durable repair for a session-backed gateway payment
+  // whose `recordGatewayPayment` in-process retries (3, immediate) all failed — mirrors
+  // the schedules above exactly, same per-(tenant, organization) scope, same
+  // re-registration on every seed pass.
+  await schedulerService.register({
+    id: stableUuidFromString(`checkout:repair-gateway-payments:${ctx.tenantId}:${ctx.organizationId}`),
+    name: 'Checkout repair gateway payments',
+    description: 'Retries recording a session-backed gateway payment onto its order when the live submit path\'s own immediate retries all failed.',
+    scopeType: 'organization',
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    scheduleType: 'interval',
+    scheduleValue: '15m',
+    timezone: 'UTC',
+    targetType: 'queue',
+    targetQueue: CHECKOUT_REPAIR_GATEWAY_PAYMENTS_QUEUE,
     targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     sourceType: 'module',
     sourceModule: 'checkout',

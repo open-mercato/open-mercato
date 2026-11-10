@@ -614,6 +614,53 @@ describe('PromotionUsageService.reinstateUsage', () => {
 
     expect(result).toEqual({ ok: true, reinstatedCount: 0 })
   })
+
+  // #8268 review Medium 9 (#8940 item 2): cancel order A (reverts its usage, freeing
+  // budget), order B then consumes that freed budget up to the cap, then A is revived —
+  // reinstating A unconditionally would push consumption past `maxBudget`. Refuse A's row
+  // instead of overflowing the budget.
+  it('refuses to reinstate a row that would push a capped promotion budget over its max', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables, { maxBudget: '10.00', budgetCurrency: 'USD' })
+    const service = new PromotionUsageService()
+    await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-a',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [lineDiscountEffect('-10.00')])],
+      },
+      SCOPE,
+    )
+    await service.revertUsage(asEm(em), { orderId: 'order-a' } as RevertUsageInput, SCOPE)
+    // Order B now consumes the freed budget in full.
+    await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-b',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [lineDiscountEffect('-10.00')])],
+      },
+      SCOPE,
+    )
+    emitPromotionsEvent.mockClear()
+
+    const result = await service.reinstateUsage(asEm(em), { orderId: 'order-a' } as RevertUsageInput, SCOPE)
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    const rows = tables.get(PromotionUsage) ?? []
+    const rowA = rows.find((row) => row.orderId === 'order-a')
+    expect(rowA?.revertedAt).not.toBeNull()
+    expect(emitPromotionsEvent).toHaveBeenCalledWith(
+      'promotions.promotion.budget_exhausted',
+      expect.objectContaining({ promotionId: promotion.id, orderId: 'order-a' }),
+      expect.anything(),
+    )
+  })
 })
 
 describe('PromotionUsageService.getBudgetConsumed', () => {

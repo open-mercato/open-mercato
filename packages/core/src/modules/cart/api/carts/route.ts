@@ -111,24 +111,37 @@ export const cartAdminListCrud = makeCrudRoute<never, never, CartAdminListQuery>
         .map((item) => (typeof item.id === 'string' ? item.id : null))
         .filter((id): id is string => !!id)
       if (!cartIds.length) return
-      // MEDIUM fix (inherited review finding #5): this used to have no tenant/organization
-      // filter at all — the `cartIds` it narrows by are already tenant/org-scoped by the
-      // list query above, so this specific query could not cross a tenant boundary in
-      // practice, but AGENTS.md's "always filter by organization_id for tenant-scoped
-      // entities" rule applies on every query regardless, not only where a leak is
-      // currently reachable.
       const tenantId = ctx.auth?.tenantId ?? null
-      const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const lines = await em.find(CartLine, {
-        cartId: { $in: cartIds },
-        deletedAt: null,
-        ...(tenantId ? { tenantId } : {}),
-        ...(organizationId ? { organizationId } : {}),
-      })
+      const readOrganizationId = (item: Record<string, unknown>): string | null =>
+        typeof item.organizationId === 'string' ? item.organizationId : (typeof item.organization_id === 'string' ? item.organization_id : null)
+      // #8268 review Medium 10: a single batch call filtered every row's `CartLine` count
+      // by one top-level `organizationId` (the CALLER's selected org, or its own). A
+      // multi-org caller with no single `selectedOrganizationId` listing carts across
+      // SEVERAL organizations therefore saw a zero line count for every cart outside that
+      // one org. Each `Cart` row already carries its OWN `organization_id`
+      // (`CART_ADMIN_LIST_FIELDS`) — group cart ids by THAT (the owning cart's real org),
+      // same as the customer-name lookup below, and count lines one batch per distinct org.
+      const cartIdsByOrganizationId = new Map<string, string[]>()
+      for (const item of items) {
+        const cartId = typeof item.id === 'string' ? item.id : null
+        const organizationId = readOrganizationId(item)
+        if (!cartId || !organizationId) continue
+        const bucket = cartIdsByOrganizationId.get(organizationId) ?? []
+        bucket.push(cartId)
+        cartIdsByOrganizationId.set(organizationId, bucket)
+      }
       const countByCartId = new Map<string, number>()
-      for (const line of lines) {
-        countByCartId.set(line.cartId, (countByCartId.get(line.cartId) ?? 0) + 1)
+      for (const [organizationId, orgCartIds] of cartIdsByOrganizationId) {
+        const lines = await em.find(CartLine, {
+          cartId: { $in: orgCartIds },
+          deletedAt: null,
+          organizationId,
+          ...(tenantId ? { tenantId } : {}),
+        })
+        for (const line of lines) {
+          countByCartId.set(line.cartId, (countByCartId.get(line.cartId) ?? 0) + 1)
+        }
       }
       for (const item of items) {
         const cartId = typeof item.id === 'string' ? item.id : null
@@ -141,17 +154,6 @@ export const cartAdminListCrud = makeCrudRoute<never, never, CartAdminListQuery>
       if (!tenantId) return
       const readCustomerId = (item: Record<string, unknown>): string | null =>
         typeof item.customerId === 'string' ? item.customerId : (typeof item.customer_id === 'string' ? item.customer_id : null)
-      // MEDIUM fix (inherited review finding #5): a single batch call used a single
-      // top-level `organizationId` (the CALLER's selected org, or its own) for every row's
-      // decryption scope. A multi-org caller with no single `selectedOrganizationId` listing
-      // carts across SEVERAL organizations therefore decrypted every `displayName` under one
-      // (possibly wrong, possibly null) scope, silently reading back as `customerName: null`
-      // for rows belonging to any other org. Each `Cart` row already carries its OWN
-      // `organization_id` (`CART_ADMIN_LIST_FIELDS`) — group customers by THAT (the owning
-      // cart's real org), not the caller's own, and decrypt one batch per distinct org so
-      // every row gets the scope that actually matches its data.
-      const readOrganizationId = (item: Record<string, unknown>): string | null =>
-        typeof item.organizationId === 'string' ? item.organizationId : (typeof item.organization_id === 'string' ? item.organization_id : null)
       const customerIdsByOrganizationId = new Map<string, Set<string>>()
       for (const item of items) {
         const customerId = readCustomerId(item)

@@ -85,6 +85,26 @@ export async function handleOrderCreditRelease(
     throw error
   }
 
+  if (eventId === 'sales.order.deleted') {
+    // #8268 review Major 2: `sales.order.deleted` is persistent (queued/retried), and the
+    // undo-of-delete path (`sales/commands/documents.ts#undoOrderGraph`) can reinstate this
+    // order's credit reservation under a FRESH idempotency key before (or racing) this
+    // event's redelivery. A redelivery arriving after the order exists again must not
+    // release that fresh reservation — only a still-genuinely-deleted order should proceed.
+    const stillDeleted = await em.getConnection().execute(
+      'select 1 from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
+      [orderId, tenantId, organizationId],
+    )
+    if (Array.isArray(stillDeleted) && stillDeleted.length > 0) {
+      logger.debug('[customer_groups:order-cancelled-credit-release] skipped stale delete redelivery — order exists again', {
+        orderId,
+        tenantId,
+        organizationId,
+      })
+      return
+    }
+  }
+
   // §11: "finds the reservation with linked_order_id = orderId in the event's tenant and
   // organization". An order with no linked reservation (never purchased on account, or
   // checkout hasn't shipped Step 4.2's `linkCreditReservationToOrder` yet) is ignored.

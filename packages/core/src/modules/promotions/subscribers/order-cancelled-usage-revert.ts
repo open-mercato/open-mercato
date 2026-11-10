@@ -53,7 +53,12 @@ function resolveContainer(ctx: SubscriberContext): ResolverContainer {
 // logic for `sales.order.deleted` — deleting an order that used a promotion/code must
 // free its budget and code usage the same way cancelling it does. Both services key
 // purely by `orderId`/`tenantId`/`organizationId`, with no FK to the order row itself.
-export async function handleOrderUsageRevert(payload: unknown, ctx: SubscriberContext): Promise<void> {
+export async function handleOrderUsageRevert(
+  payload: unknown,
+  ctx: SubscriberContext,
+  options: { eventId?: string } = {},
+): Promise<void> {
+  const eventId = options.eventId ?? 'sales.order.cancelled'
   const record = toRecord(payload)
   const orderId = readString(record, 'orderId') ?? readString(record, 'id')
   const tenantId = readString(record, 'tenantId') ?? ctx.tenantId ?? null
@@ -80,6 +85,26 @@ export async function handleOrderUsageRevert(payload: unknown, ctx: SubscriberCo
       organizationId,
     })
     throw error
+  }
+
+  if (eventId === 'sales.order.deleted') {
+    // #8268 review Major 2: `sales.order.deleted` is persistent (queued/retried), and the
+    // undo-of-delete path can re-register this order's promotion/code usage (resetting
+    // `revertedAt` back to null) before — or racing — this event's redelivery. A
+    // redelivery arriving after the order exists again must not revert that fresh usage;
+    // only a still-genuinely-deleted order should proceed.
+    const stillDeleted = await em.getConnection().execute(
+      'select 1 from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
+      [orderId, tenantId, organizationId],
+    )
+    if (Array.isArray(stillDeleted) && stillDeleted.length > 0) {
+      logger.debug('[internal] promotions:order-cancelled-usage-revert skipped stale delete redelivery — order exists again', {
+        orderId,
+        tenantId,
+        organizationId,
+      })
+      return
+    }
   }
 
   const scope: PromotionsCodeScope = { tenantId, organizationId }

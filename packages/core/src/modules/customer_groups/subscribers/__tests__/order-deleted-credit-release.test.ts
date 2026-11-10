@@ -37,10 +37,16 @@ type FakeEm = {
   rollback: () => Promise<void>
   isInTransaction: () => boolean
   fork: () => FakeEm
+  getConnection: () => { execute: (sql: string, params?: unknown[]) => Promise<Row[]> }
 }
 
-function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
+// Sentinel table standing in for `sales_orders` — the deleted-event guard runs a raw SQL
+// existence check against it (never imports the `sales` entity, matching this module's
+// no-upstream-dependency convention). Empty by default (order genuinely deleted); tests
+// that need to simulate "the order was restored by undo" push a row into it.
+function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]>; salesOrders: Row[] } {
   const tables = new Map<Function, Row[]>()
+  const salesOrders: Row[] = []
   let inTransaction = false
   let pendingCreates: Array<{ entity: Function; row: Row }> = []
 
@@ -78,8 +84,14 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
     },
     isInTransaction: () => inTransaction,
     fork: () => em,
+    getConnection: () => ({
+      execute: async (sql: string) => {
+        if (sql.includes('from sales_orders')) return salesOrders
+        return []
+      },
+    }),
   }
-  return { em, tables }
+  return { em, tables, salesOrders }
 }
 
 function asEm(fake: FakeEm): import('@mikro-orm/postgresql').EntityManager {
@@ -168,5 +180,18 @@ describe('customer_groups order-deleted-credit-release subscriber', () => {
     await expect(
       handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG }, buildCtx(em)),
     ).resolves.toBeUndefined()
+  })
+
+  it('#8268 review Major 2: skips a stale redelivery once the order has been restored by undo', async () => {
+    const { em, tables, salesOrders } = createFakeEm()
+    seedReservedOrder(tables)
+    // Simulate undo-of-delete: the order row exists again (re-created by
+    // `restoreOrderGraph`) by the time this persistent event is redelivered.
+    salesOrders.push({ id: ORDER_ID, tenantId: TENANT, organizationId: ORG })
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG }, buildCtx(em))
+
+    const entries = tables.get(CustomerCreditLedgerEntry) ?? []
+    expect(entries.filter((row) => row.entryType === 'release')).toHaveLength(0)
   })
 })

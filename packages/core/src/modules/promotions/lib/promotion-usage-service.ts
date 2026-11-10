@@ -287,6 +287,15 @@ export class PromotionUsageService {
    * the time of the original use, and a cancel/undo cycle must not let budget consumed by
    * OTHER orders in between retroactively block reinstating this one's own prior grant.
    *
+   * #8268 review Medium 9 (#8940 item 2) narrows that one step further: "not re-running the
+   * budget check" must not mean "no budget check at all". Between this row's own revert and
+   * this reinstate, OTHER orders can have consumed budget up to (or past) the cap — reviving
+   * this row unconditionally would then push the promotion's live consumption past
+   * `maxBudget`. That is the same hard numeric invariant `code-service.ts#reinstateCodeUse`
+   * now enforces for a capped code, so each row gets the SAME row-locked re-read
+   * `registerUsage` uses before deciding whether reinstating IT specifically would exceed
+   * the budget — refusing that one row (leaving it reverted) rather than overflowing it.
+   *
    * Idempotent: only rows that still carry a `revertedAt` are touched, so a redelivered
    * event finds nothing left to reinstate on a second pass — same no-op-on-redelivery
    * precedent as `revertUsage` above.
@@ -304,21 +313,51 @@ export class PromotionUsageService {
     })
     if (rows.length === 0) return { ok: true, reinstatedCount: 0 }
 
-    await withAtomicFlush(
-      em,
-      [
-        () => {
-          for (const row of rows) row.revertedAt = null
-        },
-      ],
-      { transaction: true, label: 'promotions.usage.reinstate' },
-    )
+    const reinstatedRows: PromotionUsage[] = []
+    for (const row of rows) {
+      let blocked = false
+      await withAtomicFlush(
+        em,
+        [
+          async () => {
+            const promotion = await em.findOne(
+              Promotion,
+              { id: row.promotionId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+              { lockMode: LockMode.PESSIMISTIC_WRITE },
+            )
+            // Same documented judgment calls `registerUsageForPromotion` makes: no parent
+            // row, no configured budget, or a currency this module cannot compare against
+            // the budget's own currency all skip enforcement rather than block the revival.
+            if (!promotion || promotion.maxBudget == null || !promotion.budgetCurrency) return
+            if (row.currency !== promotion.budgetCurrency) return
+            const consumed = await this.getBudgetConsumed(em, row.promotionId, scope.organizationId, scope.tenantId, promotion.budgetCurrency)
+            const projected = addDecimalStrings(consumed, row.totalDiscountAmount)
+            if (exceedsLimit(projected, promotion.maxBudget)) blocked = true
+          },
+          () => {
+            if (blocked) return
+            row.revertedAt = null
+          },
+        ],
+        { transaction: true, label: 'promotions.usage.reinstate' },
+      )
+      if (blocked) {
+        usageLogger.warn('[internal] reinstateUsage refused — promotion is already at its budget cap', {
+          orderId: input.orderId,
+          promotionId: row.promotionId,
+        })
+        await emitBudgetExhaustedEvent(row.promotionId, input.orderId, scope)
+      } else {
+        reinstatedRows.push(row)
+      }
+    }
+    if (reinstatedRows.length === 0) return { ok: true, reinstatedCount: 0 }
 
-    const distinctPromotionIds = Array.from(new Set(rows.map((row) => row.promotionId)))
+    const distinctPromotionIds = Array.from(new Set(reinstatedRows.map((row) => row.promotionId)))
     for (const promotionId of distinctPromotionIds) {
       await emitRegisteredEvent(promotionId, input.orderId, scope)
     }
 
-    return { ok: true, reinstatedCount: rows.length }
+    return { ok: true, reinstatedCount: reinstatedRows.length }
   }
 }

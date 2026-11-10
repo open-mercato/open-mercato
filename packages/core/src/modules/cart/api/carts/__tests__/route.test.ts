@@ -92,7 +92,7 @@ describe('cart admin list — buildFilters', () => {
 })
 
 describe('cart admin list — afterList lineCount enrichment (§10.2 row shape)', () => {
-  it('batches one CartLine query across every row of the page and attaches lineCount per row', async () => {
+  it('batches one CartLine query per distinct owning organization and attaches lineCount per row', async () => {
     const lines = [
       { cartId: 'cart-1', deletedAt: null },
       { cartId: 'cart-1', deletedAt: null },
@@ -102,7 +102,11 @@ describe('cart admin list — afterList lineCount enrichment (§10.2 row shape)'
     const em = { fork: jest.fn(() => ({ find })) } as unknown as EntityManager
     const ctx = { container: { resolve: (name: string) => (name === 'em' ? em : undefined) } }
 
-    const items: Array<Record<string, unknown>> = [{ id: 'cart-1' }, { id: 'cart-2' }, { id: 'cart-3' }]
+    const items: Array<Record<string, unknown>> = [
+      { id: 'cart-1', organizationId: 'org-1' },
+      { id: 'cart-2', organizationId: 'org-1' },
+      { id: 'cart-3', organizationId: 'org-1' },
+    ]
     await opts.hooks.afterList({ items }, ctx)
 
     expect(find).toHaveBeenCalledTimes(1)
@@ -114,6 +118,38 @@ describe('cart admin list — afterList lineCount enrichment (§10.2 row shape)'
   it('is a no-op for an empty page', async () => {
     const ctx = { container: { resolve: () => undefined } }
     await expect(opts.hooks.afterList({ items: [] }, ctx)).resolves.toBeUndefined()
+  })
+
+  // #8268 review Medium 10: a multi-org caller (no single `selectedOrganizationId`) listing
+  // carts across SEVERAL organizations used to filter every row's `CartLine` count by one
+  // top-level organization, so every cart outside that one org read back as `lineCount: 0`.
+  // Each row carries its OWN `organizationId` — the count must be grouped by that.
+  it('groups the line count by each row\'s OWN organizationId for a multi-org caller', async () => {
+    const find = jest.fn(async (entity: unknown, where: { organizationId: string }) => {
+      if (entity !== CartLine) return []
+      if (where.organizationId === 'org-1') return [{ cartId: 'cart-1', deletedAt: null }]
+      if (where.organizationId === 'org-2') return [
+        { cartId: 'cart-2', deletedAt: null },
+        { cartId: 'cart-2', deletedAt: null },
+      ]
+      return []
+    })
+    const em = { fork: jest.fn(() => ({ find })) } as unknown as EntityManager
+    // No `selectedOrganizationId` at all — the multi-org "all my orgs" view this finding
+    // was about.
+    const ctx = { container: { resolve: (name: string) => (name === 'em' ? em : undefined) }, auth: { tenantId: 'tenant-1' } }
+
+    const items: Array<Record<string, unknown>> = [
+      { id: 'cart-1', organizationId: 'org-1' },
+      { id: 'cart-2', organizationId: 'org-2' },
+    ]
+    await opts.hooks.afterList({ items }, ctx)
+
+    expect(find).toHaveBeenCalledTimes(2)
+    expect(find).toHaveBeenCalledWith(CartLine, { cartId: { $in: ['cart-1'] }, deletedAt: null, organizationId: 'org-1', tenantId: 'tenant-1' })
+    expect(find).toHaveBeenCalledWith(CartLine, { cartId: { $in: ['cart-2'] }, deletedAt: null, organizationId: 'org-2', tenantId: 'tenant-1' })
+    expect(items[0].lineCount).toBe(1)
+    expect(items[1].lineCount).toBe(2)
   })
 })
 

@@ -560,29 +560,58 @@ const withdrawProposalCommand: CommandHandler<AssistedSellingProposalWithdrawInp
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     // §6.4: withdraw MUST invoke `cart.proposal.reject` in the same logical action, before
     // the local status is written — never only the local row.
-    await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
+    const { result: rejectResult } = await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
       CART_PROPOSAL_REJECT_COMMAND_ID,
       { input: { proposalCartId: proposal.proposalCartId, tenantId: proposal.tenantId, organizationId: proposal.organizationId, rejectedBy: 'author' }, ctx },
     )
+    // #8268 review Major 3: the nested cart-level call above is itself a proper CAS
+    // (`cart/commands/proposal.ts#rejectProposalCommand`, per-proposal advisory lock +
+    // conditional update) — exactly one concurrent caller on the same proposal ever gets
+    // `alreadyResolved: false`. The OLD code discarded this result and unconditionally wrote
+    // `withdrawn` + decremented regardless: two concurrent withdrawals could both decrement
+    // (one of them twice-over), and if a concurrent accept won instead (`status: 'merged'`),
+    // this command clobbered the local row to `withdrawn` over an order that actually
+    // received the proposal — leaving `cart-proposal-accepted.ts`'s own terminal-state
+    // subscriber to find the row already non-`published` and silently skip finalizing it
+    // (`lib/terminalStateSubscriber.ts`'s own idempotency guard). Never proceed past a
+    // `alreadyResolved: true` result; matches `reauthorProposalCommand`'s own convention for
+    // the identical nested-reject call just below in this file.
+    if (rejectResult.alreadyResolved) {
+      throw new CrudHttpError(409, {
+        error: '[internal] proposal_already_resolved',
+        code: 'proposal_already_resolved',
+        status: rejectResult.status,
+      })
+    }
 
     const now = new Date()
-    proposal.status = 'withdrawn'
-    proposal.resolvedAt = now
-    // Step 4.4-fix (§6.4/§6.6): an author-initiated ending owns its own `live_proposal_count`
-    // decrement, synchronously, in THIS transaction — never left to the async terminal-state
-    // subscriber on `cart.proposal.rejected` (`lib/terminalStateSubscriber.ts`), which skips
-    // every `rejectedBy: 'author'` payload for exactly this reason (see that file's own
-    // header comment for why relying on event-delivery ordering between two commands is not
-    // safe here). The decrement is an atomic SQL update (review finding), not an in-memory
-    // read-modify-write — it only needs the thread's id, so this never has to load the row.
+    // CAS the local transition too (defense in depth, same pattern as the sibling
+    // `withdrawRejectedOldProposal` helper below) — only the caller that actually flips
+    // `published -> withdrawn` owns the decrement.
+    let claimed = 0
     await withAtomicFlush(
       em,
       [
         async () => {
-          em.persist(proposal)
+          claimed = await em.nativeUpdate(
+            AssistedSellingProposal,
+            { id: proposal.id, tenantId: proposal.tenantId, organizationId: proposal.organizationId, status: 'published' },
+            { status: 'withdrawn' as const, resolvedAt: now, updatedAt: now },
+          )
+          if (claimed > 0) {
+            proposal.status = 'withdrawn'
+            proposal.resolvedAt = now
+          }
         },
         async () => {
-          await applyLiveProposalCountDelta(em, { id: proposal.threadId }, -1)
+          // Step 4.4-fix (§6.4/§6.6): an author-initiated ending owns its own
+          // `live_proposal_count` decrement, synchronously, in THIS transaction — never left
+          // to the async terminal-state subscriber on `cart.proposal.rejected`
+          // (`lib/terminalStateSubscriber.ts`), which skips every `rejectedBy: 'author'`
+          // payload for exactly this reason. The decrement is an atomic SQL update, not an
+          // in-memory read-modify-write — it only needs the thread's id, so this never has to
+          // load the row. Only the winner of the CAS above decrements.
+          if (claimed > 0) await applyLiveProposalCountDelta(em, { id: proposal.threadId }, -1)
         },
       ],
       { transaction: true, label: 'assisted_selling.proposal.withdraw' },

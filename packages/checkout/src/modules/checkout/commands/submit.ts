@@ -1053,30 +1053,48 @@ async function resolveSalesOrderStatusEntryId(
 // `sales.payment_status` instead — needed so a gateway-captured session can record a
 // `SalesPayment` with a real status (#8423: a gateway-paid order never got a payment row at
 // all, so it showed nothing paid).
-async function findRecordedGatewayPaymentId(
+async function findRecordedGatewayPayment(
   em: EntityManager,
   scope: SubmitScope,
   orderId: string,
   paymentReference: string,
-): Promise<string | null> {
+): Promise<{ id: string; capturedAmount: string } | null> {
   const row = await em
     .getKysely<{
-      sales_payments: { id: string; tenant_id: string; organization_id: string; order_id: string; payment_reference: string | null; deleted_at: Date | null }
+      sales_payments: {
+        id: string
+        tenant_id: string
+        organization_id: string
+        order_id: string
+        payment_reference: string | null
+        captured_amount: string
+        deleted_at: Date | null
+      }
     }>()
     .selectFrom('sales_payments')
-    .select(['id'])
+    .select(['id', 'captured_amount'])
     .where('tenant_id', '=', scope.tenantId)
     .where('organization_id', '=', scope.organizationId)
     .where('order_id', '=', orderId)
     .where('payment_reference', '=', paymentReference)
     .where('deleted_at', 'is', null)
     .executeTakeFirst()
-  return row?.id ?? null
+  return row ? { id: row.id, capturedAmount: row.captured_amount } : null
 }
 
 const GATEWAY_PAYMENT_RECORD_ATTEMPTS = 3
 
-async function recordGatewayPayment(
+// #8268 review Medium 7/Major 5: `recordGatewayPayment` runs AFTER the checkout session
+// (and, in the synchronous path, the order confirmation) already committed, so exhausting
+// its own immediate retries used to just log/report and permanently leave a paid order
+// with no `SalesPayment` — nothing ever retried it again. This repair worker closes that
+// gap durably: it re-derives the SAME `GatewayPaymentRecord` straight from each completed
+// order-outcome session's own `CheckoutTransaction` row (the durable source of truth —
+// amount, currency, gateway reference, capture state all already persisted there, so no
+// new column/queue payload is needed) and calls this exact function again, which is safe
+// to call any number of times — `findRecordedGatewayPayment` makes it a no-op the moment a
+// matching payment exists.
+export async function recordGatewayPayment(
   container: CommandRuntimeContext['container'],
   em: EntityManager,
   session: CheckoutSession,
@@ -1089,11 +1107,33 @@ async function recordGatewayPayment(
   let lastError: unknown = null
   for (let attemptIndex = 0; attemptIndex < GATEWAY_PAYMENT_RECORD_ATTEMPTS; attemptIndex += 1) {
     try {
-      if (gatewayPayment.paymentReference) {
-        const existing = await findRecordedGatewayPaymentId(em, scope, orderId, gatewayPayment.paymentReference)
-        if (existing) return
-      }
       const captured = gatewayPayment.captured !== false
+      if (gatewayPayment.paymentReference) {
+        const existing = await findRecordedGatewayPayment(em, scope, orderId, gatewayPayment.paymentReference)
+        if (existing) {
+          // #8268 review Major 5: a synchronous `authorized` session correctly created an
+          // UNCAPTURED payment here, then completed the checkout session. A later
+          // `captured` webhook resumes through this SAME function (via the repair worker
+          // or a direct call site), finds this existing-but-uncaptured row and must
+          // reconcile the capture onto it — the checkout session is already terminal by
+          // then, so nothing else will ever record the captured amount.
+          if (captured && Number(existing.capturedAmount) <= 0) {
+            const capturedStatusEntryId = await resolveSalesPaymentStatusEntryId(em, scope, 'captured')
+            await commandBus.execute('sales.payments.update', {
+              input: {
+                id: existing.id,
+                tenantId: scope.tenantId,
+                organizationId: scope.organizationId,
+                capturedAmount: gatewayPayment.amount,
+                capturedAt: new Date(),
+                statusEntryId: capturedStatusEntryId ?? undefined,
+              },
+              ctx: trustedCtx,
+            })
+          }
+          return
+        }
+      }
       const statusEntryId = await resolveSalesPaymentStatusEntryId(em, scope, captured ? 'captured' : 'authorized')
       await commandBus.execute('sales.payments.create', {
         input: {
@@ -1767,8 +1807,16 @@ export async function continueOrderOutcome(
   // still pay). `cart.lock`'s own TTL bounds (`commands/lock.ts`) are `[60_000,
   // 86_400_000]` — clamped here rather than imported, since checkout has no business
   // depending on cart's internal constants.
+  //
+  // #8268 review Major 6 / spec R11 (§6): the lock must extend to `payment expiry + 15
+  // min`, not bare expiry — `expire-awaiting-payment` sweeps every 5 min, so without the
+  // margin the cart's own lock can lapse (making it editable/reusable) BEFORE that sweep
+  // ever gets a chance to resolve an awaiting-payment session that just expired.
   if (cartService) {
-    const correctedLockTtlMs = Math.min(Math.max(paymentExpiresAt.getTime() - Date.now(), 60_000), 86_400_000)
+    const correctedLockTtlMs = Math.min(
+      Math.max(paymentExpiresAt.getTime() + 15 * 60 * 1000 - Date.now(), 60_000),
+      86_400_000,
+    )
     await cartService.lock({
       cartId: session.cartId,
       tenantId: scope.tenantId,
@@ -1791,6 +1839,36 @@ export async function continueOrderOutcome(
     },
   )
   if (awaitingPaymentAffected === 0) {
+    // #8268 review Medium 8: this CAS losing means a concurrent recovery (e.g.
+    // `recover-stuck-submits` giving up and cancelling the order) already moved the
+    // session past `submitting` while THIS call's own gateway session creation was still
+    // in flight. Nothing else ever cancels that just-created provider session — left
+    // alone it stays live and payable against an order that may already be cancelled. Void
+    // it now; if the provider already captured it in the race window, reconcile the money
+    // onto the order instead of silently losing track of it (never swallow a real charge).
+    try {
+      await paymentGatewayService.cancelPayment(transaction.id, 'checkout_submit_recovered', scope)
+    } catch (err) {
+      if (sessionResult.transaction.unifiedStatus === 'captured') {
+        logger.error('[internal] checkout submit: a recovered submit\'s gateway session was already captured — recording the payment for manual refund review', { err, sessionId: session.id, orderId })
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'checkout',
+          code: 'checkout.recovered_submit_capture_requires_manual_review',
+        })
+        await recordGatewayPayment(container, em, session, scope, orderId, {
+          amount: transaction.amount,
+          currencyCode: transaction.currencyCode,
+          paymentReference: sessionResult.transaction.gatewayPaymentId ?? sessionResult.transaction.id,
+          captured: true,
+        })
+      } else {
+        logger.error('[internal] checkout submit: failed to cancel a recovered submit\'s gateway session', { err, sessionId: session.id, orderId })
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'checkout',
+          code: 'checkout.recovered_submit_cancel_failed',
+        })
+      }
+    }
     if (cartService) {
       await cartService
         .unlock({ cartId: session.cartId, tenantId: scope.tenantId, organizationId: scope.organizationId, checkoutSessionId: session.id })
