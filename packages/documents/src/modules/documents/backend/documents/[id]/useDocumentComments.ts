@@ -41,7 +41,7 @@ type GrantAccessDecision = 'share' | 'skip' | 'cancel'
 
 type GrantAccessResolution =
   | { cancelled: true }
-  | { cancelled: false; grantAccessTo?: string[] }
+  | { cancelled: false; grantAccessTo?: string[]; hasUnnotifiedMentions?: boolean }
 
 export function useDocumentComments({ documentId, editor, canComment, canShare }: UseDocumentCommentsInput) {
   const t = useT()
@@ -185,22 +185,29 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
     )
     if (!isCurrentSubmission()) return { cancelled: true }
     if (!call.ok) throw new Error(t('documents.comments.error.save'))
-    const withoutAccess = readWithoutAccess(call.result)
+    const withoutAccess = readWithoutAccess(call.result).filter((user) => userIds.includes(user.userId))
     if (withoutAccess.length === 0) return { cancelled: false }
-    if (!canShare) {
-      flash(t('documents.comments.grant.noAccessInfo'), 'info')
-      return { cancelled: false, grantAccessTo: [] }
+    const response = readRecord(call.result)
+    const shareableUserIds = new Set(
+      Array.isArray(response?.shareableUserIds)
+        ? response.shareableUserIds.filter((value): value is string => typeof value === 'string').map((value) => value.toLowerCase())
+        : [],
+    )
+    const shareableUsers = withoutAccess.filter((user) => shareableUserIds.has(user.userId))
+    if (!canShare || shareableUsers.length === 0) {
+      return { cancelled: false, grantAccessTo: [], hasUnnotifiedMentions: true }
     }
     const pendingMentionNames = new Map(
       activePendingMentions.map((mention) => [mention.userId.toLowerCase(), mention.name]),
     )
-    const decision = await requestGrantAccess(withoutAccess.map((user) => (
+    const decision = await requestGrantAccess(shareableUsers.map((user) => (
       pendingMentionNames.get(user.userId) ?? user.label ?? labelFor(user.userId)
     )))
     if (decision === 'cancel' || !isCurrentSubmission()) return { cancelled: true }
     return {
       cancelled: false,
-      grantAccessTo: decision === 'share' ? withoutAccess.map((user) => user.userId) : [],
+      grantAccessTo: decision === 'share' ? shareableUsers.map((user) => user.userId) : [],
+      hasUnnotifiedMentions: decision === 'skip' || shareableUsers.length < withoutAccess.length,
     }
   }, [activePendingMentions, canShare, documentId, labelFor, requestGrantAccess, t])
 
@@ -237,6 +244,9 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
         mutationPayload: { body: trimmedBody, parentCommentId, mentions },
       })
       if (!isCurrentSubmission()) return
+      if (grantResolution.hasUnnotifiedMentions) {
+        flash(t('documents.comments.grant.noAccessInfo'), 'info')
+      }
       resetComposer()
       await reload()
     } catch (error) {
