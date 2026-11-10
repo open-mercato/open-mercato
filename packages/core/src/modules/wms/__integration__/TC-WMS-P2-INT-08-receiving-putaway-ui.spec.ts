@@ -235,8 +235,6 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
     page,
     request,
   }) => {
-    test.slow()
-
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
     const scope = getTokenScope(adminToken)
@@ -511,8 +509,6 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
     page,
     request,
   }) => {
-    test.slow()
-
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
     const scope = getTokenScope(adminToken)
