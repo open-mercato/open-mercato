@@ -19,6 +19,7 @@ import {
   sanitizeSchedulerTargetPayload,
   validateSchedulerTargetPayload,
 } from '../lib/safeQueueTargets'
+import { syncScheduleNextRunAt, type ScheduleTimingSnapshot } from '../lib/nextRunSync.js'
 
 const logger = createLogger('scheduler').child({ component: 'worker' })
 
@@ -69,10 +70,33 @@ type RbacServiceLike = {
  * - Checking feature flags and conditions
  * - Enqueuing target job or executing command
  * - Updating last run time
+ * - Mirroring BullMQ's next fire time into nextRunAt once the run is over
  */
 export default async function executeScheduleWorker(
   job: QueuedJob<ExecuteSchedulePayload>,
   ctx: JobContext & HandlerContext,
+): Promise<void> {
+  const execution: ScheduleExecution = { timing: null }
+  try {
+    await executeSchedule(job, ctx, execution)
+  } finally {
+    // Runs on every outcome of a started execution — completed, skipped,
+    // refused or thrown — because BullMQ has consumed the slot either way.
+    // A job rejected before it started (unknown, mismatched or disabled
+    // schedule) never sets the timing and is left alone.
+    const { timing } = execution
+    if (timing) {
+      await syncScheduleNextRunAt(() => ctx.resolve<EntityManager>('em'), timing)
+    }
+  }
+}
+
+type ScheduleExecution = { timing: ScheduleTimingSnapshot | null }
+
+async function executeSchedule(
+  job: QueuedJob<ExecuteSchedulePayload>,
+  ctx: JobContext & HandlerContext,
+  execution: ScheduleExecution,
 ): Promise<void> {
   logger.debug('Processing job', {
     jobId: ctx.jobId,
@@ -142,6 +166,17 @@ export default async function executeScheduleWorker(
       reason: 'Schedule is disabled',
     })
     return
+  }
+
+  // Captured before the target runs: the sync that follows the run must compare
+  // against the timing this execution loaded, not whatever the entity holds later.
+  execution.timing = {
+    scheduleId: schedule.id,
+    tenantId: schedule.tenantId ?? null,
+    organizationId: schedule.organizationId ?? null,
+    scheduleType: schedule.scheduleType,
+    scheduleValue: schedule.scheduleValue,
+    timezone: schedule.timezone,
   }
 
   // Emit started event

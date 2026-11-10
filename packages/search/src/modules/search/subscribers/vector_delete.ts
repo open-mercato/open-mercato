@@ -1,4 +1,4 @@
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { loadEntityRecordScope } from '@open-mercato/shared/lib/db/recordScope'
 import type { Queue } from '@open-mercato/queue'
 import type { VectorIndexJobPayload } from '../../../queue/vector-indexing'
 import { resolveAutoIndexingEnabled } from '../lib/auto-indexing'
@@ -33,15 +33,10 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
 
   if ((organizationId == null || tenantId == null) && em) {
     try {
-      const db = em.getKysely()
-      const table = resolveEntityTableName(em, entityType)
-      const row = await db
-        .selectFrom(table as any)
-        .select(['organization_id' as any, 'tenant_id' as any])
-        .where('id' as any, '=', recordId)
-        .executeTakeFirst() as { organization_id?: string | null; tenant_id?: string | null } | undefined
-      if (organizationId == null) organizationId = row?.organization_id ?? organizationId
-      if (tenantId == null) tenantId = row?.tenant_id ?? tenantId
+      const lookupEm = typeof em.fork === 'function' ? em.fork() : em
+      const scope = await loadEntityRecordScope(lookupEm, entityType, recordId)
+      if (organizationId == null) organizationId = scope?.organizationId ?? organizationId
+      if (tenantId == null) tenantId = scope?.tenantId ?? tenantId
     } catch {
       // Ignore lookup errors
     }

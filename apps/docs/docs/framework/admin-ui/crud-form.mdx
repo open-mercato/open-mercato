@@ -47,6 +47,7 @@ const fields: CrudField[] = [
 - `onDelete()`: Optional delete handler; when provided, a Delete button appears at the top and bottom of the form.
 - `twoColumn`: When `true`, uses a two-column grid on desktop. Prefer `groups` for richer two-column layouts.
 - `groups`: Optional grouped layout rendered as two responsive columns (1 on mobile). Each group can target column 1 or 2, have a title, own field list, and embed a custom component. A special `kind: 'customFields'` group renders module-defined custom fields for the `entityId`.
+- `hiddenGroupIds`: Optional list of `CrudFormGroup.id` values to omit, so a host can drop built-in cards without rebuilding `groups`. Presentation-only — see [Hiding groups by id](#hiding-groups-by-id).
 - `title`: Header title (shown on all breakpoints).
 - `backHref`: Back link URL in the header.
 
@@ -122,6 +123,36 @@ Behavior:
 - `kind: 'customFields'` includes the module-defined custom fields and respects an optional group `title`.
 - `component` lets you inject custom React content into the group (e.g., action buttons, previews).
 
+## Hiding groups by id
+
+To render a built-in form without some of its cards, pass `hiddenGroupIds` instead of copying the page or rebuilding the `groups` array:
+
+```tsx
+<CrudForm
+  fields={createCompanyFormFields(t)}
+  groups={createCompanyFormGroups(t)}
+  hiddenGroupIds={['profile', 'customFields']}
+  onSubmit={handleSubmit}
+/>
+```
+
+Behavior:
+- Groups are matched on their stable `CrudFormGroup.id`. Injected widget cards use the id `widget:<widgetId>`.
+- Hidden groups reserve no column space and contribute no header, sortable entry, collapsible state, or validation focus target. Hiding the only column-2 group collapses the layout to a single column.
+- Ids that match no declared group are ignored (with a development-mode warning), so a stale id after a rename never breaks the page.
+- A user's saved group order survives hiding: a hidden group keeps its stored position and returns to it once the group is shown again.
+- Omitting the prop — or passing an empty array — preserves existing rendering and submission behavior exactly.
+
+:::caution Hiding is presentation-only
+Fields that live only in a hidden group **keep their values and are still submitted unchanged**, so hiding a group can never clear the underlying columns. A `required` field that lives only in a hidden group is skipped by the built-in required check (the same way `visibleWhen` works), but a host-supplied Zod `schema` is **not** bypassed — do not hide a group whose fields the schema requires unless defaults supply them.
+:::
+
+:::caution Hiding a widget card does not disable the widget
+An injected widget's handlers belong to the injection spot, not to its card. Hiding a `widget:<widgetId>` group therefore removes the card while `onBeforeSave` and `transformFormData` keep running, and the widget's fields stay required — so a validation failure can block save with nothing on screen to fix. Do not hide a widget group that gates saving; disable the widget instead.
+:::
+
+Because hosts address groups by id, a built-in group's `id` is a contract surface: see [`BACKWARD_COMPATIBILITY.md`](https://github.com/open-mercato/open-mercato/blob/main/BACKWARD_COMPATIBILITY.md) before renaming one, and pin a builder's ids with a guard test.
+
 ## Mobile UX
 - On small screens the form is fullscreen with a sticky header that shows the `title` and a `backHref` link.
 - On desktop it renders as a standard card with border and padding.
@@ -148,6 +179,21 @@ validation: [
 ## Notes
 - Keep field validation in Zod; mark `required: true` for labels only (the schema drives actual validation).
 - Prefer simple value shapes for portability (e.g., tags as `string[]`, relations as a single foreign key `string`).
+
+## Custom field text
+
+Stored custom-field labels, descriptions, fieldset labels, and group text render literally by default. A form can opt into translation with `resolveCustomFieldText?: (text: string, context: { entityId: string; path: string }) => string`. The callback changes display text only; definition keys and submitted values stay unchanged.
+
+The context identifies the owning entity and metadata location:
+
+| Metadata | Path |
+| --- | --- |
+| Field label or description | `fields.<fieldKey>.label` / `fields.<fieldKey>.description` |
+| Field group title or hint | `fields.<fieldKey>.group.title` / `fields.<fieldKey>.group.hint` |
+| Fieldset label or description | `fieldsets.<fieldsetCode>.label` / `fieldsets.<fieldsetCode>.description` |
+| Fieldset group title or hint | `fieldsets.<fieldsetCode>.groups.<groupCode>.title` / `fieldsets.<fieldsetCode>.groups.<groupCode>.hint` |
+
+Keep module-specific defaults and namespaced translation keys in the owning module. Translate only recognized metadata whose stored text still matches its seeded default, return customized or unknown text unchanged, and pass the stored text as the translator fallback. Memoize the resolver with the current translator as a dependency so locale changes update the same mounted form.
 
 ## Custom Fields → Editors and Inputs
 When `entityId` is provided, custom fields are fetched from `/api/entities/definitions` and rendered automatically:

@@ -154,7 +154,7 @@ const executionsQuerySchema = z.object({
 // Response schemas
 const executionItemSchema = z.object({
   id: z.string(),
-  scheduleId: z.string().uuid(),
+  scheduleId: z.guid(),
   startedAt: z.string(),
   finishedAt: z.string().nullable(),
   status: z.enum(['running', 'completed', 'failed', 'waiting']),

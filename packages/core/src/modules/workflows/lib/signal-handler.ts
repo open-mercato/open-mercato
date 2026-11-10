@@ -4,17 +4,26 @@
  * Receives external signals and resumes workflows waiting for them.
  */
 
-import { EntityManager } from '@mikro-orm/core'
+import { EntityManager, raw } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WorkflowInstance, WorkflowBranchInstance, WorkflowDefinition, StepInstance } from '../data/entities'
+import { INVOKE_AGENT_SIGNAL_NAME, SUB_WORKFLOW_SIGNAL_NAME } from './activity-executor'
 import type * as eventLoggerModule from './event-logger'
 import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
 import { resolveCodeDefinitionForInstance } from './find-definition'
+import {
+  WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY,
+  buildAgentOutcomeContextEntry,
+  mapDispositionToAgentOutcome,
+  type AgentOutcomeKind,
+} from './outcome-routing'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('workflows')
 
@@ -34,10 +43,33 @@ export interface SendSignalOptions {
    */
   payload?: Record<string, any>
 
+  /** Engine-owned outcome metadata kept separate from author-visible mappings. */
+  agentOutcome?: AgentOutcomeKind
+
+  /** Proposal identifier associated with `agentOutcome`, when present. */
+  agentProposalId?: string
+
   /**
    * User ID sending the signal
    */
   userId?: string
+
+  /**
+   * Step the caller observed the instance waiting on. When set, the signal is
+   * refused with `WORKFLOW_NOT_PAUSED` unless the instance is still parked on
+   * exactly this step, so a delivery addressed to one wait can never consume a
+   * later wait the instance has since parked on.
+   */
+  expectedStepId?: string
+
+  /**
+   * `waitVersion` the caller observed while the instance was parked. Identifies
+   * the OCCURRENCE of the wait, not just its step: every park and every claim
+   * increments `waitVersion` in SQL, so a delivery addressed to one occurrence
+   * is refused with `WORKFLOW_NOT_PAUSED` once the instance has looped back and
+   * parked on the same step again.
+   */
+  expectedWaitVersion?: number
 
   /**
    * Tenant/org scope
@@ -65,7 +97,18 @@ export async function sendSignal(
   container: AwilixContainer,
   options: SendSignalOptions
 ): Promise<void> {
-  const { instanceId, signalName, payload, userId, tenantId, organizationId } = options
+  const {
+    instanceId,
+    signalName,
+    payload,
+    agentOutcome,
+    agentProposalId,
+    expectedStepId,
+    expectedWaitVersion,
+    userId,
+    tenantId,
+    organizationId,
+  } = options
 
   const eventLogger = container.resolve<typeof eventLoggerModule>('eventLogger')
   const stepHandler = container.resolve<typeof stepHandlerModule>('stepHandler')
@@ -173,6 +216,23 @@ export async function sendSignal(
     )
   }
 
+  if (expectedStepId !== undefined && instance.currentStepId !== expectedStepId) {
+    throw new SignalError(
+      'Workflow is not paused',
+      'WORKFLOW_NOT_PAUSED',
+      { instanceId, reason: 'step_changed', expectedStepId, currentStepId: instance.currentStepId }
+    )
+  }
+
+  const observedWaitVersion = expectedWaitVersion ?? instance.waitVersion
+  if (expectedWaitVersion !== undefined && instance.waitVersion !== expectedWaitVersion) {
+    throw new SignalError(
+      'Workflow is not paused',
+      'WORKFLOW_NOT_PAUSED',
+      { instanceId, reason: 'wait_changed', currentStepId: instance.currentStepId }
+    )
+  }
+
   // Load workflow definition with tenant/org scope to check current step
   const definition = (await findOneWithDecryption(
     em as PostgreSqlEntityManager,
@@ -199,7 +259,32 @@ export async function sendSignal(
     (s: any) => s.stepId === instance.currentStepId
   )
 
-  if (!currentStep || currentStep.stepType !== 'WAIT_FOR_SIGNAL') {
+  // A dedicated WAIT_FOR_SIGNAL step — OR any step that parked while declaring a
+  // `signalConfig.signalName` (e.g. an AUTOMATED step whose INVOKE_AGENT activity
+  // routed its proposal to a human) — can be resumed by a matching signal. The
+  // resume path below (merge payload → exit step → run auto transitions) is
+  // step-type-agnostic, so widening this guard is additive and safe.
+  //
+  // INVOKE_AGENT steps run their agent asynchronously (off the workflow
+  // transaction) and park on `agent_orchestrator.proposal.ready`; recognize them
+  // even when the definition omits an explicit `signalConfig.signalName` (e.g.
+  // seeded blueprints not re-saved through the visual editor) so the activity
+  // worker can resume them after the agent completes.
+  const isInvokeAgentStep =
+    !!currentStep &&
+    Array.isArray(currentStep.activities) &&
+    currentStep.activities.some((a: any) => a?.activityType === 'INVOKE_AGENT')
+  // SUB_WORKFLOW steps park while their child instance runs its own async/agent
+  // steps and resume on SUB_WORKFLOW_SIGNAL_NAME once the child terminates;
+  // recognize them even without an explicit signalConfig.signalName.
+  const isSubWorkflowStep = !!currentStep && currentStep.stepType === 'SUB_WORKFLOW'
+  const stepCanReceiveSignal =
+    !!currentStep &&
+    (currentStep.stepType === 'WAIT_FOR_SIGNAL' ||
+      !!currentStep.signalConfig?.signalName ||
+      isInvokeAgentStep ||
+      isSubWorkflowStep)
+  if (!stepCanReceiveSignal) {
     throw new SignalError(
       'Workflow is not waiting for signal',
       'NOT_WAITING_FOR_SIGNAL',
@@ -208,7 +293,13 @@ export async function sendSignal(
   }
 
   // Check signal name matches
-  const expectedSignalName = currentStep.signalConfig?.signalName || currentStep.stepId
+  const expectedSignalName =
+    currentStep.signalConfig?.signalName ||
+    (isInvokeAgentStep
+      ? INVOKE_AGENT_SIGNAL_NAME
+      : isSubWorkflowStep
+        ? SUB_WORKFLOW_SIGNAL_NAME
+        : currentStep.stepId)
   if (expectedSignalName !== signalName) {
     throw new SignalError(
       'Signal name mismatch',
@@ -219,30 +310,99 @@ export async function sendSignal(
 
   const now = new Date()
 
-  // Merge signal payload into workflow context
-  if (payload) {
-    instance.context = {
-      ...instance.context,
-      ...payload,
-      [`signal_${signalName}_payload`]: payload,
-      [`signal_${signalName}_receivedAt`]: now.toISOString(),
-    }
-  }
-
-  instance.updatedAt = now
-
-  // Log signal received event
-  await eventLogger.logWorkflowEvent(em, {
-    workflowInstanceId: instance.id,
-    eventType: 'SIGNAL_RECEIVED',
-    eventData: {
-      signalName,
-      payload,
+  // Claim the wait before mutating anything (#7185). Every check above reads a
+  // snapshot, so concurrent deliveries of the same signal all pass it; only the
+  // conditional UPDATE is atomic, and exactly one delivery wins it. Pinning the
+  // validated `currentStepId` stops a stale delivery from consuming a LATER wait
+  // the winner has since parked on, and pinning the observed `waitVersion` stops
+  // it from consuming a later occurrence of the SAME wait once a loop brings the
+  // instance back to it: the claim increments `waitVersion` in SQL and every
+  // re-park increments it again, whatever the wall clock says. Losers surface as
+  // WORKFLOW_NOT_PAUSED, which the instance signal route already maps to 409.
+  const claimed = await em.nativeUpdate(
+    WorkflowInstance,
+    {
+      id: instance.id,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+      status: 'PAUSED',
+      currentStepId: instance.currentStepId,
+      waitVersion: observedWaitVersion,
     },
-    userId,
-    tenantId: instance.tenantId,
-    organizationId: instance.organizationId,
-  })
+    { status: 'RUNNING', updatedAt: now, waitVersion: raw('wait_version + 1') },
+  )
+  if (claimed === 0) {
+    throw new SignalError(
+      'Workflow is not paused',
+      'WORKFLOW_NOT_PAUSED',
+      { instanceId, reason: 'claimed_by_concurrent_delivery' }
+    )
+  }
+  const claimedStepId = instance.currentStepId
+  const preClaimContext = instance.context
+  const preClaimUpdatedAt = instance.updatedAt
+  // Mirror the claimed row onto the identity-mapped entity so later flushes
+  // cannot write the pre-claim status back.
+  instance.status = 'RUNNING'
+
+  try {
+    // Merge signal payload into workflow context
+    if (payload) {
+      instance.context = {
+        ...instance.context,
+        ...payload,
+        [`signal_${signalName}_payload`]: payload,
+        [`signal_${signalName}_receivedAt`]: now.toISOString(),
+      }
+    }
+
+    // Outcome routing (spec 7.2). The signal is how EVERY resolved disposition
+    // reaches a parked agent step — the activity worker's auto_approved and
+    // researcher resumes and the human dispose path alike — so this is the one
+    // place the disposition has to be translated into the engine-owned outcome
+    // marker the executor routes on. Recorded regardless of who sent the signal;
+    // the author-visible `disposition` key stays untouched and unread by routing.
+    if (isInvokeAgentStep && instance.currentStepId) {
+      const resolvedOutcome = agentOutcome ?? mapDispositionToAgentOutcome(
+        (payload as Record<string, unknown> | undefined)?.disposition,
+      )
+      if (resolvedOutcome) {
+        const proposalId = agentProposalId
+          ?? (payload as Record<string, unknown> | undefined)?.agentProposalId
+          ?? (payload as Record<string, unknown> | undefined)?.proposalId
+        instance.context = {
+          ...instance.context,
+          [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry(
+            instance.currentStepId,
+            resolvedOutcome,
+            typeof proposalId === 'string' ? proposalId : undefined,
+          ),
+        }
+      }
+    }
+
+    instance.updatedAt = now
+
+    // Log signal received event. Its flush is the first write of this delivery
+    // to commit (the payload, the outcome marker and the event land together).
+    await eventLogger.logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      eventType: 'SIGNAL_RECEIVED',
+      eventData: {
+        signalName,
+        payload,
+      },
+      userId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+  } catch (error) {
+    // The claim committed on its own but nothing else of this delivery did, so
+    // hand the wait back: otherwise every retry would be refused as a duplicate
+    // of a delivery that never landed and the signal would be lost.
+    await releaseSignalClaim(em, instance, claimedStepId, preClaimContext, preClaimUpdatedAt)
+    throw error
+  }
 
   // Find active step instance and exit it
   const stepInstance = await findOneWithDecryption(
@@ -264,6 +424,49 @@ export async function sendSignal(
       signalName,
       payload,
     })
+  }
+
+  // Outcome routing (spec 7.2). A resumed agent step is advanced HERE, not by
+  // the executor loop, so the wired outcome route has to be honoured here too —
+  // routing it in only one of the two places would silently send every
+  // human-dispositioned proposal down the happy path.
+  //
+  // Resume from the paused wait BEFORE dispatching, exactly as the ordinary
+  // resume path below does. On this path the instance is PAUSED by definition —
+  // it is parked on the very signal being delivered — and two things depended on
+  // that being cleared first: the executor's defence-in-depth PAUSED guard stops
+  // a routed run at its first step, and `instance.status === 'PAUSED'` below
+  // could never mean "this dispatch parked the run" while the pre-existing pause
+  // was still set. Every routed outcome therefore returned early and the run sat
+  // on its route target, PAUSED, forever (TC-WF-051, TC-WF-052).
+  instance.status = 'RUNNING'
+  await em.flush()
+
+  // Imported lazily rather than read off the DI-resolved executor: the resolved
+  // service is the module, and reaching for a named export on it couples this
+  // path to every test double that stubs only the two methods it needed.
+  const { dispatchAgentOutcomeForCurrentStep } = await import('./workflow-executor')
+  const outcomeDispatch = await dispatchAgentOutcomeForCurrentStep(
+    em,
+    container,
+    instance,
+    definition.definition,
+    { workflowContext: instance.context, userId },
+  )
+  if (outcomeDispatch && outcomeDispatch.kind !== 'default') {
+    if (outcomeDispatch.kind === 'failed') {
+      await workflowExecutor.completeWorkflow(em, container, instance.id, 'FAILED', {
+        error: outcomeDispatch.error,
+      })
+      return
+    }
+    if (outcomeDispatch.kind === 'parked') return
+    // `paused` is the dispatch's own report that IT parked the run (a
+    // step-through release, a wait step on the far side of the route).
+    if (outcomeDispatch.paused) return
+    await em.flush()
+    await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
+    return
   }
 
   // Find automatic transitions from current step
@@ -300,6 +503,15 @@ export async function sendSignal(
     return
   }
 
+  // Resume from the paused wait: flip to RUNNING before executing the transition
+  // and re-entering executeWorkflow. Without this the executor's defense-in-depth
+  // PAUSED check stops the run after the first traversed step, so an intermediate
+  // AUTOMATED step (e.g. an emit-event "flag") between the waiting step and END
+  // leaves the instance permanently parked — and any parent sub-workflow waiting on
+  // its completion never resumes. The no-transition branches above already do this.
+  instance.status = 'RUNNING'
+  await em.flush()
+
   // Execute transition to next step
   const transitionResult = await transitionHandler.executeTransition(
     em,
@@ -307,7 +519,7 @@ export async function sendSignal(
     instance,
     instance.currentStepId,
     firstValidTransition.transition.toStepId,
-    transitionContext
+    { ...transitionContext, transitionId: firstValidTransition.transition.transitionId },
   )
 
   if (!transitionResult.success) {
@@ -322,14 +534,88 @@ export async function sendSignal(
   await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
 }
 
+async function releaseSignalClaim(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  claimedStepId: string,
+  preClaimContext: WorkflowInstance['context'],
+  preClaimUpdatedAt: WorkflowInstance['updatedAt'],
+): Promise<void> {
+  instance.status = 'PAUSED'
+  instance.context = preClaimContext
+  instance.updatedAt = preClaimUpdatedAt
+  try {
+    await em.nativeUpdate(
+      WorkflowInstance,
+      {
+        id: instance.id,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+        status: 'RUNNING',
+        currentStepId: claimedStepId,
+      },
+      { status: 'PAUSED', updatedAt: new Date(), waitVersion: raw('wait_version + 1') },
+    )
+  } catch (releaseError) {
+    logger.error('Failed to release signal claim', { instanceId: instance.id, err: releaseError })
+    reportSignalError(releaseError, {
+      code: 'workflows.signal_claim_release_failed',
+      attributes: { instanceId: instance.id, stepId: claimedStepId },
+    })
+  }
+}
+
+// Reporting is best-effort: a throwing telemetry runtime must neither stop a
+// fan-out mid-loop nor replace the delivery error a caller is about to see.
+function reportSignalError(
+  error: unknown,
+  report: { code: string; attributes: Record<string, string | number | boolean | undefined> },
+): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'workflows', ...report })
+  } catch (reportingError) {
+    logger.warn('Failed to report signal error', { code: report.code, err: reportingError })
+  }
+}
+
+export type SendSignalByCorrelationKeyOptions = Omit<SendSignalOptions, 'instanceId'> & { correlationKey: string }
+
+export interface SignalDeliveryFailure {
+  instanceId: string
+  code: string
+  message: string
+}
+
+export interface SendSignalByCorrelationKeyResult {
+  count: number
+  failures: SignalDeliveryFailure[]
+}
+
 /**
  * Send signal by correlation key (finds all waiting instances)
+ *
+ * Returns only the number of instances that were advanced; use
+ * `sendSignalByCorrelationKeyWithResults` to learn which instances failed.
  */
 export async function sendSignalByCorrelationKey(
   em: EntityManager,
   container: AwilixContainer,
-  options: Omit<SendSignalOptions, 'instanceId'> & { correlationKey: string }
+  options: SendSignalByCorrelationKeyOptions
 ): Promise<number> {
+  const { count } = await sendSignalByCorrelationKeyWithResults(em, container, options)
+  return count
+}
+
+/**
+ * Send signal by correlation key and report every per-instance failure, so a
+ * caller can tell which instances were not advanced (including deliveries that
+ * lost the claim to a concurrent one, reported as `WORKFLOW_NOT_PAUSED`).
+ */
+export async function sendSignalByCorrelationKeyWithResults(
+  em: EntityManager,
+  container: AwilixContainer,
+  options: SendSignalByCorrelationKeyOptions
+): Promise<SendSignalByCorrelationKeyResult> {
   const { correlationKey, signalName, payload, userId, tenantId, organizationId } = options
 
   // Find all paused instances with this correlation key
@@ -346,12 +632,26 @@ export async function sendSignalByCorrelationKey(
     { tenantId, organizationId },
   )
 
-  let signalsProcessed = 0
+  // Snapshot the wait each instance was listed on before delivering anything:
+  // re-reads below refresh the identity-mapped entities, and a delivery must
+  // only consume the wait it was addressed to, never a later one a concurrent
+  // fan-out has already advanced the instance onto — nor a later occurrence of
+  // the same wait it has looped back to, which only `waitVersion` tells apart.
+  const targets = instances.map((instance) => ({
+    id: instance.id,
+    currentStepId: instance.currentStepId,
+    waitVersion: instance.waitVersion,
+  }))
 
-  for (const instance of instances) {
+  let signalsProcessed = 0
+  const failures: SignalDeliveryFailure[] = []
+
+  for (const instance of targets) {
     try {
       await sendSignal(em, container, {
         instanceId: instance.id,
+        expectedStepId: instance.currentStepId,
+        expectedWaitVersion: instance.waitVersion,
         signalName,
         payload,
         userId,
@@ -362,8 +662,48 @@ export async function sendSignalByCorrelationKey(
     } catch (error) {
       // Log error but continue processing other instances
       logger.error('Failed to send signal to instance', { instanceId: instance.id, err: error })
+      if (!isExpectedSignalRefusal(error)) {
+        reportSignalError(error, {
+          code: 'workflows.signal_fanout_delivery_failed',
+          attributes: {
+            instanceId: instance.id,
+            stepId: instance.currentStepId,
+            signalName,
+            ...(error instanceof SignalError ? { signalErrorCode: error.code } : {}),
+          },
+        })
+      }
+      // Only a SignalError's message is a deliberate, caller-safe description;
+      // anything else may carry internals and is reported generically.
+      failures.push(
+        error instanceof SignalError
+          ? { instanceId: instance.id, code: error.code, message: error.message }
+          : { instanceId: instance.id, code: SIGNAL_DELIVERY_FAILED_CODE, message: await resolveDeliveryFailedMessage() },
+      )
     }
   }
 
-  return signalsProcessed
+  return { count: signalsProcessed, failures }
+}
+
+export const SIGNAL_DELIVERY_FAILED_CODE = 'SIGNAL_DELIVERY_FAILED'
+
+// Refusals that describe the instance's state at delivery time (a concurrent
+// delivery won, the run moved on). They are outcomes, not faults, so they are
+// returned to the caller without reaching error reporting.
+const EXPECTED_SIGNAL_REFUSAL_CODES = new Set([
+  'INSTANCE_NOT_FOUND',
+  'WORKFLOW_NOT_PAUSED',
+  'NOT_WAITING_FOR_SIGNAL',
+  'SIGNAL_NAME_MISMATCH',
+  'NO_BRANCH_AWAITING_SIGNAL',
+])
+
+function isExpectedSignalRefusal(error: unknown): boolean {
+  return error instanceof SignalError && EXPECTED_SIGNAL_REFUSAL_CODES.has(error.code)
+}
+
+async function resolveDeliveryFailedMessage(): Promise<string> {
+  const { translate } = await resolveTranslations()
+  return translate('workflows.signals.errors.deliveryFailed', 'Failed to deliver signal')
 }

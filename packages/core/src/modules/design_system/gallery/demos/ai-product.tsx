@@ -1,0 +1,188 @@
+import * as React from 'react'
+import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Folder, Mail, Menu, MoreHorizontal, MoreVertical, PanelLeft, Plus, Search, User, X, Zap } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { SearchInput } from '@open-mercato/ui/primitives/search-input'
+import { FieldLabel } from '@open-mercato/ui/primitives/label'
+import { HintText } from '@open-mercato/ui/primitives/hint-text'
+import { KeyIconGlyph } from '@open-mercato/ui/primitives/key-icon'
+import { DigitInput } from '@open-mercato/ui/primitives/digit-input'
+import { CounterInput } from '@open-mercato/ui/primitives/counter-input'
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@open-mercato/ui/primitives/select'
+import { Popover, PopoverTrigger, PopoverContent } from '@open-mercato/ui/primitives/popover'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
+import { SocialButton } from '@open-mercato/ui/primitives/social-button'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Sidebar } from '@open-mercato/ui/primitives/sidebar'
+import { PromptArea } from '@open-mercato/ui/primitives/prompt-area'
+import { FileFormatIcon } from '@open-mercato/ui/primitives/file-format-icon'
+import { aiProductArtwork } from '@open-mercato/ui/assets/ai-product-artwork'
+import promptImage from '../assets/ai-prompt-image.png'
+import avatarPhoto from '../assets/avatar-photo.png'
+import googleIcon from '../assets/select-google.png'
+
+type ButtonProps = React.ComponentProps<typeof Button>
+
+const prefix = 'design_system.gallery.examples.aiProduct.'
+const source = (asset: string | { readonly src: string }) => typeof asset === 'string' ? asset : asset.src
+
+function AiIconButton({ size = 32, tone = 'default', appearance = 'plain', className, children, ...props }: Omit<ButtonProps, 'size'> & { size?: 20 | 24 | 28 | 32; tone?: 'default' | 'error'; appearance?: 'plain' | 'stroke' | 'lighter' }) {
+  const content = React.isValidElement<{ className?: string }>(children) && children.type !== 'img'
+    ? React.cloneElement(children, { className: cn(children.props.className, size === 24 ? 'size-4.5' : 'size-5') })
+    : children
+  return <Button type="button" variant="ghost" size="icon" data-slot="ai-icon-button" data-size={size} data-tone={tone} data-appearance={appearance} className={cn(
+    'shrink-0 p-0',
+    size === 32 ? 'size-8 rounded-md' : size === 28 ? 'size-7 rounded-md' : size === 24 ? 'size-6 rounded-sm' : 'size-5 rounded-sm',
+    appearance !== 'plain' && 'rounded-ai-control',
+    appearance === 'stroke' ? 'bg-background shadow-xs ring-1 ring-inset ring-border' : appearance === 'lighter' ? 'bg-muted' : 'bg-background',
+    tone === 'error' ? 'text-status-error-text hover:bg-status-error-bg hover:text-status-error-text aria-pressed:bg-status-error-bg aria-pressed:text-status-error-text' : 'text-muted-foreground hover:bg-muted hover:text-foreground aria-pressed:bg-muted aria-pressed:text-foreground',
+    appearance !== 'plain' && 'aria-pressed:bg-primary aria-pressed:text-primary-foreground',
+    className,
+  )} {...props}>{content}</Button>
+}
+
+function AiModelSelect({ value, onChange, compact = false, className }: { value: string; onChange: (value: string) => void; compact?: boolean; className?: string }) {
+  const t = useT()
+  return <Select value={value} onValueChange={onChange}><SelectTrigger aria-label={t(`${prefix}model`)} data-slot="ai-model-select" className={cn('h-7 w-auto min-w-19.75 gap-1 rounded-ai-control border-0 bg-muted py-1 pl-2 pr-1 text-sm leading-5 shadow-none hover:bg-accent [&>svg]:size-5', compact && 'h-5 bg-transparent p-0', className)}><SelectValue /></SelectTrigger><SelectContent>{['GPT-4', 'GPT-3.5'].map(model => <SelectItem key={model} value={model}>{model}</SelectItem>)}</SelectContent></Select>
+}
+
+type PromptAttachment = { id: string; name: string; image?: string; objectUrl?: boolean }
+
+export function AiPromptExample({ compact = false, attachment = 'none' }: { compact?: boolean; attachment?: 'none' | 'file' | 'image' }) {
+  const t = useT()
+  const [value, setValue] = React.useState('')
+  const [model, setModel] = React.useState('GPT-4')
+  const [lastPrompt, setLastPrompt] = React.useState('')
+  const [files, setFiles] = React.useState<PromptAttachment[]>(attachment === 'none' ? [] : [{ id: 'source', name: t(`${prefix}${attachment === 'image' ? 'imageName' : 'fileName'}`), image: attachment === 'image' ? source(promptImage) : undefined }])
+  const upload = React.useRef<HTMLInputElement>(null)
+  const attachmentId = React.useRef(0)
+  const objectUrls = React.useRef(new Set<string>())
+  React.useEffect(() => () => { for (const url of objectUrls.current) URL.revokeObjectURL(url) }, [])
+  const remove = (id: string) => setFiles(current => current.filter(file => {
+    if (file.id !== id) return true
+    if (file.objectUrl && file.image) { URL.revokeObjectURL(file.image); objectUrls.current.delete(file.image) }
+    return false
+  }))
+  const submit = (message: string) => { setLastPrompt(`${model}: ${message}`); setValue('') }
+  return <div className={cn('grid max-w-full gap-4', compact ? 'w-93.5' : 'w-175')}>
+    <PromptArea compact={compact} value={value} onValueChange={setValue} onSubmit={submit} inputLabel={t(`${prefix}prompt`)} submitLabel={t(`${prefix}saveDraft`)} placeholder={t(`${prefix}placeholder`)} information={<><Zap aria-hidden="true" className="size-4 shrink-0" /><span>{t(`${prefix}premium`)}</span><span aria-hidden="true">·</span><Popover><PopoverTrigger asChild><Button type="button" variant="ghost" className="h-4 rounded-sm p-0 text-xs font-medium leading-4">{t(`${prefix}upgrade`)}</Button></PopoverTrigger><PopoverContent className="text-sm">{t(`${prefix}localOnly`)}</PopoverContent></Popover></>}
+      toolbar={<><AiIconButton size={28} appearance="lighter" aria-label={t(`${prefix}addFile`)} onClick={() => upload.current?.click()}><Plus aria-hidden="true" /></AiIconButton><AiModelSelect value={model} onChange={setModel} /></>}
+      attachments={files.length ? files.map(file => file.image ? <div key={file.id} className="relative size-24 shrink-0"><img src={file.image} alt={file.name} className="size-24 rounded-xl object-cover" /><AiIconButton size={20} aria-label={`${t(`${prefix}remove`)} ${file.name}`} className="absolute right-1.5 top-1.5 rounded-full bg-primary text-primary-foreground hover:bg-primary-hover hover:text-primary-foreground" onClick={() => remove(file.id)}><X aria-hidden="true" /></AiIconButton></div> : <div key={file.id} className="flex h-15 max-w-full items-center gap-3 rounded-xl bg-muted py-2.5 pl-3 pr-4"><FileFormatIcon format={file.name.includes('.') ? file.name.split('.').pop()?.toUpperCase().slice(0, 5) ?? 'FILE' : 'FILE'} /><div className="grid min-w-0 gap-1"><span className="truncate text-sm font-medium">{file.name}</span><span className="text-xs text-muted-foreground">{t(`${prefix}localFile`)}</span></div><AiIconButton size={20} aria-label={`${t(`${prefix}remove`)} ${file.name}`} onClick={() => remove(file.id)}><X aria-hidden="true" /></AiIconButton></div>) : undefined} />
+    <input ref={upload} type="file" className="sr-only" tabIndex={-1} aria-label={t(`${prefix}attachmentInput`)} multiple onChange={event => { const selected = Array.from(event.target.files ?? []); setFiles(current => [...current, ...selected.map(file => { const image = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined; if (image) objectUrls.current.add(image); return { id: `attachment-${attachmentId.current++}`, name: file.name, image, objectUrl: Boolean(image) } })]); event.target.value = '' }} />
+    <p className="text-xs leading-4 text-muted-foreground">{t(`${prefix}localOnly`)}</p>
+    {lastPrompt ? <output className="rounded-md border border-border p-3 text-sm">{t(`${prefix}saved`)} {lastPrompt}</output> : null}
+  </div>
+}
+
+export function AiIconButtonExamples({ chat = false }: { chat?: boolean }) {
+  const t = useT()
+  const [active, setActive] = React.useState<string[]>([])
+  const toggle = (key: string) => setActive(items => items.includes(key) ? items.filter(item => item !== key) : [...items, key])
+  return <div className="grid gap-5">{chat ? <div className="flex gap-5">{(['stroke', 'lighter'] as const).map(appearance => <AiIconButton key={appearance} size={28} appearance={appearance} aria-label={`${t(`${prefix}toggleControl`)} ${appearance}`} aria-pressed={active.includes(appearance)} onClick={() => toggle(appearance)}><Plus aria-hidden="true" /></AiIconButton>)}</div> : (['default', 'error'] as const).map(tone => <div key={tone} className="flex items-center gap-5">{([32, 28, 24, 20] as const).map(size => <AiIconButton key={size} size={size} tone={tone} aria-label={`${t(`${prefix}${tone}`)} ${size}`} aria-pressed={active.includes(`${tone}-${size}`)} onClick={() => toggle(`${tone}-${size}`)}><ChevronDown aria-hidden="true" /></AiIconButton>)}</div>)}</div>
+}
+
+function AiNavItem({ children, icon = true, leading, mobile = false, active = false, className, ...props }: ButtonProps & { icon?: boolean; leading?: React.ReactNode; mobile?: boolean; active?: boolean }) {
+  return <Button type="button" variant="ghost" size="sm" data-slot="ai-nav-item" data-mobile={mobile} data-leading={icon} aria-current={active ? 'page' : undefined} className={cn('group h-8 w-61 max-w-full justify-start gap-2 rounded-md bg-background py-1.5 pl-1.5 pr-2 text-sm font-medium leading-5 text-muted-foreground hover:bg-muted hover:text-foreground', active && 'bg-muted text-foreground', !icon && 'hover:pl-2.5', !icon && active && 'pl-2.5', className)} {...props}>
+    {icon ? leading ?? <Folder aria-hidden="true" className="size-5" /> : null}<span className="min-w-0 flex-1 truncate text-left">{children}</span>{icon ? <ChevronRight aria-hidden="true" className={cn('size-4.5 shrink-0', !mobile && !active && 'hidden group-hover:block group-focus-visible:block')} /> : <MoreVertical aria-hidden="true" className={cn('size-4.5 shrink-0', !mobile && (active ? 'hidden' : 'hidden group-hover:block group-focus-visible:block'))} />}
+  </Button>
+}
+
+export function AiNavigationExamples() {
+  const t = useT()
+  const [active, setActive] = React.useState<string[]>([])
+  return <div className="grid gap-4">{[false, true].flatMap(mobile => [true, false].map(icon => { const key = `${mobile}-${icon}`; return <AiNavItem key={key} icon={icon} mobile={mobile} active={active.includes(key)} onClick={() => setActive(values => values.includes(key) ? values.filter(value => value !== key) : [...values, key])}>{t(`${prefix}projects`)}</AiNavItem> }))}</div>
+}
+
+export function AiSearchExamples() {
+  const t = useT()
+  const [query, setQuery] = React.useState('')
+  return <div className="grid w-64 max-w-full gap-4">{(['default', 'sm'] as const).map(size => <SearchInput key={size} size={size} value={query} onChange={setQuery} clearable={false} aria-label={`${t(`${prefix}search`)} ${size}`} placeholder={t(`${prefix}searchPlaceholder`)} className={cn('rounded-lg border-0 px-2 shadow-none focus-within:bg-background [&>svg]:size-5', size === 'sm' ? 'bg-background hover:bg-muted' : 'bg-muted')} />)}<output className="text-xs text-muted-foreground">{t(`${prefix}query`)} {query}</output></div>
+}
+
+export function AiAuthExamples({ kind = 'icons' }: { kind?: 'icons' | 'social' | 'text' | 'digits' }) {
+  const t = useT()
+  const [value, setValue] = React.useState('')
+  const [clicked, setClicked] = React.useState(false)
+  const id = React.useId()
+  if (kind === 'icons') return <div className="grid w-full max-w-lg grid-cols-2 gap-6 sm:grid-cols-4">{(['signIn', 'signUp', 'reset', 'verification', 'signInGray', 'signUpGray', 'resetGray', 'verificationGray'] as const).map(key => <div key={key} className="grid justify-items-center gap-2"><span className="flex size-14 items-center justify-center rounded-full border border-status-neutral-bg bg-background"><img src={aiProductArtwork[key]} alt="" className="size-8" /></span><span className="text-xs text-muted-foreground">{t(`${prefix}${key.replace('Gray', '')}`)}{key.endsWith('Gray') ? ` · ${t(`${prefix}gray`)}` : ''}</span></div>)}</div>
+  if (kind === 'social') return <div className="grid gap-3"><SocialButton type="button" brand="google" appearance="stroke" className="h-auto min-h-10 w-fit max-w-full whitespace-normal py-2 text-left" onClick={() => setClicked(true)}><img src={source(googleIcon)} alt="" className="size-5 shrink-0" /><span className="min-w-0">{t(`${prefix}google`)}</span></SocialButton>{clicked ? <output className="max-w-sm text-xs text-muted-foreground">{t(`${prefix}localOnly`)}</output> : null}</div>
+  if (kind === 'digits') return <div className="grid gap-4">{[false, true].map(disabled => <DigitInput key={String(disabled)} length={4} value={disabled ? '1234' : value} onChange={setValue} disabled={disabled} aria-label={`${t(`${prefix}verification`)} ${disabled ? t(`${prefix}disabled`) : t(`${prefix}editable`)}`} cellClassName="size-12 sm:w-12 rounded-ai-input px-2 py-2.5 text-lg leading-6" />)}<output className="text-xs text-muted-foreground">{value}</output></div>
+  return <div className="grid w-83 max-w-full gap-5">{[false, true].map(disabled => <div key={String(disabled)} data-slot="ai-text-input" className="grid gap-1"><FieldLabel htmlFor={`${id}-${disabled}`} disabled={disabled} required>{t(`${prefix}email`)}</FieldLabel><Input id={`${id}-${disabled}`} type="email" value={disabled ? 'james@example.com' : value} onChange={event => setValue(event.target.value)} disabled={disabled} aria-required aria-describedby={`${id}-${disabled}-hint`} placeholder="hello@alignui.com" leading={<Mail aria-hidden="true" className="size-5 text-muted-foreground" />} size="lg" className="rounded-ai-input" /><HintText id={`${id}-${disabled}-hint`} state={disabled ? 'disabled' : 'default'} leading={<KeyIconGlyph name="information" />} className="pt-1">{t(`${prefix}hint`)}</HintText></div>)}</div>
+}
+
+export function AiSettingsExamples() {
+  const t = useT()
+  const [tab, setTab] = React.useState('people')
+  const [size, setSize] = React.useState('medium')
+  const [count, setCount] = React.useState<number | null>(30)
+  const [model, setModel] = React.useState('GPT-4')
+  return <div className="grid gap-6"><div className="grid gap-2">{(['people', 'profile'] as const).map(value => <Button key={value} type="button" variant="ghost" data-slot="ai-settings-item" aria-pressed={tab === value} className="h-auto min-h-10 w-56 max-w-full justify-start gap-2 rounded-lg bg-background px-3 py-2 text-sm text-muted-foreground hover:bg-muted aria-pressed:bg-muted aria-pressed:text-foreground" onClick={() => setTab(value)}>{value === 'profile' ? <span aria-hidden="true"><Avatar size={20} label="James Brown" src={source(avatarPhoto)} /></span> : <User aria-hidden="true" className="size-5" />}<span className="min-w-0 flex-1 whitespace-normal text-left">{value === 'profile' ? 'James Brown' : t(`${prefix}people`)}</span>{tab === value ? <ChevronRight aria-hidden="true" className="size-4.5" /> : null}</Button>)}</div><output className="text-sm text-muted-foreground">{t(`${prefix}${tab}`)}</output>
+    <div className="flex flex-wrap items-center gap-5"><Select value={size} onValueChange={setSize}><SelectTrigger data-slot="ai-size-select" aria-label={t(`${prefix}responseLength`)} className="w-auto min-w-28 gap-2 rounded-lg [&>svg]:size-5"><SelectValue /></SelectTrigger><SelectContent>{['small', 'medium', 'large'].map(value => <SelectItem key={value} value={value}>{t(`${prefix}${value}`)}</SelectItem>)}</SelectContent></Select><CounterInput data-slot="ai-counter" value={count} min={0} max={99} onChange={setCount} size="default" aria-label={t(`${prefix}historyLimit`)} decrementAriaLabel={t(`${prefix}decrease`)} incrementAriaLabel={t(`${prefix}increase`)} className="w-28 rounded-lg" inputClassName="text-sm" /><AiModelSelect value={model} onChange={setModel} className="h-9 px-3 py-2" /></div>
+  </div>
+}
+
+function AiNewChatButton({ onClick }: { onClick: () => void }) {
+  const t = useT()
+  return <Button type="button" variant="ghost" data-slot="ai-new-chat" className="h-auto min-h-8 w-61 max-w-full justify-start gap-2 rounded-md p-1.5 text-sm text-status-success-text hover:bg-status-success-bg hover:text-status-success-text" onClick={onClick}><span aria-hidden="true" className="flex size-5 items-center justify-center rounded-full bg-status-success-solid text-status-success-solid-foreground"><Plus className="size-3.5" /></span><span className="min-w-0 whitespace-normal text-left">{t(`${prefix}newChat`)}</span></Button>
+}
+
+export function AiNewChatExample() {
+  const t = useT()
+  const [draft, setDraft] = React.useState(0)
+  return <div className="grid gap-3"><AiNewChatButton onClick={() => setDraft(value => value + 1)} /><output className="text-xs text-muted-foreground">{t(`${prefix}draftNumber`, { number: draft })}</output></div>
+}
+
+function AiDivider() {
+  return <div role="separator" className="flex h-1 shrink-0 items-center px-1.5"><span className="h-px w-full bg-border" /></div>
+}
+
+export function AiSidebarExample({ search = '01', initialCollapsed = false }: { search?: '01' | '02' | '03'; initialCollapsed?: boolean }) {
+  const t = useT()
+  const [collapsed, setCollapsed] = React.useState(initialCollapsed)
+  const [query, setQuery] = React.useState('')
+  const [active, setActive] = React.useState('projects')
+  const [draft, setDraft] = React.useState(0)
+  const newChat = () => { setDraft(value => value + 1); setActive('newChat') }
+  const searchControl = <SearchInput value={query} onChange={setQuery} clearable={false} aria-label={t(`${prefix}search`)} placeholder={t(`${prefix}searchPlaceholder`)} className="h-9 w-61 max-w-full rounded-lg border-0 bg-muted px-2 shadow-none [&>svg]:size-5" />
+  const searchPopover = <Popover><PopoverTrigger asChild><AiIconButton aria-label={t(`${prefix}search`)}><Search aria-hidden="true" /></AiIconButton></PopoverTrigger><PopoverContent className="w-auto p-3">{searchControl}<p className="mt-2 text-xs text-muted-foreground">{t(`${prefix}query`)} {query}</p></PopoverContent></Popover>
+  const groups = [
+    { label: 'pinned', items: ['launchPlan', 'researchNotes', 'contentIdeas'], icon: true },
+    { label: 'recent', items: ['quarterlyReport', 'emailDraft', 'meetingNotes'], icon: false },
+    { label: 'yesterday', items: ['campaignIdeas', 'productBrief', 'supportReply', 'weeklyPlan', 'projectSummary'], icon: false },
+  ]
+  return <div className="flex max-w-full flex-wrap items-start gap-5">
+    <Sidebar collapsed={collapsed} aria-label={t(`${prefix}sidebar`)} className={cn('max-w-full rounded-lg border border-border', collapsed ? 'w-18 gap-5 border-0 p-5' : 'w-68 gap-4 border-0 px-3.5 pb-3.5 pt-5')}>
+      <div className="flex shrink-0 flex-col gap-5"><div className="flex h-8 items-center justify-between">
+        {collapsed ? <AiIconButton aria-label={t(`${prefix}expand`)} onClick={() => setCollapsed(false)}><img src={aiProductArtwork.logo} alt="" className="size-8" /></AiIconButton> : <><img src={aiProductArtwork.logo} alt={t(`${prefix}brand`)} className="size-8" /><div className="flex gap-1">{search === '02' ? searchPopover : null}<AiIconButton aria-label={t(`${prefix}collapse`)} onClick={() => setCollapsed(true)}><PanelLeft aria-hidden="true" /></AiIconButton></div></>}
+      </div>{!collapsed && search === '01' ? searchControl : null}</div>
+      {collapsed ? <><AiDivider /><div className="flex flex-1 flex-col gap-3"><AiIconButton aria-label={t(`${prefix}newChat`)} onClick={newChat}><Plus aria-hidden="true" /></AiIconButton><AiIconButton aria-label={t(`${prefix}projects`)} aria-pressed={active === 'projects'} onClick={() => setActive('projects')}><Folder aria-hidden="true" /></AiIconButton><AiIconButton aria-label={t(`${prefix}library`)} aria-pressed={active === 'library'} onClick={() => setActive('library')}><BookOpen aria-hidden="true" /></AiIconButton>{searchPopover}</div><AiDivider /></> : <>
+        <div className="grid shrink-0 gap-1"><AiNewChatButton onClick={newChat} /><AiNavItem active={active === 'projects'} onClick={() => setActive('projects')}>{t(`${prefix}projects`)}</AiNavItem><AiNavItem leading={<BookOpen aria-hidden="true" className="size-5" />} active={active === 'library'} onClick={() => setActive('library')}>{t(`${prefix}library`)}</AiNavItem>{search === '03' ? <Popover><PopoverTrigger asChild><Button type="button" variant="ghost" className="h-8 justify-start gap-2 rounded-md p-1.5 text-sm text-muted-foreground"><Search aria-hidden="true" className="size-5" />{t(`${prefix}search`)}</Button></PopoverTrigger><PopoverContent className="w-auto p-3">{searchControl}</PopoverContent></Popover> : null}</div>
+        <AiDivider /><div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto">
+          {groups.map((group, groupIndex) => <React.Fragment key={group.label}>{groupIndex === 1 ? <AiDivider /> : null}<div className="grid shrink-0 gap-2"><h3 className="px-1.5 text-xs font-medium leading-4 text-muted-foreground">{t(`${prefix}${group.label}`)}</h3><div className="grid gap-1">{group.items.filter(item => t(`${prefix}${item}`).toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(item => <AiNavItem key={item} icon={group.icon} active={active === item} onClick={() => setActive(item)}>{t(`${prefix}${item}`)}</AiNavItem>)}</div></div></React.Fragment>)}
+        </div><AiDivider />
+      </>}
+      <Popover><PopoverTrigger asChild><Button type="button" variant="ghost" aria-label={t(`${prefix}profile`)} data-slot="ai-sidebar-profile" className={cn('shrink-0 justify-start rounded-md text-left', collapsed ? 'size-8 p-0' : 'h-13 gap-3 p-1.5')}><Avatar label="James Brown" size={collapsed ? 32 : 40} />{!collapsed ? <><span className="flex min-w-0 flex-1 flex-col gap-1"><span className="flex items-center gap-1 text-sm font-medium leading-5">James Brown <Badge size={16} appearance="light">Pro</Badge></span><span className="truncate text-xs font-normal leading-4 text-muted-foreground">james@example.com</span></span><MoreVertical aria-hidden="true" className="size-4.5" /></> : null}</Button></PopoverTrigger><PopoverContent className="w-64 text-sm"><p className="font-medium">James Brown</p><p className="mt-2 text-muted-foreground">{t(`${prefix}localOnly`)}</p></PopoverContent></Popover>
+    </Sidebar><output aria-live="polite" className="grid max-w-xs gap-2 text-sm text-muted-foreground"><span>{t(`${prefix}selected`)} {t(`${prefix}${active}`)}</span><span>{t(`${prefix}draftNumber`, { number: draft })}</span>{query ? <span>{t(`${prefix}query`)} {query}</span> : null}</output>
+  </div>
+}
+
+export function AiMobileNavigationExample({ kind = 'default' }: { kind?: 'default' | 'in-projects' | 'projects' | 'project-details' }) {
+  const t = useT()
+  const [model, setModel] = React.useState('GPT-4')
+  const [selected, setSelected] = React.useState('projects')
+  const [draft, setDraft] = React.useState(0)
+  const [project, setProject] = React.useState('')
+  const [name, setName] = React.useState('')
+  const [createOpen, setCreateOpen] = React.useState(false)
+  const [pinned, setPinned] = React.useState(false)
+  const id = React.useId()
+  const menu = <Popover><PopoverTrigger asChild><AiIconButton aria-label={t(`${prefix}menu`)}><Menu aria-hidden="true" /></AiIconButton></PopoverTrigger><PopoverContent className="grid w-auto gap-1 p-2">{['projects', 'library'].map(item => <AiNavItem key={item} mobile active={selected === item} onClick={() => setSelected(item)}>{t(`${prefix}${item}`)}</AiNavItem>)}</PopoverContent></Popover>
+  const more = <Popover><PopoverTrigger asChild><AiIconButton size={kind === 'project-details' ? 24 : 32} aria-label={t(`${prefix}more`)}><MoreHorizontal aria-hidden="true" /></AiIconButton></PopoverTrigger><PopoverContent className="w-64"><CheckboxField checked={pinned} onCheckedChange={value => setPinned(value === true)} label={t(`${prefix}pinProject`)} /></PopoverContent></Popover>
+  const create = () => { if (!name.trim()) return; setProject(name.trim()); setName(''); setCreateOpen(false) }
+  return <div className="grid w-full min-w-0 max-w-sm grid-cols-1 gap-4"><header data-slot="ai-mobile-navigation" data-kind={kind} className={cn('flex h-16 w-full min-w-0 items-center gap-2 bg-background px-2 py-3 sm:px-4', kind === 'project-details' ? 'sm:gap-2.5' : 'sm:gap-3.5')}>
+    {kind === 'project-details' ? <><AiIconButton size={20} aria-label={t(`${prefix}allProjects`)} onClick={() => setSelected('projects')}><ArrowLeft aria-hidden="true" /></AiIconButton><span className="flex-1 text-sm font-medium">{t(`${prefix}allProjects`)}</span><div className="flex gap-2"><AiIconButton size={24} aria-label={t(`${prefix}newChat`)} onClick={() => setDraft(value => value + 1)}><Plus aria-hidden="true" /></AiIconButton>{more}</div></> : <>{menu}{kind === 'projects' ? <div className="flex flex-1 justify-end"><Popover open={createOpen} onOpenChange={setCreateOpen}><PopoverTrigger asChild><Button type="button" size="sm" variant="outline" className="w-auto shrink-0 gap-2 rounded-lg"><Plus aria-hidden="true" className="size-5" />{t(`${prefix}addProject`)}</Button></PopoverTrigger><PopoverContent className="w-72"><form className="grid gap-3" onSubmit={event => { event.preventDefault(); create() }} onKeyDown={event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); create() } }}><FieldLabel htmlFor={id} required>{t(`${prefix}projectName`)}</FieldLabel><Input id={id} value={name} onChange={event => setName(event.target.value)} autoFocus /><Button type="submit" size="sm" disabled={!name.trim()}>{t(`${prefix}addProject`)}</Button></form></PopoverContent></Popover></div> : <><div className="flex min-w-0 flex-1 flex-col gap-1"><AiModelSelect value={model} onChange={setModel} compact />{kind === 'in-projects' ? <span className="truncate text-xs leading-4 text-muted-foreground">{t(`${prefix}launchPlan`)}</span> : null}</div><AiIconButton aria-label={t(`${prefix}newChat`)} onClick={() => setDraft(value => value + 1)}><Plus aria-hidden="true" /></AiIconButton>{more}</>}</>}
+  </header><output aria-live="polite" className="grid gap-1 text-xs text-muted-foreground"><span>{t(`${prefix}selected`)} {t(`${prefix}${selected}`)}</span><span>{t(`${prefix}draftNumber`, { number: draft })}</span>{project ? <span>{t(`${prefix}createdProject`)} {project}</span> : null}{pinned ? <span>{t(`${prefix}pinProject`)}</span> : null}</output></div>
+}

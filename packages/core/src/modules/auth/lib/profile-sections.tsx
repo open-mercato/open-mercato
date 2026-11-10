@@ -1,5 +1,5 @@
 import * as React from 'react'
-import type { SectionNavGroup } from '@open-mercato/ui/backend/section-page'
+import type { SettingsSection } from '@open-mercato/ui/backend/utils/nav'
 
 const KeyIcon = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -7,9 +7,20 @@ const KeyIcon = (
   </svg>
 )
 
-export const profileSections: SectionNavGroup[] = [
+/**
+ * Baseline profile sidebar sections for pages route discovery cannot see.
+ *
+ * `/backend/profile/change-password` is `navHidden`, so `buildAdminNav` drops it and
+ * `buildProfileSections` can never derive it. Everything else in the profile sidebar comes from
+ * pages declaring `pageContext: 'profile'` and is merged in by `resolveBackendChromePayload`.
+ *
+ * The section id is the untranslated group id (`profile.sections.account`) — the same convention the
+ * settings sidebar adopted in 0.6.8 — so a page declaring `pageGroupKey: 'profile.sections.account'`
+ * lands in this section instead of opening a duplicate one.
+ */
+export const profileSections: SettingsSection[] = [
   {
-    id: 'account',
+    id: 'profile.sections.account',
     label: 'Account',
     labelKey: 'profile.sections.account',
     order: 1,

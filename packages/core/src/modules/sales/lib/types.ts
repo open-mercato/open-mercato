@@ -1,8 +1,17 @@
 import type { EventBus } from '@open-mercato/events'
 import type { ReferenceUnitCode } from '@open-mercato/shared/lib/units/unitCodes'
-import type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind } from '../data/entities'
+import type {
+  SalesAdjustmentKind,
+  SalesAmountsMode,
+  SalesDocumentKind,
+  SalesLineKind,
+} from '../data/entities'
 
-export type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind }
+/**
+ * `SalesAmountsMode`: `computed` means core derives the amounts; `external` means
+ * they are the caller's, mirrored from another system, and are never recomputed.
+ */
+export type { SalesAdjustmentKind, SalesAmountsMode, SalesDocumentKind, SalesLineKind }
 
 export type NumericLike = number | string
 
@@ -73,6 +82,15 @@ export type SalesLineSnapshot = {
   discountPercent?: number | null
   taxRate?: number | null
   taxAmount?: number | null
+  /**
+   * Set by entity-to-snapshot mappers ONLY. Marks `totalNetAmount` /
+   * `totalGrossAmount` as reconstructed from a persisted row, so they are the
+   * engine's own previous output rather than a caller assertion. That is what
+   * keeps the #5644 reconciliation a *caller* signal: a stored net is expected
+   * to diverge on a row the discount contract heals on the next pass. Never
+   * persisted; never accepted from a request.
+   */
+  totalsFromStoredRow?: boolean
   totalNetAmount?: number | null
   totalGrossAmount?: number | null
   configuration?: Record<string, unknown> | null
@@ -80,6 +98,8 @@ export type SalesLineSnapshot = {
   metadata?: Record<string, unknown> | null
   customFieldSetId?: string | null
   customFields?: Record<string, unknown> | null
+  /** `external`: net, gross and tax are returned verbatim, never derived. Omitted means `computed`. */
+  amountsMode?: SalesAmountsMode | null
 }
 
 export type SalesAdjustmentDraft = {
@@ -146,6 +166,8 @@ export type SalesTotalsCalculationHook = (params: {
   context: SalesCalculationContext
   current: SalesDocumentCalculationResult
   eventBus?: EventBus | null
+  /** `external`: the supplied header is re-applied after every calculator, so none can move it. */
+  totalsMode?: SalesAmountsMode | null
 }) => SalesDocumentCalculationResult | Promise<SalesDocumentCalculationResult>
 
 export type SalesCalculationContext = {
@@ -173,4 +195,8 @@ export type CalculateDocumentOptions = {
     refundedTotalAmount?: number | null
   }
   eventBus?: EventBus | null
+  /** `external` makes {@link CalculateDocumentOptions.suppliedTotals} authoritative for the header. */
+  totalsMode?: SalesAmountsMode | null
+  /** The caller-asserted header, honoured verbatim when `totalsMode` is `external`. */
+  suppliedTotals?: Partial<SalesDocumentAmounts> | null
 }

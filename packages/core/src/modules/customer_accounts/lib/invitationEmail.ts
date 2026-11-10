@@ -6,6 +6,7 @@ import { urlForCustomerOrg } from '@open-mercato/core/modules/customer_accounts/
 
 export type CustomerInvitationEmailInput = {
   container: AppContainer
+  tenantId?: string
   organizationId: string
   email: string
   rawToken: string
@@ -38,5 +39,7 @@ export async function sendCustomerInvitationEmail(input: CustomerInvitationEmail
     to: input.email,
     subject,
     react: CustomerInvitationEmail({ inviteUrl, copy }),
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
   })
 }

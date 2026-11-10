@@ -23,15 +23,29 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({ resolve: jest.fn(() => ({})) })),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveFeatureCheckContext: jest.fn(),
+}))
+
 jest.mock('@open-mercato/core/modules/auth/lib/tenantAccess', () => {
   const actual = jest.requireActual('@open-mercato/core/modules/auth/lib/tenantAccess')
   return { ...actual, enforceTenantSelection: jest.fn() }
 })
 
 import { enforceTenantSelection } from '@open-mercato/core/modules/auth/lib/tenantAccess'
-import { checkAuthorization, extractTenantCandidate, extractTenantCandidates } from '@/app/api/[...slug]/route'
+import { ALL_ORGANIZATIONS_COOKIE_VALUE } from '@open-mercato/core/modules/directory/constants'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import {
+  checkAuthorization,
+  extractTenantCandidate,
+  extractTenantCandidates,
+  TENANT_CANDIDATE_UNREADABLE,
+} from '@/app/api/[...slug]/route'
 
 const enforceTenantSelectionMock = enforceTenantSelection as jest.MockedFunction<typeof enforceTenantSelection>
+const createRequestContainerMock = createRequestContainer as jest.MockedFunction<typeof createRequestContainer>
+const resolveFeatureCheckContextMock = resolveFeatureCheckContext as jest.MockedFunction<typeof resolveFeatureCheckContext>
 
 function buildMultipartRequest(formData: FormData): NextRequest {
   return new NextRequest('http://localhost:3001/api/example/test', {
@@ -99,6 +113,75 @@ describe('extractTenantCandidate', () => {
     const candidate = await extractTenantCandidate(request)
 
     expect(candidate).toBe(queryTenant)
+  })
+})
+
+describe('dispatcher body-peek limit (security: issue #7811)', () => {
+  const OVERSIZED_PADDING = 'a'.repeat(200 * 1024)
+
+  it('skips cloning/parsing a JSON body whose declared Content-Length already exceeds the peek budget', async () => {
+    const tenantId = '55555555-5555-5555-5555-555555555555'
+    // The actual body is tiny and DOES contain a valid tenantId — the point is that
+    // the dispatcher must reject on the declared size alone, without ever looking at
+    // the real bytes.
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(10 * 1024 * 1024),
+      },
+      body: JSON.stringify({ tenantId }),
+    })
+    const cloneSpy = jest.spyOn(request, 'clone')
+
+    const candidate = await extractTenantCandidate(request)
+
+    // Must surface the distinct "unreadable" sentinel, not `undefined` — otherwise
+    // the caller cannot tell "no tenantId" apart from "never checked" and would
+    // skip tenant enforcement entirely for an oversized body (issue #7877).
+    expect(candidate).toBe(TENANT_CANDIDATE_UNREADABLE)
+    expect(cloneSpy).not.toHaveBeenCalled()
+  })
+
+  it('aborts an oversized JSON body stream instead of buffering it fully', async () => {
+    const tenantId = '66666666-6666-6666-6666-666666666666'
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tenantId, padding: OVERSIZED_PADDING }),
+    })
+
+    const candidate = await extractTenantCandidate(request)
+
+    expect(candidate).toBe(TENANT_CANDIDATE_UNREADABLE)
+  })
+
+  it('aborts an oversized multipart body stream instead of buffering it fully', async () => {
+    const tenantId = '77777777-7777-7777-7777-777777777777'
+    const form = new FormData()
+    form.append('tenantId', tenantId)
+    form.append('padding', OVERSIZED_PADDING)
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      body: form,
+    })
+
+    const candidate = await extractTenantCandidate(request)
+
+    expect(candidate).toBe(TENANT_CANDIDATE_UNREADABLE)
+  })
+
+  it('still extracts tenantId from a JSON body within the peek budget', async () => {
+    const tenantId = '88888888-8888-8888-8888-888888888888'
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tenantId, note: 'small payload' }),
+    })
+
+    const candidate = await extractTenantCandidate(request)
+
+    expect(candidate).toBe(tenantId)
   })
 })
 
@@ -213,5 +296,288 @@ describe('checkAuthorization tenant pollution enforcement (issue #2665)', () => 
     expect(response).toBeNull()
     expect(enforceTenantSelectionMock).toHaveBeenCalledTimes(1)
     expect(enforceTenantSelectionMock).toHaveBeenCalledWith(expect.anything(), foreignTenant)
+  })
+})
+
+describe('checkAuthorization fails closed on an unreadable body (security: issue #7877)', () => {
+  beforeEach(() => {
+    createRequestContainerMock.mockReset()
+  })
+
+  function mockRbacContainer(isSuperAdmin: boolean) {
+    createRequestContainerMock.mockResolvedValue({
+      resolve: jest.fn((name: string) => {
+        if (name === 'rbacService') {
+          return { loadAcl: jest.fn(async () => ({ isSuperAdmin, features: [], organizations: [] })) }
+        }
+        return {}
+      }),
+    } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
+  }
+
+  it('rejects a non-superadmin whose oversized body could be hiding a foreign tenantId, on a route that honors body tenantId', async () => {
+    const ownTenant = '00000000-0000-0000-0000-0000000000ee'
+    const foreignTenant = '00000000-0000-0000-0000-0000000000ff'
+    mockRbacContainer(false)
+    // Far larger than the dispatcher's own tenant-extraction budget, carrying a
+    // foreign tenantId the dispatcher must never actually read before deciding.
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(10 * 1024 * 1024),
+      },
+      body: JSON.stringify({ tenantId: foreignTenant }),
+    })
+    const cloneSpy = jest.spyOn(request, 'clone')
+
+    const response = await checkAuthorization({ honorsBodyTenantId: true }, buildAuth(ownTenant), request)
+
+    expect(response).not.toBeNull()
+    expect(response?.status).toBe(403)
+    expect(cloneSpy).not.toHaveBeenCalled()
+  })
+
+  it('allows a superadmin through even though the oversized body cannot be peeked', async () => {
+    const ownTenant = '00000000-0000-0000-0000-0000000000a1'
+    const foreignTenant = '00000000-0000-0000-0000-0000000000a2'
+    mockRbacContainer(true)
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(10 * 1024 * 1024),
+      },
+      body: JSON.stringify({ tenantId: foreignTenant }),
+    })
+
+    const response = await checkAuthorization({ honorsBodyTenantId: true }, buildAuth(ownTenant), request)
+
+    expect(response).toBeNull()
+  })
+
+  it('does NOT fail closed on a route that never declared honorsBodyTenantId, even for a non-superadmin (regression: issue #7877 fix must not break large authenticated uploads)', async () => {
+    // Matches e.g. an attachment upload, a bulk import, or a telemetry trace batch — none of
+    // which read `tenantId` from the body — where the dispatcher's oversized-body peek must keep
+    // treating the body as "no candidate" so the route's own (larger) body handling still runs.
+    const ownTenant = '00000000-0000-0000-0000-0000000000a3'
+    const foreignTenant = '00000000-0000-0000-0000-0000000000a4'
+    mockRbacContainer(false)
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(10 * 1024 * 1024),
+      },
+      body: JSON.stringify({ tenantId: foreignTenant }),
+    })
+    const cloneSpy = jest.spyOn(request, 'clone')
+
+    const response = await checkAuthorization(null, buildAuth(ownTenant), request)
+
+    expect(response).toBeNull()
+    expect(cloneSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('checkAuthorization organization feature narrowing', () => {
+  const tenantId = '00000000-0000-0000-0000-0000000000dd'
+  const userHasAllFeaturesMock = jest.fn()
+  const loadAclMock = jest.fn()
+
+  beforeEach(() => {
+    userHasAllFeaturesMock.mockReset().mockResolvedValue(true)
+    loadAclMock.mockReset().mockResolvedValue({
+      features: [],
+      isSuperAdmin: false,
+      organizations: [],
+    })
+    createRequestContainerMock.mockReset()
+    createRequestContainerMock.mockResolvedValue({
+      resolve: jest.fn((name: string) => {
+        if (name === 'rbacService') {
+          return {
+            userHasAllFeatures: userHasAllFeaturesMock,
+            loadAcl: loadAclMock,
+          }
+        }
+        return {}
+      }),
+    } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
+    resolveFeatureCheckContextMock.mockResolvedValue({
+      organizationId: null,
+      scope: {
+        selectedId: null,
+        filterIds: [],
+        allowedIds: [],
+        tenantId,
+      },
+      allowedOrganizationIds: [],
+    })
+  })
+
+  it('passes the feature guard when an authorized principal is narrowed to zero visible organizations', async () => {
+    const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'GET' })
+
+    const response = await checkAuthorization(
+      { requireFeatures: ['api_keys.view'] },
+      buildAuth(tenantId),
+      request,
+    )
+
+    expect(response).toBeNull()
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(
+      'user-1',
+      ['api_keys.view'],
+      { tenantId, organizationId: null },
+    )
+  })
+
+  it('still rejects a principal that does not hold the required feature', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'GET' })
+
+    try {
+      const response = await checkAuthorization(
+        { requireFeatures: ['api_keys.view'] },
+        buildAuth(tenantId),
+        request,
+      )
+
+      expect(response?.status).toBe(403)
+      expect(loadAclMock).toHaveBeenCalled()
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('rejects a feature-protected write before ever cloning/inspecting its body (security: issue #7811)', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    // A declared size far larger than the dispatcher's own tenant-extraction budget —
+    // if the dispatcher parsed the body before rejecting for the missing feature, this
+    // would represent exactly the unbounded-buffering exposure issue #7811 reports.
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(50 * 1024 * 1024),
+      },
+      body: JSON.stringify({ tenantId }),
+    })
+    const cloneSpy = jest.spyOn(request, 'clone')
+
+    try {
+      const response = await checkAuthorization(
+        { requireFeatures: ['api_keys.view'] },
+        buildAuth(tenantId),
+        request,
+      )
+
+      expect(response?.status).toBe(403)
+      expect(cloneSpy).not.toHaveBeenCalled()
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('rejects an oversized multipart write before ever cloning/inspecting its body (security: issue #7811)', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const form = new FormData()
+    form.append('tenantId', tenantId)
+    form.append('padding', 'a'.repeat(200 * 1024))
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      body: form,
+    })
+    const cloneSpy = jest.spyOn(request, 'clone')
+
+    try {
+      const response = await checkAuthorization(
+        { requireFeatures: ['api_keys.view'] },
+        buildAuth(tenantId),
+        request,
+      )
+
+      expect(response?.status).toBe(403)
+      expect(cloneSpy).not.toHaveBeenCalled()
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('rejects an all-organizations request when the feature is granted only outside the home organization', async () => {
+    const actualOrganizationScope = jest.requireActual<
+      typeof import('@open-mercato/core/modules/directory/utils/organizationScope')
+    >('@open-mercato/core/modules/directory/utils/organizationScope')
+    resolveFeatureCheckContextMock.mockImplementation(actualOrganizationScope.resolveFeatureCheckContext)
+    const homeOrganizationId = '00000000-0000-0000-0000-00000000000a'
+    const featureOrganizationId = '00000000-0000-0000-0000-00000000000b'
+    const organizations = [
+      { id: homeOrganizationId, ancestorIds: [], descendantIds: [] },
+      { id: featureOrganizationId, ancestorIds: [], descendantIds: [] },
+    ]
+    userHasAllFeaturesMock.mockImplementation(async (
+      _userId: string,
+      _features: string[],
+      scope: { organizationId: string | null },
+    ) => scope.organizationId === featureOrganizationId)
+    loadAclMock.mockResolvedValue({
+      features: ['business_rules.view'],
+      isSuperAdmin: false,
+      organizations: null,
+    })
+    const resolveFeatureOrganizationAccessMock = jest.fn(async () => ({
+      unrestricted: false,
+      filterOrganizationIds: () => [featureOrganizationId],
+    }))
+    const em = { find: jest.fn(async () => organizations) }
+    createRequestContainerMock.mockResolvedValue({
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return em
+        if (name === 'rbacService') {
+          return {
+            userHasAllFeatures: userHasAllFeaturesMock,
+            loadAcl: loadAclMock,
+            resolveFeatureOrganizationAccess: resolveFeatureOrganizationAccessMock,
+          }
+        }
+        return {}
+      }),
+    } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const request = new NextRequest('http://localhost:3001/api/business_rules/rules', {
+      method: 'POST',
+      headers: { cookie: `om_selected_org=${ALL_ORGANIZATIONS_COOKIE_VALUE}` },
+    })
+
+    try {
+      const response = await checkAuthorization(
+        { requireFeatures: ['business_rules.manage'] },
+        { sub: 'user-1', tenantId, orgId: homeOrganizationId },
+        request,
+      )
+
+      expect(response?.status).toBe(403)
+      expect(resolveFeatureOrganizationAccessMock).toHaveBeenCalledWith(
+        'user-1',
+        ['business_rules.manage'],
+        { tenantId },
+      )
+      expect(userHasAllFeaturesMock).toHaveBeenCalledWith(
+        'user-1',
+        ['business_rules.manage'],
+        { tenantId, organizationId: homeOrganizationId },
+      )
+      expect(userHasAllFeaturesMock).not.toHaveBeenCalledWith(
+        'user-1',
+        ['business_rules.manage'],
+        { tenantId, organizationId: featureOrganizationId },
+      )
+    } finally {
+      warning.mockRestore()
+    }
   })
 })

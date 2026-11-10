@@ -8,9 +8,9 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 2. **MUST keep `@types/*` in `dependencies`** (not `devDependencies`) — standalone apps need type declarations at runtime
 3. **MUST follow build order** — `yarn build:packages` → `yarn generate` → `yarn build:packages`
 4. **MUST build before publishing** — generators scan `node_modules/@open-mercato/*/dist/modules/` for `.js` files
-5. **MUST sync template equivalents** — touching ANY file under `apps/mercato/src/app/**` (layouts, providers, and route/page behavior like a `page.tsx` handoff), any locale key in `apps/mercato/src/i18n/**`, or any env var in `apps/mercato/.env.example` means mirroring YOUR change into the template counterpart (`packages/create-app/template/src/app/**`, `packages/create-app/template/src/i18n/**`, `packages/create-app/template/.env.example`) in the same task; if genuinely monorepo-only, say so in the PR. Some pairs intentionally diverge (`globals.css`, docs API routes, template-only `api/healthz`, env comments) — mirror your change, don't fix pre-existing drift. The locale dictionaries do NOT diverge: they are a byte-exact mirror enforced by `packages/create-app/src/lib/template-i18n-parity.test.ts`, and `yarn template:sync:fix` is what repairs them
+5. **MUST sync template equivalents** — touching ANY file under `apps/mercato/src/app/**` (layouts, providers, and route/page behavior like a `page.tsx` handoff), any locale key in `apps/mercato/src/i18n/**`, or any env var in `apps/mercato/.env.example` means mirroring YOUR change into the template counterpart (`packages/create-app/template/src/app/**`, `packages/create-app/template/src/i18n/**`, `packages/create-app/template/.env.example`) in the same task; if genuinely monorepo-only, say so in the PR. Some pairs intentionally diverge (`globals.css`, docs API routes, env comments) — mirror your change, don't fix pre-existing drift. The locale dictionaries do NOT diverge: they are a byte-exact mirror enforced by `packages/create-app/src/lib/template-i18n-parity.test.ts`, and `yarn template:sync:fix` is what repairs them
 6. **MUST keep template module registrations and package dependencies aligned** — if `packages/create-app/template/src/modules.ts` enables a package-backed module (for example `@open-mercato/webhooks`), `packages/create-app/template/package.json.template` must install that package in the same change, and the template lockfile must be reviewed when dependency shape changes
-7. **MUST preserve imported ready apps as raw source snapshots** — `--app` / `--app-url` imports may add only bootstrap-safe generated artifacts (for example `.mercato/generated/module-package-sources.css`)
+7. **MUST preserve imported ready apps as raw source snapshots** — `--app` / `--app-url` imports may add only bootstrap-safe generated artifacts (for example `.mercato/generated/module-package-sources.css`). `--template` imports may also rewrite the root `package.json` `name` (unless `--keep-name`), add its `openMercatoTemplate` provenance field, and remove the root `mercato-template.json`. Nothing else
 8. **MUST keep standalone agent guidance aligned with generator behavior** — if `yarn generate` gains post-steps such as structural cache purging, update `packages/create-app/template/AGENTS.md` and `packages/create-app/agentic/shared/AGENTS.md.template` in the same task
 9. **MUST keep the generated standalone root inside its byte budget** — the scaffolded `AGENTS.md` targets `STANDALONE_ROOT_TARGET_BYTES` (12 KiB) so a routed chain still fits Codex's 32 KiB `project_doc_max_bytes`. `enforceRootInstructionBudget` runs after every tool generator has patched the root and sheds the enumerated module-fact index for an O(1) pointer form rather than overflowing, so enabling another template module is safe — but an addition that trips the fallback costs the app its inline routing index and fails `packages/create-app/src/lib/agent-instruction-budget.test.ts`. Reclaim root bytes or accept the fallback deliberately; do not raise the target without re-measuring the routed chains
 10. **MUST make Git-history provenance gates work in shallow CI checkouts** — fetch the missing ancestry before asserting it, and fail closed when the history cannot be fetched or verified
@@ -23,7 +23,7 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 ## Never
 
 - Never break the standalone app template — it's the user's first experience with Open Mercato.
-- Never rewrite package versions, source files, or inject agentic setup files into imported ready apps.
+- Never rewrite package versions, source files, or inject agentic setup files into imported ready apps. The only exceptions are the three `--template` edits of Always 7.
 - Never run the interactive agentic wizard for imported ready apps; any agentic tooling must be added later via a deliberate manual command inside the generated app.
 - Never leave app-shell changes unsynced between monorepo and template equivalents.
 
@@ -70,6 +70,11 @@ Telemetry / observability wiring (keep at parity when the `@open-mercato/telemet
 12. `apps/mercato/.env.example` telemetry block (`TELEMETRY_*` / `OTEL_*`) ↔ `packages/create-app/template/.env.example`
 13. `packages/cli/src/lib/telemetry-init.ts` (the `mercato telemetry init` adoption command) embeds copies of the `.env` telemetry block and the `instrumentation.ts` bootstrap so it can patch a pre-telemetry app — keep those constants in sync when items 9/12 change.
 14. `@open-mercato/telemetry` dep + `bullmq-otel` optionalDep ↔ `packages/create-app/template/package.json.template` (telemetry ships the `@opentelemetry/*` SDK as transitive `optionalDependencies`, so the template only pins `@open-mercato/telemetry`). Because the template pins every `@open-mercato` dep to `{{PACKAGE_VERSION}}`, the telemetry package version MUST stay in monorepo lockstep — `scripts/check-version-alignment.sh` enforces it, and a fresh scaffold's `yarn install` fails otherwise.
+15. Browser RUM wiring — the `{ id: 'telemetry', from: '@open-mercato/telemetry' }` entry in `apps/mercato/src/modules.ts` ↔ `packages/create-app/template/src/modules.ts`, and the backend-layout wiring (item 2): `BrowserTelemetry` from `@open-mercato/telemetry/browser` and `resolveBrowserTelemetryConfig` from the server-only `@open-mercato/telemetry/browser/server` — keep the two import paths split. The `TELEMETRY_BROWSER_*` env block follows items 12/13. `mercato telemetry init` reproduces all three edits, so `packages/cli/src/lib/telemetry-init.ts` must stay in step.
+
+Known deferred drift: the monorepo's `starters/` directory (hybrid install/start scripts, compose files under `starters/docker/`, the MCP-as-dev.mjs-child runtime in `scripts/dev.mjs` + `scripts/dev-mcp.mjs`) is NOT mirrored into the template yet — generated apps keep compose files at their own root and the pre-starters dev runtime. Mirroring the starters layout into the template is a tracked follow-up of `.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md`; sync `scripts/dev.mjs` + `scripts/dev-mcp.mjs` together when doing it (the former imports the latter).
+
+One starter file IS mirrored: `packages/starter/src/infra-preflight.mjs` -> `template/scripts/dev-infra-preflight.mjs` (byte-for-byte via `yarn template:sync`, guarded by a starter test). It must stay Node-stdlib-only with no sibling imports. The template's own `scripts/infra.mjs` (`yarn infra:up` / `infra:down`, called by `scripts/setup.mjs`) is template-only and has no monorepo source.
 
 ## Dev Runtime Expectations
 
@@ -92,11 +97,12 @@ my-app/
 
 ## Ready App Import Modes
 
-`create-mercato-app` supports three scaffold modes:
+`create-mercato-app` supports four scaffold modes:
 
 1. Bare scaffold: `npx create-mercato-app my-app`
-2. Official ready app: `npx create-mercato-app my-prm --app prm`
+2. Official ready app: `npx create-mercato-app my-app --app <name>` (resolves `open-mercato/ready-app-<name>` at `v<create-mercato-app version>`)
 3. External GitHub ready app: `npx create-mercato-app my-app --app-url https://github.com/some-agency/ready-app-marketplace`
+4. App template: `npx create-mercato-app my-app --template <slug | owner/repo>[#ref] [--keep-name]` (spec `.ai/specs/2026-11-04-create-app-template-flag.md`)
 
 Rules:
 
@@ -105,6 +111,11 @@ Rules:
 - `--app` and `--app-url` are mutually exclusive
 - Imported ready apps skip template processing and the interactive agentic wizard
 - Imported ready apps must be committed source snapshots; fail closed if `.template` files are present
+- `--template` reads `templates.json` (`OM_TEMPLATES_URL`: https or loopback only), selects one sha and prints `owner/repo@sha` with its verification state before any download. A `#ref` never inherits another sha's facts. A gone index sha stops with a `#ref` hint, never other code
+- `--template` refuses `hold` entries and unknown statuses with no override; `unmaintained` works and prints its reason. A slug needs the index; `owner/repo` continues without it
+- `--template` excludes `--app`, `--app-url`, `--modules`, `--module-picker`, `--agents`, `--experimental-hooks-validator` and a non-classic `--preset`, checked before any request. It never offers the module picker or runs `.template` placeholder processing
+- Every import (`--app`, `--app-url`, `--template`) goes through `src/lib/safe-archive.ts`: a streamed 64 MiB download cap, at most 10,000 entries and 128 MiB unpacked, files and directories only (any link, special entry, absolute path or `..` segment fails with its path), inspected before the target is created non-recursively, then checked with `lstat`. No override in v1
+- A failed `--template` import removes the target directory it created; `--app` and `--app-url` keep it
 
 ## Testing with Verdaccio
 
@@ -190,11 +201,15 @@ packages/create-app/agentic/
 ├── codex/                       # Codex tool config
 │   ├── enforcement-rules.md     # Prepended to AGENTS.md with marker comments
 │   └── mcp.json.example
-└── cursor/                      # Cursor tool config
-    ├── rules/*.mdc              # Glob-scoped rules (alwaysApply + entity/generated guards)
-    ├── hooks.json               # afterFileEdit hook registration
-    ├── hooks/entity-migration-check.mjs  # Plain ESM (no tsx dependency)
-    └── mcp.json.example
+├── cursor/                      # Cursor tool config
+│   ├── rules/*.mdc              # Glob-scoped rules (alwaysApply + entity/generated guards)
+│   ├── hooks.json               # afterFileEdit hook registration
+│   ├── hooks/entity-migration-check.mjs  # Plain ESM (no tsx dependency)
+│   └── mcp.json.example
+└── github-copilot/             # GitHub Copilot tool config (no hook mechanism — text only)
+    ├── copilot-instructions.md.template  # → .github/copilot-instructions.md ({{PROJECT_NAME}})
+    ├── instructions/*.instructions.md    # Path-scoped guards via `applyTo` globs
+    └── mcp.json.example                  # → .vscode/mcp.json.example ("servers" key)
 ```
 
 ### Skills Mixin (external open-mercato/skills + local overrides)
@@ -225,3 +240,5 @@ Both generators recursively emit the same `agentic/` source tree: `src/setup/too
 - The Codex generator patches `AGENTS.md` (created by shared generator) — ordering matters
 - `{{PROJECT_NAME}}` is the only placeholder; resolved from `path.basename(targetDir)`
 - Cursor hook is `.mjs` (no tsx dep); Claude Code hook is `.ts` (needs tsx in devDependencies)
+- GitHub Copilot has no hook mechanism, so its migration/generated guards are instruction text only (`.github/copilot-instructions.md` + `.github/instructions/*.instructions.md` with `applyTo` globs); MCP example lands at `.vscode/mcp.json.example` and uses the VS Code `"servers"` key (not `"mcpServers"`)
+- A new tool id must be added in BOTH generators — `packages/create-app/src/setup/tools/<tool>.ts` (+ `wizard.ts`) and `packages/cli/src/lib/agentic-setup.ts` — plus the idempotency map in `packages/cli/src/lib/agentic-init.ts`. Renumber the `multiple`/`skip` wizard keys when inserting

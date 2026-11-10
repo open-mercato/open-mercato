@@ -611,6 +611,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         <CrudForm
           schema={entityFormSchema}
           title={t('entities.userEntities.edit.title', 'Edit Entity: {{entityId}}', { entityId })}
+          titleHeadingLevel={1}
           backHref={entitySource === 'code' ? "/backend/entities/system" : "/backend/entities/user"}
           fields={fields}
           groups={groups}
