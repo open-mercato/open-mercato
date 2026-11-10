@@ -61,11 +61,13 @@ async function fetchPendingInvitation(filter: string): Promise<PendingInvitation
 }
 
 function InviteForm({
+  canInvite,
   personEntityId,
   personData,
   isLoadingPerson,
   onSuccess,
 }: {
+  canInvite: boolean
   personEntityId: string
   personData: PersonData | null
   isLoadingPerson: boolean
@@ -78,6 +80,12 @@ function InviteForm({
   const [availableRoles, setAvailableRoles] = React.useState<RoleOption[]>([])
   const [isLoadingRoles, setIsLoadingRoles] = React.useState(true)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const canInviteRef = React.useRef(canInvite)
+
+  React.useEffect(() => {
+    canInviteRef.current = canInvite
+    return () => { canInviteRef.current = false }
+  }, [canInvite])
 
   const { runMutation } = useGuardedMutation<{ entityType: string }>({
     contextId: 'customer_accounts:account-status-invite',
@@ -127,6 +135,7 @@ function InviteForm({
   }
 
   async function handleSubmit() {
+    if (!canInviteRef.current) return
     const trimmedEmail = email.trim()
     if (!trimmedEmail) {
       flash(t('customer_accounts.widgets.invite.error.emailRequired', 'Email is required'), 'error')
@@ -143,6 +152,7 @@ function InviteForm({
         context: { entityType: 'customer_accounts:user' },
         mutationPayload: { personEntityId, roleIds: selectedRoleIds },
         operation: async () => {
+          if (!canInviteRef.current) return
           // optimistic-lock-exempt: creates a new portal invitation, not a concurrent record edit
           const call = await apiCall<{ ok: boolean; error?: string }>(
             '/api/customer_accounts/admin/users-invite',
@@ -262,7 +272,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   const t = useT()
   const queryClient = useQueryClient()
   const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
-  const canCancelInvitation = chromeReady && hasFeature(chromePayload?.grantedFeatures, 'customer_accounts.invite')
+  const canInvite = chromeReady && hasFeature(chromePayload?.grantedFeatures, 'customer_accounts.invite')
   const personEntityId = context?.recordId
   const [showInviteForm, setShowInviteForm] = React.useState(false)
   const [isCancellingInvitation, setIsCancellingInvitation] = React.useState(false)
@@ -339,7 +349,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   }
 
   async function handleCancelInvitation() {
-    if (!pendingInvitation || isCancellingInvitation || !canCancelInvitation) return
+    if (!pendingInvitation || isCancellingInvitation || !canInvite) return
     const invitation = pendingInvitation
     setIsCancellingInvitation(true)
     try {
@@ -411,7 +421,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
         ) : (
           <div className="text-sm text-muted-foreground">{t('customer_accounts.widgets.noAccount', 'No portal account linked')}</div>
         )}
-        {!showInviteForm && personEntityId && !isResolvingInvitation && (
+        {canInvite && !showInviteForm && personEntityId && !isResolvingInvitation && (
           <div className="mt-2 flex flex-wrap gap-2">
             <Button
               type="button"
@@ -424,7 +434,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
                 ? t('customer_accounts.widgets.invite.resend', 'Resend invitation')
                 : t('customer_accounts.widgets.invite.button', 'Invite to Portal')}
             </Button>
-            {pendingInvitation && canCancelInvitation && (
+            {pendingInvitation && canInvite && (
               <Button
                 type="button"
                 variant="destructive"
@@ -437,8 +447,9 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
             )}
           </div>
         )}
-        {showInviteForm && personEntityId && (
+        {canInvite && showInviteForm && personEntityId && (
           <InviteForm
+            canInvite={canInvite}
             personEntityId={personEntityId}
             personData={personData ?? null}
             isLoadingPerson={isLoadingPerson}
