@@ -2,18 +2,18 @@
  * Entity classification — "is this id an ORM-backed system entity, a custom
  * entity, or nothing we know?"
  *
- * Extracted verbatim from `api/records.ts`, which still re-exports every symbol
+ * Extracted from `api/records.ts`, which still re-exports every symbol
  * so its own import path is unchanged. It lives here because the precedence
  * chain (ORM registry → module-declared `ce.ts` → scoped `custom_entities` row)
  * is a security decision — `restricted` drives the per-entity ACL gate — and a
  * second consumer that grew its own copy would drift from this one silently.
  *
- * The scoped lookup is the reason this cannot be a pure lookup table: the
- * `access_restricted` flag is read from the registration row that applies to
- * THIS caller, so a colliding entityId in another tenant cannot flip it.
+ * Live tenant and instance-global restrictions apply across organizations.
+ * Registrations from other tenants never participate in classification.
  */
 
 import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
 
 export type RecordsEntityScope = { tenantId: string | null; organizationId: string | null }
@@ -83,20 +83,29 @@ export async function findScopedCustomEntity(em: any, CustomEntity: any, entityI
 export async function classifyRecordsEntity(em: any, entityId: string, scope: RecordsEntityScope): Promise<RecordsEntityClassification> {
   if (isOrmBackedSystemEntityId(em, entityId)) return { kind: 'system', restricted: false }
   const declared = loadDeclaredCustomEntities()
-  if (declared.has(entityId)) return { kind: 'custom', restricted: declared.get(entityId) === true }
+  if (declared.get(entityId) === true) return { kind: 'custom', restricted: true }
   try {
     const { CustomEntity } = await import('../data/entities')
-    // Restriction is decided from the row that applies to THIS caller's scope so
-    // a colliding entityId in another tenant can't flip the flag.
+    const registrationScopes = scope.tenantId === null
+      ? [{ tenantId: null, organizationId: null }]
+      : [{ tenantId: scope.tenantId }, { tenantId: null, organizationId: null }]
+    const restricted = await findOneWithDecryption(em, CustomEntity, {
+      entityId,
+      accessRestricted: true,
+      isActive: true,
+      deletedAt: null,
+      $or: registrationScopes,
+    }, undefined, { tenantId: scope.tenantId, organizationId: null })
+    if (restricted?.accessRestricted === true) return { kind: 'custom', restricted: true }
+    if (declared.has(entityId)) return { kind: 'custom', restricted: false }
     const scoped = await findScopedCustomEntity(em, CustomEntity, entityId, scope)
-    if (scoped) return { kind: 'custom', restricted: (scoped as any).accessRestricted === true }
-    // No in-scope registration: preserve the historical custom-vs-unknown
-    // classification (any registration row — active or soft-deleted — proves the
-    // id is custom; records persist beyond soft delete, TC-ENTITIES-006). A row
-    // outside the caller's scope never marks the entity restricted for them, and
-    // the record query is itself tenant/org-scoped, so this cannot leak data.
-    const anyRow = await em.findOne(CustomEntity as any, { entityId })
-    if (anyRow) return { kind: 'custom', restricted: false }
+    if (scoped) return { kind: 'custom', restricted: scoped.accessRestricted === true }
+    const historical = await findOneWithDecryption(em, CustomEntity, {
+      entityId,
+      tenantId: scope.tenantId,
+      ...(scope.tenantId === null ? { organizationId: null } : {}),
+    }, undefined, { tenantId: scope.tenantId, organizationId: null })
+    if (historical) return { kind: 'custom', restricted: false }
   } catch {}
   return { kind: 'unknown', restricted: false }
 }
