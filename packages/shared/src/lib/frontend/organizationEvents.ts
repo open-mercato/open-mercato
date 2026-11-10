@@ -1,3 +1,9 @@
+import {
+  isAllOrganizationsSelection,
+  parseSelectedOrganizationCookie,
+  parseSelectedTenantCookie,
+} from '@open-mercato/shared/lib/scope/cookies'
+
 export const ORGANIZATION_SCOPE_CHANGED_EVENT = 'om:organization-scope-changed'
 
 export type OrganizationScopeChangedDetail = {
@@ -7,17 +13,10 @@ export type OrganizationScopeChangedDetail = {
 
 function readPersistedScope(): OrganizationScopeChangedDetail {
   if (typeof document === 'undefined') return { organizationId: null, tenantId: null }
-  const cookies = document.cookie.split(';').map((entry) => entry.trim())
-  const readSelection = (name: string): string | null => {
-    const entry = cookies.find((cookie) => cookie.startsWith(`${name}=`))
-    const raw = entry?.slice(name.length + 1)
-    if (!raw) return null
-    try { return decodeURIComponent(raw) || null } catch { return raw }
-  }
-  const organizationId = readSelection('om_selected_org')
+  const organizationId = parseSelectedOrganizationCookie(document.cookie)
   return {
-    organizationId: organizationId === '__all__' ? null : organizationId,
-    tenantId: readSelection('om_selected_tenant'),
+    organizationId: isAllOrganizationsSelection(organizationId) ? null : organizationId,
+    tenantId: parseSelectedTenantCookie(document.cookie),
   }
 }
 

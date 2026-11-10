@@ -32,7 +32,11 @@ It is a separate PR at the maintainer's request, because it touches a surface li
   store; mirrored per the root `AGENTS.md` template-sync rule),
   `packages/ui/src/backend/injection/eventBridge.ts` (`SCOPE_COOKIE_NAMES`, a copy of both
   names that arrived on `develop` with #6932 while this change was open; the tuple keeps its
-  exact type, `readonly ['om_selected_org', 'om_selected_tenant']`)
+  exact type, `readonly ['om_selected_org', 'om_selected_tenant']`), and two copies that
+  arrived on `main` later still: `packages/shared/src/lib/frontend/organizationEvents.ts`
+  (`readPersistedScope()` from #7484, which reads a blank cookie as no selection, so it now
+  calls the selection parsers) and `packages/core/src/modules/auth/api/logout.ts` (the two
+  names #7516 expires on logout)
 - **Not touched**: `resolveOrganizationScopeForRequest` and everything downstream of it,
   `applySuperAdminScope`'s decision table, both `OrganizationSwitcher` components (see
   *Deliberately out of scope*), every consumer's import path
@@ -151,12 +155,6 @@ runtime behaviour changes for any consumer, inside the monorepo or out.
   return a richer `{ value, hasCookie, raw }` shape with its own `__all__` folding: replacing
   them is a behaviour-preserving rewrite of a client component with its own tests, a different
   review from a contract-surface bridge, and it is the highest-value remaining follow-up.
-- **`lib/frontend/organizationEvents.ts`** is not on `develop`; its copy arrives with
-  #5690. Switching it over is a two-line follow-up on that branch and does not conflict
-  with this one. It must use `readScopeCookieRaw`/`decodeScopeCookieValue`, not the
-  selection parsers: its seed bails out when a cookie is absent but seeds
-  `organizationId: null` when one is blank, so it is the second legitimate caller of the
-  lossless pair.
 - **`shared`'s remaining dependency on `core`.** `lib/crud/factory.ts` imports
   `resolveOrganizationScopeForRequest` from `@open-mercato/core/modules/directory/utils/organizationScope`,
   so the "shared must not depend on core" rule is already bent for behaviour. This change
@@ -204,7 +202,8 @@ runtime behaviour changes for any consumer, inside the monorepo or out.
   narrowing the effective scope of a superadmin request.
 - **Severity**: High if it happened; Low likelihood.
 - **Affected area**: `packages/shared/src/lib/auth/server.ts` → `applySuperAdminScope`, and any
-  future caller of the raw pair (`lib/frontend/organizationEvents.ts` on #5690 is the second).
+  future caller of the raw pair. (#5690's `organizationEvents.ts` seed would have been the
+  second; the version that landed with #7484 reads blank as no selection and uses the parsers.)
 - **Mitigation**: the asymmetry is documented in three places — the module header (which names
   `lib/auth/server.ts` as the one legitimate caller and tells everyone else to prefer the
   parsers), this spec, and a comment in the guarding test naming `applySuperAdminScope`;
@@ -288,7 +287,7 @@ runtime behaviour changes for any consumer, inside the monorepo or out.
 
 | Check | Status | Notes |
 |-------|--------|-------|
-| Every remaining copy of the wire format is named | Pass | Repository-wide sweep for both literals outside tests and fixtures, against `develop` as of 2026-10-11, leaves only the two `OrganizationSwitcher` files, both named in *Deliberately out of scope* |
+| Every remaining copy of the wire format is named | Pass | Repository-wide sweep for both literals outside tests and fixtures, against `main` as of 2026-11-10, leaves only the two `OrganizationSwitcher` files, both named in *Deliberately out of scope*, and the cookie names quoted in prose (comments and `logout.ts`'s OpenAPI description) |
 | Spec claims match the code | Pass | The "carries no constant duplication" claim about the template switcher was inaccurate and is corrected |
 | Risks cover all write operations | Pass | No writes; the write *of the cookie itself* is covered by the blank-cookie risk |
 | Tests are non-vacuous | Pass | Mutation claims listed under *Testing* |
@@ -299,6 +298,20 @@ None. One declared deviation (`@deprecated`), reasoned above and awaiting a main
 note on the record.
 
 ## Changelog
+
+### 2026-11-10
+
+- The PR was retargeted from `develop` to `main` (2026-10-21), and `main` had moved 496
+  commits. Merged `main`. The three conflicts were import blocks only: `lib/auth/server.ts`
+  (`main` added `findOneWithDecryption`), `directory/utils/organizationScope.ts` (`main`
+  added the API-key session imports) and the Library Directory table in
+  `packages/shared/AGENTS.md` (`main` rewrote the `search/` row).
+- Re-swept for the literals: `main` gained two copies, `readPersistedScope()` in
+  `lib/frontend/organizationEvents.ts` (#7484) and the logout cookie expiry in
+  `auth/api/logout.ts` (#7516). Both now use this module. `readPersistedScope()` reads a
+  blank cookie as no selection, which is the selection parsers' semantic, so the
+  replacement is behaviour-identical. Removed the obsolete *Deliberately out of scope* entry
+  for `organizationEvents.ts`.
 
 ### 2026-10-20
 

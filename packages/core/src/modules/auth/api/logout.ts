@@ -5,6 +5,7 @@ import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { buildSafeRedirectResponse } from '@open-mercato/core/modules/auth/lib/requestRedirect'
 import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { SELECTED_ORGANIZATION_COOKIE, SELECTED_TENANT_COOKIE } from '@open-mercato/shared/lib/scope/cookies'
 
 type AuthTokenClaims = {
   userId: string | null
@@ -86,8 +87,8 @@ export async function POST(req: Request) {
   const res = buildSafeRedirectResponse(req, '/login', 303)
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   res.cookies.set('session_token', '', { path: '/', maxAge: 0 })
-  res.cookies.set('om_selected_org', '', { path: '/', maxAge: 0 })
-  res.cookies.set('om_selected_tenant', '', { path: '/', maxAge: 0 })
+  res.cookies.set(SELECTED_ORGANIZATION_COOKIE, '', { path: '/', maxAge: 0 })
+  res.cookies.set(SELECTED_TENANT_COOKIE, '', { path: '/', maxAge: 0 })
   return res
 }
 
