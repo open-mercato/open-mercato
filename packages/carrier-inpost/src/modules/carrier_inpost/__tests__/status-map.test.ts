@@ -1,4 +1,9 @@
 import Chance from 'chance'
+import {
+  getTerminalShippingEvent,
+  syncShipmentStatus,
+  TERMINAL_SHIPPING_STATUSES,
+} from '@open-mercato/core/modules/shipping_carriers/lib/status-sync'
 import { mapInpostStatus, mapServiceCodeToInpost, isLockerService } from '../lib/status-map'
 
 const chance = new Chance()
@@ -55,13 +60,13 @@ describe('mapInpostStatus', () => {
     ['undelivered_wrong_address', 'failed_delivery'],
     ['undelivered_cod_cash_receiver', 'failed_delivery'],
     ['rejected_by_receiver', 'failed_delivery'],
+    ['claimed', 'failed_delivery'],
 
     // Returned
     ['returned_to_sender', 'returned'],
 
     // Cancelled
     ['canceled', 'cancelled'],
-    ['claimed', 'cancelled'],
   ]
 
   it.each(cases)('maps InPost status "%s" to unified "%s"', (inpostStatus, expected) => {
@@ -76,6 +81,20 @@ describe('mapInpostStatus', () => {
 
   it('returns "unknown" for sent_from_sorting_center (not in official status list)', () => {
     expect(mapInpostStatus('sent_from_sorting_center')).toBe('unknown')
+  })
+
+  it('does not treat a parcel complaint ("claimed") as a terminal cancellation', () => {
+    const mapped = mapInpostStatus('claimed')
+    expect(mapped).not.toBe(mapInpostStatus('canceled'))
+    expect(TERMINAL_SHIPPING_STATUSES.has(mapped)).toBe(false)
+    expect(getTerminalShippingEvent(mapped)).toBeNull()
+  })
+
+  it('keeps syncing a shipment after a complaint so the parcel return is still recorded', () => {
+    const shipment = { unifiedStatus: 'failed_delivery' } as Parameters<typeof syncShipmentStatus>[0]
+    syncShipmentStatus(shipment, mapInpostStatus('claimed'))
+    expect(syncShipmentStatus(shipment, mapInpostStatus('returned_to_sender'))).toBe(true)
+    expect(shipment.unifiedStatus).toBe('returned')
   })
 })
 
