@@ -9,6 +9,7 @@ import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, badRequest, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '#generated/entities.ids.generated'
@@ -180,10 +181,12 @@ async function lockUnchangedPolicy(
   em: EntityManager,
   after: AvailabilityPolicySnapshot,
 ): Promise<{ record: AvailabilityPolicy | null; stale: boolean }> {
-  const record = await em.findOne(
+  const record = await findOneWithDecryption(
+    em,
     AvailabilityPolicy,
     { id: after.id, tenantId: after.tenantId, organizationId: after.organizationId },
     { lockMode: LockMode.PESSIMISTIC_WRITE },
+    { tenantId: after.tenantId, organizationId: after.organizationId },
   )
   if (!record) return { record: null, stale: false }
   const stale = record.deletedAt != null || !isDeepStrictEqual(withoutTimestamps(toSnapshot(record)), withoutTimestamps(after))

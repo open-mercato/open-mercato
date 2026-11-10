@@ -18,6 +18,15 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   }
 })
 
+type FindOneDelegate = { findOne: (entity: unknown, where: unknown, options?: unknown) => Promise<unknown> }
+const findOneWithDecryptionMock = jest.fn(
+  async (em: FindOneDelegate, entity: unknown, where: unknown, options?: unknown, _scope?: unknown) =>
+    em.findOne(entity, where, options),
+)
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: Parameters<typeof findOneWithDecryptionMock>) => findOneWithDecryptionMock(...args),
+}))
+
 const findCatalogTargetIssueMock = jest.fn(async (..._args: unknown[]): Promise<string | null> => null)
 jest.mock('../../lib/catalogTarget', () => ({
   findCatalogTargetIssue: (...args: unknown[]) => findCatalogTargetIssueMock(...args),
@@ -354,6 +363,13 @@ describe('availability.policies undo — refuses when the policy changed after t
       AvailabilityPolicy,
       expect.objectContaining({ id: POLICY_ID, tenantId: TENANT_ID, organizationId: ORG_ID }),
       expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE }),
+    )
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
+      expect.anything(),
+      AvailabilityPolicy,
+      expect.objectContaining({ id: POLICY_ID, tenantId: TENANT_ID, organizationId: ORG_ID }),
+      expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE }),
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
     )
     expect(record.minOrderQuantity).toBeNull()
     expect(flush).toHaveBeenCalled()
