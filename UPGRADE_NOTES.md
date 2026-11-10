@@ -643,6 +643,31 @@ Explicit external `MCP_URL` and `OPENCODE_MCP_URL` values remain authoritative. 
 or environment-variable name changed. See
 `.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md` for the lifecycle details.
 
+### `yarn dev` starts the MCP server on its first request
+
+The root and standalone `yarn dev` launchers still provision the MCP API key at startup and own
+`MCP_PORT`, but they now keep the MCP server process (~500 MB) down until a client sends its first
+non-health request; that request is held (up to 60 s, at most 16 at once, `429` beyond) until the
+server is ready and every later request is proxied unchanged. Until then `GET /health` is answered
+by the launcher with the server's response shape plus an additive `lazy: true`: `503
+{"status":"starting","tools":0,...}` before the key is provisioned, then `200
+{"status":"ok","tools":0,...}`; `tools` reports `0` because no tools are loaded yet and becomes the
+real count once the server runs. A request with an `x-api-key` matching the provisioned key or
+`MCP_SERVER_API_KEY` (constant-time comparison) may wake the server from any peer. User-created
+Open Mercato keys (`omk_<8 hex>.<48 hex>`) may also wake it, but only from loopback (`127.0.0.1`,
+`::1`) or explicitly trusted socket peers. Untrusted peers with unknown keys get `401` before
+waking or occupying a queue slot, regardless of forwarded headers. The real server still
+authenticates every key; trusting a peer authorizes startup work, not MCP access. The MCP CLI
+now runs as a direct Node child from the app workspace instead of through a Yarn wrapper.
+
+**Operator action:** the shipped OpenCode sidecar uses the provisioned key and needs no change.
+For a trusted container using a user-created key, set `OM_DEV_MCP_TRUSTED_PEERS=172.18.0.2`
+on the `yarn dev` process to allow that exact source IP (comma-separated IPv4/IPv6 addresses;
+no hostnames, CIDRs, or wildcards). Private networks are not automatically trusted. Only trust
+peers you control; a trusted reverse proxy must reject untrusted callers itself. Alternatively,
+use the provisioned key, connect through loopback, or set `OM_DEV_MCP_LAZY=0` to restore the
+eager start. `--no-mcp` and `OM_DEV_WITH_MCP=0` keep disabling MCP entirely.
+
 ### Auth ACL live-row canonicalization
 
 Only live ACL rows and live role memberships now grant authorization. A super-admin grant must belong to the user's own tenant. Users whose `users.tenant_id` is NULL no longer obtain global super-admin access from legacy ACL rows; assign an owning tenant and a valid live grant before deploying, especially if that user is your only platform administrator. Foreign-tenant super-admin rows no longer confer super-admin access.
