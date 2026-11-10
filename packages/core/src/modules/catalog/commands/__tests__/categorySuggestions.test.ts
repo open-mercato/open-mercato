@@ -25,6 +25,8 @@ const PRODUCT = '33333333-3333-4333-8333-333333333333'
 const SUGGESTION = '44444444-4444-4444-8444-444444444444'
 const CATEGORY = '55555555-5555-4555-8555-555555555555'
 const USER = '66666666-6666-4666-8666-666666666666'
+const FOREIGN_TENANT = '77777777-7777-4777-8777-777777777777'
+const FOREIGN_ORG = '88888888-8888-4888-8888-888888888888'
 
 type FakeRecord = Record<string, unknown>
 
@@ -203,6 +205,28 @@ describe('catalog.category_suggestions.accept', () => {
       .rejects.toMatchObject({ status: 409, body: { code: 'suggestion_not_pending' } })
   })
 
+  it('refuses to accept a suggestion that belongs to a foreign tenant and writes nothing', async () => {
+    const suggestion = buildSuggestion({ tenantId: FOREIGN_TENANT })
+    const em = buildEm({ suggestion, category: buildCategory() })
+    await expect(acceptCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em)))
+      .rejects.toMatchObject({ status: 403, body: { error: 'Forbidden' } })
+    expect(suggestion.status).toBe('pending')
+    expect(syncCategoryAssignments).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(emitCatalogEvent).not.toHaveBeenCalled()
+  })
+
+  it('refuses to accept a suggestion that belongs to a foreign organization and writes nothing', async () => {
+    const suggestion = buildSuggestion({ organizationId: FOREIGN_ORG })
+    const em = buildEm({ suggestion, category: buildCategory() })
+    await expect(acceptCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em)))
+      .rejects.toMatchObject({ status: 403, body: { error: 'Forbidden' } })
+    expect(suggestion.status).toBe('pending')
+    expect(syncCategoryAssignments).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(emitCatalogEvent).not.toHaveBeenCalled()
+  })
+
   it('undo restores exactly before.categoryIds and touches no other product field', async () => {
     const product = buildProduct()
     const em = buildEm({ product })
@@ -255,6 +279,26 @@ describe('catalog.category_suggestions.reject', () => {
     const em = buildEm({ suggestion })
     await expect(rejectCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em)))
       .rejects.toMatchObject({ status: 409, body: { code: 'suggestion_not_pending' } })
+  })
+
+  it('refuses to reject a suggestion that belongs to a foreign tenant and writes nothing', async () => {
+    const suggestion = buildSuggestion({ tenantId: FOREIGN_TENANT })
+    const em = buildEm({ suggestion })
+    await expect(rejectCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em)))
+      .rejects.toMatchObject({ status: 403, body: { error: 'Forbidden' } })
+    expect(suggestion.status).toBe('pending')
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(emitCatalogEvent).not.toHaveBeenCalled()
+  })
+
+  it('refuses to reject a suggestion that belongs to a foreign organization and writes nothing', async () => {
+    const suggestion = buildSuggestion({ organizationId: FOREIGN_ORG })
+    const em = buildEm({ suggestion })
+    await expect(rejectCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em)))
+      .rejects.toMatchObject({ status: 403, body: { error: 'Forbidden' } })
+    expect(suggestion.status).toBe('pending')
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(emitCatalogEvent).not.toHaveBeenCalled()
   })
 })
 
