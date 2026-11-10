@@ -121,6 +121,8 @@ export interface EventPayload {
 export interface EmitOptions {
   /** If true, the event will be persisted to a queue for async processing */
   persistent?: boolean
+  /** Optional persistent-queue identity and publication deadline; does not change inline delivery. */
+  enqueue?: { jobId?: string; timeoutMs?: number }
   /** Trusted tenant scope forwarded to subscribers separately from the payload */
   tenantId?: string | null
   /** Trusted organization scope forwarded to subscribers separately from the payload */
