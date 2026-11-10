@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges } from '@open-mercato/shared/lib/commands/helpers'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
@@ -103,7 +103,7 @@ async function requireLeaveDecisionPermission(ctx: CommandRuntimeContext): Promi
     }
   }
   const { translate } = await resolveTranslations()
-  throw new CrudHttpError(403, { error: translate('staff.leaveRequests.errors.forbidden', 'Forbidden') })
+  throw forbidden(translate('staff.leaveRequests.errors.forbidden', 'Forbidden'))
 }
 
 function formatDateKey(value: Date): string {

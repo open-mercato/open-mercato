@@ -50,3 +50,5 @@ With enterprise record locking enabled, post-mutation cleanup must not query hum
 ## Changelog
 
 - 2026-11-06: Document existing permission enforcement at the owning command boundary.
+
+- 2026-11-10: source re-review replaces the new permission guard's raw HTTP error with the shared forbidden helper; scoped authorization and translated403 body remain identical.
