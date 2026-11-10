@@ -263,6 +263,32 @@ describeWithPostgres('availability policy undo against later policy writes on re
     expect(await readState(seed)).toMatchObject({ isActive: true, minOrderQuantity: 10 })
   }, CASE_TIMEOUT_MS)
 
+  it('refuses an undo that waited on a deactivation committed by another connection', async () => {
+    const seed = await seedPolicy()
+    const logEntry = await runUpdate(seed, { minOrderQuantity: 5 })
+    const holding = createDeferred()
+    const committed = createDeferred()
+    const writer = rootEm().transactional(async (tx) => {
+      await tx.execute('update availability_policies set is_active = false where id = ?', [seed.policyId])
+      holding.resolve()
+      await committed.promise
+    })
+    await holding.promise
+
+    const undoing = settle(handler('availability.policies.update').undo({ logEntry, ctx: policyCtx(seed) }))
+    await waitForLockWaiterOrSettled(undoing)
+    committed.resolve()
+    await writer
+    const undone = await undoing
+
+    expect(undone.ok).toBe(false)
+    if (!undone.ok) {
+      expect(undone.error.status).toBe(409)
+      expect(undone.error.body?.code).toBe('availability.policies.errors.undoConflict')
+    }
+    expect(await readState(seed)).toMatchObject({ isActive: false, minOrderQuantity: 5 })
+  }, CASE_TIMEOUT_MS)
+
   it('rolls back an undo that collides with another policy target and succeeds on retry', async () => {
     const originalProductId = randomUUID()
     const seed = await seedPolicy(originalProductId)
