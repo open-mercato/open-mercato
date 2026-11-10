@@ -6,7 +6,7 @@ import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integr
 import { deleteCarrierShipmentInDb, getCarrierShipmentRowFromDb, insertCarrierShipmentInDb } from './helpers/db'
 
 const routes = ['/api/shipping-carriers/cancel', '/api/shipping-carriers/tracking/refresh']
-const localizedErrors = [
+const localizedErrors: Array<{ headers: Record<string, string>; error: string }> = [
   { headers: {}, error: 'Shipment not found' },
   { headers: { 'Accept-Language': 'pl' }, error: 'Nie znaleziono przesyłki' },
 ]
