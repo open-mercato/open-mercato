@@ -133,8 +133,22 @@ function InjectedFieldsCard({ children }: { children?: React.ReactNode }) {
 
 function RevealOnErrors({ errors, onReveal }: { errors: Record<string, string>; onReveal: () => void }) {
   const hasHiddenError = Object.keys(errors).some(isMoreDetailsField)
+  const firstErrorRef = React.useRef<string | undefined>(undefined)
+  firstErrorRef.current = Object.keys(errors)[0]
   React.useEffect(() => {
-    if (hasHiddenError) onReveal()
+    if (!hasHiddenError) return
+    onReveal()
+    const fieldId = firstErrorRef.current
+    if (!fieldId || !isMoreDetailsField(fieldId)) return
+    const frame = requestAnimationFrame(() => {
+      const form = document.getElementById(CONTEXT_ID)
+      const field = Array.from(form?.querySelectorAll<HTMLElement>('[data-crud-field-id]') ?? [])
+        .find((element) => element.dataset.crudFieldId === fieldId)
+      const control = field?.querySelector<HTMLElement>('[data-crud-focus-target], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex="0"]')
+      control?.focus({ preventScroll: true })
+      field?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    })
+    return () => cancelAnimationFrame(frame)
   }, [hasHiddenError, onReveal])
   return null
 }
@@ -279,6 +293,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
               pipelines={pipelines}
               stages={currentStages}
               stagesFailed={stagesFailed}
+              stagesLoading={stagesLoading}
               onRetryStages={retryStages}
               pipelineName={pipelineName(current.pipelineId)}
               ownerInitialOption={ownerInitialOption}
@@ -385,6 +400,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     },
   ], [
     stagesFailed,
+    stagesLoading,
     retryStages,
     isSubmitting,
     loadStages,
@@ -418,16 +434,18 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
         {/* The app breadcrumb already ends in "Create deal", so the bar repeats no title; the
             page still owns an h1 for assistive tech and the readiness checks. */}
         <h1 className="sr-only">{tr('customers.deals.create.title', 'Create deal')}</h1>
-        <FormHeader
-          mode="edit"
-          backHref={returnTo}
-          backLabel={tr('customers.deals.create.back', 'Back to deals')}
-          actions={{
-            cancelHref: returnTo,
-            cancelLabel,
-            submit: { formId: CONTEXT_ID, pending: isSubmitting, label: submitLabel, icon: Save, disabled: !customFieldsLoaded || stagesLoading || stagesFailed },
-          }}
-        />
+        <div title={stagesLoading ? tr('customers.deals.create.stagesLoading', 'Stages are still loading. Try again in a moment.') : undefined}>
+          <FormHeader
+            mode="edit"
+            backHref={returnTo}
+            backLabel={tr('customers.deals.create.back', 'Back to deals')}
+            actions={{
+              cancelHref: returnTo,
+              cancelLabel,
+              submit: { formId: CONTEXT_ID, pending: isSubmitting, label: submitLabel, icon: Save, disabled: !customFieldsLoaded || stagesLoading || stagesFailed },
+            }}
+          />
+        </div>
       </div>
       <div className="mt-6 max-w-5xl">
         <CrudForm<Record<string, unknown>> embedded hideFooterActions formId={CONTEXT_ID}

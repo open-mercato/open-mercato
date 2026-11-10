@@ -1026,6 +1026,7 @@
   "customers.deals.create.fields.probability": "Prawdopodobieństwo",
   "customers.deals.create.fields.title": "Tytuł szansy",
   "customers.deals.create.fields.valueAmount": "Wartość szansy",
+  "customers.deals.create.noOpenStages": "Ten lejek nie ma otwartych etapów. Szansa sprzedaży zostanie zapisana bez etapu.",
   "customers.deals.create.sections.associations.title": "Powiązania",
   "customers.deals.create.sections.custom.empty": "Nie zdefiniowano jeszcze pól niestandardowych dla szans sprzedaży.",
   "customers.deals.create.sections.custom.loading": "Ładowanie pól niestandardowych…",

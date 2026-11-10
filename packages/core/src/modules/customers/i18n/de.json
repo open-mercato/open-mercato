@@ -1026,6 +1026,7 @@
   "customers.deals.create.fields.probability": "Wahrscheinlichkeit",
   "customers.deals.create.fields.title": "Deal-Titel",
   "customers.deals.create.fields.valueAmount": "Deal-Wert",
+  "customers.deals.create.noOpenStages": "Diese Pipeline hat keine offenen Phasen. Die Verkaufschance wird ohne Phase gespeichert.",
   "customers.deals.create.sections.associations.title": "Verknüpfungen",
   "customers.deals.create.sections.custom.empty": "Noch keine benutzerdefinierten Felder für Deals definiert.",
   "customers.deals.create.sections.custom.loading": "Benutzerdefinierte Felder werden geladen…",

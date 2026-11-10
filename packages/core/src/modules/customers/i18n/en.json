@@ -1026,6 +1026,7 @@
   "customers.deals.create.fields.probability": "Probability",
   "customers.deals.create.fields.title": "Deal title",
   "customers.deals.create.fields.valueAmount": "Deal value",
+  "customers.deals.create.noOpenStages": "This pipeline has no open stages. The deal will be saved without a stage.",
   "customers.deals.create.sections.associations.title": "Associations",
   "customers.deals.create.sections.custom.empty": "No custom fields defined for deals yet.",
   "customers.deals.create.sections.custom.loading": "Loading custom fields…",

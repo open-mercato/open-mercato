@@ -1026,6 +1026,7 @@
   "customers.deals.create.fields.probability": "성사 확률",
   "customers.deals.create.fields.title": "거래명",
   "customers.deals.create.fields.valueAmount": "거래 금액",
+  "customers.deals.create.noOpenStages": "이 파이프라인에는 진행 중인 단계가 없습니다. 거래가 단계 없이 저장됩니다.",
   "customers.deals.create.sections.associations.title": "연결",
   "customers.deals.create.sections.custom.empty": "아직 거래에 정의된 커스텀 필드가 없습니다.",
   "customers.deals.create.sections.custom.loading": "커스텀 필드를 불러오는 중…",

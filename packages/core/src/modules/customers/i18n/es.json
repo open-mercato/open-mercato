@@ -1026,6 +1026,7 @@
   "customers.deals.create.fields.probability": "Probabilidad",
   "customers.deals.create.fields.title": "Título de la oportunidad",
   "customers.deals.create.fields.valueAmount": "Valor de la oportunidad",
+  "customers.deals.create.noOpenStages": "Este pipeline no tiene etapas abiertas. La oportunidad se guardará sin etapa.",
   "customers.deals.create.sections.associations.title": "Asociaciones",
   "customers.deals.create.sections.custom.empty": "Aún no hay campos personalizados definidos para oportunidades.",
   "customers.deals.create.sections.custom.loading": "Cargando campos personalizados…",
