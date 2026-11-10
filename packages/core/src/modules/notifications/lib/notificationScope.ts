@@ -34,10 +34,6 @@ export function buildNotificationReadScopeWhere(
   }
 }
 
-/**
- * Raw-SQL counterpart of {@link buildNotificationReadScopeWhere} for queries built with Kysely.
- * Returns `null` when the scope carries no organization restriction.
- */
 export function buildNotificationReadScopeSql(
   scope: NotificationReadOrganizationScope,
 ): RawBuilder<boolean> | null {

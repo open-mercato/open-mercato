@@ -54,9 +54,11 @@ async function listNotificationIds(
   return (body?.items ?? []).map((item) => String(item.id)).sort((left, right) => left.localeCompare(right))
 }
 
-async function markAllAsRead(request: APIRequestContext, session: UserSession): Promise<void> {
+async function markAllAsRead(request: APIRequestContext, session: UserSession): Promise<number | undefined> {
   const response = await sendAsUser(request, 'PUT', '/api/notifications/mark-all-read', session)
   expect(response.status(), 'PUT /api/notifications/mark-all-read should return 200').toBe(200)
+  const body = await readJsonSafe<{ count?: number }>(response)
+  return body?.count
 }
 
 async function readUnreadCount(request: APIRequestContext, session: UserSession): Promise<number | undefined> {
@@ -116,8 +118,9 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
       const session: UserSession = { token: userToken, selectedOrgId: parentOrganizationId }
       expect(await listNotificationIds(request, session, { type }))
         .toEqual([...notificationIds].sort((left, right) => left.localeCompare(right)))
+      const unreadBefore = await readUnreadCount(request, session)
 
-      await markAllAsRead(request, session)
+      expect(await markAllAsRead(request, session)).toBe(unreadBefore)
 
       expect(await listNotificationIds(request, session, { type, status: 'unread' })).toEqual([])
       expect(await readUnreadCount(request, session)).toBe(0)
@@ -178,8 +181,9 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
       userToken = await getAuthToken(request, email, PASSWORD)
       const session: UserSession = { token: userToken }
       expect(await listNotificationIds(request, session, { type })).toEqual([tenantWideNotificationId])
+      const unreadBefore = await readUnreadCount(request, session)
 
-      await markAllAsRead(request, session)
+      expect(await markAllAsRead(request, session)).toBe(unreadBefore)
 
       expect(await readUnreadCount(request, session)).toBe(0)
       await setRoleAclFeatures(request, superadminToken, {
@@ -187,6 +191,8 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
         features: ['notifications.view'],
         organizations: [homeOrganizationId, visibleOrganizationId],
       })
+      expect(await listNotificationIds(request, session, { type }))
+        .toEqual([hiddenNotificationId, tenantWideNotificationId].sort((left, right) => left.localeCompare(right)))
       expect(await listNotificationIds(request, session, { type, status: 'unread' })).toEqual([hiddenNotificationId])
     } finally {
       if (superadminToken && roleId && homeOrganizationId && visibleOrganizationId) {
