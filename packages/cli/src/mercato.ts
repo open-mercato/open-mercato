@@ -10,7 +10,7 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { formatInitSummary } from './lib/init-summary'
-import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from './lib/init-secrets'
 import { decideExistingDatabase, formatSkipIfInitializedMessage } from './lib/init-existing-database'
 import {
   resolveAutoSpawnWorkersMode,
@@ -1032,6 +1032,7 @@ export async function run(argv = process.argv) {
         delete process.env.OM_INIT_REINSTALL
       }
       const skipIfInitialized = initArgs.includes('--skip-if-initialized')
+      const credentials = skipIfInitialized && !reinstall ? undefined : resolveInitSuperadminCredentials(initArgs)
       const skipExamples = initArgs.includes('--no-examples')
       const skipDemoUsers = initArgs.includes('--no-demo-users')
       const stressTestEnabled =
@@ -1209,6 +1210,8 @@ export async function run(argv = process.argv) {
         }
       }
 
+      const { email, password, skipPasswordPolicy } = credentials ?? resolveInitSuperadminCredentials(initArgs)
+
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
@@ -1257,16 +1260,7 @@ export async function run(argv = process.argv) {
         }
         return fallback
       }
-      const readEnvDefault = (key: string) => {
-        const value = process.env[key]
-        if (typeof value === 'string' && value.trim().length > 0) return value.trim()
-        return undefined
-      }
-      const defaultEmail = readEnvDefault('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com'
-      const defaultPassword = readEnvDefault('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret'
       const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
-      const email = findArgValue(['--email='], defaultEmail)
-      const password = findArgValue(['--password='], defaultPassword)
       const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
       const adminEmailDerived = derivedSecrets.adminEmail
       const employeeEmailDerived = derivedSecrets.employeeEmail
@@ -1300,16 +1294,6 @@ export async function run(argv = process.argv) {
         process.env.OM_INIT_EMPLOYEE_EMAIL = employeeEmailDerived
       }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
-      const skipPasswordPolicyRaw = initArgs.find((arg) =>
-        arg === '--skip-password-policy' ||
-        arg.startsWith('--skip-password-policy=') ||
-        arg === '--allow-weak-password' ||
-        arg.startsWith('--allow-weak-password=')
-      )
-      const skipPasswordPolicy = skipPasswordPolicyRaw
-        ? parseBooleanToken(skipPasswordPolicyRaw.split('=')[1] ?? 'true') ?? true
-        : true
-
       console.log('🔐 Setting up RBAC and users...')
       // Run auth setup command via CLI
       const setupArgs = [

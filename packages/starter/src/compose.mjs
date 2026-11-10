@@ -129,7 +129,7 @@ export function stopStreamingChild(child, signal, { platform = process.platform,
 
 // Async output capture keeps the setup log toggle responsive during long
 // installs/builds. With no sink, preserve inherited stdio (CI / verbose).
-export function runStreaming(command, commandArgs, { cwd, env, logs, spawnImpl = spawn } = {}) {
+export function runStreaming(command, commandArgs, { cwd, env, logs, exitOnSignal = true, spawnImpl = spawn } = {}) {
   const resolved = resolveSpawnCommand(command, commandArgs)
   return new Promise((resolve, reject) => {
     const child = spawnImpl(resolved.command, resolved.args, {
@@ -141,16 +141,22 @@ export function runStreaming(command, commandArgs, { cwd, env, logs, spawnImpl =
       detached: Boolean(logs) && process.platform !== 'win32',
       ...resolved.spawnOptions,
     })
+    let signalCode
+    let shutdownTimer
     const interrupt = (signal) => {
+      signalCode = signal === 'SIGINT' ? 130 : 143
       logs?.stop()
       stopStreamingChild(child, signal, { grouped: Boolean(logs) })
-      process.exit(signal === 'SIGINT' ? 130 : 143)
+      if (exitOnSignal) process.exit(signalCode)
+      shutdownTimer = setTimeout(() => stopStreamingChild(child, 'SIGKILL', { grouped: Boolean(logs) }), 5000)
+      shutdownTimer.unref()
     }
     const onSigint = () => interrupt('SIGINT')
     const onSigterm = () => interrupt('SIGTERM')
     process.once('SIGINT', onSigint)
     process.once('SIGTERM', onSigterm)
     const cleanup = () => {
+      clearTimeout(shutdownTimer)
       process.removeListener('SIGINT', onSigint)
       process.removeListener('SIGTERM', onSigterm)
     }
@@ -159,6 +165,6 @@ export function runStreaming(command, commandArgs, { cwd, env, logs, spawnImpl =
     child.stdout?.on('data', (chunk) => logs?.raw(chunk))
     child.stderr?.on('data', (chunk) => logs?.raw(chunk))
     child.once('error', (error) => { cleanup(); reject(new Error(`${command} could not be executed: ${error.message}`)) })
-    child.once('close', (code) => { cleanup(); resolve(code ?? 1) })
+    child.once('close', (code) => { cleanup(); resolve(signalCode ?? code ?? 1) })
   })
 }

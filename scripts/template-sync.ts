@@ -189,9 +189,24 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-infra-preflight.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'service-modes.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-service-modes.mjs'),
+    rel: 'scripts/dev-service-modes.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'service-connections.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-service-connections.mjs'),
     rel: 'scripts/dev-service-connections.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'database-write-guard.mjs'),
+    templateFile: path.join(ROOT, 'scripts', 'dev-database-write-guard.mjs'),
+    rel: 'scripts/dev-database-write-guard.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'database-write-guard.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-database-write-guard.mjs'),
+    rel: 'scripts/dev-database-write-guard.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'docker', 'redis', 'redis.conf'),
