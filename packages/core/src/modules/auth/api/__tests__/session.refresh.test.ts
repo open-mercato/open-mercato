@@ -262,3 +262,27 @@ describe('/api/auth/session/refresh', () => {
     })
   })
 })
+
+describe('/api/auth/session/refresh — organization scope selection', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    verifyJwt.mockReturnValue(null)
+    process.env.APP_URL = 'https://demo.openmercato.com'
+  })
+
+  it('keeps the selection across a refresh, because the identity has not changed', async () => {
+    refreshFromSessionToken.mockResolvedValue({
+      user: { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', email: 'admin@acme.com' },
+      roles: ['admin'],
+      session: { id: 'session-1' },
+    })
+
+    const response = await GET(new Request('https://demo.openmercato.com/api/auth/session/refresh?redirect=%2Fbackend', {
+      headers: {
+        cookie: 'session_token=refresh-token; om_selected_tenant=tenant-2; om_selected_org=org-2',
+      },
+    }))
+
+    expect(response.headers.get('set-cookie') ?? '').not.toContain('om_selected')
+  })
+})

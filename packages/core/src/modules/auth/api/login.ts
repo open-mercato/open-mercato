@@ -269,6 +269,8 @@ async function handleLoginRequest(req: Request) {
   } else if (authTokenReplacedByInterceptor) {
     res.cookies.set('session_token', '', { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 0 })
   }
+  res.cookies.set('om_selected_tenant', '', { path: '/', maxAge: 0 })
+  res.cookies.set('om_selected_org', '', { path: '/', maxAge: 0 })
   return res
 }
 
