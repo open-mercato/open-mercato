@@ -1608,6 +1608,33 @@ The four advertised `detail:sales.{order|quote}:{stage-bar|closure}` IDs now mou
 
 **Action for widget authors:** check feature gates and order/quote assumptions before enabling previously dormant widgets. Existing tabs/details/shipping IDs and native document behavior remain available.
 
+### Planner availability replace refuses invalid windows (#9171)
+
+`POST /api/planner/availability-weekly`, and `POST /api/planner/availability-date-specific` for
+availability, now return `400` with the translated `planner.availability.errors.invalidWindow`
+message when a window's end is not after its start (after resolving it in the given timezone) or a
+time is outside `00:00`-`23:59`, such as `24:00`. Before, the request returned `200` and still
+deleted the hours the bad window was meant to replace. URLs and request/response shapes are
+unchanged, and nothing is written when the request is refused.
+
+One bad window refuses the whole request: a batch that mixes valid and invalid windows, which used
+to save the valid ones, now saves nothing, and a request whose bad window met no existing rules,
+a no-op before, also gets `400`. A date-specific availability request with windows that lists an
+impossible date such as `2026-02-30`, which used to be skipped, is refused too. Date-specific
+`kind: 'unavailability'` requests still ignore their windows. Because the check uses resolved
+instants, a date-specific window that a DST gap collapses or inverts (`02:30`-`03:30` on a
+spring-forward day) is refused as well; the availability editor can still send one and now shows
+this error instead of deleting that day's hours. Redo of an action log recorded before this change
+that contains such a window now fails instead of deleting hours.
+
+**Action for API callers:** split an overnight window into two windows on consecutive days, send
+`23:59` instead of `24:00` for the end of the day, send only real calendar dates, and treat a `400`
+as "nothing changed" and resend the corrected full set of windows. There is no warn-first bridge
+because a bad window never produced a rule; it only deleted existing hours.
+
+Existing data is not repaired: hours already lost through this path are not restored by the
+upgrade and have to be re-entered through the editor or the API. No database migration is needed.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
