@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
@@ -19,14 +20,10 @@ const UNDO_CONFLICT_MESSAGE = 'This policy changed since the action you are undo
 
 type PolicyRow = { id?: string; isActive?: boolean; minOrderQuantity?: number | null; lowStockThreshold?: number | null }
 
-function syntheticProductId(stamp: number): string {
-  return `00000000-0000-4000-8006-${String(stamp).slice(-12).padStart(12, '0')}`
-}
-
-async function createPolicy(request: APIRequestContext, token: string, stamp: number): Promise<string> {
+async function createPolicy(request: APIRequestContext, token: string): Promise<string> {
   const response = await apiRequest(request, 'POST', POLICIES_API_BASE, {
     token,
-    data: { ...getTokenContext(token), productId: syntheticProductId(stamp), isActive: true },
+    data: { ...getTokenContext(token), productId: randomUUID(), isActive: true },
   })
   expect(response.status(), 'policy fixture create').toBe(201)
   return expectId((await readJsonSafe<{ id?: string }>(response))?.id, 'policy id')
@@ -59,7 +56,7 @@ test.describe('TC-AVAIL-006: availability policy undo refuses a stale snapshot',
     const otherToken = await getAuthToken(request, 'superadmin')
     let policyId: string | null = null
     try {
-      policyId = await createPolicy(request, adminToken, Date.now())
+      policyId = await createPolicy(request, adminToken)
       const adminUpdate = await updatePolicy(request, adminToken, { id: policyId, minOrderQuantity: 5 })
       await updatePolicy(request, otherToken, { id: policyId, isActive: false })
 
@@ -81,7 +78,7 @@ test.describe('TC-AVAIL-006: availability policy undo refuses a stale snapshot',
     const adminToken = await getAuthToken(request, 'admin')
     let policyId: string | null = null
     try {
-      policyId = await createPolicy(request, adminToken, Date.now())
+      policyId = await createPolicy(request, adminToken)
       const first = await updatePolicy(request, adminToken, { id: policyId, minOrderQuantity: 5 })
       const second = await updatePolicy(request, adminToken, { id: policyId, minOrderQuantity: 10 })
 
@@ -102,7 +99,7 @@ test.describe('TC-AVAIL-006: availability policy undo refuses a stale snapshot',
     const otherToken = await getAuthToken(request, 'superadmin')
     let policyId: string | null = null
     try {
-      policyId = await createPolicy(request, adminToken, Date.now())
+      policyId = await createPolicy(request, adminToken)
 
       await login(page, 'admin')
       await page.goto(`/backend/availability/policies/${policyId}`)

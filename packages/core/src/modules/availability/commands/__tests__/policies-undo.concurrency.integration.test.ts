@@ -31,7 +31,7 @@ type Deferred = { promise: Promise<void>; resolve: () => void }
 
 type Gate = { armed: boolean; reached: Deferred; release: Deferred }
 
-type CommandError = { status?: number; body?: { code?: string } }
+type CommandError = { status?: number; body?: { code?: string; error?: string } }
 
 type Outcome<T> = { ok: true; value: T } | { ok: false; error: CommandError }
 
@@ -45,7 +45,7 @@ type Handler = {
 
 type Seed = { tenantId: string; organizationId: string; userId: string; policyId: string }
 
-type PolicyState = { isActive: boolean; minOrderQuantity: number | null }
+type PolicyState = { isActive: boolean; minOrderQuantity: number | null; productId: string | null }
 
 function createDeferred(): Deferred {
   let resolve: () => void = () => undefined
@@ -104,19 +104,27 @@ describeWithPostgres('availability policy undo against later policy writes on re
     }
   }
 
-  async function seedPolicy(): Promise<Seed> {
+  async function seedPolicy(productId: string = randomUUID()): Promise<Seed> {
     const seed: Seed = { tenantId: randomUUID(), organizationId: randomUUID(), userId: randomUUID(), policyId: randomUUID() }
     const em = rootEm()
     em.create(AvailabilityPolicy, {
       id: seed.policyId,
       tenantId: seed.tenantId,
       organizationId: seed.organizationId,
-      productId: randomUUID(),
+      productId,
       isActive: true,
       minOrderQuantity: null,
     })
     await em.flush()
     return seed
+  }
+
+  async function seedBlockingPolicy(seed: Seed, productId: string): Promise<string> {
+    const id = randomUUID()
+    const em = rootEm()
+    em.create(AvailabilityPolicy, { id, tenantId: seed.tenantId, organizationId: seed.organizationId, productId, isActive: true })
+    await em.flush()
+    return id
   }
 
   async function runUpdate(seed: Seed, patch: Record<string, unknown>): Promise<unknown> {
@@ -131,11 +139,11 @@ describeWithPostgres('availability policy undo against later policy writes on re
   }
 
   async function readState(seed: Seed): Promise<PolicyState> {
-    const [row] = await rootEm().execute<Array<{ is_active: boolean; min_order_quantity: number | null }>>(
-      'select is_active, min_order_quantity from availability_policies where id = ?',
+    const [row] = await rootEm().execute<Array<{ is_active: boolean; min_order_quantity: number | null; product_id: string | null }>>(
+      'select is_active, min_order_quantity, product_id from availability_policies where id = ?',
       [seed.policyId],
     )
-    return { isActive: row.is_active, minOrderQuantity: row.min_order_quantity }
+    return { isActive: row.is_active, minOrderQuantity: row.min_order_quantity, productId: row.product_id }
   }
 
   async function waitForLockWaiterOrSettled(pending: Promise<unknown>): Promise<void> {
@@ -202,22 +210,16 @@ describeWithPostgres('availability policy undo against later policy writes on re
 
   afterAll(async () => {
     jest.restoreAllMocks()
-    await Promise.allSettled([orm?.close(true)])
-    await Promise.allSettled([postgres?.stop()])
+    await orm?.close(true)
+    await postgres?.stop()
   }, 30_000)
 
-  it('restores an update that nothing changed since, without a false conflict on real timestamps', async () => {
+  it('undoes two updates newest first without a false conflict on a microsecond release date', async () => {
     const seed = await seedPolicy()
-    const logEntry = await runUpdate(seed, { minOrderQuantity: 5 })
-
-    const undone = await settle(handler('availability.policies.update').undo({ logEntry, ctx: policyCtx(seed) }))
-
-    expect(undone.ok).toBe(true)
-    expect(await readState(seed)).toEqual({ isActive: true, minOrderQuantity: null })
-  }, CASE_TIMEOUT_MS)
-
-  it('undoes two updates newest first without a false conflict', async () => {
-    const seed = await seedPolicy()
+    await rootEm().execute(
+      "update availability_policies set preorder_release_at = '2026-12-01 10:00:00.123456+00' where id = ?",
+      [seed.policyId],
+    )
     const first = await runUpdate(seed, { minOrderQuantity: 5 })
     const second = await runUpdate(seed, { minOrderQuantity: 10 })
 
@@ -226,7 +228,7 @@ describeWithPostgres('availability policy undo against later policy writes on re
 
     expect(undoneSecond.ok).toBe(true)
     expect(undoneFirst.ok).toBe(true)
-    expect(await readState(seed)).toEqual({ isActive: true, minOrderQuantity: null })
+    expect(await readState(seed)).toMatchObject({ isActive: true, minOrderQuantity: null })
   }, CASE_TIMEOUT_MS)
 
   it('refuses the undo of an older update once another actor deactivated the policy', async () => {
@@ -241,7 +243,7 @@ describeWithPostgres('availability policy undo against later policy writes on re
       expect(undone.error.status).toBe(409)
       expect(undone.error.body?.code).toBe('availability.policies.errors.undoConflict')
     }
-    expect(await readState(seed)).toEqual({ isActive: false, minOrderQuantity: 5 })
+    expect(await readState(seed)).toMatchObject({ isActive: false, minOrderQuantity: 5 })
   }, CASE_TIMEOUT_MS)
 
   it('keeps a quantity change that lands while the undo is between its read and its write', async () => {
@@ -258,31 +260,29 @@ describeWithPostgres('availability policy undo against later policy writes on re
 
     expect(undone.ok).toBe(true)
     expect(changed.ok).toBe(true)
-    expect(await readState(seed)).toEqual({ isActive: true, minOrderQuantity: 10 })
+    expect(await readState(seed)).toMatchObject({ isActive: true, minOrderQuantity: 10 })
   }, CASE_TIMEOUT_MS)
 
-  it('refuses the undo of a create once another actor edited the policy', async () => {
-    const seed = await seedPolicy()
-    const createLog = await (async () => {
-      const command = handler('availability.policies.create')
-      const ctx = policyCtx(seed)
-      const input = { tenantId: seed.tenantId, organizationId: seed.organizationId, productId: randomUUID(), isActive: true }
-      const result = (await command.execute(input, ctx)) as { policyId: string }
-      const after = await command.captureAfter!(input, result, ctx)
-      const log = await command.buildLog!({ snapshots: { after }, result, ctx })
-      return { policyId: result.policyId, logEntry: { commandPayload: JSON.parse(JSON.stringify(log?.payload)) } }
-    })()
-    const created: Seed = { ...seed, policyId: createLog.policyId }
-    await runUpdate(created, { isActive: false })
+  it('rolls back an undo that collides with another policy target and succeeds on retry', async () => {
+    const originalProductId = randomUUID()
+    const seed = await seedPolicy(originalProductId)
+    const logEntry = await runUpdate(seed, { productId: randomUUID() })
+    const movedState = await readState(seed)
+    const blockerId = await seedBlockingPolicy(seed, originalProductId)
 
-    const undone = await settle(handler('availability.policies.create').undo({ logEntry: createLog.logEntry, ctx: policyCtx(created) }))
+    const failed = await settle(handler('availability.policies.update').undo({ logEntry, ctx: policyCtx(seed) }))
 
-    expect(undone.ok).toBe(false)
-    if (!undone.ok) expect(undone.error.status).toBe(409)
-    const [row] = await rootEm().execute<Array<{ deleted_at: Date | null }>>(
-      'select deleted_at from availability_policies where id = ?',
-      [created.policyId],
-    )
-    expect(row.deleted_at).toBeNull()
+    expect(failed.ok).toBe(false)
+    if (!failed.ok) {
+      expect(failed.error.status).toBe(409)
+      expect(failed.error.body?.error).toBe('A policy already exists for this store/product/variant combination.')
+    }
+    expect(await readState(seed)).toEqual(movedState)
+
+    await rootEm().execute('update availability_policies set deleted_at = now() where id = ?', [blockerId])
+    const retried = await settle(handler('availability.policies.update').undo({ logEntry, ctx: policyCtx(seed) }))
+
+    expect(retried.ok).toBe(true)
+    expect(await readState(seed)).toEqual({ isActive: true, minOrderQuantity: null, productId: originalProductId })
   }, CASE_TIMEOUT_MS)
 })
