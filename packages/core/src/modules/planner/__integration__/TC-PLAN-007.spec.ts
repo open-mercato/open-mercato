@@ -71,14 +71,18 @@ test.describe('TC-PLAN-007: availability replace rejects a window whose end is n
       expect(after.map((rule) => rule.id).sort(), 'Rejected requests must not delete existing rules').toEqual(
         before.map((rule) => rule.id).sort(),
       )
+
+      const dayOff = await apiRequest(request, 'POST', '/api/planner/availability-date-specific', {
+        token,
+        data: { ...weeklyBase, dates: [date], kind: 'unavailability', windows: [{ start: '17:00', end: '09:00' }] },
+      })
+      expect(dayOff.status(), 'Unavailability ignores its windows and should still return 200').toBe(200)
     } finally {
       if (ruleSetId) {
         const leftovers = await listRuleSetRules(request, token, ruleSetId).catch(() => [] as RuleItem[])
         for (const rule of leftovers) {
           if (rule.id) await deleteEntityByPathIfExists(request, token, `/api/planner/availability?id=${encodeURIComponent(rule.id)}`)
         }
-      }
-      if (ruleSetId) {
         await deleteEntityByPathIfExists(request, token, `/api/planner/availability-rule-sets?id=${encodeURIComponent(ruleSetId)}`)
       }
     }

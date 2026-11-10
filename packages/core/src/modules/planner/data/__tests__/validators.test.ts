@@ -106,5 +106,22 @@ describe('Planner validators', () => {
         plannerAvailabilityDateSpecificReplaceSchema.safeParse({ ...base, date: '2026-06-15', windows: [{ start: '08:00', end }] }).success,
       ).toBe(false)
     }
+    const outOfRangeStart = plannerAvailabilityWeeklyReplaceSchema.safeParse({ ...base, windows: [{ weekday: 1, start: '25:00', end: '26:00' }] })
+    expect(outOfRangeStart.error?.issues.map((issue) => issue.path)).toEqual([['windows', 0, 'start']])
+  })
+
+  test('date-specific unavailability still ignores its windows', () => {
+    const result = plannerAvailabilityDateSpecificReplaceSchema.safeParse({
+      tenantId,
+      organizationId,
+      subjectType: 'member',
+      subjectId: '123e4567-e89b-12d3-a456-426614174002',
+      timezone: 'UTC',
+      date: '2026-06-15',
+      kind: 'unavailability',
+      windows: [{ start: '17:00', end: '09:00' }, { start: '00:00', end: '24:00' }],
+    })
+
+    expect(result.success).toBe(true)
   })
 })

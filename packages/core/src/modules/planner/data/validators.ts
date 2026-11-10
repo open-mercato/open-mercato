@@ -58,26 +58,28 @@ export const plannerAvailabilityRuleUpdateSchema = z.object({
 
 const timeOfDayPattern = /^([01]\d|2[0-3]):[0-5]\d$/
 
-function requireEndAfterStart(window: { start: string; end: string }, ctx: z.RefinementCtx) {
-  if (!timeOfDayPattern.test(window.start) || !timeOfDayPattern.test(window.end)) return
-  if (window.end > window.start) return
-  ctx.addIssue({
-    code: z.ZodIssueCode.custom,
-    path: ['end'],
-    message: 'planner.availability.errors.windowEndBeforeStart',
+function addInvalidWindowIssues(windows: Array<{ start: string; end: string }>, ctx: z.RefinementCtx) {
+  windows.forEach((window, index) => {
+    const startValid = timeOfDayPattern.test(window.start)
+    if (startValid && timeOfDayPattern.test(window.end) && window.end > window.start) return
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['windows', index, startValid ? 'end' : 'start'],
+      message: 'planner.availability.errors.invalidWindow',
+    })
   })
 }
 
 const weeklyWindowSchema = z.object({
   weekday: z.number().int().min(0).max(6),
-  start: z.string().regex(timeOfDayPattern),
-  end: z.string().regex(timeOfDayPattern),
-}).superRefine(requireEndAfterStart)
+  start: z.string().regex(/^\d{2}:\d{2}$/),
+  end: z.string().regex(/^\d{2}:\d{2}$/),
+})
 
 const dateSpecificWindowSchema = z.object({
-  start: z.string().regex(timeOfDayPattern),
-  end: z.string().regex(timeOfDayPattern),
-}).superRefine(requireEndAfterStart)
+  start: z.string().regex(/^\d{2}:\d{2}$/),
+  end: z.string().regex(/^\d{2}:\d{2}$/),
+})
 
 const dateSpecificDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -87,7 +89,7 @@ export const plannerAvailabilityWeeklyReplaceSchema = z.object({
   subjectId: z.string().uuid(),
   timezone: z.string().min(1),
   windows: z.array(weeklyWindowSchema).default([]),
-})
+}).superRefine((value, ctx) => addInvalidWindowIssues(value.windows, ctx))
 
 export type PlannerAvailabilityWeeklyReplaceInput = z.infer<typeof plannerAvailabilityWeeklyReplaceSchema>
 
@@ -114,6 +116,8 @@ export const plannerAvailabilityDateSpecificReplaceSchema = z.object({
       message: 'Date is required.',
     })
   }
+  const kind = value.kind ?? (value.isAvailable === false ? 'unavailability' : 'availability')
+  if (kind !== 'unavailability') addInvalidWindowIssues(value.windows, ctx)
 })
 
 export type PlannerAvailabilityDateSpecificReplaceInput = z.infer<typeof plannerAvailabilityDateSpecificReplaceSchema>
