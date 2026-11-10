@@ -1944,7 +1944,17 @@ export async function continueOrderOutcome(
       // lookup always failed and the provider session was never actually cancelled.
       await paymentGatewayService.cancelPayment(sessionResult.transaction.id, 'checkout_submit_recovered', scope)
     } catch (err) {
-      if (sessionResult.transaction.unifiedStatus === 'captured') {
+      // #8268 review Major 5 (re-review): `sessionResult.transaction` is the snapshot
+      // `createPaymentSession` returned BEFORE this cancel attempt — a capture landing in
+      // the race window between that call and this one would read as not-captured here,
+      // so re-read the authoritative provider state instead of trusting the stale copy.
+      let currentStatus: string = sessionResult.transaction.unifiedStatus
+      try {
+        currentStatus = (await paymentGatewayService.getPaymentStatus(sessionResult.transaction.id, scope)).status
+      } catch (statusErr) {
+        logger.warn('[internal] checkout submit: could not re-read gateway status after a lost-CAS cancel failure, falling back to the pre-cancel snapshot', { err: statusErr, sessionId: session.id, orderId })
+      }
+      if (currentStatus === 'captured' || currentStatus === 'partially_captured') {
         logger.error('[internal] checkout submit: a recovered submit\'s gateway session was already captured — recording the payment for manual refund review', { err, sessionId: session.id, orderId })
         getTelemetryRuntime()?.reportError(err, {
           module: 'checkout',
@@ -1963,6 +1973,21 @@ export async function continueOrderOutcome(
           captured: true,
         })
       } else {
+        // #8268 review Major 5 (re-review): no ad-hoc retry is persisted here — on
+        // failure `cancelPayment` leaves `GatewayTransaction.unifiedStatus` exactly where
+        // it was (pending/authorized), so `payment_gateways:status-poller`'s periodic
+        // re-sync keeps this transaction in its scope (`listTransactionsForStatusPolling`
+        // selects every non-terminal status) until the provider gives a definitive
+        // answer. That poll fires `payment_gateways.payment.{captured,cancelled,failed}`,
+        // which `checkout-gateway-payment-{captured,cancelled,failed}` already consumes.
+        // Those subscribers' own `session.status !== 'awaiting_payment'` guard
+        // (`lib/gatewayPaymentSessionResume.ts`) is exactly why this is safe to leave to
+        // that path: this session already lost its CAS and will never reach
+        // `awaiting_payment`, so a later captured answer only reaches
+        // `repair-gateway-payments`'s sweep (recording the payment for manual review),
+        // never a wrongful order confirmation. This durable path is what makes a
+        // transient cancel failure here safe to just log — nothing needs to retry the
+        // cancel itself, only observe wherever the provider's own state ends up.
         logger.error('[internal] checkout submit: failed to cancel a recovered submit\'s gateway session', { err, sessionId: session.id, orderId })
         getTelemetryRuntime()?.reportError(err, {
           module: 'checkout',

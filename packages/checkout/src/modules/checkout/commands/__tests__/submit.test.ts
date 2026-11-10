@@ -206,6 +206,7 @@ function buildHarness(opts: {
   registerUsageResult?: FakeRow
   commitResult?: FakeRow
   createPaymentSessionResult?: FakeRow
+  getPaymentStatusResult?: FakeRow
   seededQuotes?: FakeRow[]
   seededOrders?: FakeRow[]
   seededOrderLines?: FakeRow[]
@@ -328,6 +329,14 @@ function buildHarness(opts: {
         cancelPayment: opts.cancelPaymentError
           ? jest.fn(async () => { throw opts.cancelPaymentError })
           : jest.fn(async () => ({ status: 'cancelled' })),
+        // #8268 review Major 5 (re-review): defaults to the SAME status the
+        // `createPaymentSession` snapshot above carries, so every existing test keeps
+        // observing identical behavior to before this mock existed; `getPaymentStatusResult`
+        // lets a test simulate the provider's authoritative state having moved on from
+        // that stale snapshot (e.g. a capture that lands in the lost-CAS race window).
+        getPaymentStatus: jest.fn(async () => (
+          opts.getPaymentStatusResult ?? { status: (opts.createPaymentSessionResult ?? { transaction: { unifiedStatus: 'captured' } }).transaction.unifiedStatus }
+        )),
       }
 
   const promotionsService = opts.promotionsServiceAvailable === false
@@ -982,6 +991,78 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
     // SAME internal id onto `CheckoutTransaction.gatewayTransactionId`, so a later
     // reconciliation pass keys on it, not on this diverged external reference.
     expect(h.seededPayments[0]).toMatchObject({ paymentReference: 'gw-1', capturedAmount: h.seededPayments[0].amount })
+  })
+
+  // #8268 review Major 5 (re-review): the capture check used the `createPaymentSession`
+  // snapshot taken BEFORE the cancel attempt — a capture landing in the race window
+  // between that call and the cancel would read as "not captured" from the stale copy and
+  // get silently dropped instead of reconciled.
+  it('reconciles a capture that landed AFTER the stale snapshot was taken, by re-reading authoritative provider state', async () => {
+    const h = buildHarness({
+      createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'pending', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'pending' } },
+      cancelPaymentError: Object.assign(new Error('Cannot cancel a payment in status "captured"'), { status: 409 }),
+      getPaymentStatusResult: { status: 'captured' },
+    })
+    const paymentGatewayService = h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock; cancelPayment: jest.Mock; getPaymentStatus: jest.Mock }
+    const originalCreatePaymentSession = paymentGatewayService.createPaymentSession.getMockImplementation()!
+    paymentGatewayService.createPaymentSession.mockImplementation(async (...args: unknown[]) => {
+      h.seededSessions[0].status = 'failed'
+      return originalCreatePaymentSession(...args)
+    })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({ status: 409 })
+
+    expect(paymentGatewayService.getPaymentStatus).toHaveBeenCalledWith('gw-1', { tenantId: TENANT_ID, organizationId: ORG_ID })
+    // The stale snapshot said 'pending' — only the fresh re-read (`captured`) must drive
+    // whether the payment gets reconciled onto the order.
+    expect(h.seededPayments).toHaveLength(1)
+    expect(h.seededPayments[0]).toMatchObject({ paymentReference: 'gw-1' })
+  })
+
+  it('leaves a genuinely failed cancel to the gateway status poller instead of recording a payment or crashing', async () => {
+    const h = buildHarness({
+      createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'pending', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'pending' } },
+      cancelPaymentError: new Error('gateway unreachable'),
+      getPaymentStatusResult: { status: 'pending' },
+    })
+    const paymentGatewayService = h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock; cancelPayment: jest.Mock; getPaymentStatus: jest.Mock }
+    const originalCreatePaymentSession = paymentGatewayService.createPaymentSession.getMockImplementation()!
+    paymentGatewayService.createPaymentSession.mockImplementation(async (...args: unknown[]) => {
+      h.seededSessions[0].status = 'failed'
+      return originalCreatePaymentSession(...args)
+    })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({ status: 409 })
+
+    expect(paymentGatewayService.getPaymentStatus).toHaveBeenCalledWith('gw-1', { tenantId: TENANT_ID, organizationId: ORG_ID })
+    // Still pending/authorized (never a terminal status) — this transaction remains
+    // selectable by `payment_gateways:status-poller`'s own periodic re-sync, so nothing
+    // here needs to persist its own retry.
+    expect(h.seededPayments).toHaveLength(0)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ module: 'checkout', code: 'checkout.recovered_submit_cancel_failed' }),
+    )
+  })
+
+  it('falls back to the pre-cancel snapshot when the gateway status re-read itself fails', async () => {
+    const h = buildHarness({
+      createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'captured', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'captured' } },
+      cancelPaymentError: Object.assign(new Error('Cannot cancel a payment in status "captured"'), { status: 409 }),
+    })
+    const paymentGatewayService = h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock; cancelPayment: jest.Mock; getPaymentStatus: jest.Mock }
+    paymentGatewayService.getPaymentStatus.mockRejectedValueOnce(new Error('status endpoint unreachable'))
+    const originalCreatePaymentSession = paymentGatewayService.createPaymentSession.getMockImplementation()!
+    paymentGatewayService.createPaymentSession.mockImplementation(async (...args: unknown[]) => {
+      h.seededSessions[0].status = 'failed'
+      return originalCreatePaymentSession(...args)
+    })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({ status: 409 })
+
+    // The re-read itself failed, so the pre-cancel snapshot ('captured') still drives the
+    // decision — the money is still reconciled, never silently dropped.
+    expect(h.seededPayments).toHaveLength(1)
   })
 
   it('extends the cart lock to the gateway payment expiry PLUS a 15-minute margin (spec R11/§6)', async () => {
