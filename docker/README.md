@@ -142,6 +142,79 @@ Copy `.env.example` to `.env` and adjust as needed:
 cp .env.example .env
 ```
 
+The infra stack (`starters/docker/compose.infra.yml`) publishes Postgres, Redis,
+Meilisearch, OpenCode, Keycloak, LocalStack and Verdaccio on `127.0.0.1` only.
+They use dev-default credentials, and on Linux Docker-published ports bypass
+ufw/iptables `INPUT` rules, so binding to all interfaces would expose them on a
+VPS. To reach them from another machine, opt in explicitly with
+`INFRA_BIND_HOST` (a non-loopback value also requires a Redis password, see
+`packages/starter/README.md`; Verdaccio has its own `VERDACCIO_HOST`, below):
+
+```bash
+INFRA_BIND_HOST=0.0.0.0
+```
+
+### Local Verdaccio for standalone fullapp builds on native Linux
+
+A standalone app scaffolded with `--verdaccio` builds and runs its fullapp
+containers against `host.docker.internal:4873` (the template Dockerfile and
+dev entrypoint rewrite `localhost` registry URLs to that host). On Docker
+Desktop that reaches the loopback-bound registry. On native Linux,
+`host.docker.internal` maps to the Docker bridge gateway, which a `127.0.0.1`
+binding does not serve.
+
+Bind only the registry to the bridge gateway, and make Verdaccio advertise
+that address in package metadata. Verdaccio builds every `dist.tarball` URL
+from `VERDACCIO_PUBLIC_URL` (it overrides the request host), and Yarn downloads
+tarballs from that URL, so a `localhost` value would send a container's
+install to the container itself. The bridge address is reachable from the host
+and from containers, and is not published on public interfaces:
+
+```bash
+# Docker bridge gateway address, usually 172.17.0.1
+ip -4 -o addr show docker0 | awk '{print $4}' | cut -d/ -f1
+```
+
+Put the overrides in the `.env` at the **repository root**. `yarn infra:up`
+and the `docker compose --project-directory . -f starters/docker/compose.infra.yml`
+command above read the root `.env`, not one next to the compose file:
+
+```bash
+# <repo root>/.env
+VERDACCIO_HOST=172.17.0.1
+OM_VERDACCIO_PUBLIC_URL=http://172.17.0.1:4873
+```
+
+Host-side registry commands (`yarn registry:setup-user`, `yarn registry:publish`,
+`yarn test:create-app`, `yarn test:create-app:integration`) read `VERDACCIO_URL`
+from the process environment, not from `.env`. Export it in the shell that
+runs them:
+
+```bash
+export VERDACCIO_URL=http://172.17.0.1:4873
+yarn registry:publish
+```
+
+Scaffold with `--registry http://172.17.0.1:4873` instead of `--verdaccio` so
+the generated `.yarnrc.yml` already points at an address containers can reach.
+Recreate the registry container after changing `OM_VERDACCIO_PUBLIC_URL`
+(`docker compose ... up -d verdaccio`); Verdaccio rewrites tarball URLs when it
+serves metadata, so packages published earlier pick up the new address.
+The registry config allows anonymous publish of `@open-mercato/*`, so do not
+bind it to `0.0.0.0` on a machine reachable from the internet.
+
+Run the live route regression on a native-Linux Docker host:
+
+```bash
+OM_RUN_VERDACCIO_LINUX_SMOKE=1 node --test scripts/__tests__/verdaccio-linux-registry.test.mjs
+```
+
+It creates a separate registry, network and storage volume, checks the loopback
+default and explicit bridge binding, publishes a disposable fixture, and verifies
+advertised tarball download plus a cold Yarn 4.17.1 install from a container.
+It removes its own containers and volumes afterwards. The normal script suite
+skips this opt-in Docker check; it does not replace the standalone fullapp build.
+
 ## Windows + Docker Developer Command Cookbook
 
 Windows users who develop through Docker can run any monorepo command using the `docker:*` wrapper scripts. These scripts detect the active container automatically and execute the command inside it — no WSL required.
