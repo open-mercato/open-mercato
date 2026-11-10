@@ -394,6 +394,17 @@ export function resolveLockAfterValidate(
   return payloadLock
 }
 
+// A pending, unresolved conflict dialog must survive incidental widget teardown —
+// a primary-ownership handoff or a transient unmount (e.g. a collapsing form
+// panel) — otherwise the dialog is dismissed before the user can act on it.
+// Genuine navigation-away release is handled separately by the `pagehide`
+// keepalive listener, so skipping the lock release/clear here is safe.
+export function shouldPreserveConflictOnTeardown(
+  current: RecordLockFormState | null | undefined,
+): boolean {
+  return Boolean(current?.conflict)
+}
+
 function clearIncomingChangesQueryFlag() {
   if (typeof window === 'undefined') return
   try {
@@ -681,6 +692,7 @@ export default function RecordLockingWidget({
   React.useEffect(() => {
     if (isPrimaryInstance) return
     const current = getRecordLockFormState(formId)
+    if (shouldPreserveConflictOnTeardown(current)) return
     if (!current?.lock?.token || !current.resourceKind || !current.resourceId) {
       clearRecordLockFormState(formId)
       return
@@ -1055,6 +1067,7 @@ export default function RecordLockingWidget({
   React.useEffect(() => {
     if (!isPrimaryInstance) return
     return () => {
+      if (shouldPreserveConflictOnTeardown(getRecordLockFormState(formId))) return
       const payload = releasePayloadRef.current
       if (payload) {
         void releaseLock({
