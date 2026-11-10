@@ -1353,30 +1353,66 @@ export async function resumeOrderCancellationCompensation(
     return false
   }
 
-  const finalizedAffected = await em.nativeUpdate(
-    CheckoutSession,
-    { id: session.id, ...scope, submitProgress: 'compensating' },
-    { submitProgress: null, updatedAt: new Date() },
-  )
-  if (finalizedAffected === 0) {
+  // #8268 review Major 2 (re-review): the durable `submitProgress: 'compensating'`
+  // marker used to clear BEFORE cart unlock / slot release even ran — a crash or a
+  // release failure right there left the marker already null with the release work
+  // undone, and the repair sweep (which only selects `submitProgress: 'compensating'`)
+  // could never find that session again. The marker now only clears once release is
+  // actually done, so an interrupted or failed release leaves it resumable.
+  const cartService = tryResolve<CartService>(container, 'cartService')
+  if (cartService && session.cartId) {
+    try {
+      await cartService.unlock({ cartId: session.cartId, tenantId: scope.tenantId, organizationId: scope.organizationId, checkoutSessionId: session.id })
+    } catch (err) {
+      // `cart.unlock` (§9) throws the SAME uniform not-found error whether the cart is
+      // missing or simply no longer `locked` — the second case is exactly what a retry
+      // after an earlier successful unlock looks like (this compensation's own prior
+      // attempt, or a concurrent one), so it is treated as already-done rather than a
+      // failure that would wedge this session on `submitProgress: 'compensating'` forever.
+      logger.debug('[internal] checkout submit compensation: cart unlock no-op (already unlocked, or cart missing)', { err, sessionId: session.id, cartId: session.cartId })
+    }
+  }
+
+  // `releaseCheckoutLinkSlot` unconditionally decrements `active_reservation_count` — it
+  // has no built-in guard against being applied twice for the same session, unlike
+  // `cart.unlock`'s own status check. Bundling it with the marker-clearing CAS in ONE
+  // transaction makes a double-invocation safe: a losing concurrent caller (or a retry
+  // after this exact step already committed) sees `affected === 0` and the whole
+  // transaction — including its own slot-release attempt — rolls back without ever
+  // committing a second decrement. A release failure rolls back the SAME way, leaving the
+  // marker at `'compensating'` for the next retry instead of a partially-applied state.
+  let alreadyFinalized = false
+  try {
+    await em.transactional(async (tx) => {
+      const finalizedAffected = await tx.nativeUpdate(
+        CheckoutSession,
+        { id: session.id, ...scope, submitProgress: 'compensating' },
+        { submitProgress: null, updatedAt: new Date() },
+      )
+      if (finalizedAffected === 0) {
+        alreadyFinalized = true
+        return
+      }
+      if (session.linkId) {
+        await releaseCheckoutLinkSlot(tx, scope, session.linkId, { completed: false })
+      }
+    })
+  } catch (err) {
+    logger.error('[internal] checkout submit compensation: slot release failed', { err, sessionId: session.id, orderId })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'checkout',
+      code: 'checkout.compensation_release_failed',
+      attributes: { sessionId: session.id, orderId },
+    })
+    return false
+  }
+  if (alreadyFinalized) {
     // Another caller (a concurrent repair-sweep tick, most likely) already won the CAS
     // and finished the release/finalize side effects below — nothing left to do.
     return true
   }
   session.submitProgress = null
 
-  const cartService = tryResolve<CartService>(container, 'cartService')
-  if (cartService && session.cartId) {
-    try {
-      await cartService.unlock({ cartId: session.cartId, tenantId: scope.tenantId, organizationId: scope.organizationId, checkoutSessionId: session.id })
-    } catch (err) {
-      logger.error('[internal] checkout submit compensation: cart unlock failed', { err, sessionId: session.id })
-    }
-  }
-
-  if (session.linkId) {
-    await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: false })
-  }
   await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'compensation', actor: 'system', payload: { stage: 'order_cancelled', orderId, failureCode } })
   await emitCheckoutEvent('checkout.session.failed', { sessionId: session.id, tenantId: scope.tenantId, organizationId: scope.organizationId, cartId: session.cartId ?? null, attempt: session.submitAttempt, failureCode }).catch(() => undefined)
   return true

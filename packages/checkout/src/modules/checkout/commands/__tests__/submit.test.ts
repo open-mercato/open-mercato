@@ -370,6 +370,21 @@ function buildHarness(opts: {
   const em: FakeRow = {
     fork: () => em,
     execute: emExecute,
+    // #8268 review Major 2 (re-review): `resumeOrderCancellationCompensation` now bundles
+    // the slot release with the `submitProgress` CAS in one `em.transactional` block. A
+    // real Postgres transaction rolls back EVERY write the callback made the instant any
+    // of them throws — this fake has no competing writers to isolate, but it still needs
+    // that same all-or-nothing guarantee, so a throw restores `seededSessions` to its
+    // pre-callback snapshot instead of leaving a partially-applied `nativeUpdate` behind.
+    transactional: jest.fn(async (cb: (tx: FakeRow) => Promise<unknown>) => {
+      const snapshot = seededSessions.map((row) => ({ ...row }))
+      try {
+        return await cb(em)
+      } catch (err) {
+        seededSessions.splice(0, seededSessions.length, ...snapshot)
+        throw err
+      }
+    }),
     // Step 5.2's own resume subscriber reads `CheckoutSession` rows via `em.find` (never
     // `nativeUpdate`'s `findOne`) — additive so the REAL subscriber handler can run against
     // this SAME `seededSessions` array in the cross-module "resubmit re-hits cart.lock's
@@ -1494,6 +1509,81 @@ describe('checkout.session.submit — pay-link slot ownership and unexpected-fai
     expect(cancelAttempts).toBe(2)
     expect(h.cartService.unlock).toHaveBeenCalledTimes(1)
     expect(h.seededSessions[0].submitProgress).toBeNull()
+  })
+
+  // #8268 review Major 2 (re-review): the durable `submitProgress: 'compensating'`
+  // marker used to clear BEFORE the slot release ran, so a release failure (or a crash
+  // right there) left the marker already null — the repair sweep (which only selects
+  // `submitProgress: 'compensating'`) could never find that session again, and the slot
+  // stayed permanently reserved.
+  it('a slot-release failure leaves submitProgress at compensating (retryable) instead of finalizing', async () => {
+    const h = buildHarness({ session: makeSession({ linkId: 'link-1', status: 'failed', submitProgress: 'compensating', salesOrderId: 'order-1' }), seededOrders: [{ id: 'order-1', tenant_id: TENANT_ID, organization_id: ORG_ID, deleted_at: null }] })
+    const { resumeOrderCancellationCompensation } = await import('../submit')
+    const em = h.ctx.container.resolve('em') as FakeRow
+    h.emExecute.mockImplementationOnce(async () => { throw new Error('db connection lost') })
+
+    const resumed = await resumeOrderCancellationCompensation(
+      h.ctx.container,
+      em as never,
+      h.seededSessions[0] as never,
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+      'order-1',
+      'payment_failed',
+    )
+
+    expect(resumed).toBe(false)
+    expect(h.seededSessions[0].submitProgress).toBe('compensating')
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ module: 'checkout', code: 'checkout.compensation_release_failed' }),
+    )
+  })
+
+  it('a retry that finds the session already finalized does not release the slot a second time', async () => {
+    // Simulates a retry landing AFTER a previous attempt already committed the slot
+    // release and cleared the marker (a winning concurrent caller, or this session's own
+    // prior successful run) — `submitProgress` is no longer `'compensating'`, so the CAS
+    // inside the bundled transaction affects zero rows and the slot release must never
+    // even be attempted.
+    const h = buildHarness({ session: makeSession({ linkId: 'link-1', status: 'failed', submitProgress: null, salesOrderId: 'order-1' }), seededOrders: [{ id: 'order-1', tenant_id: TENANT_ID, organization_id: ORG_ID, deleted_at: null }] })
+    const { resumeOrderCancellationCompensation } = await import('../submit')
+    const em = h.ctx.container.resolve('em') as FakeRow
+
+    const resumed = await resumeOrderCancellationCompensation(
+      h.ctx.container,
+      em as never,
+      h.seededSessions[0] as never,
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+      'order-1',
+      'payment_failed',
+    )
+
+    expect(resumed).toBe(true)
+    expect(slotCalls(h, 'release')).toHaveLength(0)
+  })
+
+  it('treats a cart.unlock failure as already-unlocked (not a hard failure) and still finalizes', async () => {
+    // `cart.unlock` (§9) throws the SAME uniform not-found error whether the cart is
+    // missing or simply no longer `locked` — exactly what a retry after an earlier
+    // successful unlock looks like. This must not wedge the session on
+    // `submitProgress: 'compensating'` forever.
+    const h = buildHarness({ session: makeSession({ linkId: 'link-1', status: 'failed', submitProgress: 'compensating', salesOrderId: 'order-1' }), seededOrders: [{ id: 'order-1', tenant_id: TENANT_ID, organization_id: ORG_ID, deleted_at: null }] })
+    const { resumeOrderCancellationCompensation } = await import('../submit')
+    const em = h.ctx.container.resolve('em') as FakeRow
+    h.cartService.unlock.mockRejectedValueOnce(new Error('[internal] cart not found'))
+
+    const resumed = await resumeOrderCancellationCompensation(
+      h.ctx.container,
+      em as never,
+      h.seededSessions[0] as never,
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+      'order-1',
+      'payment_failed',
+    )
+
+    expect(resumed).toBe(true)
+    expect(h.seededSessions[0].submitProgress).toBeNull()
+    expect(slotCalls(h, 'release')).toHaveLength(1)
   })
 
   it('leaves the session retryable (submitProgress: compensating) and reports the error when every cancel attempt fails', async () => {
