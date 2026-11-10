@@ -91,6 +91,7 @@ export function DealCurrencyField({ id, value, onChange, disabled = false }: Dea
         labels={labels}
         manageHref="/backend/config/dictionaries?key=currency"
         allowInlineCreate={false}
+        showManage={false}
         allowAppearance={false}
         sortOptions="none"
         selectClassName="w-full"
