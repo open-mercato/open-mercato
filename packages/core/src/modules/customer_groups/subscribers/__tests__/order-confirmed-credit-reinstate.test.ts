@@ -48,10 +48,18 @@ type FakeEm = {
   find: (entity: Function, where: Row) => Promise<Row[]>
   fork: () => FakeEm
   execute: (sql: string, params?: unknown[]) => Promise<unknown>
+  getConnection: () => { execute: (sql: string, params?: unknown[]) => Promise<Row[]> }
   transactional: <T>(cb: (tx: FakeEm) => Promise<T>) => Promise<T>
 }
 
-function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
+// #8268 review Major 3: the subscriber now fences on the order's CURRENT status (a raw
+// `select status from sales_orders ...`) before reinstating, so a stale/redelivered
+// confirmation does not reinstate credit for an order that was cancelled again (or
+// deleted) afterward. Defaults to `'confirmed'` so every pre-existing test below — written
+// when the order's live status was never queried — keeps exercising the "order really is
+// live" path unchanged; only the new stale-redelivery tests override it.
+function createFakeEm(options: { orderStatus?: string | null } = {}): { em: FakeEm; tables: Map<Function, Row[]> } {
+  const orderStatus = options.orderStatus === undefined ? 'confirmed' : options.orderStatus
   const tables = new Map<Function, Row[]>()
   function tableFor(entity: Function): Row[] {
     let rows = tables.get(entity)
@@ -66,6 +74,9 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
     find: async (entity, where) => tableFor(entity).filter((row) => matchesWhere(row, where)),
     fork: () => em,
     execute: async () => [],
+    getConnection: () => ({
+      execute: async () => (orderStatus == null ? [] : [{ status: orderStatus }]),
+    }),
     // #8268 review Major 6: `order-confirmed-credit-reinstate.ts` now wraps its logic in
     // `em.transactional` to take the advisory lock — this fake has no real transaction
     // semantics (no competing writers to isolate), so it just invokes the callback.
@@ -311,5 +322,35 @@ describe('customer_groups order-confirmed-credit-reinstate subscriber', () => {
         attributes: expect.objectContaining({ orderId: ORDER_ID, reason: 'limit_exceeded' }),
       }),
     )
+  })
+
+  it('#8268 review Major 3: does not reinstate credit when a delayed confirmation is delivered after the order was cancelled again', async () => {
+    // Order A was confirmed, then cancelled again BEFORE this confirmation event's
+    // redelivery finally arrives — the order's live status is `canceled` once more, so
+    // the reservation `order-cancelled-credit-release.ts` already released must not be
+    // reinstated by this stale event.
+    const { em, tables } = createFakeEm({ orderStatus: 'canceled' })
+    seedReleasedReservation(tables)
+
+    await handle(
+      { orderId: ORDER_ID, previousStatus: 'canceled', tenantId: TENANT, organizationId: ORG },
+      buildCtx(em),
+    )
+
+    expect(reserveCreditMock).not.toHaveBeenCalled()
+    expect(linkCreditReservationToOrderMock).not.toHaveBeenCalled()
+  })
+
+  it('#8268 review Major 3: does not reinstate credit for a delayed confirmation once the order no longer exists', async () => {
+    const { em, tables } = createFakeEm({ orderStatus: null })
+    seedReleasedReservation(tables)
+
+    await handle(
+      { orderId: ORDER_ID, previousStatus: 'canceled', tenantId: TENANT, organizationId: ORG },
+      buildCtx(em),
+    )
+
+    expect(reserveCreditMock).not.toHaveBeenCalled()
+    expect(linkCreditReservationToOrderMock).not.toHaveBeenCalled()
   })
 })

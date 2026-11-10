@@ -42,10 +42,19 @@ type FakeEm = {
   isInTransaction: () => boolean
   fork: () => FakeEm
   execute: (sql: string, params?: unknown[]) => Promise<unknown>
+  getConnection: () => { execute: (sql: string, params?: unknown[]) => Promise<Row[]> }
   transactional: <T>(cb: (tx: FakeEm) => Promise<T>) => Promise<T>
 }
 
-function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
+// #8268 review Major 3 (re-review): the subscriber now fences on the order's CURRENT
+// status (a raw `select status from sales_orders ...`) before reinstating, so a
+// stale/redelivered confirmation does not reinstate usage for an order that was
+// cancelled again (or deleted) afterward. Defaults to `'confirmed'` so every
+// pre-existing test below — written when the order's live status was never queried —
+// keeps exercising the "order really is live" path unchanged; only the new
+// stale-redelivery tests override it.
+function createFakeEm(options: { orderStatus?: string | null } = {}): { em: FakeEm; tables: Map<Function, Row[]> } {
+  const orderStatus = options.orderStatus === undefined ? 'confirmed' : options.orderStatus
   const tables = new Map<Function, Row[]>()
   let inTransaction = false
   let pendingCreates: Array<{ entity: Function; row: Row }> = []
@@ -85,6 +94,9 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
     isInTransaction: () => inTransaction,
     fork: () => em,
     execute: async () => [],
+    getConnection: () => ({
+      execute: async () => (orderStatus == null ? [] : [{ status: orderStatus }]),
+    }),
     transactional: async (cb) => {
       await em.begin()
       try {
@@ -284,6 +296,32 @@ describe('promotions order-confirmed-usage-reinstate subscriber', () => {
 
     expect(otherTenantPromotionUsage.revertedAt).not.toBeNull()
     expect(otherTenantCodeUsage.revertedAt).not.toBeNull()
+    expect(code.used).toBe(0)
+  })
+
+  it('#8268 review Major 3: does not reinstate usage when a delayed confirmation is delivered after the order was cancelled again', async () => {
+    const { em, tables } = createFakeEm({ orderStatus: 'canceled' })
+    const promotionUsage = seedPromotionUsage(tables)
+    const code = seedCode(tables, { used: 0, active: true })
+    const codeUsage = seedCodeUsage(tables, { codeId: code.id })
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em))
+
+    expect(promotionUsage.revertedAt).not.toBeNull()
+    expect(codeUsage.revertedAt).not.toBeNull()
+    expect(code.used).toBe(0)
+  })
+
+  it('#8268 review Major 3: does not reinstate usage for a delayed confirmation once the order no longer exists', async () => {
+    const { em, tables } = createFakeEm({ orderStatus: null })
+    const promotionUsage = seedPromotionUsage(tables)
+    const code = seedCode(tables, { used: 0, active: true })
+    const codeUsage = seedCodeUsage(tables, { codeId: code.id })
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em))
+
+    expect(promotionUsage.revertedAt).not.toBeNull()
+    expect(codeUsage.revertedAt).not.toBeNull()
     expect(code.used).toBe(0)
   })
 })

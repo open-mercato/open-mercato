@@ -91,6 +91,30 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
     await em.transactional(async (tx) => {
       await tx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [lockKey])
 
+      // #8268 review Major 3 (re-review): the advisory lock alone only serializes this
+      // handler against `order-cancelled-usage-revert.ts` — it does not stop EITHER from
+      // acting on a STALE event. Deliver a delayed/redelivered `sales.order.confirmed`
+      // AFTER the order was cancelled again (or deleted): without this check the
+      // serialized reinstate would still re-register usage for an order that is no
+      // longer live. Only reinstate when the order still exists and is not currently
+      // `canceled`.
+      const current = await tx.getConnection().execute(
+        'select status from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
+        [orderId, tenantId, organizationId],
+      )
+      const currentStatus = Array.isArray(current) && current.length > 0
+        ? (current[0] as { status?: string | null }).status ?? null
+        : null
+      if (currentStatus == null || currentStatus === 'canceled') {
+        logger.debug('[internal] promotions:order-confirmed-usage-reinstate skipped stale confirmation redelivery — order no longer live', {
+          orderId,
+          tenantId,
+          organizationId,
+          currentStatus,
+        })
+        return
+      }
+
       // Same order as the revert subscriber's own comment names it ("`revertUsage` +
       // `revertCodeUse`") — the two touch disjoint tables with no read-after-write
       // dependency between them, so this is a documentation-matching choice, not a

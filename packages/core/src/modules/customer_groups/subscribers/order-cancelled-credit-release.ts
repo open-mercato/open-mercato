@@ -115,6 +115,29 @@ export async function handleOrderCreditRelease(
         })
         return
       }
+    } else {
+      // #8268 review Major 3: the advisory lock alone only serializes this handler
+      // against `order-confirmed-credit-reinstate.ts` — it does not stop EITHER from
+      // acting on a STALE event. Cancel A, revive A (reinstating its credit hold), then
+      // deliver a delayed/redelivered `sales.order.cancelled` for A: without this check
+      // the serialized release would still re-release the just-reinstated reservation.
+      // Only a currently-`canceled` order gets its reservation released.
+      const current = await tx.getConnection().execute(
+        'select status from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
+        [orderId, tenantId, organizationId],
+      )
+      const currentStatus = Array.isArray(current) && current.length > 0
+        ? (current[0] as { status?: string | null }).status ?? null
+        : null
+      if (currentStatus !== 'canceled') {
+        logger.debug('[customer_groups:order-cancelled-credit-release] skipped stale cancellation redelivery — order is no longer canceled', {
+          orderId,
+          tenantId,
+          organizationId,
+          currentStatus,
+        })
+        return
+      }
     }
 
     // §11: "finds the reservation with linked_order_id = orderId in the event's tenant and

@@ -121,6 +121,29 @@ export async function handleOrderUsageRevert(
           })
           return
         }
+      } else {
+        // #8268 review Major 3: the advisory lock alone only serializes this handler
+        // against `order-confirmed-usage-reinstate.ts` — it does not stop EITHER from
+        // acting on a STALE event. Cancel A, revive A (reinstating its promotion/code
+        // usage), then deliver a delayed/redelivered `sales.order.cancelled` for A:
+        // without this check the serialized revert would still re-revert the
+        // just-reinstated usage. Only a currently-`canceled` order gets its usage reverted.
+        const current = await tx.getConnection().execute(
+          'select status from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
+          [orderId, tenantId, organizationId],
+        )
+        const currentStatus = Array.isArray(current) && current.length > 0
+          ? (current[0] as { status?: string | null }).status ?? null
+          : null
+        if (currentStatus !== 'canceled') {
+          logger.debug('[internal] promotions:order-cancelled-usage-revert skipped stale cancellation redelivery — order is no longer canceled', {
+            orderId,
+            tenantId,
+            organizationId,
+            currentStatus,
+          })
+          return
+        }
       }
 
       // `revertUsage` (budget/per-order ledger bookkeeping) runs first, matching the

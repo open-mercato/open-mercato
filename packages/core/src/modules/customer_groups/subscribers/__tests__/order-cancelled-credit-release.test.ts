@@ -38,10 +38,18 @@ type FakeEm = {
   isInTransaction: () => boolean
   fork: () => FakeEm
   execute: (sql: string, params?: unknown[]) => Promise<unknown>
+  getConnection: () => { execute: (sql: string, params?: unknown[]) => Promise<Row[]> }
   transactional: <T>(cb: (tx: FakeEm) => Promise<T>) => Promise<T>
 }
 
-function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
+// #8268 review Major 3: the subscriber now fences on the order's CURRENT status (a raw
+// `select status from sales_orders ...`) before releasing, so a stale/redelivered
+// cancellation does not undo a later revival. Defaults to `'canceled'` so every
+// pre-existing test below — written when the order's live status was never queried —
+// keeps exercising the "order really is cancelled" path unchanged; only the new
+// stale-redelivery tests override it.
+function createFakeEm(options: { orderStatus?: string | null } = {}): { em: FakeEm; tables: Map<Function, Row[]> } {
+  const orderStatus = options.orderStatus === undefined ? 'canceled' : options.orderStatus
   const tables = new Map<Function, Row[]>()
   let inTransaction = false
   let pendingCreates: Array<{ entity: Function; row: Row }> = []
@@ -81,6 +89,9 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
     isInTransaction: () => inTransaction,
     fork: () => em,
     execute: async () => [],
+    getConnection: () => ({
+      execute: async () => (orderStatus == null ? [] : [{ status: orderStatus }]),
+    }),
     transactional: async (cb) => {
       await em.begin()
       try {
@@ -214,5 +225,29 @@ describe('customer_groups order-cancelled-credit-release subscriber', () => {
   it('skips an incomplete payload without throwing', async () => {
     const { em } = createFakeEm()
     await expect(handle({ orderId: ORDER_ID }, buildCtx(em))).resolves.toBeUndefined()
+  })
+
+  it('#8268 review Major 3: does not release a reservation when a delayed cancellation is delivered after the order was revived', async () => {
+    // Order A was cancelled, then revived (confirmed again) BEFORE this cancellation
+    // event's redelivery finally arrives — the order's live status is no longer
+    // `canceled`, so the reservation `order-confirmed-credit-reinstate.ts` already
+    // reinstated must survive this stale event.
+    const { em, tables } = createFakeEm({ orderStatus: 'confirmed' })
+    seedReservedOrder(tables)
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG }, buildCtx(em))
+
+    const entries = tables.get(CustomerCreditLedgerEntry) ?? []
+    expect(entries.filter((row) => row.entryType === 'release')).toHaveLength(0)
+  })
+
+  it('#8268 review Major 3: does not release a reservation for a delayed cancellation once the order no longer exists', async () => {
+    const { em, tables } = createFakeEm({ orderStatus: null })
+    seedReservedOrder(tables)
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG }, buildCtx(em))
+
+    const entries = tables.get(CustomerCreditLedgerEntry) ?? []
+    expect(entries.filter((row) => row.entryType === 'release')).toHaveLength(0)
   })
 })
