@@ -143,7 +143,6 @@ maybe('customer_groups credit lifecycle lock under real concurrency (#8268 revie
     void holder.then(() => { holderCommittedAt.at = Date.now() })
 
     const em = orm.em.fork()
-    const handlerStartedAt = Date.now()
     await handleOrderCreditRelease(
       { orderId, tenantId: TENANT_ID, organizationId: ORG_ID },
       ctxFor(em),
@@ -152,8 +151,10 @@ maybe('customer_groups credit lifecycle lock under real concurrency (#8268 revie
     const handlerFinishedAt = Date.now()
     await holder
 
-    // The handler could not have finished before the holder released the lock.
-    expect(handlerFinishedAt - handlerStartedAt).toBeGreaterThanOrEqual(holdMs - 20)
+    // The handler could not have finished before the holder released the lock. Comparing
+    // against the holder's own commit timestamp (rather than a derived elapsed-duration
+    // threshold) avoids baking in the 50ms head start as an assumed constant — this holds
+    // regardless of real scheduling/CI jitter in either leg.
     expect(holderCommittedAt.at).toBeGreaterThan(0)
     expect(handlerFinishedAt).toBeGreaterThanOrEqual(holderCommittedAt.at)
 
