@@ -24,6 +24,29 @@ operators whose entities previously reached an excluded writer should purge thos
 entities from that index using the existing cleanup operations. Existing vectors
 and embedding-provider retention are not removed automatically.
 
+## Blocklisted fields are no longer stored in the index document (#5759)
+
+The search field blocklist (`OM_SEARCH_FIELD_BLOCKLIST`, default `password`, `token`,
+`secret`, `hash`) kept those fields out of `search_text` and `search_tokens`, but both
+document builders copied the base row into `entity_indexes.doc` verbatim:
+`doc->>'password_hash'` held the bcrypt verifier. `buildIndexDocument()` and
+`buildIndexDoc()` now strip globally blocklisted keys before the document is encrypted
+and written. The query engine is unaffected, because it reads base columns from the base
+table. `cf:`/`l10n:` keys and per-entity entries (`<entityType>@<field>`) are not stripped.
+
+Check when upgrading:
+
+1. A `formatResult` / `buildSource` / `resolveUrl` in your own `search.ts` that reads a
+   field whose name contains `password`, `token`, `secret` or `hash` now gets `undefined`
+   for it in global-search enrichment. That includes an encryption rule's `hashField`
+   column; encrypted exact-match lookup still works through the base table. Rename the
+   field, or read it only in `checksumSource`.
+2. Existing rows keep their stored values until the record is next indexed. Run
+   `mercato query_index rebuild-all` (or `rebuild --entity <type>`) to remove them now,
+   and treat any credential that was in `entity_indexes` as disclosed.
+
+[Specification](.ai/specs/2026-08-28-blocklisted-fields-in-the-stored-index-document.md).
+
 ## Archive limits for imported apps in create-mercato-app
 
 `create-mercato-app --app` and `--app-url` now import through the same safe archive path as the new `--template`
@@ -2930,51 +2953,6 @@ the portal half is skipped and staff roles sync exactly as before.
 **Module authors:** declaring a portal feature in `setup.defaultCustomerRoleFeatures` is now
 enough for existing tenants to pick it up on the documented upgrade command; note the new
 grant in your own release notes so operators know to run it.
-
-### Blocklisted fields are no longer stored in `entity_indexes.doc`
-
-The search field blocklist (`OM_SEARCH_FIELD_BLOCKLIST`, default `password`,
-`token`, `secret`, `hash`) governed what was **tokenised** — the `search_text`
-aggregate and the `search_tokens` rows — and never what was **stored**. Both
-document builders copied the base row into `doc` verbatim, so a blocklisted
-column sat in `entity_indexes.doc` in full for every indexed entity type:
-`doc->>'password_hash'` was the bcrypt verifier, `doc->>'token'` the session
-token. `buildIndexDocument()` and `buildIndexDoc()` now strip those keys before
-the document is encrypted and written. Reasoning in
-`.ai/specs/2026-08-28-blocklisted-fields-in-the-stored-index-document.md`.
-
-**Nothing in the query engine changes**, because it never served those keys: a
-base column is selected from the base table (`applySelection` guards on
-`columns.has(field)`) and a filter only falls back to `doc ->> field` when the
-field is *not* a base column. `cf:` and `l10n:` keys — for which the document is
-the only store — are exempt and are never stripped.
-
-**Only the global blocklist strips.** Per-entity entries
-(`customers:customer_interaction@body`) still drop the field from tokens and from
-the aggregate, but leave it in the document. They exist to control index volume,
-and a presenter may read that field back out of `doc` — `customers`' own
-`formatResult` builds an interaction's subtitle from `record.body`. To strip a
-field as well as un-tokenise it, put it on the global list instead.
-
-**Two things to check when upgrading:**
-
-1. **A `formatResult` / `buildSource` / `resolveUrl` in your own `search.ts` that
-   reads a field whose name contains `password`, `token`, `secret` or `hash`
-   will now receive `undefined` for it** in global-search enrichment, which reads
-   the stored document. Rename the field, or scope the read to `checksumSource`.
-   This includes a column named by an entity encryption rule's `hashField`: it
-   is stripped like any other match and is **not** re-injected later, because
-   `encryptFields()` skips a value that already decrypts under the current DEK
-   before it reaches the `hashField` block. Encrypted exact-match lookup is
-   unaffected — it goes through the base table's deterministic `*_hash` column,
-   not through `entity_indexes.doc`.
-2. **Existing rows are not cleaned.** The change governs writes only; a row
-   already in `entity_indexes` keeps its stored credential until that record is
-   next indexed. To remove the stored copies now, run `mercato query_index
-   rebuild-all` (or `rebuild --entity <type>`) after upgrading. Treat any
-   credential that was in the index as disclosed to whoever could read
-   `entity_indexes`, and rotate on your usual terms.
-
 
 ### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
 

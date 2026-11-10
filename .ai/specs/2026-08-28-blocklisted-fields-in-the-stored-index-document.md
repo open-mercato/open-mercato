@@ -179,8 +179,36 @@ harmless.)
 
 ## Migration & Backward Compatibility
 
-No API changes; `stripBlocklistedDocFields` is a new export. See
-[`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md).
+No API changes; `stripBlocklistedDocFields` is a new export. The dated entry in
+[`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md) points here.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Function signatures | New export `stripBlocklistedDocFields` from `@open-mercato/shared/lib/search/config` | ✓ ADDITIVE (new function in an existing module) |
+| Function signatures | `buildIndexDocument`, `buildIndexDoc`, `attachAggregateSearchField`, `isSearchFieldBlocklisted` — signatures and return types unchanged | ✓ No change |
+| `buildIndexDocument` / `buildIndexDoc` behaviour | A key matching the **global** blocklist is absent from the returned document | ⚠ Deliberate behaviour narrowing |
+| `buildIndexDocument` internals | The search config is resolved once per call instead of once per call and again inside `attachAggregateSearchField` | ✓ No observable change |
+| `search_text` and `search_tokens` | No change — those paths already excluded these fields (#4624) | ✓ No change |
+| Entity-scoped blocklist entries (`<entityType>@<field>`) | No change — still un-tokenise, still stored | ✓ No change |
+| `cf:` and `l10n:` document keys | No change — exempt from the strip | ✓ No change |
+| Encryption rule `hashField` values | A `*_hash` column matching the global blocklist is stripped like any other and is **not** re-injected: `encryptFields()` skips a value that already decrypts under the current DEK, and that `continue` precedes the `hashField` block, so in steady state - where the base column is already ciphertext - the hash is never written back | ⚠ Deliberate behaviour narrowing. Nothing reads a `*_hash` out of the document: strict equality on an encrypted field goes through the base table's deterministic column (`packages/shared/src/lib/query/engine.ts`), which is untouched |
+| Import paths, type definitions, event IDs, API routes, DB schema, DI names, ACL features, CLI commands, generated files | No change | ✓ n/a |
+
+**The Emergency Security Exception is not invoked, and does not need to be.** Nothing is
+removed or renamed and every caller compiles unchanged. What narrows is the content of a
+document the query engine does not read base columns from; the deprecation protocol's
+bridge would be "keep storing the credential", which is the condition being removed.
+
+**Contract commitments**: the strip MUST keep using `isSearchFieldBlocklisted()` rather
+than a private list — agreement between the aggregate, the token path and the document is
+the invariant, and a fourth list is how the aggregate drifted in the first place (#4624).
+The `cf:`/`l10n:` exemption MUST hold: the document is those keys' only store, so
+stripping them is data loss rather than the removal of a duplicate. The strip MUST run
+before `encryptIndexDocForStorage()`, so encryption sees exactly the document that gets
+stored - stripping afterwards would seal a credential and then delete the sealed copy,
+leaving the ordering silently dependent on which ran last. Scope MAY widen to entity-scoped
+entries only alongside a way for a presenter to keep reading a scoped field out of the
+document.
 
 **Existing rows are not cleaned by this change.** It changes what is written; a
 row already in `entity_indexes` keeps its `password_hash` until that record is
@@ -216,3 +244,13 @@ The failing suites and tests are identical in name and count between the two
 `packages/core` runs: the `catalog` enricher-config pair, and suites that cannot
 resolve `@open-mercato/events/bus` or `#generated/entity-fields-registry` in a
 clone that has never been built.
+
+## Changelog
+
+- **2026-08-28** — Specification and implementation (#5759).
+- **2026-09-10** — Corrected the `hashField` claim after review: a blocklisted `*_hash`
+  column is stripped and not re-injected (see the contract table).
+- **2026-11-10** — Brought onto `main`. The contract table moved here from
+  `BACKWARD_COMPATIBILITY.md`, which keeps a short dated entry pointing at it, and the
+  upgrade note moved from the released `0.7.0 → 0.8.0` section to the unreleased notes.
+  The suite totals under Testing are the 2026-08-28 measurements against `develop`.
