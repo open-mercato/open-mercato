@@ -7,7 +7,7 @@ import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { CarrierShipmentNotFoundError, type ShippingCarrierService } from '../../lib/shipping-service'
+import { isCarrierShipmentNotFoundError, type ShippingCarrierService } from '../../lib/shipping-service'
 import { isShipmentCancelNotAllowedError } from '../../lib/status-sync'
 import { shippingCarrierUpstreamErrorResponse } from '../../lib/upstream-error-response'
 import { cancelShipmentSchema } from '../../data/validators'
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
     if (isShipmentCancelNotAllowedError(error)) {
       return NextResponse.json({ error: error.message }, { status: 422 })
     }
-    if (error instanceof CarrierShipmentNotFoundError) {
+    if (isCarrierShipmentNotFoundError(error)) {
       const { translate } = await resolveTranslations()
       return NextResponse.json({ error: translate('shipping_carriers.errors.shipmentNotFound', 'Shipment not found') }, { status: 404 })
     }

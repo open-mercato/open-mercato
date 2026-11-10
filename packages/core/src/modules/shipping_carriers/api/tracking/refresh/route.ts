@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CarrierShipmentNotFoundError, type ShippingCarrierService } from '../../../lib/shipping-service'
+import { isCarrierShipmentNotFoundError, type ShippingCarrierService } from '../../../lib/shipping-service'
 import { shippingCarrierUpstreamErrorResponse } from '../../../lib/upstream-error-response'
 import { trackingRefreshSchema } from '../../../data/validators'
 import { shippingCarriersTag } from '../../openapi'
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     })
     return NextResponse.json(tracking)
   } catch (error: unknown) {
-    if (error instanceof CarrierShipmentNotFoundError) {
+    if (isCarrierShipmentNotFoundError(error)) {
       const { translate } = await resolveTranslations()
       return NextResponse.json({ error: translate('shipping_carriers.errors.shipmentNotFound', 'Shipment not found') }, { status: 404 })
     }

@@ -54,6 +54,17 @@ const validCancelPayload = {
   reason: 'Customer requested',
 }
 
+function createNotFoundErrorFromSeparateBundle(): Error {
+  let separateCopy: typeof import('@open-mercato/core/modules/shipping_carriers/lib/shipping-service') | undefined
+  jest.isolateModules(() => {
+    separateCopy = jest.requireActual('@open-mercato/core/modules/shipping_carriers/lib/shipping-service')
+  })
+  if (!separateCopy) throw new Error('[internal] shipping-service did not load')
+  const error = new separateCopy.CarrierShipmentNotFoundError()
+  expect(error).not.toBeInstanceOf(CarrierShipmentNotFoundError)
+  return error
+}
+
 describe('shipping carrier cancel route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -128,5 +139,14 @@ describe('shipping carrier cancel route', () => {
     expect(await response.json()).toEqual({ error: 'Shipment not found' })
     expect(translateMock).toHaveBeenCalledWith('shipping_carriers.errors.shipmentNotFound', 'Shipment not found')
     expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when the not-found error comes from a separately bundled copy of the service', async () => {
+    cancelShipmentMock.mockRejectedValueOnce(createNotFoundErrorFromSeparateBundle())
+
+    const response = await POST(createMockRequest(validCancelPayload))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Shipment not found' })
   })
 })
