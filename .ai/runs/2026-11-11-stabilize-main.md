@@ -24,9 +24,13 @@ Product features, dependency upgrades, release automation, and merging the PR ar
 Main already has a successful full-suite run, so further code fixes depend on new failure evidence. Local dependency availability and service requirements may limit local validation. Label changes do not schedule CI, so full-suite selection relies on the branch convention at PR creation. The final review is the second and final delegated task.
 
 ## Evidence
+Claim run `94c2dc23-d4cb-45a8-8639-ea17dea5dd0a` holds `refs/om-locks/pr-9273` at `23c8f3b3f6105bcc4966d1bc0eecaf6329814c71`. Independent audit task `cc365c9f-0f0a-4ded-b872-d5e30613e604` is read-only.
+
 Latest main CI https://github.com/open-mercato/open-mercato/actions/runs/42905776855 succeeded with all 15 integration shards. The existing workflow includes ci-full handling, while CONTRIBUTING.md incorrectly says the label has no effect. This small corrective run uses the existing stabilization behavior.
 
 ## Progress
+
+PR: #9273
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
