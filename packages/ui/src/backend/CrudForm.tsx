@@ -3832,7 +3832,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       if ((g.column ?? 1) === 2) col2.push(g)
       else col1.push(g)
     }
-    const col1Ids = col1.map((g) => g.id)
 
     const renderGroupedCards = (items: CrudFormGroup[]) => {
       const nodes: React.ReactNode[] = []
@@ -3989,17 +3988,21 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       return nodes
     }
 
-    const col1Nodes = renderGroupedCards(col1)
-    const col2Content = renderGroupedCards(col2)
-
-    // Wrap col1 nodes in sortable items when enabled
+    // Wrap group by group: a bare group can render nothing, so nodes and groups do not line up by index.
+    const col1Sortable = sortableGroupsEnabled
+      ? col1.flatMap((group) => {
+          const nodes = renderGroupedCards([group])
+          return nodes.length ? [{ id: group.id, nodes }] : []
+        })
+      : []
     const col1Content = sortableGroupsEnabled
-      ? col1Nodes.map((node, i) => (
-          <SortableGroupItem key={col1[i]?.id ?? i} id={col1[i]?.id ?? String(i)}>
-            {node}
+      ? col1Sortable.map(({ id, nodes }) => (
+          <SortableGroupItem key={id} id={id}>
+            {nodes}
           </SortableGroupItem>
         ))
-      : col1Nodes
+      : renderGroupedCards(col1)
+    const col2Content = renderGroupedCards(col2)
     const hasSecondaryColumn = col2Content.length > 0
 
     return (
@@ -4050,7 +4053,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
             >
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
-                  <SortableContext items={col1Ids} strategy={verticalListSortingStrategy}>
+                  <SortableContext items={col1Sortable.map(({ id }) => id)} strategy={verticalListSortingStrategy}>
                     <div className={densityStackMd}>{col1Content}</div>
                   </SortableContext>
                 </DndContext>
