@@ -12,7 +12,7 @@ Read `UPGRADE_NOTES.md` and parse headings shaped as:
 ## <from> → <to> (<date-or-unreleased>)
 ```
 
-The candidate for the release is the section whose `<from>` equals the changelog release immediately below `{version}`. Comparison is semantic-version equality, not substring matching.
+The candidate for the release is the section whose `<from>` equals the changelog release immediately below `{version}`. Comparison is semantic-version equality, not substring matching. Patch releases shipped from a `release/vX.Y.x` line carry no upgrade window or companion skill: skip them on both sides, so for `0.10.0` the release immediately below is `0.9.0`, not a `0.9.z` patch entry carried back to `main`.
 
 - No candidate means this release has no downstream upgrade notes. Continue with the external changelog-only workflow.
 - Exactly one candidate means the section belongs to this release. Set `<to>` to `{version}` and replace `(unreleased)` with `({date})`. An already aligned heading is an idempotent no-op.
@@ -43,7 +43,7 @@ If any artifact is missing, create or repair the complete set in the same releas
 
 The skill must validate that it is running in a downstream app, support `--path` and `--dry-run`, avoid framework-owned `packages/` and generated/vendor directories, show its edit plan before mutation, run the app's configured typecheck/tests after edits, and list unresolved manual work. A release section with no safe automatic edit still gets a companion skill: discoverability and a deterministic review checklist are part of the contract.
 
-Update `.ai/skills/README.md` and `.ai/skills/om-help/references/skills-catalog.md` for the new migration skill. Do not add version-specific skills to the default tier.
+Update `.ai/skills/README.md` for the new migration skill (`om-help` discovers installed skills at run time, so there is no separate catalog to edit). Do not add version-specific skills to the default tier.
 
 ## 3. Broaden the delegated PR safely
 
@@ -56,7 +56,6 @@ For a release with matching upgrade notes, the external skill's `CHANGELOG.md`-o
 - `.ai/skills/tiers.json`
 - `packages/create-app/agentic/shared/ai/skills/tiers.json`
 - `.ai/skills/README.md`
-- `.ai/skills/om-help/references/skills-catalog.md`
 - tests/specs that enforce this release contract
 
 Pass the expanded file list and the upgrade-window facts in the concrete `om-auto-create-pr` brief. The resulting PR is still non-UI and uses `skip-qa`, but it is a release-automation feature rather than a changelog-only documentation change.
@@ -80,27 +79,35 @@ The delegated `om-auto-create-pr` run still owns the configured full validation 
 
 Two of the external skill's defaults are wrong for this repository, and both have already shipped a wrong changelog. Apply this part on every run, in addition to the upgrade-companion contract above.
 
-## Window: enumerate by reachability from `main`, not by base branch
+## Where the entry lives
 
-The release tag and the release entry describe what is on `main`. `develop` runs well ahead of it. Never build the window from a `baseRefName` filter.
+`main` is the trunk and always the next minor; each released minor lives on a `release/vX.Y.x` line.
+
+- **Upcoming minor:** write the curated entry as a leading `# Unreleased` section on `main`. The Release cut workflow hands it to the new `release/vX.Y.x` line, where Release renames it to `# X.Y.0 ({date})`.
+- **Patch releases from a line:** they fall back to GitHub's generated, label-grouped notes unless a `# X.Y.Z` entry is already on the line. Only write one when a maintainer asks for a curated patch entry, and then on the line itself.
+- **Released entries** are carried back to `main` by an automated `docs(changelog): add the X.Y.Z entry` PR. Never edit a released entry by hand afterwards, and never list that PR in an entry.
+
+## Window: enumerate by reachability from `main` since the previous cut, not by date alone
+
+The window for minor `X.Y` is the PRs merged into `main` since the previous minor's cut — the `release/vX.(Y-1).x` branch point — excluding PRs labelled `skip-changelog`. PRs merged into a `release/v*` branch are backports of (or hotfixes carried back to) `main` work; never list them a second time.
 
 ```bash
-git fetch origin main --tags
-LAST_TAG=$(git describe --tags --abbrev=0 origin/main)   # e.g. v0.6.6
-git rev-list "$LAST_TAG..origin/main" > /tmp/window-commits.txt
+git fetch origin main "release/v${PREV_MINOR}.x" --tags     # e.g. PREV_MINOR=0.6 when writing 0.7.0
+CUT_POINT=$(git merge-base origin/main "origin/release/v${PREV_MINOR}.x")
+git rev-list "$CUT_POINT..origin/main" > /tmp/window-commits.txt
 ```
 
-The ordering and the explicit committish both matter. Fetch **before** resolving the tag: an agent commonly starts from a fresh worktree or a clone that has not fetched since the release was cut, and resolving first leaves `LAST_TAG` on the *previous* release, so the window spans two releases and re-lists shipped work. Pass `origin/main` explicitly, because a bare `git describe` describes `HEAD` — on a `develop` checkout that only agrees with `main` when a `chore: sync back main` has already landed, which is the very kind of PR this file tells you to exclude two rules below.
+The ordering and the explicit refs both matter. Fetch **before** resolving the cut point: an agent commonly starts from a fresh worktree or a clone that has not fetched since the previous line was cut, and resolving first leaves the window anchored on an older line, so it spans two minors and re-lists shipped work. Pass `origin/main` and the `origin/release/...` ref explicitly rather than describing `HEAD`.
 
-Then enumerate merged PRs for the calendar window across **all** base branches, and keep only those whose `mergeCommit.oid` appears in `window-commits.txt`. Request `mergeCommit` in the JSON field list; it is not in the shared skill's default field set.
+Then enumerate merged PRs with base `main` for the calendar window, and keep only those whose `mergeCommit.oid` appears in `window-commits.txt` and that do not carry `skip-changelog`. Request `mergeCommit` and `labels` in the JSON field list; `mergeCommit` is not in the shared skill's default field set.
 
 Chunk the window by date and dedupe by PR number. `gh pr list` paginates internally, so `--limit` is honoured well past 250 — the real ceiling is the GitHub **Search API's 1000-result cap**, which a `--search` form hits silently. Always pass a `--limit` above the count you expect and treat a result whose length equals the limit as truncated, not complete.
 
-Start the calendar window a few days **before** the previous release date. Develop PRs merged shortly before the release cut land on `main` with it, and a window that starts at the tag date silently drops them.
+Start the calendar window a few days **before** the previous cut date and let reachability decide membership. A date-only filter misplaces PRs merged around the cut, in either direction.
 
 Additional exclusions on top of the shared skill's (runs-only and prior changelog PRs):
 
-- Branch-sync and release plumbing — titles matching `^chore:\s*(sync back main|sync develop with main|prepare main for release)$`. The changelog has never listed these.
+- Release plumbing — PRs labelled `skip-changelog` (the Release cut version bump, the `docs(changelog): add the X.Y.Z entry` carry-back) and legacy titles matching `^chore:\s*(sync back main|sync develop with main|prepare main for release)$`. The changelog has never listed these.
 - Any PR already credited in an earlier `CHANGELOG.md` entry. **Match the reference slot only** — the final parenthesised group of a bullet, immediately before the optional `*(@author)*` credit — never a bare `#N` anywhere in the file. Take *every* number out of that group rather than assuming a comma-separated list, because real slots also use other separators and trailing prose:
 
   ```js
@@ -199,10 +206,10 @@ This is not optional and not a spot check. For **every** bullet, compare the cre
 Two adversarial cases exercise the parts that real 0.6.7 data never reached, so run them explicitly rather than trusting a clean pass:
 
 - **A hand-off body that also pings a reviewer** — `Original author: … (@contributor) — assigning @reviewer for review/ownership`. Both `#4276` and `#4761` happened to carry a single handle each, so the greedy-capture bug was invisible in the empirical run. Assert the capture is the contributor.
-- **A run started from a clone that has not fetched since the release was cut** — the normal state for a fresh agent worktree. The window snippet runs *before* the new tag is cut, and `git rev-list "$LAST_TAG..origin/main"` is exclusive of `LAST_TAG`, so assert that `LAST_TAG` is the release **immediately preceding** the one being documented — `v0.6.6` when writing the `0.6.7` entry — and not an older tag. A stale clone leaves it one release further back and the window then spans two releases; demanding the tag of the release *being documented* instead yields a window holding only whatever landed after that tag was cut — empty at the moment of the cut, and never the release's own contents. Re-derive both counts at run time rather than quoting a figure from this file: `origin/main` advances after every tag, so any number written here is stale by the next release.
+- **A run started from a clone that has not fetched since the previous line was cut** — the normal state for a fresh agent worktree. `git rev-list "$CUT_POINT..origin/main"` is exclusive of `CUT_POINT`, so assert that `CUT_POINT` is the branch point of the line **immediately preceding** the minor being documented — `release/v0.6.x` when writing the `0.7.0` entry — and not an older line. A stale clone leaves it one line further back and the window then spans two minors; anchoring on the line *being documented* instead yields a window holding only whatever landed after that cut — empty at the moment of the cut, and never the release's own contents. Re-derive both counts at run time rather than quoting a figure from this file: `origin/main` advances after every cut, so any number written here is stale by the next release.
 - **A tally taken on a >100-commit PR** — assert the paged commit count equals `commits.totalCount` before any Path D majority determination. This is the same move the `#3799` exclusion rule makes for the window: it converts a silent wrong answer into a loud stop.
 
-Also run **Path C** properly: list closed-unmerged PRs for the window (**list-prs**, `closed:>=${SINCE_DATE} is:unmerged`) and scan their bodies **and comments** for `Closing in favor of #(\d+)`. Replacements that merged to `develop` after the release was cut from `main` are correctly absent from the entry — confirm rather than assume.
+Also run **Path C** properly: list closed-unmerged PRs for the window (**list-prs**, `closed:>=${SINCE_DATE} is:unmerged`) and scan their bodies **and comments** for `Closing in favor of #(\d+)`. Replacements that merged to `main` after the previous line was cut belong to the next minor, and ones merged before it belong to the previous one — confirm rather than assume.
 
 ### Identities that are never credited
 
@@ -215,7 +222,7 @@ When carried-forward work originates from a bot (a Dependabot bump re-opened by 
 - This repo writes a closing-issue reference as a plain `(#N)` before the PR number — `Summary (#3860). (#4136) *(@author)*` — **not** the shared skill's `(fixes #N)`.
 - Strip a leading `NNN - ` issue number and a `Fix GitHub issue #N: ` prefix out of the summary; carry the number into the `(#N)` slot instead.
 - The conventional-commit prefix regex must accept digits so `i18n(customers):` is stripped: `^([a-z][a-z0-9_]*)(\([^)]*\))?!?:`.
-- Coalesce PRs that differ only by a trailing `(develop)` / `(main)` marker — the same fix carried to both branches is one bullet.
+- Coalesce a `main` PR with its `release/v*` backport (or a line hotfix with its `backport main` carry) — the same fix carried to both branches is one bullet, credited to the original.
 
 ## Highlights
 
@@ -223,6 +230,6 @@ The shared skill leaves `## Highlights` as a TODO marker. In this repo a maintai
 
 ## Repo conventions the shared workflow already parameterizes
 
-- The changelog PR targets whichever branch the release is cut from — `main` for a release entry, not the config's `baseBranch`. State the target explicitly in the report.
+- The changelog PR for an upcoming minor targets `main` (the `# Unreleased` section); a curated patch entry targets its `release/vX.Y.x` line. State the target explicitly in the report.
 - Labels for the resulting PR: `documentation`, `skip-qa`, `review`, one `priority-*`, one `risk-*` (a docs-only changelog entry is `priority-medium` / `risk-low`).
 - Never bump `package.json` — the version bump belongs to the release step, not the changelog entry.

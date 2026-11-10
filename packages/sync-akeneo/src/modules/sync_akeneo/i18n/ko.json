@@ -52,6 +52,7 @@
   "sync_akeneo.discovery.locales": "로케일",
   "sync_akeneo.discovery.priceKinds": "카탈로그 가격 종류",
   "sync_akeneo.discovery.rediscovered": "Akeneo 필드가 새로고침되고 누락된 매핑이 추가되었습니다.",
+  "sync_akeneo.errors.mediaStorageRejected": "첨부 파일 저장소가 Akeneo 미디어 {code}을(를) 거부했습니다({reason}).",
   "sync_akeneo.feature.configure": "Akeneo 동기화 설정 구성",
   "sync_akeneo.feature.view": "Akeneo 동기화 구성 보기",
   "sync_akeneo.firstImport.action": "첫 전체 가져오기 실행",

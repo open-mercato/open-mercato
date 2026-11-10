@@ -63,7 +63,7 @@ export const DEFAULT_POPULAR_PACKAGES = ['core', 'ui', 'shared']
 export const DEFAULT_POPULAR_LIMIT = 6
 
 // Candidate base refs for the current-branch diff, in priority order.
-const DEFAULT_BASE_REFS = ['origin/develop', 'develop', 'origin/main', 'main']
+const DEFAULT_BASE_REFS = ['origin/main', 'main']
 
 const PERSISTED_SELECTION_RELATIVE = join('.mercato', 'watch-packages.local.json')
 

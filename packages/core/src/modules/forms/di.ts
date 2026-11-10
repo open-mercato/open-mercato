@@ -234,6 +234,7 @@ export function register(container: AppContainer): void {
         return new PdfSnapshotService({
           emFactory: () => em,
           encryptionService: formsEncryptionService,
+          formVersionCompiler,
           emitEvent: async (eventId, payload) => {
             const schema = formsEventPayloadSchemas[eventId as keyof typeof formsEventPayloadSchemas]
             const validated = schema ? schema.parse(payload) : payload

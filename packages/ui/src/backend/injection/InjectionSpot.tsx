@@ -3,6 +3,8 @@ import * as React from 'react'
 import type {
   InjectionSpotId,
   InjectionWidgetModule,
+  InjectionEventParticipant,
+  InjectionWidgetMetadata,
   WidgetInjectionEventHandlers,
   WidgetBeforeDeleteResult,
   WidgetBeforeSaveResult,
@@ -54,6 +56,10 @@ type LoadedWidget = {
 
 export type LoadedInjectionSpotWidget = LoadedWidget
 
+type EventWidget = Omit<InjectionEventParticipant, 'module'> & {
+  module: { metadata: InjectionWidgetMetadata; eventHandlers?: object }
+}
+
 function toLoadedWidget(widget: LoadedInjectionWidget): LoadedWidget {
   return {
     widgetId: widget.metadata.id,
@@ -65,7 +71,7 @@ function toLoadedWidget(widget: LoadedInjectionWidget): LoadedWidget {
 }
 
 function hasGrantedWidgetFeatures(
-  widget: LoadedWidget,
+  widget: { module: { metadata: InjectionWidgetMetadata } },
   grantedFeatures: string[],
   hasBackendChromePayload: boolean,
 ): boolean {
@@ -74,15 +80,15 @@ function hasGrantedWidgetFeatures(
   return features.length === 0 || hasAllFeatures(grantedFeatures, features)
 }
 
-function filterWidgetsByGrantedFeatures(
-  widgets: LoadedWidget[],
+function filterWidgetsByGrantedFeatures<TWidget extends { module: { metadata: InjectionWidgetMetadata } }>(
+  widgets: TWidget[],
   grantedFeatures: string[],
   hasBackendChromePayload: boolean,
-): LoadedWidget[] {
+): TWidget[] {
   return widgets.filter((widget) => hasGrantedWidgetFeatures(widget, grantedFeatures, hasBackendChromePayload))
 }
 
-function areSameLoadedWidgets(current: LoadedWidget[], next: LoadedWidget[]): boolean {
+function areSameLoadedWidgets<TWidget extends { widgetId: string; moduleId: string; key: string; module: object }>(current: TWidget[], next: TWidget[]): boolean {
   if (current.length !== next.length) return false
   return current.every((widget, index) => {
     const nextWidget = next[index]
@@ -96,9 +102,9 @@ function areSameLoadedWidgets(current: LoadedWidget[], next: LoadedWidget[]): bo
   })
 }
 
-function setWidgetsIfChanged(
-  setWidgets: React.Dispatch<React.SetStateAction<LoadedWidget[]>>,
-  next: LoadedWidget[],
+function setWidgetsIfChanged<TWidget extends { widgetId: string; moduleId: string; key: string; module: object }>(
+  setWidgets: React.Dispatch<React.SetStateAction<TWidget[]>>,
+  next: TWidget[],
 ) {
   setWidgets((current) => (areSameLoadedWidgets(current, next) ? current : next))
 }
@@ -294,8 +300,19 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
 /**
  * Hook to trigger injection widget events imperatively
  */
-export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spotId: InjectionSpotId, prefetchedWidgets?: LoadedWidget[]) {
+export function useInjectionSpotEvents<
+  TContext = unknown,
+  TData = unknown,
+  TWidget extends EventWidget = LoadedWidget,
+>(
+  spotId: InjectionSpotId,
+  prefetchedWidgets?: TWidget[],
+  options?: { context?: TContext; triggerOnLoad?: boolean },
+) {
   const [widgets, setWidgets] = React.useState<LoadedWidget[]>([])
+  const loadedParticipantIdsRef = React.useRef(new Set<string>())
+  const loadContextRef = React.useRef(options?.context)
+  const loadQueueRef = React.useRef<Promise<void>>(Promise.resolve())
   const [registryVersion, setRegistryVersion] = React.useState(() => getInjectionRegistryVersion())
   const { payload, isReady: backendChromeReady } = useBackendChrome()
   const grantedFeatureList = React.useMemo(
@@ -311,7 +328,50 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       hasBackendChromePayload,
     )
   }, [backendChromeReady, grantedFeatureList, hasBackendChromePayload, prefetchedWidgets])
-  const eventWidgets = prefetchedWidgets === undefined ? widgets : prefetchedEventWidgets
+  const eventWidgetSource = prefetchedWidgets === undefined
+    ? widgets as unknown as TWidget[]
+    : prefetchedEventWidgets
+  const eventWidgets = React.useMemo(
+    () => eventWidgetSource.filter((widget) => widget.module.metadata.enabled !== false),
+    [eventWidgetSource],
+  )
+
+  const latestAutoLoadRef = React.useRef({ participants: eventWidgets, enabled: false })
+  React.useLayoutEffect(() => {
+    latestAutoLoadRef.current = {
+      participants: eventWidgets,
+      enabled: Boolean(options?.triggerOnLoad && backendChromeReady),
+    }
+    loadContextRef.current = options?.context
+    return () => { latestAutoLoadRef.current.enabled = false }
+  }, [backendChromeReady, eventWidgets, options?.context, options?.triggerOnLoad])
+
+  React.useEffect(() => {
+    if (!options?.triggerOnLoad || !backendChromeReady) return
+    let cancelled = false
+    const loadParticipants = async () => {
+      for (const queuedWidget of eventWidgets) {
+        if (cancelled || !latestAutoLoadRef.current.enabled) return
+        const widget = latestAutoLoadRef.current.participants.find((current) =>
+          current.widgetId === queuedWidget.widgetId
+          && current.moduleId === queuedWidget.moduleId
+          && current.key === queuedWidget.key,
+        )
+        if (!widget || loadedParticipantIdsRef.current.has(widget.widgetId)) continue
+        loadedParticipantIdsRef.current.add(widget.widgetId)
+        const onLoad = (widget.module.eventHandlers as WidgetInjectionEventHandlers<TContext, TData> | undefined)?.onLoad
+        if (!onLoad) continue
+        try {
+          const widgetContext = injectSharedStateIntoContext(loadContextRef.current, widget.moduleId)
+          await onLoad(widgetContext as TContext)
+        } catch (err) {
+          logger.error('Error in onLoad for widget', { widgetId: widget.widgetId, err })
+        }
+      }
+    }
+    loadQueueRef.current = loadQueueRef.current.then(loadParticipants, loadParticipants)
+    return () => { cancelled = true }
+  }, [backendChromeReady, eventWidgets, options?.triggerOnLoad])
 
   React.useEffect(() => {
     return subscribeToInjectionRegistryChanges(() => {
@@ -324,13 +384,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       setWidgetsIfChanged(setWidgets, [])
       return
     }
-    if (prefetchedWidgets !== undefined) {
-      setWidgetsIfChanged(
-        setWidgets,
-        filterWidgetsByGrantedFeatures(prefetchedWidgets, grantedFeatureList, hasBackendChromePayload),
-      )
-      return
-    }
+    if (prefetchedWidgets !== undefined) return
     let mounted = true
     const load = async () => {
       try {
@@ -438,7 +492,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
         let pipelineData = data
         let applyToForm = false
         for (const widget of eventWidgets) {
-          const handler = widget.module.eventHandlers?.[event]
+          const handler = (widget.module.eventHandlers as WidgetInjectionEventHandlers<TContext, TData> | undefined)?.[event]
           if (!handler) continue
           try {
             const widgetContext = injectSharedStateIntoContext(context, widget.moduleId)
@@ -476,7 +530,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       let fieldMessages: Array<{ text: string; severity: 'info' | 'warning' | 'error' }> | undefined
 
       for (const widget of eventWidgets) {
-        const eventHandlers = widget.module.eventHandlers
+        const eventHandlers = widget.module.eventHandlers as WidgetInjectionEventHandlers<TContext, TData> | undefined
         // Check operation filter — skip widget if current operation is filtered out
         const operationFilter = eventHandlers?.filter?.operations
         if (operationFilter) {
@@ -494,7 +548,9 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
           try {
             const widgetContext = injectSharedStateIntoContext(context, widget.moduleId)
             const result =
-              event === 'onDeleteError'
+              event === 'onLoad'
+                ? await (handler as WidgetInjectionEventHandlers<TContext, TData>['onLoad'])?.(widgetContext)
+                : event === 'onDeleteError'
                 ? await (handler as any)(data, widgetContext, meta?.error)
                 : event === 'onFieldChange'
                   ? await (handler as any)(meta?.fieldId, fieldValue, data, widgetContext)
