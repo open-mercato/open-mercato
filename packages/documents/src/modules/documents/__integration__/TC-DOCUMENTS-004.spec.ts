@@ -17,7 +17,7 @@ import {
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 export const integrationMeta = {
-  dependsOnModules: ['documents', 'search'],
+  dependsOnModules: ['documents', 'search', 'notifications'],
 }
 
 type MutationBody = {
@@ -117,7 +117,7 @@ async function createTenantDocumentUser(
   })
   await setRoleAclFeatures(request, superadminToken, {
     roleId,
-    features: DOCUMENTS_MANAGE_FEATURES,
+    features: [...DOCUMENTS_MANAGE_FEATURES, 'notifications.view'],
     organizations: null,
   })
 
@@ -201,6 +201,32 @@ test.describe('TC-DOCUMENTS-004: tenant isolation and content search', () => {
         { token: tenantBUser.token },
       )
       expect(DENIED_STATUSES, 'cross-tenant GET should be denied').toContain(readResponse.status())
+
+      const mentionCheck = await apiRequest(request, 'POST', `/api/documents/${documentId}/comments/access-check`, {
+        token: adminToken, data: { userIds: [tenantBUser.id] },
+      })
+      expect(mentionCheck.status()).toBe(200)
+      expect(await readJsonSafe(mentionCheck)).toEqual({
+        withoutAccess: [tenantBUser.id],
+        withoutAccessUsers: [{ userId: tenantBUser.id, label: null, secondary: null }],
+        shareableUserIds: [],
+      })
+      const foreignMentionCheck = await apiRequest(request, 'POST', `/api/documents/${documentId}/comments/access-check`, {
+        token: tenantBUser.token, data: { userIds: [tenantBUser.id] },
+      })
+      expect(DENIED_STATUSES).toContain(foreignMentionCheck.status())
+      const mentionResponse = await apiRequest(request, 'POST', `/api/documents/${documentId}/comments`, {
+        token: adminToken,
+        data: { body: `Private mention ${stamp}`, mentions: [{ userId: tenantBUser.id }], grantAccessTo: [] },
+      })
+      expect(mentionResponse.status()).toBe(201)
+      const mention = await readJsonSafe<MutationBody>(mentionResponse)
+      const commentId = expectId(mention?.id, 'comment create response should include id')
+      const notificationsResponse = await apiRequest(request, 'GET', `/api/notifications?sourceEntityId=${commentId}`, {
+        token: tenantBUser.token,
+      })
+      expect(notificationsResponse.status()).toBe(200)
+      expect(await readJsonSafe(notificationsResponse)).toMatchObject({ items: [] })
 
       const writeResponse = await apiRequest(
         request,

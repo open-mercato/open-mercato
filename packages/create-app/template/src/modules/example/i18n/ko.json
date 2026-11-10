@@ -509,6 +509,7 @@
   "example.umes.queryExtensions.subscribers.run": "구독자 수집 프로브 실행",
   "example.umes.queryExtensions.subscribers.title": "N.2 동기 쿼리 이벤트 구독자",
   "example.umes.queryExtensions.title": "UMES Phase N — 쿼리 엔진 확장성",
+  "example.widgets.catalogSeoReport.docs": "이 위젯은 위젯 삽입 시스템을 통해 제품 테이블에 삽입됩니다.",
   "example.widgets.catalogSeoReport.edit": "수정",
   "example.widgets.catalogSeoReport.error": "SEO 리포트를 불러오지 못했습니다.",
   "example.widgets.catalogSeoReport.example": "예제",
