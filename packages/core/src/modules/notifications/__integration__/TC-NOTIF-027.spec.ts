@@ -84,6 +84,9 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
       await markAllAsRead(request, userToken)
 
       expect(await listUnreadIds(request, userToken, type)).toEqual([])
+      const unreadCountResponse = await apiRequest(request, 'GET', '/api/notifications/unread-count', { token: userToken })
+      expect(unreadCountResponse.status()).toBe(200)
+      expect(await readJsonSafe<{ unreadCount?: number }>(unreadCountResponse)).toEqual({ unreadCount: 0 })
     } finally {
       for (const notificationId of notificationIds) {
         await dismissNotificationIfExists(request, userToken, notificationId)
