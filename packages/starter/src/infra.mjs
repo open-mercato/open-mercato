@@ -62,7 +62,7 @@ export function externalDatabaseHost(repoRoot, env = process.env) {
 // infraUp plus the shared preflight: distinguishes missing CLI / compose,
 // stopped daemon, port conflicts, and failed healthchecks instead of a bare
 // non-zero compose exit. Returns { ok, problem? }; never touches volumes.
-export async function startInfra(repoRoot, { profiles = [], env = process.env, log = console.log, logs, beforeUp, startImpl = startInfraServices } = {}) {
+export async function startInfra(repoRoot, { profiles = [], env = process.env, log = console.log, logs, beforeUp, protectExistingServices = false, startImpl = startInfraServices } = {}) {
   ensureMcpSharedDir(repoRoot)
   const externalHost = externalDatabaseHost(repoRoot, env)
   if (externalHost) {
@@ -74,6 +74,7 @@ export async function startInfra(repoRoot, { profiles = [], env = process.env, l
     upArgs: profiles.flatMap((profile) => ['--profile', profile]),
     cwd: repoRoot,
     beforeUp,
+    protectExistingServices,
     ...(logs ? { runStreamingImpl: async (command, args, options) => ({ status: await runStreaming(command, args, { ...options, env, logs }) }) } : {}),
     log,
   })

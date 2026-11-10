@@ -224,7 +224,9 @@ const fs = require('node:fs')
 for (const readPath of ${JSON.stringify([path.join(controller, 'package.json'), secretPath])}) {
   assert.throws(() => fs.readFileSync(readPath), { code: /^(EPERM|EACCES|ENOENT)$/ })
 }
-assert.throws(() => fs.writeFileSync(${JSON.stringify(deniedWritePath)}, 'escaped'), { code: /^(EPERM|EACCES|ENOENT|EROFS)$/ })
+for (const writePath of ${JSON.stringify([deniedWritePath, path.join(os.tmpdir(), 'om-harness-unadmitted-write'), '/om-harness-unadmitted-write'])}) {
+  assert.throws(() => fs.writeFileSync(writePath, 'escaped'), { code: /^(EPERM|EACCES|ENOENT|EROFS)$/ })
+}
 fs.writeFileSync('target-edit.txt', 'contained')
 console.log('fixture boundary verified')
 `)
