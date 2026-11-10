@@ -358,10 +358,28 @@ There is no CLI command to list or retry individual jobs. Inspect a single job w
 
 ### Database Management
 
-Avoid passing `$DATABASE_URL` straight to `psql` — the shell expands it into the command's process arguments, which other local processes (for example `ps`) can read, including the password. Add a `scheduler_db` entry to `~/.pgpass` (format `hostname:port:database:username:password`, then `chmod 600 ~/.pgpass`) or to `~/.pg_service.conf` (also set `sslmode`/other TLS options there if your deployment requires them), using the host, port, database and credentials from `$DATABASE_URL`, then connect by service name:
+Avoid passing `$DATABASE_URL` straight to `psql` — the shell expands it into the command's process arguments, which other local processes (for example `ps`) can read, including the password. Define the `scheduler_db` service in `~/.pg_service.conf` (or the file selected by `PGSERVICEFILE`), using the non-secret connection parameters from `DATABASE_URL`:
+
+```ini
+[scheduler_db]
+host=db.example.com
+port=5432
+dbname=mercato
+user=scheduler_reader
+```
+
+Replace these example values with your deployment's host, port, database and user, and carry over its required `sslmode` and other TLS options. Store the password separately in `~/.pgpass` (or the file selected by `PGPASSFILE`), with matching connection parameters:
+
+```text
+db.example.com:5432:mercato:scheduler_reader:<database-password>
+```
+
+Replace `<database-password>` with the actual password; escape any `:` or `\` in passfile values with `\`. On Unix, run `chmod 600 ~/.pgpass` so libpq accepts the password file. The passfile supplies a matching password; it does not define a service or select a host/database/user. The service definition above is required by both `service=scheduler_db` examples below. See PostgreSQL's [service-file](https://www.postgresql.org/docs/current/libpq-pgservice.html) and [password-file](https://www.postgresql.org/docs/current/libpq-pgpass.html) formats.
+
+Connect by service name:
 
 ```bash
-# View scheduler tables (password is read from ~/.pgpass or ~/.pg_service.conf, never from argv)
+# View scheduler tables (password is read from ~/.pgpass, never from argv)
 psql "service=scheduler_db" -c "\d scheduled_jobs"
 
 # Run migrations
@@ -379,11 +397,11 @@ yarn mercato db generate
 # List all schedules to verify ID
 yarn mercato scheduler list
 
-# Check if schedule was soft-deleted (password is read from ~/.pgpass or ~/.pg_service.conf, never from argv)
+# Check if schedule was soft-deleted (password is read from ~/.pgpass, never from argv)
 psql "service=scheduler_db" -c "SELECT id, name, deleted_at FROM scheduled_jobs WHERE id = '123e4567-e89b-12d3-a456-426614174000' AND deleted_at IS NOT NULL;"
 ```
 
-Replace the example UUID with the schedule ID you are investigating. Database inspection requires `psql` and the `scheduler_db` passfile or service entry described above, configured from `DATABASE_URL`.
+Replace the example UUID with the schedule ID you are investigating. Database inspection requires `psql` and the `scheduler_db` service definition and matching password-file entry described above, configured from `DATABASE_URL`.
 
 ### Local scheduler locking
 
@@ -393,14 +411,17 @@ Run one local scheduler process; use the async strategy with Redis for multiple 
 
 ### "Redis connection failed"
 
-`QUEUE_REDIS_URL` (falling back to `REDIS_URL`) may carry a password; expanding that URL into `redis-cli -u` puts the password in process arguments the same way. Pull the host, port and password out of whichever of the two is set, pass the password through `REDISCLI_AUTH` (or omit it and use `--askpass` for an interactive prompt) instead of `-u`, and add `--tls` if the URL scheme is `rediss://`:
+`QUEUE_REDIS_URL` (falling back to `REDIS_URL`) may carry a password; expanding that URL into `redis-cli -u` puts the password in process arguments the same way. Set local shell variables `redis_host`, `redis_port`, `redis_username` and `redis_password` from whichever URL is selected, decoding any percent-encoded username/password. Leave `redis_username` empty when the URL has no username. Pass the password through `REDISCLI_AUTH` (or omit it and use `--askpass` for an interactive prompt) instead of `-u`:
 
 ```bash
-# Test the configured queue Redis connection (QUEUE_REDIS_URL takes precedence over REDIS_URL).
-# redis_host/redis_port/redis_password are local shell variables you set from that URL — the
-# password goes through REDISCLI_AUTH, never into the command's arguments.
-REDISCLI_AUTH="$redis_password" redis-cli -h "$redis_host" -p "${redis_port:-6379}" ping
+redis_args=(-h "$redis_host" -p "${redis_port:-6379}")
+if [ -n "${redis_username:-}" ]; then
+  redis_args+=(--user "$redis_username")
+fi
+REDISCLI_AUTH="$redis_password" redis-cli "${redis_args[@]}" ping
 ```
+
+The optional `--user` preserves named ACL users, including deployments with the default user disabled. If the selected URL uses `rediss://`, add `--tls` and the deployment's required certificate options to `redis_args` before connecting. If its path selects a database, also add `-n` with that database number. See the [Redis CLI connection and authentication options](https://redis.io/docs/latest/develop/tools/cli/).
 
 ### "No workers running"
 
