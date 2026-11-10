@@ -3,9 +3,11 @@ import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
   clearCapturedSystemEmails,
   isChannelSeedingAvailable,
+  listCapturedSystemEmails,
   seedSystemEmailChannel,
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
@@ -54,11 +56,11 @@ test.describe('TC-ONBOARDING-EMAIL-001: Onboarding emails use system channel', (
     const stamp = Date.now()
     const onboardingEmail = `qa-onboarding-email-${stamp}@example.test`
     const feedbackEmail = `qa-demo-feedback-${stamp}@example.test`
-    const adminEmail = process.env.ADMIN_EMAIL ?? 'piotr@catchthetornado.com'
+    const adminEmail = process.env.ADMIN_EMAIL?.trim()
 
     await seedSystemEmailChannel(request, token)
     await clearCapturedSystemEmails(request, token, { systemRecipient: onboardingEmail })
-    await clearCapturedSystemEmails(request, token, { systemRecipient: adminEmail })
+    if (adminEmail) await clearCapturedSystemEmails(request, token, { systemRecipient: adminEmail })
 
     try {
       const start = await request.post('/api/onboarding/onboarding', {
@@ -85,12 +87,18 @@ test.describe('TC-ONBOARDING-EMAIL-001: Onboarding emails use system channel', (
       expect(verificationEmail.scope.tenantId).toBe('system')
       expect(verificationEmail.content.bodyFormat).toBe('html')
 
-      await waitForCapturedSystemEmail(
-        request,
-        token,
-        (email) => String(email.metadata?.to ?? '').includes('@') && email.metadata?.subject === 'New self-service onboarding request',
-        { description: 'onboarding admin email', systemRecipient: adminEmail },
-      )
+      if (adminEmail) {
+        await waitForCapturedSystemEmail(
+          request,
+          token,
+          (email) => email.metadata?.to === adminEmail && email.metadata?.subject === 'New self-service onboarding request',
+          { description: 'onboarding admin email', systemRecipient: adminEmail },
+        )
+      } else {
+        const captured = await listCapturedSystemEmails(request, token)
+        expect(captured.some((email) => email.metadata?.subject === 'New self-service onboarding request'
+          && [email.content.text, email.content.html].some((body) => body?.includes(onboardingEmail)))).toBe(false)
+      }
 
       await markOnboardingReady(onboardingEmail, scope.tenantId, scope.organizationId, scope.userId)
       await clearCapturedSystemEmails(request, token)
@@ -120,14 +128,20 @@ test.describe('TC-ONBOARDING-EMAIL-001: Onboarding emails use system channel', (
           marketingConsent: false,
         },
       })
-      expect(feedback.status()).toBe(200)
+      const demoModeEnabled = parseBooleanWithDefault(process.env.DEMO_MODE, true)
+      expect(feedback.status()).toBe(demoModeEnabled ? 200 : 404)
 
-      await waitForCapturedSystemEmail(
-        request,
-        token,
-        (email) => String(email.metadata?.to ?? '').includes('@') && email.metadata?.subject === `Demo feedback from ${feedbackEmail}`,
-        { description: 'demo feedback admin email', systemRecipient: adminEmail },
-      )
+      if (demoModeEnabled && adminEmail) {
+        await waitForCapturedSystemEmail(
+          request,
+          token,
+          (email) => email.metadata?.to === adminEmail && email.metadata?.subject === `Demo feedback from ${feedbackEmail}`,
+          { description: 'demo feedback admin email', systemRecipient: adminEmail },
+        )
+      } else if (demoModeEnabled) {
+        const captured = await listCapturedSystemEmails(request, token)
+        expect(captured.some((email) => email.metadata?.subject === `Demo feedback from ${feedbackEmail}`)).toBe(false)
+      }
     } finally {
       await deleteOnboardingRequest(onboardingEmail)
     }
