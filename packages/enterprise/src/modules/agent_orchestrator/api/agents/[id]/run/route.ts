@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { attachmentStorageErrorResponse } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { attachmentStorageErrorResponse, attachmentStorageErrorSchema } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { z } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -334,7 +334,7 @@ export const openApi: OpenApiRouteDoc = {
           status: 503,
           description:
             'The deployment has no usable LLM provider, or attachment storage configuration is rejected with code ATTACHMENT_STORAGE_CONFIGURATION_INVALID and a redacted reason',
-          schema: z.union([modelUnavailableErrorSchema, z.object({ error: z.string(), code: z.literal('ATTACHMENT_STORAGE_CONFIGURATION_INVALID'), reason: z.string() })]),
+          schema: z.union([modelUnavailableErrorSchema, attachmentStorageErrorSchema]),
         },
       ],
     },

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { attachmentStorageErrorResponse } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { ATTACHMENT_STORAGE_ERROR_DESCRIPTION, attachmentStorageErrorResponse, attachmentStorageErrorSchema } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -192,7 +192,7 @@ export const openApi: OpenApiRouteDoc = {
           schema: z.union([errorSchema, guardrailBlockedErrorSchema]),
         },
         { status: 429, description: 'Agent run capacity exhausted (admission control); includes Retry-After', schema: errorSchema },
-        { status: 503, description: 'Attachment storage configuration rejected with a localized message and redacted code/reason', schema: errorSchema.extend({ code: z.literal('ATTACHMENT_STORAGE_CONFIGURATION_INVALID'), reason: z.string() }) },
+        { status: 503, description: ATTACHMENT_STORAGE_ERROR_DESCRIPTION, schema: attachmentStorageErrorSchema },
       ],
     },
   },

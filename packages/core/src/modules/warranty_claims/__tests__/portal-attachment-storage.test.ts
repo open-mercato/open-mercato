@@ -3,7 +3,7 @@ import { LocalStorageDriver, StorageDriverFactory, registerExternalStorageDriver
 import type { StorageDriver } from '../../attachments/lib/drivers'
 import { AttachmentStorageConfigurationError } from '../../attachments/lib/drivers/storageValidation'
 import { clearAttachmentThumbnailCache } from '../../attachments/lib/thumbnailCache'
-import { GET, DELETE, PUT } from '../api/portal/attachments/route'
+import { GET, DELETE, POST, PUT, openApi } from '../api/portal/attachments/route'
 
 jest.mock('../lib/portalAuthGuard', () => ({ resolveLinkedCustomerAuth: async () => mockAuth }))
 jest.mock('../lib/portalClaimAccess', () => ({ loadPortalOwnedClaim: async () => mockOwned ? { id: claimId } : null }))
@@ -82,11 +82,14 @@ afterEach(() => {
   if (previousPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
   else process.env.OM_ATTACHMENT_STORAGE_POLICY = previousPolicy
 })
-function request(method: 'GET' | 'DELETE' | 'PUT'): Request {
-  if (method === 'PUT') {
+function documentedErrorSchema(method: 'GET' | 'POST' | 'PUT' | 'DELETE', status: number) {
+  return openApi.methods[method]?.errors?.find((entry) => entry.status === status)?.schema
+}
+function request(method: 'GET' | 'DELETE' | 'PUT' | 'POST'): Request {
+  if (method === 'PUT' || method === 'POST') {
     const form = new FormData()
     form.set('claimId', claimId)
-    form.set('attachmentId', attachmentId)
+    if (method === 'PUT') form.set('attachmentId', attachmentId)
     form.set('file', new File(['replacement'], 'replacement.txt', { type: 'text/plain' }))
     return new Request('http://localhost/api/warranty_claims/portal/attachments', { method, body: form })
   }
@@ -104,7 +107,9 @@ describe.each([
     mockPartition = invalid === null ? null : { code: 'privateAttachments', isPublic: false, ...invalid }
     const response = await handler(request(method))
     expect(response.status).toBe(503)
-    expect(await response.json()).toEqual({ error: 'Localized storage unavailable', code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason })
+    const body = await response.json()
+    expect(body).toEqual({ error: 'Localized storage unavailable', code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason })
+    expect(documentedErrorSchema(method, 503)?.safeParse(body).success).toBe(true)
     expect(mockRetained).toBe(true)
     expect(mockEm.begin).not.toHaveBeenCalled()
     expect(mockEm.remove).not.toHaveBeenCalled()
@@ -115,6 +120,26 @@ describe.each([
     expect(mockUpload).not.toHaveBeenCalled()
     expect(mockAfterSuccess).not.toHaveBeenCalled()
   })
+})
+it('documents the typed storage 503 for upload while retaining the rate limit contract', async () => {
+  mockUpload.mockRejectedValueOnce(new AttachmentStorageConfigurationError('validator_rejected'))
+  const response = await POST(request('POST'))
+  expect(response.status).toBe(503)
+  const body = await response.json()
+  expect(body).toEqual({
+    error: 'Localized storage unavailable', code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason: 'validator_rejected',
+  })
+  expect(documentedErrorSchema('POST', 503)?.safeParse(body).success).toBe(true)
+  expect(mockAfterSuccess).not.toHaveBeenCalled()
+})
+it.each(['GET', 'POST', 'PUT', 'DELETE'] as const)('%s OpenAPI 503 rejects storage bodies without code or reason', (method) => {
+  const schema = documentedErrorSchema(method, 503)
+  expect(schema).toBeDefined()
+  expect(schema?.safeParse({ error: 'Localized storage unavailable', code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID' }).success).toBe(false)
+  expect(schema?.safeParse({ error: 'Localized storage unavailable', reason: 'invalid_config' }).success).toBe(false)
+})
+it.each(['POST', 'PUT'] as const)('%s keeps the documented 429 rate limit response', (method) => {
+  expect(documentedErrorSchema(method, 429)).toBeDefined()
 })
 it.each([['strict'], ['legacy']])('%s preserves shared bytes and commits before final-reference deletion', async (policy) => {
   process.env.OM_ATTACHMENT_STORAGE_POLICY = policy

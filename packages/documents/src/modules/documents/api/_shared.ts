@@ -1,7 +1,11 @@
 import { resolveActorUserId } from '../lib/actor'
 export { resolveActorUserId } from '../lib/actor'
 import { NextResponse } from 'next/server'
-import { attachmentStorageErrorResponse } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import {
+  ATTACHMENT_STORAGE_ERROR_DESCRIPTION,
+  attachmentStorageErrorResponse,
+  attachmentStorageErrorSchema,
+} from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
@@ -88,6 +92,11 @@ export type DocumentCapabilityProjection = {
  * apart from an ordinary validation rejection, since both are a 400.
  */
 export const routeErrorSchema = z.object({ error: z.string(), code: z.string().optional() })
+
+export const ATTACHMENT_SERVICE_UNAVAILABLE_DESCRIPTION =
+  `Attachment service unavailable, or ${ATTACHMENT_STORAGE_ERROR_DESCRIPTION}`
+
+export const attachmentServiceUnavailableErrorSchema = z.union([routeErrorSchema, attachmentStorageErrorSchema])
 
 export const ORGANIZATION_SCOPE_REQUIRED_DESCRIPTION =
   `Organization scope could not be resolved (\`code: ${ORGANIZATION_SCOPE_REQUIRED_ERROR_CODE}\`)`

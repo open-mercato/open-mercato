@@ -17,7 +17,11 @@ import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/atta
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { StorageDriverFactory, type StorageDriver } from '@open-mercato/core/modules/attachments/lib/drivers'
 import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy, isAttachmentStorageConfigurationError } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
-import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import {
+  ATTACHMENT_STORAGE_ERROR_DESCRIPTION,
+  attachmentStorageErrorSchema,
+  withAttachmentStorageErrors,
+} from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
 import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
 import { readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
@@ -32,7 +36,7 @@ import {
   isScopedAttachmentUploadError,
   type ScopedAttachmentUploadErrorCode,
 } from '@open-mercato/core/modules/attachments/lib/scoped-upload-service'
-import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { OpenApiResponseDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim } from '../../../data/entities'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 import { CUSTOMER_VISIBLE_ATTACHMENT_TAG, isCustomerVisibleAttachment } from '../../../lib/attachmentVisibility'
@@ -553,6 +557,22 @@ const attachmentItemSchema = z.object({
   createdAt: z.string().nullable(),
 })
 
+const portalErrorSchema = z.object({ ok: z.literal(false), error: z.string() })
+
+const storageUnavailableError: OpenApiResponseDoc = {
+  status: 503,
+  description: ATTACHMENT_STORAGE_ERROR_DESCRIPTION,
+  schema: attachmentStorageErrorSchema,
+}
+
+const uploadUnavailableError: OpenApiResponseDoc = {
+  status: 503,
+  description: `Attachment upload service unavailable, or ${ATTACHMENT_STORAGE_ERROR_DESCRIPTION}`,
+  schema: z.union([portalErrorSchema, attachmentStorageErrorSchema]),
+}
+
+const uploadRateLimitError: OpenApiResponseDoc = { status: 429, description: 'Attachment upload rate limit exceeded', schema: rateLimitErrorSchema }
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Warranty Claims Portal',
   summary: 'Customer portal warranty claim attachments',
@@ -560,6 +580,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List attachments for an owned claim',
       query: attachmentQuerySchema,
+      errors: [storageUnavailableError],
       responses: [
         {
           status: 200,
@@ -570,7 +591,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Upload an attachment for an owned claim',
-      errors: [{ status: 429, description: 'Attachment upload rate limit exceeded', schema: rateLimitErrorSchema }],
+      errors: [uploadRateLimitError, uploadUnavailableError],
       requestBody: { contentType: 'multipart/form-data', schema: uploadBodySchema },
       responses: [
         {
@@ -582,7 +603,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Replace an attachment on an owned claim',
-      errors: [{ status: 429, description: 'Attachment upload rate limit exceeded', schema: rateLimitErrorSchema }],
+      errors: [uploadRateLimitError, uploadUnavailableError],
       requestBody: { contentType: 'multipart/form-data', schema: replaceBodySchema },
       responses: [
         {
@@ -595,6 +616,7 @@ export const openApi: OpenApiRouteDoc = {
     DELETE: {
       summary: 'Delete an attachment from an owned claim',
       query: deleteQuerySchema,
+      errors: [storageUnavailableError],
       responses: [
         {
           status: 200,

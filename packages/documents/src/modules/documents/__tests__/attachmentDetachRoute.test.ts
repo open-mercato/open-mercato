@@ -5,6 +5,8 @@ import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/atta
 import { DefaultAttachmentService } from '@open-mercato/core/modules/attachments/lib/attachment-service'
 import { StorageDriverFactory, registerExternalStorageDriver, registerStorageDriverValidator } from '@open-mercato/core/modules/attachments/lib/drivers'
 import type { StorageDriver } from '@open-mercato/core/modules/attachments/lib/drivers'
+import { attachmentStorageErrorSchema } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { z } from 'zod'
 
 jest.mock('#generated/entities.ids.generated', () => ({ E: { attachments: { attachment: 'attachments:attachment' } } }), { virtual: true })
 jest.mock('@open-mercato/core/modules/attachments/lib/ocrQueue', () => ({ requestOcrProcessing: jest.fn() }))
@@ -47,6 +49,8 @@ type AttachmentDetailRoute = typeof import('../api/[id]/attachments/[attachmentI
 
 let DELETE: AttachmentDetailRoute['DELETE']
 let GET: AttachmentDetailRoute['GET']
+let detailOpenApi: AttachmentDetailRoute['openApi']
+let uploadOpenApi: typeof import('../api/[id]/attachments/route')['openApi']
 let features: string[]
 let attachmentRecord: { id: string; updatedAt: Date; deletedAt: Date | null } | null
 /**
@@ -87,6 +91,8 @@ beforeAll(async () => {
   const route = await import('../api/[id]/attachments/[attachmentId]/route')
   GET = route.GET
   DELETE = route.DELETE
+  detailOpenApi = route.openApi
+  uploadOpenApi = (await import('../api/[id]/attachments/route')).openApi
 })
 
 beforeEach(() => {
@@ -178,7 +184,10 @@ describe('document attachment detach', () => {
     try {
       const response = await GET(request('GET'), context())
       expect(response.status).toBe(503)
-      expect(await response.json()).toEqual({ error: 'Localized storage unavailable', code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason })
+      const body = await response.json()
+      expect(body).toEqual({ error: 'Localized storage unavailable', code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason })
+      const documented = detailOpenApi.methods.GET?.errors?.find((entry) => entry.status === 503)?.schema
+      expect(documented?.safeParse(body).success).toBe(true)
       expect(construct).not.toHaveBeenCalled()
       expect(driver.read).not.toHaveBeenCalled()
       expect(driver.delete).not.toHaveBeenCalled()
@@ -189,6 +198,16 @@ describe('document attachment detach', () => {
       if (priorPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
       else process.env.OM_ATTACHMENT_STORAGE_POLICY = priorPolicy
     }
+  })
+
+  it.each([
+    ['attachment read', () => detailOpenApi.methods.GET],
+    ['attachment upload', () => uploadOpenApi.methods.POST],
+  ] as const)('documents the storage 503 code and reason for %s', (_case, method) => {
+    const documented = method()?.errors?.find((entry) => entry.status === 503)?.schema
+    expect(documented?.safeParse({ error: 'Localized storage unavailable', code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason: 'invalid_config' }).success).toBe(true)
+    expect(documented?.safeParse({ error: 'Attachment service unavailable' }).success).toBe(true)
+    expect(documented instanceof z.ZodUnion ? documented.options : []).toContain(attachmentStorageErrorSchema)
   })
 
   it('prevents browsers from reusing private bytes after access is revoked', async () => {
