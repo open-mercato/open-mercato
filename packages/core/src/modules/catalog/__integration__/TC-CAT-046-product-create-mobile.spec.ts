@@ -35,6 +35,7 @@ test.describe('TC-CAT-046: Product-create mobile layout', () => {
     ]
     await expect(navigation.getByRole('button')).toHaveCount(steps.length)
     await expectViewportContained(page)
+    await page.getByPlaceholder('e.g., Summer sneaker').fill('long-product-name-'.repeat(30))
     for (const step of steps) {
       const button = navigation.getByRole('button', { name: step.name, exact: true })
       await expect(button).toBeInViewport({ ratio: 1 })

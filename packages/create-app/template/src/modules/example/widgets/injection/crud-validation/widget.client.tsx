@@ -66,7 +66,7 @@ export default function ValidationWidget({ context, data, disabled }: InjectionW
   const print = (value: unknown) => JSON.stringify(value ?? null)
 
   return (
-    <div className="space-y-1 rounded border border-border bg-muted/30 p-3 text-sm">
+    <div className="min-w-0 max-w-full space-y-1 overflow-x-auto rounded border border-border bg-muted/30 p-3 text-sm">
       <div className="font-medium text-foreground">Example Injection Widget</div>
       <div className="mt-1 text-muted-foreground">
         This widget is injected via the widget injection system. It can respond to form events and add custom UI.
