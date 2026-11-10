@@ -1733,6 +1733,7 @@
   "customers.deals.timeline.nav.today": "Dziś",
   "customers.deals.timeline.overdueBefore": "Po terminie przed {date}: {count}",
   "customers.deals.timeline.partialCount": "{count}+",
+  "customers.deals.timeline.refreshError": "Nie udało się odświeżyć osi czasu. Tablica może być nieaktualna, a ostatnio zmienione szanse pozostaną zablokowane do czasu odświeżenia.",
   "customers.deals.timeline.reschedule.action": "Zmień datę zamknięcia",
   "customers.deals.timeline.reschedule.announce.cancel": "Anulowano przenoszenie {title}.",
   "customers.deals.timeline.reschedule.announce.drop": "Upuszczono {title} w kolumnie {column}.",

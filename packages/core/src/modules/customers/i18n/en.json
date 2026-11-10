@@ -1733,6 +1733,7 @@
   "customers.deals.timeline.nav.today": "Today",
   "customers.deals.timeline.overdueBefore": "{count} overdue before {date}",
   "customers.deals.timeline.partialCount": "{count}+",
+  "customers.deals.timeline.refreshError": "Couldn’t refresh the timeline. The board may be out of date and recently changed deals stay locked until it refreshes.",
   "customers.deals.timeline.reschedule.action": "Change close date",
   "customers.deals.timeline.reschedule.announce.cancel": "Moving {title} was cancelled.",
   "customers.deals.timeline.reschedule.announce.drop": "{title} was dropped in {column}.",

@@ -1733,6 +1733,7 @@
   "customers.deals.timeline.nav.today": "Heute",
   "customers.deals.timeline.overdueBefore": "{count} überfällig vor {date}",
   "customers.deals.timeline.partialCount": "{count}+",
+  "customers.deals.timeline.refreshError": "Die Zeitleiste konnte nicht aktualisiert werden. Die Ansicht ist möglicherweise veraltet, und kürzlich geänderte Deals bleiben bis zur Aktualisierung gesperrt.",
   "customers.deals.timeline.reschedule.action": "Abschlussdatum ändern",
   "customers.deals.timeline.reschedule.announce.cancel": "Verschieben von {title} abgebrochen.",
   "customers.deals.timeline.reschedule.announce.drop": "{title} wurde in {column} abgelegt.",

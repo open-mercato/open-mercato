@@ -3,12 +3,15 @@ import { login } from '@open-mercato/core/helpers/integration/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenContext, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
+  createOrganizationFixture,
   createRoleFixture,
   createUserFixture,
+  deleteOrganizationIfExists,
   deleteRoleIfExists,
   deleteUserIfExists,
   setUserAclVisibility,
 } from '@open-mercato/core/helpers/integration/authFixtures';
+import { createDealFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import {
   addBuckets,
   addDays,
@@ -539,6 +542,103 @@ test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
       await expect(page).toHaveURL(new RegExp(`pipelineId=${scope.pipelineId}`));
     } finally {
       await cleanupTimelineScope(request, token, scope);
+    }
+  });
+
+  test('switching organization with the drawer open drops the previous organization\'s deal', async ({ page, request }) => {
+    test.setTimeout(300_000);
+    const stamp = Date.now();
+    const adminToken = await getAuthToken(request, 'admin');
+    const superToken = await getAuthToken(request, 'superadmin');
+    const { tenantId, organizationId: orgAId } = getTokenContext(adminToken);
+    const adminUserId = getTokenScope(adminToken).userId;
+    const viewerEmail = `tc-crm-tl-002-scope-${stamp}@example.com`;
+    const orgBUserEmail = `tc-crm-tl-002-scope-b-${stamp}@example.com`;
+    const orgBName = `TC-CRM-TL-002 Org B ${stamp}`;
+    let scope: TimelineFixtureScope | null = null;
+    let orgBId: string | null = null;
+    let viewerId: string | null = null;
+    let orgBUserId: string | null = null;
+    let orgBUserToken: string | null = null;
+    let orgBDealId: string | null = null;
+    try {
+      scope = await createTimelineScope(request, adminToken, 'TC-CRM-TL-002 Scope');
+      const orgADealTitle = `TL002S Org A Deal ${stamp}`;
+      const orgADealId = await addTimelineDeal(request, adminToken, scope, {
+        title: orgADealTitle,
+        date: todayKey(),
+        ownerUserId: adminUserId,
+      });
+      orgBId = await createOrganizationFixture(request, superToken, { name: orgBName, tenantId });
+      orgBUserId = await createUserFixture(request, superToken, {
+        email: orgBUserEmail,
+        password: PASSWORD,
+        organizationId: orgBId,
+        roles: [],
+      });
+      await setUserAclVisibility(request, superToken, { userId: orgBUserId, organizations: null, features: ['customers.*'] });
+      orgBUserToken = await getAuthToken(request, orgBUserEmail, PASSWORD);
+      orgBDealId = await createDealFixture(request, orgBUserToken, {
+        title: `TL002S Org B Deal ${stamp}`,
+        status: 'open',
+        expectedCloseAt: `${todayKey()}T00:00:00.000Z`,
+        ownerUserId: orgBUserId,
+      });
+      viewerId = await createUserFixture(request, superToken, {
+        email: viewerEmail,
+        password: PASSWORD,
+        organizationId: orgAId,
+        roles: [],
+      });
+      await setUserAclVisibility(request, superToken, {
+        userId: viewerId,
+        organizations: [orgAId, orgBId],
+        features: ['customers.*'],
+      });
+
+      await installDevNoticeHandler(page);
+      await loginWithCredentials(page, viewerEmail, PASSWORD);
+      await openTimeline(page, `bucket=quarter&deal=${orgADealId}`);
+      const drawer = page.getByTestId('timeline-deal-drawer');
+      await expect(drawer).toBeVisible();
+      await expect(drawer).toContainText(orgADealTitle);
+
+      await page.evaluate(() => {
+        const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Organization:"]');
+        if (!trigger) throw new Error('[internal] organization switcher not found');
+        trigger.click();
+      });
+      await expect
+        .poll(() =>
+          page.evaluate(
+            (name) =>
+              Array.from(document.querySelectorAll<HTMLButtonElement>('[data-radix-popper-content-wrapper] button')).some(
+                (button) => button.textContent?.trim() === name,
+              ),
+            orgBName,
+          ),
+        )
+        .toBe(true);
+      await page.evaluate((name) => {
+        const option = Array.from(
+          document.querySelectorAll<HTMLButtonElement>('[data-radix-popper-content-wrapper] button'),
+        ).find((button) => button.textContent?.trim() === name);
+        if (!option) throw new Error('[internal] organization option not found');
+        option.click();
+      }, orgBName);
+
+      await expect(page, 'the previous organization\'s deal param is dropped').not.toHaveURL(/[?&]deal=/, {
+        timeout: 30_000,
+      });
+      await expect(drawer).toBeHidden();
+      await expect(page.getByText(orgADealTitle)).toHaveCount(0);
+      await expect(timelineCard(page, orgBDealId)).toBeVisible({ timeout: 30_000 });
+    } finally {
+      if (orgBUserToken) await deleteEntityIfExists(request, orgBUserToken, '/api/customers/deals', orgBDealId);
+      await deleteUserIfExists(request, superToken, viewerId);
+      await deleteUserIfExists(request, superToken, orgBUserId);
+      await cleanupTimelineScope(request, adminToken, scope);
+      await deleteOrganizationIfExists(request, superToken, orgBId);
     }
   });
 

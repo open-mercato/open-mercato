@@ -316,6 +316,110 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
     }
   });
 
+  test('destination on page two of +N more: Show deal loads further popover pages and focuses the deal', async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(420_000);
+    const token = await getAuthToken(request, 'admin');
+    const adminUserId = getTokenScope(token).userId;
+    const today = todayKey();
+    const nextWeekStart = addBuckets(today, 'week', 1);
+    const laterInWeek = addDays(nextWeekStart, 4);
+    let scope: TimelineFixtureScope | null = null;
+    try {
+      scope = await createTimelineScope(request, token, 'TC-CRM-TL-003 PageTwo');
+      const fixtureScope = scope;
+      const movedId = await addTimelineDeal(request, token, fixtureScope, {
+        title: `TL003 PageTwo Moved ${fixtureScope.stamp}`,
+        date: today,
+        ownerUserId: adminUserId,
+      });
+      for (let batch = 0; batch < 5; batch += 1) {
+        await Promise.all(
+          Array.from({ length: 10 }, (_unused, offset) =>
+            addTimelineDeal(request, token, fixtureScope, {
+              title: `TL003 PageTwo Filler ${batch * 10 + offset} ${fixtureScope.stamp}`,
+              date: nextWeekStart,
+              ownerUserId: adminUserId,
+              withLinks: false,
+            }),
+          ),
+        );
+      }
+      await installDevNoticeHandler(page);
+      await login(page, 'admin');
+      await openTimeline(page, `pipelineId=${fixtureScope.pipelineId}`);
+      await timelineCard(page, movedId).click();
+      await changeDateInDrawer(page, laterInWeek);
+      await expect.poll(() => closeDateOf(request, token, movedId), { timeout: 15_000 }).toBe(laterInWeek);
+      const showDeal = page.getByRole('button', { name: 'Show deal' });
+      await expect(showDeal).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('timeline-deal-drawer')).toBeHidden();
+      await showDeal.click();
+      const row = page.locator(`[data-popover-deal-id="${movedId}"]`);
+      await expect(row, 'the moved deal is loaded from the second popover page').toBeVisible({ timeout: 60_000 });
+      await expect(row, 'the popover opens with the moved deal focused').toBeFocused();
+      await expect(page.locator('[data-popover-deal-id]'), 'both popover pages are loaded').toHaveCount(51);
+    } finally {
+      await cleanupTimelineScope(request, token, scope);
+    }
+  });
+
+  test('a failed refresh after a drag shows an inline error, keeps the card locked, and Retry unlocks it', async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(300_000);
+    const token = await getAuthToken(request, 'admin');
+    const adminUserId = getTokenScope(token).userId;
+    const today = todayKey();
+    let scope: TimelineFixtureScope | null = null;
+    const isTimelineGet = (url: URL, method: string) => method === 'GET' && url.pathname === '/api/customers/deals/timeline';
+    try {
+      scope = await createTimelineScope(request, token, 'TC-CRM-TL-003 RefreshError');
+      const dealId = await addTimelineDeal(request, token, scope, {
+        title: `TL003 RefreshError ${scope.stamp}`,
+        date: today,
+        ownerUserId: adminUserId,
+      });
+      await installDevNoticeHandler(page);
+      await login(page, 'admin');
+      await openTimeline(page, `pipelineId=${scope.pipelineId}`);
+      const card = timelineCard(page, dealId);
+      await expectDraggable(card);
+      await waitForBoardIdle(page);
+
+      const failRefresh = async (route: Route) => {
+        if (isTimelineGet(new URL(route.request().url()), route.request().method())) {
+          await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'boom' }) });
+          return;
+        }
+        await route.fallback();
+      };
+      await page.route('**/api/customers/deals/timeline**', failRefresh);
+      await dragCardTo(page, card, timelineCell(page, adminUserId, 2));
+      const expected = shiftCloseDate(today, 'week', 1);
+      await expect.poll(() => closeDateOf(request, token, dealId), { timeout: 15_000 }).toBe(expected);
+
+      const refreshError = page.getByTestId('timeline-refresh-error');
+      await expect(refreshError, 'a failed refresh is reported while the cached board stays visible').toBeVisible({
+        timeout: 60_000,
+      });
+      await expect(timelineCell(page, adminUserId, 2).locator(`[data-deal-id="${dealId}"]`)).toBeVisible();
+      await expect(timelineCard(page, dealId), 'the moved card stays locked until a fresh fetch').not.toHaveClass(/cursor-grab/);
+
+      await page.unroute('**/api/customers/deals/timeline**', failRefresh);
+      await refreshError.getByRole('button', { name: 'Retry' }).click();
+      await expect(refreshError, 'a successful retry clears the error').toBeHidden({ timeout: 30_000 });
+      await expectDraggable(timelineCard(page, dealId));
+    } finally {
+      await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => undefined);
+      await cleanupTimelineScope(request, token, scope);
+    }
+  });
+
   test('two quick moves of the same card never write with a stale version', async ({ page, request }) => {
     test.setTimeout(240_000);
     const token = await getAuthToken(request, 'admin');

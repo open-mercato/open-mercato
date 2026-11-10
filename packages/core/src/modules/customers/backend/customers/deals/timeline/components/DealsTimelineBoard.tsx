@@ -530,6 +530,12 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
 
   const reschedule = useRescheduleDeal(queryKey)
   const [writeLocks, setWriteLocks] = React.useState<DealWriteLocks>(EMPTY_DEAL_WRITE_LOCKS)
+  const lockScopeVersionRef = React.useRef(scopeVersion)
+  React.useEffect(() => {
+    if (lockScopeVersionRef.current === scopeVersion) return
+    lockScopeVersionRef.current = scopeVersion
+    setWriteLocks(EMPTY_DEAL_WRITE_LOCKS)
+  }, [scopeVersion])
   const readDataUpdatedAt = React.useCallback(
     () => queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0,
     [queryClient, queryKey],
@@ -582,8 +588,8 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   }, [state.dealId, update])
 
   const drawerItem = React.useMemo(
-    () => (drawerDealId ? findTimelineDeal(data, drawerDealId)?.item ?? null : null),
-    [data, drawerDealId],
+    () => (drawerDealId && !timelineQuery.isPlaceholderData ? findTimelineDeal(data, drawerDealId)?.item ?? null : null),
+    [data, drawerDealId, timelineQuery.isPlaceholderData],
   )
 
   const invalidateTimeline = React.useCallback(
@@ -1060,6 +1066,33 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         onToday={() => update({ from: null })}
         onNext={() => moveWindow(1)}
       />
+
+      {timelineQuery.isError && data ? (
+        <Alert
+          status="error"
+          size="sm"
+          data-testid="timeline-refresh-error"
+          action={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={timelineQuery.isFetching}
+              onClick={() => void timelineQuery.refetch()}
+            >
+              {translateWithFallback(t, 'customers.deals.timeline.retry', 'Retry')}
+            </Button>
+          }
+        >
+          <AlertDescription>
+            {translateWithFallback(
+              t,
+              'customers.deals.timeline.refreshError',
+              'Couldn’t refresh the timeline. The board may be out of date and recently changed deals stay locked until it refreshes.',
+            )}
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {moveNotice ? (
         <Alert

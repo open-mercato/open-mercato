@@ -1733,6 +1733,7 @@
   "customers.deals.timeline.nav.today": "Hoy",
   "customers.deals.timeline.overdueBefore": "{count} vencidas antes del {date}",
   "customers.deals.timeline.partialCount": "{count}+",
+  "customers.deals.timeline.refreshError": "No se pudo actualizar la línea de tiempo. El tablero puede estar desactualizado y las oportunidades modificadas recientemente seguirán bloqueadas hasta que se actualice.",
   "customers.deals.timeline.reschedule.action": "Cambiar fecha de cierre",
   "customers.deals.timeline.reschedule.announce.cancel": "Se canceló el movimiento de {title}.",
   "customers.deals.timeline.reschedule.announce.drop": "{title} se soltó en {column}.",

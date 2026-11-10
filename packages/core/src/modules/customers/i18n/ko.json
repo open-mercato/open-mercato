@@ -1733,6 +1733,7 @@
   "customers.deals.timeline.nav.today": "오늘",
   "customers.deals.timeline.overdueBefore": "{date} 이전 기한 지남 {count}건",
   "customers.deals.timeline.partialCount": "{count}+",
+  "customers.deals.timeline.refreshError": "타임라인을 새로 고칠 수 없습니다. 보드가 최신 상태가 아닐 수 있으며, 최근 변경된 거래는 새로 고칠 때까지 잠긴 상태로 유지됩니다.",
   "customers.deals.timeline.reschedule.action": "마감일 변경",
   "customers.deals.timeline.reschedule.announce.cancel": "{title} 이동을 취소했습니다.",
   "customers.deals.timeline.reschedule.announce.drop": "{title}을(를) {column}에 놓았습니다.",

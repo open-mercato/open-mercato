@@ -161,20 +161,24 @@ export function useDealDrawerData(dealId: string | null): {
   state: DealDrawerLoadState
   reload: () => Promise<DealDrawerDeal | null>
 } {
+  const scopeVersion = useOrganizationScopeVersion()
   const [state, setState] = React.useState<DealDrawerLoadState>({ status: 'idle', deal: null })
   const requestRef = React.useRef(0)
+  const loadedScopeVersionRef = React.useRef(scopeVersion)
 
   const load = React.useCallback(async (): Promise<DealDrawerDeal | null> => {
+    const requestId = requestRef.current + 1
+    requestRef.current = requestId
+    const scopeChanged = loadedScopeVersionRef.current !== scopeVersion
+    loadedScopeVersionRef.current = scopeVersion
     if (!dealId) {
       setState({ status: 'idle', deal: null })
       return null
     }
-    const requestId = requestRef.current + 1
-    requestRef.current = requestId
     const requestedAt = Date.now()
     setState((previous) => ({
       status: 'loading',
-      deal: previous.deal && previous.deal.id === dealId ? previous.deal : null,
+      deal: !scopeChanged && previous.deal && previous.deal.id === dealId ? previous.deal : null,
     }))
     try {
       const result = await fetchDealDrawerDeal(dealId)
@@ -190,7 +194,7 @@ export function useDealDrawerData(dealId: string | null): {
       setState((previous) => ({ status: 'error', deal: previous.deal }))
       return null
     }
-  }, [dealId])
+  }, [dealId, scopeVersion])
 
   React.useEffect(() => {
     void load()
