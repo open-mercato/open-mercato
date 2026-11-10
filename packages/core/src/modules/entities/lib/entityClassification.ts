@@ -89,7 +89,7 @@ export async function classifyRecordsEntity(em: any, entityId: string, scope: Re
     const registrationScopes = scope.tenantId === null
       ? [{ tenantId: null, organizationId: null }]
       : [{ tenantId: scope.tenantId }, { tenantId: null, organizationId: null }]
-    const restricted = await findOneWithDecryption(em, CustomEntity, {
+    const restricted = await findOneWithDecryption<InstanceType<typeof CustomEntity>>(em, CustomEntity, {
       entityId,
       accessRestricted: true,
       isActive: true,
@@ -100,7 +100,7 @@ export async function classifyRecordsEntity(em: any, entityId: string, scope: Re
     if (declared.has(entityId)) return { kind: 'custom', restricted: false }
     const scoped = await findScopedCustomEntity(em, CustomEntity, entityId, scope)
     if (scoped) return { kind: 'custom', restricted: scoped.accessRestricted === true }
-    const historical = await findOneWithDecryption(em, CustomEntity, {
+    const historical = await findOneWithDecryption<InstanceType<typeof CustomEntity>>(em, CustomEntity, {
       entityId,
       tenantId: scope.tenantId,
       ...(scope.tenantId === null ? { organizationId: null } : {}),
