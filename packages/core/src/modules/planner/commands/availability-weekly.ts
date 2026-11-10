@@ -9,7 +9,7 @@ import {
   type PlannerAvailabilityWeeklyReplaceInput,
 } from '../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest } from '@open-mercato/shared/lib/crud/errors'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import {
   enforceCommandOptimisticLock,
@@ -186,9 +186,7 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<PlannerAvailabilityWeekly
     const validAnchors = anchors.filter((anchor): anchor is { start: Date; end: Date } => anchor !== null && anchor.start < anchor.end)
     if (validAnchors.length !== anchors.length) {
       const { translate } = await resolveTranslations()
-      throw new CrudHttpError(400, {
-        error: translate('planner.availability.errors.invalidWindow', 'Window times must be between 00:00 and 23:59, with the end after the start.'),
-      })
+      throw badRequest(translate('planner.availability.errors.invalidWindow', 'Window times must be between 00:00 and 23:59, with the end after the start.'))
     }
 
     // The weekly rules of a rule set are a sub-resource of that rule set: the

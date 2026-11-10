@@ -2,7 +2,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest } from '@open-mercato/shared/lib/crud/errors'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { warnOnUnresolvableTimeZone, zonedDateKey, zonedDayBounds, zonedWallTimeToInstant } from '@open-mercato/core/modules/planner/lib/availabilityTimezone'
 import { PlannerAvailabilityRule } from '../data/entities'
@@ -200,9 +200,7 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
     const validRanges = ranges.filter((range): range is { start: Date; end: Date } => range.start !== null && range.end !== null && range.start < range.end)
     if (validRanges.length !== ranges.length) {
       const { translate } = await resolveTranslations()
-      throw new CrudHttpError(400, {
-        error: translate('planner.availability.errors.invalidWindow', 'Window times must be between 00:00 and 23:59, with the end after the start.'),
-      })
+      throw badRequest(translate('planner.availability.errors.invalidWindow', 'Window times must be between 00:00 and 23:59, with the end after the start.'))
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()

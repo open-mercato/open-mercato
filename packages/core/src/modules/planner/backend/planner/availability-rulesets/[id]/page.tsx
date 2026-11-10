@@ -12,6 +12,7 @@ import { AvailabilityRulesEditor, type AvailabilityScheduleItemBuilder } from '@
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { AvailabilityRuleSetForm, buildAvailabilityRuleSetPayload, type AvailabilityRuleSetFormValues } from '@open-mercato/core/modules/planner/components/AvailabilityRuleSetForm'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -60,7 +61,8 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
           },
         )
         if (!cancelled) setCanManageAvailability(result.ok === true)
-      } catch {
+      } catch (error) {
+        getTelemetryRuntime()?.reportError(error, { module: 'planner', code: 'planner.availability_permission_check_failed' })
         if (!cancelled) setCanManageAvailability(false)
       }
     }
