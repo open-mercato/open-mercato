@@ -501,6 +501,7 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
       resolve: <T = unknown>(name: string): T => {
         if (name === 'em') return em as T
         if (name === 'commandBus') return { execute: executeMock } as T
+        if (name === 'notificationService') return {} as T
         throw new Error(`[internal] unexpected sweep dependency ${name}`)
       },
     } as unknown as SweepHandlerArgs[1]
@@ -532,6 +533,7 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
       resolve: <T = unknown>(name: string): T => {
         if (name === 'em') return em as T
         if (name === 'commandBus') return { execute: executeMock } as T
+        if (name === 'notificationService') return {} as T
         throw new Error(`[internal] unexpected sweep dependency ${name}`)
       },
     } as unknown as SweepHandlerArgs[1]
@@ -545,6 +547,39 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     await handleSlaEscalationSweep(makeSweepJob(), ctx)
     expect(createForFeatureNotificationMock).toHaveBeenCalledTimes(2)
     expect(executeMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('escalates a notify tier without the notification when the notifications module is disabled', async () => {
+    mockClaims = [makeSweepClaim({
+      submittedAt: new Date(Date.now() - 6 * HOUR_MS),
+      slaDueAt: new Date(Date.now() + 2 * HOUR_MS),
+      slaAtRiskNotifiedAt: new Date(),
+    })]
+    resolveEffectiveWarrantyClaimSettingsMock.mockResolvedValue({
+      ...sweepSettings,
+      escalationTiers: [{ atPct: 50, action: 'notify' }],
+    })
+    const executeMock = jest.fn(async (_commandId: string, { input }: { input: { id: string; toLevel: number } }) => ({
+      result: { claimId: input.id, escalationLevel: input.toLevel, escalated: true },
+    }))
+    const em = { nativeUpdate: jest.fn(async () => 1) } as unknown as EntityManager
+    const ctx = {
+      resolve: <T = unknown>(name: string): T => {
+        if (name === 'em') return em as T
+        if (name === 'commandBus') return { execute: executeMock } as T
+        throw new Error(`[internal] unexpected sweep dependency ${name}`)
+      },
+    } as unknown as SweepHandlerArgs[1]
+    createForFeatureNotificationMock.mockRejectedValue(new Error('[internal] Metadata for entity Notification not found'))
+
+    await handleSlaEscalationSweep(makeSweepJob(), ctx)
+
+    expect(createForFeatureNotificationMock).not.toHaveBeenCalled()
+    expect(executeMock).toHaveBeenCalledTimes(1)
+    expect(executeMock).toHaveBeenCalledWith(
+      'warranty_claims.claim.escalate',
+      expect.objectContaining({ input: expect.objectContaining({ id: CLAIM_ID, toLevel: 1 }) }),
+    )
   })
 })
 

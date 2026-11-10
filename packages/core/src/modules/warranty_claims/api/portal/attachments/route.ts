@@ -8,6 +8,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { checkRateLimit, rateLimitErrorSchema, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { resolveAttachmentsUploadRateLimitConfig } from '@open-mercato/core/modules/attachments/lib/ocrLimits'
@@ -181,10 +182,15 @@ async function resolveStorageDriverFactory(context: PortalContext): Promise<Stor
   }
 }
 
+function isAttachmentsModuleEnabled(): boolean {
+  return Boolean(getEntityIds(false).attachments?.attachment)
+}
+
 async function loadOwnedVisibleAttachment(
   context: PortalContext,
   attachmentId: string,
 ): Promise<{ attachment: Attachment; claim: WarrantyClaim } | null> {
+  if (!isAttachmentsModuleEnabled()) return null
   const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
   const attachment = await findOneWithDecryption(
     context.em,
@@ -319,6 +325,9 @@ export async function GET(req: Request) {
   }
   const page = parsed.data.page ?? 1
   const pageSize = parsed.data.pageSize ?? 100
+  if (!isAttachmentsModuleEnabled()) {
+    return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
+  }
   const attachments = await findWithDecryption(
     context.em,
     Attachment,
@@ -411,6 +420,9 @@ async function handleUpload(req: Request, replacement: boolean): Promise<Respons
   const buffer = Buffer.from(await file.arrayBuffer())
 
   const attachmentId = replacement && parsedAttachmentId?.success ? parsedAttachmentId.data : null
+  if (attachmentId && !isAttachmentsModuleEnabled()) {
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.portal.detail.attachmentError', 'Attachment upload failed.') }, { status: 503 })
+  }
   const replacementTarget = attachmentId
     ? await loadOwnedVisibleAttachment(context, attachmentId)
     : null

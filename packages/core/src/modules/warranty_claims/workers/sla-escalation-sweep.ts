@@ -23,6 +23,7 @@ import {
 import { resolveEffectiveWarrantyClaimSettings } from '../lib/settings'
 import { SLA_EXCLUDED_STATUSES } from '../lib/deskFilters'
 import { notificationTypes } from '../notifications'
+import { tryResolve } from '../lib/tryResolve'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('warranty_claims')
@@ -319,7 +320,14 @@ async function runEscalationTier(
   progressPct: number,
 ): Promise<void> {
   if (tier.action === 'notify') {
-    await createEscalationNotification(container, claim, scope, tierIndex, progressPct)
+    if (tryResolve(container, 'notificationService')) {
+      await createEscalationNotification(container, claim, scope, tierIndex, progressPct)
+    } else {
+      logger.warn('[warranty_claims:sla-escalation-sweep] notifications module disabled; escalating without notification', {
+        claimId: claim.id,
+        tierIndex,
+      })
+    }
   }
   const commandBus = container.resolve<CommandBus>('commandBus')
   const input: EscalateClaimCommandInput = {
