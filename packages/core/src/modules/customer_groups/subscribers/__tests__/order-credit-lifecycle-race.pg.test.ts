@@ -33,10 +33,33 @@
  */
 import 'reflect-metadata'
 import { randomUUID } from 'node:crypto'
+import { Entity, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
 import { CustomerCreditAccount, CustomerCreditLedgerEntry } from '../../data/entities'
 import { handleOrderCreditRelease } from '../order-cancelled-credit-release'
+
+// #8268 review Major 3 (re-review): `handleOrderCreditRelease`'s stale-event fence reads
+// the order's CURRENT status with a raw `select status from sales_orders ...` — this
+// suite deliberately wires only the two `customer_groups` entities it actually tests
+// against (see the header comment), so a minimal stand-in for `sales_orders`'s shape is
+// seeded here rather than pulling in the real `sales` module's entity graph (customer_
+// groups must never import sales — see AGENTS.md "NO direct ORM relationships between
+// modules"). Column names match the real table exactly; nothing else about it is real.
+@Entity({ tableName: 'sales_orders' })
+class SalesOrderStub {
+  @PrimaryKey({ type: 'uuid' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  status!: string
+}
 
 const PG_URL = process.env.OM_CUSTOMER_GROUPS_PG_URL ?? ''
 const maybe = PG_URL ? describe : describe.skip
@@ -56,7 +79,7 @@ maybe('customer_groups credit lifecycle lock under real concurrency (#8268 revie
   beforeAll(async () => {
     orm = await MikroORM.init({
       clientUrl: PG_URL,
-      entities: [CustomerCreditAccount, CustomerCreditLedgerEntry],
+      entities: [CustomerCreditAccount, CustomerCreditLedgerEntry, SalesOrderStub],
       metadataProvider: ReflectMetadataProvider,
       allowGlobalContext: true,
       debug: false,
@@ -76,6 +99,17 @@ maybe('customer_groups credit lifecycle lock under real concurrency (#8268 revie
   async function seedReleasedReservation(): Promise<{ orderId: string; accountId: string; reserveKey: string }> {
     const em = orm.em.fork()
     const orderId = randomUUID()
+    // #8268 review Major 3 (re-review): `handleOrderCreditRelease` now fences the release
+    // on the order's CURRENT status — seed it as genuinely `canceled`, matching the
+    // scenario this suite exercises (a real `sales.order.cancelled` release).
+    const order = em.create(SalesOrderStub, {
+      id: orderId,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      status: 'canceled',
+    })
+    em.persist(order)
+    await em.flush()
     const account = em.create(CustomerCreditAccount, {
       organizationId: ORG_ID,
       tenantId: TENANT_ID,
