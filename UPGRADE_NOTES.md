@@ -1480,6 +1480,12 @@ The four advertised `detail:sales.{order|quote}:{stage-bar|closure}` IDs now mou
 
 **Action for widget authors:** check feature gates and order/quote assumptions before enabling previously dormant widgets. Existing tabs/details/shipping IDs and native document behavior remain available.
 
+### Shipping carrier cancel and tracking refresh answer 404 for unknown shipments (#9231)
+
+`POST /api/shipping-carriers/cancel` and `POST /api/shipping-carriers/tracking/refresh` now answer `404` with a localized `{ "error": "Shipment not found" }` body when the `shipmentId` does not exist or belongs to another tenant or organization. They used to answer `502` "Carrier provider request failed. Try again later." and log a provider upstream error, although no carrier was called. `GET /api/shipping-carriers/tracking` already answered `404` for this case.
+
+**Action for API clients:** treat this `404` as final and do not retry it; keep retry/backoff for `502`, which still means a real carrier failure. Branch on the status code, not the `error` text, because the text follows the request locale. Alerts on the upstream-error log for these routes stop firing for unknown ids. No database migration is needed. See [the specification](.ai/specs/2026-11-10-shipping-carriers-cancel-refresh-not-found.md).
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
