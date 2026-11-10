@@ -92,7 +92,8 @@ describe('mapInpostStatus', () => {
 
   it('keeps syncing a shipment after a complaint so the parcel return is still recorded', () => {
     const shipment = { unifiedStatus: 'failed_delivery' } as Parameters<typeof syncShipmentStatus>[0]
-    syncShipmentStatus(shipment, mapInpostStatus('claimed'))
+    expect(syncShipmentStatus(shipment, mapInpostStatus('claimed'))).toBe(false)
+    expect(shipment.unifiedStatus).toBe('failed_delivery')
     expect(syncShipmentStatus(shipment, mapInpostStatus('returned_to_sender'))).toBe(true)
     expect(shipment.unifiedStatus).toBe('returned')
   })

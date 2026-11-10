@@ -56,7 +56,7 @@ async function readShipment(id: string): Promise<ShipmentRow | null> {
   })
 }
 
-async function isClaimProcessed(idempotencyKey: string): Promise<boolean> {
+async function isWebhookProcessed(idempotencyKey: string): Promise<boolean> {
   return withClient(async (client) => {
     const result = await client.query(
       "select 1 from carrier_webhook_events where provider_key = 'inpost' and idempotency_key = $1",
@@ -89,7 +89,7 @@ async function deliverStatus(
   expect(response.status(), `webhook ${status} should be accepted`).toBe(202)
   await drainIntegrationQueue('shipping-carriers-webhook')
   await expect
-    .poll(() => isClaimProcessed(idempotencyKey), {
+    .poll(() => isWebhookProcessed(idempotencyKey), {
       message: `the ${status} webhook should be processed by the worker`,
       timeout: 30_000,
     })
@@ -130,6 +130,7 @@ test.describe('TC-INPOST-005: InPost "claimed" is a failed delivery, not a cance
         .toEqual({ unified_status: 'failed_delivery', carrier_status: 'claimed' })
 
       await deliverStatus(request, pickupExpired, 'claimed')
+      expect(await readShipment(pickupExpiredId)).toEqual({ unified_status: 'failed_delivery', carrier_status: null })
 
       await deliverStatus(request, pickupExpired, 'returned_to_sender')
       await expect
