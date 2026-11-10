@@ -671,4 +671,19 @@ describe('auth ACL audit commands', () => {
       expect(handler.buildLog).toBeDefined()
     })
   })
+
+  describe('AclUpdateResult backward compatibility', () => {
+    it('accepts a producer written against the pre-#8683 result shape', () => {
+      // `updatedAt` is optional, not required: a value omitting it entirely
+      // must still satisfy `AclUpdateResult`. If it were required, this
+      // object literal would fail to typecheck and the gate would catch it.
+      const legacyShapedResult: AclUpdateResult = {
+        resourceId: roleId,
+        tenantId,
+        organizationId: 'org-1',
+      }
+
+      expect(legacyShapedResult.updatedAt).toBeUndefined()
+    })
+  })
 })

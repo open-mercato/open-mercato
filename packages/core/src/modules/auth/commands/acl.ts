@@ -217,8 +217,15 @@ export type AclUpdateResult = {
   resourceId: string
   tenantId: string
   organizationId: string | null
-  /** The persisted row's new version, or `null` when the write cleared it. */
-  updatedAt: string | null
+  /**
+   * The persisted row's new version, or `null` when the write cleared it.
+   * Optional (not just nullable) so a producer written against the
+   * pre-#8683 shape — `{ resourceId, tenantId, organizationId }` — still
+   * satisfies this type; narrowing it to required would be a breaking
+   * change under `BACKWARD_COMPATIBILITY.md`'s "Type Definitions &
+   * Interfaces (STABLE)" contract. Callers read it with `?? null`.
+   */
+  updatedAt?: string | null
 }
 
 export const AUTH_ROLE_ACL_UPDATE_COMMAND_ID = 'auth.role-acl.update'
