@@ -123,10 +123,12 @@ for (const appRoot of ['apps/mercato', 'packages/create-app/template']) {
             }, phase)
             const buttonBounds = await button.boundingBox()
             expect(buttonBounds).not.toBeNull()
+            const finalRowBounds = (await page.getByText('Final content row', { exact: true }).boundingBox())!
+            expect(finalRowBounds.y + finalRowBounds.height).toBeLessThan(buttonBounds!.y)
             for (const link of await links.all()) {
               const bounds = await link.boundingBox()
               expect(bounds).not.toBeNull()
-              expect(bounds!.y + bounds!.height).toBeLessThan(buttonBounds!.y - 4)
+              expect(bounds!.y).toBeGreaterThanOrEqual(buttonBounds!.y + buttonBounds!.height + 4 - 0.5)
               expect(await link.evaluate((element) => {
                 const bounds = element.getBoundingClientRect()
                 return [bounds.left + 1, bounds.right - 1].every((horizontal) =>
@@ -145,9 +147,12 @@ for (const appRoot of ['apps/mercato', 'packages/create-app/template']) {
       await expect(page.getByRole('dialog')).toBeHidden()
       await expect(button).toBeVisible()
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
-      expect((await links.first().boundingBox())!.y).toBeLessThan((await button.boundingBox())!.y)
+      const finalButtonBounds = (await button.boundingBox())!
+      expect((await links.first().boundingBox())!.y).toBeGreaterThanOrEqual(finalButtonBounds.y + finalButtonBounds.height + 4 - 0.5)
+      await expect(page.getByRole('contentinfo')).toHaveCSS('padding-top', '4px')
+      await expect(page.getByRole('contentinfo')).toHaveCSS('padding-bottom', '4px')
       await page.evaluate(() => { document.body.removeAttribute('data-demo-feedback-fab') })
-      await expect(page.getByRole('contentinfo')).toHaveCSS('padding-bottom', '12px')
+      await expect(page.getByRole('contentinfo')).toHaveCSS('padding-bottom', '4px')
     })
   }
 }
