@@ -45,6 +45,28 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
+  const [canManageAvailability, setCanManageAvailability] = React.useState(false)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function checkAvailabilityPermission() {
+      try {
+        const result = await readApiResultOrThrow<{ ok?: boolean }>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ features: ['planner.manage_availability'] }),
+          },
+        )
+        if (!cancelled) setCanManageAvailability(result.ok === true)
+      } catch {
+        if (!cancelled) setCanManageAvailability(false)
+      }
+    }
+    void checkAvailabilityPermission()
+    return () => { cancelled = true }
+  }, [])
 
   React.useEffect(() => {
     if (!rulesetId) return
@@ -226,6 +248,7 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
             />
           ) : (
             <AvailabilityRulesEditor
+              readOnly={!canManageAvailability}
               subjectType="ruleset"
               subjectId={rulesetId ?? ''}
               initialTimezone={typeof initialValues?.timezone === 'string' ? initialValues.timezone : undefined}

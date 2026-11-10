@@ -1,8 +1,10 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   deleteEntityByPathIfExists,
   expectId,
+  getTokenContext,
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/generalFixtures'
 
@@ -23,6 +25,70 @@ async function listRuleSetRules(request: APIRequestContext, token: string, ruleS
 }
 
 test.describe('TC-PLAN-007: availability replace rejects a window whose end is not after its start', () => {
+  test('availability controls respect viewer and wildcard manager grants', async ({ request, browser }) => {
+    test.setTimeout(60_000)
+    const token = await getAuthToken(request, 'admin')
+    const { organizationId } = getTokenContext(token)
+    const roles: string[] = []
+    const users: string[] = []
+    let ruleSetId: string | null = null
+    try {
+      const created = await apiRequest(request, 'POST', '/api/planner/availability-rule-sets', {
+        token,
+        data: { name: `QA viewer schedule ${Date.now()}`, timezone: 'UTC' },
+      })
+      expect(created.status()).toBe(201)
+      ruleSetId = expectId((await readJsonSafe<{ id?: string }>(created))?.id, 'Rule set id')
+      for (const features of [['planner.view'], ['planner.*']]) {
+        const roleId = await createRoleFixture(request, token, { name: `QA planner role ${Date.now()}` })
+        roles.push(roleId)
+        const acl = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
+          token,
+          data: { roleId, features, organizations: [organizationId] },
+        })
+        expect(acl.status()).toBe(200)
+        const email = `qa-planner-viewer-${Date.now()}@example.com`
+        const password = 'QA-Planner-Viewer-2026!'
+        users.push(await createUserFixture(request, token, { email, password, organizationId, roles: [roleId] }))
+        const context = await browser.newContext({ baseURL: process.env.BASE_URL })
+        try {
+          const login = await context.request.post(`${process.env.BASE_URL}/api/auth/login`, { form: { email, password } })
+          expect(login.status()).toBe(200)
+          const page = await context.newPage()
+          const permissionCheck = page.waitForResponse((response) => (
+            response.url().includes('/api/auth/feature-check')
+            && response.request().postData()?.includes('planner.manage_availability') === true
+          ))
+          await page.goto(`/backend/planner/availability-rulesets/${ruleSetId}`)
+          await permissionCheck
+          const tab = page.getByRole('tab', { name: 'Availability', exact: true })
+          await expect(tab).toBeVisible()
+          await tab.click()
+          const addHours = page.getByRole('button', { name: 'Add hours', exact: true })
+          const isViewer = features[0] === 'planner.view'
+          if (isViewer) {
+            await expect(addHours).toBeDisabled()
+            const actorToken = (await readJsonSafe<{ token: string }>(login))?.token ?? ''
+            expect(actorToken).toBeTruthy()
+            const denied = await apiRequest(request, 'POST', '/api/planner/availability-weekly', {
+              token: actorToken,
+              data: { subjectType: 'ruleset', subjectId: ruleSetId, timezone: 'UTC', windows: [] },
+            })
+            expect(denied.status()).toBe(403)
+          } else {
+            await expect(addHours).toBeEnabled()
+          }
+        } finally {
+          await context.close()
+        }
+      }
+    } finally {
+      if (ruleSetId) await deleteEntityByPathIfExists(request, token, `/api/planner/availability-rule-sets?id=${ruleSetId}`)
+      for (const userId of users.reverse()) await deleteUserIfExists(request, token, userId)
+      for (const roleId of roles.reverse()) await deleteRoleIfExists(request, token, roleId)
+    }
+  })
+
   test('weekly and date-specific replace return 400 and keep the existing hours', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const date = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10)

@@ -24,3 +24,5 @@ Tenant and organization scoping, optimistic locking, undo snapshots and command 
 - 2026-11-10: initial version.
 
 - 2026-11-10: complex Polish browser QA exposed missing schedule-editor heading/dialog and weekday translations. Add the missing keys in all five shipped locales and translate the weekday used in the editor scope label; refusal/transaction behavior is unchanged.
+
+- 2026-11-10: complex viewer-role QA found enabled schedule controls despite server-side403 refusal. The schedule detail caller now passes the server-resolved planner.manage_availability result to the editor's existing readOnly prop, failing closed while permission is unknown. API authorization and successful manager behavior remain unchanged. TC-PLAN-007 also creates dedicated viewer and wildcard-manager roles/users, verifies disabled/enabled schedule controls and direct viewer403, and removes its fixtures.
