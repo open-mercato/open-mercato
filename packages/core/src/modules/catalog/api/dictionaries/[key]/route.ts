@@ -5,8 +5,49 @@ import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dict
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
 
 const logger = createLogger('catalog')
+
+const DICTIONARY_ENTRY_ENTITY_TYPE = 'dictionaries:dictionary_entry'
+
+type DictionaryEntryPayload = {
+  id: string
+  value: string
+  label: string
+  color: string | null
+  icon: string | null
+}
+
+async function applyEntryTranslations(
+  req: Request,
+  entries: DictionaryEntryPayload[],
+  context: Awaited<ReturnType<typeof resolveDictionariesRouteContext>>,
+): Promise<DictionaryEntryPayload[]> {
+  const { overlay, resolveLocale } = getTranslationOverlayPlugin()
+  if (!overlay || !resolveLocale || entries.length === 0) return entries
+  const locale = resolveLocale(req)
+  if (!locale) return entries
+  try {
+    const translated = await overlay(entries, {
+      entityType: DICTIONARY_ENTRY_ENTITY_TYPE,
+      locale,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      container: context.container,
+    })
+    const labelsById = new Map<string, string>()
+    for (const item of translated) {
+      if (typeof item.id === 'string' && typeof item.label === 'string' && item.label.trim().length > 0) {
+        labelsById.set(item.id, item.label)
+      }
+    }
+    return entries.map((entry) => ({ ...entry, label: labelsById.get(entry.id) ?? entry.label }))
+  } catch (err) {
+    logger.warn('catalog.dictionaries.GET Translation overlay failed', { err })
+    return entries
+  }
+}
 
 const KEY_ALIASES: Record<string, string[]> = {
   currency: ['currency', 'currencies'],
@@ -54,15 +95,16 @@ export async function GET(
       },
       { orderBy: { label: 'asc' } },
     )
+    const payload = entries.map((entry) => ({
+      id: entry.id,
+      value: entry.value,
+      label: entry.label,
+      color: entry.color ?? null,
+      icon: entry.icon ?? null,
+    }))
     return NextResponse.json({
       id: dictionary.id,
-      entries: entries.map((entry) => ({
-        id: entry.id,
-        value: entry.value,
-        label: entry.label,
-        color: entry.color ?? null,
-        icon: entry.icon ?? null,
-      })),
+      entries: await applyEntryTranslations(req, payload, context),
     })
   } catch (err) {
     if (isCrudHttpError(err)) {

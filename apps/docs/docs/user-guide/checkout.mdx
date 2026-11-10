@@ -121,6 +121,7 @@ Checkout includes several protections that operators should understand before pu
 - **Usage limits** stop the link once the allowed number of successful or in-flight attempts is reached.
 - **Idempotency protection** prevents duplicate transactions during browser retries.
 - Customer PII in transactions is visible only to roles with `checkout.viewPii`.
+- Some payment providers need payer details (for example email and name) to create a payment. When the selected provider declares them, the **Payment** section shows a warning until customer details are collected with those fields marked as required, and saving the template or link is blocked. Existing links keep working, but you must fix their customer fields the next time you save them.
 
 For the full developer-facing protection model, see the [Checkout module reference](/framework/modules/checkout#protections-and-security-boundaries).
 

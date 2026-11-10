@@ -64,6 +64,10 @@ Release packages are published to npm with provenance attestation (`--provenance
 
 Production releases require explicit approval from a named reviewer in the `production` GitHub Environment before the publish job runs — a single compromised maintainer account cannot unilaterally push a release.
 
+PR npm snapshot previews require the separate `npm-preview` environment and `NPM_PREVIEW_TOKEN`, with no stable-token fallback. Before checking out PR code, the workflow verifies deployment approval by someone other than the PR author or workflow initiators. The environment must prevent self-review and administrator bypass and allow dispatch only from trusted `main`; see [the preview security setup](CONTRIBUTING.md#npm-snapshot-preview-security-setup) for operator verification and retry requirements.
+
+The preview token must grant publishing access only to the public package allowlist. Npm package permissions cannot restrict writes to canary versions or dist-tags, so approval of the exact PR SHA is still a supply-chain boundary. Actual registry grants and environment settings require operator verification; repository tests check the workflow boundary.
+
 Sensitive paths (CI/CD workflows, release scripts, auth modules) are protected by CODEOWNERS and require `@open-mercato/maintainers` team sign-off on every PR.
 
 ## Security-Related Resources

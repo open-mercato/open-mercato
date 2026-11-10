@@ -172,6 +172,9 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: err.issues }, { status: 400 })
+    }
     logger.error('customers/labels.GET', { err })
     return NextResponse.json({ error: translate('customers.errors.labels_load_failed', 'Failed to load labels') }, { status: 500 })
   }
@@ -186,8 +189,8 @@ function slugifyLabel(value: string): string {
 }
 
 export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
-    const { translate } = await resolveTranslations()
     const container = await createRequestContainer()
     const auth = await getAuthFromRequest(req)
     const actorUserId = resolveLabelActorUserId(auth)
@@ -207,6 +210,9 @@ export async function POST(req: Request) {
       throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
     }
     const slug = body.slug || slugifyLabel(body.label)
+    if (!slug) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.label_slug_invalid', 'Label must contain at least one letter or number') })
+    }
 
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: auth.tenantId,
@@ -288,6 +294,9 @@ export async function POST(req: Request) {
     }
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: err.issues }, { status: 400 })
     }
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) {

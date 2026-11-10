@@ -648,6 +648,105 @@ describe('SubmissionService', () => {
     expect(submitted.status).toBe('submitted')
   })
 
+  it('refuses a portal customer submit of a self-started draft on a foreign subject (403 SUBJECT_FORBIDDEN, #7224)', async () => {
+    const { service, em } = createTestSetup({ autosaveIntervalMs: 0 })
+    const customer = randomUUID()
+    const cases = [
+      { subjectType: 'customer', subjectId: randomUUID() },
+      { subjectType: 'patient', subjectId: customer },
+    ]
+    for (const subject of cases) {
+      const view = await service.start({
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        formKey: FORM_KEY,
+        ...subject,
+        startedBy: customer,
+      })
+      await expect(service.submit({
+        submissionId: view.submission.id,
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        baseRevisionId: view.revision.id,
+        submittedBy: customer,
+        submittedByPortalCustomer: true,
+      })).rejects.toMatchObject({ code: 'SUBJECT_FORBIDDEN', httpStatus: 403 })
+      const stored = await em.findOne<FormSubmission>({ name: 'FormSubmission' } as never, { id: view.submission.id })
+      expect(stored?.status).toBe('draft')
+      expect(stored?.submittedBy ?? null).toBeNull()
+    }
+  })
+
+  it('lets a portal customer submit their own customer subject and a staff-assigned foreign one (#7224)', async () => {
+    const { service } = createTestSetup({ autosaveIntervalMs: 0 })
+    const customer = randomUUID()
+    const own = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'customer',
+      subjectId: customer.toUpperCase(),
+      startedBy: customer,
+    })
+    const ownSubmitted = await service.submit({
+      submissionId: own.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: own.revision.id,
+      submittedBy: customer,
+      submittedByPortalCustomer: true,
+    })
+    expect(ownSubmitted.status).toBe('submitted')
+
+    const staff = randomUUID()
+    const assigned = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: staff,
+    })
+    await service.assignActor({
+      submissionId: assigned.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      userId: customer,
+      role: 'patient',
+      assignedBy: staff,
+    })
+    const assignedSubmitted = await service.submit({
+      submissionId: assigned.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: assigned.revision.id,
+      submittedBy: customer,
+      submittedByPortalCustomer: true,
+    })
+    expect(assignedSubmitted.status).toBe('submitted')
+  })
+
+  it('does not apply the portal subject policy when the caller is not a portal customer (#7224)', async () => {
+    const { service } = createTestSetup({ autosaveIntervalMs: 0 })
+    const invitation = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'customer',
+      subjectId: randomUUID(),
+      startedBy: invitation,
+    })
+    const submitted = await service.submit({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: view.revision.id,
+      submittedBy: invitation,
+    })
+    expect(submitted.status).toBe('submitted')
+  })
+
   it('refuses cross-tenant access by returning 404 NOT_FOUND', async () => {
     const { service } = createTestSetup({ autosaveIntervalMs: 0 })
     const patient = randomUUID()

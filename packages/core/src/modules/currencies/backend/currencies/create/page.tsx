@@ -111,8 +111,8 @@ export default function CreateCurrencyPage() {
             }
 
             const payload = {
-              organizationId,
-              tenantId,
+              organizationId: organizationId ?? undefined,
+              tenantId: tenantId ?? undefined,
               code,
               name: String(values.name || '').trim(),
               symbol: values.symbol ? String(values.symbol).trim() : null,

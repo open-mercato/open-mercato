@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ProductMediaManager } from '../ProductMediaManager'
 import type { ProductMediaItem } from '../ProductMediaManager'
 
@@ -184,6 +184,69 @@ describe('ProductMediaManager', () => {
     fireEvent.click(chooseButton)
     expect(clickSpy).toHaveBeenCalled()
     clickSpy.mockRestore()
+  })
+
+  it('publishes the complete upload batch to the form before returning to idle', async () => {
+    const uploadedItems = [
+      createMediaItem({ id: 'media-1', fileName: 'qa-media-0.png' }),
+      createMediaItem({ id: 'media-2', fileName: 'qa-media-1.png' }),
+    ]
+    let finishLastUpload: (result: { ok: boolean; result: { item: ProductMediaItem } }) => void = () => {
+      throw new Error('[internal] The final upload has not started.')
+    }
+    const lastUpload = new Promise<{ ok: boolean; result: { item: ProductMediaItem } }>((resolve) => {
+      finishLastUpload = resolve
+    })
+    mockApiCall
+      .mockResolvedValueOnce({ ok: true, result: { item: uploadedItems[0] } })
+      .mockReturnValueOnce(lastUpload)
+    const onSubmit = jest.fn()
+    const onUploadingChange = jest.fn()
+
+    function FormBoundary() {
+      const [items, setItems] = React.useState<ProductMediaItem[]>([])
+      const [defaultMediaId, setDefaultMediaId] = React.useState<string | null>(null)
+      return (
+        <form onSubmit={(event) => {
+          event.preventDefault()
+          onSubmit({ items, defaultMediaId })
+        }}>
+          <ProductMediaManager
+            {...defaultProps}
+            items={items}
+            defaultMediaId={defaultMediaId}
+            onItemsChange={setItems}
+            onDefaultChange={setDefaultMediaId}
+            onUploadingChange={onUploadingChange}
+          />
+          <button type="submit">Create product</button>
+        </form>
+      )
+    }
+
+    const { container } = render(<FormBoundary />)
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!
+    fireEvent.change(fileInput, {
+      target: { files: uploadedItems.map((item) => new File(['image'], item.fileName, { type: 'image/png' })) },
+    })
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: 'Uploading…' })).toBeDisabled()
+    expect(screen.queryAllByRole('img')).toHaveLength(0)
+    expect(onUploadingChange.mock.calls).toEqual([[true]])
+
+    await act(async () => {
+      finishLastUpload({ ok: true, result: { item: uploadedItems[1] } })
+      await lastUpload
+    })
+
+    for (const item of uploadedItems) {
+      expect(screen.getByRole('img', { name: item.fileName })).toBeVisible()
+    }
+    expect(screen.getByRole('button', { name: 'Choose files' })).toBeEnabled()
+    expect(onUploadingChange.mock.calls).toEqual([[true], [false]])
+    fireEvent.click(screen.getByRole('button', { name: 'Create product' }))
+    expect(onSubmit).toHaveBeenCalledWith({ items: uploadedItems, defaultMediaId: 'media-1' })
   })
 
   it('formats file sizes correctly', () => {

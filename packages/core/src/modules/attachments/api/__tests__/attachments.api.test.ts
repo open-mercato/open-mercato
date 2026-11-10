@@ -21,12 +21,14 @@ const defaultFindOneImpl = async (entity: any, where: any) => {
   return null
 }
 
-function buildUsageKysely(totalSize: number) {
+function buildUsageKysely(totalSize: number, storageReferenceIds: string[] = ['att-1']) {
   const selectChain: any = {
     select: jest.fn(() => selectChain),
     where: jest.fn(() => selectChain),
+    orderBy: jest.fn(() => selectChain),
+    forUpdate: jest.fn(() => selectChain),
     executeTakeFirst: jest.fn(async () => ({ total_size: totalSize })),
-    execute: jest.fn(async () => []),
+    execute: jest.fn(async () => storageReferenceIds.map((id) => ({ id }))),
   }
   return {
     selectFrom: jest.fn(() => selectChain),
@@ -43,10 +45,17 @@ const mockEm = {
   persist: jest.fn(function persist(this: any) { return this }),
   remove: jest.fn(function remove(this: any) { return this }),
   flush: jest.fn(async () => {}),
-  transactional: jest.fn(async (work: (tx: any) => unknown) => work(mockEm)),
+  transactional: jest.fn(async (work: (tx: any) => unknown) => {
+    const result = await work(mockEm)
+    await mockEm.commit()
+    return result
+  }),
   find: jest.fn(),
   count: jest.fn(async () => 0),
   getKysely: jest.fn(() => buildUsageKysely(0)),
+  begin: jest.fn(async () => {}),
+  commit: jest.fn(async () => {}),
+  rollback: jest.fn(async () => {}),
 }
 
 const defaultFindOneImplementation = mockEm.findOne.getMockImplementation()
@@ -59,6 +68,10 @@ const mockDataEngine = {
 
 let mockAttachmentQuotaService: any = null
 const mockAttachmentQuotaRecoveryScheduler = jest.fn(async () => {})
+let mockRateLimiterService: {
+  consume: jest.Mock
+  trustProxyDepth: number
+} | null = null
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
@@ -67,12 +80,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (k === 'dataEngine') return mockDataEngine
       if (k === 'attachmentQuotaService') return mockAttachmentQuotaService
       if (k === 'attachmentQuotaRecoveryScheduler') return mockAttachmentQuotaRecoveryScheduler
+      if (k === 'rateLimiterService') return mockRateLimiterService
       return null
     },
   }),
 }))
 
-const defaultAuth = () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] })
+const defaultAuth = () => ({ sub: 'user-1', orgId: 'org', tenantId: 't1', roles: ['admin'] })
 const mockGetAuthFromRequest = jest.fn(defaultAuth)
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args) }))
 
@@ -163,10 +177,33 @@ describe('attachments API', () => {
     mockEm.getKysely.mockReturnValue(buildUsageKysely(0))
     mockAttachmentQuotaService = null
     mockAttachmentQuotaRecoveryScheduler.mockClear()
+    mockRateLimiterService = null
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OPENAI_API_KEY
+  })
+
+  it('rejects uploads when the per-tenant/user rate limit is exceeded', async () => {
+    mockRateLimiterService = {
+      trustProxyDepth: 0,
+      consume: jest.fn(async () => ({
+        allowed: false,
+        remainingPoints: 0,
+        msBeforeNext: 12_000,
+        consumedPoints: 30,
+      })),
+    }
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(429)
+    expect(mockRateLimiterService.consume).toHaveBeenCalledWith(
+      't1:user-1',
+      expect.objectContaining({ keyPrefix: 'attachments_upload', points: 100, duration: 60 }),
+    )
+    expect(mockEm.create).not.toHaveBeenCalled()
   })
 
   it('rejects disallowed extension', async () => {
@@ -594,6 +631,35 @@ describe('attachments API', () => {
     )
   })
 
+  it('caps an unpaginated record list at the page-size ceiling (#3816)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.find.mockResolvedValue([])
+    const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1')
+    const res = await list(req)
+    expect(res.status).toBe(200)
+    const payload = await res.json()
+    expect(payload).toEqual({ items: [] })
+    expect(mockEm.count).not.toHaveBeenCalled()
+    expect(mockEm.find).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
+      expect.objectContaining({ limit: 100, orderBy: { createdAt: 'DESC', id: 'DESC' } }),
+    )
+  })
+
+  it('caps the list when only one of page and pageSize is supplied (#3816)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.find.mockResolvedValue([])
+    for (const query of ['page=3', 'pageSize=5']) {
+      mockEm.find.mockClear()
+      const res = await list(new Request(`http://x/api/attachments?entityId=example:todo&recordId=r1&${query}`))
+      expect(res.status).toBe(200)
+      const options = mockEm.find.mock.calls.find(([, filter]) => filter?.entityId === 'example:todo')?.[2] as { limit?: number } | undefined
+      expect(typeof options?.limit).toBe('number')
+      expect(options!.limit!).toBeLessThanOrEqual(100)
+    }
+  })
+
   it('rejects superadmin uploads with no organization selected using a 400 with a clear message instead of a 401 (#3764)', async () => {
     mockGetAuthFromRequest.mockImplementation(() => ({
       orgId: null,
@@ -634,6 +700,7 @@ describe('attachments API', () => {
       isSuperAdmin: true,
     }))
     mockEm.findOne.mockImplementation(async (entity: any) => {
+      if (entity?.name === 'AttachmentPartition') return partitions[0]
       if (entity?.name === 'Attachment') {
         return {
           id: 'att-1',
@@ -652,8 +719,67 @@ describe('attachments API', () => {
     expect(mockEm.findOne).toHaveBeenCalledWith(
       expect.any(Function),
       { id: 'att-1', tenantId: 't1' },
+      expect.objectContaining({ refresh: true }),
     )
     expect(mockEm.remove).toHaveBeenCalled()
+  })
+
+  describe.each(['legacy', 'strict'])('DELETE with shared stored objects under %s policy', (policy) => {
+    const previousPolicy = process.env.OM_ATTACHMENT_STORAGE_POLICY
+    beforeEach(() => { process.env.OM_ATTACHMENT_STORAGE_POLICY = policy })
+    afterEach(() => {
+      if (previousPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
+      else process.env.OM_ATTACHMENT_STORAGE_POLICY = previousPolicy
+    })
+    const storedAttachment = {
+      id: 'att-1',
+      tenantId: 't1',
+      organizationId: 'org',
+      partitionCode: 'productsMedia',
+      storagePath: 'productsMedia/org/shared.png',
+    }
+
+    const storedObjectRemovals = () =>
+      (fsp.rm as jest.Mock).mock.calls.filter(([target]) => String(target).endsWith('shared.png'))
+
+    beforeEach(() => {
+      mockEm.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity?.name === 'Attachment') return { ...storedAttachment }
+        return defaultFindOneImpl(entity, where)
+      })
+    })
+
+    it('keeps the stored object while another attachment row still references it', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-1', 'att-copy']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(200)
+      expect(mockEm.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'att-1' }))
+      expect(mockEm.commit).toHaveBeenCalledTimes(1)
+      expect(storedObjectRemovals()).toHaveLength(0)
+    })
+
+    it('deletes the stored object once the last referencing row is removed', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-1']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(200)
+      expect(mockEm.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'att-1' }))
+      expect(storedObjectRemovals()).toHaveLength(1)
+      const removalCall = (fsp.rm as jest.Mock).mock.calls.findIndex(([target]) => String(target).endsWith('shared.png'))
+      expect(mockEm.commit.mock.invocationCallOrder[0])
+        .toBeLessThan((fsp.rm as jest.Mock).mock.invocationCallOrder[removalCall])
+    })
+
+    it('returns 404 without touching storage when a concurrent delete already removed the row', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-copy']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(404)
+      expect(mockEm.remove).not.toHaveBeenCalled()
+      expect(fsp.rm).not.toHaveBeenCalled()
+      expect(mockDataEngine.flushOrmEntityChanges).not.toHaveBeenCalled()
+    })
   })
 
   it('still returns 401 for a non-superadmin delete with no organization', async () => {
@@ -695,4 +821,98 @@ describe('attachments API', () => {
       expect.any(Object),
     )
   })
+  describe('strict storage policy', () => {
+    const previousPolicy = process.env.OM_ATTACHMENT_STORAGE_POLICY
+    beforeEach(() => { process.env.OM_ATTACHMENT_STORAGE_POLICY = 'strict' })
+    afterEach(() => {
+      if (previousPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
+      else process.env.OM_ATTACHMENT_STORAGE_POLICY = previousPolicy
+    })
+
+    it.each([
+      ['null driver', { storageDriver: null, configJson: {} }, 'driver_missing'],
+      ['unknown driver', { storageDriver: 'unregistered', configJson: {} }, 'unknown_driver'],
+      ['malformed configuration', { storageDriver: 'local', configJson: ['secret-sentinel'] }, 'invalid_config'],
+    ])('rejects upload with %s before writing files', async (_description, invalid, reason) => {
+      mockEm.findOne.mockImplementation(async (entity: { name?: string }, where: Record<string, unknown>) => {
+        if (entity.name === 'AttachmentPartition') return { ...partitions[0], ...invalid }
+        return defaultFindOneImpl(entity, where)
+      })
+      const { POST } = await loadHandlers()
+      const response = await POST(new Request('http://x/api/attachments', {
+        method: 'POST', body: fdWith(new File(['bytes'], 'proof.pdf', { type: 'application/pdf' })),
+      }))
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({
+        error: 'Attachment storage configuration is unavailable.',
+        code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason,
+      })
+      expect(fsp.writeFile).not.toHaveBeenCalled()
+      expect(mockEm.create).not.toHaveBeenCalled()
+    })
+
+    it('does not replace a missing requested partition with the default local partition', async () => {
+      const { POST } = await loadHandlers()
+      const response = await POST(new Request('http://x/api/attachments', {
+        method: 'POST', body: fdWith(new File(['bytes'], 'proof.pdf', { type: 'application/pdf' }), {
+          partitionCode: 'missing-partition',
+        }),
+      }))
+      expect(response.status).toBe(503)
+      expect(await response.json()).toMatchObject({ reason: 'partition_missing' })
+      expect(fsp.writeFile).not.toHaveBeenCalled()
+      expect(mockEm.persist).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      { referenceIds: ['protected'] },
+      { referenceIds: ['protected', 'attachment-copy'] },
+    ])('retains metadata and bytes when deletion configuration is rejected with references $referenceIds', async ({ referenceIds }) => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, referenceIds))
+      mockEm.findOne.mockImplementation(async (entity: { name?: string }) => entity.name === 'Attachment'
+        ? { id: 'protected', tenantId: 't1', organizationId: 'org', partitionCode: 'privateAttachments', storagePath: 'private/file' }
+        : { ...partitions[0], storageDriver: 'unregistered' })
+      const { DELETE } = await loadHandlers()
+      const response = await DELETE(new Request('http://x/api/attachments?id=protected', { method: 'DELETE' }))
+      expect(response.status).toBe(503)
+      expect(await response.json()).toMatchObject({ reason: 'unknown_driver' })
+      expect(mockEm.remove).not.toHaveBeenCalled()
+      expect(mockEm.flush).not.toHaveBeenCalled()
+      expect(mockEm.begin).not.toHaveBeenCalled()
+      expect(mockEm.commit).not.toHaveBeenCalled()
+      expect(fsp.rm).not.toHaveBeenCalled()
+    })
+
+    it('routes a valid registered provider upload through the real factory', async () => {
+      const { registerExternalStorageDriver } = await import('../../lib/drivers/driverFactory')
+      const { registerStorageDriverValidator } = await import('../../lib/drivers/storageValidation')
+      const store = jest.fn(async () => ({ storagePath: 'provider/proof.pdf' }))
+      const construct = jest.fn(() => ({
+        key: 'route-proof', store,
+        read: async () => ({ buffer: Buffer.from('bytes') }),
+        delete: async () => undefined,
+        toLocalPath: async () => ({ filePath: '/unused', cleanup: async () => undefined }),
+      }))
+      registerExternalStorageDriver('route-proof', construct)
+      const validate = jest.fn(({ config }: { config: Readonly<Record<string, unknown>> }) => config.bucket === 'valid')
+      const unregister = registerStorageDriverValidator('route-proof', validate)
+      mockEm.findOne.mockImplementation(async (entity: { name?: string }, where: Record<string, unknown>) => entity.name === 'AttachmentPartition'
+        ? { ...partitions[0], storageDriver: 'route-proof', configJson: { bucket: 'valid' }, requiresOcr: false }
+        : defaultFindOneImpl(entity, where))
+      try {
+        const { POST } = await loadHandlers()
+        const response = await POST(new Request('http://x/api/attachments', {
+          method: 'POST', body: fdWith(new File(['bytes'], 'proof.pdf', { type: 'application/pdf' })),
+        }))
+        expect(response.status).toBe(200)
+        expect(construct).toHaveBeenCalledTimes(1)
+        expect(store).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 't1', orgId: 'org' }))
+        expect(validate).toHaveBeenCalledWith(expect.objectContaining({ scope: { tenantId: 't1', organizationId: 'org' } }))
+        expect(fsp.writeFile).not.toHaveBeenCalled()
+      } finally {
+        unregister()
+      }
+    })
+  })
+
 })
