@@ -18,6 +18,8 @@ This catalog indexes 183 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Verify disposable targets after child configuration loading](lessons/verify-disposable-target-after-child-config-loading.md) — area:testing,architecture; module:cli; topic:database-isolation,runtime-startup,environment-forwarding
+
 - [Stabilization CI must not follow label churn](lessons/stabilization-ci-must-not-follow-label-churn.md) — area:ai-workflow,testing; module:platform; topic:ci-scheduling,stabilization,required-checks,regression-testing
 
 - [Archive rotated context as one batch](lessons/archive-rotated-context-as-one-batch.md) — area:ai-workflow,testing; module:platform; topic:context-budget,archival,file-count,regression-testing
