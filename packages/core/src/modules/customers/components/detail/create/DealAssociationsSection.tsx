@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { Users } from 'lucide-react'
 import { DealSectionCard } from './DealSectionCard'
 import { DealFormField } from './DealFormField'
 import { DealAssociationsField } from './DealAssociationsField'
@@ -42,29 +41,27 @@ export function DealAssociationsSection({
   }
 
   return (
-    <DealSectionCard
-      icon={Users}
-      title={tr('customers.deals.create.sections.associations.title', 'Associations')}
-      subtitle={tr('customers.deals.create.sections.associations.subtitle', 'Link people and companies to this deal')}
-    >
-      <DealFormField fieldId="personIds" label={tr('customers.people.detail.deals.fields.people', 'People')}>
-        <DealAssociationsField
-          kind="people"
-          value={personIds}
-          onChange={onPeopleChange}
-          disabled={disabled}
-          labels={peopleLabels}
-        />
-      </DealFormField>
-      <DealFormField fieldId="companyIds" label={tr('customers.people.detail.deals.fields.companies', 'Companies')}>
-        <DealAssociationsField
-          kind="companies"
-          value={companyIds}
-          onChange={onCompaniesChange}
-          disabled={disabled}
-          labels={companyLabels}
-        />
-      </DealFormField>
+    <DealSectionCard title={tr('customers.deals.create.sections.associations.title', 'Associations')}>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <DealFormField fieldId="companyIds" label={tr('customers.people.detail.deals.fields.companies', 'Companies')}>
+          <DealAssociationsField
+            kind="companies"
+            value={companyIds}
+            onChange={onCompaniesChange}
+            disabled={disabled}
+            labels={companyLabels}
+          />
+        </DealFormField>
+        <DealFormField fieldId="personIds" label={tr('customers.people.detail.deals.fields.people', 'People')}>
+          <DealAssociationsField
+            kind="people"
+            value={personIds}
+            onChange={onPeopleChange}
+            disabled={disabled}
+            labels={peopleLabels}
+          />
+        </DealFormField>
+      </div>
     </DealSectionCard>
   )
 }
