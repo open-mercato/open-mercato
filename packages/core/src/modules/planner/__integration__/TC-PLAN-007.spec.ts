@@ -31,11 +31,12 @@ test.describe('TC-PLAN-007: availability replace rejects a window whose end is n
     const { organizationId } = getTokenContext(token)
     const roles: string[] = []
     const users: string[] = []
+    const scheduleName = `QA viewer schedule ${Date.now()}`
     let ruleSetId: string | null = null
     try {
       const created = await apiRequest(request, 'POST', '/api/planner/availability-rule-sets', {
         token,
-        data: { name: `QA viewer schedule ${Date.now()}`, timezone: 'UTC' },
+        data: { name: scheduleName, timezone: 'UTC' },
       })
       expect(created.status()).toBe(201)
       ruleSetId = expectId((await readJsonSafe<{ id?: string }>(created))?.id, 'Rule set id')
@@ -61,9 +62,13 @@ test.describe('TC-PLAN-007: availability replace rejects a window whose end is n
           ))
           await page.goto(`/backend/planner/availability-rulesets/${ruleSetId}`)
           await permissionCheck
+          const nameInput = page.getByRole('main').getByRole('textbox').first()
+          await expect(nameInput).toHaveValue(scheduleName)
+          await expect(nameInput).toBeFocused()
           const tab = page.getByRole('tab', { name: 'Availability', exact: true })
           await expect(tab).toBeVisible()
           await tab.click()
+          await expect(tab).toHaveAttribute('aria-selected', 'true')
           const addHours = page.getByRole('button', { name: 'Add hours', exact: true })
           const isViewer = features[0] === 'planner.view'
           if (isViewer) {
