@@ -18,7 +18,6 @@ import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/atta
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { StorageDriverFactory } from '@open-mercato/core/modules/attachments/lib/drivers'
 import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
-import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
 import { readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
 import { clearAttachmentThumbnailCache } from '@open-mercato/core/modules/attachments/lib/thumbnailCache'
 import { removeAttachmentRecord } from '@open-mercato/core/modules/attachments/lib/storageReferences'
@@ -27,10 +26,7 @@ import {
   parseMultipartFormDataWithinUploadLimit,
   resolveDefaultAttachmentMaxUploadBytes,
 } from '@open-mercato/core/modules/attachments/lib/upload-limits'
-import {
-  isScopedAttachmentUploadError,
-  type ScopedAttachmentUploadErrorCode,
-} from '@open-mercato/core/modules/attachments/lib/scoped-upload-service'
+import type { ScopedAttachmentUploadErrorCode } from '@open-mercato/core/modules/attachments/lib/scoped-upload-service'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim } from '../../../data/entities'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
@@ -236,6 +232,7 @@ async function deletePortalAttachment(context: PortalContext, attachment: Attach
     dataEngine = null
   }
   if (dataEngine) {
+    const { attachmentCrudEvents, attachmentCrudIndexer } = await import('@open-mercato/core/modules/attachments/lib/crud')
     await emitCrudSideEffects({
       dataEngine,
       action: 'deleted',
@@ -459,6 +456,7 @@ async function handleUpload(req: Request, replacement: boolean): Promise<Respons
       tags: [CUSTOMER_VISIBLE_ATTACHMENT_TAG],
     })
   } catch (error) {
+    const { isScopedAttachmentUploadError } = await import('@open-mercato/core/modules/attachments/lib/scoped-upload-service')
     if (isScopedAttachmentUploadError(error)) {
       const [key, fallback] = ATTACHMENT_ERROR_TRANSLATIONS[error.code]
         ?? ['warranty_claims.portal.detail.attachmentError', 'Attachment upload failed.']

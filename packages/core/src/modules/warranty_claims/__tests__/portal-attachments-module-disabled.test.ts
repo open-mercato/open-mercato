@@ -12,6 +12,10 @@ const mockFindOneWithDecryption = jest.fn()
 const mockUpload = jest.fn()
 const mockEmFind = jest.fn()
 
+jest.mock('#generated/entities.ids.generated', () => ({
+  E: { warranty_claims: { warranty_claim: 'warranty_claims:warranty_claim' } },
+}))
+
 jest.mock('../lib/portalAuthGuard', () => ({
   resolveLinkedCustomerAuth: jest.fn(async () => ({
     sub: 'customer-user-1',
