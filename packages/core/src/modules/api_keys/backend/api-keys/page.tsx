@@ -12,7 +12,8 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatApiKeyExpiry } from '@open-mercato/core/modules/api_keys/lib/expiryDisplay'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type RoleSummary = { id: string; name: string | null }
@@ -61,6 +62,7 @@ export default function ApiKeysListPage() {
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   React.useEffect(() => {
@@ -170,9 +172,9 @@ export default function ApiKeysListPage() {
     {
       accessorKey: 'expiresAt',
       header: t('api_keys.list.columns.expires'),
-      cell: ({ row }) => formatDate(row.original.expiresAt, t),
+      cell: ({ row }) => formatApiKeyExpiry(row.original.expiresAt, locale) ?? t('api_keys.list.noDate'),
     },
-  ], [t])
+  ], [locale, t])
 
   return (
     <Page>
