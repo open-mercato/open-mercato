@@ -1,162 +1,175 @@
-import { randomInt } from 'node:crypto'
-import { expect, test } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
-  buildMinimalDefinitionPayload,
+  buildSignalDefinitionPayload,
   cancelWorkflowInstanceIfExists,
   createWorkflowDefinitionFixture,
-  deleteWorkflowDefinitionIfExists,
   pollWorkflowInstance,
   startWorkflowInstanceFixture,
 } from '@open-mercato/core/helpers/integration/workflowsFixtures'
 
-type WorkflowListBody = {
-  data?: Array<{ id: string; workflowName?: string }>
-  items?: Array<{ id: string }>
-  pagination?: { total: number; limit: number; offset: number; hasMore: boolean }
-  total?: number
-  page?: number
-  pageSize?: number
+const translations = {
+  en: { retry: 'Retry', cancel: 'Cancel', confirm: 'Confirm', actions: 'Open actions' },
+  pl: { retry: 'Ponów', cancel: 'Anuluj', confirm: 'Potwierdź', actions: 'Otwórz akcje' },
 }
 
-const offsetInvalidQueries = [
-  'limit=101',
-  'limit=999999999',
-  'limit=-1',
-  'limit=abc',
-  'limit=1.5',
-  'limit=Infinity',
-  'offset=100001',
-  'offset=-1',
-  'offset=abc',
-  'offset=1.5',
-]
+type Fixture = { definitionId: string; instanceId?: string; workflowId: string; status: 'FAILED' | 'PAUSED' }
 
-const pageInvalidQueries = [
-  'pageSize=101',
-  'pageSize=999999999',
-  'pageSize=-1',
-  'pageSize=abc',
-  'pageSize=1.5',
-  'pageSize=Infinity',
-  'page=1002&pageSize=100',
-  'page=-1',
-  'page=abc',
-  'page=1.5',
-]
+async function instanceRecord(request: APIRequestContext, token: string, instanceId: string) {
+  const response = await apiRequest(request, 'GET', `/api/workflows/instances/${instanceId}`, { token })
+  expect(response.status()).toBe(200)
+  const body = await readJsonSafe<{ data: Record<string, unknown> }>(response)
+  expect(body?.data).toBeTruthy()
+  return body!.data
+}
 
-test.describe('TC-WF-073: bounded workflow list pagination', () => {
-  test('definition pages use consistent case-sensitive byte ordering', async ({ request }) => {
-    const token = await getAuthToken(request, 'admin')
-    const timestamp = Date.now()
-    const nonce = randomInt(1000000)
-    const prefix = `QA Pagination C ${timestamp} ${nonce}-`
-    const definitionIds: string[] = []
-
-    try {
-      for (const [index, suffix] of ['c', 'D', 'a', 'B'].entries()) {
-        const payload = buildMinimalDefinitionPayload(timestamp, `-collation-${nonce}-${index}`)
-        definitionIds.push(await createWorkflowDefinitionFixture(request, token, {
-          ...payload,
-          workflowName: `${prefix}${suffix}`,
-        }))
-      }
-
-      const pages: Array<Array<{ id: string; workflowName?: string }>> = []
-      for (const offset of [0, 2]) {
-        const response = await apiRequest(
-          request, 'GET', `/api/workflows/definitions?search=${encodeURIComponent(prefix)}&limit=2&offset=${offset}`, { token },
-        )
-        expect(response.status()).toBe(200)
-        const body = await readJsonSafe<WorkflowListBody>(response)
-        expect(body?.pagination).toEqual({ total: 4, limit: 2, offset, hasMore: offset === 0 })
-        expect(body?.data).toHaveLength(2)
-        pages.push(body?.data ?? [])
-      }
-
-      expect(pages.flat().map((row) => row.workflowName)).toEqual(['B', 'D', 'a', 'c'].map((suffix) => `${prefix}${suffix}`))
-      expect(new Set(pages.flat().map((row) => row.id)).size).toBe(4)
-    } finally {
-      for (const definitionId of definitionIds) {
-        await deleteWorkflowDefinitionIfExists(request, token, definitionId)
-      }
-    }
+async function createFixture(request: APIRequestContext, token: string, fixture: Fixture) {
+  fixture.instanceId = await startWorkflowInstanceFixture(request, token, {
+    workflowId: fixture.workflowId,
+    initialContext: { reference: randomUUID() },
   })
+  const instance = await pollWorkflowInstance(request, token, fixture.instanceId,
+    (record) => record.status === fixture.status)
+  expect(instance?.status).toBe(fixture.status)
+}
 
-  for (const target of ['definitions', 'instances', 'instance events', 'events'] as const) {
-    test(`${target} reject invalid pagination and retain valid fixture pages`, async ({ request }) => {
+async function openAction(page: Page, fixture: Fixture, action: string, actionsLabel: string) {
+  const row = page.getByRole('row').filter({ has: page.getByText(fixture.workflowId, { exact: true }) })
+  await expect(row).toHaveCount(1)
+  await row.getByRole('button', { name: actionsLabel, exact: true }).click()
+  await page.getByRole('menuitem', { name: action, exact: true }).click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
+async function expectContained(locator: Locator) {
+  await expect(locator).toBeVisible()
+  await expect.poll(async () => locator.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return rect.left >= 0 && rect.right <= window.innerWidth && rect.top >= 0
+      && rect.bottom <= window.innerHeight && element.scrollWidth <= element.clientWidth
+  })).toBe(true)
+}
+
+for (const locale of ['en', 'pl'] as const) {
+  for (const modifier of ['Control', 'Meta'] as const) {
+    test(`TC-WF-073: ${locale} confirmations preserve dismissals and target the selected row with ${modifier}+Enter`, async ({ page, request }, testInfo) => {
+      test.setTimeout(120_000)
       const token = await getAuthToken(request, 'admin')
-      const payload = buildMinimalDefinitionPayload(Date.now(), `-pagination-${randomInt(1000000)}`)
-      let definitionId: string | null = null
-      let instanceId: string | null = null
-
+      const fixtures: Fixture[] = []
+      const copy = translations[locale]
+      const stamp = Date.now()
       try {
-        definitionId = await createWorkflowDefinitionFixture(request, token, payload)
-        if (target !== 'definitions') {
-          instanceId = await startWorkflowInstanceFixture(request, token, { workflowId: payload.workflowId })
-          await pollWorkflowInstance(request, token, instanceId, (instance) => instance.status === 'COMPLETED')
-        }
-
-        const basePath = target === 'instance events'
-          ? `/api/workflows/instances/${encodeURIComponent(instanceId!)}/events?`
-          : target === 'events'
-            ? `/api/workflows/events?workflowInstanceId=${encodeURIComponent(instanceId!)}&`
-            : `/api/workflows/${target}?workflowId=${encodeURIComponent(payload.workflowId)}&`
-        const usesPageNumbers = target === 'events'
-
-        for (const query of usesPageNumbers ? pageInvalidQueries : offsetInvalidQueries) {
-          const response = await apiRequest(request, 'GET', `${basePath}${query}`, { token })
-
-          expect(response.status(), `${target} must reject ${query}`).toBe(400)
-          expect(await readJsonSafe<Record<string, unknown>>(response)).toHaveProperty('error')
-        }
-
-        const firstPageResponse = await apiRequest(
-          request, 'GET', `${basePath}${usesPageNumbers ? 'page=1&pageSize=1' : 'limit=1&offset=0'}`, { token },
-        )
-        const secondPageResponse = await apiRequest(
-          request, 'GET', `${basePath}${usesPageNumbers ? 'page=2&pageSize=1' : 'limit=1&offset=1'}`, { token },
-        )
-        expect(firstPageResponse.status()).toBe(200)
-        expect(secondPageResponse.status()).toBe(200)
-        const firstPage = await readJsonSafe<WorkflowListBody>(firstPageResponse)
-        const secondPage = await readJsonSafe<WorkflowListBody>(secondPageResponse)
-        const firstRows = firstPage?.data ?? firstPage?.items ?? []
-        const secondRows = secondPage?.data ?? secondPage?.items ?? []
-
-        expect(firstRows).toHaveLength(1)
-        if (target === 'definitions' || target === 'instances') {
-          expect(firstRows[0].id).toBe(target === 'definitions' ? definitionId : instanceId)
-          expect(secondRows).toEqual([])
-          expect(firstPage?.pagination).toEqual({ total: 1, limit: 1, offset: 0, hasMore: false })
-          expect(secondPage?.pagination).toEqual({ total: 1, limit: 1, offset: 1, hasMore: false })
-        } else {
-          expect(secondRows).toHaveLength(1)
-          expect(secondRows[0].id).not.toBe(firstRows[0].id)
-          if (usesPageNumbers) {
-            expect(firstPage).toMatchObject({ page: 1, pageSize: 1 })
-            expect(secondPage).toMatchObject({ page: 2, pageSize: 1 })
-            expect(firstPage?.total).toBeGreaterThanOrEqual(2)
-          } else {
-            expect(firstPage?.pagination).toMatchObject({ limit: 1, offset: 0, hasMore: true })
-            expect(secondPage?.pagination).toMatchObject({ limit: 1, offset: 1 })
-            expect(firstPage?.pagination?.total).toBeGreaterThanOrEqual(2)
+        for (const status of ['FAILED', 'PAUSED'] as const) {
+          for (const target of ['selected', 'control']) {
+            const workflowId = `qa-wf-073-${locale}-${modifier.toLowerCase()}-${target}-${status.toLowerCase()}-${randomUUID()}-long-identifier-long-identifier`.slice(0, 100)
+            const payload = buildSignalDefinitionPayload(stamp, `signal-${randomUUID()}`)
+            const definition = status === 'PAUSED' ? payload.definition : {
+              steps: [
+                { stepId: 'start', stepName: 'Start', stepType: 'START' },
+                { stepId: 'end', stepName: 'End', stepType: 'END' },
+              ],
+              transitions: [{
+                transitionId: 'fail', fromStepId: 'start', toStepId: 'end', trigger: 'auto',
+                activities: [{
+                  activityId: 'fail', activityName: 'Fail deterministically', activityType: 'EXECUTE_FUNCTION',
+                  config: { functionName: `qa.missing.${randomUUID()}` },
+                  retryPolicy: { maxAttempts: 1, initialIntervalMs: 0, backoffCoefficient: 1, maxIntervalMs: 0 },
+                }],
+              }],
+            }
+            const definitionId = await createWorkflowDefinitionFixture(request, token, {
+              ...payload, workflowId, workflowName: workflowId, definition,
+            })
+            const fixture: Fixture = { definitionId, workflowId, status }
+            fixtures.push(fixture)
+            await createFixture(request, token, fixture)
           }
         }
-
-        const lastPageResponse = await apiRequest(
-          request, 'GET', `${basePath}${usesPageNumbers ? 'page=100001&pageSize=1' : 'limit=1&offset=100000'}`, { token },
-        )
-        expect(lastPageResponse.status()).toBe(200)
-        const lastPage = await readJsonSafe<WorkflowListBody>(lastPageResponse)
-        expect(lastPage?.data ?? lastPage?.items).toEqual([])
-        if (usesPageNumbers) expect(lastPage).toMatchObject({ page: 100001, pageSize: 1 })
-        else expect(lastPage?.pagination).toMatchObject({ limit: 1, offset: 100000, hasMore: false })
+        await login(page, 'admin')
+        await page.context().addCookies([{ name: 'locale', value: locale, url: new URL(page.url()).origin }])
+        await page.goto('/backend/instances')
+        for (const status of ['FAILED', 'PAUSED'] as const) {
+          const selected = fixtures.find((fixture) => fixture.status === status)!
+          const action = status === 'FAILED' ? 'retry' : 'cancel'
+          const before = await Promise.all(fixtures.map((fixture) => instanceRecord(request, token, fixture.instanceId!)))
+          const mutations: string[] = []
+          const observeMutation = (sent: import('@playwright/test').Request) => {
+            if (sent.method() === 'POST' && /\/api\/workflows\/instances\/[^/]+\/(retry|cancel)$/.test(new URL(sent.url()).pathname)) {
+              mutations.push(new URL(sent.url()).pathname)
+            }
+          }
+          page.on('request', observeMutation)
+          try {
+            for (const dismiss of ['cancel', 'escape'] as const) {
+              const dialog = await openAction(page, selected, copy[action], copy.actions)
+              const title = locale === 'en'
+                ? `Are you sure you want to ${action} workflow '${selected.workflowId}'?`
+                : `Czy na pewno chcesz ${action === 'retry' ? 'ponowić' : 'anulować'} przepływ '${selected.workflowId}'?`
+              await expect(dialog.getByRole('heading')).toHaveText(title)
+              await expect(dialog).not.toContainText('{{workflowId}}')
+              if (dismiss === 'cancel') await dialog.getByRole('button', { name: copy.cancel, exact: true }).click()
+              else await page.keyboard.press('Escape')
+              await expect(dialog).not.toBeVisible()
+              expect(await Promise.all(fixtures.map((fixture) => instanceRecord(request, token, fixture.instanceId!)))).toEqual(before)
+              expect(mutations).toEqual([])
+            }
+            await page.setViewportSize({ width: 390, height: 844 })
+            const dialog = await openAction(page, selected, copy[action], copy.actions)
+            await expectContained(dialog)
+            await expectContained(dialog.getByRole('heading'))
+            await expectContained(dialog.getByRole('button', { name: copy.cancel, exact: true }))
+            await expectContained(dialog.getByRole('button', { name: copy.confirm, exact: true }))
+            await page.screenshot({ path: testInfo.outputPath(`${locale}-${action}-390px.png`) })
+            const targetPath = `/api/workflows/instances/${selected.instanceId}/${action}`
+            const responsePromise = page.waitForResponse((response) => new URL(response.url()).pathname === targetPath && response.request().method() === 'POST')
+            await page.keyboard.press(`${modifier}+Enter`)
+            expect((await responsePromise).status()).toBe(200)
+            await expect(dialog).not.toBeVisible()
+            expect(mutations).toEqual([targetPath])
+            for (const [index, fixture] of fixtures.entries()) {
+              if (fixture === selected) continue
+              expect(await instanceRecord(request, token, fixture.instanceId!)).toEqual(before[index])
+            }
+            await expect.poll(async () => {
+              const record = await instanceRecord(request, token, selected.instanceId!)
+              return action === 'retry' ? record.retryCount : record.status
+            }).toBe(action === 'retry' ? 1 : 'CANCELLED')
+            await page.setViewportSize({ width: 1280, height: 900 })
+          } finally {
+            page.off('request', observeMutation)
+          }
+        }
       } finally {
-        await cancelWorkflowInstanceIfExists(request, token, instanceId)
-        await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+        const knownInstanceIds = fixtures.flatMap((fixture) => fixture.instanceId ? [fixture.instanceId] : [])
+        const definitionIds = fixtures.map((fixture) => fixture.definitionId)
+        await withClient(async (client) => {
+          const createdInstances = await client.query<{ id: string }>(
+            'select id from workflow_instances where definition_id = any($1::uuid[])', [definitionIds],
+          )
+          const instanceIds = [...new Set([...knownInstanceIds, ...createdInstances.rows.map((record) => record.id)])]
+          for (const instanceId of instanceIds) {
+            await cancelWorkflowInstanceIfExists(request, token, instanceId)
+          }
+          await client.query('begin')
+          try {
+            for (const table of ['workflow_events', 'user_tasks', 'step_instances', 'workflow_branch_instances']) {
+              await client.query(`delete from ${table} where workflow_instance_id = any($1::uuid[])`, [instanceIds])
+            }
+            await client.query('delete from workflow_instances where id = any($1::uuid[])', [instanceIds])
+            await client.query('delete from workflow_definitions where id = any($1::uuid[])', [definitionIds])
+            await client.query('commit')
+          } catch (error) {
+            await client.query('rollback')
+            throw error
+          }
+        })
       }
     })
   }
-})
+}
