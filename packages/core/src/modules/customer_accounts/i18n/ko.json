@@ -375,6 +375,7 @@
   "customer_accounts.widgets.invitationExpires": "초대 만료",
   "customer_accounts.widgets.invitationPending": "초대 대기 중",
   "customer_accounts.widgets.invite.button": "포털로 초대",
+  "customer_accounts.widgets.invite.cancel.alreadyAccepted": "이 초대는 이미 수락되었습니다 — 계정이 활성화되어 있습니다",
   "customer_accounts.widgets.invite.cancel.button": "초대 취소",
   "customer_accounts.widgets.invite.cancel.confirm": "초대 취소",
   "customer_accounts.widgets.invite.cancel.description": "{email}의 초대를 취소할까요? 초대 링크를 더 이상 사용할 수 없습니다.",

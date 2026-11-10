@@ -60,6 +60,14 @@ async function fetchPendingInvitation(filter: string): Promise<PendingInvitation
   return items?.[0] || null
 }
 
+async function fetchAccountStatus(personEntityId: string): Promise<AccountStatusData | null> {
+  const result = await apiCall(`/api/customer_accounts/admin/users?personEntityId=${encodeURIComponent(personEntityId)}&pageSize=1`)
+  if (!result.ok) return null
+  const json = result.result as Record<string, unknown> | null
+  const items = json?.items as AccountStatusData[] | undefined
+  return items?.[0] || null
+}
+
 function InviteForm({
   personEntityId,
   personData,
@@ -367,7 +375,15 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
           if (!call.ok) {
             await raiseCrudError(call.response, t('customer_accounts.widgets.invite.cancel.error', 'Failed to cancel invitation'))
           }
-          flash(t('customer_accounts.widgets.invite.cancel.success', 'Invitation cancelled'), 'success')
+          // The DELETE response stays neutral ({ ok: true }) even when the invitation was
+          // already accepted elsewhere, so the cancellation became a safe no-op (#9035).
+          // Re-check the account the caller already has access to before claiming success.
+          const refreshedAccount = personEntityId ? await fetchAccountStatus(personEntityId) : null
+          if (refreshedAccount?.isActive) {
+            flash(t('customer_accounts.widgets.invite.cancel.alreadyAccepted', 'This invitation was already accepted — the account is active'), 'success')
+          } else {
+            flash(t('customer_accounts.widgets.invite.cancel.success', 'Invitation cancelled'), 'success')
+          }
           handleInviteSuccess()
         },
       })

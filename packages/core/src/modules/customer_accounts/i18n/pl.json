@@ -375,6 +375,7 @@
   "customer_accounts.widgets.invitationExpires": "Zaproszenie wygasa",
   "customer_accounts.widgets.invitationPending": "Zaproszenie oczekuje",
   "customer_accounts.widgets.invite.button": "Zaproś do portalu",
+  "customer_accounts.widgets.invite.cancel.alreadyAccepted": "To zaproszenie zostało już zaakceptowane — konto jest aktywne",
   "customer_accounts.widgets.invite.cancel.button": "Anuluj zaproszenie",
   "customer_accounts.widgets.invite.cancel.confirm": "Anuluj zaproszenie",
   "customer_accounts.widgets.invite.cancel.description": "Anulować zaproszenie dla {email}? Link do zaproszenia przestanie działać.",

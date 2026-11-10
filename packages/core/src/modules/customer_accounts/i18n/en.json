@@ -375,6 +375,7 @@
   "customer_accounts.widgets.invitationExpires": "Invitation expires",
   "customer_accounts.widgets.invitationPending": "Invitation pending",
   "customer_accounts.widgets.invite.button": "Invite to Portal",
+  "customer_accounts.widgets.invite.cancel.alreadyAccepted": "This invitation was already accepted — the account is active",
   "customer_accounts.widgets.invite.cancel.button": "Cancel invitation",
   "customer_accounts.widgets.invite.cancel.confirm": "Cancel invitation",
   "customer_accounts.widgets.invite.cancel.description": "Cancel the invitation for {email}? The invitation link will stop working.",

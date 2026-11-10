@@ -400,6 +400,40 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['customer-account-status', 'person-entity-1'] })
   })
 
+  // #9035: the cancellation endpoint stays neutral ({ ok: true }) even when the
+  // invitation was already accepted elsewhere (e.g. a stale CRM tab racing a
+  // portal acceptance), so a bare `call.ok` check must not claim "Invitation
+  // cancelled" — the widget re-checks the account it already has access to.
+  it('shows a neutral message instead of a false cancellation success when the invitation was already accepted', async () => {
+    mockApiCall.mockImplementation(async (url, options) => {
+      if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/users-invite') && options?.method === 'DELETE') {
+        return { ok: true, status: 200, result: { ok: true } } as never
+      }
+      if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/users?personEntityId=')) {
+        return {
+          ok: true,
+          status: 200,
+          result: {
+            items: [{ id: 'user-1', email: 'buyer@example.test', isActive: true, emailVerified: true, lastLoginAt: null }],
+            total: 1,
+          },
+        } as never
+      }
+      return { ok: false, status: 500, result: { error: 'unexpected call' } } as never
+    })
+    renderPendingInvitation()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel invitation' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel invitation?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel invitation' }))
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith(
+      'This invitation was already accepted — the account is active',
+      'success',
+    ))
+    expect(flashMock).not.toHaveBeenCalledWith('Invitation cancelled', 'success')
+  })
+
   it('keeps a failed cancellation visible and allows retry', async () => {
     mockApiCall.mockResolvedValueOnce({
       ok: false,
@@ -424,7 +458,10 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel invitation' }))
 
     await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Invitation cancelled', 'success'))
-    expect(mockApiCall).toHaveBeenCalledTimes(2)
+    // The two retried DELETE attempts, plus the post-success account-status
+    // re-check the fix added to tell a real cancellation from a no-op (#9035).
+    expect(mockApiCall).toHaveBeenCalledTimes(3)
+    expect(mockApiCall.mock.calls[2][0]).toContain('/api/customer_accounts/admin/users?personEntityId=')
   })
 
   it('preserves a cancellation conflict response for guarded mutation conflict handling', async () => {

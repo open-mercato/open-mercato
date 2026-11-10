@@ -375,6 +375,7 @@
   "customer_accounts.widgets.invitationExpires": "Einladung läuft ab",
   "customer_accounts.widgets.invitationPending": "Einladung ausstehend",
   "customer_accounts.widgets.invite.button": "Zum Portal einladen",
+  "customer_accounts.widgets.invite.cancel.alreadyAccepted": "Diese Einladung wurde bereits angenommen — das Konto ist aktiv",
   "customer_accounts.widgets.invite.cancel.button": "Einladung widerrufen",
   "customer_accounts.widgets.invite.cancel.confirm": "Einladung widerrufen",
   "customer_accounts.widgets.invite.cancel.description": "Einladung für {email} widerrufen? Der Einladungslink wird ungültig.",
