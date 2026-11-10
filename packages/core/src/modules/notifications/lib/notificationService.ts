@@ -23,7 +23,7 @@ import {
   type NotificationTenantContext,
 } from './notificationFactory'
 import { toNotificationDto } from './notificationMapper'
-import { buildNotificationReadScopeWhere } from './notificationScope'
+import { buildNotificationReadScopeSql, buildNotificationReadScopeWhere } from './notificationScope'
 import {
   getRecipientUserIdsForFeature,
   getRecipientUserIdsForRole,
@@ -653,7 +653,10 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           // notifications that were never in the bell, inflating the returned
           // count past what the badge showed.
           .where(inAppVisibleSql() as any)
-        if (ctx.organizationId) {
+        if (Array.isArray(ctx.organizationIds)) {
+          const organizationScope = buildNotificationReadScopeSql(ctx)
+          if (organizationScope) chain = chain.where(organizationScope)
+        } else if (ctx.organizationId) {
           chain = chain.where('organization_id' as any, '=', ctx.organizationId)
         }
         return chain

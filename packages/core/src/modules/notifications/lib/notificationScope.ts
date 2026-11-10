@@ -1,3 +1,5 @@
+import { sql, type RawBuilder } from 'kysely'
+
 export type NotificationReadOrganizationScope = {
   organizationId?: string | null
   organizationIds?: string[] | null
@@ -30,6 +32,20 @@ export function buildNotificationReadScopeWhere(
       { organizationId: null },
     ],
   }
+}
+
+/**
+ * Raw-SQL counterpart of {@link buildNotificationReadScopeWhere} for queries built with Kysely.
+ * Returns `null` when the scope carries no organization restriction.
+ */
+export function buildNotificationReadScopeSql(
+  scope: NotificationReadOrganizationScope,
+): RawBuilder<boolean> | null {
+  const organizationIds = resolveOrganizationIds(scope)
+  if (organizationIds === null) return null
+  const column = sql.ref('organization_id')
+  if (organizationIds.length === 0) return sql<boolean>`${column} is null`
+  return sql<boolean>`(${column} in (${sql.join(organizationIds.map((id) => sql.val(id)))}) or ${column} is null)`
 }
 
 export function getNotificationReadScopeTagOrganizationIds(
