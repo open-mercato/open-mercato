@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
-import type { ShippingCarrierService } from '../../lib/shipping-service'
+import { CarrierShipmentNotFoundError, type ShippingCarrierService } from '../../lib/shipping-service'
 import { isShipmentCancelNotAllowedError } from '../../lib/status-sync'
 import { shippingCarrierUpstreamErrorResponse } from '../../lib/upstream-error-response'
 import { cancelShipmentSchema } from '../../data/validators'
@@ -82,6 +83,10 @@ export async function POST(req: Request) {
     if (isShipmentCancelNotAllowedError(error)) {
       return NextResponse.json({ error: error.message }, { status: 422 })
     }
+    if (error instanceof CarrierShipmentNotFoundError) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({ error: translate('shipping_carriers.errors.shipmentNotFound', 'Shipment not found') }, { status: 404 })
+    }
     return shippingCarrierUpstreamErrorResponse('cancel.post', error)
   }
 }
@@ -95,6 +100,7 @@ export const openApi = {
       tags: [shippingCarriersTag],
       responses: [
         { status: 200, description: 'Shipment cancelled' },
+        { status: 404, description: 'Shipment not found' },
         { status: 422, description: 'Validation failed or shipment cannot be cancelled in its current status' },
         { status: 502, description: 'Provider upstream error' },
       ],

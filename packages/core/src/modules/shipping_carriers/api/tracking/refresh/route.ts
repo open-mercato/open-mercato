@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import type { ShippingCarrierService } from '../../../lib/shipping-service'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CarrierShipmentNotFoundError, type ShippingCarrierService } from '../../../lib/shipping-service'
 import { shippingCarrierUpstreamErrorResponse } from '../../../lib/upstream-error-response'
 import { trackingRefreshSchema } from '../../../data/validators'
 import { shippingCarriersTag } from '../../openapi'
@@ -32,6 +33,10 @@ export async function POST(req: Request) {
     })
     return NextResponse.json(tracking)
   } catch (error: unknown) {
+    if (error instanceof CarrierShipmentNotFoundError) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({ error: translate('shipping_carriers.errors.shipmentNotFound', 'Shipment not found') }, { status: 404 })
+    }
     return shippingCarrierUpstreamErrorResponse('tracking.refresh', error)
   }
 }
@@ -45,6 +50,7 @@ export const openApi = {
       tags: [shippingCarriersTag],
       responses: [
         { status: 200, description: 'Tracking refreshed and shipment status persisted' },
+        { status: 404, description: 'Shipment not found' },
         { status: 422, description: 'Validation failed' },
         { status: 502, description: 'Provider upstream error' },
       ],
