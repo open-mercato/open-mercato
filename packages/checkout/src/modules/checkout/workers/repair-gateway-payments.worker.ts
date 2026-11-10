@@ -79,7 +79,7 @@ export default async function handle(job: QueuedJob<RepairGatewayPaymentsJob>, c
   const container = { resolve: ctx.resolve } as unknown as CommandRuntimeContext['container']
   const cutoff = new Date(Date.now() - REPAIR_LOOKBACK_MS)
 
-  const completed = await em.find(
+  const candidates = await em.find(
     CheckoutTransaction,
     {
       tenantId,
@@ -89,14 +89,63 @@ export default async function handle(job: QueuedJob<RepairGatewayPaymentsJob>, c
       orderId: { $ne: null },
       updatedAt: { $gte: cutoff },
     },
-    { limit: batchSize, orderBy: { updatedAt: 'ASC' } },
+    { orderBy: { updatedAt: 'ASC' } },
   )
+  if (candidates.length === 0) return
 
-  for (const transaction of completed) {
+  const outstanding = await filterOutstandingGatewayPayments(em, scope, candidates)
+  const batch = outstanding.slice(0, batchSize)
+
+  for (const transaction of batch) {
     try {
       await repairOneGatewayPayment(container, em, transaction, scope)
     } catch (err) {
       logger.error('[internal] repair-gateway-payments: repair failed for a transaction', { err, transactionId: transaction.id })
     }
   }
+}
+
+// #8268 review Major 4: selecting the oldest `batchSize` candidates by `updatedAt`
+// permanently starves this sweep once more than `batchSize` transactions accumulate in
+// the lookback window — nothing here ever changes a transaction's `updatedAt`, so an
+// already-repaired (or already-correct) row never leaves the oldest-N set, and a newer
+// transaction that genuinely needs repair can never be selected. This re-derives the SAME
+// "would `recordGatewayPayment` actually do anything?" check that function's own
+// `findRecordedGatewayPayment` no-op branch uses, as a single batch lookup against
+// `sales_payments`, and filters candidates down to only the ones still outstanding BEFORE
+// slicing to `batchSize` — so a repaired transaction frees its slot for the sweep's next
+// run instead of permanently occupying it.
+async function filterOutstandingGatewayPayments(
+  em: EntityManager,
+  scope: RepairScope,
+  candidates: CheckoutTransaction[],
+): Promise<CheckoutTransaction[]> {
+  const orderIds = [...new Set(candidates.map((transaction) => transaction.orderId as string))]
+  const existing = await em
+    .getKysely<{
+      sales_payments: {
+        tenant_id: string
+        organization_id: string
+        order_id: string
+        payment_reference: string | null
+        captured_amount: string
+        deleted_at: Date | null
+      }
+    }>()
+    .selectFrom('sales_payments')
+    .select(['order_id', 'payment_reference', 'captured_amount'])
+    .where('tenant_id', '=', scope.tenantId)
+    .where('organization_id', '=', scope.organizationId)
+    .where('deleted_at', 'is', null)
+    .where('order_id', 'in', orderIds)
+    .execute()
+  const recordedByKey = new Map(existing.map((row) => [`${row.order_id}:${row.payment_reference ?? ''}`, row]))
+
+  return candidates.filter((transaction) => {
+    const paymentReference = transaction.gatewayTransactionId ?? transaction.id
+    const recorded = recordedByKey.get(`${transaction.orderId}:${paymentReference}`)
+    if (!recorded) return true
+    const captured = transaction.paymentStatus !== 'authorized'
+    return captured && Number(recorded.captured_amount) <= 0
+  })
 }

@@ -5,6 +5,7 @@ import type { InitSetupContext } from '@open-mercato/shared/modules/setup'
 import { CHECKOUT_EXPIRY_QUEUE } from '../workers/transaction-expiry.worker'
 import { CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE } from '../workers/expire-awaiting-payment.worker'
 import { CHECKOUT_REPAIR_GATEWAY_PAYMENTS_QUEUE } from '../workers/repair-gateway-payments.worker'
+import { CHECKOUT_REPAIR_ORDER_COMPENSATION_QUEUE } from '../workers/repair-order-compensation.worker'
 
 const ensureCheckoutFieldsetsAndDefinitions = jest.fn(async (..._args: unknown[]) => undefined)
 
@@ -100,13 +101,28 @@ describe('checkout setup schedules', () => {
     }))
   })
 
-  it('registers the same five schedules for a later organization without replaying tenant defaults', async () => {
+  it('registers one organization-scoped repair-order-compensation schedule (#8268 review Major 2)', async () => {
+    const { context, register } = createSetupContext({})
+
+    await seedDefaults(context)
+
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'organization-1',
+      tenantId: 'tenant-1',
+      scopeType: 'organization',
+      scheduleValue: '10m',
+      targetQueue: CHECKOUT_REPAIR_ORDER_COMPENSATION_QUEUE,
+      targetPayload: { tenantId: 'tenant-1', organizationId: 'organization-1' },
+    }))
+  })
+
+  it('registers the same six schedules for a later organization without replaying tenant defaults', async () => {
     const { context, register } = createSetupContext({ organizationId: 'organization-2' })
     ensureCheckoutFieldsetsAndDefinitions.mockClear()
 
     await onOrganizationCreated(context)
 
-    expect(register).toHaveBeenCalledTimes(5)
+    expect(register).toHaveBeenCalledTimes(6)
     expect(register).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: 'organization-2',
       targetQueue: CHECKOUT_EXPIRY_QUEUE,
@@ -118,6 +134,10 @@ describe('checkout setup schedules', () => {
     expect(register).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: 'organization-2',
       targetQueue: CHECKOUT_REPAIR_GATEWAY_PAYMENTS_QUEUE,
+    }))
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'organization-2',
+      targetQueue: CHECKOUT_REPAIR_ORDER_COMPENSATION_QUEUE,
     }))
     expect(ensureCheckoutFieldsetsAndDefinitions).not.toHaveBeenCalled()
   })

@@ -47,6 +47,8 @@ type FakeEm = {
   findOne: (entity: Function, where: Row) => Promise<Row | null>
   find: (entity: Function, where: Row) => Promise<Row[]>
   fork: () => FakeEm
+  execute: (sql: string, params?: unknown[]) => Promise<unknown>
+  transactional: <T>(cb: (tx: FakeEm) => Promise<T>) => Promise<T>
 }
 
 function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
@@ -63,6 +65,11 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
     findOne: async (entity, where) => tableFor(entity).find((row) => matchesWhere(row, where)) ?? null,
     find: async (entity, where) => tableFor(entity).filter((row) => matchesWhere(row, where)),
     fork: () => em,
+    execute: async () => [],
+    // #8268 review Major 6: `order-confirmed-credit-reinstate.ts` now wraps its logic in
+    // `em.transactional` to take the advisory lock — this fake has no real transaction
+    // semantics (no competing writers to isolate), so it just invokes the callback.
+    transactional: async (cb) => cb(em),
   }
   return { em, tables }
 }

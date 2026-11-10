@@ -85,63 +85,76 @@ export async function handleOrderCreditRelease(
     throw error
   }
 
-  if (eventId === 'sales.order.deleted') {
-    // #8268 review Major 2: `sales.order.deleted` is persistent (queued/retried), and the
-    // undo-of-delete path (`sales/commands/documents.ts#undoOrderGraph`) can reinstate this
-    // order's credit reservation under a FRESH idempotency key before (or racing) this
-    // event's redelivery. A redelivery arriving after the order exists again must not
-    // release that fresh reservation — only a still-genuinely-deleted order should proceed.
-    const stillDeleted = await em.getConnection().execute(
-      'select 1 from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
-      [orderId, tenantId, organizationId],
-    )
-    if (Array.isArray(stillDeleted) && stillDeleted.length > 0) {
-      logger.debug('[customer_groups:order-cancelled-credit-release] skipped stale delete redelivery — order exists again', {
+  // #8268 review Major 6: a plain "is the order still deleted?" SELECT only narrows the
+  // race, it does not close it — this handler's OWN `em.find` for linked reservations ran
+  // AFTER that check, so a redelivery that paused between the two could still observe (and
+  // re-release) a reservation `order-confirmed-credit-reinstate.ts` created WHILE this
+  // handler was paused. Both that subscriber and this one now take the SAME Postgres
+  // advisory transaction lock, keyed by this order, around their entire
+  // check-then-act sequence — whichever started first finishes its whole pass (and
+  // commits) before the other's pass is even allowed to read, so neither can observe a
+  // state the other is mid-way through changing.
+  const lockKey = `customer_groups_credit_lifecycle:${orderId}`
+  await em.transactional(async (tx) => {
+    await tx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [lockKey])
+
+    if (eventId === 'sales.order.deleted') {
+      // `sales.order.deleted` is persistent (queued/retried), and the undo-of-delete path
+      // (`sales/commands/documents.ts#undoOrderGraph`) can recreate this order before (or
+      // racing) this event's redelivery. A redelivery arriving after the order exists
+      // again must not release a reservation reinstated for the restored order.
+      const stillDeleted = await tx.getConnection().execute(
+        'select 1 from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
+        [orderId, tenantId, organizationId],
+      )
+      if (Array.isArray(stillDeleted) && stillDeleted.length > 0) {
+        logger.debug('[customer_groups:order-cancelled-credit-release] skipped stale delete redelivery — order exists again', {
+          orderId,
+          tenantId,
+          organizationId,
+        })
+        return
+      }
+    }
+
+    // §11: "finds the reservation with linked_order_id = orderId in the event's tenant and
+    // organization". An order with no linked reservation (never purchased on account, or
+    // checkout hasn't shipped Step 4.2's `linkCreditReservationToOrder` yet) is ignored.
+    const reservations = await tx.find(CustomerCreditLedgerEntry, {
+      tenantId,
+      organizationId,
+      entryType: 'reserve',
+      linkedOrderId: orderId,
+    })
+    if (!reservations.length) {
+      logger.debug('[customer_groups:order-cancelled-credit-release] no linked reservation for cancelled order', {
         orderId,
         tenantId,
         organizationId,
       })
       return
     }
-  }
 
-  // §11: "finds the reservation with linked_order_id = orderId in the event's tenant and
-  // organization". An order with no linked reservation (never purchased on account, or
-  // checkout hasn't shipped Step 4.2's `linkCreditReservationToOrder` yet) is ignored.
-  const reservations = await em.find(CustomerCreditLedgerEntry, {
-    tenantId,
-    organizationId,
-    entryType: 'reserve',
-    linkedOrderId: orderId,
-  })
-  if (!reservations.length) {
-    logger.debug('[customer_groups:order-cancelled-credit-release] no linked reservation for cancelled order', {
-      orderId,
-      tenantId,
-      organizationId,
-    })
-    return
-  }
-
-  const creditService: CustomerCreditService = createCustomerCreditService(em)
-  for (const reservation of reservations) {
-    try {
-      await creditService.releaseCredit({
-        scope: { tenantId, organizationId },
-        reserveIdempotencyKey: reservation.idempotencyKey,
-        reason: `${eventId}:${orderNumber ?? orderId}`,
-      })
-    } catch (error) {
-      logger.error('[customer_groups:order-cancelled-credit-release] release failed', {
-        err: error,
-        orderId,
-        tenantId,
-        organizationId,
-        reserveIdempotencyKey: reservation.idempotencyKey,
-      })
-      throw error
+    const creditService: CustomerCreditService = createCustomerCreditService(tx)
+    for (const reservation of reservations) {
+      try {
+        await creditService.releaseCredit({
+          scope: { tenantId, organizationId },
+          reserveIdempotencyKey: reservation.idempotencyKey,
+          reason: `${eventId}:${orderNumber ?? orderId}`,
+        })
+      } catch (error) {
+        logger.error('[customer_groups:order-cancelled-credit-release] release failed', {
+          err: error,
+          orderId,
+          tenantId,
+          organizationId,
+          reserveIdempotencyKey: reservation.idempotencyKey,
+        })
+        throw error
+      }
     }
-  }
+  })
 }
 
 export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {

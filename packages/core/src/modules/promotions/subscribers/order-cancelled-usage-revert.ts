@@ -87,39 +87,53 @@ export async function handleOrderUsageRevert(
     throw error
   }
 
-  if (eventId === 'sales.order.deleted') {
-    // #8268 review Major 2: `sales.order.deleted` is persistent (queued/retried), and the
-    // undo-of-delete path can re-register this order's promotion/code usage (resetting
-    // `revertedAt` back to null) before — or racing — this event's redelivery. A
-    // redelivery arriving after the order exists again must not revert that fresh usage;
-    // only a still-genuinely-deleted order should proceed.
-    const stillDeleted = await em.getConnection().execute(
-      'select 1 from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
-      [orderId, tenantId, organizationId],
-    )
-    if (Array.isArray(stillDeleted) && stillDeleted.length > 0) {
-      logger.debug('[internal] promotions:order-cancelled-usage-revert skipped stale delete redelivery — order exists again', {
-        orderId,
-        tenantId,
-        organizationId,
-      })
-      return
-    }
-  }
-
   const scope: PromotionsCodeScope = { tenantId, organizationId }
 
+  // #8268 review Major 6: a plain "is the order still deleted?" SELECT only narrows the
+  // race, it does not close it — a redelivery that paused between that check and the
+  // revert calls below could still observe (and re-revert) usage
+  // `order-confirmed-usage-reinstate.ts` just re-registered while this handler was
+  // paused. Both subscribers now take the SAME Postgres advisory transaction lock, keyed
+  // by this order, around their entire check-then-act sequence — whichever started first
+  // finishes its whole pass (and commits) before the other's pass is even allowed to
+  // read, same fix as `customer_groups`'s credit release/reinstate pair for the identical
+  // shape of race.
+  const lockKey = `promotions_usage_lifecycle:${orderId}`
   try {
-    // `revertUsage` (budget/per-order ledger bookkeeping) runs first, matching the
-    // order the C5 finding itself names ("`revertUsage` + `revertCodeUse`") — the two
-    // touch disjoint tables (`PromotionUsage` vs `CodeUsage`/`Code`/`GeneratedCode`)
-    // with no read-after-write dependency between them, so this ordering is a
-    // documentation-matching choice, not a correctness requirement.
-    const usageService = container.resolve<PromotionUsageService>('promotionUsageService')
-    await usageService.revertUsage(em, { orderId }, scope)
+    await em.transactional(async (tx) => {
+      await tx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [lockKey])
 
-    const codeService = container.resolve<PromotionCodeService>('promotionCodeService')
-    await codeService.revertCodeUse(em, { orderId }, scope)
+      if (eventId === 'sales.order.deleted') {
+        // `sales.order.deleted` is persistent (queued/retried), and the undo-of-delete
+        // path can re-register this order's promotion/code usage (resetting
+        // `revertedAt` back to null) before — or racing — this event's redelivery. A
+        // redelivery arriving after the order exists again must not revert that fresh
+        // usage; only a still-genuinely-deleted order should proceed.
+        const stillDeleted = await tx.getConnection().execute(
+          'select 1 from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
+          [orderId, tenantId, organizationId],
+        )
+        if (Array.isArray(stillDeleted) && stillDeleted.length > 0) {
+          logger.debug('[internal] promotions:order-cancelled-usage-revert skipped stale delete redelivery — order exists again', {
+            orderId,
+            tenantId,
+            organizationId,
+          })
+          return
+        }
+      }
+
+      // `revertUsage` (budget/per-order ledger bookkeeping) runs first, matching the
+      // order the C5 finding itself names ("`revertUsage` + `revertCodeUse`") — the two
+      // touch disjoint tables (`PromotionUsage` vs `CodeUsage`/`Code`/`GeneratedCode`)
+      // with no read-after-write dependency between them, so this ordering is a
+      // documentation-matching choice, not a correctness requirement.
+      const usageService = container.resolve<PromotionUsageService>('promotionUsageService')
+      await usageService.revertUsage(tx, { orderId }, scope)
+
+      const codeService = container.resolve<PromotionCodeService>('promotionCodeService')
+      await codeService.revertCodeUse(tx, { orderId }, scope)
+    })
   } catch (error) {
     logger.error('[internal] promotions:order-cancelled-usage-revert failed', {
       err: error,

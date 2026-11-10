@@ -37,6 +37,8 @@ type FakeEm = {
   rollback: () => Promise<void>
   isInTransaction: () => boolean
   fork: () => FakeEm
+  execute: (sql: string, params?: unknown[]) => Promise<unknown>
+  transactional: <T>(cb: (tx: FakeEm) => Promise<T>) => Promise<T>
 }
 
 function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
@@ -78,6 +80,18 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
     },
     isInTransaction: () => inTransaction,
     fork: () => em,
+    execute: async () => [],
+    transactional: async (cb) => {
+      await em.begin()
+      try {
+        const result = await cb(em)
+        await em.commit()
+        return result
+      } catch (err) {
+        await em.rollback()
+        throw err
+      }
+    },
   }
   return { em, tables }
 }

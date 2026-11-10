@@ -1282,7 +1282,44 @@ async function buildQuoteLineMap(
 // reuse the SAME cancel-order compensation `recover-stuck-submits`'s own `continueOrderOutcome`
 // calls internally — never a parallel reimplementation of "cancel the order, release
 // everything via `sales.order.cancelled`'s subscribers, fail the session".
+const ORDER_CANCEL_COMPENSATION_ATTEMPTS = 3
+
 export async function compensateByCancellingOrder(
+  container: CommandRuntimeContext['container'],
+  em: EntityManager,
+  session: CheckoutSession,
+  scope: SubmitScope,
+  orderId: string,
+  failureCode: string,
+): Promise<boolean> {
+  // #8268 review Major 2: the session used to flip to `failed` and release the cart/slot
+  // UNCONDITIONALLY, with a bare `logger.error` the only trace of a cancellation failure —
+  // a transient `sales.orders.update` error left a live order (stock/credit still
+  // reserved) permanently behind a session already marked terminal, with nothing ever
+  // retrying it. `submitProgress: 'compensating'` is the durable marker that the order
+  // cancel itself has NOT yet succeeded; `resumeOrderCancellationCompensation` only runs
+  // the release/finalize side effects once it has, and is safe to call again (by the live
+  // path's own immediate retries below, or by `repair-order-compensation`'s durable sweep)
+  // until it does.
+  const claimed = await em.nativeUpdate(
+    CheckoutSession,
+    { id: session.id, ...scope, status: { $in: SLOT_HOLDING_SESSION_STATUSES } },
+    { status: 'failed', failureCode, failureDetail: null, submitProgress: 'compensating', updatedAt: new Date() },
+  )
+  if (claimed === 0) return false
+  session.status = 'failed'
+  session.submitProgress = 'compensating'
+  await resumeOrderCancellationCompensation(container, em, session, scope, orderId, failureCode)
+  return true
+}
+
+// Exported so `repair-order-compensation.worker.ts`'s durable sweep can retry the SAME
+// primitive for a session left with `submitProgress: 'compensating'` after
+// `compensateByCancellingOrder`'s own immediate retries were exhausted. Idempotent: once
+// the order is cancelled, the `submitProgress` CAS below ensures the release/finalize
+// side effects (cart unlock, slot release, the `failed` event) run exactly once even if
+// this is called again concurrently (the live path and a sweep tick racing, for example).
+export async function resumeOrderCancellationCompensation(
   container: CommandRuntimeContext['container'],
   em: EntityManager,
   session: CheckoutSession,
@@ -1292,22 +1329,41 @@ export async function compensateByCancellingOrder(
 ): Promise<boolean> {
   const trustedCtx = buildTrustedCtx(container, scope, `checkout:submit:compensate-cancel:${session.id}`)
   const commandBus = container.resolve('commandBus') as CommandBus
-  const claimed = await em.nativeUpdate(
-    CheckoutSession,
-    { id: session.id, ...scope, status: { $in: SLOT_HOLDING_SESSION_STATUSES } },
-    { status: 'failed', failureCode, failureDetail: null, updatedAt: new Date() },
-  )
-  if (claimed === 0) return false
-  session.status = 'failed'
-  try {
-    const canceledEntryId = await resolveSalesOrderStatusEntryId(em, scope, 'canceled')
-    await commandBus.execute('sales.orders.update', {
-      input: { id: orderId, statusEntryId: canceledEntryId },
-      ctx: trustedCtx,
-    })
-  } catch (err) {
-    logger.error('[internal] checkout submit compensation: order cancellation failed', { err, sessionId: session.id, orderId })
+  let lastError: unknown = null
+  let canceled = false
+  for (let attemptIndex = 0; attemptIndex < ORDER_CANCEL_COMPENSATION_ATTEMPTS; attemptIndex += 1) {
+    try {
+      const canceledEntryId = await resolveSalesOrderStatusEntryId(em, scope, 'canceled')
+      await commandBus.execute('sales.orders.update', {
+        input: { id: orderId, statusEntryId: canceledEntryId },
+        ctx: trustedCtx,
+      })
+      canceled = true
+      break
+    } catch (err) {
+      lastError = err
+    }
   }
+  if (!canceled) {
+    logger.error('[internal] checkout submit compensation: order cancellation failed', { err: lastError, sessionId: session.id, orderId })
+    getTelemetryRuntime()?.reportError(lastError, {
+      module: 'checkout',
+      code: 'checkout.compensation_cancel_failed',
+    })
+    return false
+  }
+
+  const finalizedAffected = await em.nativeUpdate(
+    CheckoutSession,
+    { id: session.id, ...scope, submitProgress: 'compensating' },
+    { submitProgress: null, updatedAt: new Date() },
+  )
+  if (finalizedAffected === 0) {
+    // Another caller (a concurrent repair-sweep tick, most likely) already won the CAS
+    // and finished the release/finalize side effects below — nothing left to do.
+    return true
+  }
+  session.submitProgress = null
 
   const cartService = tryResolve<CartService>(container, 'cartService')
   if (cartService && session.cartId) {
@@ -1847,7 +1903,10 @@ export async function continueOrderOutcome(
     // it now; if the provider already captured it in the race window, reconcile the money
     // onto the order instead of silently losing track of it (never swallow a real charge).
     try {
-      await paymentGatewayService.cancelPayment(transaction.id, 'checkout_submit_recovered', scope)
+      // #8268 review Major 3: `cancelPayment` resolves a `GatewayTransaction` by primary
+      // key — `transaction.id` here is the (different) `CheckoutTransaction` id, so the
+      // lookup always failed and the provider session was never actually cancelled.
+      await paymentGatewayService.cancelPayment(sessionResult.transaction.id, 'checkout_submit_recovered', scope)
     } catch (err) {
       if (sessionResult.transaction.unifiedStatus === 'captured') {
         logger.error('[internal] checkout submit: a recovered submit\'s gateway session was already captured — recording the payment for manual refund review', { err, sessionId: session.id, orderId })
@@ -1858,7 +1917,13 @@ export async function continueOrderOutcome(
         await recordGatewayPayment(container, em, session, scope, orderId, {
           amount: transaction.amount,
           currencyCode: transaction.currencyCode,
-          paymentReference: sessionResult.transaction.gatewayPaymentId ?? sessionResult.transaction.id,
+          // #8268 review Major 5: always dedupe on the internal `GatewayTransaction.id` —
+          // the SAME id the capture webhook subscriber writes into
+          // `CheckoutTransaction.gatewayTransactionId` (`gateway-payment-captured.ts`).
+          // Preferring the external `gatewayPaymentId` here made this reference diverge
+          // from the webhook path's, so a later reconciliation pass could never find this
+          // row and recorded a duplicate payment instead.
+          paymentReference: sessionResult.transaction.id,
           captured: true,
         })
       } else {
@@ -1902,7 +1967,11 @@ export async function continueOrderOutcome(
     // `nativeUpdate` on THIS call's own `em`/transaction rather than the command's
     // separately-resolved one, to stay inside the single transaction this function already
     // commits everything else in.
-    const gatewayTransactionId = sessionResult.transaction.gatewayPaymentId ?? sessionResult.transaction.id
+    // #8268 review Major 5: always the internal `GatewayTransaction.id` — the same
+    // reference the capture webhook subscriber writes (`gateway-payment-captured.ts`), so
+    // a later reconciliation/repair pass can find this row instead of recording a
+    // duplicate payment against a diverged `gatewayPaymentId` (the external provider ref).
+    const gatewayTransactionId = sessionResult.transaction.id
     const transactionAffected = await em.nativeUpdate(
       CheckoutTransaction,
       { id: transaction.id, ...scope, status: 'processing' },

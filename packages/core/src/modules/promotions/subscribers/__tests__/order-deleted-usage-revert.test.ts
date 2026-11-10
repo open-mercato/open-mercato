@@ -36,6 +36,8 @@ type FakeEm = {
   isInTransaction: () => boolean
   fork: () => FakeEm
   getConnection: () => { execute: (sql: string, params?: unknown[]) => Promise<Row[]> }
+  execute: (sql: string, params?: unknown[]) => Promise<unknown>
+  transactional: <T>(cb: (tx: FakeEm) => Promise<T>) => Promise<T>
 }
 
 // Sentinel table standing in for `sales_orders` — the deleted-event guard runs a raw SQL
@@ -87,6 +89,18 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]>; salesOrders
         return []
       },
     }),
+    execute: async () => [],
+    transactional: async (cb) => {
+      await em.begin()
+      try {
+        const result = await cb(em)
+        await em.commit()
+        return result
+      } catch (err) {
+        await em.rollback()
+        throw err
+      }
+    },
   }
   return { em, tables, salesOrders }
 }

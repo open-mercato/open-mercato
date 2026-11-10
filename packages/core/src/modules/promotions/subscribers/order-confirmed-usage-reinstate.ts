@@ -83,16 +83,24 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
 
   const scope: PromotionsCodeScope = { tenantId, organizationId }
 
+  // #8268 review Major 6: takes the SAME advisory transaction lock, keyed by this order,
+  // as `order-cancelled-usage-revert.ts`'s revert handler — see that file's comment for
+  // the exact race this closes.
+  const lockKey = `promotions_usage_lifecycle:${orderId}`
   try {
-    // Same order as the revert subscriber's own comment names it ("`revertUsage` +
-    // `revertCodeUse`") — the two touch disjoint tables with no read-after-write
-    // dependency between them, so this is a documentation-matching choice, not a
-    // correctness requirement.
-    const usageService = container.resolve<PromotionUsageService>('promotionUsageService')
-    await usageService.reinstateUsage(em, { orderId }, scope)
+    await em.transactional(async (tx) => {
+      await tx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [lockKey])
 
-    const codeService = container.resolve<PromotionCodeService>('promotionCodeService')
-    await codeService.reinstateCodeUse(em, { orderId }, scope)
+      // Same order as the revert subscriber's own comment names it ("`revertUsage` +
+      // `revertCodeUse`") — the two touch disjoint tables with no read-after-write
+      // dependency between them, so this is a documentation-matching choice, not a
+      // correctness requirement.
+      const usageService = container.resolve<PromotionUsageService>('promotionUsageService')
+      await usageService.reinstateUsage(tx, { orderId }, scope)
+
+      const codeService = container.resolve<PromotionCodeService>('promotionCodeService')
+      await codeService.reinstateCodeUse(tx, { orderId }, scope)
+    })
   } catch (error) {
     logger.error('[internal] promotions:order-confirmed-usage-reinstate failed', {
       err: error,

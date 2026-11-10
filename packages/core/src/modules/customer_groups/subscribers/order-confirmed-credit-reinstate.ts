@@ -85,101 +85,113 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
   }
 
   const scope = { tenantId, organizationId }
-  const reservations = await em.find(CustomerCreditLedgerEntry, {
-    tenantId,
-    organizationId,
-    entryType: 'reserve',
-    linkedOrderId: orderId,
-  })
-  if (!reservations.length) {
-    logger.debug('[customer_groups:order-confirmed-credit-reinstate] no linked reservation for uncancelled order', {
-      orderId,
+  // #8268 review Major 6: takes the SAME advisory transaction lock, keyed by this order,
+  // as `order-cancelled-credit-release.ts`'s release handler — see that file's comment
+  // for the exact race this closes. Whichever subscriber (this reinstate, or a delayed
+  // release redelivery) acquires the lock first completes and commits its entire
+  // check-then-act pass before the other is allowed to read, so a reservation this pass
+  // creates can never be observed mid-flight by a release pass that started earlier and
+  // paused, nor vice versa.
+  const lockKey = `customer_groups_credit_lifecycle:${orderId}`
+  await em.transactional(async (tx) => {
+    await tx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [lockKey])
+
+    const reservations = await tx.find(CustomerCreditLedgerEntry, {
       tenantId,
       organizationId,
+      entryType: 'reserve',
+      linkedOrderId: orderId,
     })
-    return
-  }
-
-  const creditService: CustomerCreditService = createCustomerCreditService(em)
-  for (const reservation of reservations) {
-    const releaseEntry = await em.findOne(CustomerCreditLedgerEntry, {
-      tenantId,
-      relatedEntryId: reservation.id,
-      entryType: 'release',
-    })
-    // Still active (never released) — nothing to reinstate for this one.
-    if (!releaseEntry) continue
-
-    const reinstateKey = `reinstate:${reservation.idempotencyKey}`
-    const alreadyReinstated = await em.findOne(CustomerCreditLedgerEntry, {
-      tenantId,
-      idempotencyKey: reinstateKey,
-    })
-    // A prior pass can have committed the `reserveCredit` write and then died (or thrown)
-    // before `linkCreditReservationToOrder` ran — the reinstate entry exists but was never
-    // linked to this order, so the next cancel would never find it to release again. A
-    // bare `continue` here would skip the link forever on every future replay; link it now
-    // instead, same idempotent CAS `linkCreditReservationToOrder` already performs for a
-    // fresh reservation.
-    if (alreadyReinstated) {
-      if (alreadyReinstated.linkedOrderId == null) {
-        await creditService.linkCreditReservationToOrder({ scope, idempotencyKey: reinstateKey, orderId })
-      }
-      continue
-    }
-
-    const account = await em.findOne(CustomerCreditAccount, {
-      id: reservation.creditAccountId,
-      tenantId,
-      organizationId,
-    })
-    if (!account) continue
-
-    try {
-      const result = await creditService.reserveCredit({
-        scope,
-        buyer: { customerId: account.customerId },
-        currencyCode: account.currencyCode,
-        amount: reservation.amount,
-        sourceType: 'order',
-        sourceId: orderId,
-        idempotencyKey: reinstateKey,
-      })
-      if (result.reserved) {
-        await creditService.linkCreditReservationToOrder({ scope, idempotencyKey: reinstateKey, orderId })
-      } else {
-        // A business refusal (limit now exceeded, account on hold, terms revoked) — not a
-        // throwable error (retrying would refuse the same way every time), but the undo
-        // already committed before this subscriber ran, so the order is live with no
-        // credit hold and nothing besides this path will ever surface that. `reportError`
-        // makes it visible to telemetry/on-call; `reserveCredit` itself already emits
-        // `customer_groups.credit.limit_exceeded` (with this order as `sourceId`), which
-        // the notification subscriber now links straight to the order, not just the
-        // company.
-        logger.warn('[customer_groups:order-confirmed-credit-reinstate] reinstatement refused', {
-          orderId,
-          tenantId,
-          organizationId,
-          reason: result.check.reason,
-        })
-        getTelemetryRuntime()?.reportError(
-          new Error(`[internal] credit reinstatement refused on order uncancel: ${result.check.reason}`),
-          {
-            module: 'customer_groups',
-            code: 'customer_groups.order_confirmed_credit_reinstate_refused',
-            attributes: { orderId, tenantId, organizationId, reason: result.check.reason },
-          },
-        )
-      }
-    } catch (error) {
-      logger.error('[customer_groups:order-confirmed-credit-reinstate] reinstate failed', {
-        err: error,
+    if (!reservations.length) {
+      logger.debug('[customer_groups:order-confirmed-credit-reinstate] no linked reservation for uncancelled order', {
         orderId,
         tenantId,
         organizationId,
-        reinstateKey,
       })
-      throw error
+      return
     }
-  }
+
+    const creditService: CustomerCreditService = createCustomerCreditService(tx)
+    for (const reservation of reservations) {
+      const releaseEntry = await tx.findOne(CustomerCreditLedgerEntry, {
+        tenantId,
+        relatedEntryId: reservation.id,
+        entryType: 'release',
+      })
+      // Still active (never released) — nothing to reinstate for this one.
+      if (!releaseEntry) continue
+
+      const reinstateKey = `reinstate:${reservation.idempotencyKey}`
+      const alreadyReinstated = await tx.findOne(CustomerCreditLedgerEntry, {
+        tenantId,
+        idempotencyKey: reinstateKey,
+      })
+      // A prior pass can have committed the `reserveCredit` write and then died (or thrown)
+      // before `linkCreditReservationToOrder` ran — the reinstate entry exists but was never
+      // linked to this order, so the next cancel would never find it to release again. A
+      // bare `continue` here would skip the link forever on every future replay; link it now
+      // instead, same idempotent CAS `linkCreditReservationToOrder` already performs for a
+      // fresh reservation.
+      if (alreadyReinstated) {
+        if (alreadyReinstated.linkedOrderId == null) {
+          await creditService.linkCreditReservationToOrder({ scope, idempotencyKey: reinstateKey, orderId })
+        }
+        continue
+      }
+
+      const account = await tx.findOne(CustomerCreditAccount, {
+        id: reservation.creditAccountId,
+        tenantId,
+        organizationId,
+      })
+      if (!account) continue
+
+      try {
+        const result = await creditService.reserveCredit({
+          scope,
+          buyer: { customerId: account.customerId },
+          currencyCode: account.currencyCode,
+          amount: reservation.amount,
+          sourceType: 'order',
+          sourceId: orderId,
+          idempotencyKey: reinstateKey,
+        })
+        if (result.reserved) {
+          await creditService.linkCreditReservationToOrder({ scope, idempotencyKey: reinstateKey, orderId })
+        } else {
+          // A business refusal (limit now exceeded, account on hold, terms revoked) — not a
+          // throwable error (retrying would refuse the same way every time), but the undo
+          // already committed before this subscriber ran, so the order is live with no
+          // credit hold and nothing besides this path will ever surface that. `reportError`
+          // makes it visible to telemetry/on-call; `reserveCredit` itself already emits
+          // `customer_groups.credit.limit_exceeded` (with this order as `sourceId`), which
+          // the notification subscriber now links straight to the order, not just the
+          // company.
+          logger.warn('[customer_groups:order-confirmed-credit-reinstate] reinstatement refused', {
+            orderId,
+            tenantId,
+            organizationId,
+            reason: result.check.reason,
+          })
+          getTelemetryRuntime()?.reportError(
+            new Error(`[internal] credit reinstatement refused on order uncancel: ${result.check.reason}`),
+            {
+              module: 'customer_groups',
+              code: 'customer_groups.order_confirmed_credit_reinstate_refused',
+              attributes: { orderId, tenantId, organizationId, reason: result.check.reason },
+            },
+          )
+        }
+      } catch (error) {
+        logger.error('[customer_groups:order-confirmed-credit-reinstate] reinstate failed', {
+          err: error,
+          orderId,
+          tenantId,
+          organizationId,
+          reinstateKey,
+        })
+        throw error
+      }
+    }
+  })
 }

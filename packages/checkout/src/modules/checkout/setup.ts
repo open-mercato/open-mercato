@@ -7,6 +7,7 @@ import { CHECKOUT_RECOVER_STUCK_SUBMITS_QUEUE } from './workers/recover-stuck-su
 import { CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE } from './workers/expire-awaiting-payment.worker'
 import { CHECKOUT_EXPIRE_SESSIONS_QUEUE } from './workers/expire-checkout-sessions.worker'
 import { CHECKOUT_REPAIR_GATEWAY_PAYMENTS_QUEUE } from './workers/repair-gateway-payments.worker'
+import { CHECKOUT_REPAIR_ORDER_COMPENSATION_QUEUE } from './workers/repair-order-compensation.worker'
 export { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from './lib/defaults'
 
 function stableUuidFromString(input: string): string {
@@ -149,6 +150,28 @@ export async function ensureTransactionExpirySchedule(ctx: {
     timezone: 'UTC',
     targetType: 'queue',
     targetQueue: CHECKOUT_REPAIR_GATEWAY_PAYMENTS_QUEUE,
+    targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    sourceType: 'module',
+    sourceModule: 'checkout',
+    isEnabled: true,
+  })
+
+  // PR 8268 review fix (Major 2): durable repair for a session left `failed` with
+  // `submitProgress: 'compensating'` after `compensateByCancellingOrder`'s own immediate
+  // retries all failed to cancel the order — mirrors the schedules above exactly, same
+  // per-(tenant, organization) scope, same re-registration on every seed pass.
+  await schedulerService.register({
+    id: stableUuidFromString(`checkout:repair-order-compensation:${ctx.tenantId}:${ctx.organizationId}`),
+    name: 'Checkout repair order compensation',
+    description: 'Retries cancelling an order whose checkout-session compensation failed every immediate attempt on the live submit path.',
+    scopeType: 'organization',
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    scheduleType: 'interval',
+    scheduleValue: '10m',
+    timezone: 'UTC',
+    targetType: 'queue',
+    targetQueue: CHECKOUT_REPAIR_ORDER_COMPENSATION_QUEUE,
     targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     sourceType: 'module',
     sourceModule: 'checkout',

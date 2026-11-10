@@ -936,9 +936,12 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
 
     expect(h.seededSessions[0].status).toBe('failed')
     expect(h.cartService.unlock).toHaveBeenCalled()
-    // #8268 review Medium 8: the just-created gateway session must not be left live and
-    // payable against a session (and order) a concurrent recovery already moved on from.
-    expect(paymentGatewayService.cancelPayment).toHaveBeenCalledWith('checkout-txn-1', 'checkout_submit_recovered', { tenantId: TENANT_ID, organizationId: ORG_ID })
+    // #8268 review Medium 8 / review Major 3: the just-created gateway session must not be
+    // left live and payable against a session (and order) a concurrent recovery already
+    // moved on from. `cancelPayment` resolves a `GatewayTransaction` by primary key — pass
+    // the gateway's OWN transaction id (`sessionResult.transaction.id`, 'gw-1'), never the
+    // unrelated `CheckoutTransaction` id ('checkout-txn-1'), or the lookup always 404s.
+    expect(paymentGatewayService.cancelPayment).toHaveBeenCalledWith('gw-1', 'checkout_submit_recovered', { tenantId: TENANT_ID, organizationId: ORG_ID })
     expect(h.seededPayments).toHaveLength(0)
   })
 
@@ -956,10 +959,14 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
 
     await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({ status: 409 })
 
-    expect(paymentGatewayService.cancelPayment).toHaveBeenCalled()
+    expect(paymentGatewayService.cancelPayment).toHaveBeenCalledWith('gw-1', 'checkout_submit_recovered', { tenantId: TENANT_ID, organizationId: ORG_ID })
     // Money was actually captured despite losing the race — never silently lose track of it.
     expect(h.seededPayments).toHaveLength(1)
-    expect(h.seededPayments[0]).toMatchObject({ paymentReference: 'gw-captured-1', capturedAmount: h.seededPayments[0].amount })
+    // #8268 review Major 5: always the internal `GatewayTransaction.id` ('gw-1'), never
+    // `gatewayPaymentId` ('gw-captured-1') — the capture webhook subscriber writes the
+    // SAME internal id onto `CheckoutTransaction.gatewayTransactionId`, so a later
+    // reconciliation pass keys on it, not on this diverged external reference.
+    expect(h.seededPayments[0]).toMatchObject({ paymentReference: 'gw-1', capturedAmount: h.seededPayments[0].amount })
   })
 
   it('extends the cart lock to the gateway payment expiry PLUS a 15-minute margin (spec R11/§6)', async () => {
@@ -1451,6 +1458,74 @@ describe('checkout.session.submit — pay-link slot ownership and unexpected-fai
     expect(slotCalls(h, 'release')).toHaveLength(0)
     expect(h.commandBusExecute).not.toHaveBeenCalledWith('sales.orders.update', expect.anything())
     expect(h.cartService.unlock).not.toHaveBeenCalled()
+  })
+
+  // #8268 review Major 2: cancellation failures used to release the cart/slot and
+  // finalize the session UNCONDITIONALLY, with a bare `logger.error` the only trace — a
+  // transient `sales.orders.update` failure left a live order permanently behind a
+  // session already marked terminal, with nothing ever retrying it.
+  it('retries the order cancel on a transient failure, then finalizes once it succeeds', async () => {
+    // `submitProgress: 'compensating'` matches the precondition a real caller of this
+    // function (the live retry inside `compensateByCancellingOrder`, or a durable repair
+    // sweep) always already holds via its own claim CAS before reaching here.
+    const h = buildHarness({ session: makeSession({ linkId: 'link-1', status: 'failed', submitProgress: 'compensating', salesOrderId: 'order-1' }), seededOrders: [{ id: 'order-1', tenant_id: TENANT_ID, organization_id: ORG_ID, deleted_at: null }] })
+    const { resumeOrderCancellationCompensation } = await import('../submit')
+    const em = h.ctx.container.resolve('em') as FakeRow
+    const original = h.commandBusExecute.getMockImplementation()!
+    let cancelAttempts = 0
+    h.commandBusExecute.mockImplementation(async (id: string, options: { input: unknown }) => {
+      if (id === 'sales.orders.update') {
+        cancelAttempts += 1
+        if (cancelAttempts < 2) throw new Error('transient db error')
+      }
+      return original(id, options as never)
+    })
+
+    const resumed = await resumeOrderCancellationCompensation(
+      h.ctx.container,
+      em as never,
+      h.seededSessions[0] as never,
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+      'order-1',
+      'payment_failed',
+    )
+
+    expect(resumed).toBe(true)
+    expect(cancelAttempts).toBe(2)
+    expect(h.cartService.unlock).toHaveBeenCalledTimes(1)
+    expect(h.seededSessions[0].submitProgress).toBeNull()
+  })
+
+  it('leaves the session retryable (submitProgress: compensating) and reports the error when every cancel attempt fails', async () => {
+    const h = buildHarness({ session: makeSession({ linkId: 'link-1', status: 'submitting', salesOrderId: 'order-1' }), seededOrders: [{ id: 'order-1', tenant_id: TENANT_ID, organization_id: ORG_ID, deleted_at: null }] })
+    const em = h.ctx.container.resolve('em') as FakeRow
+    const original = h.commandBusExecute.getMockImplementation()!
+    h.commandBusExecute.mockImplementation(async (id: string, options: { input: unknown }) => {
+      if (id === 'sales.orders.update') throw new Error('order cancel permanently down')
+      return original(id, options as never)
+    })
+
+    const { compensateByCancellingOrder } = await import('../submit')
+    const cancelled = await compensateByCancellingOrder(
+      h.ctx.container,
+      em as never,
+      h.seededSessions[0] as never,
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+      'order-1',
+      'payment_failed',
+    )
+
+    expect(cancelled).toBe(true)
+    expect(h.seededSessions[0].status).toBe('failed')
+    // Never finalized: a live order's reservations must stay held, not silently released,
+    // until the cancel actually succeeds.
+    expect(h.seededSessions[0].submitProgress).toBe('compensating')
+    expect(h.cartService.unlock).not.toHaveBeenCalled()
+    expect(slotCalls(h, 'release')).toHaveLength(0)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ module: 'checkout', code: 'checkout.compensation_cancel_failed' }),
+    )
   })
 
   it('compensates (stock released, cart unlocked, session reopened) when availability.reserve throws unexpectedly', async () => {
