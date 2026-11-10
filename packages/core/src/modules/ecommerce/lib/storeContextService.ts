@@ -19,10 +19,21 @@ export type ResolveStoreContextBySlugOptions = ResolveStoreBySlugOptions & {
   request?: Request | null
 }
 
+/**
+ * `resolve`'s own options: `ResolveStoreFromRequestOptions` plus `fresh` (D-R4-22), additive —
+ * `fresh` only affects the buyer layer's 60 s cache (`resolveBuyerContext`), never the store/domain
+ * resolution layer, and is a no-op when omitted or `false`.
+ */
+export type ResolveStoreContextOptions = ResolveStoreFromRequestOptions & {
+  /** Bypasses the buyer context's 60 s cache and re-resolves the buyer directly. Lock and merge
+   * routes use this so they never act on a stale customer-group membership (D-R4-22). */
+  fresh?: boolean
+}
+
 export type InvalidateStoreContextOptions = { tenantId?: string | null }
 
 export type StoreContextService = {
-  resolve(request: Request, opts?: ResolveStoreFromRequestOptions): Promise<StoreContext>
+  resolve(request: Request, opts?: ResolveStoreContextOptions): Promise<StoreContext>
   resolveBySlug(slug: string, opts?: ResolveStoreContextBySlugOptions): Promise<StoreContext>
   invalidate(storeId: string, opts?: InvalidateStoreContextOptions): Promise<void>
 }
@@ -52,7 +63,9 @@ export function createStoreContextService(container: CacheContainer): StoreConte
   return {
     async resolve(request, opts) {
       const store = await resolveStoreFromRequest(container, request, opts)
-      const buyer = await runWithCacheTenant(store.tenantId, () => resolveBuyerContext(container, store, request))
+      const buyer = await runWithCacheTenant(store.tenantId, () =>
+        resolveBuyerContext(container, store, request, { fresh: opts?.fresh }),
+      )
       return composeStoreContext(store, buyer)
     },
     async resolveBySlug(slug, opts = {}) {

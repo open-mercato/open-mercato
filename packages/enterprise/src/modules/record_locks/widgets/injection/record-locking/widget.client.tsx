@@ -56,6 +56,7 @@ type CrudInjectionContext = {
 type RecordLockWidgetOwner = {
   instanceId: string
   priority: number
+  formId: string
 }
 
 const GLOBAL_RECORD_LOCK_OWNERS_KEY = '__openMercatoRecordLockWidgetOwners__'
@@ -256,6 +257,30 @@ function extractRecordLockConflictPayload(error: unknown): {
   return null
 }
 
+const CONSTRAINT_VIOLATION_CODES = new Set(['UNIQUE_VIOLATION', 'FOREIGN_KEY_VIOLATION'])
+
+function isConstraintViolationError(error: unknown): boolean {
+  const queue: unknown[] = [error]
+  const visited = new Set<unknown>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current || visited.has(current)) continue
+    visited.add(current)
+    if (!isObjectRecord(current)) continue
+
+    if (typeof current.code === 'string' && CONSTRAINT_VIOLATION_CODES.has(current.code)) return true
+
+    const nested = ['body', 'response', 'data', 'details', 'error', 'cause']
+    for (const key of nested) {
+      const next = current[key]
+      if (next && !visited.has(next)) queue.push(next)
+    }
+  }
+
+  return false
+}
+
 function isRecordDeletedError(error: unknown): boolean {
   const queue: unknown[] = [error]
   const visited = new Set<unknown>()
@@ -361,6 +386,7 @@ export function resolveRecordLockSaveErrorDecision(args: {
     // the shared `optimisticLockFloor` detector so this arbitration stays identical to
     // the conflict bar's ownership decision (single source of truth).
     if (isOptimisticLockFloorConflict(error)) return { action: 'ignore' }
+    if (isConstraintViolationError(error)) return { action: 'ignore' }
     if (extractErrorStatus(error) === 409) return { action: 'fallback-dialog' }
     return { action: 'ignore' }
   }
@@ -633,6 +659,11 @@ export default function RecordLockingWidget({
     token: string
   } | null>(null)
   const keepMineRetryVersionRef = React.useRef(0)
+  const hasAnotherOwnerForForm = React.useCallback(() => {
+    if (!ownerKey) return false
+    const owner = getRecordLockOwnerMap().get(ownerKey)
+    return Boolean(owner && owner.instanceId !== instanceId && owner.formId === formId)
+  }, [formId, instanceId, ownerKey])
 
   React.useEffect(() => {
     if (!ownerKey) {
@@ -653,17 +684,18 @@ export default function RecordLockingWidget({
     const claimOwnership = () => {
       const current = owners.get(ownerKey)
       if (!current) {
-        owners.set(ownerKey, { instanceId, priority: ownerPriority })
+        owners.set(ownerKey, { instanceId, priority: ownerPriority, formId })
         setIsPrimaryInstance(true)
         notifyOwnersChanged()
         return
       }
       if (current.instanceId === instanceId) {
+        owners.set(ownerKey, { instanceId, priority: ownerPriority, formId })
         setIsPrimaryInstance(true)
         return
       }
       if (ownerPriority > current.priority) {
-        owners.set(ownerKey, { instanceId, priority: ownerPriority })
+        owners.set(ownerKey, { instanceId, priority: ownerPriority, formId })
         setIsPrimaryInstance(true)
         notifyOwnersChanged()
         return
@@ -687,10 +719,11 @@ export default function RecordLockingWidget({
         notifyOwnersChanged()
       }
     }
-  }, [instanceId, ownerKey, ownerPriority])
+  }, [formId, instanceId, ownerKey, ownerPriority])
 
   React.useEffect(() => {
     if (isPrimaryInstance) return
+    if (hasAnotherOwnerForForm()) return
     const current = getRecordLockFormState(formId)
     if (shouldPreserveConflictOnTeardown(current)) return
     if (!current?.lock?.token || !current.resourceKind || !current.resourceId) {
@@ -706,7 +739,7 @@ export default function RecordLockingWidget({
       logger.warn('Failed to release lock while demoting owner', { err: error })
     })
     clearRecordLockFormState(formId)
-  }, [formId, isPrimaryInstance])
+  }, [formId, hasAnotherOwnerForForm, isPrimaryInstance])
 
   React.useEffect(() => {
     setMounted(true)
@@ -752,13 +785,25 @@ export default function RecordLockingWidget({
     if (!resourceKind || !resourceId) return
     let active = true
     const acquire = async () => {
+      const requestedState = getRecordLockFormState(formId)
       const call = await apiCall<AcquireResponse>('/api/record_locks/acquire', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ resourceKind, resourceId }),
       })
       const payload = call.result ?? {}
-      if (!active) return
+      const currentState = getRecordLockFormState(formId)
+      if (
+        !active
+        || !currentState
+        || currentState.recordDeleted === true
+        || currentState.resourceKind !== resourceKind
+        || currentState.resourceId !== resourceId
+        || (currentState.lock?.token ?? null) !== (requestedState?.lock?.token ?? null)
+      ) return
+      const latestActionLogId = currentState.latestActionLogId !== undefined
+        ? currentState.latestActionLogId
+        : (payload.latestActionLogId ?? null)
       if (!call.ok) {
         const defaultMessage = call.status === 403
           ? t('api.errors.forbidden', 'Forbidden')
@@ -775,7 +820,7 @@ export default function RecordLockingWidget({
           lock: payload.lock ?? null,
           currentUserId: payload.currentUserId ?? null,
           heartbeatSeconds: payload.heartbeatSeconds ?? 15,
-          latestActionLogId: payload.latestActionLogId ?? null,
+          latestActionLogId,
           allowForceUnlock: payload.allowForceUnlock ?? false,
         })
         return
@@ -788,7 +833,7 @@ export default function RecordLockingWidget({
         lock: payload.lock ?? null,
         currentUserId: payload.currentUserId ?? null,
         heartbeatSeconds: payload.heartbeatSeconds ?? 15,
-        latestActionLogId: payload.latestActionLogId ?? null,
+        latestActionLogId,
         allowForceUnlock: payload.allowForceUnlock ?? false,
       })
     }
@@ -905,7 +950,17 @@ export default function RecordLockingWidget({
       )
     if (hasUnresolvedConflict) return
     if (!state?.resourceKind || !state?.resourceId) return
+    if (state.recordDeleted === true) return
+    let active = true
     const refreshPresence = async () => {
+      const requestedState = getRecordLockFormState(formId)
+      if (
+        !active
+        || !requestedState
+        || requestedState.recordDeleted === true
+        || requestedState.resourceKind !== state.resourceKind
+        || requestedState.resourceId !== state.resourceId
+      ) return
       const call = await apiCall<AcquireResponse>('/api/record_locks/acquire', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -915,8 +970,19 @@ export default function RecordLockingWidget({
         }),
       })
       const payload = call.result ?? {}
+      const currentState = getRecordLockFormState(formId)
+      if (
+        !active
+        || !currentState
+        || currentState.recordDeleted === true
+        || currentState.resourceKind !== requestedState.resourceKind
+        || currentState.resourceId !== requestedState.resourceId
+        || (currentState.lock?.token ?? null) !== (requestedState.lock?.token ?? null)
+      ) return
+      const nextLatestActionLogId = currentState.latestActionLogId !== undefined
+        ? currentState.latestActionLogId
+        : (payload.latestActionLogId ?? null)
       if (!call.ok) {
-        const currentState = getRecordLockFormState(formId)
         setRecordLockFormState(formId, {
           resourceKind: state.resourceKind,
           resourceId: state.resourceId,
@@ -924,19 +990,11 @@ export default function RecordLockingWidget({
           lock: payload.lock ?? null,
           currentUserId: payload.currentUserId ?? currentState?.currentUserId ?? null,
           heartbeatSeconds: payload.heartbeatSeconds ?? currentState?.heartbeatSeconds ?? 15,
-          latestActionLogId: payload.latestActionLogId ?? currentState?.latestActionLogId ?? null,
+          latestActionLogId: nextLatestActionLogId,
           allowForceUnlock: payload.allowForceUnlock ?? false,
         })
         return
       }
-      const currentState = getRecordLockFormState(formId)
-      const previousToken = currentState?.lock?.token ?? null
-      const nextToken = payload.lock?.token ?? null
-      const isSameSession = Boolean(previousToken && nextToken && previousToken === nextToken)
-      const nextLatestActionLogId = isSameSession
-        ? (currentState?.latestActionLogId ?? null)
-        : (payload.latestActionLogId ?? currentState?.latestActionLogId ?? null)
-
       setRecordLockFormState(formId, {
         resourceKind: state.resourceKind,
         resourceId: state.resourceId,
@@ -996,6 +1054,7 @@ export default function RecordLockingWidget({
     void refreshPresence()
 
     return () => {
+      active = false
       window.removeEventListener(RECORD_LOCKS_INCOMING_CHANGES_EVENT, onIncomingChanges)
       window.removeEventListener(RECORD_LOCKS_FORCE_RELEASED_EVENT, onForceReleased)
       window.removeEventListener('om:event', onBridgeReconnected)
@@ -1009,6 +1068,7 @@ export default function RecordLockingWidget({
     state?.conflict,
     state?.pendingResolution,
     state?.pendingResolutionArmed,
+    state?.recordDeleted,
     state?.resourceId,
     state?.resourceKind,
   ])
@@ -1065,19 +1125,21 @@ export default function RecordLockingWidget({
   }, [isPrimaryInstance])
 
   React.useEffect(() => {
-    if (!isPrimaryInstance) return
     return () => {
-      if (shouldPreserveConflictOnTeardown(getRecordLockFormState(formId))) return
-      const payload = releasePayloadRef.current
-      if (payload) {
+      if (hasAnotherOwnerForForm()) return
+      const current = getRecordLockFormState(formId)
+      if (shouldPreserveConflictOnTeardown(current)) return
+      if (current?.lock?.token && current.resourceKind && current.resourceId) {
         void releaseLock({
-          ...payload,
+          resourceKind: current.resourceKind,
+          resourceId: current.resourceId,
+          token: current.lock.token,
           reason: 'unmount',
         })
       }
       clearRecordLockFormState(formId)
     }
-  }, [formId, isPrimaryInstance])
+  }, [formId, hasAnotherOwnerForForm])
 
   React.useEffect(() => {
     if (!isPrimaryInstance) return
@@ -1095,7 +1157,7 @@ export default function RecordLockingWidget({
           pendingResolutionArmed: false,
         }
         if (payload.lock !== undefined) {
-          nextPatch.lock = payload.lock
+          nextPatch.lock = resolveLockAfterValidate(getRecordLockFormState(formId)?.lock, payload.lock)
         }
         if (payload.latestActionLogId !== undefined) {
           nextPatch.latestActionLogId = payload.latestActionLogId

@@ -59,6 +59,20 @@ export async function DELETE(_req: Request, context: RouteContext): Promise<Resp
   }
 
   const container = await createRequestContainer()
+
+  const guard = await validateRouteMutationGuard({
+    container,
+    req: _req,
+    auth,
+    input: {
+      resourceKind: 'communication_channels.message',
+      resourceId: messageId,
+      operation: 'custom',
+      mutationPayload: { reactionId, action: 'remove' },
+    },
+  })
+  if ('response' in guard) return guard.response
+
   const em = (container.resolve('em') as EntityManager).fork()
   const reaction = await findOneWithDecryption(
     em,
@@ -75,19 +89,6 @@ export async function DELETE(_req: Request, context: RouteContext): Promise<Resp
   if (!reaction) {
     return reactionNotFoundResponse()
   }
-
-  const guard = await validateRouteMutationGuard({
-    container,
-    req: _req,
-    auth,
-    input: {
-      resourceKind: 'communication_channels.message',
-      resourceId: messageId,
-      operation: 'custom',
-      mutationPayload: { reactionId, emoji: reaction.emoji, action: 'remove' },
-    },
-  })
-  if ('response' in guard) return guard.response
 
   const commandBus = container.resolve('commandBus') as CommandBus
   const input: ToggleOutboundReactionInput = {

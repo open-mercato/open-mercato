@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { readBoundedRequestBody, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
 import { CommunicationChannel } from '@open-mercato/core/modules/communication_channels/data/entities'
 import { discordCredentialsSchema } from '../../lib/credentials'
 import { DISCORD_MESSAGE_FLAG_EPHEMERAL } from '../../lib/discord-rest'
@@ -65,7 +66,6 @@ export const metadata = {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const rawBody = await req.text()
   const signatureHex = req.headers.get('x-signature-ed25519')
   const timestamp = req.headers.get('x-signature-timestamp')
 
@@ -75,6 +75,16 @@ export async function POST(req: Request): Promise<Response> {
   // stays ahead of every other cost.
   const screened = screenInteractionRequest({ signatureHex, timestamp })
   if (screened) return NextResponse.json(screened.body, { status: screened.status })
+
+  let rawBody: string
+  try {
+    rawBody = await readBoundedRequestBody(req)
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return NextResponse.json({ error: 'payload_too_large' }, { status: 413 })
+    }
+    throw error
+  }
 
   const { t } = await resolveTranslations()
 
@@ -236,6 +246,7 @@ export const openApi = {
         },
         { status: 400, description: 'Verified but malformed interaction body' },
         { status: 401, description: 'Signature verification failed against every candidate channel, or the signed timestamp is outside the replay window' },
+        { status: 413, description: 'Request body exceeds the configured byte limit (1 MiB by default; OM_WEBHOOK_MAX_BODY_BYTES override)' },
       ],
     },
   },
