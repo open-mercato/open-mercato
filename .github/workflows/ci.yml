@@ -635,14 +635,8 @@ jobs:
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
       needs.lint.result == 'success'
     services:
-      # `@open-mercato/queue` translates its `coalesce` option into BullMQ deduplication,
-      # and the rest of its tests — which mock BullMQ — prove only that the right options
-      # reach `queue.add`. The guarantee callers rely on is BullMQ's own behaviour, and a
-      # semantic change behind an unchanged option name would pass both the mock and the
-      # installed-BullMQ name guard. One server makes that suite run for real.
-      #
-      # No other suite reaches for a default localhost Redis (they all mock ioredis,
-      # bullmq or the connection helper), so this changes nothing else in the job.
+      # Shared by the queue coalescing suite and the explicit Redis cache test step.
+      # Their fixtures use separate Redis databases.
       redis:
         image: redis:7-alpine
         ports:
@@ -775,6 +769,18 @@ jobs:
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: Test Redis cache against real Redis
+        timeout-minutes: 5
+        env:
+          CACHE_REDIS_URL: redis://127.0.0.1:6379/1
+          CACHE_REDIS_TEST_URL: redis://127.0.0.1:6379/2
+        run: |
+          yarn workspace @open-mercato/cache test --runInBand --runTestsByPath \
+            src/__tests__/redis.compatibility.live.test.ts \
+            src/__tests__/redis.performance.live.test.ts
+          yarn workspace @open-mercato/shared test --runInBand --runTestsByPath \
+            src/lib/crud/__tests__/crud-factory.redis.live.test.ts
 
       - name: Test
         # Same scoping as typecheck, including full gates for workflow edits.
