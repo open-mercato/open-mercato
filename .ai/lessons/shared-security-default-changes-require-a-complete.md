@@ -1,6 +1,6 @@
 ---
 title: "Shared security-default changes require a complete consumer audit"
-modules: ["shared","auth","cache","events","example","create_app","sso","api_keys"]
+modules: ["shared","auth","cache","events","example","create_app","sso","api_keys","entities","workflows"]
 areas: ["integration","testing","module-data"]
 topics: ["access-control","data-scoping","events","testing"]
 ---
@@ -14,6 +14,8 @@ topics: ["access-control","data-scoping","events","testing"]
 **Rule**: When changing a shared security default, enumerate every production call site and remove local overrides that bypass the contract. Centralize repeated key derivation in the owning module and add tests for direct, one-proxy, multi-proxy, and fallback behavior.
 
 **Applies to**: shared auth, rate-limit, origin, session, encryption, and tenant-scoping helpers and every module that consumes them.
+
+- 2026-11-10 · entities/workflows: tenant-wide entity restriction checks also affect workflow task access. Run the consumer's tests with realistic tenant/global predicates, preserve page-level deduplication while accounting for the added restriction query, and assert sibling restrictions survive local overlays. Run the consuming package's typecheck too: a union-shaped ORM predicate can infer a narrower entity than its constructor; explicitly parameterize the decryption helper with the entity instance type when necessary (PR #9219).
 
 - 2026-10-29 · sso: enumerable public token prefixes must never select private admission budgets; use a persistent exact full-bearer lookup fingerprint for cold admission and keep only fully verified hints in the shared DI cache; invalidate hints on revoke and test wrong-suffix exhaustion alongside independent verified-tenant budgets. Cache warmth is not an availability guarantee: document and inventory legacy enrollment before cutover. Cache invalidation after a committed revocation must report failure without reversing API success; a stale admission entry must never bypass active-token verification. Fingerprint lookup, enrollment, and generation failures can contain private SQL literals: replace ORM/driver errors with constant safe errors without the original cause before telemetry or API logging, and inject raw-token/digest/verifier text in regressions.
 
