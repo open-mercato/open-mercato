@@ -1,6 +1,7 @@
 import { EntityManager, type FilterQuery, type RequiredEntityData } from '@mikro-orm/postgresql'
 import { User, Session } from '@open-mercato/core/modules/auth/data/entities'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SsoIdentity, SsoUserDeactivation, ScimProvisioningLog } from '../data/entities'
 import { toScimUserResource, fromScimUserPayload, type ScimUserResource, type ScimUserPayload } from '../lib/scim-mapper'
@@ -341,64 +342,61 @@ export class ScimService {
     }
   }
 
-  private async deactivateUser(userId: string, scope: ScimScope): Promise<void> {
-    await this.em.transactional(async (txEm) => {
-      let deactivation = await txEm.findOne(SsoUserDeactivation, {
-        userId, ssoConfigId: scope.ssoConfigId,
-      })
+  private async deactivateUser(userId: string, scope: ScimScope): Promise<SsoUserDeactivation> {
+    return this.em.transactional((txEm) => this.deactivateUserInTransaction(txEm, userId, scope))
+  }
 
-      if (deactivation) {
-        deactivation.deactivatedAt = new Date()
-        deactivation.reactivatedAt = null
-      } else {
-        deactivation = txEm.create(SsoUserDeactivation, {
-          tenantId: scope.tenantId ?? null,
-          organizationId: scope.organizationId,
-          userId,
-          ssoConfigId: scope.ssoConfigId,
-          deactivatedAt: new Date(),
-        } as RequiredEntityData<SsoUserDeactivation>)
-        txEm.persist(deactivation)
-      }
-
-      // Revoke all active sessions atomically with the deactivation upsert
-      const sessionWhere: FilterQuery<Session> = { user: userId }
-      await txEm.nativeDelete(Session, sessionWhere)
-    })
+  private async deactivateUserInTransaction(
+    txEm: EntityManager,
+    userId: string,
+    scope: ScimScope,
+  ): Promise<SsoUserDeactivation> {
+    await lockAuthorizationUserRows(txEm, [userId])
+    let deactivation = await findOneWithDecryption(
+      txEm, SsoUserDeactivation,
+      { userId, ssoConfigId: scope.ssoConfigId, organizationId: scope.organizationId, tenantId: scope.tenantId ?? null },
+      { refresh: true },
+      { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId },
+    )
+    if (deactivation) {
+      deactivation.deactivatedAt = new Date()
+      deactivation.reactivatedAt = null
+    } else {
+      deactivation = txEm.create(SsoUserDeactivation, {
+        tenantId: scope.tenantId ?? null,
+        organizationId: scope.organizationId,
+        userId,
+        ssoConfigId: scope.ssoConfigId,
+        deactivatedAt: new Date(),
+      } as RequiredEntityData<SsoUserDeactivation>)
+      txEm.persist(deactivation)
+    }
+    const sessionWhere: FilterQuery<Session> = { user: userId }
+    await txEm.nativeDelete(Session, sessionWhere)
+    return deactivation
   }
 
   private async reactivateUser(userId: string, scope: ScimScope): Promise<void> {
-    const deactivation = await this.em.findOne(SsoUserDeactivation, {
-      userId, ssoConfigId: scope.ssoConfigId,
+    await this.em.transactional(async (txEm) => {
+      await lockAuthorizationUserRows(txEm, [userId])
+      const deactivation = await findOneWithDecryption(
+        txEm, SsoUserDeactivation,
+        { userId, ssoConfigId: scope.ssoConfigId, organizationId: scope.organizationId, tenantId: scope.tenantId ?? null },
+        { refresh: true },
+        { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId },
+      )
+      if (deactivation && !deactivation.reactivatedAt) {
+        deactivation.reactivatedAt = new Date()
+      }
     })
-    if (deactivation && !deactivation.reactivatedAt) {
-      deactivation.reactivatedAt = new Date()
-      await this.em.flush()
-    }
   }
 
   private async createDeactivation(userId: string, scope: ScimScope): Promise<SsoUserDeactivation> {
-    const deactivation = this.em.create(SsoUserDeactivation, {
-      tenantId: scope.tenantId ?? null,
-      organizationId: scope.organizationId,
-      userId,
-      ssoConfigId: scope.ssoConfigId,
-      deactivatedAt: new Date(),
-    } as RequiredEntityData<SsoUserDeactivation>)
-    await this.em.persist(deactivation).flush()
-    return deactivation
+    return this.deactivateUser(userId, scope)
   }
 
   private async createDeactivationTx(txEm: EntityManager, userId: string, scope: ScimScope): Promise<SsoUserDeactivation> {
-    const deactivation = txEm.create(SsoUserDeactivation, {
-      tenantId: scope.tenantId ?? null,
-      organizationId: scope.organizationId,
-      userId,
-      ssoConfigId: scope.ssoConfigId,
-      deactivatedAt: new Date(),
-    } as RequiredEntityData<SsoUserDeactivation>)
-    await txEm.persist(deactivation).flush()
-    return deactivation
+    return this.deactivateUserInTransaction(txEm, userId, scope)
   }
 
   private async log(

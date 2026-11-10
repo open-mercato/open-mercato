@@ -1,0 +1,1980 @@
+{
+  "$schema": "https://modules.openmercato.com/schema/modules-1.json",
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-23T03:05:00Z",
+  "dataVersion": "1.0.0-202610230305.ha3da99",
+  "site": "https://modules.openmercato.com",
+  "dataAsOf": {
+    "nightly": "2026-10-23T02:17:00Z",
+    "npm": "2026-10-23T00:17:00Z"
+  },
+  "features": {
+    "cliSearch": false
+  },
+  "officialCoverage": {
+    "listed": 3,
+    "missing": []
+  },
+  "lines": [
+    {
+      "key": "0.9",
+      "version": "0.9.0",
+      "source": "latest",
+      "cadence": "nightly",
+      "baseline": {
+        "status": "verified",
+        "step": null,
+        "omVersion": "0.9.0",
+        "moduleVersion": null,
+        "at": "2026-10-23T02:17:00Z",
+        "receipt": "r_20261023_ab33b4e8d8a1",
+        "since": "2026-10-23",
+        "precheck": null,
+        "patches": [
+          "api-keys"
+        ]
+      }
+    },
+    {
+      "key": "0.8",
+      "version": "0.8.0",
+      "source": "previous",
+      "cadence": "weekly",
+      "baseline": null
+    },
+    {
+      "key": "next",
+      "version": "0.10.1-develop.7583.1.0c886d0a14",
+      "source": "develop",
+      "cadence": "nightly",
+      "baseline": {
+        "status": "verified",
+        "step": null,
+        "omVersion": "0.10.1-develop.7583.1.0c886d0a14",
+        "moduleVersion": null,
+        "at": "2026-10-23T02:17:00Z",
+        "receipt": "r_20261023_53a00a7b1ef8",
+        "since": "2026-10-23",
+        "precheck": null,
+        "patches": []
+      }
+    }
+  ],
+  "categories": [
+    {
+      "id": "crm-sales",
+      "title": "CRM & Sales",
+      "wedge": "sell",
+      "count": 1
+    },
+    {
+      "id": "catalog-pricing",
+      "title": "Catalog & Pricing",
+      "wedge": "sell",
+      "count": 0
+    },
+    {
+      "id": "orders-checkout",
+      "title": "Orders & Checkout",
+      "wedge": "sell",
+      "count": 0
+    },
+    {
+      "id": "marketing-loyalty",
+      "title": "Marketing & Loyalty",
+      "wedge": "sell",
+      "count": 1
+    },
+    {
+      "id": "warehouse-shipping",
+      "title": "Warehouse & Shipping",
+      "wedge": "operate",
+      "count": 0
+    },
+    {
+      "id": "operations",
+      "title": "Operations & Services",
+      "wedge": "operate",
+      "count": 0
+    },
+    {
+      "id": "payments-finance",
+      "title": "Payments & Finance",
+      "wedge": "money",
+      "count": 2
+    },
+    {
+      "id": "localization-compliance",
+      "title": "Localization & Compliance",
+      "wedge": "money",
+      "count": 1
+    },
+    {
+      "id": "integrations-sync",
+      "title": "Integrations & Data Sync",
+      "wedge": "connect",
+      "count": 1
+    },
+    {
+      "id": "communication",
+      "title": "Communication & Notifications",
+      "wedge": "connect",
+      "count": 0
+    },
+    {
+      "id": "ai-automation",
+      "title": "AI & Automation",
+      "wedge": "think",
+      "count": 0
+    },
+    {
+      "id": "search-analytics",
+      "title": "Search & Analytics",
+      "wedge": "think",
+      "count": 0
+    },
+    {
+      "id": "auth-security",
+      "title": "Auth & Security",
+      "wedge": "platform",
+      "count": 1
+    },
+    {
+      "id": "content-portal",
+      "title": "Content & Portal",
+      "wedge": "platform",
+      "count": 0
+    },
+    {
+      "id": "storage-infrastructure",
+      "title": "Storage & Infrastructure",
+      "wedge": "platform",
+      "count": 1
+    },
+    {
+      "id": "devtools",
+      "title": "Developer Tools",
+      "wedge": "platform",
+      "count": 0
+    }
+  ],
+  "counts": {
+    "entries": 8,
+    "listed": 8,
+    "modules": 8,
+    "verifiedOnLatest": 3,
+    "omQuality": 0,
+    "builtIn": 3
+  },
+  "builtIn": {
+    "coreVersion": "0.9.0",
+    "count": 3,
+    "href": "https://modules.openmercato.com/built-in.json"
+  },
+  "entries": [
+    {
+      "locator": "github:Chmarusso/open-mercato-enrichment-treg",
+      "path": "github/chmarusso/open-mercato-enrichment-treg",
+      "npm": null,
+      "github": "Chmarusso/open-mercato-enrichment-treg",
+      "repoPath": null,
+      "kind": "module",
+      "type": "3rd-party",
+      "enterprise": false,
+      "title": "treg.to Enrichment",
+      "summary": "Enriches companies with data from the Polish business register.",
+      "whenToUse": "Use when CRM company records need registry data looked up by tax number.",
+      "whenNotToUse": null,
+      "category": "crm-sales",
+      "tags": [],
+      "providers": [],
+      "moduleIds": [],
+      "requires": [],
+      "replaces": [],
+      "slotConflicts": [],
+      "renamedFrom": [],
+      "supersededBy": null,
+      "alternatives": [],
+      "status": "active",
+      "listed": true,
+      "featured": false,
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi",
+        "mismatch": false
+      },
+      "version": {
+        "latest": null,
+        "preview": null,
+        "publishedAt": null,
+        "integrity": null,
+        "installableFrom": null,
+        "gitRef": null,
+        "recommended": {
+          "0.9": null,
+          "0.8": null,
+          "next": null
+        }
+      },
+      "identity": {
+        "builtFrom": "none",
+        "claimed": false,
+        "source": "github"
+      },
+      "compat": {
+        "builtFor": {
+          "range": null,
+          "kind": "missing",
+          "lines": []
+        },
+        "lines": {},
+        "verifiedOn": []
+      },
+      "anatomy": null,
+      "signals": {
+        "receipt": {
+          "0.9": "untested",
+          "0.8": "untested",
+          "next": "untested"
+        },
+        "fit": {
+          "0.9": "unknown",
+          "0.8": "unknown",
+          "next": "unknown"
+        },
+        "anatomy": "none",
+        "supplyChain": {
+          "status": "ok",
+          "reasons": []
+        },
+        "hygiene": {
+          "status": "ok",
+          "failing": []
+        },
+        "maintenance": {
+          "status": "current",
+          "lastRelease": "2026-10-08",
+          "catchUpDays": null
+        },
+        "declaredVsObserved": {
+          "status": "match",
+          "notes": []
+        }
+      },
+      "tier": "listed",
+      "quality": null,
+      "agentPolicy": {
+        "0.9": {
+          "decision": "refuse",
+          "reasons": [
+            {
+              "code": "UNPINNED_GIT",
+              "text": "GitHub source without a pinned tag."
+            },
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.9 yet."
+            }
+          ]
+        },
+        "0.8": {
+          "decision": "refuse",
+          "reasons": [
+            {
+              "code": "UNPINNED_GIT",
+              "text": "GitHub source without a pinned tag."
+            },
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.8 yet."
+            }
+          ]
+        },
+        "next": {
+          "decision": "refuse",
+          "reasons": [
+            {
+              "code": "UNPINNED_GIT",
+              "text": "GitHub source without a pinned tag."
+            },
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on next yet."
+            }
+          ]
+        }
+      },
+      "install": {
+        "cli": "npx create-mercato-module install Chmarusso/open-mercato-enrichment-treg",
+        "cmm": "npx create-mercato-module install Chmarusso/open-mercato-enrichment-treg",
+        "needsAllowThirdParty": false,
+        "moduleFlag": null
+      },
+      "stats": {
+        "downloads30d": null,
+        "stars": 0
+      },
+      "sigil": {
+        "glyph": "0000000",
+        "phase": 343,
+        "publicRoutes": false
+      },
+      "links": {
+        "page": "https://modules.openmercato.com/m/github/chmarusso/open-mercato-enrichment-treg",
+        "md": "https://modules.openmercato.com/m/github/chmarusso/open-mercato-enrichment-treg.md",
+        "json": "https://modules.openmercato.com/m/github/chmarusso/open-mercato-enrichment-treg.json",
+        "facts": null,
+        "npm": null,
+        "repo": "https://github.com/Chmarusso/open-mercato-enrichment-treg",
+        "docs": null
+      },
+      "addedAt": "2026-10-23",
+      "updatedAt": "2026-10-23T03:05:00Z",
+      "_meta": {}
+    },
+    {
+      "locator": "npm:@fastwhitecat/integration-ksef-direct",
+      "path": "@fastwhitecat/integration-ksef-direct",
+      "npm": "@fastwhitecat/integration-ksef-direct",
+      "github": "FastWhiteCat/openmercato-module-ksef",
+      "repoPath": null,
+      "kind": "module",
+      "type": "3rd-party",
+      "enterprise": false,
+      "title": "KSeF Integration",
+      "summary": "Sends and receives Polish structured e-invoices through the KSeF API v2.",
+      "whenToUse": "Use when the app must issue or receive structured invoices in KSeF (Poland).",
+      "whenNotToUse": null,
+      "category": "localization-compliance",
+      "tags": [
+        "ksef",
+        "e-invoicing",
+        "poland"
+      ],
+      "providers": [
+        {
+          "name": "ksef",
+          "label": "KSeF"
+        }
+      ],
+      "moduleIds": [
+        "integration_ksef_direct"
+      ],
+      "requires": [
+        {
+          "raw": "integrations",
+          "resolvesTo": "core:integrations"
+        }
+      ],
+      "replaces": [],
+      "slotConflicts": [],
+      "renamedFrom": [
+        "npm:@fast-white-cat/integration-ksef-direct"
+      ],
+      "supersededBy": null,
+      "alternatives": [],
+      "status": "active",
+      "listed": true,
+      "featured": false,
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi",
+        "mismatch": false
+      },
+      "version": {
+        "latest": "0.1.8",
+        "preview": null,
+        "publishedAt": "2026-10-15",
+        "integrity": "sha512-S/WTfqYPGCe4qSyCzAa6Fg+eMGdLd92HB09unoaqdgBgYBcp9YxQL63GDcq1kA7/wm8CokntXpg9l7jkt106RA==",
+        "installableFrom": "2026-10-20",
+        "gitRef": "df48a8c52904dc2cae6dabf3379f7076a7b319a5",
+        "recommended": {
+          "0.9": "0.1.8",
+          "0.8": null,
+          "next": "0.1.8"
+        }
+      },
+      "identity": {
+        "builtFrom": "verified",
+        "claimed": false,
+        "source": "npm"
+      },
+      "compat": {
+        "builtFor": {
+          "range": ">=0.7.0 <0.8.0",
+          "kind": "bounded",
+          "lines": []
+        },
+        "lines": {
+          "0.9": {
+            "status": "verified",
+            "step": null,
+            "omVersion": "0.9.0",
+            "moduleVersion": "0.1.8",
+            "at": "2026-10-23T02:17:00Z",
+            "receipt": "r_20261023_44221517d2f6",
+            "since": "2026-10-23",
+            "precheck": null,
+            "patches": [
+              "api-keys"
+            ]
+          },
+          "next": {
+            "status": "verified",
+            "step": null,
+            "omVersion": "0.10.1-develop.7583.1.0c886d0a14",
+            "moduleVersion": "0.1.8",
+            "at": "2026-10-23T02:17:00Z",
+            "receipt": "r_20261023_f1c31fd2f033",
+            "since": "2026-10-23",
+            "precheck": null,
+            "patches": []
+          }
+        },
+        "verifiedOn": [
+          "0.9",
+          "next"
+        ]
+      },
+      "anatomy": {
+        "version": "0.1.8",
+        "coverage": "full",
+        "counts": {
+          "entities": 3,
+          "tables": 3,
+          "migrations": 6,
+          "routes": 8,
+          "publicRoutes": 0,
+          "aclFeatures": 7,
+          "eventsEmitted": 9,
+          "eventsConsumed": 1,
+          "backendPages": 4,
+          "frontendPages": 0,
+          "widgets": 0,
+          "workers": 3,
+          "cli": 0,
+          "aiTools": 0,
+          "aiAgents": 0,
+          "extends": 0
+        },
+        "lists": {
+          "aclFeatures": [
+            "integration_ksef_direct.view",
+            "integration_ksef_direct.manage",
+            "integration_ksef_direct.documents.view",
+            "integration_ksef_direct.documents.create",
+            "integration_ksef_direct.documents.send",
+            "integration_ksef_direct.received_documents.view",
+            "integration_ksef_direct.received_documents.sync"
+          ],
+          "eventsEmitted": [
+            "ksef_direct.connection.connected",
+            "ksef_direct.connection.failed",
+            "ksef_direct.connection.checked",
+            "ksef_direct.document.created",
+            "ksef_direct.document.queued",
+            "ksef_direct.document.sent",
+            "ksef_direct.document.failed",
+            "ksef_direct.received_document.synced",
+            "ksef_direct.received_document.failed"
+          ],
+          "eventsConsumed": [
+            "ksef_direct.document.created"
+          ],
+          "env": [],
+          "hosts": [
+            "api-test.ksef.mf.gov.pl",
+            "api.ksef.mf.gov.pl"
+          ],
+          "tables": [
+            "ksef_direct_documents",
+            "ksef_direct_received_documents",
+            "ksef_direct_connections"
+          ],
+          "publicRoutes": [],
+          "credentials": [
+            {
+              "key": "ksef_token",
+              "type": "secret",
+              "required": true
+            },
+            {
+              "key": "nip",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "environment",
+              "type": "select",
+              "required": true
+            }
+          ]
+        },
+        "callout": "ADDS 3 TABLES · 8 ROUTES (0 PUBLIC) · 7 PERMISSIONS · EMITS 9 EVENTS",
+        "diff": null
+      },
+      "signals": {
+        "receipt": {
+          "0.9": "verified",
+          "0.8": "untested",
+          "next": "verified"
+        },
+        "fit": {
+          "0.9": "ok",
+          "0.8": "ok",
+          "next": "ok"
+        },
+        "anatomy": "full",
+        "supplyChain": {
+          "status": "ok",
+          "reasons": []
+        },
+        "hygiene": {
+          "status": "warn",
+          "failing": [
+            "event-prefix"
+          ]
+        },
+        "maintenance": {
+          "status": "current",
+          "lastRelease": "2026-10-15",
+          "catchUpDays": null
+        },
+        "declaredVsObserved": {
+          "status": "mismatch",
+          "notes": [
+            "Built for no tested line; verified on 0.9, next."
+          ]
+        }
+      },
+      "tier": "verified",
+      "quality": null,
+      "agentPolicy": {
+        "0.9": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            }
+          ],
+          "consentText": "Install @fastwhitecat/integration-ksef-direct@0.1.8"
+        },
+        "0.8": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.8 yet."
+            }
+          ],
+          "consentText": "Install @fastwhitecat/integration-ksef-direct@0.1.8"
+        },
+        "next": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            }
+          ],
+          "consentText": "Install @fastwhitecat/integration-ksef-direct@0.1.8"
+        }
+      },
+      "install": {
+        "cli": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party",
+        "cmm": "npx create-mercato-module install @fastwhitecat/integration-ksef-direct@0.1.8",
+        "needsAllowThirdParty": true,
+        "moduleFlag": null
+      },
+      "stats": {
+        "downloads30d": 42,
+        "stars": 1
+      },
+      "sigil": {
+        "glyph": "2223200",
+        "phase": 224,
+        "publicRoutes": false
+      },
+      "links": {
+        "page": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct",
+        "md": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct.md",
+        "json": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct.json",
+        "facts": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct/v/0.1.8/facts.json",
+        "npm": "https://www.npmjs.com/package/@fastwhitecat/integration-ksef-direct",
+        "repo": "https://github.com/FastWhiteCat/openmercato-module-ksef",
+        "docs": null
+      },
+      "addedAt": "2026-10-23",
+      "updatedAt": "2026-10-23T03:05:00Z",
+      "_meta": {
+        "com.openmercato.modules/installable": {
+          "0.9": "0.1.8",
+          "0.8": "0.1.8",
+          "next": "0.1.8"
+        }
+      }
+    },
+    {
+      "locator": "npm:@fullstackhouse/open-mercato-data-sync-durable",
+      "path": "@fullstackhouse/open-mercato-data-sync-durable",
+      "npm": "@fullstackhouse/open-mercato-data-sync-durable",
+      "github": "fullstackhouse/open-mercato-durable",
+      "repoPath": null,
+      "kind": "module",
+      "type": "3rd-party",
+      "enterprise": false,
+      "title": "Durable Data Sync",
+      "summary": "Drop-in replacement for the built-in data_sync module on leased durable jobs.",
+      "whenToUse": "Use when long imports must survive worker restarts with lease and epoch fencing.",
+      "whenNotToUse": null,
+      "category": "integrations-sync",
+      "tags": [],
+      "providers": [],
+      "moduleIds": [
+        "data_sync"
+      ],
+      "requires": [
+        {
+          "raw": "@fullstackhouse/open-mercato-durable-work",
+          "resolvesTo": "npm:@fullstackhouse/open-mercato-durable-work"
+        }
+      ],
+      "replaces": [
+        "core:data_sync"
+      ],
+      "slotConflicts": [],
+      "renamedFrom": [],
+      "supersededBy": null,
+      "alternatives": [],
+      "status": "active",
+      "listed": true,
+      "featured": false,
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi",
+        "mismatch": false
+      },
+      "version": {
+        "latest": "0.6.0",
+        "preview": null,
+        "publishedAt": "2026-09-17",
+        "integrity": "sha512-LJ8pmZjcEjdlX2yuDkmNADwyqbxzvpn7oRHXemr/gdhUf5A7sAvl48Cgz3HArXX5S8kXoiFFOVH2E+7H3kKS+w==",
+        "installableFrom": "2026-09-22",
+        "gitRef": "1bf9ada1b3e3bb9022b07684252b5aeaf23191b1",
+        "recommended": {
+          "0.9": null,
+          "0.8": null,
+          "next": null
+        }
+      },
+      "identity": {
+        "builtFrom": "verified",
+        "claimed": false,
+        "source": "npm"
+      },
+      "compat": {
+        "builtFor": {
+          "range": ">=0.7.0 <0.8.0",
+          "kind": "bounded",
+          "lines": []
+        },
+        "lines": {},
+        "verifiedOn": []
+      },
+      "anatomy": {
+        "version": "0.6.0",
+        "coverage": "full",
+        "counts": {
+          "entities": 0,
+          "tables": 0,
+          "migrations": 2,
+          "routes": 11,
+          "publicRoutes": 0,
+          "aclFeatures": 0,
+          "eventsEmitted": 0,
+          "eventsConsumed": 0,
+          "backendPages": 2,
+          "frontendPages": 0,
+          "widgets": 0,
+          "workers": 0,
+          "cli": 0,
+          "aiTools": 0,
+          "aiAgents": 0,
+          "extends": 0
+        },
+        "lists": {
+          "aclFeatures": [],
+          "eventsEmitted": [],
+          "eventsConsumed": [],
+          "env": [],
+          "hosts": [],
+          "tables": [],
+          "publicRoutes": [],
+          "credentials": []
+        },
+        "callout": "ADDS 11 ROUTES (0 PUBLIC)",
+        "diff": null
+      },
+      "signals": {
+        "receipt": {
+          "0.9": "untested",
+          "0.8": "untested",
+          "next": "untested"
+        },
+        "fit": {
+          "0.9": "ok",
+          "0.8": "ok",
+          "next": "ok"
+        },
+        "anatomy": "full",
+        "supplyChain": {
+          "status": "ok",
+          "reasons": []
+        },
+        "hygiene": {
+          "status": "ok",
+          "failing": []
+        },
+        "maintenance": {
+          "status": "current",
+          "lastRelease": "2026-09-17",
+          "catchUpDays": null
+        },
+        "declaredVsObserved": {
+          "status": "match",
+          "notes": []
+        }
+      },
+      "tier": "listed",
+      "quality": null,
+      "agentPolicy": {
+        "0.9": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.9 yet."
+            },
+            {
+              "code": "REPLACES",
+              "text": "Replaces core data_sync. Remove the core registration first."
+            }
+          ],
+          "consentText": "Install @fullstackhouse/open-mercato-data-sync-durable@0.6.0"
+        },
+        "0.8": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.8 yet."
+            },
+            {
+              "code": "REPLACES",
+              "text": "Replaces core data_sync. Remove the core registration first."
+            }
+          ],
+          "consentText": "Install @fullstackhouse/open-mercato-data-sync-durable@0.6.0"
+        },
+        "next": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on next yet."
+            },
+            {
+              "code": "REPLACES",
+              "text": "Replaces core data_sync. Remove the core registration first."
+            }
+          ],
+          "consentText": "Install @fullstackhouse/open-mercato-data-sync-durable@0.6.0"
+        }
+      },
+      "install": {
+        "cli": "yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party",
+        "cmm": "npx create-mercato-module install @fullstackhouse/open-mercato-data-sync-durable@0.6.0",
+        "needsAllowThirdParty": true,
+        "moduleFlag": null
+      },
+      "stats": {
+        "downloads30d": 172,
+        "stars": null
+      },
+      "sigil": {
+        "glyph": "1320000",
+        "phase": 294,
+        "publicRoutes": false
+      },
+      "links": {
+        "page": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-data-sync-durable",
+        "md": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-data-sync-durable.md",
+        "json": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-data-sync-durable.json",
+        "facts": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-data-sync-durable/v/0.6.0/facts.json",
+        "npm": "https://www.npmjs.com/package/@fullstackhouse/open-mercato-data-sync-durable",
+        "repo": "https://github.com/fullstackhouse/open-mercato-durable",
+        "docs": null
+      },
+      "addedAt": "2026-10-23",
+      "updatedAt": "2026-10-23T03:05:00Z",
+      "_meta": {
+        "com.openmercato.modules/installable": {
+          "0.9": "0.6.0",
+          "0.8": "0.6.0",
+          "next": "0.6.0"
+        }
+      }
+    },
+    {
+      "locator": "npm:@fullstackhouse/open-mercato-durable-work",
+      "path": "@fullstackhouse/open-mercato-durable-work",
+      "npm": "@fullstackhouse/open-mercato-durable-work",
+      "github": null,
+      "repoPath": null,
+      "kind": "module",
+      "type": "3rd-party",
+      "enterprise": false,
+      "title": "Durable Work",
+      "summary": "Durable at-least-once background work on leased job records in Postgres.",
+      "whenToUse": "Use when background jobs must survive deploys and worker kills and resume where they stopped.",
+      "whenNotToUse": null,
+      "category": "storage-infrastructure",
+      "tags": [
+        "background-jobs",
+        "durable"
+      ],
+      "providers": [],
+      "moduleIds": [
+        "durable_work"
+      ],
+      "requires": [],
+      "replaces": [],
+      "slotConflicts": [],
+      "renamedFrom": [],
+      "supersededBy": null,
+      "alternatives": [],
+      "status": "active",
+      "listed": true,
+      "featured": false,
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi",
+        "mismatch": false
+      },
+      "version": {
+        "latest": "0.6.0",
+        "preview": null,
+        "publishedAt": "2026-09-17",
+        "integrity": "sha512-uA3NDDbBb2LLA9KG2ZtXm1LeY2RJtDoOFzQafJcWTa/VstxZ8/yJL1BQL9OOWMVBM3qKbTrw6HodEQ5A287o3A==",
+        "installableFrom": "2026-09-22",
+        "gitRef": "1bf9ada1b3e3bb9022b07684252b5aeaf23191b1",
+        "recommended": {
+          "0.9": "0.6.0",
+          "0.8": null,
+          "next": null
+        }
+      },
+      "identity": {
+        "builtFrom": "verified",
+        "claimed": false,
+        "source": "npm"
+      },
+      "compat": {
+        "builtFor": {
+          "range": ">=0.7.0 <0.8.0",
+          "kind": "bounded",
+          "lines": []
+        },
+        "lines": {
+          "0.9": {
+            "status": "verified",
+            "step": null,
+            "omVersion": "0.9.0",
+            "moduleVersion": "0.6.0",
+            "at": "2026-10-23T02:17:00Z",
+            "receipt": "r_20261023_a719d113ce7a",
+            "since": "2026-10-23",
+            "precheck": null,
+            "patches": [
+              "api-keys"
+            ]
+          }
+        },
+        "verifiedOn": [
+          "0.9"
+        ]
+      },
+      "anatomy": {
+        "version": "0.6.0",
+        "coverage": "full",
+        "counts": {
+          "entities": 1,
+          "tables": 1,
+          "migrations": 1,
+          "routes": 3,
+          "publicRoutes": 0,
+          "aclFeatures": 2,
+          "eventsEmitted": 10,
+          "eventsConsumed": 0,
+          "backendPages": 0,
+          "frontendPages": 0,
+          "widgets": 0,
+          "workers": 0,
+          "cli": 3,
+          "aiTools": 0,
+          "aiAgents": 0,
+          "extends": 0
+        },
+        "lists": {
+          "aclFeatures": [
+            "durable_work.view",
+            "durable_work.operate"
+          ],
+          "eventsEmitted": [
+            "durable_work.job.created",
+            "durable_work.job.started",
+            "durable_work.job.yielded",
+            "durable_work.job.completed",
+            "durable_work.job.failed",
+            "durable_work.job.parked",
+            "durable_work.job.cancelled",
+            "durable_work.job.redriven",
+            "durable_work.job.lease_lost",
+            "durable_work.job.mirror_stuck"
+          ],
+          "eventsConsumed": [],
+          "env": [],
+          "hosts": [],
+          "tables": [
+            "durable_work_jobs"
+          ],
+          "publicRoutes": [],
+          "credentials": []
+        },
+        "callout": "ADDS 1 TABLE · 3 ROUTES (0 PUBLIC) · 2 PERMISSIONS · EMITS 10 EVENTS",
+        "diff": null
+      },
+      "signals": {
+        "receipt": {
+          "0.9": "verified",
+          "0.8": "untested",
+          "next": "untested"
+        },
+        "fit": {
+          "0.9": "ok",
+          "0.8": "ok",
+          "next": "drift"
+        },
+        "anatomy": "full",
+        "supplyChain": {
+          "status": "ok",
+          "reasons": []
+        },
+        "hygiene": {
+          "status": "ok",
+          "failing": []
+        },
+        "maintenance": {
+          "status": "current",
+          "lastRelease": "2026-09-17",
+          "catchUpDays": null
+        },
+        "declaredVsObserved": {
+          "status": "mismatch",
+          "notes": [
+            "Built for no tested line; verified on 0.9."
+          ]
+        }
+      },
+      "tier": "verified",
+      "quality": null,
+      "agentPolicy": {
+        "0.9": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            }
+          ],
+          "consentText": "Install @fullstackhouse/open-mercato-durable-work@0.6.0"
+        },
+        "0.8": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.8 yet."
+            }
+          ],
+          "consentText": "Install @fullstackhouse/open-mercato-durable-work@0.6.0"
+        },
+        "next": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on next yet."
+            }
+          ],
+          "consentText": "Install @fullstackhouse/open-mercato-durable-work@0.6.0"
+        }
+      },
+      "install": {
+        "cli": "yarn mercato module add @fullstackhouse/open-mercato-durable-work@0.6.0 --allow-third-party",
+        "cmm": "npx create-mercato-module install @fullstackhouse/open-mercato-durable-work@0.6.0",
+        "needsAllowThirdParty": true,
+        "moduleFlag": null
+      },
+      "stats": {
+        "downloads30d": 204,
+        "stars": null
+      },
+      "sigil": {
+        "glyph": "2203200",
+        "phase": 194,
+        "publicRoutes": false
+      },
+      "links": {
+        "page": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-durable-work",
+        "md": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-durable-work.md",
+        "json": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-durable-work.json",
+        "facts": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-durable-work/v/0.6.0/facts.json",
+        "npm": "https://www.npmjs.com/package/@fullstackhouse/open-mercato-durable-work",
+        "repo": null,
+        "docs": null
+      },
+      "addedAt": "2026-10-23",
+      "updatedAt": "2026-10-23T03:05:00Z",
+      "_meta": {
+        "com.openmercato.modules/installable": {
+          "0.9": "0.6.0",
+          "0.8": "0.6.0",
+          "next": "0.6.0"
+        }
+      }
+    },
+    {
+      "locator": "npm:@open-mercato/enterprise",
+      "path": "@open-mercato/enterprise",
+      "npm": "@open-mercato/enterprise",
+      "github": null,
+      "repoPath": null,
+      "kind": "module",
+      "type": "official",
+      "enterprise": true,
+      "title": "Enterprise",
+      "summary": "Commercial Open Mercato modules for SSO, security, record locks and agent orchestration.",
+      "whenToUse": "Use when a production app needs SSO, record locks or agent orchestration under a commercial license.",
+      "whenNotToUse": null,
+      "category": "auth-security",
+      "tags": [],
+      "providers": [],
+      "moduleIds": [
+        "agent_orchestrator",
+        "record_locks",
+        "security",
+        "sso",
+        "system_status_overlays"
+      ],
+      "requires": [],
+      "replaces": [],
+      "slotConflicts": [],
+      "renamedFrom": [],
+      "supersededBy": null,
+      "alternatives": [],
+      "status": "active",
+      "listed": true,
+      "featured": false,
+      "license": {
+        "spdx": null,
+        "kind": "enterprise",
+        "mismatch": false
+      },
+      "version": {
+        "latest": "0.9.0",
+        "preview": null,
+        "publishedAt": "2026-10-09",
+        "integrity": "sha512-d6wOhNvfBA0+UJA4T/fF2QVxkjbg4aRaOsTGZVqYweKURReiz/EoBg7M/1CE+L0cbphP1kadwy/7RWGZrpE6JA==",
+        "installableFrom": "2026-10-09",
+        "gitRef": null,
+        "recommended": {
+          "0.9": null,
+          "0.8": null,
+          "next": null
+        }
+      },
+      "identity": {
+        "builtFrom": "verified",
+        "claimed": false,
+        "source": "npm"
+      },
+      "compat": {
+        "builtFor": {
+          "range": "0.9.0",
+          "kind": "exact-pin",
+          "lines": [
+            "0.9"
+          ]
+        },
+        "lines": {},
+        "verifiedOn": []
+      },
+      "anatomy": null,
+      "signals": {
+        "receipt": {
+          "0.9": "skipped",
+          "0.8": "skipped",
+          "next": "skipped"
+        },
+        "fit": {
+          "0.9": "ok",
+          "0.8": "unknown",
+          "next": "ok"
+        },
+        "anatomy": "hidden",
+        "supplyChain": {
+          "status": "ok",
+          "reasons": []
+        },
+        "hygiene": {
+          "status": "warn",
+          "failing": [
+            "invalid-identifier",
+            "peer-exact-pin"
+          ]
+        },
+        "maintenance": {
+          "status": "current",
+          "lastRelease": "2026-10-09",
+          "catchUpDays": null
+        },
+        "declaredVsObserved": {
+          "status": "mismatch",
+          "notes": [
+            "Built for 0.9; verified on no line."
+          ]
+        }
+      },
+      "tier": null,
+      "quality": null,
+      "agentPolicy": {
+        "0.9": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.9 yet."
+            },
+            {
+              "code": "LICENSE",
+              "text": "License: enterprise (SEE LICENSE IN LICENSE.md)."
+            }
+          ],
+          "consentText": "Install @open-mercato/enterprise@0.9.0"
+        },
+        "0.8": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.8 yet."
+            },
+            {
+              "code": "LICENSE",
+              "text": "License: enterprise (SEE LICENSE IN LICENSE.md)."
+            }
+          ],
+          "consentText": "Install @open-mercato/enterprise@0.8.0"
+        },
+        "next": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on next yet."
+            },
+            {
+              "code": "LICENSE",
+              "text": "License: enterprise (SEE LICENSE IN LICENSE.md)."
+            }
+          ],
+          "consentText": "Install @open-mercato/enterprise@0.9.0"
+        }
+      },
+      "install": {
+        "cli": "yarn mercato module add @open-mercato/enterprise@0.9.0",
+        "cmm": "npx create-mercato-module install @open-mercato/enterprise@0.9.0",
+        "needsAllowThirdParty": false,
+        "moduleFlag": null
+      },
+      "stats": null,
+      "sigil": {
+        "glyph": "0000000",
+        "phase": 318,
+        "publicRoutes": false
+      },
+      "links": {
+        "page": "https://modules.openmercato.com/m/@open-mercato/enterprise",
+        "md": "https://modules.openmercato.com/m/@open-mercato/enterprise.md",
+        "json": "https://modules.openmercato.com/m/@open-mercato/enterprise.json",
+        "facts": null,
+        "npm": "https://www.npmjs.com/package/@open-mercato/enterprise",
+        "repo": "https://github.com/open-mercato/open-mercato",
+        "docs": null
+      },
+      "addedAt": "2026-10-23",
+      "updatedAt": "2026-10-23T03:05:00Z",
+      "_meta": {
+        "com.openmercato.modules/installable": {
+          "0.9": "0.9.0",
+          "0.8": "0.8.0",
+          "next": "0.9.0"
+        }
+      }
+    },
+    {
+      "locator": "npm:@open-mercato/gateway-stripe",
+      "path": "@open-mercato/gateway-stripe",
+      "npm": "@open-mercato/gateway-stripe",
+      "github": null,
+      "repoPath": "open-mercato/open-mercato#main/packages/gateway-stripe",
+      "kind": "module",
+      "type": "official",
+      "enterprise": false,
+      "title": "Stripe Payment Gateway",
+      "summary": "Card payments through Stripe for checkout and sales documents.",
+      "whenToUse": "Use when the app takes card payments and you already have a Stripe account.",
+      "whenNotToUse": "For PLN bank transfers and BLIK use gateway-tpay.",
+      "category": "payments-finance",
+      "tags": [],
+      "providers": [
+        {
+          "name": "stripe",
+          "label": "Stripe"
+        }
+      ],
+      "moduleIds": [
+        "gateway_stripe"
+      ],
+      "requires": [],
+      "replaces": [],
+      "slotConflicts": [],
+      "renamedFrom": [],
+      "supersededBy": null,
+      "alternatives": [],
+      "status": "active",
+      "listed": true,
+      "featured": false,
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi",
+        "mismatch": false
+      },
+      "version": {
+        "latest": "0.9.0",
+        "preview": null,
+        "publishedAt": "2026-10-09",
+        "integrity": "sha512-U/tlIjnj/V5AuSB+fEEIh4Ta9Uftzrzr5iUb6nSWLcd7W8W7mzPHd6Ngg3ZYPH9g98cSUayH1e6nOga2E3Iqag==",
+        "installableFrom": "2026-10-09",
+        "gitRef": null,
+        "recommended": {
+          "0.9": "0.9.0",
+          "0.8": null,
+          "next": null
+        }
+      },
+      "identity": {
+        "builtFrom": "verified",
+        "claimed": false,
+        "source": "npm"
+      },
+      "compat": {
+        "builtFor": {
+          "range": "0.9.0",
+          "kind": "exact-pin",
+          "lines": [
+            "0.9"
+          ]
+        },
+        "lines": {
+          "0.9": {
+            "status": "verified",
+            "step": null,
+            "omVersion": "0.9.0",
+            "moduleVersion": "0.9.0",
+            "at": "2026-10-23T02:17:00Z",
+            "receipt": "r_20261023_d1ff59259fdf",
+            "since": "2026-10-23",
+            "precheck": null,
+            "patches": [
+              "api-keys"
+            ]
+          }
+        },
+        "verifiedOn": [
+          "0.9"
+        ]
+      },
+      "anatomy": {
+        "version": "0.9.0",
+        "coverage": "full",
+        "counts": {
+          "entities": 0,
+          "tables": 0,
+          "migrations": 0,
+          "routes": 0,
+          "publicRoutes": 0,
+          "aclFeatures": 2,
+          "eventsEmitted": 0,
+          "eventsConsumed": 0,
+          "backendPages": 0,
+          "frontendPages": 0,
+          "widgets": 4,
+          "workers": 1,
+          "cli": 2,
+          "aiTools": 0,
+          "aiAgents": 0,
+          "extends": 1
+        },
+        "lists": {
+          "aclFeatures": [
+            "gateway_stripe.view",
+            "gateway_stripe.configure"
+          ],
+          "eventsEmitted": [],
+          "eventsConsumed": [],
+          "env": [],
+          "hosts": [
+            "docs.stripe.com"
+          ],
+          "tables": [],
+          "publicRoutes": [],
+          "credentials": [
+            {
+              "key": "publishableKey",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "secretKey",
+              "type": "secret",
+              "required": true
+            },
+            {
+              "key": "webhookSecret",
+              "type": "secret",
+              "required": true
+            }
+          ]
+        },
+        "callout": "ADDS 2 PERMISSIONS",
+        "diff": null
+      },
+      "signals": {
+        "receipt": {
+          "0.9": "verified",
+          "0.8": "untested",
+          "next": "untested"
+        },
+        "fit": {
+          "0.9": "ok",
+          "0.8": "ok",
+          "next": "ok"
+        },
+        "anatomy": "full",
+        "supplyChain": {
+          "status": "ok",
+          "reasons": []
+        },
+        "hygiene": {
+          "status": "warn",
+          "failing": [
+            "peer-exact-pin"
+          ]
+        },
+        "maintenance": {
+          "status": "current",
+          "lastRelease": "2026-10-09",
+          "catchUpDays": null
+        },
+        "declaredVsObserved": {
+          "status": "match",
+          "notes": []
+        }
+      },
+      "tier": "verified",
+      "quality": null,
+      "agentPolicy": {
+        "0.9": {
+          "decision": "allow",
+          "reasons": [
+            {
+              "code": "OFFICIAL_VERIFIED",
+              "text": "Official, verified on 0.9."
+            }
+          ]
+        },
+        "0.8": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.8 yet."
+            }
+          ],
+          "consentText": "Install @open-mercato/gateway-stripe@0.9.0"
+        },
+        "next": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on next yet."
+            }
+          ],
+          "consentText": "Install @open-mercato/gateway-stripe@0.9.0"
+        }
+      },
+      "install": {
+        "cli": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
+        "cmm": "npx create-mercato-module install @open-mercato/gateway-stripe@0.9.0",
+        "needsAllowThirdParty": false,
+        "moduleFlag": null
+      },
+      "stats": null,
+      "sigil": {
+        "glyph": "0020201",
+        "phase": 141,
+        "publicRoutes": false
+      },
+      "links": {
+        "page": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe",
+        "md": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe.md",
+        "json": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe.json",
+        "facts": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe/v/0.9.0/facts.json",
+        "npm": "https://www.npmjs.com/package/@open-mercato/gateway-stripe",
+        "repo": "https://github.com/open-mercato/open-mercato",
+        "docs": null
+      },
+      "addedAt": "2026-10-23",
+      "updatedAt": "2026-10-23T03:05:00Z",
+      "_meta": {
+        "com.openmercato.modules/installable": {
+          "0.9": "0.9.0",
+          "0.8": "0.9.0",
+          "next": "0.9.0"
+        }
+      }
+    },
+    {
+      "locator": "npm:@open-mercato/gateway-tpay",
+      "path": "@open-mercato/gateway-tpay",
+      "npm": "@open-mercato/gateway-tpay",
+      "github": null,
+      "repoPath": null,
+      "kind": "module",
+      "type": "official",
+      "enterprise": false,
+      "title": "Tpay Payment Gateway",
+      "summary": "PLN payments and BLIK through Tpay for checkout and sales documents.",
+      "whenToUse": "Use when the app takes PLN bank transfers or BLIK payments through a Tpay account.",
+      "whenNotToUse": null,
+      "category": "payments-finance",
+      "tags": [],
+      "providers": [
+        {
+          "name": "tpay",
+          "label": "Tpay"
+        }
+      ],
+      "moduleIds": [
+        "gateway_tpay"
+      ],
+      "requires": [],
+      "replaces": [],
+      "slotConflicts": [],
+      "renamedFrom": [],
+      "supersededBy": null,
+      "alternatives": [],
+      "status": "active",
+      "listed": true,
+      "featured": false,
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi",
+        "mismatch": false
+      },
+      "version": {
+        "latest": null,
+        "preview": "0.8.1-develop.7442.1.4c1dbf1f0e",
+        "publishedAt": "2026-10-10",
+        "integrity": "sha512-HGCiENOGtHStItm8ekf6I02pWbgmQR+7LalF60XIBgK4qWHe8f+h7GPpYlr9S1JtBxUCB0YJLHNQeHqYfCEO+g==",
+        "installableFrom": "2026-10-10",
+        "gitRef": null,
+        "recommended": {
+          "0.9": null,
+          "0.8": null,
+          "next": null
+        }
+      },
+      "identity": {
+        "builtFrom": "verified",
+        "claimed": false,
+        "source": "npm"
+      },
+      "compat": {
+        "builtFor": {
+          "range": null,
+          "kind": "missing",
+          "lines": []
+        },
+        "lines": {},
+        "verifiedOn": []
+      },
+      "anatomy": {
+        "version": "0.8.1-develop.7442.1.4c1dbf1f0e",
+        "coverage": "partial",
+        "counts": {
+          "entities": 0,
+          "tables": 0,
+          "migrations": 0,
+          "routes": 0,
+          "publicRoutes": 0,
+          "aclFeatures": 2,
+          "eventsEmitted": 0,
+          "eventsConsumed": 0,
+          "backendPages": 0,
+          "frontendPages": 0,
+          "widgets": 0,
+          "workers": 0,
+          "cli": 2,
+          "aiTools": 0,
+          "aiAgents": 0,
+          "extends": 1
+        },
+        "lists": {
+          "aclFeatures": [
+            "gateway_tpay.view",
+            "gateway_tpay.configure"
+          ],
+          "eventsEmitted": [],
+          "eventsConsumed": [],
+          "env": [],
+          "hosts": [
+            "docs-api.tpay.com",
+            "api.tpay.com",
+            "openapi.sandbox.tpay.com"
+          ],
+          "tables": [],
+          "publicRoutes": [],
+          "credentials": [
+            {
+              "key": "clientId",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "clientSecret",
+              "type": "secret",
+              "required": true
+            },
+            {
+              "key": "environment",
+              "type": "select",
+              "required": true
+            },
+            {
+              "key": "notificationUrl",
+              "type": "url",
+              "required": false
+            },
+            {
+              "key": "notificationSecurityCode",
+              "type": "secret",
+              "required": false
+            }
+          ]
+        },
+        "callout": "ADDS 2 PERMISSIONS",
+        "diff": null
+      },
+      "signals": {
+        "receipt": {
+          "0.9": "skipped",
+          "0.8": "skipped",
+          "next": "untested"
+        },
+        "fit": {
+          "0.9": "unknown",
+          "0.8": "unknown",
+          "next": "unknown"
+        },
+        "anatomy": "partial",
+        "supplyChain": {
+          "status": "ok",
+          "reasons": []
+        },
+        "hygiene": {
+          "status": "warn",
+          "failing": [
+            "peer-exact-pin"
+          ]
+        },
+        "maintenance": {
+          "status": "current",
+          "lastRelease": "2026-10-10",
+          "catchUpDays": null
+        },
+        "declaredVsObserved": {
+          "status": "match",
+          "notes": []
+        }
+      },
+      "tier": "listed",
+      "quality": null,
+      "agentPolicy": {
+        "0.9": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.9 yet."
+            }
+          ],
+          "consentText": "Install @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e"
+        },
+        "0.8": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.8 yet."
+            }
+          ],
+          "consentText": "Install @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e"
+        },
+        "next": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on next yet."
+            }
+          ],
+          "consentText": "Install @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e"
+        }
+      },
+      "install": {
+        "cli": "yarn mercato module add @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e",
+        "cmm": "npx create-mercato-module install @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e",
+        "needsAllowThirdParty": false,
+        "moduleFlag": null
+      },
+      "stats": null,
+      "sigil": {
+        "glyph": "0000201",
+        "phase": 104,
+        "publicRoutes": false
+      },
+      "links": {
+        "page": "https://modules.openmercato.com/m/@open-mercato/gateway-tpay",
+        "md": "https://modules.openmercato.com/m/@open-mercato/gateway-tpay.md",
+        "json": "https://modules.openmercato.com/m/@open-mercato/gateway-tpay.json",
+        "facts": "https://modules.openmercato.com/m/@open-mercato/gateway-tpay/v/0.8.1-develop.7442.1.4c1dbf1f0e/facts.json",
+        "npm": "https://www.npmjs.com/package/@open-mercato/gateway-tpay",
+        "repo": "https://github.com/open-mercato/open-mercato",
+        "docs": null
+      },
+      "addedAt": "2026-10-23",
+      "updatedAt": "2026-10-23T03:05:00Z",
+      "_meta": {
+        "com.openmercato.modules/installable": {
+          "0.9": null,
+          "0.8": null,
+          "next": null
+        }
+      }
+    },
+    {
+      "locator": "npm:@piotrkarwatka/marketing-consents",
+      "path": "@piotrkarwatka/marketing-consents",
+      "npm": "@piotrkarwatka/marketing-consents",
+      "github": null,
+      "repoPath": null,
+      "kind": "module",
+      "type": "community",
+      "enterprise": false,
+      "title": "Marketing Consents",
+      "summary": "Records and withdraws marketing consents for customers, with encrypted fields.",
+      "whenToUse": "Use when the app must store marketing consent records and let staff withdraw them.",
+      "whenNotToUse": null,
+      "category": "marketing-loyalty",
+      "tags": [],
+      "providers": [],
+      "moduleIds": [
+        "marketing_consents"
+      ],
+      "requires": [],
+      "replaces": [],
+      "slotConflicts": [],
+      "renamedFrom": [],
+      "supersededBy": null,
+      "alternatives": [],
+      "status": "active",
+      "listed": true,
+      "featured": false,
+      "license": {
+        "spdx": null,
+        "kind": "proprietary",
+        "mismatch": false
+      },
+      "version": {
+        "latest": "0.1.0",
+        "preview": null,
+        "publishedAt": "2026-10-14",
+        "integrity": "sha512-ByUXs82VmoFMQa6c7kgE1yhKDBH9MNhZoMvTnkpU0ORD4KxHyv4/fQGUXOzmiUnfU6+Zsc4H1hncG7GbnaE2ig==",
+        "installableFrom": "2026-10-19",
+        "gitRef": null,
+        "recommended": {
+          "0.9": null,
+          "0.8": null,
+          "next": null
+        }
+      },
+      "identity": {
+        "builtFrom": "none",
+        "claimed": false,
+        "source": "npm"
+      },
+      "compat": {
+        "builtFor": {
+          "range": "0.9.0",
+          "kind": "exact-pin",
+          "lines": [
+            "0.9"
+          ]
+        },
+        "lines": {
+          "0.9": {
+            "status": "broken",
+            "step": "typecheck",
+            "omVersion": "0.9.0",
+            "moduleVersion": "0.1.0",
+            "at": "2026-10-23T02:17:00Z",
+            "receipt": "r_20261023_9dc851ba3c0e",
+            "since": "2026-10-23",
+            "precheck": null,
+            "patches": [
+              "api-keys"
+            ]
+          }
+        },
+        "verifiedOn": []
+      },
+      "anatomy": {
+        "version": "0.1.0",
+        "coverage": "partial",
+        "counts": {
+          "entities": 2,
+          "tables": 2,
+          "migrations": 1,
+          "routes": 4,
+          "publicRoutes": 1,
+          "aclFeatures": 3,
+          "eventsEmitted": 0,
+          "eventsConsumed": 0,
+          "backendPages": 2,
+          "frontendPages": 0,
+          "widgets": 0,
+          "workers": 0,
+          "cli": 0,
+          "aiTools": 0,
+          "aiAgents": 0,
+          "extends": 0
+        },
+        "lists": {
+          "aclFeatures": [
+            "marketing_consents.record",
+            "marketing_consents.view",
+            "marketing_consents.withdraw"
+          ],
+          "eventsEmitted": [],
+          "eventsConsumed": [],
+          "env": [],
+          "hosts": [],
+          "tables": [
+            "marketing_consent_records",
+            "marketing_consent_withdrawal_evidence"
+          ],
+          "publicRoutes": [],
+          "credentials": []
+        },
+        "callout": "ADDS 2 TABLES · 4 ROUTES (1 PUBLIC) · 3 PERMISSIONS",
+        "diff": null
+      },
+      "signals": {
+        "receipt": {
+          "0.9": "broken",
+          "0.8": "untested",
+          "next": "untested"
+        },
+        "fit": {
+          "0.9": "ok",
+          "0.8": "no-fit",
+          "next": "drift"
+        },
+        "anatomy": "partial",
+        "supplyChain": {
+          "status": "ok",
+          "reasons": []
+        },
+        "hygiene": {
+          "status": "warn",
+          "failing": [
+            "host-dependency-duplication",
+            "peer-exact-pin"
+          ]
+        },
+        "maintenance": {
+          "status": "current",
+          "lastRelease": "2026-10-14",
+          "catchUpDays": null
+        },
+        "declaredVsObserved": {
+          "status": "mismatch",
+          "notes": [
+            "Built for 0.9; verified on no line."
+          ]
+        }
+      },
+      "tier": "listed",
+      "quality": null,
+      "agentPolicy": {
+        "0.9": {
+          "decision": "refuse",
+          "reasons": [
+            {
+              "code": "BROKEN",
+              "text": "Fails at typecheck on 0.9 since 23 Oct."
+            },
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "LICENSE",
+              "text": "License: proprietary (UNLICENSED)."
+            }
+          ]
+        },
+        "0.8": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on 0.8 yet."
+            },
+            {
+              "code": "LICENSE",
+              "text": "License: proprietary (UNLICENSED)."
+            }
+          ],
+          "consentText": "Install @piotrkarwatka/marketing-consents@0.1.0"
+        },
+        "next": {
+          "decision": "ask",
+          "reasons": [
+            {
+              "code": "THIRD_PARTY",
+              "text": "Third-party code runs with access to all tenants' data."
+            },
+            {
+              "code": "NOT_VERIFIED",
+              "text": "No receipt on next yet."
+            },
+            {
+              "code": "LICENSE",
+              "text": "License: proprietary (UNLICENSED)."
+            }
+          ],
+          "consentText": "Install @piotrkarwatka/marketing-consents@0.1.0"
+        }
+      },
+      "install": {
+        "cli": "yarn mercato module add @piotrkarwatka/marketing-consents@0.1.0 --allow-third-party",
+        "cmm": "npx create-mercato-module install @piotrkarwatka/marketing-consents@0.1.0",
+        "needsAllowThirdParty": true,
+        "moduleFlag": null
+      },
+      "stats": {
+        "downloads30d": 21,
+        "stars": 0
+      },
+      "sigil": {
+        "glyph": "2220000",
+        "phase": 125,
+        "publicRoutes": true
+      },
+      "links": {
+        "page": "https://modules.openmercato.com/m/@piotrkarwatka/marketing-consents",
+        "md": "https://modules.openmercato.com/m/@piotrkarwatka/marketing-consents.md",
+        "json": "https://modules.openmercato.com/m/@piotrkarwatka/marketing-consents.json",
+        "facts": "https://modules.openmercato.com/m/@piotrkarwatka/marketing-consents/v/0.1.0/facts.json",
+        "npm": "https://www.npmjs.com/package/@piotrkarwatka/marketing-consents",
+        "repo": "https://github.com/pkarw/marketing-consents",
+        "docs": null
+      },
+      "addedAt": "2026-10-23",
+      "updatedAt": "2026-10-23T03:05:00Z",
+      "_meta": {
+        "com.openmercato.modules/installable": {
+          "0.9": "0.1.0",
+          "0.8": "0.1.0",
+          "next": "0.1.0"
+        }
+      }
+    }
+  ]
+}

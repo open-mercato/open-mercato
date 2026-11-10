@@ -33,6 +33,10 @@ describe('reviveSnapshotSeed', () => {
     expect(seed.symbol).toBeNull()
     expect(seed.decimalPlaces).toBe(2)
   })
+
+  it('throws on an unparsable date instead of seeding an Invalid Date', () => {
+    expect(() => reviveSnapshotSeed({ id: 'row-1', createdAt: 'not-a-date' })).toThrow('Invalid createdAt snapshot date')
+  })
 })
 
 describe('serializeRowSnapshot', () => {

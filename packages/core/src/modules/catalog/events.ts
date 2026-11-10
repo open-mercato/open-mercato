@@ -10,9 +10,15 @@ const events = [
   // bridge to the DataTable on /backend/catalog/catalog/products via the
   // DOM event bridge so confirmed mutations (AI or otherwise) auto-refresh
   // the list without a round-trip.
-  { id: 'catalog.product.created', label: 'Product Created', entity: 'product', category: 'crud', clientBroadcast: true },
-  { id: 'catalog.product.updated', label: 'Product Updated', entity: 'product', category: 'crud', clientBroadcast: true },
-  { id: 'catalog.product.deleted', label: 'Product Deleted', entity: 'product', category: 'crud', clientBroadcast: true },
+  //
+  // They coalesce their browser delivery (#5733): the consumer is a list that
+  // refetches, so it needs to know that products changed and to be correct when
+  // a burst ends — not to be told 2,000 times during a bulk import, which would
+  // cost a pg_notify roundtrip and a tenant-wide SSE fan-out per row. Subscribers,
+  // webhooks and the queue still see one event per record.
+  { id: 'catalog.product.created', label: 'Product Created', entity: 'product', category: 'crud', clientBroadcast: true, broadcastCoalescing: true },
+  { id: 'catalog.product.updated', label: 'Product Updated', entity: 'product', category: 'crud', clientBroadcast: true, broadcastCoalescing: true },
+  { id: 'catalog.product.deleted', label: 'Product Deleted', entity: 'product', category: 'crud', clientBroadcast: true, broadcastCoalescing: true },
   { id: 'catalog.product.stock_low', label: 'Product Stock Low', entity: 'product', category: 'lifecycle' },
   { id: 'catalog.product_unit_conversion.created', label: 'Product Unit Conversion Created', entity: 'product_unit_conversion', category: 'crud' },
   { id: 'catalog.product_unit_conversion.updated', label: 'Product Unit Conversion Updated', entity: 'product_unit_conversion', category: 'crud' },

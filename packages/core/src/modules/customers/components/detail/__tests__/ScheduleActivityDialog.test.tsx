@@ -8,11 +8,15 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ScheduleActivityDialog } from '../ScheduleActivityDialog'
 import type { ScheduleActivityEditData } from '../schedule'
+import { calendarEventTypes } from '../../../calendar-event-types'
+import { findInapplicableCoreFields } from '../../../lib/calendar/interactionApplicability'
+import type { ScopedCalendarEventType } from '../../../lib/calendar/eventTypeResolver'
 
 const readApiResultOrThrowMock = jest.fn()
 const setConflictMock = jest.fn()
 const apiCallOrThrowMock = apiCallOrThrow as jest.Mock
 const flashMock = flash as jest.Mock
+const mutationPayloadMock = jest.fn()
 
 function createScheduleState(overrides: Record<string, unknown> = {}) {
   return {
@@ -65,6 +69,16 @@ function createScheduleState(overrides: Record<string, unknown> = {}) {
 }
 
 let mockScheduleState = createScheduleState()
+let mockUseRealScheduleState = false
+let mockCatalogStatus: 'ready' | 'loading' | 'error' = 'ready'
+let mockCatalogItems: readonly ScopedCalendarEventType[] = []
+const mockRetryCatalog = jest.fn()
+const mockConfirmDialog = jest.fn(async () => true)
+
+jest.mock('../../calendar/editor/useEventTypeCatalog', () => ({
+  ...jest.requireActual('../../calendar/editor/useEventTypeCatalog'),
+  useEventTypeCatalog: () => ({ status: mockCatalogStatus, items: mockCatalogStatus === 'ready' ? mockCatalogItems : [], retry: mockRetryCatalog }),
+}))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
@@ -78,21 +92,24 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   useGuardedMutation: () => ({
-    runMutation: async <T,>({ operation }: { operation: () => Promise<T> }) => operation(),
+    runMutation: async <T,>({ operation, mutationPayload }: { operation: () => Promise<T>; mutationPayload: unknown }) => {
+      mutationPayloadMock(mutationPayload)
+      return operation()
+    },
     retryLastMutation: async () => true,
   }),
 }))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({
-    confirm: jest.fn(async () => true),
+    confirm: mockConfirmDialog,
     ConfirmDialogElement: null,
   }),
 }))
 
 jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogContent: ({ children, onKeyDown }: React.HTMLAttributes<HTMLDivElement>) => <div role="dialog" onKeyDown={onKeyDown}>{children}</div>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
@@ -132,20 +149,30 @@ jest.mock('@open-mercato/ui/backend/inputs', () => ({
       {externalError ? <p>{externalError}</p> : null}
     </div>
   ),
-  SwitchableMarkdownInput: () => null,
+  SwitchableMarkdownInput: ({ disableMarkdown, value }: { disableMarkdown?: boolean; value: string }) => (
+    <textarea
+      aria-label="Description"
+      data-disable-markdown={disableMarkdown ? 'true' : 'false'}
+      value={value}
+      readOnly
+    />
+  ),
 }))
 
 jest.mock('../schedule', () => ({
-  useScheduleFormState: () => mockScheduleState,
-  FIELD_VISIBILITY: {
-    meeting: new Set(['duration']),
-    call: new Set(['duration']),
-    task: new Set(['duration']),
-    email: new Set(['duration']),
-    note: new Set(['description']),
-  },
+  useScheduleFormState: (params: unknown) => mockUseRealScheduleState
+    ? jest.requireActual('../schedule/useScheduleFormState').useScheduleFormState(params)
+    : mockScheduleState,
+  // Requiredness is the behavior under test in the #5941 cases below, so it
+  // keeps the real per-type rules rather than a stub.
+  isDateRequired: jest.requireActual('../schedule/fieldConfig').isDateRequired,
+  isTimeRequired: jest.requireActual('../schedule/fieldConfig').isTimeRequired,
+  resolveScheduleActivityType: jest.requireActual('../schedule/fieldConfig').resolveScheduleActivityType,
+  FIELD_VISIBILITY: jest.requireActual('../schedule/fieldConfig').FIELD_VISIBILITY,
   getFieldLabel: (_activityType: string, _fieldId: string, _t: unknown, _labelKey: string, fallback: string) => fallback,
-  DateTimeFields: () => null,
+  DateTimeFields: (props: unknown) => mockUseRealScheduleState
+    ? React.createElement(jest.requireActual('../schedule/DateTimeFields').DateTimeFields, props)
+    : null,
   ParticipantsField: () => null,
   LocationField: () => null,
   FooterFields: () => null,
@@ -167,14 +194,196 @@ describe('ScheduleActivityDialog', () => {
     readApiResultOrThrowMock.mockReset()
     apiCallOrThrowMock.mockReset()
     flashMock.mockReset()
+    mutationPayloadMock.mockReset()
     setConflictMock.mockReset()
     mockScheduleState = createScheduleState()
+    mockUseRealScheduleState = false
+    mockCatalogStatus = 'ready'
+    mockCatalogItems = []
+    mockRetryCatalog.mockReset()
+    mockConfirmDialog.mockClear()
     readApiResultOrThrowMock.mockResolvedValue({ hasConflicts: false, conflicts: [] })
   })
 
   afterEach(() => {
     jest.useRealTimers()
     jest.restoreAllMocks()
+  })
+
+  describe('custom activity edits (#8026)', () => {
+    function renderCustomActivity(baseKind: 'note' | 'task' | 'meeting', endTime = false, durationMinutes: number | null = null) {
+      const baseline = calendarEventTypes.find((definition) => definition.key === baseKind)!
+      mockCatalogItems = [{
+        ...baseline,
+        key: 'qa-custom-type',
+        behavior: { ...baseline.behavior, fields: { ...baseline.behavior.fields, endTime } },
+        provenance: {},
+        historical: false,
+        selectable: true,
+        adminConfigurable: true,
+        source: 'local',
+        isInherited: false,
+        isLocalOverride: false,
+        updatedAt: null,
+        missingCustomFieldsetIds: [],
+      }]
+      mockUseRealScheduleState = true
+      apiCallOrThrowMock.mockResolvedValue({ ok: true })
+      const dialog = (
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="company-1"
+          entityType="company"
+          editData={{
+            id: '11111111-1111-4111-8111-111111111111',
+            interactionType: 'qa-custom-type',
+            title: 'Note test',
+            durationMinutes,
+            scheduledAt: '2026-10-27T10:00:00.000Z',
+            priority: 90,
+          }}
+        />
+      )
+      const rendered = renderWithProviders(dialog)
+      return { ...rendered, renderAgain: () => rendered.rerender(React.cloneElement(dialog)) }
+    }
+
+    it.each(['note', 'meeting'] as const)('does not add a duration on a title-only custom %s edit', async (baseKind) => {
+      renderCustomActivity(baseKind)
+      expect(screen.queryByText('Duration')).not.toBeInTheDocument()
+      fireEvent.change(screen.getByDisplayValue('Note test'), { target: { value: 'Note test edited' } })
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+
+      expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+      const init = apiCallOrThrowMock.mock.calls[0][1] as { method: string; body: string }
+      const payload = JSON.parse(init.body) as Record<string, unknown>
+      expect(init.method).toBe('PUT')
+      expect(payload.interactionType).toBe('qa-custom-type')
+      expect(mutationPayloadMock).toHaveBeenCalledWith(expect.objectContaining({ interactionType: 'qa-custom-type' }))
+      expect(payload.title).toBe('Note test edited')
+      expect(payload).not.toHaveProperty('durationMinutes')
+      expect(payload).not.toHaveProperty('priority')
+      if (baseKind === 'note') expect(payload).not.toHaveProperty('scheduledAt')
+    })
+
+    it('preserves an existing hidden duration instead of clearing it', async () => {
+      renderCustomActivity('note', false, 45)
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+      const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body) as Record<string, unknown>
+      expect(payload).not.toHaveProperty('durationMinutes')
+    })
+
+    it('honors an explicit switch from a custom Note to the built-in Note', async () => {
+      renderCustomActivity('note')
+      fireEvent.click(screen.getByRole('button', { name: /^Note$/ }))
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+      const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body) as Record<string, unknown>
+      expect(payload.interactionType).toBe('note')
+      expect(payload.durationMinutes).toBeNull()
+    })
+
+    it('keeps custom Task priority and applicable duration', async () => {
+      renderCustomActivity('task', true)
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+
+      const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body) as Record<string, unknown>
+      expect(payload.interactionType).toBe('qa-custom-type')
+      expect(payload.priority).toBe(90)
+      expect(payload.durationMinutes).toBe(30)
+    })
+
+    it.each(['loading', 'error'] as const)('blocks button and keyboard saves while the catalog is %s', async (status) => {
+      mockCatalogStatus = status
+      renderCustomActivity('note')
+      const submit = screen.getByRole('button', { name: /^Update activity$/ })
+      expect(submit).toBeDisabled()
+      await act(async () => {
+        fireEvent.click(submit)
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', ctrlKey: true })
+      })
+      expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+      if (status === 'error') {
+        fireEvent.click(screen.getByRole('button', { name: /Retry/i }))
+        expect(mockRetryCatalog).toHaveBeenCalledTimes(1)
+      }
+    })
+
+    it('opens Note fields after the asynchronous catalog resolves', async () => {
+      mockCatalogStatus = 'loading'
+      const view = renderCustomActivity('note')
+      expect(screen.queryByDisplayValue('Note test')).not.toBeInTheDocument()
+      mockCatalogStatus = 'ready'
+      view.renderAgain()
+      fireEvent.change(screen.getByDisplayValue('Note test'), { target: { value: 'Loaded note edited' } })
+      await act(async () => { fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', ctrlKey: true }) })
+      const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body) as Record<string, unknown>
+      expect(payload.title).toBe('Loaded note edited')
+      expect(payload.interactionType).toBe('qa-custom-type')
+      expect(payload).not.toHaveProperty('durationMinutes')
+    })
+
+    it.each(['note', 'meeting'] as const)('does not treat custom %s catalog resolution as an unsaved edit', async (baseKind) => {
+      mockCatalogStatus = 'loading'
+      const view = renderCustomActivity(baseKind)
+      mockCatalogStatus = 'ready'
+      view.renderAgain()
+      await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: /^Cancel$/ }).at(-1)!) })
+      expect(mockConfirmDialog).not.toHaveBeenCalled()
+    })
+
+    it.each(['note', 'meeting'] as const)('confirms closing after the first custom %s title edit following catalog loading', async (baseKind) => {
+      mockCatalogStatus = 'loading'
+      const view = renderCustomActivity(baseKind)
+      mockCatalogStatus = 'ready'
+      view.renderAgain()
+      fireEvent.change(screen.getByDisplayValue('Note test'), { target: { value: 'Unsaved title' } })
+      await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: /^Cancel$/ }).at(-1)!) })
+      expect(mockConfirmDialog).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it.each([
+    ['call', false, /^Log call$/],
+    ['call', true, /^Update activity$/],
+    ['task', false, /^Save task$/],
+    ['task', true, /^Update activity$/],
+  ] as const)('submits an applicable %s duration payload when editing=%s', async (activityType, editing, buttonName) => {
+    mockScheduleState = createScheduleState({ activityType, title: 'Follow up' })
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+    renderWithProviders(<ScheduleActivityDialog open onClose={() => undefined} entityId="person-1" entityType="person" editData={editing ? { id: '11111111-1111-4111-8111-111111111111', interactionType: activityType } : null} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: buttonName })) })
+    expect(apiCallOrThrowMock).toHaveBeenCalled()
+    const init = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { method: string; body: string }
+    const payload = JSON.parse(init.body) as Record<string, unknown>
+    expect(init.method).toBe(editing ? 'PUT' : 'POST')
+    expect(payload.durationMinutes).toBe(45)
+    expect(findInapplicableCoreFields(calendarEventTypes.find((type) => type.key === activityType)!.behavior, payload)).toEqual([])
+  })
+
+  it.each([
+    'event',      // built-in Event — outside this dialog's five legacy kinds
+    'workshop',   // custom dictionary key an admin configured
+    'legacy-sms', // historical key no longer offered by the type picker
+  ])('opens and saves an unsupported "%s" interactionType without crashing (#7486)', async (interactionType) => {
+    mockScheduleState = createScheduleState({ activityType: interactionType, title: 'Follow up' })
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="person-1"
+        entityType="person"
+        editData={{ id: '11111111-1111-4111-8111-111111111111', interactionType }}
+      />,
+    )
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+    expect(apiCallOrThrowMock).toHaveBeenCalled()
+    const init = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { method: string; body: string }
+    const payload = JSON.parse(init.body) as Record<string, unknown>
+    // The raw persisted type is preserved verbatim — never silently rewritten to 'meeting'.
+    expect(payload.interactionType).toBe(interactionType)
+    expect(payload.durationMinutes).toBe(45)
   })
 
   it('passes excludeId when checking conflicts for an edited activity', async () => {
@@ -263,6 +472,190 @@ describe('ScheduleActivityDialog', () => {
     ).not.toThrow()
 
     expect(screen.getByText('Update activity')).toBeInTheDocument()
+  })
+
+  describe('undated backlog task (regression #5941)', () => {
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
+
+    function renderDialog() {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+    }
+
+    it('saves a task with no due date and posts an explicit null instead of an invalid timestamp', async () => {
+      mockScheduleState = createScheduleState({
+        activityType: 'task' as const,
+        title: 'Call back after their vacation',
+        date: '',
+        startTime: '',
+      })
+
+      renderDialog()
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Save task$/ }))
+      })
+
+      expect(apiCallOrThrowMock).toHaveBeenCalled()
+      const payload = lastSavedPayload()
+      expect(payload.scheduledAt).toBeNull()
+      expect(payload.date).toBeNull()
+      expect(payload.time).toBeNull()
+      expect(flashMock).not.toHaveBeenCalledWith('Date is required', 'error')
+    })
+
+    it('leaves the save button enabled for a dateless task', () => {
+      mockScheduleState = createScheduleState({
+        activityType: 'task' as const,
+        title: 'Call back after their vacation',
+        date: '',
+        startTime: '',
+      })
+
+      renderDialog()
+
+      expect(screen.getByRole('button', { name: /^Save task$/ })).not.toBeDisabled()
+    })
+
+    it('still blocks a calendar-bound meeting that has no date', async () => {
+      mockScheduleState = createScheduleState({
+        activityType: 'meeting' as const,
+        title: 'Quarterly review',
+        date: '',
+        startTime: '',
+      })
+
+      renderDialog()
+
+      const saveButton = screen.getByRole('button', { name: /^Save activity$/ })
+      expect(saveButton).toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('activity status on save (regression #6481)', () => {
+    function lastSavedRequest() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { method?: string; body?: string } | undefined
+      return {
+        method: requestInit?.method,
+        payload: JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>,
+      }
+    }
+
+    it('omits status when editing a completed meeting so it is not re-opened as planned', async () => {
+      mockScheduleState = createScheduleState({ activityType: 'meeting' as const, title: 'Renamed review' })
+
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+          editData={{
+            id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            interactionType: 'meeting',
+            title: 'Quarterly review',
+            status: 'done',
+            occurredAt: '2026-09-22T10:00:00.000Z',
+          } as ScheduleActivityEditData}
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ }))
+      })
+
+      const { method, payload } = lastSavedRequest()
+      expect(method).toBe('PUT')
+      expect(payload.title).toBe('Renamed review')
+      expect(payload).not.toHaveProperty('status')
+      expect(payload).not.toHaveProperty('occurredAt')
+    })
+
+    it('still creates a new activity as planned', async () => {
+      mockScheduleState = createScheduleState({ activityType: 'meeting' as const, title: 'Kick-off' })
+
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Save activity$/ }))
+      })
+
+      const { method, payload } = lastSavedRequest()
+      expect(method).toBe('POST')
+      expect(payload.status).toBe('planned')
+    })
+  })
+
+  it('renders an ingested email body as plain text instead of Markdown (#5903)', () => {
+    // Plain-text email bodies routinely contain `<address>` and `<url>` tokens,
+    // which are invalid MDX, so the Markdown editor must not be used for them.
+    const emailBody = 'Sender <sender@example.com>\n<https://example.com/>'
+    mockScheduleState = createScheduleState({
+      activityType: 'email' as const,
+      title: 'Email subject',
+      description: emailBody,
+    })
+
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="person-1"
+        entityType="person"
+        editData={{
+          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          interactionType: 'email',
+          title: 'Email subject',
+          body: emailBody,
+        }}
+      />,
+    )
+
+    const description = screen.getByLabelText('Description') as HTMLTextAreaElement
+    expect(description.dataset.disableMarkdown).toBe('true')
+    expect(description.value).toBe(emailBody)
+  })
+
+  it('keeps the Markdown editor for note descriptions', () => {
+    mockScheduleState = createScheduleState({
+      activityType: 'note' as const,
+      title: 'My note',
+      description: '**bold**',
+    })
+
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="deal-1"
+        entityType="deal"
+      />,
+    )
+
+    const description = screen.getByLabelText('Description') as HTMLTextAreaElement
+    expect(description.dataset.disableMarkdown).toBe('false')
   })
 
   describe('task priority (regression #5943)', () => {
@@ -368,6 +761,68 @@ describe('ScheduleActivityDialog', () => {
       await save(/^Save activity$/)
 
       expect(lastSavedPayload()).not.toHaveProperty('priority')
+    })
+  })
+
+  describe('entityId on edit (regression #6050)', () => {
+    const ACTIVITY_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
+
+    it('pins the payload to editData.entityId instead of the currently-selected entity prop', async () => {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="company-2"
+          entityType="company"
+          editData={{ id: ACTIVITY_ID, interactionType: 'meeting', title: 'Quarterly review', entityId: 'person-1' }}
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ }))
+      })
+
+      expect(lastSavedPayload().entityId).toBe('person-1')
+    })
+
+    it('falls back to the entityId prop on edit when editData has no entityId', async () => {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+          editData={{ id: ACTIVITY_ID, interactionType: 'meeting', title: 'Quarterly review' }}
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ }))
+      })
+
+      expect(lastSavedPayload().entityId).toBe('person-1')
+    })
+
+    it('uses the entityId prop when creating a new activity', async () => {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Save activity$/ }))
+      })
+
+      expect(lastSavedPayload().entityId).toBe('person-1')
     })
   })
 

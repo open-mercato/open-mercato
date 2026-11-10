@@ -23,7 +23,8 @@ describe('IconButton solid variants', () => {
 
   it('destructive variant applies the solid destructive surface without a dark override', () => {
     const classes = iconButtonVariants({ variant: 'destructive' })
-    expect(classes).toContain('bg-destructive')
+    expect(classes).toContain('bg-status-error-solid')
+    expect(classes).toContain('text-status-error-solid-foreground')
     expect(classes).not.toContain('dark:bg-input')
   })
 

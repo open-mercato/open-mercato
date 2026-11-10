@@ -199,7 +199,15 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   } catch {
     credentialsService = null
   }
-  if (channel.credentialsRef && credentialsService) {
+  // A tenant-wide channel keys its credentials by provider at the channel's org,
+  // so it resolves them even without a `credentialsRef`: the system email env
+  // preset (`ensureSystemEmailChannel`) creates the row with none and saves the
+  // credentials separately under `channel_<provider>`, exactly what
+  // `sendSystemEmail` reads. A user-owned channel still needs its ref — the
+  // credentials service falls back from the user's row to the org-wide one, and
+  // a mailbox must never test-send through the shared account.
+  const resolvesCredentials = Boolean(channel.credentialsRef) || !channel.userId
+  if (resolvesCredentials && credentialsService) {
     credentials =
       (await credentialsService
         .resolve(`channel_${channel.providerKey}`, {

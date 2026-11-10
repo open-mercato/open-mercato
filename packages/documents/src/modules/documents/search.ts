@@ -40,7 +40,6 @@ function buildPresenter(t: TranslateFn, ctx: SearchBuildContext): SearchResultPr
     title: pickString(ctx.record.title) ?? t('documents.search.badge.document', 'Document'),
     subtitle: pickString(ctx.record.folder_name, ctx.record.folderName) ?? undefined,
     icon: 'file-text',
-    badge: t('documents.search.badge.document', 'Document'),
   }
 }
 

@@ -2,10 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { SalesSettings, SalesDocumentSequence, SalesTaxRate } from './data/entities'
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from './lib/documentNumberTokens'
-import { seedSalesStatusDictionaries, seedSalesAdjustmentKinds } from './lib/dictionaries'
-import { seedSalesChannelsToggle } from './lib/salesChannelsToggleSeed'
-import { ensureExampleShippingMethods, ensureExamplePaymentMethods } from './seed/examples-data'
-import { seedSalesExamples } from './seed/examples'
+import { createDocumentSequence } from './services/salesDocumentNumberGenerator'
 
 type SeedScope = { tenantId: string; organizationId: string }
 
@@ -87,14 +84,15 @@ export const setup: ModuleSetupConfig = {
       )
     }
 
+    const sequenceRows: SalesDocumentSequence[] = []
     for (const kind of ['order', 'quote', 'return', 'invoice', 'credit_memo'] as const) {
       const seq = await em.findOne(SalesDocumentSequence, {
         tenantId,
         organizationId,
         documentKind: kind,
       })
-      if (!seq) {
-        em.persist(
+      sequenceRows.push(
+        seq ??
           em.create(SalesDocumentSequence, {
             tenantId,
             organizationId,
@@ -103,14 +101,27 @@ export const setup: ModuleSetupConfig = {
             createdAt: new Date(),
             updatedAt: new Date(),
           })
-        )
-      }
+      )
+      if (!seq) em.persist(sequenceRows[sequenceRows.length - 1]!)
     }
 
     await em.flush()
+
+    // Each registry row is backed by its own Postgres sequence (#5604); create them now so the
+    // first document of a fresh tenant does not have to fall back to lazy creation. The ids come
+    // from the rows just flushed rather than from a re-read: `createDocumentSequence` issues DDL
+    // over `em.getConnection()`, which runs outside the EntityManager's transaction context, so
+    // a read on that connection would not see rows this hook wrote inside a transaction and the
+    // loop would silently create nothing.
+    for (const row of sequenceRows) {
+      await createDocumentSequence(em, row.id)
+    }
   },
 
   async seedDefaults({ em, tenantId, organizationId }) {
+    const { seedSalesStatusDictionaries, seedSalesAdjustmentKinds } = await import('./lib/dictionaries')
+    const { ensureExampleShippingMethods, ensureExamplePaymentMethods } = await import('./seed/examples-data')
+    const { seedSalesChannelsToggle } = await import('./lib/salesChannelsToggleSeed')
     const scope = { tenantId, organizationId }
     await seedSalesTaxRates(em, scope)
     await seedSalesStatusDictionaries(em, scope)
@@ -121,6 +132,7 @@ export const setup: ModuleSetupConfig = {
   },
 
   async seedExamples({ em, container, tenantId, organizationId }) {
+    const { seedSalesExamples } = await import('./seed/examples')
     const scope = { tenantId, organizationId }
     await seedSalesExamples(em, container, scope)
   },

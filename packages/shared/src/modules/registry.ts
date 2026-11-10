@@ -12,6 +12,7 @@ import {
   composeApiRouteOverrides,
   composePageRouteOverrides,
 } from './overrides'
+import { bindMatchedApiRoutePath } from '../lib/modules/api-route-identity'
 
 const logger = createLogger('shared').child({ component: 'cli-registry' })
 
@@ -85,6 +86,11 @@ export type PageMetadata = {
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export type ApiHandler = (req: Request, ctx?: any) => Promise<Response> | Response
+
+export type ApiRouteBeforeAuth = (
+  req: Request,
+  context: { method: HttpMethod; params: Record<string, string | string[]> },
+) => Promise<Response | null> | Response | null
 
 export type ModuleSubscriberHandler = (
   payload: any,
@@ -177,6 +183,11 @@ export type ApiRouteManifestEntry = {
 export type ModuleCli = {
   command: string
   run: (argv: string[]) => Promise<void> | void
+  // Usage text printed by the `mercato` dispatcher when the command is invoked with --help/-h.
+  help?: string
+  // Set when the command parses --help/-h itself; the dispatcher then forwards the flag
+  // instead of intercepting it, so the command can print its own richer usage text.
+  handlesHelp?: boolean
 }
 
 export type ModuleSubscriber = {
@@ -213,6 +224,7 @@ export type ModuleWorker = {
 
 export type ModuleInfo = {
   name?: string
+  locator?: string
   title?: string
   version?: string
   description?: string
@@ -220,7 +232,7 @@ export type ModuleInfo = {
   license?: string
   homepage?: string
   copyright?: string
-  // Optional hard dependencies: module ids that must be enabled
+  // Optional hard dependencies: module IDs or canonical package/repository locators
   requires?: string[]
   // Whether this module can be ejected into the app's src/modules/ for customization
   ejectable?: boolean
@@ -269,6 +281,9 @@ export type Module = {
   vector?: import('./vector').VectorModuleConfig
   // Optional: module-specific tenant setup configuration (from setup.ts)
   setup?: import('./setup').ModuleSetupConfig
+  // Optional: a long-lived process-wide runtime the module starts itself (from runtime.ts).
+  // Invoked once per process by `mercato server start` and `mercato queue worker`.
+  runtime?: import('./runtime').ModuleRuntime
   // Optional: default encryption maps owned by the module (from encryption.ts)
   defaultEncryptionMaps?: import('./encryption').ModuleEncryptionMap[]
   // Optional: integration marketplace declarations discovered from integration.ts
@@ -411,12 +426,14 @@ export function findRouteManifestMatch<T extends { pattern?: string; path?: stri
 export function findApiRouteManifestMatch<T extends { path: string; methods: HttpMethod[] }>(
   routes: T[],
   method: HttpMethod,
-  pathname: string
+  pathname: string,
+  request?: Request,
 ): { route: T; params: RouteMatchParams } | undefined {
   for (const route of ensureSortedRoutes(routes)) {
     if (!route.methods.includes(method)) continue
     const params = matchRoutePattern(route.path, pathname)
     if (params) {
+      if (request && !bindMatchedApiRoutePath(request, route.path, params)) return undefined
       return { route, params }
     }
   }

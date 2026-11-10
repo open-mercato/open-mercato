@@ -21,3 +21,12 @@ export const DISCORD_PROVIDER_KEY = 'discord'
  * requirement this provider cannot satisfy.
  */
 export const DISCORD_CHANNEL_TYPE = 'discord'
+
+/**
+ * Stable `CommunicationChannel.externalIdentifier` for a Discord bot. The hub
+ * heals a reconnect in place only when the identifier matches, and a Discord
+ * credential bag has no email-shaped key to derive one from (#4977).
+ */
+export function discordChannelExternalIdentifier(applicationId: string): string {
+  return `${DISCORD_PROVIDER_KEY}:${applicationId}`
+}

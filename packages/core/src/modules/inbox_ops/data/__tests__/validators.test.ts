@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+import { z } from 'zod'
 import {
   orderPayloadSchema,
   updateOrderPayloadSchema,
@@ -483,6 +484,35 @@ describe('validateActionPayloadForType', () => {
       name: 'Test User',
     })
     expect(result.success).toBe(true)
+  })
+
+  it('validates against a registered schema instead of the installed one (#6279)', () => {
+    const relaxedQuoteSchema = z.object({
+      customerName: z.string().min(1),
+      customerEmail: z.string().email(),
+    })
+    const payload = { customerName: 'A. Person', customerEmail: 'a@example.com' }
+
+    expect(validateActionPayloadForType('create_quote', payload).success).toBe(false)
+    expect(validateActionPayloadForType('create_quote', payload, relaxedQuoteSchema).success).toBe(true)
+  })
+
+  it('reports errors from a registered schema that is stricter than the installed one (#6279)', () => {
+    const strictContactSchema = createContactPayloadSchema.extend({ email: z.string().email() })
+    const result = validateActionPayloadForType(
+      'create_contact',
+      { type: 'person', name: 'Test User' },
+      strictContactSchema,
+    )
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error).toContain('email')
+    }
+  })
+
+  it('validates an action type the installed map does not know when a schema is registered (#6279)', () => {
+    const result = validateActionPayloadForType('custom_action', { foo: 1 }, z.object({ foo: z.string() }))
+    expect(result.success).toBe(false)
   })
 
   it('returns formatted error messages', () => {

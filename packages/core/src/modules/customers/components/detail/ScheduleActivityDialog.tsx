@@ -21,7 +21,10 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   useScheduleFormState,
   FIELD_VISIBILITY,
+  isDateRequired,
+  isTimeRequired,
   getFieldLabel,
+  resolveScheduleActivityType,
   DateTimeFields,
   ParticipantsField,
   LocationField,
@@ -30,6 +33,7 @@ import {
 } from './schedule'
 import type { ActivityType, ScheduleActivityEditData } from './schedule'
 import { PRIORITY_NUMBER, priorityFromNumber, type EditorPriority } from '../../lib/calendar/editorPayload'
+import { selectedEventType, useEventTypeCatalog } from '../calendar/editor/useEventTypeCatalog'
 
 const TYPE_TABS: Array<{ type: ActivityType; icon: React.ComponentType<{ className?: string }>; labelKey: string; fallback: string }> = [
   { type: 'meeting', icon: Users, labelKey: 'customers.schedule.types.meeting', fallback: 'Meeting' },
@@ -138,11 +142,38 @@ export function ScheduleActivityDialog({
   defaultCountryIso2,
 }: ScheduleActivityDialogProps) {
   const t = useT()
-  const state = useScheduleFormState({ open, editData: editData ?? null })
-  const visibleFields = FIELD_VISIBILITY[state.activityType]
+  const needsTypeCatalog = Boolean(editData?.interactionType && !TYPE_TABS.some(({ type }) => type === editData.interactionType))
+  const catalog = useEventTypeCatalog(open && needsTypeCatalog)
+  const definition = needsTypeCatalog ? selectedEventType(catalog.items, editData!.interactionType!) : null
+  const baseKind = definition?.behavior.baseKind
+  const initialActivityType = baseKind === 'event' ? 'meeting' : baseKind
+  const resolvedEditData = React.useMemo(
+    () => editData && initialActivityType ? { ...editData, interactionType: initialActivityType } : editData,
+    [editData, initialActivityType],
+  )
+  const state = useScheduleFormState({ open, editData: resolvedEditData ?? null })
+  const presentationType = resolveScheduleActivityType(state.activityType)
+  const [typeChanged, setTypeChanged] = React.useState(false)
+  React.useEffect(() => { setTypeChanged(false) }, [open, editData])
+  const keepsCustomType = needsTypeCatalog && !typeChanged && state.activityType === initialActivityType
+  const catalogPending = needsTypeCatalog && catalog.status !== 'ready'
+  const visibleFields = React.useMemo(() => {
+    const fields = new Set(FIELD_VISIBILITY[presentationType])
+    if (!keepsCustomType || !definition) return fields
+    const configured = definition.behavior.fields
+    if (!configured.endTime) fields.delete('duration')
+    if (!configured.allDay) fields.delete('allDay')
+    if (!configured.recurrence) fields.delete('recurrence')
+    if (configured.location === 'none') fields.delete('location')
+    if (configured.people === 'none') {
+      fields.delete('participants')
+      fields.delete('guestPermissions')
+    }
+    return fields
+  }, [presentationType, keepsCustomType, definition])
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const isEditing = Boolean(editData?.id)
-  const chrome = TYPE_CHROME[state.activityType]
+  const chrome = TYPE_CHROME[presentationType]
   const SaveIcon = chrome.saveIcon
   const [callDirection, setCallDirection] = React.useState<'outbound' | 'inbound'>('outbound')
   const [callOutcome, setCallOutcome] = React.useState<string | null>(null)
@@ -234,7 +265,7 @@ export function ScheduleActivityDialog({
   const snapshotOpenKeyRef = React.useRef<string | null>(null)
   const snapshotSettleCountRef = React.useRef(0)
   const closeConfirmPendingRef = React.useRef(false)
-  const openKey = open ? `${editData?.id ?? 'new'}` : null
+  const openKey = open ? `${editData?.id ?? 'new'}:${initialActivityType ?? ''}` : null
   React.useEffect(() => {
     if (!open) {
       initialSnapshotRef.current = null
@@ -365,15 +396,19 @@ export function ScheduleActivityDialog({
   const trimmedDate = state.date.trim()
   const trimmedStartTime = state.startTime.trim()
   const trimmedCallPhone = callPhoneNumber.trim()
-  const isDateMissing = !trimmedDate
-  const isTimeMissing = !state.allDay && !trimmedStartTime
+  // Only calendar-bound types must be scheduled; a task may stay an undated
+  // backlog item, so blocking its save on an empty date was wrong (#5941).
+  const isDateMissing = isDateRequired(presentationType) && !trimmedDate
+  const isTimeMissing = isTimeRequired(presentationType) && !state.allDay && !trimmedStartTime
   const isSubmitDisabled =
+    catalogPending ||
     state.saving ||
     !state.title.trim() ||
     isDateMissing ||
     isTimeMissing
 
   const handleSave = React.useCallback(async () => {
+    if (catalogPending) return
     if (!state.title.trim()) return
     if (isDateMissing) {
       flash(t('customers.activities.errors.dateRequired', 'Date is required'), 'error')
@@ -384,7 +419,7 @@ export function ScheduleActivityDialog({
       return
     }
     let phoneNumberForPayload: string | undefined
-    if (state.activityType === 'call' && trimmedCallPhone) {
+    if (presentationType === 'call' && trimmedCallPhone) {
       const phoneValidation = validatePhoneNumber(trimmedCallPhone)
       if (!phoneValidation.valid) {
         setCallPhoneError(callPhoneInvalidMessage)
@@ -399,9 +434,13 @@ export function ScheduleActivityDialog({
     }
     state.setSaving(true)
     try {
-      const scheduledAt = state.allDay
-        ? new Date(`${state.date}T00:00:00`).toISOString()
-        : new Date(`${state.date}T${state.startTime}:00`).toISOString()
+      // An undated activity (a backlog task) has no moment to compute — sending
+      // an explicit null clears `scheduled_at` instead of posting an
+      // `Invalid Date` built from an empty date string (#5941).
+      const timeForPayload = state.allDay ? '00:00' : trimmedStartTime
+      const scheduledAt = trimmedDate
+        ? new Date(`${trimmedDate}T${timeForPayload || '00:00'}:00`).toISOString()
+        : null
 
       const recurrenceRule = state.recurrenceEnabled
         ? buildRecurrenceRule(state.recurrenceDays, state.recurrenceEndType, state.recurrenceCount, state.recurrenceEndDate)
@@ -409,42 +448,54 @@ export function ScheduleActivityDialog({
 
       const isSaveEdit = Boolean(editData?.id)
       const customValues: Record<string, unknown> = {}
-      if (state.activityType === 'call') {
+      if (presentationType === 'call') {
         customValues.callDirection = callDirection
         if (callOutcome) customValues.callOutcome = callOutcome
         if (phoneNumberForPayload) customValues.callPhoneNumber = phoneNumberForPayload
       }
+      // On edit, pin the payload to the activity's own linked entity when the
+      // caller provided one (`editData.entityId`) rather than the `entityId` prop,
+      // which tracks the host page's currently-selected entity and can differ from
+      // the activity's record on multi-entity pages like the deal detail view. This
+      // dialog has no entity picker, so an edit must never silently re-link (#6050).
+      const payloadEntityId = isSaveEdit && editData?.entityId ? editData.entityId : entityId
+      const hiddenFieldValue = keepsCustomType && isSaveEdit ? undefined : null
+      const preservesSchedule = keepsCustomType && isSaveEdit && !visibleFields.has('date')
       const payload = {
         ...(isSaveEdit ? { id: editData!.id } : {}),
-        entityId,
+        entityId: payloadEntityId,
         dealId,
-        interactionType: state.activityType,
+        interactionType: keepsCustomType ? editData!.interactionType : state.activityType,
         title: state.title.trim(),
         body: state.description.trim() || null,
-        status: 'planned',
-        date: trimmedDate,
-        time: state.allDay ? '00:00' : trimmedStartTime,
-        phoneNumber: state.activityType === 'call' ? phoneNumberForPayload : undefined,
+        // The dialog has no status control, so an edit must leave the stored status
+        // (and its `occurredAt`) alone instead of re-opening a completed activity (#6481).
+        ...(isSaveEdit ? {} : { status: 'planned' }),
+        date: preservesSchedule ? undefined : trimmedDate || null,
+        time: preservesSchedule ? undefined : trimmedDate ? timeForPayload || null : null,
+        phoneNumber: presentationType === 'call' ? phoneNumberForPayload : undefined,
         // Only tasks expose the priority control, so other types leave the column
         // untouched rather than clearing it on a type switch (#5943).
-        priority: state.activityType === 'task' ? buildTaskPriorityPayload(taskPriority, seededTaskPriority) : undefined,
-        scheduledAt,
-        durationMinutes: visibleFields.has('duration') && !state.allDay ? state.duration : null,
-        location: visibleFields.has('location') ? (state.location.trim() || null) : null,
-        allDay: visibleFields.has('allDay') ? state.allDay : null,
-        recurrenceRule: visibleFields.has('recurrence') ? recurrenceRule : null,
+        priority: presentationType === 'task' ? buildTaskPriorityPayload(taskPriority, seededTaskPriority) : undefined,
+        scheduledAt: preservesSchedule ? undefined : scheduledAt,
+        durationMinutes: visibleFields.has('duration') ? (state.allDay ? null : state.duration) : hiddenFieldValue,
+        location: visibleFields.has('location') ? (state.location.trim() || null) : hiddenFieldValue,
+        allDay: visibleFields.has('allDay') ? state.allDay : hiddenFieldValue,
+        recurrenceRule: visibleFields.has('recurrence') ? recurrenceRule : hiddenFieldValue,
         recurrenceEnd: visibleFields.has('recurrence') && state.recurrenceEndType === 'date' && state.recurrenceEndDate
           ? new Date(state.recurrenceEndDate).toISOString()
-          : null,
-        participants: visibleFields.has('participants') && state.participants.length > 0
-          ? state.participants.map((p) => ({ userId: p.userId, name: p.name, email: p.email, status: p.status ?? 'pending' }))
-          : null,
-        guestPermissions: visibleFields.has('participants') && state.participants.length > 0 ? state.guestPermissions : null,
+          : visibleFields.has('recurrence') ? null : hiddenFieldValue,
+        participants: visibleFields.has('participants')
+          ? state.participants.length > 0
+            ? state.participants.map((p) => ({ userId: p.userId, name: p.name, email: p.email, status: p.status ?? 'pending' }))
+            : null
+          : hiddenFieldValue,
+        guestPermissions: visibleFields.has('participants') ? (state.participants.length > 0 ? state.guestPermissions : null) : hiddenFieldValue,
         linkedEntities: state.linkedEntities.length > 0
           ? state.linkedEntities.map((e) => ({ id: e.id, type: e.type, label: e.label }))
           : null,
-        reminderMinutes: visibleFields.has('reminder') ? state.reminderMinutes : null,
-        visibility: visibleFields.has('visibility') ? state.visibility : null,
+        reminderMinutes: visibleFields.has('reminder') ? state.reminderMinutes : hiddenFieldValue,
+        visibility: visibleFields.has('visibility') ? state.visibility : hiddenFieldValue,
         ...(Object.keys(customValues).length > 0 ? { customValues } : {}),
       }
       await runGuardedMutation(
@@ -464,7 +515,7 @@ export function ScheduleActivityDialog({
         {
           operation: isSaveEdit ? 'updateActivity' : 'createActivity',
           interactionId: editData?.id ?? null,
-          interactionType: state.activityType,
+          interactionType: payload.interactionType,
         },
       )
       flash(t('customers.schedule.saved', 'Activity scheduled'), 'success')
@@ -482,7 +533,7 @@ export function ScheduleActivityDialog({
       }
       const { message, fieldErrors } = mapCrudServerErrorToFormErrors(err)
       const phoneFieldError = fieldErrors?.phoneNumber
-      if (state.activityType === 'call' && phoneFieldError) {
+      if (presentationType === 'call' && phoneFieldError) {
         const translatedPhoneError = translateErrorMessage(phoneFieldError, callPhoneInvalidMessage)
         setCallPhoneError(translatedPhoneError)
         flash(translatedPhoneError, 'error')
@@ -495,7 +546,7 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, catalogPending, keepsCustomType, isDateMissing, isTimeMissing, presentationType, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 
@@ -535,6 +586,20 @@ export function ScheduleActivityDialog({
         <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col gap-4 bg-background p-6">
 
+        {catalogPending && (
+          <Alert status={catalog.status === 'error' ? 'error' : 'information'}>
+            <AlertDescription>
+              {t(catalog.status === 'error' ? 'customers.calendar.editor.catalogLoadFailed' : 'customers.calendar.editor.catalogLoading')}
+            </AlertDescription>
+            {catalog.status === 'error' && (
+              <Button type="button" variant="outline" onClick={catalog.retry}>
+                {t('customers.calendar.errors.retry')}
+              </Button>
+            )}
+          </Alert>
+        )}
+
+        {!catalogPending && <>
         {/* Conflict warning */}
         {state.conflict && (
           <Alert status="warning" className="rounded-lg">
@@ -553,7 +618,7 @@ export function ScheduleActivityDialog({
               <button
                 key={type}
                 type="button"
-                onClick={() => state.setActivityType(type)}
+                onClick={() => { setTypeChanged(true); state.setActivityType(type) }}
                 aria-pressed={isActive}
                 className={cn(
                   'flex h-[80px] flex-col items-center justify-center gap-2 rounded-md border text-[14px] font-semibold transition-colors',
@@ -572,14 +637,14 @@ export function ScheduleActivityDialog({
         {/* Title */}
         <div className="flex flex-col gap-1.5">
           <label className="text-overline font-semibold text-muted-foreground tracking-wider">
-            {getFieldLabel(state.activityType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
+            {getFieldLabel(presentationType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
           </label>
           <input
             type="text"
             value={state.title}
             onChange={(e) => state.setTitle(e.target.value)}
             placeholder={
-              state.activityType === 'email'
+              presentationType === 'email'
                 ? t('customers.schedule.subjectPlaceholder', 'Subject...')
                 : t('customers.schedule.titlePlaceholder', 'Activity title...')
             }
@@ -592,7 +657,7 @@ export function ScheduleActivityDialog({
             workflows match Figma 829:50 / 790:280 (date row first, then status chips). */}
         <DateTimeFields
           visible={visibleFields}
-          activityType={state.activityType}
+          activityType={presentationType}
           date={state.date}
           setDate={state.setDate}
           startTime={state.startTime}
@@ -614,7 +679,7 @@ export function ScheduleActivityDialog({
         />
 
         {/* Call: Direction + Outcome chips */}
-        {state.activityType === 'call' && (
+        {presentationType === 'call' && (
           <div className="flex flex-col gap-3">
             <div>
               <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
@@ -674,7 +739,7 @@ export function ScheduleActivityDialog({
         )}
 
         {/* Task: Priority chips */}
-        {state.activityType === 'task' && (
+        {presentationType === 'task' && (
           <div>
             <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
               {t('customers.schedule.task.priorityLabel', 'Priority')}
@@ -707,7 +772,7 @@ export function ScheduleActivityDialog({
         {/* Participants */}
         <ParticipantsField
           visible={visibleFields}
-          activityType={state.activityType}
+          activityType={presentationType}
           participants={state.participants}
           setParticipants={state.setParticipants}
           removeParticipant={state.removeParticipant}
@@ -716,7 +781,7 @@ export function ScheduleActivityDialog({
         />
 
         {/* Location (or phone number for calls) */}
-        {state.activityType === 'call' ? (
+        {presentationType === 'call' ? (
           <div className="flex flex-col gap-1.5">
             <label htmlFor="schedule-call-phone" className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
               {t('customers.schedule.call.phoneLabel', 'Phone number')}
@@ -735,7 +800,7 @@ export function ScheduleActivityDialog({
         ) : (
           <LocationField
             visible={visibleFields}
-            activityType={state.activityType}
+            activityType={presentationType}
             location={state.location}
             setLocation={state.setLocation}
           />
@@ -744,7 +809,7 @@ export function ScheduleActivityDialog({
         {/* Linked Entities */}
         <LinkedEntitiesField
           visible={visibleFields}
-          activityType={state.activityType}
+          activityType={presentationType}
           linkedEntities={state.linkedEntities}
           setLinkedEntities={state.setLinkedEntities}
         />
@@ -752,13 +817,24 @@ export function ScheduleActivityDialog({
         {/* Description */}
         <div>
           <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
-            {getFieldLabel(state.activityType, 'description', t, 'customers.schedule.description', 'Description')}
+            {getFieldLabel(presentationType, 'description', t, 'customers.schedule.description', 'Description')}
           </label>
           <div className="mt-[8px]">
             <SwitchableMarkdownInput
               value={state.description}
               onChange={state.setDescription}
               isMarkdownEnabled={state.markdownEnabled}
+              // Email bodies are plain text from other mail clients, not Markdown; `<address>`
+              // or `<url>` tokens in them break the MDX editor (#5903).
+              disableMarkdown={presentationType === 'email'}
+              // The plain textarea defaults to 3 hidden-overflow rows, which
+              // would cut off quoted replies; give email bodies room and a scrollbar.
+              rows={presentationType === 'email' ? 8 : undefined}
+              textareaClassName={
+                presentationType === 'email'
+                  ? 'w-full resize-y overflow-y-auto rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                  : undefined
+              }
               height={120}
               placeholder={t('customers.schedule.descriptionPlaceholder', 'Add details...')}
             />
@@ -768,12 +844,13 @@ export function ScheduleActivityDialog({
         {/* Reminder + Visibility */}
         <FooterFields
           visible={visibleFields}
-          activityType={state.activityType}
+          activityType={presentationType}
           reminderMinutes={state.reminderMinutes}
           setReminderMinutes={state.setReminderMinutes}
           visibility={state.visibility}
           setVisibility={state.setVisibility}
         />
+        </>}
 
         </div>
         </div>

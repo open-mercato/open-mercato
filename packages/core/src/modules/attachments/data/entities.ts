@@ -1,6 +1,7 @@
-import { OptionalProps } from '@mikro-orm/core'
+import { BigIntType, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
+import type { AttachmentAccessRequirement } from '../lib/access-types'
 
 @Entity({ tableName: 'attachment_partitions' })
 @Unique({ name: 'attachment_partitions_code_unique', properties: ['code'] })
@@ -24,6 +25,9 @@ export class AttachmentPartition {
 
   @Property({ name: 'config_json', type: 'json', nullable: true })
   configJson?: Record<string, unknown> | null
+
+  @Property({ name: 'access_resolver_requirements', type: 'jsonb', nullable: true })
+  accessResolverRequirements?: AttachmentAccessRequirement[] | null
 
   @Property({ name: 'is_public', type: 'boolean', default: false })
   isPublic: boolean = false
@@ -49,6 +53,7 @@ export class AttachmentPartition {
 }
 
 @Entity({ tableName: 'attachments' })
+@Index({ name: 'attachments_storage_reference_idx', properties: ['partitionCode', 'storagePath'] })
 export class Attachment {
   [OptionalProps]?: 'createdAt'
 
@@ -121,10 +126,12 @@ export class AttachmentQuotaReservation {
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
-  @Property({ name: 'reserved_bytes', type: 'bigint' })
+  /** Backed by a `bigint` column; hydrate as `number` (safe under Number.MAX_SAFE_INTEGER for attachment byte counts) instead of MikroORM's default JS `bigint`. */
+  @Property({ name: 'reserved_bytes', type: new BigIntType('number') })
   reservedBytes!: number
 
-  @Property({ name: 'actual_bytes', type: 'bigint', nullable: true })
+  /** Backed by a `bigint` column; hydrate as `number`, not MikroORM's default JS `bigint`. */
+  @Property({ name: 'actual_bytes', type: new BigIntType('number'), nullable: true })
   actualBytes?: number | null
 
   @Property({ type: 'text', default: 'reserved' })

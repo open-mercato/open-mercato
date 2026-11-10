@@ -329,6 +329,8 @@ const lineKindSchema = z.enum(['product', 'service', 'shipping', 'discount', 'ad
 
 const adjustmentKindSchema = z.string().trim().min(1).max(150)
 
+export const amountsModeSchema = z.enum(['computed', 'external'])
+
 const linePricingSchema = z.object({
   quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
   quantityUnit: z.string().trim().max(25).optional(),
@@ -348,6 +350,9 @@ const linePricingSchema = z.object({
   taxAmount: decimal({ min: 0 }).optional(),
   totalNetAmount: decimal({ min: 0 }).optional(),
   totalGrossAmount: decimal({ min: 0 }).optional(),
+  // Omitted inherits the document's mode; defaulting to `computed` would make an
+  // external order mixed. Order lines only — quote commands reject it.
+  amountsMode: amountsModeSchema.optional(),
 })
 
 const uomSnapshotSchema = z.object({
@@ -407,6 +412,77 @@ export const orderLineUpdateSchema = z
     id: uuid(),
   })
   .merge(orderLineCreateSchema.partial())
+
+/**
+ * Translation keys for the bulk-line schema refusals. The schema runs outside a
+ * request, so it cannot translate; it tags each issue with its key in `params`
+ * and the HTTP boundary resolves it. The English text stays here as the
+ * fallback and as the message a non-HTTP caller sees.
+ */
+export const SALES_ORDER_LINE_BULK_ISSUE_KEYS = {
+  empty: 'sales.documents.items.bulk.errorEmptyBatch',
+  duplicate: 'sales.documents.items.bulk.errorDuplicateId',
+  upsertDeleteConflict: 'sales.documents.items.bulk.errorUpsertDeleteConflict',
+} as const
+
+export const SALES_ORDER_LINE_BULK_EMPTY_MESSAGE =
+  'Provide at least one line to upsert or delete.'
+export const SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE =
+  'The same line id appears more than once in lines.'
+export const SALES_ORDER_LINE_BULK_UPSERT_DELETE_CONFLICT_MESSAGE =
+  'A line id cannot be upserted and deleted in the same request.'
+
+/**
+ * One entry of a bulk line write. Identical to what the per-line upsert accepts,
+ * minus the scope and parent keys the envelope already carries: `id` present
+ * updates that line, `id` absent appends a new one.
+ */
+export const orderLineBulkUpsertEntrySchema = orderLineCreateSchema
+  .omit({ organizationId: true, tenantId: true, orderId: true })
+  .extend({ id: uuid().optional() })
+
+export const orderLineBulkUpsertSchema = scoped
+  .extend({
+    orderId: uuid(),
+    orderTotals: z.lazy(() => orderHeaderTotalsSchema).optional(),
+    lines: z.array(orderLineBulkUpsertEntrySchema).default([]),
+    deleteIds: z.array(uuid()).default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.lines.length && !value.deleteIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['lines'],
+        message: SALES_ORDER_LINE_BULK_EMPTY_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.empty },
+      })
+    }
+    const seen = new Set<string>()
+    value.lines.forEach((line, index) => {
+      if (!line.id) return
+      if (seen.has(line.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['lines', index, 'id'],
+          message: SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE,
+          params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.duplicate },
+        })
+        return
+      }
+      seen.add(line.id)
+    })
+    value.deleteIds.forEach((id, index) => {
+      if (!seen.has(id)) return
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['deleteIds', index],
+        message: SALES_ORDER_LINE_BULK_UPSERT_DELETE_CONFLICT_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.upsertDeleteConflict },
+      })
+    })
+  })
+
+export type OrderLineBulkUpsertInput = z.infer<typeof orderLineBulkUpsertSchema>
 
 export const quoteLineCreateSchema = scoped.extend({
   quoteId: uuid(),
@@ -672,6 +748,10 @@ const orderTotalsSchema = z.object({
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
 
+// `lineItemCount` is core's count of the rows it persisted, not one of the amounts
+// a caller owns; asserting it could make a document disagree with its own lines.
+export const orderHeaderTotalsSchema = orderTotalsSchema.omit({ lineItemCount: true })
+
 const quoteTotalsSchema = z.object({
   subtotalNetAmount: decimal({ min: 0 }).optional(),
   subtotalGrossAmount: decimal({ min: 0 }).optional(),
@@ -728,6 +808,7 @@ export const orderCreateSchema = scoped.extend({
     .min(1, SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY),
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   tags: z.array(uuid()).optional(),
+  totalsMode: amountsModeSchema.optional(),
   ...orderTotalsSchema.shape,
   ...orderPaymentLedgerShape,
 })
