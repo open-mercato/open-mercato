@@ -1278,12 +1278,12 @@ async function buildQuoteLineMap(
  * this order; this helper additionally unlocks the cart (no subscriber does that) and
  * moves the session to `failed`.
  */
+const ORDER_CANCEL_COMPENSATION_ATTEMPTS = 3
+
 // Release 5, Step 4.2-fix (C1/§12, `expire-awaiting-payment`): exported so the job can
 // reuse the SAME cancel-order compensation `recover-stuck-submits`'s own `continueOrderOutcome`
 // calls internally — never a parallel reimplementation of "cancel the order, release
 // everything via `sales.order.cancelled`'s subscribers, fail the session".
-const ORDER_CANCEL_COMPENSATION_ATTEMPTS = 3
-
 export async function compensateByCancellingOrder(
   container: CommandRuntimeContext['container'],
   em: EntityManager,
