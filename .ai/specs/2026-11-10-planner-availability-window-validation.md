@@ -22,3 +22,5 @@ Tenant and organization scoping, optimistic locking, undo snapshots and command 
 
 ## Changelog
 - 2026-11-10: initial version.
+
+- 2026-11-10: complex Polish browser QA exposed missing schedule-editor heading/dialog and weekday translations. Add the missing keys in all five shipped locales and translate the weekday used in the editor scope label; refusal/transaction behavior is unchanged.

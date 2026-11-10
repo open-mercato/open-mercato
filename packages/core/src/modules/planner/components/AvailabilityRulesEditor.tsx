@@ -581,7 +581,7 @@ export function AvailabilityRulesEditor({
       customizePrompt: t(`${labelPrefix}.availability.ruleset.customizePrompt`, 'This schedule is based on a shared ruleset. Customize it to make changes.'),
       calendarLabel: t(`${labelPrefix}.availability.view.calendar`, 'Calendar'),
       listLabel: t(`${labelPrefix}.availability.view.list`, 'List'),
-      editAllLabel: t(`${labelPrefix}.availability.scope.weekdayShort`, 'All {{weekday}}s', { weekday: DAY_LABELS[editorWeekday].fallback }),
+      editAllLabel: t(`${labelPrefix}.availability.scope.weekdayShort`, 'All {{weekday}}s', { weekday: t(DAY_LABELS[editorWeekday].nameKey, DAY_LABELS[editorWeekday].fallback) }),
       addDateLabel: t(`${labelPrefix}.availability.dateSpecific.addDate`, 'Add date'),
     }
   }, [editorWeekday, labelPrefix, t])
