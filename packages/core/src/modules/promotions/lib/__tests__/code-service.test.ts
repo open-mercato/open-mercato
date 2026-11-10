@@ -11,6 +11,12 @@
 
 import { randomUUID } from 'crypto'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+// #8268 review Major 7: `reinstateCodeUse`'s refusal branches now emit
+// `promotions.code.exhausted` so `subscribers/code-exhausted-notification.ts` has
+// something to react to — mocked the same way `promotion-usage-service.test.ts` mocks
+// the sibling `promotions.promotion.budget_exhausted` emit.
+jest.mock('../../events', () => ({ emitPromotionsEvent: jest.fn(async () => {}) }))
+const { emitPromotionsEvent } = require('../../events') as { emitPromotionsEvent: jest.Mock }
 import { Code, CodeReservation, CodeUsage, GeneratedCode, type PromotionCodeType, type PromotionCodeUsageMode } from '../../data/entities'
 import {
   CODE_INVALID_REASON,
@@ -1300,6 +1306,7 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
     // B's live (never-reverted) use is what brought `used` back up to the cap.
     seedCodeUsage(tables, { codeId: code.id, customerId: 'cust-b', cartId: 'cart-b', orderId: 'order-b' })
     const service = new PromotionCodeService(fakeContainer())
+    emitPromotionsEvent.mockClear()
 
     const result = await service.reinstateCodeUse(
       em as unknown as import('@mikro-orm/postgresql').EntityManager,
@@ -1310,6 +1317,13 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
     expect(result).toEqual({ ok: true, reinstatedCount: 0 })
     expect(code.used).toBe(1)
     expect(usageA.revertedAt).not.toBeNull()
+    // #8268 review Major 7: the refusal must surface somewhere a human can act on it,
+    // not just in telemetry — `promotions.code.exhausted` is that signal.
+    expect(emitPromotionsEvent).toHaveBeenCalledWith(
+      'promotions.code.exhausted',
+      expect.objectContaining({ orderId: 'order-a', codeId: code.id, reason: 'code_cap_exceeded' }),
+      { persistent: true },
+    )
   })
 
   it('refuses to reinstate a dynamic/generated code use already claimed by another order', async () => {
@@ -1325,6 +1339,7 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
       revertedAt: new Date(),
     })
     const service = new PromotionCodeService(fakeContainer())
+    emitPromotionsEvent.mockClear()
 
     const result = await service.reinstateCodeUse(
       em as unknown as import('@mikro-orm/postgresql').EntityManager,
@@ -1335,5 +1350,28 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
     expect(result).toEqual({ ok: true, reinstatedCount: 0 })
     expect(generatedCode.active).toBe(false)
     expect(usageA.revertedAt).not.toBeNull()
+    expect(emitPromotionsEvent).toHaveBeenCalledWith(
+      'promotions.code.exhausted',
+      expect.objectContaining({ orderId: 'order-a', generatedCodeId: generatedCode.id, reason: 'generated_code_claimed' }),
+      { persistent: true },
+    )
+  })
+
+  it('does not emit promotions.code.exhausted for the harmless "another caller already reinstated this row" skip', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'USEDONCE', usage: 'single', used: 1, active: false })
+    // Never reverted — `reinstateCodeUse` skips it outright, with no refusal involved.
+    seedCodeUsage(tables, { codeId: code.id, customerId: 'cust-1', cartId: 'cart-1', orderId: 'order-1' })
+    const service = new PromotionCodeService(fakeContainer())
+    emitPromotionsEvent.mockClear()
+
+    const result = await service.reinstateCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'order-1' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, reinstatedCount: 0 })
+    expect(emitPromotionsEvent).not.toHaveBeenCalled()
   })
 })

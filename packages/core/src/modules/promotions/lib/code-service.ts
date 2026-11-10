@@ -10,6 +10,7 @@ import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Code, CodeReservation, CodeUsage, GeneratedCode, type PromotionCodeType } from '../data/entities'
+import { emitPromotionsEvent } from '../events'
 import type {
   CodeReservationResult,
   CodeUseResult,
@@ -697,6 +698,7 @@ export class PromotionCodeService {
     let reinstatedCount = 0
     for (const seedUsage of usageRows) {
       let reinstated = false
+      let refusalReason: 'generated_code_claimed' | 'code_cap_exceeded' | null = null
       await withAtomicFlush(
         em,
         [
@@ -735,6 +737,7 @@ export class PromotionCodeService {
                   new Error('[internal] code reinstatement refused: generated code already claimed by another order'),
                   { module: 'promotions', code: 'promotions.reinstate_code_use_refused', attributes: { orderId: input.orderId, generatedCodeId: lockedUsage.generatedCodeId } },
                 )
+                refusalReason = 'generated_code_claimed'
                 return
               }
               reinstated = true
@@ -754,6 +757,7 @@ export class PromotionCodeService {
                   new Error('[internal] code reinstatement refused: code is already at its usage cap'),
                   { module: 'promotions', code: 'promotions.reinstate_code_use_refused', attributes: { orderId: input.orderId, codeId: lockedUsage.codeId } },
                 )
+                refusalReason = 'code_cap_exceeded'
                 return
               }
               reinstated = true
@@ -769,7 +773,32 @@ export class PromotionCodeService {
         { transaction: true, label: 'promotions.code.use.reinstate' },
       )
 
-      if (!reinstated) continue
+      if (!reinstated) {
+        // #8268 review Major 7: `promotions.code.exhausted` was declared but never emitted
+        // — give the refusal above an actual consumer (`subscribers/code-exhausted-
+        // notification.ts`) instead of leaving the order's uncounted discount visible only
+        // in telemetry. `refusalReason` stays null for the harmless "another caller already
+        // reinstated this row" skip, so that path never fires a false-positive notification.
+        if (refusalReason) {
+          try {
+            await emitPromotionsEvent(
+              'promotions.code.exhausted',
+              {
+                orderId: input.orderId,
+                codeId: seedUsage.codeId,
+                generatedCodeId: seedUsage.generatedCodeId ?? null,
+                reason: refusalReason,
+                tenantId: scope.tenantId,
+                organizationId: scope.organizationId,
+              },
+              { persistent: true },
+            )
+          } catch (err) {
+            logger.warn('[internal] promotions.code.exhausted emit failed', { orderId: input.orderId, codeId: seedUsage.codeId, err })
+          }
+        }
+        continue
+      }
       reinstatedCount += 1
 
       await invalidateCrudCache(

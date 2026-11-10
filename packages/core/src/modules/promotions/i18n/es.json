@@ -1,4 +1,5 @@
 {
+  "notifications.categories.promotions": "Promociones",
   "promotions.audit.code.create": "Create promotional code",
   "promotions.audit.code.delete": "Delete promotional code",
   "promotions.audit.code.update": "Update promotional code",
@@ -269,6 +270,8 @@
   "promotions.list.searchPlaceholder": "Buscar promociones...",
   "promotions.list.title": "Promociones",
   "promotions.nav.group": "Promociones",
+  "promotions.notifications.usageReinstateBlocked.body": "Al revivir el pedido {orderId} no se pudo restaurar su uso de promoción/código sin superar el límite: el pedido sigue teniendo su descuento original y necesita una reconciliación manual.",
+  "promotions.notifications.usageReinstateBlocked.title": "No se pudo restablecer el uso de la promoción",
   "promotions.operators.eq": "Igual a",
   "promotions.operators.gt": "Mayor que",
   "promotions.operators.gte": "Mayor o igual que",
