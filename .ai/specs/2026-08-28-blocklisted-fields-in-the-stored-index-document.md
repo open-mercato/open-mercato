@@ -229,11 +229,19 @@ record restores the key.
   any other match.
 - `packages/core/src/modules/query_index/__tests__/indexer.test.ts` — two cases
   on the event path, in the existing fake-kysely harness.
+- `packages/core/src/modules/query_index/__integration__/TC-QIDX-9182-blocklisted-doc-fields.spec.ts`
+  — the lifecycle on `auth:user` against a real database, with tenant data
+  encryption on: a create (event path), a reindex over a row that still holds a
+  `password_hash` copy from before the fix (batch path), and the next ordinary
+  write (event path again). After each step `password_hash` and `email_hash` are
+  absent from the stored document, and `email` and `name` are present.
 - **Not vacuous, measured rather than asserted** (re-measured on `main`, 2026-11-10).
   With the `buildIndexDocument` call reverted, 8 tests fail and every negative
   control passes; with the `buildIndexDoc` call reverted, exactly 1 fails — the
   event-path case. Each chokepoint has its own failing test and neither covers for
-  the other.
+  the other. In the ephemeral integration run, reverting the `buildIndexDoc` call
+  fails TC-QIDX-9182 after the create, and reverting the `buildIndexDocument` call fails
+  it after the reindex.
 
 Suite totals, against a pristine baseline in a separate worktree:
 
@@ -257,3 +265,5 @@ clone that has never been built.
   `BACKWARD_COMPATIBILITY.md`, which keeps a short dated entry pointing at it, and the
   upgrade note moved from the released `0.7.0 → 0.8.0` section to the unreleased notes.
   The suite totals under Testing are the 2026-08-28 measurements against `develop`.
+- **2026-11-10** — Added TC-QIDX-9182, an end-to-end test of the storage lifecycle,
+  after the QA run asked for integration coverage.
