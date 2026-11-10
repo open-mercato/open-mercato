@@ -21,7 +21,7 @@ import {
   mergeUpsertIndexBatchResults,
   type AnyRow,
 } from './lib/batch'
-import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
+import { reindexEntity, isTenantlessReindexTarget, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import type { ReindexJobResult } from './lib/reindexer'
 
 /**
@@ -947,6 +947,22 @@ const reindex: ModuleCli = {
         if (!skipPurge) {
           console.log(`[${idx + 1}/${entityIds.length}] Purging existing index rows for ${id}...`)
           await purgeIndexScope(baseEm, { entityType: id, organizationId: orgId, tenantId })
+        }
+        if (tenantId != null && await isTenantlessReindexTarget(baseEm, id)) {
+          console.log(`[${idx + 1}/${entityIds.length}] Skipping ${id}: its table has no tenant_id column, so it is not tenant-scoped`)
+          await recordIndexerLog(
+            { em: baseEm },
+            {
+              source: 'query_index',
+              handler: 'cli:query_index.reindex',
+              message: `Reindex skipped for ${id}: not tenant-scoped`,
+              entityType: id,
+              tenantId,
+              organizationId: orgId ?? null,
+              details: { skipped: 'no-tenant-column' },
+            },
+          ).catch(() => undefined)
+          continue
         }
         console.log(
           `[${idx + 1}/${entityIds.length}] Reindexing ${id}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`,
