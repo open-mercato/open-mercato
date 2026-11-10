@@ -13,7 +13,7 @@ The route, response, cookie and token formats remain unchanged. No database migr
 The auth module's existing logout route performs credential selection, `verifyJwt` verifies claims, and `AuthService.deleteSessionById` revokes the selected session. Refresh-cookie revocation continues through `deleteSessionByToken`. No entities, migrations, DI keys, permissions or cross-module relationships are added.
 
 ## API contracts and failure cases
-- `POST /api/auth/logout` accepts the existing optional bearer header and existing session cookies; its redirect remains 307 to the safe login URL.
+- `POST /api/auth/logout` accepts the existing optional bearer header and existing session cookies; its redirect remains 303 to the safe login URL.
 - A nonempty bearer credential takes precedence over an unrelated auth cookie. Empty or absent bearer credentials fall back to the auth cookie.
 - Invalid, expired, customer or sessionless bearer tokens cannot select a staff session for deletion. A supplied refresh cookie still follows the existing revocation path.
 - A request with no credentials remains a redirect without clearing cookies. Revocation failures retain existing telemetry and cookie cleanup.
@@ -31,6 +31,8 @@ Selecting an unverified or customer token could revoke an unrelated session; onl
 
 ## Final compliance report
 The implementation and existing tests match this specification. No new entity needs optimistic locking, no discovery file is introduced, and public session/token formats remain intact. Source approval and CI remain independent of formal QA; this document grants no approval.
+
+The target branch's current 303 See Other logout redirect and navigation regression remain intact after the conflict resolution.
 
 ## Changelog
 - 2026-11-10: Document the existing bearer logout contribution and replace its public run inventory with scoped contract and coverage documentation.

@@ -249,8 +249,13 @@ test.describe('TC-CRM-6068: profile task totals count adapter-created tasks', ()
       await expect(page.getByRole('heading', { name: displayName, exact: true })).toBeVisible({ timeout: 15_000 });
 
       const tasksTab = page.getByRole('tab', { name: /^Tasks\b/ });
-      await expect(tasksTab).toHaveCount(1);
-      await expect(tasksTab.locator('[data-slot="tabs-trigger-count"]')).toHaveText('2');
+      await expect(async () => {
+        if (!(await tasksTab.isVisible())) {
+          await page.getByTestId('detail-tabs-more').click({ timeout: 2_000 });
+          await page.getByRole('menuitem', { name: /^Tasks\b/ }).click({ timeout: 2_000 });
+        }
+        await expect(tasksTab.locator('[data-slot="tabs-trigger-count"]')).toHaveText('2', { timeout: 2_000 });
+      }).toPass({ timeout: 30_000 });
     } finally {
       await deleteTasksIfExist(request, token, todoIds);
       await deleteEntityIfExists(request, token, '/api/customers/people', personId);

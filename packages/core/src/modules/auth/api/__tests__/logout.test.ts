@@ -29,8 +29,8 @@ jest.mock('@open-mercato/core/modules/auth/events', () => ({
 jest.mock('@open-mercato/core/modules/auth/lib/requestRedirect', () => {
   const { NextResponse } = require('next/server')
   return {
-    buildSafeRedirectResponse: (_req: Request, path: string) =>
-      new NextResponse(null, { status: 307, headers: { Location: `http://localhost${path}` } }),
+    buildSafeRedirectResponse: (_req: Request, path: string, status = 307) =>
+      new NextResponse(null, { status, headers: { Location: `http://localhost${path}` } }),
   }
 })
 
@@ -77,7 +77,8 @@ describe('POST /api/auth/logout — session revocation', () => {
     const res = await POST(req)
 
     expect(deleteSessionById).toHaveBeenCalledWith(sessionId)
-    expect(res.status).toBe(307) // NextResponse.redirect default
+    expect(res.status).toBe(303)
+    expect(res.headers.get('location')).toBe('http://localhost/login')
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('auth_token=;')
     expect(setCookie).toContain('session_token=;')
@@ -91,7 +92,7 @@ describe('POST /api/auth/logout — session revocation', () => {
 
     expect(deleteSessionById).toHaveBeenCalledWith(sessionId)
     expect(deleteSessionByToken).not.toHaveBeenCalled()
-    expect(res.status).toBe(307)
+    expect(res.status).toBe(303)
     expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.logout', expect.objectContaining({
       id: userId,
       sessionId,
@@ -126,7 +127,7 @@ describe('POST /api/auth/logout — session revocation', () => {
 
     expect(deleteSessionById).not.toHaveBeenCalled()
     expect(deleteSessionByToken).not.toHaveBeenCalled()
-    expect(res.status).toBe(307)
+    expect(res.status).toBe(303)
   })
 
   it('revokes the remember-me session_token cookie as well when present', async () => {
@@ -155,7 +156,8 @@ describe('POST /api/auth/logout — session revocation', () => {
     expect(deleteSessionById).not.toHaveBeenCalled()
     expect(deleteSessionByToken).not.toHaveBeenCalled()
     expect(createRequestContainer).not.toHaveBeenCalled()
-    expect(res.status).toBe(307)
+    expect(res.status).toBe(303)
+    expect(res.headers.get('location')).toBe('http://localhost/login')
     expect(res.headers.get('set-cookie')).toBeNull()
   })
 
@@ -169,7 +171,8 @@ describe('POST /api/auth/logout — session revocation', () => {
 
     expect(deleteSessionById).not.toHaveBeenCalled()
     expect(deleteSessionByToken).toHaveBeenCalledWith('remember-me-token')
-    expect(res.status).toBe(307)
+    expect(res.status).toBe(303)
+    expect(res.headers.get('location')).toBe('http://localhost/login')
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('auth_token=;')
     expect(setCookie).toContain('session_token=;')
@@ -203,7 +206,8 @@ describe('POST /api/auth/logout — session revocation', () => {
     }))
 
     expect(mockReportError).toHaveBeenCalledWith(failure, { module: 'auth', code: 'auth.logout_revoke_failed' })
-    expect(res.status).toBe(307)
+    expect(res.status).toBe(303)
+    expect(res.headers.get('location')).toBe('http://localhost/login')
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('auth_token=;')
     expect(setCookie).toContain('session_token=;')
@@ -218,7 +222,8 @@ describe('POST /api/auth/logout — session revocation', () => {
 
     const res = await POST(req)
 
-    expect(res.status).toBe(307)
+    expect(res.status).toBe(303)
+    expect(res.headers.get('location')).toBe('http://localhost/login')
     expect(deleteSessionById).toHaveBeenCalledWith(sessionId)
     expect(deleteSessionByToken).not.toHaveBeenCalled()
     const setCookie = res.headers.get('set-cookie') ?? ''
@@ -388,7 +393,8 @@ describe('POST /api/auth/logout — auth.logout event', () => {
       headers: { cookie: buildCookieHeader({ auth_token: buildAuthToken() }) },
     }))
 
-    expect(res.status).toBe(307)
+    expect(res.status).toBe(303)
+    expect(res.headers.get('location')).toBe('http://localhost/login')
     expect(res.headers.get('set-cookie') ?? '').toContain('auth_token=;')
   })
 })
@@ -404,6 +410,10 @@ describe('logout route — CSRF hardening (POST-only)', () => {
 
   it('declares only POST in route metadata', () => {
     expect(Object.keys(logoutRoute.metadata)).toEqual(['POST'])
+  })
+
+  it('documents the GET-following redirect status', () => {
+    expect(logoutRoute.openApi.methods.POST?.responses).toEqual(expect.arrayContaining([expect.objectContaining({ status: 303 })]))
   })
 
   it('documents only POST in the OpenAPI spec', () => {

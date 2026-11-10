@@ -103,7 +103,7 @@ test.describe('TC-AUTH-067: logout revokes the refresh session without a valid a
       expect(await refreshStatus(refreshToken), 'the refresh token should work before logout').toBe(200);
 
       const response = await logoutWithCookies(`session_token=${encodeURIComponent(refreshToken)}`);
-      expect.soft(response.status(), 'logout should redirect to /login instead of answering 401').toBe(307);
+      expect.soft(response.status(), 'logout should redirect to /login instead of answering 401').toBe(303);
       expect.soft(response.headers()['location'] ?? '').toContain('/login');
       const cookies = setCookieHeaders(response);
       expectClearedCookie(cookies, 'auth_token');
@@ -112,7 +112,7 @@ test.describe('TC-AUTH-067: logout revokes the refresh session without a valid a
       expect(await refreshStatus(refreshToken), 'the refresh session must be revoked by logout').toBe(401);
 
       const repeated = await logoutWithCookies(`session_token=${encodeURIComponent(refreshToken)}`);
-      expect(repeated.status(), 'a logout with an already revoked refresh token stays a plain redirect').toBe(307);
+      expect(repeated.status(), 'a logout with an already revoked refresh token stays a plain redirect').toBe(303);
       const repeatedCookies = setCookieHeaders(repeated);
       expectClearedCookie(repeatedCookies, 'auth_token');
       expectClearedCookie(repeatedCookies, 'session_token');
@@ -140,7 +140,7 @@ test.describe('TC-AUTH-067: logout revokes the refresh session without a valid a
       const response = await logoutWithCookies(
         `auth_token=${staleAccessToken}; session_token=${encodeURIComponent(refreshToken)}`,
       );
-      expect.soft(response.status(), 'logout should redirect to /login instead of answering 401').toBe(307);
+      expect.soft(response.status(), 'logout should redirect to /login instead of answering 401').toBe(303);
       const cookies = setCookieHeaders(response);
       expectClearedCookie(cookies, 'auth_token');
       expectClearedCookie(cookies, 'session_token');
@@ -185,7 +185,7 @@ test.describe('TC-AUTH-067: logout revokes the refresh session without a valid a
           headers: { authorization: `Bearer ${credentials.token}` },
           maxRedirects: 0,
         });
-        expect(response.status()).toBe(307);
+        expect(response.status()).toBe(303);
       });
       expect(await profileStatus(), 'the logged-out bearer session is rejected').toBe(401);
       expect(await refreshStatus(credentials.refreshToken), 'its refresh session is revoked').toBe(401);
@@ -198,7 +198,42 @@ test.describe('TC-AUTH-067: logout revokes the refresh session without a valid a
 
   test('a logout without any session cookie, as a cross-site form sends it, is redirected without clearing cookies', async () => {
     const response = await logoutWithCookies('');
-    expect(response.status(), 'a cookieless logout should redirect to /login').toBe(307);
+    expect(response.status(), 'a cookieless logout should redirect to /login').toBe(303);
     expect(setCookieHeaders(response), 'a cookieless logout must not set or clear any cookie').toEqual([]);
   });
+  for (const signedIn of [false, true]) {
+    test(`logout redirects a native form POST to GET and reloads as GET: signedIn=${signedIn}`, async ({ browser, request, baseURL }, testInfo) => {
+      const context = await browser.newContext({ javaScriptEnabled: false, baseURL });
+      const page = await context.newPage();
+      const adminToken = await getAuthToken(request, 'admin');
+      let roleId: string | null = null;
+      let userId: string | null = null;
+      try {
+        if (signedIn) {
+          const fixture = await createLoginUser(request, adminToken, randomUUID().slice(0, 8));
+          roleId = fixture.roleId;
+          userId = fixture.userId;
+          const token = await getAuthToken(request, fixture.email, PASSWORD);
+          await context.addCookies([{ name: 'auth_token', value: token, url: baseURL! }]);
+        }
+        await page.goto('/login');
+        const logoutUrl = new URL('/api/auth/logout', baseURL).href;
+        await page.setContent(`<form method="POST" action="${logoutUrl}"><button type="submit">Sign out</button></form>`);
+        const logoutResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/auth/logout');
+        const loginRequest = page.waitForRequest((entry) => entry.isNavigationRequest() && new URL(entry.url()).pathname === '/login');
+        await page.getByRole('button', { name: 'Sign out' }).click();
+        expect((await logoutResponse).status()).toBe(303);
+        expect((await loginRequest).method()).toBe('GET');
+        await expect(page).toHaveURL(/\/login(?:\?|$)/);
+        await page.screenshot({ path: testInfo.outputPath(`logout-get-${signedIn}.png`), fullPage: true });
+        const reloaded = await page.reload();
+        expect(reloaded?.request().method()).toBe('GET');
+      } finally {
+        await context.close();
+        await deleteUserIfExists(request, adminToken, userId);
+        await deleteRoleIfExists(request, adminToken, roleId);
+      }
+    });
+  }
+
 });
