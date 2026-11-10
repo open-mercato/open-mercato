@@ -11,7 +11,16 @@
  */
 
 import { NextRequest } from 'next/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createFallbackTranslator, createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import polishTranslations from '../../i18n/pl.json'
 import { POST as generateDraft } from '../definitions/generate/route'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -97,6 +106,34 @@ describe('POST /api/workflows/definitions/generate', () => {
     const response = await generateDraft(request)
     return { response, data: await response.json() }
   }
+
+  test('returns localized unsafe mapping problems in generated drafts', async () => {
+    jest.mocked(resolveTranslations).mockResolvedValueOnce({
+      locale: 'pl',
+      dict: polishTranslations,
+      t: createTranslator(polishTranslations),
+      translate: createFallbackTranslator(polishTranslations),
+    })
+    setRunner(jest.fn().mockResolvedValue({
+      ...VALID_GENERATION,
+      transitions: [
+        { ...VALID_GENERATION.transitions[0], activities: [{
+          activityId: 'agent', activityName: 'Agent', activityType: 'INVOKE_AGENT',
+          config: { agentId: 'reviewer', onResult: { alwaysAsk: true }, outputMapping: { 'constructor.value': 'proposalPayload.value' } },
+        }] },
+        VALID_GENERATION.transitions[1],
+      ],
+    }))
+
+    const { response, data } = await run({ prompt: 'Create a child workflow' })
+
+    expect(response.status).toBe(200)
+    expect(data.ok).toBe(true)
+    expect(data.problems).toEqual(expect.arrayContaining([
+      expect.objectContaining({ severity: 'error', message: expect.stringContaining(polishTranslations['workflows.validation.unsafeMappingTarget']) }),
+    ]))
+    expect(emFactory).not.toHaveBeenCalled()
+  })
 
   test('reports "unavailable" as a structured 200 when no AI runtime is present', async () => {
     setRunner(null)
