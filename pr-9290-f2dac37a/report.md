@@ -59,6 +59,6 @@ Tested on a disposable **production** instance, local runner, Chromium1.61.1, in
 
 ### Cleanup
 
-Browser contexts and DB connection closed; own app process stopped (port36077 unavailable), owned Postgres container311206b06403 removed by Testcontainers, source checkout clean. Own claim housekeeping is recorded in the final completion comment/task report; no foreign assignment or claim changed. Parent `.ai/meta/qa.json` untouched. No `qa-approved`, `qa-self-verified`, `qa-failed` or pipeline changes.
+Browser contexts and DB connection closed; own app process stopped (port36077 unavailable), owned Postgres container311206b06403 removed by Testcontainers, source checkout clean. Own claim housekeeping is recorded in the final completion comment/task report; no foreign assignment or claim changed. Verified dead own runtime owner/state and disposable credential references cleared; teardown rerun idempotently. Parent `.ai/meta/qa.json` untouched. No `qa-approved`, `qa-self-verified`, `qa-failed` or pipeline changes.
 
 PR: #9290 (link: https://github.com/open-mercato/open-mercato/pull/9290)
