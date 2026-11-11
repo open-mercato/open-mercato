@@ -1,9 +1,9 @@
 /**
  * Two submissions of the same task (the task page and a quick action, a client
- * retry) both read the row while it is still open. Each contender gets its own snapshot of
- * that row, while `nativeUpdate` applies the conditional update to the one
- * shared row, the way the database would. Only one may complete the task and
- * run its side effects; the other gets TASK_NOT_FOUND.
+ * retry) both read the row while it is still open. Each contender gets its own
+ * snapshot of that row, while `nativeUpdate` applies the conditional update to
+ * the one shared row, the way the database would. Only one may complete the
+ * task and run its side effects; the other gets TASK_NOT_FOUND.
  */
 
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
@@ -46,7 +46,7 @@ function makeContender(storedTask: Row, instance: Row) {
   const flush = jest.fn(async () => undefined)
   const create = jest.fn((_entity: unknown, data: Row) => ({ ...data }))
   const persist = jest.fn(() => ({ flush }))
-  return { em: { findOne, nativeUpdate, flush, create, persist } as unknown as EntityManager, create }
+  return { em: { findOne, nativeUpdate, flush, create, persist } as unknown as EntityManager, create, nativeUpdate }
 }
 
 function submit(em: EntityManager, approved: boolean) {
@@ -110,6 +110,11 @@ describe('completeUserTask double submit', () => {
     expect(await submit(second.em, false)).toMatchObject({ code: 'TASK_NOT_FOUND' })
 
     expect(storedTask).toMatchObject({ status: 'COMPLETED', formData: { approved: true } })
+    expect(first.nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: TASK_ID, tenantId: TENANT, organizationId: ORG }),
+      expect.anything(),
+    )
     expect(instance.context).toEqual({ approved: true })
     expect(second.create).not.toHaveBeenCalled()
     expect(stepHandler.exitStep).toHaveBeenCalledTimes(1)
