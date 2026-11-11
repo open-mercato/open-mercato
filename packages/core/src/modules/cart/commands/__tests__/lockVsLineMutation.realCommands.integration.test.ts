@@ -12,7 +12,8 @@
  *   `pg_advisory_xact_lock('cart:lines:<cartId>')` inside its transaction, then re-reads
  *   the cart and refuses a cart that is no longer `active`.
  * - `commands/lock.ts#lockCartCommand`: the `active -> locked` write takes the SAME key,
- *   re-runs its gate (`assertLockGate`: fresh cart, fresh lines, approval) under it, and
+ *   re-runs its gate under it (fresh cart, fresh lines, totals and approval recomputed from
+ *   those lines), and
  *   transitions with a conditional `nativeUpdate` guarded on `status = 'active'`.
  *
  * Each test pins one interleaving with checkpoints at real call boundaries and checks the
@@ -213,7 +214,10 @@ describeWithPostgres('cart.lock vs cart.lines.update/.remove through the real co
       const write = track<unknown>(
         mutation === 'update' ? updateLine(scope, cart, targetLineId, 20) : removeLine(scope, cart, targetLineId),
       )
-      await races().waitForLockWaiters('advisory', cart.cartId, 1, write)
+      // By its approval read the lock has also written the totals it recomputed, so it holds
+      // the cart row too: the write may first wait there (its activity touch) rather than on
+      // `cart:lines`. Either way it waits on the lock's transaction.
+      await races().waitForLockWaiters('any', cart.cartId, 1, write)
       expect(write.isSettled()).toBe(false)
 
       lockPausedInGate.release()

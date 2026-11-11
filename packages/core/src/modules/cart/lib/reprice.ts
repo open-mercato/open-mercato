@@ -314,9 +314,9 @@ export function toCartTotalsLineSnapshot(line: CartLine, currencyCode: string): 
  * `.mergeUndo`, `cart.promotions.apply`/`.remove`, and `cart.lock`'s own forced re-price)
  * already funnels through, so hooking the gate's "whenever totals change" requirement in
  * here — rather than adding a second phase every call site would have to remember to add
- * — also satisfies "recomputes it from fresh terms at `cart.lock`" for free: the lock
- * command always forces a re-price (`trigger: 'lock'`) immediately before it ever reads
- * `cart.requiresApproval` for the gate check (`commands/lock.ts`).
+ * — also satisfies "recomputes it from fresh terms at `cart.lock`": the lock command runs
+ * this phase again inside its own `cart:lines`-locked transaction, immediately before its
+ * gate reads `cart.requiresApproval` (`commands/lock.ts`).
  */
 export function buildRecomputeCartTotalsPhase(
   container: { resolve: <T = unknown>(name: string) => T },

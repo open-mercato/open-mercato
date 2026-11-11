@@ -10,6 +10,8 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { E } from '#generated/entities.ids.generated'
 import { Cart, CartLine } from '../data/entities'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
+import { shouldEnforceAssortmentScope } from '../lib/routeContext'
+import type { CartPromotionWarning } from '../lib/promotionContext'
 import { cartMarkConvertedLineMapSchema, type CartMarkConvertedLineMapEntry } from '../data/validators'
 import { resolveCartLockTimeoutMs } from '../lib/sweepConfig'
 import { assertCartNotLocked } from '../lib/lockGuard'
@@ -20,6 +22,7 @@ import { withdrawPendingCartApproval } from '../lib/approvalLifecycle'
 import { releaseCartCodeReservations } from '../lib/sweepers'
 import { repriceCartCommand, toCartSummary } from './cart'
 import type { CartRepriceInput, CartRepriceResult, CartSummary } from './cart'
+import { buildCartPromotionsAndTotalsPhases, emitCartPromotionsAndTotalsSideEffects } from './lines'
 
 // Step 7.5 — §9's `active -> locked`, `locked -> active` and `locked -> converted` rows:
 // `cart.lock`, `cart.unlock`, `cart.markConverted`. §10 is explicit that none of the three
@@ -196,7 +199,7 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
     const cart = await loadBasketCart(em, scope, input.cartId)
     if (!cart) throw notFound('[internal] cart not found')
 
-    const assertLockGate = async (): Promise<void> => {
+    const assertLockableUnderLock = async (): Promise<void> => {
       await em.refresh(cart)
       assertCartNotLocked(cart)
       if (cart.status !== 'active') throw notFound('[internal] cart not found')
@@ -211,6 +214,30 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
       if (lines.some((line) => line.flagState != null)) {
         throw new CrudHttpError(409, { error: '[internal] cart_has_unavailable_lines', code: 'cart_has_unavailable_lines' })
       }
+    }
+
+    // Stored `totals`/`requiresApproval` can predate lines committed after the forced re-price
+    // (a merge, merge undo or promotion removal commits before its own follow-up re-price), so
+    // the gate judges values recomputed here, under the lock, from the lines it holds — with
+    // the same transaction-bound phases every line write uses.
+    const now = new Date()
+    const rawAssortmentScope = input.routeContext?.assortmentScope
+    const createdGiftLines: CartLine[] = []
+    const removedGiftLines: CartLine[] = []
+    const promotionWarnings: CartPromotionWarning[] = []
+    const recomputeTotalsPhases = buildCartPromotionsAndTotalsPhases({
+      em,
+      container: ctx.container,
+      cart,
+      scope,
+      assortmentScope: shouldEnforceAssortmentScope(cart.channel, rawAssortmentScope) ? rawAssortmentScope : undefined,
+      now,
+      createdGiftLines,
+      removedGiftLines,
+      promotionWarnings,
+    })
+
+    const assertApprovalGate = async (): Promise<void> => {
       if (input.purpose === 'quote' || !cart.requiresApproval) return
       if (!cart.customerUserId) {
         throw new CrudHttpError(409, {
@@ -237,7 +264,6 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
       }
     }
 
-    const now = new Date()
     const lockExpiresAt = new Date(now.getTime() + lockTtlMs)
     // MAJOR fix (inherited review finding #1 + #2):
     // - #1: the active->locked transition used to be an unconditional assign + flush — two
@@ -258,9 +284,9 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
         async () => {
           await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${cart.id}`])
         },
-        async () => {
-          await assertLockGate()
-        },
+        assertLockableUnderLock,
+        ...recomputeTotalsPhases,
+        assertApprovalGate,
         async () => {
           const affected = await em.nativeUpdate(
             Cart,
@@ -282,14 +308,7 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
     }
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    await emitCrudSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: cart,
-      identifiers: getCartIdentifiers(cart),
-      events: cartCrudEvents,
-      indexer: cartCrudIndexer,
-    })
+    await emitCartPromotionsAndTotalsSideEffects(dataEngine, cart, { createdGiftLines, removedGiftLines, promotionWarnings })
     await emitCartEvent('cart.lock.acquired', {
       cartId: cart.id,
       tenantId: cart.tenantId,

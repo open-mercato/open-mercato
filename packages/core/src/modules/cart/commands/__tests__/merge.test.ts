@@ -684,6 +684,52 @@ describe('cart.merge — §7.1 policy rows', () => {
     })
   })
 
+  it('takes both carts\' line locks and refuses without merging when checkout locked the TARGET after the pre-checks (#9183)', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token') }),
+    ]
+    seededCartLines = [
+      makeLineFixture({ id: 'line-target-1', cartId: 'cart-target', productId: 'product-1', quantity: '2', lineNumber: 1 }),
+      makeLineFixture({ id: 'line-guest-2', cartId: 'cart-guest', productId: 'product-2', quantity: '5', lineNumber: 1 }),
+    ]
+    seededProducts = [makeProductFixture({ id: 'product-1' }), makeProductFixture({ id: 'product-2' })]
+
+    const handler = getMergeHandler()
+    const em = makeEm()
+    let armed = false
+    em.execute.mockImplementation(async () => {
+      armed = true
+    })
+    em.refresh.mockImplementation(async (row: FakeRow) => {
+      if (armed && row.id === 'cart-target') {
+        row.status = 'locked'
+        row.checkoutSessionId = 'session-late'
+      }
+    })
+
+    let captured: unknown
+    try {
+      await handler.execute(
+        { targetCartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, sourceToken: 'guest-plain-token', routeContext: makeRouteContext() },
+        makeCtx({ em }),
+      )
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_locked', checkoutSessionId: 'session-late' })
+    expect(em.execute.mock.calls.map(([, params]: [string, string[]]) => params[0])).toEqual(['cart:lines:cart-guest', 'cart:lines:cart-target'])
+    expect(seededMergeLogs).toHaveLength(0)
+    expect(seededCartLines.some((row) => row.cartId === 'cart-target' && row.productId === 'product-2')).toBe(false)
+    const guestCart = seededCarts.find((row) => row.id === 'cart-guest')!
+    expect(guestCart.status).toBe('active')
+    expect(guestCart.mergedIntoCartId ?? null).toBeNull()
+    expect(seededCarts.find((row) => row.id === 'cart-target')!.tokenHash).toBe('target-token-hash')
+  })
+
   // Contrast case: a locked GUEST/source cart is a documented judgment call left OUT of the
   // 423 distinction — it still folds into the generic 404 collapse, same as any other
   // non-active source status, rather than getting its own signal.
@@ -1306,6 +1352,51 @@ describe('cart.mergeUndo', () => {
     expect((captured as { status: number }).status).toBe(423)
     const guestCart = seededCarts.find((row) => row.id === 'cart-guest')!
     expect(guestCart.status).toBe('merged')
+  })
+
+  it('re-reads the survivor inside the line locks and refuses without restoring when checkout locked it after the pre-checks (#9183)', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token'), status: 'merged', mergedIntoCartId: 'cart-target' }),
+    ]
+    seededCartLines = [makeLineFixture({ id: 'line-target-1', cartId: 'cart-target', productId: 'product-1', quantity: '5' })]
+    seededMergeLogs = [
+      makeMergeLogFixture({
+        id: 'merge-log-race',
+        sourceCartId: 'cart-guest',
+        targetCartId: 'cart-target',
+        strategy: 'sum',
+        outcome: [{ sourceLineId: 'line-guest-1', targetLineId: 'line-target-1', disposition: 'summed', previousTargetQuantity: '2' }],
+        createdAt: new Date(Date.now() - 60 * 1000),
+      }),
+    ]
+
+    const handler = getUndoHandler()
+    const em = makeEm()
+    let armed = false
+    em.execute.mockImplementation(async () => {
+      armed = true
+    })
+    em.refresh.mockImplementation(async (row: FakeRow) => {
+      if (armed && row.id === 'cart-target') {
+        row.status = 'locked'
+        row.checkoutSessionId = 'session-late'
+      }
+    })
+
+    let captured: unknown
+    try {
+      await handler.execute({ cartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, routeContext: makeRouteContext() }, makeCtx({ em }))
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect(em.execute.mock.calls.map(([, params]: [string, string[]]) => params[0])).toEqual(['cart:lines:cart-guest', 'cart:lines:cart-target'])
+    expect(seededCartLines.find((row) => row.id === 'line-target-1')!.quantity).toBe('5')
+    expect(seededCarts.find((row) => row.id === 'cart-guest')!.status).toBe('merged')
+    expect(seededMergeLogs[0].undoneAt ?? null).toBeNull()
   })
 
   it('refuses to undo-merge when the current (survivor) cart has already converted', async () => {

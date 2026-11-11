@@ -11,15 +11,18 @@
  *   `pg_advisory_xact_lock` on BOTH `cart:lines:<proposalId>` and `cart:lines:<targetId>`
  *   (sorted), re-reads the target, refuses a locked target with `423 cart_locked`, and only
  *   then flips the proposal with a conditional `nativeUpdate` guarded on `status = 'active'`.
- * - `commands/lock.ts#lockCartCommand`: takes `cart:lines:<targetId>` and re-runs its gate
- *   (fresh cart, fresh lines) before its own conditional `active -> locked` write.
+ * - `commands/lock.ts#lockCartCommand`: takes `cart:lines:<targetId>`, re-reads the cart and
+ *   its lines, recomputes totals and `requiresApproval` from those lines, and only then runs
+ *   its gate and its own conditional `active -> locked` write.
  *
  * Interleavings, pinned with checkpoints and a row lock the test holds itself:
  * 1. accept passed every pre-check, then the lock committed: the in-transaction re-read
  *    refuses the accept, the proposal stays active and unmerged, the target is untouched;
  * 2. accept is inside its transaction (holding both cart locks) when checkout locks: the
  *    lock waits on the target's cart lock until the merge commits, and the cart it locks
- *    carries the merged line, merged exactly once.
+ *    carries the merged line, merged exactly once, with totals that include it;
+ * 3. the same wait with an approval that covered the pre-merge cart only: the lock judges
+ *    the merged lines, not the stored pre-merge totals, and refuses.
  *
  * Runs in the `test:pg-integration` CI job (`OM_PG_INTEGRATION=1`, own disposable
  * Postgres container), or against a throwaway database named by `OM_CART_PG_URL`.
@@ -165,14 +168,14 @@ describeWithPostgres('cart.proposal.accept vs a checkout cart.lock through the r
 
     await proposalRowLock.release()
     expect(expectFulfilled(await lock.settled).extended).toBe(false)
-    // Not asserted: whether the accept's own post-merge `cart.reprice` still runs before or
-    // after the lock commits is timing-dependent, and that window is the totals defect the
-    // separate known-failing reproduction below pins down.
+    // Not asserted: whether the accept's own post-merge `cart.reprice` runs before or after
+    // the lock commits is timing-dependent (after it, that re-price is refused 423).
     await accept.settled
 
     const lockedTarget = await races().readCart(target.cartId)
     expect(lockedTarget.status).toBe('locked')
     expect(lockedTarget.checkoutSessionId).toBe(checkoutSessionId)
+    expect(goodsGross(lockedTarget.totals)).toBe(36)
     const lockedLines = await races().readActiveLines(target.cartId)
     expect(lockedLines).toHaveLength(2)
     expect(lockedLines.map((line) => line.addedByActorType).sort()).toEqual(['buyer', 'merge'])
@@ -180,17 +183,15 @@ describeWithPostgres('cart.proposal.accept vs a checkout cart.lock through the r
     expect(await races().countMergeLogs(target.cartId)).toBe(1)
   })
 
-  // KNOWN DEFECT, reported on #9183 (not fixed here: this change adds tests only).
-  // `executeProposalAcceptance` commits the merged lines inside its guarded transaction but
-  // leaves `Cart.totals`/`requiresApproval` to a separately dispatched `cart.reprice` after
-  // commit, which takes no `cart:lines` lock. A checkout lock already waiting on the target's
-  // cart lock acquires it the moment the merge commits, and `assertLockGate` judges the
-  // stored pre-merge totals. Here: 2 x 12.00 = 24.00 is covered by a 30.00 approval; after the
-  // merge the cart is 36.00, and an accept-then-lock in sequence is refused
-  // `409 cart_requires_approval`. Raced, the lock succeeds. Pinning the accept's post-merge
-  // re-price only makes the order deterministic: unpinned, the lock won all 10 rounds of a
-  // local run. `test.failing` passes while the defect exists; flip it to `test` with the fix.
-  test.failing('a checkout lock that waited out a proposal merge refuses the merged cart above its approval', async () => {
+  // Regression for the defect reported on #9183: `executeProposalAcceptance` commits the
+  // merged lines and leaves `Cart.totals`/`requiresApproval` to the `cart.reprice` it
+  // dispatches after commit. A checkout lock waiting on the target's cart lock acquires it
+  // the moment the merge commits; its gate used to judge the stored pre-merge totals. Here
+  // 2 x 12.00 = 24.00 is covered by a 30.00 approval and the merged cart is 36.00, so the
+  // lock must refuse `409 cart_requires_approval`, exactly as accept-then-lock in sequence
+  // does. Pinning the accept's post-merge re-price keeps the stored totals stale while the
+  // lock decides (unpinned, the lock won all 10 rounds of a local run).
+  test('a checkout lock that waited out a proposal merge refuses the merged cart above its approval', async () => {
     const scope = races().newTenant()
     const product = await races().seedPricedProduct(scope)
     const target = await races().seedBasketCart(scope, [{ product, quantity: 2 }], {
@@ -218,7 +219,10 @@ describeWithPostgres('cart.proposal.accept vs a checkout cart.lock through the r
     await accept.settled
 
     const refusal = expectHttpRejection(lockOutcome)
-    expect(refusal).toEqual({ status: 409, body: expect.objectContaining({ code: 'cart_requires_approval' }) })
+    expect(refusal).toEqual({
+      status: 409,
+      body: expect.objectContaining({ code: 'cart_requires_approval', amountGross: '36' }),
+    })
     expect((await races().readCart(target.cartId)).status).toBe('active')
   })
 })

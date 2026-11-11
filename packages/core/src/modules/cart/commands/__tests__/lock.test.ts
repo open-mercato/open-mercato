@@ -28,6 +28,16 @@ const mockFindWithDecryption = jest.fn(async (_em: unknown, entity: unknown, whe
   return []
 })
 
+// Under its cart lock, `cart.lock` recomputes `requiresApproval` through a customer-groups
+// service built on the lock's own transaction `em` (`lib/approvalGate.ts`), never the
+// container singleton; this captures that construction so a test can stub its terms.
+const mockCreateCustomerGroupsService = jest.fn()
+
+jest.mock('@open-mercato/core/modules/customer_groups/services/customerGroupsService', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/customer_groups/services/customerGroupsService'),
+  createCustomerGroupsService: (...args: unknown[]) => mockCreateCustomerGroupsService(...args),
+}))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...(args as [unknown, unknown, Record<string, unknown>])),
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...(args as [unknown, unknown, Record<string, unknown>])),
@@ -247,6 +257,32 @@ function makeSalesCalculationService() {
   }
 }
 
+/** Sums `quantity x unitPriceGross` over the lines it is given, so a test can see which line
+ * set a totals recompute judged. */
+function makeSummingSalesCalculationService() {
+  return {
+    ...makeSalesCalculationService(),
+    calculateDocumentTotals: jest.fn(async ({ lines }: { lines: Array<{ quantity: number; unitPriceGross: number | null }> }) => {
+      const gross = lines.reduce((sum, line) => sum + line.quantity * (line.unitPriceGross ?? 0), 0)
+      return {
+        kind: 'quote',
+        currencyCode: 'USD',
+        lines: [],
+        adjustments: [],
+        totals: {
+          subtotalNetAmount: gross,
+          subtotalGrossAmount: gross,
+          discountTotalAmount: 0,
+          taxTotalAmount: 0,
+          grandTotalNetAmount: gross,
+          grandTotalGrossAmount: gross,
+        },
+        metadata: {},
+      }
+    }),
+  }
+}
+
 /** Resolves `cart.reprice` by calling the REAL registered handler directly — same
  * precedent `commands/__tests__/cart.test.ts`'s own `makeFakeCommandBus` already
  * establishes for `cart.get`'s identical internal-dispatch shape. */
@@ -286,6 +322,9 @@ function makeCtx(opts: {
   // above (none of which pass this) keep getting the `Unexpected DI token` throw, caught
   // internally, degrading to `requiresApproval: false` exactly as before this Step.
   customerGroupsService?: unknown
+  /** The service `cart.lock` builds on its own transaction `em`; defaults to
+   * `customerGroupsService`, or to "no terms" when that is omitted too. */
+  transactionCustomerGroupsService?: unknown
   customerPurchaseApprovalService?: unknown
   customerPurchaseApprovalServiceFactory?: unknown
   // Step 6.1 (K11 gap-fill) — same "undefined degrades via Unexpected DI token" shape as
@@ -294,6 +333,11 @@ function makeCtx(opts: {
 }): CommandRuntimeContext {
   const dataEngine = opts.dataEngine ?? makeDataEngine()
   const salesCalculationService = opts.salesCalculationService ?? makeSalesCalculationService()
+  const transactionCustomerGroupsService =
+    opts.transactionCustomerGroupsService ??
+    opts.customerGroupsService ??
+    { resolveTerms: jest.fn(async () => ({ approvalRequiredAbove: null, termsCurrencyCode: null })) }
+  mockCreateCustomerGroupsService.mockImplementation(() => transactionCustomerGroupsService)
   return {
     container: {
       resolve: (token: string): any => {
@@ -347,7 +391,10 @@ beforeEach(() => {
 })
 
 describe('cart.lock', () => {
-  async function runLockWithRefreshRace(mutateOnRefresh: (row: FakeRow) => void): Promise<{ captured: unknown; em: any }> {
+  async function runLockWithRefreshRace(
+    mutateOnRefresh: (row: FakeRow) => void,
+    ctxOptions: Omit<Parameters<typeof makeCtx>[0], 'em'> = {},
+  ): Promise<{ captured: unknown; em: any }> {
     const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')
     const em = makeEm()
     let armed = false
@@ -357,7 +404,7 @@ describe('cart.lock', () => {
     em.refresh.mockImplementation(async (row: FakeRow) => {
       if (armed) mutateOnRefresh(row)
     })
-    const ctx = makeCtx({ em })
+    const ctx = makeCtx({ em, ...ctxOptions })
     let captured: unknown
     try {
       await handler.execute(
@@ -384,15 +431,22 @@ describe('cart.lock', () => {
     expect(em.nativeUpdate).not.toHaveBeenCalled()
   })
 
-  it('re-reads approval inputs inside the advisory lock and refuses when the gate now requires approval', async () => {
-    const { captured, em } = await runLockWithRefreshRace((row) => {
-      if (row.id !== CART_ID) return
-      row.requiresApproval = true
-      row.customerUserId = 'customer-user-1'
-    })
+  it('re-reads approval inputs inside the advisory lock and recomputes the gate from them, refusing when approval is now required', async () => {
+    const transactionCustomerGroupsService = {
+      resolveTerms: jest.fn(async () => ({ approvalRequiredAbove: 10, termsCurrencyCode: 'USD' })),
+    }
+    const { captured, em } = await runLockWithRefreshRace(
+      (row) => {
+        if (row.id !== CART_ID) return
+        row.customerUserId = 'customer-user-1'
+        row.customerIds = ['customer-1']
+      },
+      { transactionCustomerGroupsService },
+    )
 
     expect(isCrudHttpError(captured)).toBe(true)
-    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_requires_approval' })
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_requires_approval', approval: null })
+    expect(transactionCustomerGroupsService.resolveTerms).toHaveBeenCalledWith(expect.objectContaining({ customerIds: ['customer-1'] }))
     expect(em.nativeUpdate).not.toHaveBeenCalled()
   })
 
@@ -827,6 +881,91 @@ describe('cart.lock — approval gate (K1-K5, D-R5-4/12/23/29/37)', () => {
     expect(customerPurchaseApprovalServiceFactory).toHaveBeenCalledTimes(1)
     expect(boundApprovalService.getApproval).toHaveBeenCalled()
     expect(rootApprovalService.getApproval).not.toHaveBeenCalled()
+  })
+
+  // #9183: a writer that committed lines after the forced re-price (here, a proposal merge
+  // the lock waited out on `cart:lines`) left `Cart.totals` describing the pre-merge cart.
+  function commitMergedLineWhenLockIsTaken(em: any): void {
+    let committed = false
+    em.execute.mockImplementation(async () => {
+      if (committed) return
+      committed = true
+      seededCartLines.push(
+        makeLineFixture({ id: 'line-merged', lineNumber: 2, quantity: '1', addedByActorType: 'merge', configuration: { proposal: true } }),
+      )
+    })
+  }
+
+  it('judges totals recomputed from the lines committed when it holds the cart lock, not the stored ones, and refuses an approval that only covered the stored totals', async () => {
+    seededCarts = [makeCartFixture({ customerUserId: 'buyer-1', customerIds: ['buyer-1'], approvalId: 'approval-1' })]
+    seededCartLines = [makeLineFixture()]
+    const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')
+    const em = makeEm()
+    commitMergedLineWhenLockIsTaken(em)
+    const ctx = makeCtx({
+      em,
+      customerGroupsService: makeCustomerGroupsServiceStub({ approvalRequiredAbove: 10 }),
+      customerPurchaseApprovalService: makeApprovalServiceStub({ id: 'approval-1', status: 'approved', currencyCode: 'USD', amountGross: '24' }),
+      salesCalculationService: makeSummingSalesCalculationService(),
+    })
+
+    let captured: unknown
+    try {
+      await handler.execute({ cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID, checkoutSessionId: 'checkout-session-1' }, ctx)
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(409)
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_requires_approval', amountGross: '36' })
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(seededCarts.find((row) => row.id === CART_ID)!.status).toBe('active')
+  })
+
+  it('locks with the totals it recomputed under the cart lock when the approval covers the merged lines', async () => {
+    seededCarts = [makeCartFixture({ customerUserId: 'buyer-1', customerIds: ['buyer-1'], approvalId: 'approval-1' })]
+    seededCartLines = [makeLineFixture()]
+    const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')
+    const em = makeEm()
+    commitMergedLineWhenLockIsTaken(em)
+    const ctx = makeCtx({
+      em,
+      customerGroupsService: makeCustomerGroupsServiceStub({ approvalRequiredAbove: 10 }),
+      customerPurchaseApprovalService: makeApprovalServiceStub({ id: 'approval-1', status: 'approved', currencyCode: 'USD', amountGross: '36' }),
+      salesCalculationService: makeSummingSalesCalculationService(),
+    })
+
+    const result = await handler.execute(
+      { cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID, checkoutSessionId: 'checkout-session-1' },
+      ctx,
+    )
+
+    expect(result.cart.status).toBe('locked')
+    expect(result.cart.requiresApproval).toBe(true)
+    const cartRow = seededCarts.find((row) => row.id === CART_ID)!
+    expect(cartRow.status).toBe('locked')
+    expect(cartRow.totals.grandTotalGrossAmount).toBe(36)
+  })
+
+  it('resolves approval terms under the cart lock through a service bound to the lock transaction, never the request-root singleton', async () => {
+    seededCarts = [makeCartFixture({ customerUserId: 'buyer-1', customerIds: ['buyer-1'], approvalId: null })]
+    const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')
+    const em = makeEm()
+    const rootCustomerGroupsService = makeCustomerGroupsServiceStub({ approvalRequiredAbove: null })
+    const transactionCustomerGroupsService = makeCustomerGroupsServiceStub({ approvalRequiredAbove: 10 })
+    const ctx = makeCtx({ em, customerGroupsService: rootCustomerGroupsService, transactionCustomerGroupsService })
+
+    let captured: unknown
+    try {
+      await handler.execute({ cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID, checkoutSessionId: 'checkout-session-1' }, ctx)
+    } catch (err) {
+      captured = err
+    }
+
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_requires_approval' })
+    expect(mockCreateCustomerGroupsService).toHaveBeenCalledWith(em, null)
+    expect(transactionCustomerGroupsService.resolveTerms).toHaveBeenCalled()
   })
 
   // TC-CART-APR-04 (K1/D-R5-3 "only a higher total invalidates")

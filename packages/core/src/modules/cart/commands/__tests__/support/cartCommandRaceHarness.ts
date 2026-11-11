@@ -1,7 +1,8 @@
 /**
  * Shared real-PostgreSQL harness for the cart real-command race suites (#9183 scenarios 1/2).
  * The suites that import it drive the REAL registered commands (`cart.lock`,
- * `cart.lines.update`/`.remove`, `cart.proposal.accept` -> `cart.merge` -> `cart.reprice`)
+ * `cart.lines.update`/`.remove`, `cart.proposal.accept` -> `cart.merge` -> `cart.reprice`,
+ * and the login `cart.merge` of a guest cart)
  * through the REAL `CommandBus`, each call on its own request-scoped container and forked
  * `EntityManager`, against a real database. Nothing here re-implements a lock key or a
  * conditional update: every advisory lock, row lock and guarded `nativeUpdate` a test
@@ -98,6 +99,7 @@ import type { PromotionsService } from '../../../../promotions/lib/types'
 import { Cart, CartIdempotencyKey, CartLine, CartMergeLog, CartPromotionApplication } from '../../../data/entities'
 import type { ResolvedCartRouteContext } from '../../../lib/routeContext'
 import { signAcceptanceToken } from '../../../lib/acceptanceToken'
+import { hashCartToken } from '../../../lib/token'
 import '../../cart'
 import '../../lines'
 import '../../lock'
@@ -322,6 +324,14 @@ export type SeededCart = {
   routeContext: ResolvedCartRouteContext
 }
 
+export type BasketCartSeedOptions = {
+  approval?: ApprovalPolicyFixture
+  /** Seeds the cart in this store (a login merge needs both carts in one store). */
+  storeId?: string
+  /** Stores `hashCartToken(token)`, so the cart can be named as a merge `sourceToken`. */
+  token?: string
+}
+
 export type ApprovalPolicyFixture = {
   /** `Cart.requiresApproval` turns true above this goods gross amount. */
   approvalRequiredAbove: number
@@ -336,7 +346,7 @@ export type CartRaceHarness = {
   requestContext(scope: TenantScope): CommandRuntimeContext
   run<TInput, TResult>(commandId: string, input: TInput, scope: TenantScope): Promise<TResult>
   seedPricedProduct(scope: TenantScope, options?: { isActive?: boolean }): Promise<SeededProduct>
-  seedBasketCart(scope: TenantScope, lines: CartLineSeed[], options?: { approval?: ApprovalPolicyFixture }): Promise<SeededCart>
+  seedBasketCart(scope: TenantScope, lines: CartLineSeed[], options?: BasketCartSeedOptions): Promise<SeededCart>
   seedProposal(
     scope: TenantScope,
     target: SeededCart,
@@ -592,17 +602,17 @@ export async function startCartRaceHarness(contextName: string): Promise<CartRac
   async function seedBasketCart(
     scope: TenantScope,
     lineSeeds: CartLineSeed[],
-    options: { approval?: ApprovalPolicyFixture } = {},
+    options: BasketCartSeedOptions = {},
   ): Promise<SeededCart> {
     const em = orm.em.fork()
     const now = new Date()
-    const storeId = randomUUID()
+    const storeId = options.storeId ?? randomUUID()
     const customerUserId = options.approval ? randomUUID() : null
     if (options.approval) await seedApprovalPolicy(scope, options.approval.approvalRequiredAbove)
     const cart = em.create(Cart, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      tokenHash: randomUUID(),
+      tokenHash: options.token ? hashCartToken(options.token) : randomUUID(),
       storeId,
       kind: 'basket',
       channel: 'storefront',

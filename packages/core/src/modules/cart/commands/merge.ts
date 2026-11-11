@@ -30,6 +30,7 @@ import { cartVisibilityKey, evaluateCartVisibility, isVisible } from '../lib/vis
 import type { CartVisibilityResult } from '../lib/visibility'
 import { assertCartNotLocked } from '../lib/lockGuard'
 import { recordBasketMutationActivity } from '../lib/cartActivity'
+import { acquireCartLineLocks } from '../lib/lineMutationLock'
 import { tryResolveCustomerPurchaseApprovalService, tryResolveCartCodeService } from '../lib/adminCartScope'
 import { withdrawPendingCartApproval } from '../lib/approvalLifecycle'
 import { releaseCartCodeReservations } from '../lib/sweepers'
@@ -606,12 +607,7 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
     em,
     [
       async () => {
-        const lockKeys = [`cart:lines:${proposal.id}`, `cart:lines:${target.id}`].sort((a, b) =>
-          a < b ? -1 : a > b ? 1 : 0,
-        )
-        for (const lockKey of lockKeys) {
-          await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [lockKey])
-        }
+        await acquireCartLineLocks(em, [proposal.id, target.id])
       },
       async () => {
         await em.refresh(target)
@@ -895,12 +891,6 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
         priceKindId: survivorCart.priceKindId ?? null,
         buyerDigest: survivorCart.buyerDigest,
       }
-      survivorCart.customerId = input.routeContext.customerId
-      survivorCart.customerIds = input.routeContext.customerIds
-      survivorCart.customerUserId = input.routeContext.customerUserId
-      survivorCart.customerGroupIds = input.routeContext.customerGroupIds
-      survivorCart.priceKindId = input.routeContext.priceKindId
-      survivorCart.buyerDigest = input.routeContext.buyerDigest
       outcome = []
     } else {
       // Rows 3-5 combined: union (disjoint), sum (matching, default strategy per §7.1),
@@ -943,11 +933,6 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     // exactly the kind of trust-boundary crossing session-fixation hygiene already rotates
     // tokens for elsewhere in this module (`cart.create`'s own token-per-cart convention).
     const { token: newToken, tokenHash: newTokenHash } = generateCartToken()
-    survivorCart.tokenHash = newTokenHash
-
-    absorbedCart.status = 'merged'
-    absorbedCart.mergedIntoCartId = survivorCart.id
-    absorbedCart.resolvedAt = now
 
     // §7.4 (rev 10 — K3): "A source basket whose `approval_id` names a `pending` approval
     // has it withdrawn ... and its `awaiting_approval_since` is cleared." An `approved`
@@ -956,7 +941,25 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     // in the SAME flush as the rest of this absorbed cart's own transition, below.
     const approvalService = tryResolveCustomerPurchaseApprovalService(ctx.container)
     const approvalWithdrawn = await withdrawPendingCartApproval(approvalService, absorbedCart, 'cart_merged')
-    if (approvalWithdrawn) absorbedCart.awaitingApprovalSince = null
+
+    // Applied only under both carts' `cart:lines` locks, after re-reading their status, so a
+    // checkout `cart.lock` that committed after the pre-checks above is refused here rather
+    // than having lines merged into the cart it just locked (the lock serializes on the same key).
+    const applyCartTransitions = () => {
+      if (strategy === 'replace') {
+        survivorCart.customerId = input.routeContext.customerId
+        survivorCart.customerIds = input.routeContext.customerIds
+        survivorCart.customerUserId = input.routeContext.customerUserId
+        survivorCart.customerGroupIds = input.routeContext.customerGroupIds
+        survivorCart.priceKindId = input.routeContext.priceKindId
+        survivorCart.buyerDigest = input.routeContext.buyerDigest
+      }
+      survivorCart.tokenHash = newTokenHash
+      absorbedCart.status = 'merged'
+      absorbedCart.mergedIntoCartId = survivorCart.id
+      absorbedCart.resolvedAt = now
+      if (approvalWithdrawn) absorbedCart.awaitingApprovalSince = null
+    }
 
     const sourceSnapshot: StoredSourceSnapshot = {
       lines: absorbedLinesForSnapshot.map(toCartLineSnapshot),
@@ -979,7 +982,17 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     await withAtomicFlush(
       em,
       [
-        () => {
+        async () => {
+          await acquireCartLineLocks(em, [sessionCart.id, guestCart.id])
+        },
+        async () => {
+          await em.refresh(sessionCart)
+          await em.refresh(guestCart)
+          assertCartNotLocked(sessionCart)
+          if (sessionCart.status !== 'active' || guestCart.status !== 'active') {
+            throw notFound('[internal] cart not found')
+          }
+          applyCartTransitions()
           em.persist(mergeLog)
           for (const line of newLines) em.persist(line)
         },
@@ -1248,7 +1261,20 @@ async function restoreCartMerge(em: EntityManager, scope: CartMergeScope, mergeL
   await withAtomicFlush(
     em,
     [
-      () => {
+      // Same lock `cart.lock` takes: an undo never rewrites a cart checkout locked after the pre-checks above.
+      async () => {
+        await acquireCartLineLocks(em, [survivorCart.id, absorbedCart.id])
+      },
+      async () => {
+        await em.refresh(survivorCart)
+        assertCartNotLocked(survivorCart)
+        if (survivorCart.status !== 'active') {
+          throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: survivorCart.status })
+        }
+        await em.refresh(mergeLog)
+        if (mergeLog.undoneAt) {
+          throw new CrudHttpError(409, { error: '[internal] merge_already_undone', code: 'merge_already_undone' })
+        }
         for (const entry of outcome) {
           if (!entry.targetLineId) continue
           const line = targetLineById.get(entry.targetLineId)
