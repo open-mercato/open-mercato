@@ -59,7 +59,7 @@ test.describe('TC-ONB-006: onboarding notification privacy', () => {
       for (const locale of locales) {
         await page.context().addCookies([{ name: 'locale', value: locale, url: origin }])
         await page.goto('/onboarding')
-        await expect(page.getByRole('heading', { name: dictionaries[locale]['onboarding.title'] })).toBeVisible()
+        await expect(page.getByText(dictionaries[locale]['onboarding.title'], { exact: true })).toBeVisible()
         await page.locator('button[type="submit"]').click()
         await expect(page.locator('#email-error')).toHaveText(dictionaries[locale]['onboarding.errors.emailInvalid'])
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
