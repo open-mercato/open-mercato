@@ -608,6 +608,14 @@
   }
 
   function onDocumentClick(event) {
+    var screenLink = event.target.closest('.doc-toolbar .screen-nav a[href^="#"]');
+    if (screenLink) {
+      event.preventDefault();
+      var linkedScreenId = screenLink.getAttribute('href').slice(1);
+      goTo(linkedScreenId);
+      window.history.replaceState(null, '', '#' + linkedScreenId);
+      return;
+    }
     if (event.target.closest('.anno-panel') || event.target.closest('.doc-toolbar')) return;
     if (event.target.closest('.anno-pin')) return;
     var frame = event.target.closest('.frame');
