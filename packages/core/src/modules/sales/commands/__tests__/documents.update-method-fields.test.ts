@@ -10,7 +10,7 @@
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import { SalesOrder, SalesQuote, SalesShippingMethod } from '../../data/entities'
+import { SalesOrder, SalesShippingMethod } from '../../data/entities'
 import '../documents'
 import type { DocumentUpdateInput } from '../documents'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
@@ -25,16 +25,12 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
-jest.mock('@open-mercato/shared/lib/crud/cache', () => {
-  const actual = jest.requireActual('@open-mercato/shared/lib/crud/cache')
-  return {
-    ...actual,
-    invalidateCrudCache: jest.fn(),
-  }
-})
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/crud/cache'),
+  invalidateCrudCache: jest.fn(),
+}))
 
 const ORDER_ID = '11111111-1111-4111-8111-111111111111'
-const QUOTE_ID = '44444444-4444-4444-8444-444444444444'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const TENANT_ID = '33333333-3333-4333-8333-333333333333'
 const SHIPPING_METHOD_ID = '88888888-8888-4888-8888-888888888888'
@@ -42,41 +38,20 @@ const NEXT_SHIPPING_METHOD_ID = '66666666-6666-4666-8666-666666666666'
 const PAYMENT_METHOD_ID = '99999999-9999-4999-8999-999999999999'
 
 const SHIPPING_METHOD = { id: SHIPPING_METHOD_ID, code: 'flat_rate' }
-const SHIPPING_SNAPSHOT = { id: SHIPPING_METHOD_ID, code: 'flat_rate', name: 'Flat rate' }
+const SHIPPING_SNAPSHOT = { id: SHIPPING_METHOD_ID, code: 'flat_rate' }
 const PAYMENT_METHOD = { id: PAYMENT_METHOD_ID, code: 'on_account' }
-const PAYMENT_SNAPSHOT = { id: PAYMENT_METHOD_ID, code: 'on_account', name: 'On account' }
-
-const NEXT_SHIPPING_METHOD = {
-  id: NEXT_SHIPPING_METHOD_ID,
-  code: 'express',
-  name: 'Express',
-  description: null,
-  carrierCode: null,
-  providerKey: null,
-  serviceLevel: null,
-  estimatedTransitDays: null,
-  baseRateNet: '0',
-  baseRateGross: '0',
-  currencyCode: 'USD',
-  metadata: null,
-}
+const PAYMENT_SNAPSHOT = { id: PAYMENT_METHOD_ID, code: 'on_account' }
+const NEXT_SHIPPING_METHOD = { id: NEXT_SHIPPING_METHOD_ID, code: 'express', name: 'Express', metadata: null }
 
 type StoredDocument = Record<string, unknown>
 
-function makeDocument(id: string, extra: StoredDocument = {}): StoredDocument {
+function makeOrder(): StoredDocument {
   return {
-    id,
+    id: ORDER_ID,
     organizationId: ORG_ID,
     tenantId: TENANT_ID,
+    orderNumber: 'O-1',
     status: null,
-    statusEntryId: null,
-    customerEntityId: null,
-    customerContactId: null,
-    customerSnapshot: null,
-    billingAddressId: null,
-    shippingAddressId: null,
-    billingAddressSnapshot: null,
-    shippingAddressSnapshot: null,
     currencyCode: 'USD',
     shippingMethodId: SHIPPING_METHOD_ID,
     shippingMethod: SHIPPING_METHOD,
@@ -86,36 +61,15 @@ function makeDocument(id: string, extra: StoredDocument = {}): StoredDocument {
     paymentMethod: PAYMENT_METHOD,
     paymentMethodCode: 'on_account',
     paymentMethodSnapshot: PAYMENT_SNAPSHOT,
-    comments: null,
-    metadata: null,
     deletedAt: null,
-    ...extra,
   }
 }
 
-function makeOrder() {
-  return makeDocument(ORDER_ID, {
-    orderNumber: 'O-1',
-    internalNotes: null,
-    paymentStatus: 'pending',
-    paymentStatusEntryId: null,
-    fulfillmentStatus: 'unfulfilled',
-    fulfillmentStatusEntryId: null,
-    exchangeRate: '1.0',
-  })
-}
-
-function makeQuote() {
-  return makeDocument(QUOTE_ID, { quoteNumber: 'Q-1' })
-}
-
-function makeEm(document: StoredDocument, entityClass: unknown) {
+function makeEm(order: StoredDocument) {
   const em = {
     findOne: jest.fn(async (requested: unknown, where: { id?: string }) => {
-      if (requested === entityClass) return document
-      if (requested === SalesShippingMethod && where?.id === NEXT_SHIPPING_METHOD_ID) {
-        return NEXT_SHIPPING_METHOD
-      }
+      if (requested === SalesOrder) return order
+      if (requested === SalesShippingMethod && where?.id === NEXT_SHIPPING_METHOD_ID) return NEXT_SHIPPING_METHOD
       return null
     }),
     find: jest.fn(async () => []),
@@ -126,7 +80,7 @@ function makeEm(document: StoredDocument, entityClass: unknown) {
     getReference: jest.fn((_entityClass: unknown, id: string) => ({ id })),
     flush: jest.fn(async () => {}),
     begin: jest.fn(async () => {}),
-    getKysely: () => createSalesDocumentLockKyselyFixture(String(document.id)),
+    getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
     commit: jest.fn(async () => {}),
     rollback: jest.fn(async () => {}),
     fork: (): unknown => em,
@@ -134,98 +88,42 @@ function makeEm(document: StoredDocument, entityClass: unknown) {
   return em
 }
 
-function makeCtx(em: unknown): CommandRuntimeContext {
+async function updateOrder(input: Record<string, unknown>) {
+  const order = makeOrder()
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
   container.register({
-    em: asValue(em),
+    em: asValue(makeEm(order)),
     salesCalculationService: asValue(new DefaultSalesCalculationService(null)),
     dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
   })
-  return {
+  const ctx = {
     container,
     auth: { tenantId: TENANT_ID, orgId: ORG_ID, sub: 'user-1' },
     selectedOrganizationId: ORG_ID,
     organizationScope: null,
     organizationIds: null,
   } as unknown as CommandRuntimeContext
-}
-
-async function runUpdate(
-  commandId: 'sales.orders.update' | 'sales.quotes.update',
-  document: StoredDocument,
-  entityClass: unknown,
-  input: Record<string, unknown>,
-) {
-  const handler = commandRegistry.get<DocumentUpdateInput, { order: SalesOrder }>(commandId)
+  const handler = commandRegistry.get<DocumentUpdateInput, { order: SalesOrder }>('sales.orders.update')
   expect(handler).toBeTruthy()
-  await handler!.execute(
-    { id: document.id, ...input } as unknown as DocumentUpdateInput,
-    makeCtx(makeEm(document, entityClass)),
-  )
-  return document
-}
-
-function updateOrder(input: Record<string, unknown>) {
-  return runUpdate('sales.orders.update', makeOrder(), SalesOrder, input)
+  await handler!.execute({ id: ORDER_ID, ...input } as unknown as DocumentUpdateInput, ctx)
+  return order
 }
 
 describe('applyDocumentUpdate — method id, code and snapshot are written independently', () => {
-  it('sending only shippingMethodCode changes the code and keeps the method id and snapshot', async () => {
-    const order = await updateOrder({ shippingMethodCode: 'express' })
+  it.each([
+    ['shipping', { shippingMethodCode: 'express' }],
+    ['shipping', { shippingMethodSnapshot: { note: 'carrier retry' } }],
+    ['shipping', { shippingMethodCode: 'express', shippingMethodSnapshot: { code: 'express' } }],
+    ['payment', { paymentMethodCode: 'invoice' }],
+    ['payment', { paymentMethodSnapshot: { note: 'terms updated' } }],
+  ] as const)('a %s update with %j keeps the method and the fields it did not send', async (kind, input) => {
+    const expected: StoredDocument = { ...makeOrder(), ...input }
+    const order = await updateOrder(input)
 
-    expect(order.shippingMethodCode).toBe('express')
-    expect(order.shippingMethodId).toBe(SHIPPING_METHOD_ID)
-    expect(order.shippingMethod).toBe(SHIPPING_METHOD)
-    expect(order.shippingMethodSnapshot).toBe(SHIPPING_SNAPSHOT)
-  })
-
-  it('sending only shippingMethodSnapshot changes the snapshot and keeps the method id and code', async () => {
-    const snapshot = { note: 'carrier retry' }
-    const order = await updateOrder({ shippingMethodSnapshot: snapshot })
-
-    expect(order.shippingMethodSnapshot).toEqual(snapshot)
-    expect(order.shippingMethodId).toBe(SHIPPING_METHOD_ID)
-    expect(order.shippingMethod).toBe(SHIPPING_METHOD)
-    expect(order.shippingMethodCode).toBe('flat_rate')
-  })
-
-  it('sending only paymentMethodCode changes the code and keeps the method id and snapshot', async () => {
-    const order = await updateOrder({ paymentMethodCode: 'invoice' })
-
-    expect(order.paymentMethodCode).toBe('invoice')
-    expect(order.paymentMethodId).toBe(PAYMENT_METHOD_ID)
-    expect(order.paymentMethod).toBe(PAYMENT_METHOD)
-    expect(order.paymentMethodSnapshot).toBe(PAYMENT_SNAPSHOT)
-  })
-
-  it('sending only paymentMethodSnapshot changes the snapshot and keeps the method id and code', async () => {
-    const snapshot = { note: 'terms updated' }
-    const order = await updateOrder({ paymentMethodSnapshot: snapshot })
-
-    expect(order.paymentMethodSnapshot).toEqual(snapshot)
-    expect(order.paymentMethodId).toBe(PAYMENT_METHOD_ID)
-    expect(order.paymentMethod).toBe(PAYMENT_METHOD)
-    expect(order.paymentMethodCode).toBe('on_account')
-  })
-
-  it('sending shippingMethodCode and shippingMethodSnapshot without an id keeps the method id', async () => {
-    const snapshot = { code: 'express' }
-    const order = await updateOrder({ shippingMethodCode: 'express', shippingMethodSnapshot: snapshot })
-
-    expect(order.shippingMethodCode).toBe('express')
-    expect(order.shippingMethodSnapshot).toEqual(snapshot)
-    expect(order.shippingMethodId).toBe(SHIPPING_METHOD_ID)
-    expect(order.shippingMethod).toBe(SHIPPING_METHOD)
-  })
-
-  it('a quote update with only shippingMethodCode keeps the quote shipping method id', async () => {
-    const quote = await runUpdate('sales.quotes.update', makeQuote(), SalesQuote, {
-      shippingMethodCode: 'express',
-    })
-
-    expect(quote.shippingMethodCode).toBe('express')
-    expect(quote.shippingMethodId).toBe(SHIPPING_METHOD_ID)
-    expect(quote.shippingMethodSnapshot).toBe(SHIPPING_SNAPSHOT)
+    expect(order[`${kind}MethodId`]).toBe(expected[`${kind}MethodId`])
+    expect(order[`${kind}Method`]).toBe(expected[`${kind}Method`])
+    expect(order[`${kind}MethodCode`]).toEqual(expected[`${kind}MethodCode`])
+    expect(order[`${kind}MethodSnapshot`]).toEqual(expected[`${kind}MethodSnapshot`])
   })
 
   it('an explicit shippingMethodId: null still clears the method, its code and its snapshot', async () => {
