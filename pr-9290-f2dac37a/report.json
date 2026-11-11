@@ -316,9 +316,29 @@
     "ownedDatabaseContainerRemoved": true,
     "sourceClean": true,
     "parentQaMetadataUntouched": true,
-    "claimHousekeeping": "Final completion comment and task report record exact-lock release."
+    "claimHousekeeping": "Final completion comment and task report record exact-lock release.",
+    "localRuntimeStateAndLockRemoved": true,
+    "disposableCredentialReferencesRemoved": true
   },
   "publishedAt": "2026-11-11T12:02:21.470686+00:00",
   "evidenceBranch": "qa-evidence-pr-9290-f2dac37a",
-  "evidenceCommentUrl": null
+  "evidenceCommentUrl": "https://github.com/open-mercato/open-mercato/pull/9290#issuecomment-6795311376",
+  "imageUrls": [
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-01-empty-orders-en.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-02-correct-taxed-order-en.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-03-payment-123-en.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-04-prepaid-shipment-created-en.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-05-refunded-create-refused-en.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-06-refusal-mobile-long-note-en.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-07-refunded-create-refused-pl.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-08-refusal-mobile-pl.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-09-polish-decimal-payment-reloaded.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-10-reader-actions-visible-en.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-11-reader-can-open-create-dialog.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-12-partial-refund-shipment-success-pl.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-13-two-user-stale-refusal-pl.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-14-return-tax-does-not-reconcile-pl.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-15-order-list-totals-en.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-16-loading-shell-pl.png"
+  ]
 }
