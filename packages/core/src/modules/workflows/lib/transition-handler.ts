@@ -52,7 +52,7 @@ const logger = createLogger('workflows')
  * `fail` (the absent-config default) adds nothing, so untouched definitions
  * return the exact failure shape they returned before error routing existed.
  */
-function buildFailureRouting(
+export function buildFailureRouting(
   handling: StepFailureHandling,
   failedStepId: string
 ): Pick<

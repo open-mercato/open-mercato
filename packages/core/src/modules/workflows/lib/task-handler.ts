@@ -18,7 +18,7 @@ import {
   WorkflowEvent,
   StepInstance,
 } from '../data/entities'
-import { executeWorkflow } from './workflow-executor'
+import { executeWorkflow, handleTransitionFailure } from './workflow-executor'
 import { findDefinitionForInstance } from './find-definition'
 import {
   findTaskDecision,
@@ -384,9 +384,13 @@ export async function completeUserTask(
   )
 
   if (!transitionResult.success) {
-    logger.error('Transition failed', { component: 'task-handler', err: transitionResult.error })
-    // Don't throw, just leave workflow in current state
-    return
+    const failure = await handleTransitionFailure(em, container, instance, transitionResult, {
+      evalContext: transitionContext,
+      fromStepId: currentStepId,
+      toStepId: targetStepId,
+      source: 'task-completion',
+    })
+    if (failure.kind === 'failed' || failure.kind === 'parked') return
   }
 
   // Now continue workflow execution from the new step

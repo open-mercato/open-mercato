@@ -10,6 +10,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 jest.mock('../workflow-executor', () => ({
   dispatchAgentOutcomeForCurrentStep: jest.fn(),
+  handleTransitionFailure: jest.fn(),
 }))
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: jest.fn(),
@@ -26,7 +27,7 @@ import {
   sendSignalByCorrelationKeyWithResults,
   SignalError,
 } from '../signal-handler'
-import { dispatchAgentOutcomeForCurrentStep } from '../workflow-executor'
+import { dispatchAgentOutcomeForCurrentStep, handleTransitionFailure } from '../workflow-executor'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { StepInstance, WorkflowDefinition, WorkflowInstance } from '../../data/entities'
 
@@ -149,6 +150,11 @@ describe('Workflow Signals - Phase 9.1', () => {
     mockExecuteWorkflow.mockResolvedValue({} as any)
     mockCompleteWorkflow.mockResolvedValue(undefined)
     ;(dispatchAgentOutcomeForCurrentStep as jest.Mock).mockResolvedValue(null)
+    ;(handleTransitionFailure as jest.Mock).mockImplementation(async (...args: unknown[]) => ({
+      kind: 'failed',
+      error: (args[3] as { error?: string }).error ?? 'Transition failed',
+      notes: [],
+    }))
     mockFindValidTransitions.mockResolvedValue([
       {
         transition: { toStepId: 'process', fromStepId: 'wait_approval', trigger: 'auto' },
