@@ -127,7 +127,7 @@ The declaration is about the **surface**, never about **who may act**:
   `task-quick-action.test.ts`, `subscribers/__tests__/task-assigned-notification.test.ts`,
   `work-inbox-provider.test.ts`, `user-task-config.test.ts` (creation + Studio round trip),
   `backend/tasks/__tests__/taskDetailPage.test.tsx`. Each includes the no-key regression case.
-- Integration: `__integration__/TC-WF-074.spec.ts` — task detail API, Work Inbox `detailHref`,
+- Integration: `__integration__/TC-WF-077.spec.ts` — task detail API, Work Inbox `detailHref`,
   notification actions/link, and the task page, against a host definition and a control.
 
 ## Changelog

@@ -13,7 +13,7 @@ import {
 } from '@open-mercato/core/helpers/integration/workflowsFixtures'
 
 /**
- * TC-WF-074 [P1]: a host-owned task offers no generic completion and links to its host.
+ * TC-WF-077 [P1]: a host-owned task offers no generic completion and links to its host.
  *
  * Issue #7179. A step that declares `userTaskConfig.completion.surface: 'host'` is finished
  * in a host module's own UI flow. Core must then offer no notification quick action, no Work
@@ -93,7 +93,7 @@ async function pollTaskNotification(
   }
 }
 
-test.describe('TC-WF-074: completion-surface declaration (host-owned completion)', () => {
+test.describe('TC-WF-077: completion-surface declaration (host-owned completion)', () => {
   test('a host task drops core completion affordances and deep-links to the host', async ({ page, request }) => {
     test.setTimeout(120_000)
 
