@@ -22,6 +22,11 @@ const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : 
  * already set for the sibling status-transition findings in this same review round: the
  * unit suites (`merge.test.ts`) cover full command behavior with a mocked EntityManager,
  * this suite proves the concurrency-control primitive holds under a real database.
+ *
+ * Kept alongside the real-command suites (#9183): `proposalAcceptVsLock.realCommands`
+ * drives the actual `cart.proposal.accept` against a real `cart.lock`, but no real-command
+ * suite yet races it against `cart.lines.add` summing onto the same target line, which is
+ * what this file still covers.
  */
 describeWithPostgres('cart.proposal.accept vs cart.lines.add on the SAME target cart (MAJOR, review follow-up)', () => {
   let postgres: StartedTestContainer | undefined

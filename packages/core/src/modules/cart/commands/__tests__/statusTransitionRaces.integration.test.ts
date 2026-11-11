@@ -19,6 +19,12 @@ const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : 
  * suites (`commands/__tests__/lock.test.ts`, `merge.test.ts`, `proposal.test.ts`) already
  * cover the full command behavior with a mocked EntityManager; this suite proves the
  * concurrency-control primitive itself holds under a real database.
+ *
+ * Kept alongside the real-command suites (#9183): `lockVsLineMutation.realCommands` and
+ * `proposalAcceptVsLock.realCommands` drive the actual `cart.lock`, `cart.lines.*` and
+ * `cart.proposal.accept` handlers against Postgres. This file still covers the races those
+ * do not drive through real commands: two or N concurrent `cart.lock` calls, `cart.lines.add`
+ * against a lock, a double accept, and accept against `cart.proposal.reject`.
  */
 describeWithPostgres('cart status-transition races under a real Postgres advisory lock (MAJOR #1/#2/#3)', () => {
   let postgres: StartedTestContainer | undefined

@@ -268,13 +268,24 @@ export function track<T>(promise: Promise<T>): TrackedCall<T> {
   return { isSettled: () => done, settled }
 }
 
+function describeOutcome(outcome: Settled<unknown>): string {
+  if (outcome.ok) return 'succeeded'
+  return isCrudHttpError(outcome.error)
+    ? `failed with ${outcome.error.status} ${JSON.stringify(outcome.error.body)}`
+    : `failed with ${String(outcome.error)}`
+}
+
+/** Waits for `checkpoint`, failing fast if `call` settles first (it can then never reach it). */
+export async function reachedBy(checkpoint: ArmedCheckpoint, call: TrackedCall<unknown>): Promise<void> {
+  const first = await Promise.race([
+    checkpoint.reached.then(() => null),
+    call.settled.then((outcome) => outcome),
+  ])
+  if (first) throw new Error(`[internal] the call settled before reaching its checkpoint: it ${describeOutcome(first)}`)
+}
+
 export function expectFulfilled<T>(outcome: Settled<T>): T {
-  if (!outcome.ok) {
-    const detail = isCrudHttpError(outcome.error)
-      ? `${outcome.error.status} ${JSON.stringify(outcome.error.body)}`
-      : String(outcome.error)
-    throw new Error(`[internal] expected the command to succeed, it failed with ${detail}`)
-  }
+  if (!outcome.ok) throw new Error(`[internal] expected the command to succeed, it ${describeOutcome(outcome)}`)
   return outcome.value
 }
 
@@ -332,6 +343,8 @@ export type CartRaceHarness = {
     product: SeededProduct,
     quantity: number,
   ): Promise<{ proposalCartId: string; proposalLineId: string; acceptanceToken: string }>
+  /** What `POST /proposals/:id/preview` hands the buyer: a token bound to both carts' current `updatedAt`. */
+  mintAcceptanceToken(proposalCartId: string, targetCartId: string): Promise<string>
   readCart(cartId: string): Promise<Cart>
   readActiveLines(cartId: string): Promise<CartLine[]>
   countMergeLogs(targetCartId: string): Promise<number>
@@ -339,7 +352,10 @@ export type CartRaceHarness = {
   countLockWaiters(kind: LockWaitKind, recordId: string): Promise<number>
   /** Polls until `atLeast` such sessions wait, or until `unlessSettled` settles (so a test can assert it did not). */
   waitForLockWaiters(kind: LockWaitKind, recordId: string, atLeast: number, unlessSettled: TrackedCall<unknown>): Promise<void>
+  /** Holds `SELECT … FOR UPDATE` on one row in its own transaction until `release()`. */
   holdRowLock(table: 'carts' | 'cart_lines', id: string): Promise<{ release: () => Promise<void> }>
+  /** Test teardown: releases armed checkpoints and held row locks; returns never-reached checkpoints. */
+  releaseAll(): Promise<CheckpointName[]>
   close(): Promise<void>
 }
 
@@ -445,9 +461,34 @@ export async function startCartRaceHarness(contextName: string): Promise<CartRac
     }
   }
 
-  async function run<TInput, TResult>(commandId: string, input: TInput, scope: TenantScope): Promise<TResult> {
-    const { result } = await commandBus.execute<TInput, TResult>(commandId, { input, ctx: requestContext(scope) })
-    return result
+  const inFlightCalls = new Set<Promise<void>>()
+
+  function run<TInput, TResult>(commandId: string, input: TInput, scope: TenantScope): Promise<TResult> {
+    const execution = commandBus
+      .execute<TInput, TResult>(commandId, { input, ctx: requestContext(scope) })
+      .then(({ result }) => result)
+    const settled = execution.then(
+      () => undefined,
+      () => undefined,
+    )
+    inFlightCalls.add(settled)
+    void settled.then(() => inFlightCalls.delete(settled))
+    return execution
+  }
+
+  // A failed assertion can leave a command mid-flight (a checkpoint or row lock is released
+  // in teardown, and it then runs on). Closing the ORM under it would hang the pool, so
+  // teardown waits for every call this harness started before it moves on.
+  async function drainInFlightCalls(): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<'timed_out'>((resolve) => {
+      timer = setTimeout(() => resolve('timed_out'), WAIT_TIMEOUT_MS)
+    })
+    const outcome = await Promise.race([Promise.all(Array.from(inFlightCalls)).then(() => 'drained' as const), deadline])
+    if (timer) clearTimeout(timer)
+    if (outcome === 'timed_out') {
+      throw new Error(`[internal] ${inFlightCalls.size} cart command(s) still running after teardown released every checkpoint`)
+    }
   }
 
   async function seedPricedProduct(scope: TenantScope, options: { isActive?: boolean } = {}): Promise<SeededProduct> {
@@ -683,16 +724,20 @@ export async function startCartRaceHarness(contextName: string): Promise<CartRac
     })
     em.persist(proposalLine)
     await em.flush()
+    const acceptanceToken = await mintAcceptanceToken(proposal.id, target.cartId)
+    return { proposalCartId: proposal.id, proposalLineId: proposalLine.id, acceptanceToken }
+  }
+
+  async function mintAcceptanceToken(proposalCartId: string, targetCartId: string): Promise<string> {
     const fresh = orm.em.fork()
-    const storedProposal = await fresh.findOneOrFail(Cart, { id: proposal.id })
-    const storedTarget = await fresh.findOneOrFail(Cart, { id: target.cartId })
-    const acceptanceToken = signAcceptanceToken({
+    const storedProposal = await fresh.findOneOrFail(Cart, { id: proposalCartId })
+    const storedTarget = await fresh.findOneOrFail(Cart, { id: targetCartId })
+    return signAcceptanceToken({
       proposalCartId: storedProposal.id,
       targetCartId: storedTarget.id,
       proposalUpdatedAt: storedProposal.updatedAt.toISOString(),
       targetUpdatedAt: storedTarget.updatedAt.toISOString(),
     })
-    return { proposalCartId: proposal.id, proposalLineId: proposalLine.id, acceptanceToken }
   }
 
   async function readCart(cartId: string): Promise<Cart> {
@@ -738,15 +783,34 @@ export async function startCartRaceHarness(contextName: string): Promise<CartRac
     throw new Error(`[internal] timed out waiting for ${atLeast} ${kind} lock waiter(s) on ${recordId}`)
   }
 
+  const heldRowLocks = new Set<() => Promise<void>>()
+
   async function holdRowLock(table: 'carts' | 'cart_lines', id: string): Promise<{ release: () => Promise<void> }> {
-    const holder = orm.em.fork()
-    await holder.begin()
-    await holder.execute(`select id from ${table} where id = ? for update`, [id])
-    return {
-      release: async () => {
-        await holder.rollback()
-      },
+    let signalAcquired: () => void = () => undefined
+    let signalRelease: () => void = () => undefined
+    const acquired = new Promise<void>((resolve) => {
+      signalAcquired = resolve
+    })
+    const releaseRequested = new Promise<void>((resolve) => {
+      signalRelease = resolve
+    })
+    const holding = orm.em.fork().transactional(async (trx) => {
+      await trx.execute(`select id from ${table} where id = ? for update`, [id])
+      signalAcquired()
+      await releaseRequested
+    })
+    await Promise.race([acquired, holding])
+    const release = async (): Promise<void> => {
+      heldRowLocks.delete(release)
+      signalRelease()
+      await holding
     }
+    heldRowLocks.add(release)
+    return { release }
+  }
+
+  async function releaseHeldRowLocks(): Promise<void> {
+    for (const release of Array.from(heldRowLocks)) await release()
   }
 
   return {
@@ -758,14 +822,24 @@ export async function startCartRaceHarness(contextName: string): Promise<CartRac
     seedPricedProduct,
     seedBasketCart,
     seedProposal,
+    mintAcceptanceToken,
     readCart,
     readActiveLines,
     countMergeLogs,
     countLockWaiters,
     waitForLockWaiters,
     holdRowLock,
+    releaseAll: async () => {
+      const unreached = checkpoints.releaseAll()
+      await releaseHeldRowLocks()
+      await drainInFlightCalls()
+      return unreached
+    },
     close: async () => {
       try {
+        checkpoints.releaseAll()
+        await releaseHeldRowLocks()
+        await drainInFlightCalls()
         await orm.close(true)
       } finally {
         await database.release()

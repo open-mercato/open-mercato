@@ -40,6 +40,7 @@ import {
   cartRacesRunAgainstPostgres,
   expectFulfilled,
   expectHttpRejection,
+  reachedBy,
   startCartRaceHarness,
   track,
   type CartRaceHarness,
@@ -63,8 +64,8 @@ describeWithPostgres('cart.lock vs cart.lines.update/.remove through the real co
     harness = await startCartRaceHarness('cart-lock-vs-line-mutation')
   }, 120_000)
 
-  afterEach(() => {
-    expect(harness?.checkpoints.releaseAll() ?? []).toEqual([])
+  afterEach(async () => {
+    expect((await harness?.releaseAll()) ?? []).toEqual([])
   })
 
   afterAll(async () => {
@@ -130,12 +131,12 @@ describeWithPostgres('cart.lock vs cart.lines.update/.remove through the real co
 
     const lockPausedAfterReprice = races().checkpoints.arm('after:cart.reprice')
     const lock = track(lockCart(scope, cart, checkoutSessionId))
-    await lockPausedAfterReprice.reached
+    await reachedBy(lockPausedAfterReprice, lock)
 
     const updatePausedInTransaction = races().checkpoints.arm('promotions.evaluate')
     // 20 x 10.80 (bulk tier) = 216.00 gross: no longer covered by the 100.00 approval.
     const update = track(updateLine(scope, cart, cart.lineIds[0], 20))
-    await updatePausedInTransaction.reached
+    await reachedBy(updatePausedInTransaction, update)
 
     lockPausedAfterReprice.release()
     await races().waitForLockWaiters('any', cart.cartId, 1, lock)
@@ -171,11 +172,11 @@ describeWithPostgres('cart.lock vs cart.lines.update/.remove through the real co
     // The lock's own forced re-price keeps the withdrawn product's line flagged.
     const lockPausedAfterReprice = races().checkpoints.arm('after:cart.reprice')
     const lock = track(lockCart(scope, cart, checkoutSessionId))
-    await lockPausedAfterReprice.reached
+    await reachedBy(lockPausedAfterReprice, lock)
 
     const removePausedInTransaction = races().checkpoints.arm('promotions.evaluate')
     const remove = track(removeLine(scope, cart, unavailableLineId))
-    await removePausedInTransaction.reached
+    await reachedBy(removePausedInTransaction, remove)
 
     lockPausedAfterReprice.release()
     await races().waitForLockWaiters('any', cart.cartId, 1, lock)
@@ -207,7 +208,7 @@ describeWithPostgres('cart.lock vs cart.lines.update/.remove through the real co
       // `cart.lock` reaches its approval check inside its own transaction, holding the lock.
       const lockPausedInGate = races().checkpoints.arm('approval.getApproval')
       const lock = track(lockCart(scope, cart, checkoutSessionId))
-      await lockPausedInGate.reached
+      await reachedBy(lockPausedInGate, lock)
 
       const write = track<unknown>(
         mutation === 'update' ? updateLine(scope, cart, targetLineId, 20) : removeLine(scope, cart, targetLineId),
@@ -241,7 +242,7 @@ describeWithPostgres('cart.lock vs cart.lines.update/.remove through the real co
     // 2 -> 6 crosses into the bulk tier, so the update re-prices before its transaction.
     const updatePausedBeforeTransaction = races().checkpoints.arm('pricing.resolveLinePrice')
     const update = track(updateLine(scope, cart, cart.lineIds[0], 6))
-    await updatePausedBeforeTransaction.reached
+    await reachedBy(updatePausedBeforeTransaction, update)
 
     expect(expectFulfilled(await track(lockCart(scope, cart, checkoutSessionId)).settled).extended).toBe(false)
 
