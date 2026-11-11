@@ -1,0 +1,324 @@
+{
+  "runId": "f2dac37a-a790-4d4e-b61a-11df9e46d01c",
+  "mode": "pr",
+  "target": {
+    "prNumber": 9290,
+    "title": "refuse new shipment and redo on fully refunded orders",
+    "branch": "fix/shipment-create-refunded-order-guard",
+    "headSha": "a2b63a6cb785618f8b2edc97b5f4ced546063866"
+  },
+  "verdict": "FAIL",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:36077",
+    "role": "own tenant-bound managers, reader and tenant-B actor",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "runner": "local",
+    "status": "stopped"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "Create own taxed order through English UI",
+      "expected": "2 × net50 at23%: net100 + tax23 = gross123",
+      "observed": "UI line/detail and API match 100 / 23 / 123; own VAT class and no-cost carrier created in settings.",
+      "result": "PASS",
+      "screenshot": "screenshots/step-02-correct-taxed-order-en.png",
+      "channel": "UI"
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "Record payment123 through UI with Ctrl/Cmd+Enter",
+      "expected": "Payment123; paid123; outstanding0",
+      "observed": "Saved payment123.0000, paid123, outstanding0.",
+      "result": "PASS",
+      "screenshot": "screenshots/step-03-payment-123-en.png",
+      "channel": "UI"
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "Create shipment on fully paid, unrefunded order",
+      "expected": "201 and fulfilled0→1",
+      "observed": "UI201; one active shipment; fulfilled1.",
+      "result": "PASS",
+      "screenshot": "screenshots/step-04-prepaid-shipment-created-en.png",
+      "channel": "UI"
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "Undo, redo, undo shipment create",
+      "expected": "200 each; fulfillment1→0→1→0",
+      "observed": "All200; active shipments0/1/0; corresponding fulfillment0/1/0.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "API"
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "Refund123 after undo, then redo create",
+      "expected": "422 before restoring shipment; no domain writes",
+      "observed": "422 translated message; entire scoped order/line/shipment/payment rows byte-identical before/after.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "API"
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "Direct create retries on fully refunded order",
+      "expected": "422 on every attempt; no mutation",
+      "observed": "Three initial and ten later attempts all422; no active shipment, fulfilled0; complete refused-domain snapshots unchanged.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "API"
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "English UI create, keyboard retry and double click after refusal",
+      "expected": "Clear refusal; form usable; no mutation",
+      "observed": "Three UI requests422; expected English text; Escape closes; domain rows unchanged.",
+      "result": "PASS",
+      "screenshot": "screenshots/step-05-refunded-create-refused-en.png",
+      "channel": "UI"
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "action": "Select Polski in UI and retry shipment",
+      "expected": "Polish refusal, no raw key, no mutation",
+      "observed": "Cookie locale=pl; exact new Polish message;422; domain unchanged.",
+      "result": "PASS",
+      "screenshot": "screenshots/step-07-refunded-create-refused-pl.png",
+      "channel": "UI"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "390×844 dialog and long note, Escape",
+      "expected": "Dialog controls remain usable within viewport",
+      "observed": "Dialog bounds0..390 in390px viewport; Save visible and Escape works; long note remains in refused form. Underlying detail page scrollWidth439px observed.",
+      "result": "PASS",
+      "screenshot": "screenshots/step-08-refusal-mobile-pl.png",
+      "channel": "UI"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "Reader role UI with sales.orders.view and no shipment manage feature",
+      "expected": "Create shipment actions hidden or disabled",
+      "observed": "Two enabled Add shipment buttons; reader can open create dialog. Backend writes still403. FAIL in unchanged UI.",
+      "result": "FAIL",
+      "screenshot": "screenshots/step-11-reader-can-open-create-dialog.png",
+      "channel": "UI"
+    },
+    {
+      "step": 11,
+      "priority": "P0",
+      "action": "Reader and other-tenant direct controls",
+      "expected": "Reader write403; other tenant cannot read or write target",
+      "observed": "Reader POST403 requires sales.shipments.manage, positive GET200/1item. TenantB POST403 Cross-tenant relation forbidden; GET200/0items.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "API"
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "action": "Polish decimal-comma payment on partial-refund control",
+      "expected": "10,25 stores10.25 and redisplays after reload",
+      "observed": "Stored10.2500; UI10,25 USD. Paid133.25−refund61.50=71.75; gross123−71.75=outstanding51.25.",
+      "result": "PASS",
+      "screenshot": "screenshots/step-09-polish-decimal-payment-reloaded.png",
+      "channel": "UI"
+    },
+    {
+      "step": 13,
+      "priority": "P0",
+      "action": "Partially refunded order, remaining unit via Polish UI",
+      "expected": "201; fulfilled1→2; no leftover error after10s",
+      "observed": "201, two active shipments, fulfilled2; no error alert after10s. Address fixture through document-address API because customerless detail address editor is disabled.",
+      "result": "PASS",
+      "screenshot": "screenshots/step-12-partial-refund-shipment-success-pl.png",
+      "channel": "UI"
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "action": "Full/excess-refund API controls with proper tax",
+      "expected": "123 refund and124.23 refund both refuse",
+      "observed": "Paid123/gross123; both422; no shipment; fulfilled0; complete domain snapshots unchanged.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "API"
+    },
+    {
+      "step": 15,
+      "priority": "P0",
+      "action": "Partial/deposit/unpaid/zero API controls",
+      "expected": "All still ship",
+      "observed": "Partial61.50 of paid123, deposit30 refunded30 on gross123, unpaid gross123 and zero-total controls all201; one shipment/fulfilled1 each.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "API"
+    },
+    {
+      "step": 16,
+      "priority": "P0",
+      "action": "Two distinct users: B saves reference while A has old shipment form",
+      "expected": "B save preserved; stale A write409 before refund guard",
+      "observed": "B UI save changes reference; A409 optimistic_lock_conflict; whole post-B domain unchanged by refusal.",
+      "result": "PASS",
+      "screenshot": "screenshots/step-13-two-user-stale-refusal-pl.png",
+      "channel": "UI"
+    },
+    {
+      "step": 17,
+      "priority": "P0",
+      "action": "Refresh conflict and repeat A shipment",
+      "expected": "Fresh attempt422; B reference retained",
+      "observed": "422 Polish refund message; whole domain unchanged; second actor reference preserved.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "UI"
+    },
+    {
+      "step": 18,
+      "priority": "P0",
+      "action": "Delete/undo-delete/redo-delete existing shipment after full refund",
+      "expected": "Existing delete restore semantics preserved; money unchanged",
+      "observed": "All200; fulfilled1→0→1→0; active shipments1→0→1→0; paid/refunded/gross remain123.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "API"
+    },
+    {
+      "step": 19,
+      "priority": "P0",
+      "action": "Reverse refund then redo previously refused shipment",
+      "expected": "Redo allowed after refund reversal",
+      "observed": "Refund reset0, redo200/fulfilled1; undo and restored refund123 afterward.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "API"
+    },
+    {
+      "step": 20,
+      "priority": "P0",
+      "action": "Only expensive returned goods refunded; cheap lines remain",
+      "expected": "Refund123≥remaining total24.60 but <paid147.60 must still allow shipment",
+      "observed": "Remaining cheap line shipped201. Return undo/redo200 preserved paid147.60 and refunded123.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "API"
+    },
+    {
+      "step": 21,
+      "priority": "P0",
+      "action": "Independent discounted PLN totals",
+      "expected": "3 ×50 net less10%: net135 + tax31.05 = gross166.05",
+      "observed": "Initial API/DB match135/31.05/166.05; after one return net90/gross110.70. Tax mismatch below.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "API"
+    },
+    {
+      "step": 22,
+      "priority": "P0",
+      "action": "Tax reconciliation after physical return; detail/API/CSV",
+      "expected": "USD net20 + tax4.60 = gross24.60; PLN net90 + tax20.70 = gross110.70",
+      "observed": "USD tax wrongly stays27.60; PLN tax wrongly stays31.05. UI/API/CSV reproduce; undo removes mismatch and redo restores it. FAIL in unchanged calculation path.",
+      "result": "FAIL",
+      "screenshot": "screenshots/step-14-return-tax-does-not-reconcile-pl.png",
+      "channel": "UI"
+    },
+    {
+      "step": 23,
+      "priority": "P0",
+      "action": "Order list/detail/API/CSV consistency",
+      "expected": "Same monetary values in every available view",
+      "observed": "Primary order net100/gross123 matches UI/API/CSV. Returned-control mismatch is persisted consistently. No separate print/PDF action found in detail UI/source.",
+      "result": "PASS",
+      "screenshot": "screenshots/step-15-order-list-totals-en.png",
+      "channel": "UI"
+    },
+    {
+      "step": 24,
+      "priority": "P1",
+      "action": "Loading shell and responsiveness",
+      "expected": "Useful loading state before data",
+      "observed": "Polish loading shell visible with injected1.6s API delay; usable record within2.592s including delay; ordinary interactions responded without observed hangs after harness timeout repair.",
+      "result": "PASS",
+      "screenshot": "screenshots/step-16-loading-shell-pl.png",
+      "channel": "UI"
+    },
+    {
+      "step": 25,
+      "priority": "P0",
+      "action": "Repository validation and locale coverage",
+      "expected": "Relevant tests/build/translation checks pass",
+      "observed": "Core Jest shipment-related8 suites/26 tests pass (focused guard9/9). Package build/generate and production app build pass. i18n sync and usage pass (8121 unused keys advisory). New key exists in en/pl/es/de/ko.",
+      "result": "PASS",
+      "screenshot": null,
+      "channel": "CLI"
+    }
+  ],
+  "hasUiTest": true,
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "medium",
+      "title": "Reader sees active shipment-create actions",
+      "file": "packages/core/src/modules/sales/components/documents/ShipmentsSection.tsx",
+      "line": 389,
+      "additionalLine": 478,
+      "introducedByDiff": false,
+      "observed": "Own reader has sales.orders.view and directory.organizations.view only. Two Add shipment actions enabled; create dialog opens. Direct write403 protects data.",
+      "expected": "Hide or disable create actions without sales.shipments.manage.",
+      "evidence": "screenshots/step-11-reader-can-open-create-dialog.png"
+    },
+    {
+      "id": "F2",
+      "severity": "high",
+      "title": "Return tax total no longer reconciles with net and gross",
+      "file": "packages/core/src/modules/sales/lib/calculations.ts",
+      "line": 352,
+      "introducedByDiff": false,
+      "observed": "Return loop reduces net/gross but not taxTotal. USD fixture net20/tax27.60/gross24.60 after returning net100/gross123 from original net120/tax27.60/gross147.60. UI/API/CSV all agree on incorrect tax; undo/redo reproduces. Discounted PLN fixture similarly net90/tax31.05/gross110.70.",
+      "expected": "Remaining tax4.60 USD (or20.70 PLN); net+tax=gross.",
+      "evidence": "screenshots/step-14-return-tax-does-not-reconcile-pl.png"
+    }
+  ],
+  "notes": [
+    "Evidence-only complex QA: overall FAIL because required permission and monetary-integrity checks fail. Targeted new shipment create/redo guard passed observed scenarios. No QA approval/failure or pipeline labels changed.",
+    "Both finding files are unchanged between merge-base and this head. Findings are observed on the tested head; no separate base-runtime reproduction was run. Do not attribute them to the new guard.",
+    "Runtime: local runner; no running compose app found. om-prepare-test-env generated wrapper around repository ephemeral CLI, production build, V8 heap4096MiB/Rayon2/Turbo2. CLI timings: init58s, packages143s, generate12s, rebuild1s, app168s, readiness12s; warm reuse verified. Chromium1.61.1.",
+    "Own fixtures: two tenants, two organizations, four tenant-bound users, three roles (reader only order-view plus organization-view), nine orders. Managers use tenant/organization-scoped wildcard feature grants; neither negative actor is superadmin. Own VAT23 class and zero-cost carrier created through UI. Manual refund setup/API controls and lifecycle operations marked API.",
+    "All screenshots reviewed for demo-only fixture data. No production credentials, tokens, source edits, PR commits or pushes. Runtime-modified tracked email-capture fixture restored to exact HEAD after stopping workers.",
+    "Initial root Jest invocation failed before running tests (TS5011); canonical core package config passed. Initial i18n commands hit long TMPDIR Unix-socket limit; TMPDIR=/tmp retries passed. First two exploration harness runs were interrupted by unbounded network-idle wait/expired Undo notification listener; final bounded harness completed. Those harness errors are not product test failures.",
+    "Committed TC-SALES-054 was inspected and establishes hasUiTest=true; it was not blindly executed. All browser/API exploration was independently authored. Full monorepo unit/typecheck gate was not rerun. GitHub currently reports only label and CLA checks, not a green full CI gate."
+  ],
+  "notExercised": [
+    "No deterministic refund-commit versus order-row-lock race test; the PR already notes this remaining window. Ten repeated refused requests are not evidence of atomic concurrent refund ordering.",
+    "Live payment gateway webhooks, external carrier dispatch/labels, delivered email and stocked-catalog/WMS reservation balances were not exercised; fixtures use custom order lines and manual payments. Refusal checks cover order/line/shipment/payment rows and fulfilled quantity, not every optional external subscriber.",
+    "Refund setup, API control fixtures, audit-log undo/redo/delete lifecycle and document-address fixture were API-driven; main order/line/tax/carrier/payment/prepaid shipment/refused shipment/partial shipment/reference edit/locale selection were UI-driven.",
+    "No separate shipment-cancel endpoint exists in the shipment route surface inspected; undo/delete/repeat paths covered. No .uxproof directory exists, so that conditional contract check is inapplicable.",
+    "Mobile modal fits; underlying detail page overflow49px remains an observation for UI follow-up. Spanish/German/Korean message presence checked statically, not browser-tested."
+  ],
+  "cleanup": {
+    "browserClosed": true,
+    "appStopped": true,
+    "ownedDatabaseContainerRemoved": true,
+    "sourceClean": true,
+    "parentQaMetadataUntouched": true,
+    "claimHousekeeping": "Final completion comment and task report record exact-lock release."
+  },
+  "publishedAt": "2026-11-11T12:02:21.470686+00:00",
+  "evidenceBranch": "qa-evidence-pr-9290-f2dac37a",
+  "evidenceCommentUrl": null
+}
