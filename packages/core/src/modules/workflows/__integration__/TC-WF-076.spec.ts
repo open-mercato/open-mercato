@@ -15,7 +15,7 @@ import {
 } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 
 /**
- * TC-WF-074: workflows.instance.paused / resumed reach the bus (#7186)
+ * TC-WF-076: workflows.instance.paused / resumed reach the bus (#7186)
  *
  * Both events carry `clientBroadcast: true`, so the DOM Event Bridge is an
  * observable, fixture-free view of what the executor published. A run that
@@ -72,7 +72,7 @@ async function sendSignal(
   })
 }
 
-test.describe('TC-WF-074: workflows.instance.paused / resumed lifecycle events', () => {
+test.describe('TC-WF-076: workflows.instance.paused / resumed lifecycle events', () => {
   test('a park → resume → re-park → resume run publishes each transition exactly once', async ({ page, request }) => {
     test.setTimeout(90_000)
     const token = await getAuthToken(request, 'admin')
@@ -88,7 +88,7 @@ test.describe('TC-WF-074: workflows.instance.paused / resumed lifecycle events',
 
       definitionId = await createWorkflowDefinitionFixture(request, token, {
         workflowId,
-        workflowName: `QA TC-WF-074 ${timestamp}`,
+        workflowName: `QA TC-WF-076 ${timestamp}`,
         description: 'Integration test: paused/resumed lifecycle events',
         version: 1,
         enabled: true,
