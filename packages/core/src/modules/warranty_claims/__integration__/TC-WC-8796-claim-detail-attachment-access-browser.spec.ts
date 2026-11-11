@@ -54,6 +54,19 @@ async function loginAsScopedUser(
   ])
 }
 
+// page.request (Playwright's out-of-page APIRequestContext) does not
+// reliably carry this app's cookie-based session for mutating requests — a
+// best-effort cleanup call through it can silently 401 and leave the
+// attachment behind. Drive it through the page's own fetch() instead.
+async function deleteAttachmentViaPage(page: Page, attachmentId: string): Promise<void> {
+  await page.evaluate(async (id) => {
+    await fetch(`/api/attachments?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'x-om-forbidden-redirect': '0' },
+    }).catch(() => undefined)
+  }, attachmentId).catch(() => undefined)
+}
+
 test.describe('TC-WC-8796: claim detail attachment access in the browser', () => {
   test.slow()
 
@@ -301,7 +314,7 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
       // would otherwise skip the UI-driven DELETE and leave the upload
       // behind in a reused environment — clean it up idempotently here too.
       if (uploadedAttachmentId) {
-        await page.request.delete(`/api/attachments?id=${encodeURIComponent(uploadedAttachmentId)}`).catch(() => undefined)
+        await deleteAttachmentViaPage(page, uploadedAttachmentId)
       }
     }
   })
@@ -311,18 +324,27 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
     await page.goto(`/backend/warranty_claims/${claimId}`)
     await expect(page.getByRole('tab', { name: /^Attachments/ })).toBeVisible()
 
-    const response = await page.request.post('/api/attachments', {
-      multipart: {
-        entityId: 'warranty_claims:warranty_claim',
-        recordId: claimId!,
-        file: {
-          name: `wc-8796-denied-${randomUUID().slice(0, 8)}.txt`,
-          mimeType: 'text/plain',
-          buffer: Buffer.from('should never be stored'),
-        },
-      },
+    // page.request (Playwright's out-of-page APIRequestContext) does not
+    // reliably carry this app's cookie-based session for mutating requests —
+    // drive the POST through the page's own fetch() instead, matching how
+    // the app itself calls /api/attachments.
+    const status = await page.evaluate(async ({ entityId, recordId, fileName }) => {
+      const formData = new FormData()
+      formData.append('entityId', entityId)
+      formData.append('recordId', recordId)
+      formData.append('file', new File(['should never be stored'], fileName, { type: 'text/plain' }))
+      const response = await fetch('/api/attachments', {
+        method: 'POST',
+        headers: { 'x-om-forbidden-redirect': '0' },
+        body: formData,
+      })
+      return response.status
+    }, {
+      entityId: 'warranty_claims:warranty_claim',
+      recordId: claimId!,
+      fileName: `wc-8796-denied-${randomUUID().slice(0, 8)}.txt`,
     })
-    expect(response.status(), 'a reader without attachments.manage must not be able to upload').toBe(403)
+    expect(status, 'a reader without attachments.manage must not be able to upload').toBe(403)
   })
 
   test('core claim details remain usable when the attachment request is forbidden', async ({ page }) => {
@@ -437,7 +459,7 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
       await expect(page.getByRole('link', { name: fileName })).toHaveCount(0)
     } finally {
       if (uploadedAttachmentId) {
-        await page.request.delete(`/api/attachments?id=${encodeURIComponent(uploadedAttachmentId)}`).catch(() => undefined)
+        await deleteAttachmentViaPage(page, uploadedAttachmentId)
       }
     }
   })
