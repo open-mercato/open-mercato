@@ -78,6 +78,52 @@ describe('POST /api/auth/logout — session revocation', () => {
     expect(setCookie).toContain('session_token=;')
   })
 
+  it.each(['Bearer', 'bearer', 'BEARER'])('revokes a %s-only authenticated session', async (scheme) => {
+    const res = await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { authorization: `${scheme} ${buildAuthToken()}` },
+    }))
+
+    expect(deleteSessionById).toHaveBeenCalledWith(sessionId)
+    expect(deleteSessionByToken).not.toHaveBeenCalled()
+    expect(res.status).toBe(303)
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.logout', expect.objectContaining({
+      id: userId,
+      sessionId,
+      sessionRevoked: true,
+    }), { persistent: true })
+  })
+
+  it('prefers bearer credentials over an unrelated auth cookie, like staff authentication', async () => {
+    const cookieSessionId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${buildAuthToken()}`,
+        cookie: buildCookieHeader({ auth_token: buildAuthToken({ sid: cookieSessionId }) }),
+      },
+    }))
+
+    expect(deleteSessionById).toHaveBeenCalledTimes(1)
+    expect(deleteSessionById).toHaveBeenCalledWith(sessionId)
+  })
+
+  it.each([
+    'invalid-token',
+    { type: 'customer' },
+    { sid: undefined },
+    { exp: 1 },
+  ])('does not revoke sessions from an unusable bearer token', async (token) => {
+    const res = await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${typeof token === 'string' ? token : buildAuthToken(token)}` },
+    }))
+
+    expect(deleteSessionById).not.toHaveBeenCalled()
+    expect(deleteSessionByToken).not.toHaveBeenCalled()
+    expect(res.status).toBe(303)
+  })
+
   it('revokes the remember-me session_token cookie as well when present', async () => {
     const authToken = buildAuthToken()
     const req = new Request('http://localhost/api/auth/logout', {
