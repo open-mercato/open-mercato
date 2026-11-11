@@ -78,11 +78,12 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
     ...mappedRow,
     ...Object.fromEntries(Object.entries(sourceItem).filter(([key]) => key.startsWith('_'))),
   }),
-  DataTable: ({ title, actions, children, data = [] }: any) => (
+  DataTable: ({ title, actions, children, data = [], pagination }: any) => (
     <div data-testid="data-table">
       <h2>{title}</h2>
       <div>{actions}</div>
       <div data-testid="data-count">{Array.isArray(data) ? data.length : 0}</div>
+      {pagination ? <div data-testid="pagination-capped">{String(pagination.totalIsCapped === true)}</div> : null}
       {children}
     </div>
   ),
@@ -733,6 +734,20 @@ describe('catalog module components', () => {
     render(<ServicesDataTable />)
 
     expect(await screen.findByRole('link', { name: 'Create' })).toHaveAttribute('href', '/backend/catalog/services/create')
+  })
+
+  it('forwards a capped service total to the table pagination', async () => {
+    const exactTotal = render(<ServicesDataTable />)
+    expect(screen.getByTestId('pagination-capped')).toHaveTextContent('false')
+
+    const queryOptions = mockUseQuery.mock.calls[0][0] as { queryFn: () => Promise<{ totalIsCapped?: boolean }> }
+    mockReadApiResultOrThrow.mockResolvedValueOnce({ items: [], total: 1000, totalPages: 20, totalIsCapped: true })
+    await expect(queryOptions.queryFn()).resolves.toMatchObject({ totalIsCapped: true })
+    exactTotal.unmount()
+
+    mockUseQuery.mockReturnValue({ data: { items: [], total: 1000, totalPages: 20, totalIsCapped: true }, isLoading: false })
+    render(<ServicesDataTable />)
+    expect(screen.getByTestId('pagination-capped')).toHaveTextContent('true')
   })
 
   it('hides the create action without the manage feature', async () => {

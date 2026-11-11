@@ -48,6 +48,7 @@ type ServicesResponse = {
   page?: number
   pageSize?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 const PAGE_SIZE = 50
@@ -179,6 +180,7 @@ export default function ServicesDataTable() {
         page: typeof payload.page === 'number' ? payload.page : 1,
         pageSize: typeof payload.pageSize === 'number' ? payload.pageSize : PAGE_SIZE,
         totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 1,
+        totalIsCapped: payload.totalIsCapped === true,
       }
     },
   })
@@ -186,6 +188,7 @@ export default function ServicesDataTable() {
   const rows = data?.items ?? []
   const total = data?.total ?? 0
   const totalPages = data?.totalPages ?? 0
+  const totalIsCapped = data?.totalIsCapped === true
 
   const columns = React.useMemo<ColumnDef<ServiceRow>[]>(() => [
     {
@@ -320,6 +323,7 @@ export default function ServicesDataTable() {
           pageSize: PAGE_SIZE,
           total,
           totalPages,
+          totalIsCapped,
           onPageChange: setPage,
         }}
         isLoading={isLoading}

@@ -12,7 +12,7 @@ import {
 } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
- * TC-CAT-046: Catalog services CRUD over `/api/catalog/services`
+ * TC-CAT-053: Catalog services CRUD over `/api/catalog/services`
  *
  * Verifies:
  * - create with scope, category, default price and ordered work requirements
@@ -63,7 +63,7 @@ async function readService(request: APIRequestContext, token: string, serviceId:
   return items[0];
 }
 
-test.describe('TC-CAT-046: catalog services CRUD', () => {
+test.describe('TC-CAT-053: catalog services CRUD', () => {
   test('creates, reads, filters, updates, validates and deletes a service', async ({ request }) => {
     const token = await getAuthToken(request, 'admin');
     const stamp = `${Date.now()}${randomUUID().replace(/-/g, '').slice(0, 6)}`;
