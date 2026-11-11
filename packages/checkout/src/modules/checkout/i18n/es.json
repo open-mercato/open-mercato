@@ -169,7 +169,7 @@
   "checkout.defaultCustomerFields.phone.label": "Teléfono",
   "checkout.defaultCustomerFields.phone.placeholder": "+1 555 123 4567",
   "checkout.errors.links.lockedEdit": "Este enlace de pago tiene transacciones activas y no se puede editar",
-  "checkout.errors.links.notFound": "No se encontro el enlace de pago",
+  "checkout.errors.links.notFound": "No se encontró el enlace de pago",
   "checkout.gatewaySettings.notices.chooseProvider": "Elige un proveedor de pasarela para configurar los ajustes de la sesión de pago.",
   "checkout.gatewaySettings.notices.noSettings": "Este proveedor no ofrece ajustes adicionales para la sesión.",
   "checkout.gatewaySettings.selectPlaceholder": "Seleccionar…",
