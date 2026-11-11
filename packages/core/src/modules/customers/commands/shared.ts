@@ -6,6 +6,8 @@ import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/l
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EventBus } from '@open-mercato/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { CacheStrategy } from '@open-mercato/cache'
+import { invalidateDictionaryCache } from '../api/dictionaries/cache'
 
 const logger = createLogger('customers')
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -85,6 +87,19 @@ export async function requireTimelineParentEntity(
     throw new CrudHttpError(422, { error: 'entityId must reference a person or company, not a deal' })
   }
   throw notFound('Customer not found')
+}
+
+// Profile columns, custom fields, and tags all live outside CustomerEntity, so a
+// save that only touches one of them never dirties the entity and its `updated_at`
+// (the optimistic-lock version) would stay put — letting a stale second tab
+// overwrite the change without a 409 (#7033, #8643). Bump it explicitly whenever
+// any sub-collection changed.
+export function shouldBumpOptimisticLockVersion(
+  profileFieldsUpdated: boolean,
+  custom: Record<string, unknown>,
+  tags: string[] | undefined | null
+): boolean {
+  return profileFieldsUpdated || Object.keys(custom).length > 0 || tags !== undefined
 }
 
 export async function syncEntityTags(
@@ -174,7 +189,8 @@ export async function ensureDictionaryEntry(
     label?: string | null
     color?: string | null | undefined
     icon?: string | null | undefined
-  }
+  },
+  createdKinds?: Set<string>,
 ): Promise<CustomerDictionaryEntry | null> {
   const trimmed = params.value?.trim()
   if (!trimmed) return null
@@ -184,44 +200,68 @@ export async function ensureDictionaryEntry(
   const normalized = trimmed.toLowerCase()
   const color = params.color === undefined ? undefined : normalizeDictionaryColor(params.color)
   const icon = params.icon === undefined ? undefined : normalizeDictionaryIcon(params.icon)
-  const existing = await em.findOne(CustomerDictionaryEntry, {
+  const scope = {
     tenantId: params.tenantId,
     organizationId: params.organizationId,
     kind: params.kind,
     normalizedValue: normalized,
-  })
-  if (existing) {
-    let changed = false
-    if (color !== undefined) {
-      if (existing.color !== color) {
-        existing.color = color ?? null
-        changed = true
-      }
-    }
-    if (icon !== undefined) {
-      if (existing.icon !== icon) {
-        existing.icon = icon ?? null
-        changed = true
-      }
-    }
-    if (changed) {
-      existing.updatedAt = new Date()
-      em.persist(existing)
-    }
-    return existing
   }
-  const entry = em.create(CustomerDictionaryEntry, {
-    tenantId: params.tenantId,
-    organizationId: params.organizationId,
-    kind: params.kind,
-    value: trimmed,
-    label: params.label?.trim() || trimmed,
-    normalizedValue: normalized,
-    color: color ?? null,
-    icon: icon ?? null,
-  })
-  em.persist(entry)
+  const now = new Date()
+  let entry = await em.findOne(CustomerDictionaryEntry, scope)
+  if (!entry) {
+    // Concurrent writers may insert the same entry; ON CONFLICT DO NOTHING keeps the caller's transaction alive.
+    entry = await em.upsert(
+      CustomerDictionaryEntry,
+      {
+        ...scope,
+        value: trimmed,
+        label: params.label?.trim() || trimmed,
+        color: color ?? null,
+        icon: icon ?? null,
+        createdAt: now,
+        updatedAt: now,
+      },
+      { onConflictFields: ['organizationId', 'tenantId', 'kind', 'normalizedValue'], onConflictAction: 'ignore' },
+    )
+    createdKinds?.add(params.kind)
+  }
+  let changed = false
+  if (color !== undefined && entry.color !== color) {
+    entry.color = color ?? null
+    changed = true
+  }
+  if (icon !== undefined && entry.icon !== icon) {
+    entry.icon = icon ?? null
+    changed = true
+  }
+  if (changed) {
+    entry.updatedAt = now
+    em.persist(entry)
+  }
   return entry
+}
+
+export async function invalidateDictionaryKindCaches(
+  ctx: CommandRuntimeContext,
+  scope: CustomerEntityScope,
+  kinds: Iterable<string>,
+): Promise<void> {
+  const distinctKinds = Array.from(new Set(kinds))
+  if (!distinctKinds.length) return
+  let cache: CacheStrategy | undefined
+  try {
+    cache = ctx.container.resolve('cache') as CacheStrategy
+  } catch (err) {
+    logger.warn('cache resolve failed; skipping dictionary invalidation', { component: 'commands.shared', err })
+    return
+  }
+  for (const mappedKind of distinctKinds) {
+    await invalidateDictionaryCache(cache, {
+      tenantId: scope.tenantId,
+      mappedKind,
+      organizationIds: [scope.organizationId],
+    })
+  }
 }
 
 export function resolveParentResourceKind(entityKind: CustomerEntityKind | string | null | undefined): string | null {

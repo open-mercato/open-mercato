@@ -52,6 +52,7 @@
   "sync_akeneo.discovery.locales": "Sprachen",
   "sync_akeneo.discovery.priceKinds": "Katalogpreisarten",
   "sync_akeneo.discovery.rediscovered": "Akeneo-Felder aktualisiert und fehlende Zuordnungen hinzugefügt.",
+  "sync_akeneo.errors.mediaStorageRejected": "Akeneo-Medium {code} wurde vom Anhangsspeicher abgelehnt ({reason}).",
   "sync_akeneo.feature.configure": "Akeneo-Synchronisierungseinstellungen konfigurieren",
   "sync_akeneo.feature.view": "Akeneo-Synchronisierungskonfiguration anzeigen",
   "sync_akeneo.firstImport.action": "Ersten vollständigen Import starten",

@@ -28,6 +28,8 @@ interface SalesLineRouteConfig {
   parentFkColumn: string
   parentFkParam: string
   createSchema: z.ZodObject<z.ZodRawShape>
+  /** Extra fields accepted by the write payloads on top of `createSchema`. */
+  writeExtensionShape?: z.ZodRawShape
   features: { view: string; manage: string }
   commandPrefix: string
   openApi: {
@@ -110,6 +112,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     parentFkColumn,
     parentFkParam,
     createSchema,
+    writeExtensionShape,
     features,
     commandPrefix,
   } = config
@@ -127,11 +130,13 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
 
   const upsertSchema = createSchema.extend({
     id: z.string().uuid().optional(),
+    ...(writeExtensionShape ?? {}),
   })
 
   const deleteSchema = z.object({
     id: z.string().uuid(),
     [parentFkParam]: z.string().uuid(),
+    ...(writeExtensionShape ?? {}),
   })
 
   const routeMetadata = {
@@ -205,6 +210,8 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         ]
         const returnedQuantity = F['returned_quantity']
         if (typeof returnedQuantity === 'string') fields.push(returnedQuantity)
+        const amountsMode = F['amounts_mode']
+        if (typeof amountsMode === 'string') fields.push(amountsMode)
         return fields
       })(),
       sortFieldMap: {
@@ -333,6 +340,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     omnibus_applicability_reason: z.string().nullable().optional(),
     is_personalized: z.boolean().nullable().optional(),
     personalization_reason: z.string().nullable().optional(),
+    amounts_mode: z.enum(['computed', 'external']).optional(),
     created_at: z.string(),
     updated_at: z.string(),
   })
