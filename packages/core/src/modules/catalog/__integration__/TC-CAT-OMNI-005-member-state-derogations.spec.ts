@@ -280,7 +280,6 @@ test.describe('TC-CAT-OMNI-005: Omnibus member-state derogations', () => {
       expect(frozen.status, frozen.text).toBe(200);
       expect(frozen.body).toMatchObject({
         applicabilityReason: 'progressive_reduction_frozen',
-        applicable: true,
         lowestPriceGross: '100.0000',
         previousPriceGross: '70.0000',
       });

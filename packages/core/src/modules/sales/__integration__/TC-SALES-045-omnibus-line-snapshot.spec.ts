@@ -34,7 +34,7 @@ import {
  * carry reference 95.00 and `announced_promotion`. After Omnibus is disabled, editing a line keeps
  * its snapshot, while a line added afterwards has none.
  */
-const ACTOR_FEATURES = ['catalog.*', 'sales.*', 'audit_logs.undo_self'];
+const ACTOR_FEATURES = ['catalog.*', 'sales.*', 'audit_logs.undo_self', 'audit_logs.redo_self'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ORDER_LINES_PATH = '/api/sales/order-lines';
 const QUOTE_LINES_PATH = '/api/sales/quote-lines';
