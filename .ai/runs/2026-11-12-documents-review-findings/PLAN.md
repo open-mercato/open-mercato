@@ -16,9 +16,9 @@ Goal: implement structured, text-anchored review findings in the Documents modul
 | 1.3 | Finding commands (ingest/apply/keep/reopen), events, summary, undo | done | 9c555d1e8f |
 | 1.4 | Findings API routes | done | 930f64b722 |
 | 1.5 | Phase 1 integration tests (written; run blocked by env, see HANDOFF) | done | 3ec9c8063e |
-| 2.1 | Changes tab, cards, findings hook | todo | |
-| 2.2 | Decorations, apply/keep/reopen UI, outline dots, i18n | todo | |
-| 2.3 | Phase 2 integration tests + DS guardian | todo | |
+| 2.1 | Changes tab, cards, findings hook | done | 18c423fc40 |
+| 2.2 | Decorations, apply/keep/reopen UI, outline dots, i18n (server tweak 374dfff616) | done | 18c423fc40 |
+| 2.3 | Phase 2 integration tests (written; run blocked by env, see HANDOFF) + DS guardian | done | a839f2534b |
 | 3.1 | Playbook/rule/reference entities, commands, CRUD routes, ACL | todo | |
 | 3.2 | Playbook admin pages, ingest rule resolution | todo | |
 | 3.3 | Phase 3 integration tests | todo | |
