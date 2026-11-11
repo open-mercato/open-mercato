@@ -19,7 +19,7 @@ export async function POST(request: Request, context: FindingRouteParams): Promi
 export const openApi: OpenApiRouteDoc = buildFindingDecisionOpenApi(
   'Record that a finding suggestion was applied',
   findingApplySchema,
-  [{ status: 422, description: 'Finding has no suggested text' }],
+  [{ status: 422, description: 'Finding has no suggested text or its passage was not located' }],
 )
 
 export default { POST }

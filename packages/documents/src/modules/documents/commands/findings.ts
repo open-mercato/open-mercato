@@ -567,6 +567,9 @@ function assertDecisionAllowed(kind: DecisionKind, finding: DocumentFinding, inp
   if (kind === 'apply' && !finding.suggestedText) {
     throw new CrudHttpError(422, { error: 'documents.findings.noSuggestion' })
   }
+  if (kind === 'apply' && finding.anchorStatus === 'unlocated') {
+    throw new CrudHttpError(422, { error: 'documents.findings.unlocated' })
+  }
   if (kind === 'keep') {
     const note = 'note' in input && typeof input.note === 'string' ? input.note.trim() : ''
     if (finding.severity === 'blocking' && !note) {

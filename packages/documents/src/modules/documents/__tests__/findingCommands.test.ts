@@ -164,6 +164,12 @@ function findingByTitle(title: string, status = 'open'): DocumentFinding {
   return finding
 }
 
+function locatedFinding(title: string): DocumentFinding {
+  const finding = findingByTitle(title)
+  finding.anchorStatus = 'located'
+  return finding
+}
+
 describe('review finding commands', () => {
   let em: EntityManager
   let ctx: CommandRuntimeContext
@@ -225,13 +231,16 @@ describe('review finding commands', () => {
       .rejects.toMatchObject({ status: 422, body: { error: 'documents.findings.noteRequired' } })
     await expect(applyFindingCommand.execute({ ...decisionBase(warning), appliedText: 'x' }, ctx))
       .rejects.toMatchObject({ status: 422, body: { error: 'documents.findings.noSuggestion' } })
+    await expect(applyFindingCommand.execute({ ...decisionBase(blocking), appliedText: 'two years' }, ctx))
+      .rejects.toMatchObject({ status: 422, body: { error: 'documents.findings.unlocated' } })
+    expect(blocking.status).toBe('open')
     const kept = await keepFindingCommand.execute({ ...decisionBase(warning) }, ctx)
     expect(kept.finding).toMatchObject({ status: 'kept', decisionNote: null, decidedByUserId: USER_ID })
   })
 
   it('rejects stale expectedUpdatedAt and decisions on findings that are not open', async () => {
     await ingest(ctx)
-    const blocking = findingByTitle('Confidentiality term too long')
+    const blocking = locatedFinding('Confidentiality term too long')
     await expect(applyFindingCommand.execute({
       ...decisionBase(blocking),
       expectedUpdatedAt: '2020-01-01T00:00:00.000Z',
@@ -256,7 +265,7 @@ describe('review finding commands', () => {
     })
     const warningResult = await keepFindingCommand.execute({ ...decisionBase(findingByTitle('Third')) }, ctx)
     expect(eventIds(warningResult)).toEqual(['documents.finding.kept'])
-    const first = await applyFindingCommand.execute({ ...decisionBase(findingByTitle('First')), appliedText: 'b' }, ctx)
+    const first = await applyFindingCommand.execute({ ...decisionBase(locatedFinding('First')), appliedText: 'b' }, ctx)
     expect(eventIds(first)).toEqual(['documents.finding.applied'])
     const second = await keepFindingCommand.execute({ ...decisionBase(findingByTitle('Second')), note: 'Accepted risk' }, ctx)
     expect(eventIds(second)).toEqual(['documents.finding.kept', 'documents.review.cleared'])
