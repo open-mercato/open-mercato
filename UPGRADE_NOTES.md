@@ -1,5 +1,16 @@
 # Upgrade Notes
 
+## Communication channel concurrent writes (#8712)
+
+Gmail history sync and push register/unregister now re-read channel state under a
+row lock before committing. Stale Gmail pages no longer regress the sync cursor or
+spawn another drain; push lifecycle writes preserve sync progress made while the
+provider request was running. Late poll failures no longer replace a concurrently
+recovered channel's status or error, emit stale reauth events, or schedule stale retries.
+No API, schema, configuration, or client migration is required. Restart all workers
+when deploying. Poll-success concurrency protection is tracked separately in #8711;
+this fix does not replace it. Already ingested messages remain idempotent on replay.
+
 ## Starter reuse and optional AI
 
 `yarn setup` can continue with pre-existing services after an explicit interactive confirmation. It shows port owners and restart/health states and then leaves those containers untouched, using the URLs already configured in `.env`. Declining shows `yarn om stop` guidance for the original checkout. Non-interactive users must explicitly pass `--no-infra` to use external services.
@@ -13,7 +24,6 @@ Reinstall behavior is unchanged: monorepo `yarn dev:greenfield` resets the confi
 The development diagnostics banner’s Retry button now invokes runtime recovery; a page reload alone no longer leaves the historical incident as the only outcome. Existing generation/health checks still determine whether recovery succeeded.
 
 The CLI starts Next development processes with `NODE_ENV=development` so development CSP/debugging features work. Production server and background-process environment behavior is unchanged.
-
 ## Search writes honor entity strategy pins (#5930)
 
 SearchService direct and bulk writes now honor each registered entity's existing
@@ -1446,6 +1456,22 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
+### `TimeReportingSettings.lastProjectId` deprecated in favour of a shared staff timesheet preference (#3750)
+
+The Time Reporting dashboard widget used to remember the member's last-used project privately, in its own widget settings (`TimeReportingSettings.lastProjectId`, persisted by the dashboard host into `dashboard_layouts.layout_json`). The timesheets page's `TimerBar` had no memory at all, so the product's two timer surfaces disagreed about the same fact.
+
+That memory now lives in a `staff`-owned store shared by both surfaces:
+
+- Table `staff_timesheet_preferences`, one row per `(organization_id, tenant_id, staff_member_id)`.
+- `GET` / `PUT /api/staff/timesheets/my-preferences` — self-scoped (there is no member parameter), gated on `staff.timesheets.manage_own`, and written on a **successful timer start only**.
+
+`TimeReportingSettings.lastProjectId` is **retained and still dual-written** for at least one minor version:
+
+- **Read**: the shared preference wins; the legacy setting is a read-through fallback used only when the shared value is null. Members whose only memory is the legacy setting keep it, and the next successful start writes it through to the shared store.
+- **Write**: a successful start **from the dashboard widget** writes both stores, so rolling this change back leaves that member's widget default intact. A start from the timesheets-page `TimerBar` writes the shared store **only** — the legacy field belongs to the widget's own settings and the `TimerBar` has no access to them. A member who only ever starts timers from the timesheets page therefore has no legacy value to roll back to, and after a rollback the widget would fall back to whatever `lastProjectId` it last wrote itself (possibly nothing). That is a one-click cost, not data loss: the shared row survives the rollback and is read again on roll-forward.
+
+**Action for downstream:** none required during the deprecation window. Module authors reading `TimeReportingSettings.lastProjectId` directly should move to `GET /api/staff/timesheets/my-preferences` (or the `useTimesheetPreference` hook in `packages/core/src/modules/staff/lib/timesheets-ui/`) before the field is removed. Authors who *write* it should note that the shared preference now takes precedence on read, so a write to the legacy field alone will not change what the widget preselects for a member who already has a shared row.
+
 ### Staff time-entries totals cover the whole filtered set and render inside the table (#6990)
 
 The time-entries list (`/backend/staff/time-tracking/entries`) now asks
@@ -1507,6 +1533,33 @@ does not change read access to existing attachments (tracked separately in #7989
 **Action for API clients:** a generic upload that previously succeeded against a `documents:document`
 the caller cannot edit now answers `404`. Use Documents' own upload route for document attachments —
 it already enforces this and is unaffected.
+
+### Planner availability replace refuses invalid windows (#9171)
+
+`POST /api/planner/availability-weekly`, and `POST /api/planner/availability-date-specific` for
+availability, now return `400` with the translated `planner.availability.errors.invalidWindow`
+message when a window's end is not after its start (after resolving it in the given timezone) or a
+time is outside `00:00`-`23:59`, such as `24:00`. Before, the request returned `200` and still
+deleted the hours the bad window was meant to replace. URLs and request/response shapes are
+unchanged, and nothing is written when the request is refused.
+
+One bad window refuses the whole request: a batch that mixes valid and invalid windows, which used
+to save the valid ones, now saves nothing, and a request whose bad window met no existing rules,
+a no-op before, also gets `400`. A date-specific availability request with windows that lists an
+impossible date such as `2026-02-30`, which used to be skipped, is refused too. Date-specific
+`kind: 'unavailability'` requests still ignore their windows. Because the check uses resolved
+instants, a date-specific window that a DST gap collapses or inverts (`02:30`-`03:30` on a
+spring-forward day) is refused as well; the availability editor can still send one and now shows
+this error instead of deleting that day's hours. Redo of an action log recorded before this change
+that contains such a window now fails instead of deleting hours.
+
+**Action for API callers:** split an overnight window into two windows on consecutive days, send
+`23:59` instead of `24:00` for the end of the day, send only real calendar dates, and treat a `400`
+as "nothing changed" and resend the corrected full set of windows. There is no warn-first bridge
+because a bad window never produced a rule; it only deleted existing hours.
+
+Existing data is not repaired: hours already lost through this path are not restored by the
+upgrade and have to be re-entered through the editor or the API. No database migration is needed.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 

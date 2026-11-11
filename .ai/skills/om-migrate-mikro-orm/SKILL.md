@@ -144,7 +144,14 @@ const knex = em.getKnex()
 const knex = em.getConnection().getKnex()
 
 // After (v7)
-const db = em.getKysely<any>()
+const db = em.getKysely<ModuleDatabase>()
+```
+
+Pass a typed interface for the tables the module touches instead of `any`, as `AttachmentQuotaDatabase` and `SearchTokenDatabase` already do. Column names then type-check, and no `'column' as any` is needed:
+
+```typescript
+interface UsersTable { id: string; email: string; tenant_id: string }
+interface ModuleDatabase { users: UsersTable /* one entry per table the module queries */ }
 ```
 
 ### Simple queries
@@ -156,7 +163,7 @@ const rows = await knex('users').where('tenant_id', tenantId).select('id', 'emai
 // After (Kysely)
 import { type Kysely } from 'kysely'
 
-const db = em.getKysely<any>()
+const db = em.getKysely<ModuleDatabase>()
 const rows = await db.selectFrom('users')
   .where('tenant_id', '=', tenantId)
   .select(['id', 'email'])
@@ -171,7 +178,7 @@ await knex.raw('SELECT pg_advisory_xact_lock(hashtext(?))', [lockKey])
 
 // After (Kysely)
 import { sql } from 'kysely'
-const db = em.getKysely<any>()
+const db = em.getKysely<ModuleDatabase>()
 await sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`.execute(db)
 ```
 
@@ -209,7 +216,7 @@ await knex('expired_tokens').where('expires_at', '<', knex.fn.now()).del()
 
 // After (Kysely)
 await db.deleteFrom('expired_tokens')
-  .where('expires_at' as any, '<', sql`now()`)
+  .where('expires_at', '<', sql`now()`)
   .execute()
 ```
 
@@ -413,7 +420,7 @@ yarn dev
 
 - [ ] No imports of decorators from `@mikro-orm/core` — all moved to `@mikro-orm/decorators/legacy`
 - [ ] No `persistAndFlush` or `removeAndFlush` calls remain
-- [ ] No `getKnex()` or `getConnection().getKnex()` calls remain — all use `em.getKysely<any>()`
+- [ ] No `getKnex()` or `getConnection().getKnex()` calls remain — all use `em.getKysely<ModuleDatabase>()` with a typed table interface (`<any>` only with a comment saying why)
 - [ ] All Kysely queries end with `.execute()`
 - [ ] All raw count results wrapped in `Number()`
 - [ ] All JSONB values use `sql` template with `::jsonb` cast
