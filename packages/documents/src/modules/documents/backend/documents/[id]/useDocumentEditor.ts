@@ -15,6 +15,7 @@ import {
 } from '../../../lib/editorConfig'
 import { createEntitySuggestionExtension } from '../../../lib/entitySuggestion'
 import { DocumentPagination } from './documentPagination'
+import { DocumentFindingDecorations } from './findingDecorations'
 import type { CollabResources, EditorSelectionRange, EditorWordCount } from './editorTypes'
 
 type UseDocumentEditorInput = {
@@ -103,10 +104,10 @@ export function useDocumentEditor(input: UseDocumentEditorInput) {
         placeholder: t('documents.editor.placeholder'),
         fallbackUserLabel: t('documents.users.unknown'),
         fallbackEntityRefLabel: t('documents.editor.entityRef.fallbackLabel'),
-      }), ...getClientEditorExtras(), DocumentPagination, ...suggestions]
+      }), ...getClientEditorExtras(), DocumentPagination, DocumentFindingDecorations, ...suggestions]
       : [...getDocumentEditorExtensions({
         entityRefFallbackLabel: t('documents.editor.entityRef.fallbackLabel'),
-      }), ...getClientEditorExtras(), DocumentPagination, ...suggestions]
+      }), ...getClientEditorExtras(), DocumentPagination, DocumentFindingDecorations, ...suggestions]
   }, [input.collabResources, input.editorMode, t])
 
   const editor = useEditor({

@@ -28,6 +28,7 @@ import { RelatedRecordsPanel } from './RelatedRecordsPanel'
 import { DocumentNavigator } from './DocumentNavigator'
 import { DocumentEditorErrorBoundary } from './DocumentEditorErrorBoundary'
 import { VersionHistoryPanel } from './VersionHistoryPanel'
+import { DocumentReviewRail } from './FindingsPanel'
 
 function DocumentEditorLoading({ error, retry }: { error?: Error | null; retry?: () => void }) {
   const t = useT()
@@ -92,6 +93,9 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
   }, [documentId])
   const [commentFocusRequest, setCommentFocusRequest] = React.useState<CommentFocusRequest | null>(null)
   const requestSequence = React.useRef(0)
+  const requestCommentAt = React.useCallback((anchor: CommentAnchor) => {
+    setCommentFocusRequest((current) => ({ anchor, requestId: (current?.requestId ?? 0) + 1 }))
+  }, [])
   const mutationContextId = `documents-detail:${documentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -340,6 +344,16 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
 
   const { document, content } = state
   const capabilities = document.capabilities
+  const canReviewFindings = capabilities.canEdit || document.tier === 'owner' || document.tier === 'editor'
+  const commentsRail = (
+    <CommentsRail
+      documentId={document.id}
+      editor={editor}
+      commentFocusRequest={commentFocusRequest}
+      canComment={capabilities.canComment}
+      canShare={capabilities.canShare}
+    />
+  )
   return (
     <Page>
       <PageHeader title={t('documents.nav.document')} actions={(
@@ -425,7 +439,7 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
                 onEditorReady={setEditor}
                 onSaveReady={registerContentSave}
                 onContentConflict={handleContentConflict}
-                onComment={capabilities.canComment ? (anchor) => setCommentFocusRequest((current) => ({ anchor, requestId: (current?.requestId ?? 0) + 1 })) : undefined}
+                onComment={capabilities.canComment ? requestCommentAt : undefined}
                 onTitleChange={(title, updatedAt) => setState((current) => current.status === 'ready' ? {
                   ...current,
                   document: { ...current.document, title, updatedAt },
@@ -436,13 +450,16 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
           <aside className="space-y-4 xl:sticky xl:top-[calc(var(--topbar-height,0px)+1rem)] xl:max-h-[calc(100dvh-var(--topbar-height,0px)-2rem)] xl:w-80 xl:shrink-0 xl:self-start xl:overflow-y-auto">
             <DocumentNavigator editor={editor} />
             <RelatedRecordsPanel documentId={document.id} canEdit={capabilities.canEdit} editor={editor} />
-            <CommentsRail
-              documentId={document.id}
-              editor={editor}
-              commentFocusRequest={commentFocusRequest}
-              canComment={capabilities.canComment}
-              canShare={capabilities.canShare}
-            />
+            {canReviewFindings ? (
+              <DocumentReviewRail
+                documentId={document.id}
+                editor={editor}
+                canDecide={capabilities.canEdit}
+                commentFocusRequestId={commentFocusRequest?.requestId ?? null}
+                onNote={capabilities.canComment ? requestCommentAt : undefined}
+                comments={commentsRail}
+              />
+            ) : commentsRail}
             {showVersions ? (
               <div
                 ref={versionsPanelRef}
