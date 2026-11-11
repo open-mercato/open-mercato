@@ -13,15 +13,15 @@
 - Deliver the module in five additive phases: core inventory, inbound/putaway, picking/packing, yard management, and returns/reverse logistics.
 - Optional **consumed** upstream events are gated by tenant `wms_integration_*` feature toggles so WMS boots and core APIs work when Procurement/Freight/Billing/Finance are absent; subscribers no-op when disabled.
 - **Ledger archival** (retention, tiering, purge-safe checkpoints) is deferred past phases 1–5 — see Deferred backlog in this document.
-- Keep all cross-module integration contract-safe: FK IDs only, no direct ORM relations to `catalog`, `sales`, `shipping`, `shipping_carriers`, `customers`, or future finance modules.
+- Keep all cross-module integration contract-safe: FK IDs only, no direct ORM relations to `catalog`, `sales`, `shipping_carriers`, `customers`, or future finance modules. There is no `shipping` module.
 
 **Scope:**
 - Shared roadmap and architectural contract for phases 1-5 derived from issue `#388`
 - Shared invariants for inventory balances, reservations, ledger, task orchestration, and cross-module APIs
-- Direct integration boundaries for `catalog`, `sales`, `shipping`, `shipping_carriers`, `customers`, and `finance/billing`
+- Direct integration boundaries for `catalog`, `sales`, `shipping_carriers`, `customers`, and `finance/billing`
 
 **Concerns:**
-- `sales` and `shipping` already own commercial fulfillment and shipment lifecycle concerns, so WMS must own physical execution without duplicating financial or document-calculation logic.
+- `sales` already owns shipment records, and `shipping_carriers` already owns labels and tracking, so WMS must own physical execution without duplicating those documents.
 - Inventory writes are concurrency-sensitive and must define atomic mutation boundaries before implementation starts.
 
 ---
@@ -35,8 +35,8 @@ The audience is platform contributors implementing the initial WMS foundation an
 > **Market Reference**: This roadmap borrows the phased maturity model from Odoo and ERPNext, the traceability and expiry discipline from OpenBoxes, and the integration-boundary discipline from OpenWMS-style modular systems. It explicitly rejects a monolithic "ERP-only" warehouse design that tightly couples warehouse records to sales and catalog ORM entities.
 
 For shipment-facing integrations, this roadmap distinguishes two external boundaries:
-- `shipping` owns shipment lifecycle records and events such as `shipping.shipment.created` / `shipping.shipment.dispatched`
-- `shipping_carriers` owns carrier-facing execution such as labels, tracking, and carrier handoff workflows
+- `sales` owns shipment records and the `sales.shipment.created` / `updated` / `deleted` events. WMS does not allocate stock from those events.
+- `shipping_carriers` owns carrier-facing execution such as labels, tracking, and carrier handoff workflows. There is no `shipping` module and no `shipping.shipment.dispatched`.
 
 ## Problem Statement
 
@@ -117,7 +117,7 @@ Work intentionally **not** scheduled in the initial WMS roadmap; track in a foll
 flowchart TD
     catalog[CatalogModule]
     sales[SalesModule]
-    shipping[ShippingModule]
+    salesShip[SalesShipmentRecords]
     carriers[ShippingCarriersModule]
     customers[CustomersModule]
     finance[FinanceBillingFuture]
@@ -129,7 +129,7 @@ flowchart TD
 
     catalog -->|"product and variant FK references"| wms
     sales -->|"order line demand and fulfillment requests"| api
-    shipping -->|"shipment lifecycle events and shipment state"| api
+    salesShip -->|"shipment id linked after pack; sales creates the document"| api
     carriers -->|"carrier labels tracking and carrier execution"| api
     customers -->|"vendor carrier customer FK references"| wms
     finance -->|"refund and detention handoff"| api
@@ -170,7 +170,15 @@ Task events:
 | Event | Payload | Phase |
 |-------|---------|-------|
 | `wms.putaway.completed` | warehouse_id, task_id, variant_id, location_id | 2 |
-| `wms.pick_wave.completed` | warehouse_id, pick_wave_id, lines_count | 3 |
+| `wms.pick_wave.released` | pick_wave_id, warehouse_id, pick_task_ids | 3 |
+| `wms.pick_wave.completed` | pick_wave_id, warehouse_id, pick_task_count, shipped_packing_task_count | 3 |
+| `wms.pick_wave.cancelled` | pick_wave_id, warehouse_id | 3 |
+| `wms.pick_task.created` | pick_task_id, pick_wave_id, reservation_id, sales_order_id, quantity | 3 |
+| `wms.pick_task.completed` | pick_task_id, movement_id, quantity | 3 |
+| `wms.pick_task.shorted` | pick_task_id, quantity_picked, quantity_short | 3 |
+| `wms.pack_task.completed` | packing_task_id, sales_order_id, lines | 3 |
+| `wms.pack_task.shipped` | packing_task_id, sales_shipment_id, movement_ids | 3 |
+| `wms.pack_task.label_requested` | packing_task_id, sales_order_id, sales_shipment_id | 3 |
 
 Yard events:
 
@@ -204,9 +212,9 @@ Returns events:
 | `sales.order.confirmed` | Sales | Create inventory reservation for order items | 1 |
 | `sales.order.cancelled` | Sales | Release all active reservations linked to the order | 1 |
 | `procurement.goods_receipt.created` | Procurement | Create ASN or trigger receiving workflow | 2 |
-| `shipping.shipment.created` | Shipping | Allocate reserved inventory against shipment demand | 3 |
-| `shipping.shipment.dispatched` | Shipping | Reduce on-hand inventory, complete pick tasks | 3 |
 | `freight.shipment.eta_updated` | Freight | Update yard appointment expected arrival | 4 |
+
+Phase 3 does not add a WMS subscriber. Other modules consume WMS events: `sales` consumes `wms.pack_task.completed` (create or reuse a shipment and link it), and `shipping_carriers` consumes `wms.pack_task.label_requested` (purchase a label, then report printed or failed). Neither event changes on-hand inside WMS.
 | `billing.invoice.created` | Billing | Mark detention charge as invoiced | 4 |
 | `finance.refund.processed` | Finance | Update RMA refund status | 5 |
 
@@ -218,7 +226,7 @@ Some source modules or event streams may not exist yet on a given deployment (e.
 
 1. **Subscriber handlers stay registered** (predictable wiring, one code path). The **first step** in each handler resolves the toggle for the current tenant; if disabled, **return immediately** without error and without mutating WMS state.
 2. **Missing toggle record** resolves like other platform toggles: treat as **disabled** (safe default for optional integrations) unless product explicitly seeds defaults otherwise.
-3. **Core OSS path**: toggles for integrations that already exist in core (`sales`, `shipping`) default to **enabled** so out-of-the-box behavior matches the spec. Toggles for **not-yet-shipped** upstream modules default to **disabled** until those modules exist and operators enable them.
+3. **Core OSS path**: toggles for integrations that already exist in core (`sales`, `shipping_carriers`) default to **enabled** so out-of-the-box behavior matches the spec. Toggles for **not-yet-shipped** upstream modules default to **disabled** until those modules exist and operators enable them.
 4. **Identifiers** use a single prefix `wms_integration_` and a stable suffix per integration *surface* (not per HTTP route). One flag may cover **multiple events** from the same logical integration.
 
 **Toggle matrix (initial)**
@@ -227,7 +235,7 @@ Some source modules or event streams may not exist yet on a given deployment (e.
 |-------------------|--------------|---------|--------|
 | `wms_integration_sales_order_inventory` | `sales.order.confirmed`, `sales.order.cancelled` | `true` | Disable only if reservations must be API-only (e.g. migration window). |
 | `wms_integration_procurement_goods_receipt` | `procurement.goods_receipt.created` | `false` | Enable when Procurement emits this event. |
-| `wms_integration_shipping_shipment_lifecycle` | `shipping.shipment.created`, `shipping.shipment.dispatched` | `true` | Disable if outbound handoff is manual or phased rollout. |
+| `wms_integration_shipping_shipments` | emission of `wms.pack_task.label_requested` | `true` | Already seeded. Kill switch for label requests. Does not allocate stock and does not decrement on-hand. The never-seeded id `wms_integration_shipping_shipment_lifecycle` is not used. |
 | `wms_integration_freight_shipment_eta` | `freight.shipment.eta_updated` | `false` | Enable when Freight module exists and emits ETAs. |
 | `wms_integration_billing_invoice_sink` | `billing.invoice.created` | `false` | Enable when Billing links detention charges to invoices. |
 | `wms_integration_finance_refund_sink` | `finance.refund.processed` | `false` | Enable when Finance confirms refund processing for RMA coordination. |
@@ -247,7 +255,7 @@ Introduced across phases:
 - Topology and inventory profile: `createWarehouse`, `updateWarehouse`, `createWarehouseZone`, `updateWarehouseZone`, `createLocation`, `updateLocation`, `createProductInventoryProfile`, `updateProductInventoryProfile`
 - Inventory execution: `receiveInventory`, `reserveInventory`, `releaseReservation`, `allocateReservation`, `moveInventory`, `adjustInventory`, `cycleCountReconcile`
 - Inbound and putaway: `createAsn`, `updateAsn`, `receiveAsnLine`, `closeAsn`, `createPutawayTask`, `assignPutawayTask`, `startPutawayTask`, `completePutawayTask`, `cancelPutawayTask`
-- Outbound execution: `createPickWave`, `releasePickWave`, `assignPickTask`, `startPickTask`, `confirmPickTask`, `shortPickTask`, `cancelPickTask`, `createPackingTask`, `startPackingTask`, `completePackingTask`, `handoffPackedShipment`
+- Outbound execution: `createPickWave`, `releasePickWave`, `cancelPickWave`, `assignPickTask`, `startPickTask`, `confirmPickTask`, `shortPickTask`, `cancelPickTask`, `startPackingTask`, `completePackingTask`, `shipPackingTask`, `requestPackingLabel`. Packing tasks are created by pick completion, not by a public create command. Sales links the shipment; WMS does not call `handoffPackedShipment`.
 - Yard configuration and trailer state: `createDockDoorType`, `updateDockDoorType`, `createDockDoor`, `updateDockDoor`, `updateDockDoorStatus`, `createYardLocationType`, `updateYardLocationType`, `createYardLocation`, `updateYardLocation`, `updateYardLocationStatus`, `createTrailer`, `updateTrailer`, `updateTrailerStatus`, `updateTrailerContents`
 - Gate, appointments, and yard moves: `checkInTrailer`, `checkOutTrailer`, `createYardAppointment`, `updateYardAppointment`, `approveYardAppointment`, `rejectYardAppointment`, `cancelYardAppointment`, `markAppointmentNoShow`, `createYardMoveTask`, `assignYardMoveTask`, `startYardMoveTask`, `completeYardMoveTask`, `cancelYardMoveTask`, `optimizeYardMoveTasks`
 - Detention: `createDetentionFeeRule`, `updateDetentionFeeRule`, `calculateDetentionCharge`, `waiveDetentionCharge`, `markDetentionInvoiced`
@@ -388,7 +396,7 @@ All WMS APIs live under `/api/wms/**`.
 - Cycle count: `POST /api/wms/inventory/cycle-count` (command `cycleCountReconcile`).
 - ASN collection: `GET|POST /api/wms/asns`; receive: `POST /api/wms/asns/:id/receive`.
 - Pick orchestration: `POST /api/wms/pick-waves/:id/release`; physical picks: `POST /api/wms/pick-tasks/:id/confirm` and `.../short` (not legacy `pick-waves/:id/assign|complete` only).
-- Packing: collection `GET|POST /api/wms/packing-tasks`, member `GET|PUT|DELETE /api/wms/packing-tasks/:id`, and `POST /api/wms/packing-tasks/:id/complete`.
+- Packing: `GET /api/wms/packing-tasks` and `GET /api/wms/packing-tasks/:id` only, plus `POST .../start`, `.../complete`, `.../ship`, and `.../request-label`. No public POST/PUT/DELETE of packing tasks. Pick tasks are list/detail only as well. See the phase 3 spec.
 
 ### Shared API Families by Phase
 
@@ -456,10 +464,10 @@ Primary backend areas by phase:
 4. Emit inbound completion events that can trigger downstream reservation re-evaluation.
 
 ### Phase 3: Picking + Packing
-1. Add pick waves/tasks and packing tasks.
-2. Integrate outbound task execution with the sales/shipping shipment-ownership boundary.
-3. Add carrier handoff hooks for labels and tracking.
-4. Add operational dashboards for exceptions such as shorts.
+1. Add a warehouse pack location, pick waves, and pick tasks released from order reservations.
+2. Confirm and short relocate stock; ship is the only on-hand decrement.
+3. Pack completion emits `wms.pack_task.completed`. Sales creates or links the shipment.
+4. Label request is a separate command. `shipping_carriers` reports printed or failed without rolling back stock.
 
 ### Phase 4: Yard Management
 1. Add dock, yard, trailer, gate, appointment, and detention models.
@@ -491,7 +499,7 @@ This roadmap requires both module-local automated coverage and spec-level QA cov
 |-------|------------------------------|
 | 1 | warehouse/location CRUD, reserve/release/adjust/cycle-count happy paths, `_wms.*` enrichment on opted-in `sales`/`catalog`, insufficient-stock rejection, ACL denial |
 | 2 | ASN create/receive/complete, QC fail path, putaway completion, scan endpoint resolution, sales reservation re-evaluation signal |
-| 3 | pick-wave release, pick confirm, short pick, pack completion, shipment handoff, carrier-label failure retry path |
+| 3 | pick-wave release, pick confirm, short pick, pack completion, sales shipment link, ship decrement, carrier-label failure retry path |
 | 4 | trailer check-in/check-out, appointment approval conflict rejection, yard move completion, detention charge calculation, non-billing ownership boundary |
 | 5 | RMA approve/receive/inspect/disposition, restock vs non-restock outcomes, refund-ready signal gating, serial/lot mismatch rejection |
 
@@ -580,6 +588,12 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-11-11 (rev 10)
+- Phase 3 no longer depends on a `shipping` module. Sales owns shipment records; `shipping_carriers` owns labels.
+- Replaced `shipping.shipment.created` / `dispatched` consumption with `wms.pack_task.completed` (sales subscriber) and `wms.pack_task.label_requested` (carrier subscriber).
+- Pointed `wms_integration_shipping_shipments` at label emission. Dropped the unseeded `wms_integration_shipping_shipment_lifecycle` id.
+- Outbound commands match the phase 3 spec: ship and request-label replace `handoffPackedShipment` and public packing-task create.
 
 ### 2026-04-15 (rev 9)
 - Clarified external boundaries: `shipping` owns shipment lifecycle/events, while `shipping_carriers` owns carrier execution (labels, tracking, handoff)

@@ -349,8 +349,10 @@ All list routes:
 
 #### Allocate reservation
 - `POST /api/wms/inventory/allocate`
-- Request: `{ "reservationId": "uuid" }`
+- Request: `{ "reservationId": "uuid", "buckets": [{ "balanceId": "uuid", "quantity": "2" }] }`
+- `buckets` is optional. Omitted, allocate moves every still-reserved bucket (the original behavior). When present, only those buckets move from `quantity_reserved` to `quantity_allocated`.
 - Response: `{ "ok": true, "allocationState": "allocated" }`
+- `allocationState` may also be `partial` when reserved and allocated buckets remain on the same reservation. Phase 3 release uses the filter so a second wave cannot allocate stock already sitting on the pack location. See `2026-04-15-wms-phase-3-picking-packing.md`.
 
 #### Adjust inventory
 - `POST /api/wms/inventory/adjust`
@@ -674,6 +676,9 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-11-11
+- Documented an additive optional `buckets` filter on `POST /api/wms/inventory/allocate`, and reservation metadata `allocationState = partial`. Phase 3 wave release is the caller. Omitting `buckets` preserves full-reservation allocate.
 
 ### 2026-10-09
 - Balance buckets without a serial number had no unique index, and `upsertBalanceBucket` read the bucket `FOR UPDATE` (locking nothing when no row exists) before inserting it, so concurrent receipts, adjustments, cycle counts or moves into an empty bucket each inserted their own row. Cycle counts and moves then read one of those rows, and `verify-balances --repair` set every row to the bucket total. Creating a bucket now takes a transaction-scoped advisory lock on the bucket identity (warehouse, location, variant, lot, serial) and re-reads it before inserting; writes to existing buckets are unchanged. `move` no longer creates an empty source bucket before answering `409 insufficient_stock`. Existing duplicate rows are not merged. Coverage: `inventory-actions.balanceBucket.test.ts`, `TC-WMS-030`.
