@@ -1,6 +1,6 @@
 /**
- * Two submissions of the same task (a double click, a retried request) both
- * read the row while it is still open. Each contender gets its own snapshot of
+ * Two submissions of the same task (the task page and a quick action, a client
+ * retry) both read the row while it is still open. Each contender gets its own snapshot of
  * that row, while `nativeUpdate` applies the conditional update to the one
  * shared row, the way the database would. Only one may complete the task and
  * run its side effects; the other gets TASK_NOT_FOUND.

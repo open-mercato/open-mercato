@@ -16,10 +16,10 @@ import {
  *
  * Surface under test: POST /api/workflows/tasks/[id]/complete
  *
- * Several completions of the same open task are sent at once, the way a double
- * click or a retried request sends them. Exactly one may complete the task and
- * advance the run; every other one is refused (404 once the task is closed, or
- * 409 once the run has already finished), and the run logs a single
+ * Several completions of the same open task are sent at once, the way two tabs,
+ * a quick action or a retrying client send them. Exactly one may complete the
+ * task and advance the run; every other one is refused (404 once the task is
+ * closed, or 409 once the run has already finished), and the run logs a single
  * USER_TASK_COMPLETED event.
  */
 test.describe('TC-WF-075: double-submitted task completion', () => {
