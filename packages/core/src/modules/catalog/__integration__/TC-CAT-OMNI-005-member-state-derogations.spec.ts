@@ -257,6 +257,9 @@ test.describe('TC-CAT-OMNI-005: Omnibus member-state derogations', () => {
         { ...baseRow, offerId, unitPriceNet: '56.9106', unitPriceGross: '70.0000', recordedAt: new Date(now - 12 * DAY_MS), changeType: 'update' },
       ]);
 
+      const backfillOutput = runOmnibusBackfillCli({ tenantId: actor.tenantId, channelId });
+      expect(backfillOutput).toContain('[omnibus:backfill] Complete');
+
       const configured = await patchOmnibusConfig(request, token, {
         enabled: true,
         enabledCountryCodes: ['PL'],
