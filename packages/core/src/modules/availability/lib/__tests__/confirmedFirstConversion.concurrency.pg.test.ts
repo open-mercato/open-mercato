@@ -304,7 +304,7 @@ maybe('confirmed-first conversion: availability.commit vs the sales.order.confir
   type HeldRowLock = { holderPid: number; release: () => Promise<void> }
 
   // Holds `SELECT ... FOR UPDATE` on one row in its own transaction until `release()`.
-  async function holdRowLock(table: 'wms_inventory_reservations', id: string): Promise<HeldRowLock> {
+  async function holdRowLock(table: 'wms_inventory_reservations' | 'wms_inventory_balances', id: string): Promise<HeldRowLock> {
     let signalAcquired: (holderPid: number) => void = () => undefined
     let signalRelease: () => void = () => undefined
     const acquired = new Promise<number>((resolve) => {
@@ -415,6 +415,54 @@ maybe('confirmed-first conversion: availability.commit vs the sales.order.confir
 
     automationAboutToReserve.release()
     await automation
+    expect(await readHoldState(fixture)).toEqual({ orderHeld: 2, checkoutHeld: 0, quantityReserved: 2, holdStatus: 'committed' })
+  })
+
+  // KNOWN DEFECT, reported on #9183 (tests only here, no fix). With only part of the order's
+  // stock left beyond the checkout hold, the automation's reserve quantity (what is still
+  // free) differs from the converted row's (the whole hold), so the two idempotency keys
+  // differ and nothing serializes the automation's "still missing" read against the commit:
+  // the order ends up holding 3 units for a 2-unit order, one unit leaked out of sale. The
+  // same outcome showed up in 10 of 10 unpinned `Promise.all(commit, automation)` rounds
+  // locally. `test.failing` passes while the defect exists; flip it to `test` with the fix.
+  test.failing('with partial stock, an automation acting on a pre-commit read never holds more than the order needs', async () => {
+    const fixture = await seedCheckoutHold({ onHand: 3, quantity: 2 })
+
+    const automationAboutToReserve = commandBus.pauseBefore('wms.inventory.reserve')
+    const automation = runOrderConfirmedAutomation(fixture)
+    await automationAboutToReserve.reached
+    expect((await commit(fixture)).status).toBe('committed')
+    automationAboutToReserve.release()
+    await automation
+
+    expect(await readHoldState(fixture)).toEqual({ orderHeld: 2, checkoutHeld: 0, quantityReserved: 2, holdStatus: 'committed' })
+  })
+
+  // KNOWN DEFECT, reported on #9183 (tests only here, no fix).
+  // `WmsReservationService.reserveInTransaction` catches the active-idempotency-key unique
+  // violation and re-reads the winning row to replay it, but on PostgreSQL that re-read runs
+  // in the transaction the violation already aborted ("current transaction is aborted"), so
+  // the replay can never succeed and the command fails instead. Reached here when the commit
+  // converts the hold (taking the automation's key) after the automation's own idempotency
+  // pre-check but before its insert; stock ends correct, the subscriber call throws. 9 of 10
+  // unpinned full-stock rounds threw locally. Flip `test.failing` to `test` with the fix.
+  test.failing('an automation whose insert loses the idempotency key to the converted row replays it instead of failing', async () => {
+    const fixture = await seedCheckoutHold({ onHand: 4, quantity: 2 })
+    const balance = await orm.em.fork().findOneOrFail(InventoryBalance, { catalogVariantId: fixture.variantId })
+
+    // Parks the automation's `wms.inventory.reserve` on its balance `FOR UPDATE`, which comes
+    // after its idempotency pre-check and before its insert.
+    const balanceRowLock = await holdRowLock('wms_inventory_balances', balance.id)
+    let automationSettled = false
+    const automation = runOrderConfirmedAutomation(fixture).finally(() => {
+      automationSettled = true
+    })
+    await waitUntilBlockedBy(balanceRowLock, () => automationSettled)
+
+    expect((await commit(fixture)).status).toBe('committed')
+    await balanceRowLock.release()
+
+    await expect(automation).resolves.toBeUndefined()
     expect(await readHoldState(fixture)).toEqual({ orderHeld: 2, checkoutHeld: 0, quantityReserved: 2, holdStatus: 'committed' })
   })
 })
