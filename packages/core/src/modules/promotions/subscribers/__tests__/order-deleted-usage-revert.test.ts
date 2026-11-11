@@ -89,7 +89,7 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]>; salesOrders
         return []
       },
     }),
-    execute: async () => [],
+    execute: async (sql: string, params?: unknown[]) => (sql.includes('from sales_orders') ? em.getConnection().execute(sql, params) : []),
     transactional: async (cb) => {
       await em.begin()
       try {

@@ -106,7 +106,7 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
     // guard, and `sales.order.cancelled` fires for either) — #8268 review Major 3
     // (re-review): comparing against only `canceled` here let a delayed confirmation
     // reinstate credit for an order left as `cancelled`.
-    const current = await tx.getConnection().execute(
+    const current = await tx.execute(
       'select status from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
       [orderId, tenantId, organizationId],
     )

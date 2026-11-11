@@ -73,7 +73,7 @@ function createFakeEm(options: { orderStatus?: string | null } = {}): { em: Fake
     findOne: async (entity, where) => tableFor(entity).find((row) => matchesWhere(row, where)) ?? null,
     find: async (entity, where) => tableFor(entity).filter((row) => matchesWhere(row, where)),
     fork: () => em,
-    execute: async () => [],
+    execute: async (sql: string, params?: unknown[]) => (sql.includes('from sales_orders') ? em.getConnection().execute(sql, params) : []),
     getConnection: () => ({
       execute: async () => (orderStatus == null ? [] : [{ status: orderStatus }]),
     }),

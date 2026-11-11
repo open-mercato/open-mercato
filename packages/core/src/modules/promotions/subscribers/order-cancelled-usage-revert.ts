@@ -109,7 +109,7 @@ export async function handleOrderUsageRevert(
         // `revertedAt` back to null) before — or racing — this event's redelivery. A
         // redelivery arriving after the order exists again must not revert that fresh
         // usage; only a still-genuinely-deleted order should proceed.
-        const stillDeleted = await tx.getConnection().execute(
+        const stillDeleted = await tx.execute(
           'select 1 from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
           [orderId, tenantId, organizationId],
         )
@@ -132,7 +132,7 @@ export async function handleOrderUsageRevert(
         // (its own `isCancelledOrderStatus` guard, and `sales.order.cancelled` fires for
         // either) — #8268 review Major 3 (re-review): comparing against only `canceled`
         // here let an order left as `cancelled` skip this revert entirely.
-        const current = await tx.getConnection().execute(
+        const current = await tx.execute(
           'select status from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
           [orderId, tenantId, organizationId],
         )

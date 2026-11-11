@@ -638,14 +638,12 @@ describeWithPostgres('sales order delete -> promotion usage revert -> undo -> re
     expect(await usageOf(fixture, fixture.orderId)).toEqual({ promotionUsageLive: true, codeUsageLive: false })
   })
 
-  // KNOWN DEFECT, reported on #9183 (tests only here, no fix). `handleOrderUsageRevert` reads
-  // `sales_orders` through `tx.getConnection().execute(...)` (both the delete and the cancel
-  // branch), which runs on a SECOND pooled connection rather than the transaction holding
-  // the lifecycle lock. With as many concurrent deliveries as pool connections, each holds
-  // one connection while waiting for another: the #8414 starvation shape. The reinstate
-  // handler was already moved onto its lock transaction's own connection, and survives the
-  // same pool (the control test right after). `test.failing` passes while the defect
-  // exists; flip it to `test` with the fix.
+  // #9183: `handleOrderUsageRevert` used to read `sales_orders` through
+  // `tx.getConnection().execute(...)` (both the delete and the cancel branch), a SECOND pooled
+  // connection, while holding the lifecycle lock on its transaction's — with as many concurrent
+  // deliveries as pool connections each held one connection while waiting for another (the
+  // #8414 starvation shape). It now reads on the lock transaction's own connection, like the
+  // reinstate handler (the control test right after).
   const TIGHT_POOL = 3
 
   // Deterministic starvation: the test first holds every order's lifecycle lock from its own
@@ -714,7 +712,7 @@ describeWithPostgres('sales order delete -> promotion usage revert -> undo -> re
     return fixtures
   }
 
-  test.failing(`${TIGHT_POOL} concurrent delete reverts for different orders all complete on a pool of ${TIGHT_POOL} connections`, async () => {
+  test(`${TIGHT_POOL} concurrent delete reverts for different orders all complete on a pool of ${TIGHT_POOL} connections`, async () => {
     const fixtures = await seedPromotedOrders(TIGHT_POOL)
     const deletions = await Promise.all(fixtures.map((fixture) => deleteOrder(fixture)))
 

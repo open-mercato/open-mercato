@@ -397,17 +397,13 @@ maybe('sales order delete -> credit release -> undo -> reinstate under redeliver
     ])
   })
 
-  // KNOWN DEFECT, reported on #9183 (tests only here, no fix). Both credit lifecycle handlers
-  // read `sales_orders` through `tx.getConnection().execute(...)`, which runs on a SECOND
-  // pooled connection, not the transaction holding the lifecycle lock (backend pids differ).
-  // A handler therefore holds one connection while waiting for another: with as many
-  // concurrent deliveries as pool connections, every one of them can be parked waiting for
-  // a second connection that never frees up, the #8414 starvation shape. The promotions
-  // reinstate handler was moved off this pattern ("read on the lock transaction's own
-  // connection"); these two were not. Same standard as
+  // #9183: both credit lifecycle handlers used to read `sales_orders` through
+  // `tx.getConnection().execute(...)`, a SECOND pooled connection, while holding the lifecycle
+  // lock on their transaction's — with as many concurrent deliveries as pool connections every
+  // one parked waiting for a connection that never freed up (the #8414 starvation shape). They
+  // now read on the lock transaction's own connection. Same standard as
   // `availability/lib/__tests__/reservationCommands.pool-exhaustion.integration.test.ts`: a
-  // pool of exactly the concurrency, every delivery must still complete. `test.failing`
-  // passes while the defect exists; flip it to `test` with the fix.
+  // pool of exactly the concurrency, every delivery must still complete.
   const TIGHT_POOL = 3
 
   // Deterministic starvation: the test first holds every order's lifecycle lock from its own
@@ -474,7 +470,7 @@ maybe('sales order delete -> credit release -> undo -> reinstate under redeliver
     return orders
   }
 
-  test.failing(`${TIGHT_POOL} concurrent delete releases for different orders all complete on a pool of ${TIGHT_POOL} connections`, async () => {
+  test(`${TIGHT_POOL} concurrent delete releases for different orders all complete on a pool of ${TIGHT_POOL} connections`, async () => {
     const orders = await seedOnAccountOrders(TIGHT_POOL)
     const deletions = await Promise.all(orders.map((order) => deleteOrder(order)))
 
@@ -489,7 +485,7 @@ maybe('sales order delete -> credit release -> undo -> reinstate under redeliver
     for (const order of orders) expect(await exposure(order)).toBe(0)
   })
 
-  test.failing(`${TIGHT_POOL} concurrent reinstates for different orders all complete on a pool of ${TIGHT_POOL} connections`, async () => {
+  test(`${TIGHT_POOL} concurrent reinstates for different orders all complete on a pool of ${TIGHT_POOL} connections`, async () => {
     const orders = await seedOnAccountOrders(TIGHT_POOL)
     const confirmations: OrderEventPayload[] = []
     for (const order of orders) {

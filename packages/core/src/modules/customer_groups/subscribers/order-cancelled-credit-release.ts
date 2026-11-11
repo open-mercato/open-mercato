@@ -103,7 +103,7 @@ export async function handleOrderCreditRelease(
       // (`sales/commands/documents.ts#undoOrderGraph`) can recreate this order before (or
       // racing) this event's redelivery. A redelivery arriving after the order exists
       // again must not release a reservation reinstated for the restored order.
-      const stillDeleted = await tx.getConnection().execute(
+      const stillDeleted = await tx.execute(
         'select 1 from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
         [orderId, tenantId, organizationId],
       )
@@ -126,7 +126,7 @@ export async function handleOrderCreditRelease(
       // `isCancelledOrderStatus` guard, and `sales.order.cancelled` fires for either) —
       // #8268 review Major 3 (re-review): comparing against only `canceled` here let an
       // order left as `cancelled` skip this release entirely.
-      const current = await tx.getConnection().execute(
+      const current = await tx.execute(
         'select status from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
         [orderId, tenantId, organizationId],
       )

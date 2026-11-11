@@ -89,7 +89,7 @@ function createFakeEm(options: { orderStatus?: string | null } = {}): { em: Fake
     },
     isInTransaction: () => inTransaction,
     fork: () => em,
-    execute: async () => [],
+    execute: async (sql: string, params?: unknown[]) => (sql.includes('from sales_orders') ? em.getConnection().execute(sql, params) : []),
     getConnection: () => ({
       execute: async () => (orderStatus == null ? [] : [{ status: orderStatus }]),
     }),
