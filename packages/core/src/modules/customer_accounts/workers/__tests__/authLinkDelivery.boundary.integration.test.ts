@@ -342,8 +342,11 @@ describe('customer_accounts: blocked-transport / durable-acceptance boundary (#8
     it('does not widen the known-account response relative to the unknown-account one as the held transport delay grows', async () => {
       // A relative comparison instead of an absolute threshold: whatever the
       // transport's hold time is, acceptance for both accounts must stay a small
-      // fraction of it, because neither path waits on it at all.
-      const holdMs = 250
+      // fraction of it, because neither path waits on it at all. holdMs is large
+      // enough that ordinary CI scheduling noise on the (never-waited-on) route
+      // handler itself cannot approach the threshold — only an actual wait on the
+      // transport could.
+      const holdMs = 4000
       mockSendEmail.mockImplementation(() => new Promise((resolve) => setTimeout(resolve, holdMs)))
 
       const knownStart = Date.now()
