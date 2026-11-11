@@ -74,7 +74,7 @@ Editor (documents/[id])
 | Agent returns data, a command persists it | Matches the orchestrator's read-only agent policy, gives one audited write per review, and lets Documents validate and anchor every finding server-side. The lawyer's Apply / Keep is the human approval. |
 | Documents publishes an agent **contract**; the consumer declares a **native** agent | `INVOKE_AGENT` resolves agents only from the orchestrator registry, filled by `defineAgent()` (native runtime) or file agents (OpenCode runtime, deprecation planned per `defineAgent.ts`). Native gives in-process execution, the input prompt-injection check and the output `GuardrailService`. `defineAgent` is an enterprise SDK import, so it cannot live in the OSS package; a consumer module declares it in ~20 lines from the contract, and the enterprise overlay takes it over at productization. |
 | Apply runs as a client-side Tiptap transaction | The document is collaborative; a server-side content write during a live session would fight the CRDT. The editor transaction flows through Yjs to every collaborator and keeps undo working. |
-| Anchor computed on the server from a quote | The agent cannot produce Yjs positions. `y-prosemirror` 1.3.7 exposes `initProseMirrorDoc` (doc + mapping) and `absolutePositionToRelativePosition`, the same calls the client uses, so the anchor format matches comment anchors exactly. |
+| Anchor computed on the server from a quote | The agent cannot produce Yjs positions. `@tiptap/y-tiptap` (the binding the editor itself uses; same API as `y-prosemirror`) exposes `initProseMirrorDoc` (doc + mapping) and `absolutePositionToRelativePosition`, the same calls the client uses, so the anchor format matches comment anchors exactly. |
 | Guidance notes are Documents, linked to a playbook | The firm's "wiki notes" are already documents with sharing and history. A junction table links them; the agent tool returns only the ones the run's principal can view. |
 | Documents emits a signal and does not own a release gate | Release rules (who receives the document, at which stage) differ per customer. Documents exposes the open-blocking count and a `review.cleared` event; the consumer decides what clearing means for its process. |
 | One spec for findings and the reviewer integration | Maintainer decision (2026-11-11). The two halves share one seam, the ingest contract; phasing keeps Phases 1–2 shippable without anything from Phases 3–4. |
@@ -138,7 +138,7 @@ No ORM relation crosses a module boundary. `document_findings.document_id` and t
 ### Anchoring algorithm (`lib/findingAnchors.ts`)
 
 1. Load `document_contents.yjs_state` (scoped by tenant/org) into a `Y.Doc`. Abort with `unanchored` if empty.
-2. `initProseMirrorDoc(ydoc.getXmlFragment(COLLAB_FRAGMENT_FIELD), getSchema(getDocumentEditorExtensions()))` → `{ doc, mapping }`.
+2. `initProseMirrorDoc` from `@tiptap/y-tiptap` (`ydoc.getXmlFragment(COLLAB_FRAGMENT_FIELD), getSchema(getDocumentEditorExtensions()))` → `{ doc, mapping }`.
 3. Build a flat text index of `doc` (text node offsets → absolute positions). Normalize whitespace and typographic quotes on both sides.
 4. Find the `occurrence`-th match (default 1) of the normalized `quote`. If the agent also sent `sectionLabel`, search inside that section first, then the whole document.
 5. `absolutePositionToRelativePosition(from, fragment, mapping)` and the same for `to` → `Y.encodeRelativePosition` → base64 → `{ version: 2, relativeFrom, relativeTo }` (identical to `documentCommentAnchorWriteSchema`'s relative branch).
@@ -167,6 +167,8 @@ The server never writes document content for a finding.
 | `documents.review_playbook.create / update / delete` | Playbook CRUD; `update` bumps `version` | Standard snapshot undo |
 | `documents.review_rule.create / update / delete` | Rule CRUD; any change bumps the parent playbook `version` | Standard snapshot undo |
 | `documents.review_playbook_reference.create / delete` | Link/unlink a guidance document | Standard |
+
+Undo never emits `documents.review.cleared`, even when it brings open blocking findings back to zero (event lists are built at execution). Consumers confirm state with `GET /findings/summary`. Apply is refused with 422 on an `unlocated` finding, server-side as well as in the UI.
 
 All commands use `withAtomicFlush(..., { transaction: true })`, `loadLockedDocument` for finding commands (serializes decisions on one document, as comment commands do), optimistic locking on `updated_at`, and emit side effects after commit.
 
@@ -410,7 +412,7 @@ New feature in `acl.ts`: `documents.review_playbooks.manage` (dependsOn `documen
 | Manage playbooks | `documents.review_playbooks.manage` | n/a |
 | Read playbook (tool) | `documents.view` | guidance docs: viewer each |
 
-`documents.manage` override applies as elsewhere in the module. A user below the editor tier gets 404 (same non-disclosure rule as other document sub-resources).
+`documents.manage` override applies as elsewhere in the module. A user below the editor tier gets 404, deliberately: other Documents sub-resources answer 403 for tier denials, but findings are internal analysis whose existence should not be disclosed to viewers or commenters.
 
 ## Dependencies (approved)
 
@@ -536,3 +538,4 @@ Purely additive: new tables, new routes, new events, new ACL feature, new option
 - 2026-11-11 — Agent runtime changed to native: Documents publishes `lib/reviewAgentContract.ts` (outcome schema, tool ids, instructions); a consumer module declares the `defineAgent` reviewer; productization as an enterprise overlay is a follow-up spec. File agent (OpenCode, deprecation planned, no guardrail service) removed.
 - 2026-11-11 — Q8 resolved by maintainer: keep one spec. Phases 1–2 (findings + editor) remain independently shippable; Phases 3–4 (playbooks, tools, agent contract, workflow registration) build on the Phase 1 ingest contract.
 - 2026-11-11 — Status set to implementation-ready; peer dependency approved; consumer examples made client-agnostic.
+- 2026-11-12 — Phase 1 implemented. Aligned with implementation: anchoring via `@tiptap/y-tiptap`; undo does not emit `review.cleared`; 404 for findings is a deliberate exception to the module's 403 tier denials; apply refused on unlocated findings.
