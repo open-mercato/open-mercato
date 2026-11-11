@@ -83,6 +83,7 @@ export function createGatewayPaymentSessionResumeHandler(outcome: GatewayPayment
               currencyCode: transaction.currencyCode,
               paymentReference: transaction.gatewayTransactionId ?? transaction.id,
               captured: transaction.paymentStatus !== 'authorized',
+              checkoutTransaction: { id: transaction.id, paymentStatus: transaction.paymentStatus ?? null },
             },
           )
           if (!completion.completedByThisCall) return

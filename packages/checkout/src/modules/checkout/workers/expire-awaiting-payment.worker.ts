@@ -144,7 +144,13 @@ export async function expireOneAwaitingPayment(
         session.salesQuoteId,
         reservationKeys,
         resolvedTransaction
-          ? { amount: resolvedTransaction.amount, currencyCode: resolvedTransaction.currencyCode, paymentReference: resolvedTransaction.gatewayTransactionId ?? resolvedTransaction.id, captured: resolvedTransaction.paymentStatus !== 'authorized' }
+          ? {
+              amount: resolvedTransaction.amount,
+              currencyCode: resolvedTransaction.currencyCode,
+              paymentReference: resolvedTransaction.gatewayTransactionId ?? resolvedTransaction.id,
+              captured: resolvedTransaction.paymentStatus !== 'authorized',
+              checkoutTransaction: { id: resolvedTransaction.id, paymentStatus: resolvedTransaction.paymentStatus ?? null },
+            }
           : undefined,
       )
       if (!completion.completedByThisCall) return

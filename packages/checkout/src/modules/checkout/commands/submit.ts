@@ -39,6 +39,7 @@ import { releaseCheckoutLinkSlot, reserveCheckoutLinkSlot } from '../lib/payLink
 import { resolveGatewayReturnUrl } from '../lib/gatewayReturnUrl'
 import { writeSessionEvent } from '../lib/sessionEvents'
 import { tryResolve } from '../lib/tryResolve'
+import { reportCheckoutError } from '../lib/reportCheckoutError'
 import { emitCheckoutEvent } from '../events'
 import { mapGatewayStatusToCheckoutStatus } from '../lib/utils'
 
@@ -1084,16 +1085,95 @@ async function findRecordedGatewayPayment(
 
 const GATEWAY_PAYMENT_RECORD_ATTEMPTS = 3
 
+async function writeGatewayPayment(
+  commandBus: CommandBus,
+  trustedCtx: CommandRuntimeContext,
+  em: EntityManager,
+  scope: SubmitScope,
+  orderId: string,
+  gatewayPayment: GatewayPaymentRecord,
+): Promise<void> {
+  const captured = gatewayPayment.captured !== false
+  if (gatewayPayment.paymentReference) {
+    const existing = await findRecordedGatewayPayment(em, scope, orderId, gatewayPayment.paymentReference)
+    if (existing) {
+      // #8268 review Major 5: a synchronous `authorized` session correctly created an
+      // UNCAPTURED payment here, then completed the checkout session. A later
+      // `captured` webhook resumes through this SAME function (via the repair worker
+      // or a direct call site), finds this existing-but-uncaptured row and must
+      // reconcile the capture onto it — the checkout session is already terminal by
+      // then, so nothing else will ever record the captured amount.
+      if (captured && Number(existing.capturedAmount) <= 0) {
+        const capturedStatusEntryId = await resolveSalesPaymentStatusEntryId(em, scope, 'captured')
+        await commandBus.execute('sales.payments.update', {
+          input: {
+            id: existing.id,
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            capturedAmount: gatewayPayment.amount,
+            capturedAt: new Date(),
+            statusEntryId: capturedStatusEntryId ?? undefined,
+          },
+          ctx: trustedCtx,
+        })
+      }
+      return
+    }
+  }
+  const statusEntryId = await resolveSalesPaymentStatusEntryId(em, scope, captured ? 'captured' : 'authorized')
+  await commandBus.execute('sales.payments.create', {
+    input: {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      orderId,
+      amount: gatewayPayment.amount,
+      currencyCode: gatewayPayment.currencyCode,
+      ...(captured ? { capturedAmount: gatewayPayment.amount, capturedAt: new Date() } : {}),
+      statusEntryId: statusEntryId ?? undefined,
+      paymentReference: gatewayPayment.paymentReference ?? undefined,
+    },
+    ctx: trustedCtx,
+  })
+}
+
+/**
+ * Stamps `CheckoutTransaction.paymentRecordedAt` once the `SalesPayment` reflects the
+ * payment state this record was derived from. Keyed on that `paymentStatus`: a capture
+ * landing while the record was in flight changes it (and clears the marker in the same
+ * write), so this matches nothing and `repair-gateway-payments` reconciles the capture. A
+ * failed stamp only leaves the row for the sweep to re-verify, so it is reported, not thrown.
+ */
+async function markGatewayPaymentRecorded(
+  em: EntityManager,
+  scope: SubmitScope,
+  sessionId: string,
+  source: GatewayPaymentRecord['checkoutTransaction'],
+): Promise<void> {
+  if (!source) return
+  try {
+    await em.nativeUpdate(
+      CheckoutTransaction,
+      { id: source.id, tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'completed', paymentStatus: source.paymentStatus },
+      { paymentRecordedAt: new Date() },
+    )
+  } catch (err) {
+    logger.error('[internal] checkout submit: failed to mark the gateway payment as recorded, the repair sweep will re-verify it', { err, sessionId, transactionId: source.id })
+    reportCheckoutError(err, 'checkout.gateway_payment_mark_failed', {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      sessionId,
+      transactionId: source.id,
+    })
+  }
+}
+
 // #8268 review Medium 7/Major 5: `recordGatewayPayment` runs AFTER the checkout session
 // (and, in the synchronous path, the order confirmation) already committed, so exhausting
-// its own immediate retries used to just log/report and permanently leave a paid order
-// with no `SalesPayment` — nothing ever retried it again. This repair worker closes that
-// gap durably: it re-derives the SAME `GatewayPaymentRecord` straight from each completed
-// order-outcome session's own `CheckoutTransaction` row (the durable source of truth —
-// amount, currency, gateway reference, capture state all already persisted there, so no
-// new column/queue payload is needed) and calls this exact function again, which is safe
-// to call any number of times — `findRecordedGatewayPayment` makes it a no-op the moment a
-// matching payment exists.
+// its own immediate retries must not lose the payment. Every call site that derives the
+// record from a `CheckoutTransaction` passes `checkoutTransaction`, so a success stamps
+// `paymentRecordedAt`; `repair-gateway-payments` selects only rows still lacking it and calls
+// this exact function again, which is safe any number of times — `findRecordedGatewayPayment`
+// makes it a no-op the moment a matching payment exists.
 export async function recordGatewayPayment(
   container: CommandRuntimeContext['container'],
   em: EntityManager,
@@ -1107,56 +1187,19 @@ export async function recordGatewayPayment(
   let lastError: unknown = null
   for (let attemptIndex = 0; attemptIndex < GATEWAY_PAYMENT_RECORD_ATTEMPTS; attemptIndex += 1) {
     try {
-      const captured = gatewayPayment.captured !== false
-      if (gatewayPayment.paymentReference) {
-        const existing = await findRecordedGatewayPayment(em, scope, orderId, gatewayPayment.paymentReference)
-        if (existing) {
-          // #8268 review Major 5: a synchronous `authorized` session correctly created an
-          // UNCAPTURED payment here, then completed the checkout session. A later
-          // `captured` webhook resumes through this SAME function (via the repair worker
-          // or a direct call site), finds this existing-but-uncaptured row and must
-          // reconcile the capture onto it — the checkout session is already terminal by
-          // then, so nothing else will ever record the captured amount.
-          if (captured && Number(existing.capturedAmount) <= 0) {
-            const capturedStatusEntryId = await resolveSalesPaymentStatusEntryId(em, scope, 'captured')
-            await commandBus.execute('sales.payments.update', {
-              input: {
-                id: existing.id,
-                tenantId: scope.tenantId,
-                organizationId: scope.organizationId,
-                capturedAmount: gatewayPayment.amount,
-                capturedAt: new Date(),
-                statusEntryId: capturedStatusEntryId ?? undefined,
-              },
-              ctx: trustedCtx,
-            })
-          }
-          return
-        }
-      }
-      const statusEntryId = await resolveSalesPaymentStatusEntryId(em, scope, captured ? 'captured' : 'authorized')
-      await commandBus.execute('sales.payments.create', {
-        input: {
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          orderId,
-          amount: gatewayPayment.amount,
-          currencyCode: gatewayPayment.currencyCode,
-          ...(captured ? { capturedAmount: gatewayPayment.amount, capturedAt: new Date() } : {}),
-          statusEntryId: statusEntryId ?? undefined,
-          paymentReference: gatewayPayment.paymentReference ?? undefined,
-        },
-        ctx: trustedCtx,
-      })
+      await writeGatewayPayment(commandBus, trustedCtx, em, scope, orderId, gatewayPayment)
+      await markGatewayPaymentRecorded(em, scope, session.id, gatewayPayment.checkoutTransaction)
       return
     } catch (err) {
       lastError = err
     }
   }
   logger.error('[internal] checkout submit: failed to record the gateway payment against the order', { err: lastError, sessionId: session.id, orderId })
-  getTelemetryRuntime()?.reportError(lastError, {
-    module: 'checkout',
-    code: 'checkout.gateway_payment_record_failed',
+  reportCheckoutError(lastError, 'checkout.gateway_payment_record_failed', {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    sessionId: session.id,
+    orderId,
   })
 }
 
@@ -1444,6 +1487,8 @@ export type GatewayPaymentRecord = {
   currencyCode: string
   paymentReference?: string | null
   captured?: boolean
+  /** The `CheckoutTransaction` this record was derived from; a successful record stamps its `paymentRecordedAt`. */
+  checkoutTransaction?: { id: string; paymentStatus: string | null }
 }
 
 export async function confirmOrderAndComplete(
@@ -1983,7 +2028,7 @@ export async function continueOrderOutcome(
         const recoveredTransactionAffected = await em.nativeUpdate(
           CheckoutTransaction,
           { id: transaction.id, ...scope, status: 'processing' },
-          { status: 'completed', paymentStatus: currentStatus, gatewayTransactionId: recoveredGatewayTransactionId, updatedAt: new Date() },
+          { status: 'completed', paymentStatus: currentStatus, gatewayTransactionId: recoveredGatewayTransactionId, paymentRecordedAt: null, updatedAt: new Date() },
         )
         if (recoveredTransactionAffected > 0) {
           transaction.status = 'completed'
@@ -2001,6 +2046,7 @@ export async function continueOrderOutcome(
           // row and recorded a duplicate payment instead.
           paymentReference: transaction.gatewayTransactionId ?? sessionResult.transaction.id,
           captured: true,
+          checkoutTransaction: { id: transaction.id, paymentStatus: currentStatus },
         })
       } else {
         // #8268 review Major 5 (re-review): no ad-hoc retry is persisted here — on
@@ -2070,6 +2116,7 @@ export async function continueOrderOutcome(
         status: 'completed',
         paymentStatus: sessionResult.transaction.unifiedStatus,
         gatewayTransactionId,
+        paymentRecordedAt: null,
         updatedAt: new Date(),
       },
     )
@@ -2086,6 +2133,7 @@ export async function continueOrderOutcome(
       currencyCode: transaction.currencyCode,
       paymentReference: transaction.gatewayTransactionId ?? transaction.id,
       captured: sessionResult.transaction.unifiedStatus !== 'authorized',
+      checkoutTransaction: { id: transaction.id, paymentStatus: sessionResult.transaction.unifiedStatus },
     })
     if (result.completedByThisCall) {
       await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId, outcome: 'succeeded' } })

@@ -426,6 +426,54 @@ describe('updateTransactionStatusCommand — session-backed transactions (no lin
   })
 })
 
+describe('updateTransactionStatusCommand — recorded gateway payment marker (#8268 finding 3)', () => {
+  const GATEWAY_TX_ID = '123e4567-e89b-12d3-a456-426614174030'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  function makeRecordedSessionTransaction(paymentStatus: string) {
+    return {
+      ...makeTransaction('completed'),
+      linkId: null,
+      sessionId: 'session-1',
+      paymentStatus,
+      gatewayTransactionId: GATEWAY_TX_ID,
+      paymentRecordedAt: new Date('2026-11-01T00:00:00.000Z'),
+    }
+  }
+
+  async function runPaymentStatusUpdate(em: MockEm, paymentStatus: string) {
+    const handler = commandRegistry.get('checkout.transaction.updateStatus')
+    if (!handler) throw new Error('checkout.transaction.updateStatus not registered')
+    return handler.execute({ ...baseInput('completed'), paymentStatus, gatewayTransactionId: GATEWAY_TX_ID }, makeContext(em))
+  }
+
+  it('authorized → captured clears paymentRecordedAt in the same write, so repair reconciles the capture', async () => {
+    const em = makeMockEm(makeRecordedSessionTransaction('authorized'), 1)
+
+    await runPaymentStatusUpdate(em, 'captured')
+
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      CheckoutTransaction,
+      expect.objectContaining({ id: TX_ID, status: 'completed' }),
+      expect.objectContaining({ paymentStatus: 'captured', paymentRecordedAt: null }),
+    )
+  })
+
+  it('a same-payment-state redelivery keeps paymentRecordedAt, so an already-recorded row is not re-queued', async () => {
+    const em = makeMockEm(makeRecordedSessionTransaction('captured'), 1)
+
+    await runPaymentStatusUpdate(em, 'captured')
+
+    const [, , set] = em.nativeUpdate.mock.calls[0] as [unknown, unknown, Record<string, unknown>]
+    expect(set).toMatchObject({ paymentStatus: 'captured' })
+    expect(set).not.toHaveProperty('paymentRecordedAt')
+  })
+})
+
 describe('updateTransactionStatusCommand — pay-link usage counters', () => {
   beforeEach(() => {
     jest.clearAllMocks()

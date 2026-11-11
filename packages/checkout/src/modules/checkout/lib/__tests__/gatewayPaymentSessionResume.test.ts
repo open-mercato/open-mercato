@@ -88,7 +88,7 @@ describe('createGatewayPaymentSessionResumeHandler', () => {
       'order-1',
       'quote-1',
       { stockReservationKey: 'stock-1', creditReservationKey: null },
-      { amount: '125.00', currencyCode: 'USD', paymentReference: 'txn-1', captured: true },
+      { amount: '125.00', currencyCode: 'USD', paymentReference: 'txn-1', captured: true, checkoutTransaction: { id: 'txn-1', paymentStatus: null } },
     )
     expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
   })
@@ -203,13 +203,13 @@ describe('createGatewayPaymentSessionResumeHandler', () => {
     expect(mockEmitCheckoutEvent).not.toHaveBeenCalledWith('checkout.payment.succeeded', expect.anything())
   })
 
-  it('records an authorized-only transaction as not captured', async () => {
+  it('records an authorized-only transaction as not captured, keying its recorded marker on that status', async () => {
     seededTransaction = makeTransaction({ paymentStatus: 'authorized' })
     await createGatewayPaymentSessionResumeHandler('completed')(PAYLOAD)
 
     expect(mockConfirmOrderAndComplete).toHaveBeenCalledWith(
       expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.anything(),
-      expect.objectContaining({ captured: false }),
+      expect.objectContaining({ captured: false, checkoutTransaction: { id: 'txn-1', paymentStatus: 'authorized' } }),
     )
   })
 

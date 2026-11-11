@@ -2446,6 +2446,38 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "payment_recorded_at": {
+          "name": "payment_recorded_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "payment_repair_attempted_at": {
+          "name": "payment_repair_attempted_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
         "payment_status": {
           "name": "payment_status",
           "type": "text",
@@ -2661,6 +2693,39 @@
           "keyName": "checkout_transactions_organization_id_tenant_id_se_8f1b2_index",
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "payment_repair_attempted_at",
+            "updated_at",
+            "id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "checkout_transactions_payment_repair_outstanding_index",
+          "primary": false,
+          "unique": false,
+          "where": "payment_recorded_at is null and status = 'completed' and session_id is not null and order_id is not null",
+          "columns": [
+            {
+              "name": "tenant_id"
+            },
+            {
+              "name": "organization_id"
+            },
+            {
+              "name": "payment_repair_attempted_at",
+              "nulls": "FIRST"
+            },
+            {
+              "name": "updated_at"
+            },
+            {
+              "name": "id"
+            }
+          ]
         }
       ],
       "checks": [],

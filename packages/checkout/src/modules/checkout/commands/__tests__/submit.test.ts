@@ -900,6 +900,37 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
     expect(h.seededPayments[0].capturedAt).toBeUndefined()
   })
 
+  // #8268 review finding 3: `repair-gateway-payments` selects only transactions whose
+  // `paymentRecordedAt` is still null, so every live path must stamp it after recording.
+  it('stamps paymentRecordedAt on the transaction once the sync-captured payment is recorded', async () => {
+    const h = buildHarness()
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(h.seededPayments).toHaveLength(1)
+    expect(h.seededTransactions[0]).toMatchObject({ status: 'completed', paymentStatus: 'captured' })
+    expect(h.seededTransactions[0].paymentRecordedAt).toBeInstanceOf(Date)
+  })
+
+  it('stamps paymentRecordedAt for an authorize-only sync payment, keyed on the authorized status', async () => {
+    const h = buildHarness({ createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'authorized', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'authorized' } } })
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(h.seededTransactions[0].paymentStatus).toBe('authorized')
+    expect(h.seededTransactions[0].paymentRecordedAt).toBeInstanceOf(Date)
+  })
+
+  it('leaves paymentRecordedAt null when every payment record attempt fails, so the repair sweep still selects the row', async () => {
+    const h = buildHarness({ paymentsCreateError: new Error('409 conflict') })
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(h.seededPayments).toHaveLength(0)
+    expect(h.seededTransactions[0].status).toBe('completed')
+    expect(h.seededTransactions[0].paymentRecordedAt).toBeNull()
+  })
+
   it('does not record the gateway payment a second time when the same transaction reference is replayed', async () => {
     const h = buildHarness()
     const result = await getHandler().execute(BASE_INPUT, h.ctx)
@@ -992,6 +1023,25 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
     // SAME internal id onto `CheckoutTransaction.gatewayTransactionId`, so a later
     // reconciliation pass keys on it, not on this diverged external reference.
     expect(h.seededPayments[0]).toMatchObject({ paymentReference: 'gw-1', capturedAmount: h.seededPayments[0].amount })
+  })
+
+  it('stamps paymentRecordedAt after the lost-CAS recovery records the captured payment', async () => {
+    const h = buildHarness({
+      createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'captured', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'captured' } },
+      cancelPaymentError: Object.assign(new Error('Cannot cancel a payment in status "captured"'), { status: 409 }),
+    })
+    const paymentGatewayService = h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock }
+    const originalCreatePaymentSession = paymentGatewayService.createPaymentSession.getMockImplementation()!
+    paymentGatewayService.createPaymentSession.mockImplementation(async (...args: unknown[]) => {
+      h.seededSessions[0].status = 'failed'
+      return originalCreatePaymentSession(...args)
+    })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({ status: 409 })
+
+    expect(h.seededPayments).toHaveLength(1)
+    expect(h.seededTransactions[0]).toMatchObject({ status: 'completed', paymentStatus: 'captured' })
+    expect(h.seededTransactions[0].paymentRecordedAt).toBeInstanceOf(Date)
   })
 
   // #8268 review Major 5 (re-review): the capture check used the `createPaymentSession`
@@ -1093,6 +1143,7 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
     // reference, exactly as the synchronous-capture happy path does.
     expect(h.seededPayments).toHaveLength(0)
     expect(h.seededTransactions[0]).toMatchObject({ status: 'completed', gatewayTransactionId: 'gw-1' })
+    expect(h.seededTransactions[0].paymentRecordedAt).toBeNull()
     expect(mockReportError).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({ module: 'checkout', code: 'checkout.gateway_payment_record_failed' }),
@@ -1115,6 +1166,7 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
 
     expect(h.seededPayments).toHaveLength(1)
     expect(h.seededPayments[0]).toMatchObject({ paymentReference: 'gw-1', capturedAmount: h.seededPayments[0].amount })
+    expect(h.seededTransactions[0].paymentRecordedAt).toBeInstanceOf(Date)
   })
 
   it('extends the cart lock to the gateway payment expiry PLUS a 15-minute margin (spec R11/§6)', async () => {

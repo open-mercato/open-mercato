@@ -23,8 +23,15 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
 }))
 
+jest.mock('../../events', () => ({
+  emitCheckoutEvent: jest.fn(async () => undefined),
+}))
+
 import handle from '../gateway-payment-captured'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
+import '../../commands/transactions'
 
 const PAYLOAD = { paymentId: 'txn-1', organizationId: 'org-1', tenantId: 'tenant-1', transactionId: 'gw-1' }
 
@@ -95,6 +102,52 @@ describe('checkout-gateway-payment-captured subscriber', () => {
 
     expect(mockReportError).not.toHaveBeenCalled()
     expect(mockResumeSession).not.toHaveBeenCalled()
+  })
+
+  // #8268 review finding 3: a session-backed payment authorized at submit already has its
+  // authorized-only `SalesPayment` recorded (`paymentRecordedAt` set). The later capture
+  // webhook must clear that marker in the same status write, or `repair-gateway-payments`
+  // (which selects only unrecorded rows) never reconciles the captured amount.
+  it('a capture webhook on an already-recorded authorized session transaction clears paymentRecordedAt', async () => {
+    const ids = {
+      transaction: '123e4567-e89b-12d3-a456-426614175001',
+      gateway: '123e4567-e89b-12d3-a456-426614175002',
+      tenant: '123e4567-e89b-12d3-a456-426614175003',
+      organization: '123e4567-e89b-12d3-a456-426614175004',
+    }
+    const row: Record<string, unknown> = {
+      id: ids.transaction,
+      tenantId: ids.tenant,
+      organizationId: ids.organization,
+      linkId: null,
+      sessionId: 'session-1',
+      status: 'completed',
+      paymentStatus: 'authorized',
+      gatewayTransactionId: ids.gateway,
+      paymentRecordedAt: new Date('2026-11-01T00:00:00.000Z'),
+    }
+    const matches = (where: Record<string, unknown>) => Object.entries(where).every(([key, value]) => row[key] === value)
+    const em: Record<string, unknown> = {
+      findOne: async (_entity: unknown, where: Record<string, unknown>) => (matches(where) ? { ...row } : null),
+      nativeUpdate: async (_entity: unknown, where: Record<string, unknown>, set: Record<string, unknown>) => {
+        if (!matches(where)) return 0
+        Object.assign(row, set)
+        return 1
+      },
+      refresh: async () => undefined,
+    }
+    em.transactional = async (callback: (tx: Record<string, unknown>) => Promise<unknown>) => callback(em)
+    mockExecute.mockImplementationOnce(async (id: string, options: { input: Record<string, unknown>; ctx: CommandRuntimeContext }) => {
+      const command = commandRegistry.get(id)
+      if (!command) throw new Error(`[internal] ${id} is not registered`)
+      const container = { resolve: (name: string) => (name === 'em' ? em : undefined) } as unknown as CommandRuntimeContext['container']
+      return command.execute(options.input, { ...options.ctx, container })
+    })
+
+    await handle({ paymentId: ids.transaction, organizationId: ids.organization, tenantId: ids.tenant, transactionId: ids.gateway })
+
+    expect(row).toMatchObject({ status: 'completed', paymentStatus: 'captured', paymentRecordedAt: null })
+    expect(mockResumeSession).toHaveBeenCalledTimes(1)
   })
 
   it('still propagates a 404 that is not the missing-transaction case (for example a missing link)', async () => {

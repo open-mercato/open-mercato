@@ -185,6 +185,8 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       // Resolve the new field values before the write.
       const newPaymentStatus = parsed.paymentStatus ?? transaction.paymentStatus ?? null
       const newGatewayTransactionId = parsed.gatewayTransactionId ?? transaction.gatewayTransactionId ?? null
+      const paymentStateChanged = newPaymentStatus !== (transaction.paymentStatus ?? null)
+        || newGatewayTransactionId !== (transaction.gatewayTransactionId ?? null)
 
       // Atomic compare-and-swap: the WHERE clause pins the current status so
       // a concurrent writer that already advanced the status to a terminal
@@ -202,6 +204,7 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
           status: nextStatus,
           paymentStatus: newPaymentStatus,
           gatewayTransactionId: newGatewayTransactionId,
+          ...(paymentStateChanged ? { paymentRecordedAt: null } : {}),
           updatedAt: new Date(),
         },
       )

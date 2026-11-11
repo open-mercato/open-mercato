@@ -160,7 +160,7 @@ describe('checkout expire-awaiting-payment worker', () => {
       session.salesOrderId,
       session.salesQuoteId,
       { stockReservationKey: session.stockReservationKey, creditReservationKey: session.creditReservationKey },
-      { amount: '125.00', currencyCode: 'USD', paymentReference: 'checkout-transaction-1', captured: true },
+      { amount: '125.00', currencyCode: 'USD', paymentReference: 'checkout-transaction-1', captured: true, checkoutTransaction: { id: 'checkout-transaction-1', paymentStatus: null } },
     )
     expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
     expect(mockEmitCheckoutEvent).toHaveBeenCalledWith('checkout.payment.succeeded', expect.objectContaining({ sessionId: session.id, orderId: session.salesOrderId }))
@@ -399,7 +399,7 @@ describe('checkout expire-awaiting-payment worker', () => {
       session.salesOrderId,
       session.salesQuoteId,
       { stockReservationKey: session.stockReservationKey, creditReservationKey: session.creditReservationKey },
-      { amount: '125.00', currencyCode: 'USD', paymentReference: 'gw-final', captured: true },
+      { amount: '125.00', currencyCode: 'USD', paymentReference: 'gw-final', captured: true, checkoutTransaction: { id: 'checkout-transaction-1', paymentStatus: null } },
     )
     expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
   })

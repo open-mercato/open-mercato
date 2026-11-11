@@ -336,6 +336,20 @@ export class CheckoutLinkCartTemplate {
 // Release 5, Step 4.2 (§4.4): the session-backed gateway step's own idempotent lookup
 // ("one `CheckoutTransaction` per session") — a session has no `linkId` to key by.
 @Index({ properties: ['organizationId', 'tenantId', 'sessionId'] })
+// `repair-gateway-payments` selects only outstanding work: a session-backed completed row
+// whose gateway payment is not yet reflected in `sales_payments`. Partial, so the index
+// holds only that (normally tiny) set no matter how many transactions are already recorded.
+@Index({
+  name: 'checkout_transactions_payment_repair_outstanding_index',
+  columns: [
+    { name: 'tenant_id' },
+    { name: 'organization_id' },
+    { name: 'payment_repair_attempted_at', nulls: 'FIRST' },
+    { name: 'updated_at' },
+    { name: 'id' },
+  ],
+  where: "payment_recorded_at is null and status = 'completed' and session_id is not null and order_id is not null",
+})
 export class CheckoutTransaction {
   [OptionalProps]?:
     | 'linkId'
@@ -354,6 +368,8 @@ export class CheckoutTransaction {
     | 'sessionId'
     | 'orderId'
     | 'quoteId'
+    | 'paymentRecordedAt'
+    | 'paymentRepairAttemptedAt'
     | 'createdAt'
     | 'updatedAt'
 
@@ -429,6 +445,18 @@ export class CheckoutTransaction {
 
   @Property({ name: 'quote_id', type: 'uuid', nullable: true })
   quoteId?: string | null
+
+  // Set once the order's `SalesPayment` reflects this row's current `paymentStatus`
+  // (`recordGatewayPayment`, `commands/submit.ts`); cleared by any write that changes the
+  // payment state, so `repair-gateway-payments` reconciles it again. Null forever on
+  // link-only rows.
+  @Property({ name: 'payment_recorded_at', type: Date, nullable: true })
+  paymentRecordedAt?: Date | null
+
+  // Stamped by `repair-gateway-payments` on every attempt; its `NULLS FIRST` ordering keeps
+  // a permanently failing row from starving the rest of the outstanding set.
+  @Property({ name: 'payment_repair_attempted_at', type: Date, nullable: true })
+  paymentRepairAttemptedAt?: Date | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
