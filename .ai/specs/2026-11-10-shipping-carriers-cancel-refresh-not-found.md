@@ -25,7 +25,7 @@ therefore reported as a carrier outage:
 
 ## Proposed Solution
 
-In both handlers, check `error instanceof CarrierShipmentNotFoundError` before the upstream fallback and answer:
+In both handlers, check `isCarrierShipmentNotFoundError(error)` before the upstream fallback and answer:
 
 ```json
 HTTP 404
@@ -36,12 +36,17 @@ The message comes from the new i18n key `shipping_carriers.errors.shipmentNotFou
 (`en`, `de`, `es`, `ko`, `pl`) and resolved with `resolveTranslations()` for the request locale. The English text
 matches the body of `GET /api/shipping-carriers/tracking`.
 
+The guard checks a `Symbol.for` marker on the error rather than `instanceof`. The production build bundles the
+DI-registered service and the route handlers into separate chunks, each with its own copy of the class, so `instanceof`
+never matched there. `GET /api/shipping-carriers/tracking` had the same `instanceof` check and answered `502` for an
+unknown shipment on a production build; it now uses the same guard, so its documented `404` holds there too.
+
 The lookup runs before any adapter call, database write or event, so the `404` path has no side effects. On cancel it
 also skips the after-success mutation-guard hook, as every other failed cancel does.
 
 Scope is limited to the two routes. Out of scope:
 
-- `GET /api/shipping-carriers/tracking` keeps its current untranslated `404` body.
+- `GET /api/shipping-carriers/tracking` keeps its current untranslated `404` body; only its error check changes.
 - All other provider failures on both routes still answer `502`.
 - Tenant/organization scoping is unchanged; the lookup filters stay in the service.
 
@@ -77,11 +82,15 @@ Client guidance is in `UPGRADE_NOTES.md` under 0.9.0 → 0.9.1.
 ## Integration Coverage
 
 - Unit: `api/cancel/__tests__/route.test.ts` and `api/tracking/refresh/__tests__/route.test.ts` —
-  `returns 404 instead of an upstream error when the shipment is not found in scope`.
+  `returns 404 instead of an upstream error when the shipment is not found in scope`; these two and
+  `api/tracking/__tests__/route.test.ts` also have
+  `returns 404 when the not-found error comes from a separately bundled copy of the service`.
 - Integration: `__integration__/TC-SHIP-021.spec.ts` — both routes with an unknown shipment id and with a shipment of
-  another organization, English and Polish bodies, and the foreign shipment left unchanged.
+  another organization, English and Polish bodies, the same two ids on `GET /api/shipping-carriers/tracking`, and the
+  foreign shipment left unchanged.
 - Regression: TC-SHIP-007's unknown-provider cancel case (`>= 400`) still passes.
 
 ## Changelog
 
 - 2026-11-10: Spec added for PR #9232.
+- 2026-11-11: Marker guard instead of `instanceof`, also applied to `GET /api/shipping-carriers/tracking`.

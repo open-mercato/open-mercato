@@ -11,7 +11,7 @@ const localizedErrors: Array<{ headers: Record<string, string>; error: string }>
   { headers: { 'Accept-Language': 'pl' }, error: 'Nie znaleziono przesyłki' },
 ]
 
-test.describe('TC-SHIP-021: Cancel and tracking refresh return 404 for shipments outside the caller scope', () => {
+test.describe('TC-SHIP-021: Cancel, tracking refresh and tracking return 404 for shipments outside the caller scope', () => {
   test('returns 404 for an unknown shipment id and for another organization shipment, leaving it untouched', async ({ request }) => {
     const token = await getAuthToken(request, 'superadmin')
     const { tenantId, organizationId: callerOrganizationId } = getTokenContext(token)
@@ -41,6 +41,17 @@ test.describe('TC-SHIP-021: Cancel and tracking refresh return 404 for shipments
             expect(await readJsonSafe(response)).toEqual({ error })
           }
         }
+      }
+
+      for (const shipmentId of [randomUUID(), foreignShipmentId]) {
+        const response = await apiRequest(
+          request,
+          'GET',
+          `/api/shipping-carriers/tracking?providerKey=mock_carrier&shipmentId=${shipmentId}`,
+          { token },
+        )
+        expect(response.status(), `GET tracking must return 404 for ${shipmentId}`).toBe(404)
+        expect(await readJsonSafe(response)).toEqual({ error: 'Shipment not found' })
       }
 
       const row = await getCarrierShipmentRowFromDb(foreignShipmentId)
