@@ -8,6 +8,7 @@ import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('onboarding').child({ component: 'demo-feedback' })
 
@@ -31,7 +32,11 @@ const feedbackSchema = z.object({
 
 export async function POST(req: Request) {
   if (!parseBooleanWithDefault(process.env.DEMO_MODE, true)) {
-    return NextResponse.json({ ok: false, error: 'Demo feedback is disabled.' }, { status: 404 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({
+      ok: false,
+      error: translate('demoFeedback.errors.disabled', 'Feedback is unavailable because demo mode is disabled.'),
+    }, { status: 404 })
   }
 
   const { error: rateLimitError } = await checkAuthRateLimit({

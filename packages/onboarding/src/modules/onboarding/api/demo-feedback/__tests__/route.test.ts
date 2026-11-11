@@ -23,6 +23,9 @@ jest.mock('@open-mercato/core/modules/auth/lib/rateLimitCheck', () => ({
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: jest.fn(() => mockLogger),
 }))
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ translate: (_key: string, fallback: string) => fallback })),
+}))
 jest.mock('@open-mercato/onboarding/modules/onboarding/emails/FeedbackEmail', () => ({
   __esModule: true,
   default: (...args: unknown[]) => mockFeedbackEmail(...args),
@@ -65,6 +68,10 @@ describe('POST /api/onboarding/demo-feedback', () => {
     const response = await POST(feedbackRequest())
 
     expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: 'Feedback is unavailable because demo mode is disabled.',
+    })
     expect(mockCheckAuthRateLimit).not.toHaveBeenCalled()
     expect(mockCreateRequestContainer).not.toHaveBeenCalled()
     expect(mockSendEmail).not.toHaveBeenCalled()
