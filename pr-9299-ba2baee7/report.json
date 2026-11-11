@@ -1,0 +1,165 @@
+{
+  "runId": "ba2baee7-2fac-4d9f-9e1c-7657850dd96b",
+  "mode": "pr",
+  "target": {
+    "prNumber": 9299,
+    "title": "Completion-surface declaration for workflow user tasks",
+    "branch": "detached PR head",
+    "headSha": "c892221c4492f910b959cd95c43a581f7c2f653e"
+  },
+  "verdict": "FAIL",
+  "runtimeCoverage": "PARTIAL",
+  "reviewVerdict": "changes",
+  "environment": {
+    "baseUrl": null,
+    "role": null,
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "runtimeReady": false,
+    "disposableDatabaseOnly": true,
+    "runner": "local",
+    "bundler": "production webpack via IS_WEBPACK_TEST=1",
+    "peakOwnedRssBytes": 7317315584
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Mobile task detail, PENDING host task with canComplete=true (component reproduction)",
+      "expected": "Host notice without generic completion or terminal-task warning",
+      "observed": "Host notice plus workflows.tasks.detail.cannotComplete; English copy says already completed/cancelled. page.tsx passes offerCoreCompletion=false to MobileTaskForm, which treats false as terminal.",
+      "result": "FAIL",
+      "screenshot": null
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "Portal task detail consumer, PENDING host completion with canComplete=true (component reproduction)",
+      "expected": "Suppress generic completion and expose declared host route",
+      "observed": "Real portal component renders generic Complete task button and no link to declared host; it ignores completion returned by shared serializer.",
+      "result": "FAIL",
+      "screenshot": null
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "Desktop host/core controls and persisted API projections",
+      "expected": "Behavior described in scenario-plan.md",
+      "observed": "Not exercised: No ready application; TC-WF-077 reviewed but NOT run.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "Work Inbox menu, row links, claim-next UI and lifecycle",
+      "expected": "Behavior described in scenario-plan.md",
+      "observed": "Not exercised: No ready application.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "Studio Code/Advanced save, reload, full-record comparison and second-user stale write",
+      "expected": "Behavior described in scenario-plan.md",
+      "observed": "Not exercised: No ready application; unit round-trip tests passed, UI not exercised.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Assignment, reminder and deadline subscriber/worker delivery; notification removed-action replay",
+      "expected": "Behavior described in scenario-plan.md",
+      "observed": "Not exercised: No ready application; assignment/SLA unit coverage is not live queue coverage.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "Actual delivered email href and host navigation",
+      "expected": "Behavior described in scenario-plan.md",
+      "observed": "Not exercised: No ready application or mailbox; stored-href unit assertions do not prove delivery.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "Host without href, injected host UI, unresolved/unsafe href fallback, ten-attempt race/loading checks",
+      "expected": "Behavior described in scenario-plan.md",
+      "observed": "Not exercised: No ready application; pure schema/interpolation unit tests passed.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Own tenant-bound negative roles/users, direct hidden-action requests, cross-tenant isolation",
+      "expected": "Behavior described in scenario-plan.md",
+      "observed": "Not exercised: No ready application; existing permission API unit tests are not independent live fixtures.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "English/Polish screens, mobile app, default/empty/loading/error/no-permission/long content states, cold/warm loads,10-second post-save settle",
+      "expected": "Behavior described in scenario-plan.md",
+      "observed": "Not exercised: No ready application; three new keys exist in all five locales but translated runtime rendering unverified.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "Portal API/customer assignment to real host flow",
+      "expected": "Behavior described in scenario-plan.md",
+      "observed": "Not exercised: Portal component reproducer uses an API response fixture; no live customer session.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "Completion/cancel/repeat/reload regressions and schema migration with existing rows",
+      "expected": "Behavior described in scenario-plan.md",
+      "observed": "Not exercised: Disposable initialization/migrations succeeded, but no live task lifecycle or existing-row migration experiment.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    }
+  ],
+  "hasUiTest": true,
+  "screenshots": [],
+  "tests": [
+    {
+      "log": "unit-tests.log",
+      "suites": 6,
+      "tests": 140,
+      "result": "PASS"
+    },
+    {
+      "log": "consumer-tests.log",
+      "suites": 4,
+      "tests": 108,
+      "result": "PASS"
+    },
+    {
+      "log": "repro-tests.log",
+      "suites": 2,
+      "tests": 2,
+      "result": "PASS (observation assertions confirm two defects)"
+    }
+  ],
+  "notes": [
+    "Parent independently reran all12 suites/250 tests at exact head and corroborated both component findings.",
+    "No app screenshots were captured. Browser doctor used only a data URL and is capability evidence, not product QA.",
+    "No source edits, commits, merge, PR-branch push, developer DB access, QA approval/failure label changes or shared qa.json writes.",
+    "Application package build declares NODE_OPTIONS=8192 itself; outer3072 does not override it.9GiB supervisor bounds total owned process-tree RSS.",
+    "The distinct Webpack alternative failed before readiness; wrapper cold/warm verification could not complete. No additional retries or generated-source repairs performed.",
+    "Only in-progress added for owned claim; screenshots label withheld."
+  ],
+  "createdAt": "2026-11-11T23:33:00.458527+00:00"
+}
