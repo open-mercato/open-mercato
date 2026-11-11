@@ -517,9 +517,11 @@ All business-record selection is search-based and bounded. Picker results carry 
 
 ### Related-documents widget
 
-The module injects a related-documents panel (widget id `documents.injection.related-documents`, `features: ['documents.view']`, `requiredModules: ['documents']`, kind `stack`, priority 80) into supported host record pages via the widget injection system. `widgets/injection-table.ts` targets **eight spot ids**:
+The module injects a related-documents panel (widget id `documents.injection.related-documents`, `features: ['documents.view']`, `requiredModules: ['documents']`, kind `stack` on legacy/sales/catalog hosts and kind `tab` on the canonical CRM pages, priority 80 / -20) into supported host record pages via the widget injection system. `widgets/injection-table.ts` targets **eight spot ids**:
 
-`detail:customers.person:footer` · `customers.person.detail:details` · `detail:customers.company:footer` · `customers.company.detail:details` · `detail:customers.deal:footer` · `sales.document.detail.quote:details` · `sales.document.detail.order:details` · `crud-form:catalog.product`
+`detail:customers.person:tabs` · `customers.person.detail:details` · `detail:customers.company:tabs` · `customers.company.detail:details` · `detail:customers.deal:tabs` · `sales.document.detail.quote:details` · `sales.document.detail.order:details` · `crud-form:catalog.product`
+
+Since #7488 the three canonical CRM detail pages (people-v2, companies-v2, deals) receive a separate `kind: 'tab'` descriptor (`groupId: 'related-documents'`, label `documents.relatedDocuments.title`, priority -20) and mount the panel as a tab of their related-content workspace instead of a detached footer card; the legacy CRM, sales and catalog hosts keep the inline `stack`. The `detail:customers.*:footer` spots remain available to other modules.
 
 The widget receives typed host context, queries only Documents-owned link routes, applies the caller's Documents **and** peer-record permissions, renders document titles rather than ids, offers Link and Create actions gated by resolved capabilities, and renders nothing when there is no target or the caller is unauthorized. No peer module imports Documents code and no peer database table changes.
 

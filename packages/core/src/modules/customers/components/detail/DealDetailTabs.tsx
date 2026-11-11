@@ -5,7 +5,8 @@ import { Activity, Building2, History, NotebookPen, Paperclip, Users } from 'luc
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
-import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { resolveInjectedIcon } from '@open-mercato/ui/backend/injection/resolveInjectedIcon'
+import { DetailTabRail } from './DetailTabRail'
 
 export const DEAL_DETAIL_TAB_IDS = ['activities', 'people', 'companies', 'notes', 'files', 'changelog'] as const
 
@@ -31,7 +32,7 @@ export const DEAL_DETAIL_TABS_COMPONENT_ID = 'section:customers.deals.detailTabs
 export type DealDetailTabsProps = {
   activeTab: DealTabId
   onTabChange: (tab: DealTabId) => void
-  injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  injectedTabs?: Array<{ id: string; label: string; icon?: string; priority?: number }>
   isLoadingInjectedTabs?: boolean
   hiddenTabIds?: string[]
   peopleCount?: number
@@ -111,6 +112,7 @@ function DefaultDealDetailTabs({
       ...injectedTabs.filter((tab, index) => !builtInTabs.some((native) => native.id === tab.id) && injectedTabs.findIndex((candidate) => candidate.id === tab.id) === index).map((tab) => ({
         id: tab.id as DealTabId,
         label: tab.label,
+        icon: resolveInjectedIcon(tab.icon),
         priority: tab.priority,
       })),
     ]
@@ -125,28 +127,17 @@ function DefaultDealDetailTabs({
   }, [activeTab, allTabs, isLoadingInjectedTabs, onTabChange])
 
   return (
-    <div>
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => onTabChange(value as DealTabId)}
-        variant="underline"
-      >
-        <TabsList
-          aria-label={t('customers.deals.detail.tabs.label', 'Deal detail sections')}
-          className="w-full overflow-x-auto"
-        >
-          {allTabs.map((tab) => (
-            <TabsTrigger key={tab.id} value={tab.id} leading={tab.icon} count={tab.count}>
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-
-      <div className="pt-5" role="tabpanel">
-        {children}
-      </div>
-    </div>
+    <DetailTabRail
+      busy={isLoadingInjectedTabs}
+      tabs={allTabs}
+      activeTab={activeTab}
+      onTabChange={(tab) => onTabChange(tab as DealTabId)}
+      listLabel={t('customers.deals.detail.tabs.label', 'Deal detail sections')}
+      moreLabel={t('customers.deals.detail.tabs.more', 'More')}
+      contentClassName="pt-5"
+    >
+      {children}
+    </DetailTabRail>
   )
 }
 

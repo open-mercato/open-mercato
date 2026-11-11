@@ -69,6 +69,8 @@ describe('poll-channel worker behaviour', () => {
     deadLetterLookup: jest.Mock = jest.fn(async () => null),
   ) {
     const em = {
+      fork: jest.fn(),
+      transactional: jest.fn(),
       // The channel load resolves to `channel`; the dead-letter dedup pre-check
       // (writeIngestDeadLetter → em.findOne(ChannelIngestDeadLetter, ...)) uses
       // the injectable `deadLetterLookup` (defaults to "no existing row").
@@ -81,6 +83,8 @@ describe('poll-channel worker behaviour', () => {
       fork: jest.fn((): unknown => em),
       transactional: jest.fn(async (work: (tx: unknown) => Promise<unknown>) => work(em)),
     }
+    em.fork.mockReturnValue(em)
+    em.transactional.mockImplementation((callback: (transaction: typeof em) => Promise<unknown>) => callback(em))
     const ctx = {
       jobId: 'job-1',
       attemptNumber: 1,
@@ -99,6 +103,41 @@ describe('poll-channel worker behaviour', () => {
     }
     return { ctx, em, deadLetterLookup }
   }
+
+
+  it.each(['exhausted', 'retry', 'reauth', 'ingest'] as const)('ignores a stale %s failure after another job recovered the channel', async (failure) => {
+    const initial = { id: 'c', isActive: true, status: 'error', lastError: 'old error', providerKey: 'gmail', capabilities: { realtimePush: false }, channelState: { historyId: '100' }, lastPolledAt: new Date(1000) }
+    const current = { ...initial, status: 'connected', lastError: null, channelState: { historyId: '300' }, lastPolledAt: new Date(2000) }
+    const providerError = failure === 'reauth' ? Object.assign(new Error('Unauthorized'), { status: 401 }) : new Error('connect ETIMEDOUT')
+    const { ctx, em } = makeCtx(initial, { providerKey: 'gmail' }, async () => {
+      if (failure !== 'ingest') throw providerError
+      return { messages: [{ externalMessageId: 'message-1' }] }
+    }, async () => { throw new Error('connect ETIMEDOUT') })
+    em.findOne.mockResolvedValueOnce(initial).mockResolvedValue(current)
+    await handler(makeJob({ attempt: failure === 'retry' ? 1 : POLL_CHANNEL_MAX_ATTEMPTS }), ctx)
+    expect(current.status).toBe('connected')
+    expect(current.lastError).toBeNull()
+    expect(initial.lastError).toBe('old error')
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(enqueueMock).not.toHaveBeenCalled()
+    expect(emitMock).not.toHaveBeenCalled()
+  })
+
+
+  it.each(['timestamp', 'cursor', 'disconnected', 'inactive'] as const)('preserves concurrent %s progress when a duplicate poll fails', async (progress) => {
+    const initial = { id: 'c', isActive: true, status: 'connected', lastError: null, providerKey: 'gmail', capabilities: { realtimePush: false }, channelState: { historyId: '100' }, lastPolledAt: new Date(1000) }
+    const current = { ...initial,
+      ...(progress === 'timestamp' ? { lastPolledAt: new Date(2000) } : {}),
+      ...(progress === 'cursor' ? { channelState: { historyId: '300' } } : {}),
+      ...(progress === 'disconnected' ? { status: 'disconnected' } : {}),
+      ...(progress === 'inactive' ? { isActive: false } : {}),
+    }
+    const { ctx, em } = makeCtx(initial, { providerKey: 'gmail' }, async () => { throw new Error('connect ETIMEDOUT') })
+    em.findOne.mockResolvedValueOnce(initial).mockResolvedValue(current)
+    await handler(makeJob({ attempt: POLL_CHANNEL_MAX_ATTEMPTS }), ctx)
+    expect(current.lastError).toBeNull()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
 
   it('skips when channel is inactive', async () => {
     const channel = { id: 'c', isActive: false, status: 'connected', providerKey: 'imap' }

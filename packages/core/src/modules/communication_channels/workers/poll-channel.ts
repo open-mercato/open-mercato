@@ -1,4 +1,3 @@
-import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -9,7 +8,8 @@ import {
   type IngestInboundMessageInput,
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
-import { PUSH_STATE_KEYS, preservePushState } from '../lib/push-state'
+import { sameSyncState, syncState, withLockedChannel } from '../lib/channel-state-write'
+import { preservePushState } from '../lib/push-state'
 import { isHubPolledChannel } from '../lib/polling-eligibility'
 import { writeIngestDeadLetter } from '../lib/dead-letter'
 import { classifyOutboundError, computeBackoffMs, isReauthError } from '../lib/error-classification'
@@ -137,6 +137,13 @@ export default async function handle(
     return
   }
 
+  const startingProgress: PollProgress = {
+    cursor: structuredClone(syncState(channel.channelState)),
+    lastPolledAt: channel.lastPolledAt?.getTime() ?? null,
+    status: channel.status,
+    lastError: channel.lastError,
+  }
+
   // Credentials.
   let credentialsService: CredentialsServiceLike | null = null
   try {
@@ -185,7 +192,6 @@ export default async function handle(
   let normalized: NormalizedInboundMessage[] = []
   let nextCursor: string | undefined
   let hasMore = false
-  const startingSyncCursor = syncCursorKey(channel.channelState)
   const fetchHistory = adapter.fetchHistory.bind(adapter)
   const fetchPage = (withCredentials: Record<string, unknown>) =>
     fetchHistory({
@@ -230,7 +236,7 @@ export default async function handle(
     nextCursor = result?.nextCursor
     hasMore = result?.hasMore === true
   } catch (err) {
-    await handlePollError(err, em, channel, scope, attempt, job.payload)
+    await handlePollError(err, em, channel, scope, attempt, job.payload, startingProgress)
     return
   }
 
@@ -295,8 +301,9 @@ export default async function handle(
   // Transient abort: keep prior cursor + lastPolledAt so the next tick
   // re-fetches the same page (idempotent at the DB layer).
   if (transientIngestAbort) {
-    channel.lastError = 'transient_ingest_failure'
-    await em.flush()
+    await writePollFailure(em, channel, scope, startingProgress, (current) => {
+      current.lastError = 'transient_ingest_failure'
+    })
     return
   }
 
@@ -306,7 +313,7 @@ export default async function handle(
   // state (next tick bootstraps from there).
   const decodedCursor =
     typeof nextCursor === 'string' && nextCursor.length > 0 ? decodeChannelStateCursor(nextCursor) : null
-  const committed = await commitPollProgress(em, channel.id, scope, startingSyncCursor, decodedCursor)
+  const committed = await commitPollProgress(em, channel, scope, startingProgress.cursor, decodedCursor)
   if (!committed) {
     logger.info('poll progress not committed (sync cursor moved, or channel inactive or deleted); discarding this page', { channelId: channel.id })
     return
@@ -348,21 +355,6 @@ function decodeChannelStateCursor(cursor: string): Record<string, unknown> | nul
   }
 }
 
-function sortObjectKeys(_key: string, value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
-  const record = value as Record<string, unknown>
-  const keys = Object.keys(record).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
-  return Object.fromEntries(keys.map((key) => [key, record[key]]))
-}
-
-function syncCursorKey(state: unknown): string {
-  const record =
-    state && typeof state === 'object' && !Array.isArray(state) ? (state as Record<string, unknown>) : {}
-  const pushStateKeys: readonly string[] = PUSH_STATE_KEYS
-  const syncCursor = Object.fromEntries(Object.entries(record).filter(([key]) => !pushStateKeys.includes(key)))
-  return JSON.stringify(syncCursor, sortObjectKeys)
-}
-
 /**
  * Commit a successful poll under a row lock, only when the sync cursor (push keys excluded)
  * still equals the one this job started from. Push-delivery keys are carried over from the
@@ -372,26 +364,14 @@ function syncCursorKey(state: unknown): string {
  */
 async function commitPollProgress(
   em: EntityManager,
-  channelId: string,
+  channel: CommunicationChannel,
   scope: PollChannelJobPayload['scope'],
-  startingSyncCursor: string,
+  startingCursor: Record<string, unknown>,
   decodedCursor: Record<string, unknown> | null,
 ): Promise<boolean> {
-  return em.fork({ clear: true, useContext: false }).transactional(async (tx) => {
-    const locked = await findOneWithDecryption(
-      tx,
-      CommunicationChannel,
-      {
-        id: channelId,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId ?? null,
-        deletedAt: null,
-      },
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-      scope,
-    )
-    if (!locked || !locked.isActive) return false
-    if (syncCursorKey(locked.channelState) !== startingSyncCursor) return false
+  const committed = await withLockedChannel(em, { ...channel, ...scope }, async (locked) => {
+    if (!locked.isActive) return false
+    if (!sameSyncState(startingCursor, locked.channelState)) return false
     locked.lastPolledAt = new Date()
     if (locked.status === 'connected' || locked.status === 'error') {
       locked.status = 'connected'
@@ -400,6 +380,7 @@ async function commitPollProgress(
     if (decodedCursor) locked.channelState = preservePushState(locked.channelState, decodedCursor)
     return true
   })
+  return committed === true
 }
 
 async function handlePollError(
@@ -409,13 +390,16 @@ async function handlePollError(
   scope: PollChannelJobPayload['scope'],
   attempt: number,
   payload: PollChannelJobPayload,
+  startingProgress: PollProgress,
 ): Promise<void> {
   const classification = classifyOutboundError(err)
-  channel.lastError = classification.message
 
   if (isReauthError(classification)) {
-    channel.status = 'requires_reauth'
-    await em.flush()
+    const committed = await writePollFailure(em, channel, scope, startingProgress, (current) => {
+      current.lastError = classification.message
+      current.status = 'requires_reauth'
+    })
+    if (!committed) return
     await emitCommunicationChannelsEvent(
       'communication_channels.channel.requires_reauth',
       {
@@ -434,7 +418,10 @@ async function handlePollError(
   if (classification.transient && attempt < POLL_CHANNEL_MAX_ATTEMPTS) {
     // Transient error — re-enqueue with backoff. Channel status stays
     // `connected` so the scheduler keeps it in rotation.
-    await em.flush()
+    const committed = await writePollFailure(em, channel, scope, startingProgress, (current) => {
+      current.lastError = classification.message
+    })
+    if (!committed) return
     const next: PollChannelJobPayload = { ...payload, attempt: attempt + 1 }
     const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.poll)
     await queue.enqueue(next as unknown as Record<string, unknown>, {
@@ -444,6 +431,34 @@ async function handlePollError(
   }
 
   // Permanent or attempts exhausted — mark channel as error and stop the loop.
-  channel.status = 'error'
-  await em.flush()
+  await writePollFailure(em, channel, scope, startingProgress, (current) => {
+    current.lastError = classification.message
+    current.status = 'error'
+  })
+}
+
+type PollProgress = {
+  cursor: Record<string, unknown>
+  lastPolledAt: number | null
+  status: CommunicationChannel['status']
+  lastError: CommunicationChannel['lastError']
+}
+
+async function writePollFailure(
+  em: EntityManager,
+  channel: CommunicationChannel,
+  scope: PollChannelJobPayload['scope'],
+  startingProgress: PollProgress,
+  update: (current: CommunicationChannel) => void,
+): Promise<boolean> {
+  const committed = await withLockedChannel(em, { ...channel, ...scope }, async (current, transaction) => {
+    if (!current.isActive || current.status !== startingProgress.status ||
+      current.lastError !== startingProgress.lastError ||
+      (current.lastPolledAt?.getTime() ?? null) !== startingProgress.lastPolledAt ||
+      !sameSyncState(startingProgress.cursor, current.channelState)) return false
+    update(current)
+    await transaction.flush()
+    return true
+  })
+  return committed === true
 }
