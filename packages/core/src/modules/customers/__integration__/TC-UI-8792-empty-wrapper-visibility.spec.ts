@@ -14,11 +14,17 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
  *    injection spot, so `[data-table-footer]` must render with zero
  *    computed size (`display: none` via the `empty:hidden` Tailwind
  *    variant) instead of leaving a visible empty bordered strip.
- *  - On the catalog products list the real
- *    `catalog.injection.merchandising-assistant-trigger` widget (already
- *    proven to render asynchronously by `TC-AI-INJECT-013`) populates the
- *    DataTable header injection spot, so that same wrapper mechanism must
- *    report a nonzero computed size once the widget mounts.
+ *  - On the catalog products list the real `example.injection.catalog-seo-report`
+ *    widget — registered against `data-table:catalog.products:header`
+ *    (`apps/mercato/src/modules/example/widgets/injection-table.ts`), the
+ *    one widget in this repository that actually targets a DataTable
+ *    `:header` spot — fetches its data asynchronously and populates that
+ *    same wrapper mechanism, so it must report a nonzero computed size
+ *    once the widget mounts. (The catalog merchandising-assistant trigger
+ *    proven by `TC-AI-INJECT-013` targets `:search-trailing`, a plain
+ *    conditional-render slot in `FilterBar.tsx` — a different mechanism
+ *    from the `empty:hidden` wrapper this spec is about, so it is not
+ *    reused here.)
  *
  * The staff time-entries footer widget (`staff.injection.time-entries-summary-footer`)
  * already gets equivalent real-browser, nonzero-size coverage from
@@ -43,15 +49,15 @@ test.describe('TC-UI-8792: empty DataTable injection wrappers collapse in a real
     ).toBeNull()
 
     await page.goto('/backend/catalog/products', { waitUntil: 'domcontentloaded' })
-    const trigger = page.locator('[data-ai-merchandising-trigger]').first()
-    await expect(trigger).toBeVisible({ timeout: 60_000 })
+    const seoReportWidget = page.getByText('Catalog SEO Report').first()
+    await expect(seoReportWidget).toBeVisible({ timeout: 30_000 })
 
     // A visible descendant cannot sit inside a `display: none` ancestor, so
-    // the trigger's own nonzero computed size already proves the
-    // `empty:hidden` header wrapper did NOT collapse once this real,
-    // asynchronously-mounted widget populated it — the exact contract the
-    // zero-size assertion above guards for the empty case.
-    const box = await trigger.boundingBox()
+    // this real, asynchronously-loaded widget's own nonzero computed size
+    // already proves the `empty:hidden` header wrapper did NOT collapse
+    // once it populated that spot — the exact contract the zero-size
+    // assertion above guards for the empty case.
+    const box = await seoReportWidget.boundingBox()
     expect(box, 'the header wrapper must not have collapsed once the async widget mounted into it').not.toBeNull()
     expect(box!.height).toBeGreaterThan(0)
     expect(box!.width).toBeGreaterThan(0)

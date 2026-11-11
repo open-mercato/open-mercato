@@ -6,7 +6,12 @@ import {
   deleteEntityByBody,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
-import { CONFLICT_BANNER_TESTID } from '@open-mercato/core/helpers/integration/optimisticLockUi'
+import {
+  CONFLICT_BANNER_TESTID,
+  CONFLICT_DIALOG_TESTID,
+  expectConflictBanner,
+  expectNoConflictBanner,
+} from '@open-mercato/core/helpers/integration/optimisticLockUi'
 
 /**
  * TC-UI-8792: a genuine two-user optimistic-lock conflict (#8792, follow-up
@@ -28,11 +33,18 @@ import { CONFLICT_BANNER_TESTID } from '@open-mercato/core/helpers/integration/o
  *     out-of-band API bump.
  *  3. `admin` edits and saves with its now-stale token → 409 → the conflict
  *     banner appears.
- *  4. The admin tab's edited value is still in the DOM while the banner is
- *     visible — the banner coexists with the page's content instead of
+ *  4. The admin tab's edited value is still in the DOM while the conflict
+ *     surface is visible — it coexists with the page's content instead of
  *     tearing it down.
- *  5. Dismissing the banner (a pure client-side state clear, no reload)
- *     removes it while that same content remains untouched.
+ *  5. Closing that surface without discarding the edit (a pure client-side
+ *     state clear, no reload) removes it while that same content remains
+ *     untouched.
+ *
+ * Step 3 can surface as either the OSS inline conflict bar or, when CI runs
+ * with `OM_ENABLE_ENTERPRISE_MODULES=true` (see `optimisticLockUi.ts`), the
+ * enterprise `record_locks` dialog, which supersedes the OSS bar on CrudForm
+ * pages — this spec matches either surface via `expectConflictBanner`/
+ * `expectNoConflictBanner` rather than assuming the OSS bar.
  */
 const COMPANIES_API_BASE = '/api/customers/companies'
 
@@ -75,10 +87,7 @@ test.describe('TC-UI-8792: two real distinct users and the record-lock conflict 
       const superadminNameInput = await revealDisplayNameInput(superadminPage)
       await fillControlledInput(superadminNameInput, `QA 8792 superadmin-save ${stamp}`)
       await superadminPage.getByRole('button', { name: /^save$/i }).first().click()
-      await expect(
-        superadminPage.getByTestId(CONFLICT_BANNER_TESTID),
-        'the second user own save must be clean, not a false-positive conflict',
-      ).toHaveCount(0)
+      await expectNoConflictBanner(superadminPage)
 
       // First user's tab still holds the pre-superadmin-save token. Editing and
       // saving now must 409 against the second user's real write.
@@ -87,17 +96,27 @@ test.describe('TC-UI-8792: two real distinct users and the record-lock conflict 
       await fillControlledInput(adminNameInput, marker)
       await adminPage.getByRole('button', { name: /^save$/i }).first().click()
 
-      const banner = adminPage.getByTestId(CONFLICT_BANNER_TESTID)
-      await expect(banner, 'the stale save against a real second-user write should surface the conflict banner').toBeVisible({ timeout: 10_000 })
+      // `expectConflictBanner` matches either conflict surface: the OSS
+      // inline bar, or (CI runs with `OM_ENABLE_ENTERPRISE_MODULES=true`,
+      // see optimisticLockUi.ts) the enterprise record_locks dialog, which
+      // supersedes the OSS bar on CrudForm pages.
+      await expectConflictBanner(adminPage)
 
-      // The banner must coexist with the page's content, not replace it: the
-      // admin tab's own stale edit is still intact while the banner is shown.
+      // The surface must coexist with the page's content, not replace it:
+      // the admin tab's own stale edit is still intact while it is shown.
       await expect(adminNameInput).toHaveValue(marker)
 
-      // Dismiss is a pure client-side state clear (no reload/navigation) —
-      // removing the banner must not disturb that same content either.
-      await banner.getByRole('button', { name: /dismiss/i }).click()
-      await expect(banner).toHaveCount(0)
+      // Closing the surface without discarding the local edit — "Dismiss"
+      // on the OSS bar, "Keep editing" on the enterprise dialog — is a pure
+      // client-side state clear (no reload/navigation) on both surfaces, so
+      // the admin tab's content must still be untouched afterwards.
+      const ossBanner = adminPage.getByTestId(CONFLICT_BANNER_TESTID)
+      if (await ossBanner.isVisible().catch(() => false)) {
+        await ossBanner.getByRole('button', { name: /dismiss/i }).click()
+      } else {
+        await adminPage.getByTestId(CONFLICT_DIALOG_TESTID).getByRole('button', { name: /keep editing/i }).click()
+      }
+      await expectNoConflictBanner(adminPage)
       await expect(adminNameInput).toHaveValue(marker)
     } finally {
       await deleteEntityByBody(request, token, COMPANIES_API_BASE, companyId)
