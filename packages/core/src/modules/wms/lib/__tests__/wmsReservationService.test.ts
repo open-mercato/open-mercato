@@ -214,6 +214,64 @@ describe('WmsReservationService.reserveInTransaction', () => {
     expect(em.flush).not.toHaveBeenCalled()
   })
 
+  it('writes in a clear savepoint and replays the winning row when the insert loses the active idempotency key', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    const savepointEm = createEm({ transactional: false })
+    savepointEm.flush = jest.fn(async () => {
+      throw Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' })
+    })
+    em.transactional = jest.fn(async (cb: (trx: unknown) => Promise<unknown>, options?: { clear?: boolean }) =>
+      cb(options?.clear ? savepointEm : em),
+    )
+    const outerBalance = makeBalance({ quantityOnHand: '10' })
+    const savepointBalance = makeBalance({ quantityOnHand: '10' })
+    const winner = makeReservation({ quantity: '8' })
+    let keyLookups = 0
+
+    findOneWithDecryption.mockImplementation((lookupEm: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === Warehouse) return { id: WAREHOUSE_ID, tenantId: TENANT, organizationId: ORG }
+      if (entity === InventoryReservation && where?.idempotencyKey) {
+        keyLookups += 1
+        return keyLookups === 1 ? null : winner
+      }
+      if (entity === InventoryBalance) return lookupEm === savepointEm ? savepointBalance : outerBalance
+      return null
+    })
+    findWithDecryption.mockImplementation((_em: unknown, entity: unknown) => (entity === InventoryBalance ? [outerBalance] : []))
+
+    const result = await service.reserveInTransaction(em, createCtx(em), makeReserveInput({ quantity: 8 }))
+
+    expect(result).toMatchObject({ idempotentReplay: true, reservationId: RESERVATION_ID, touchedBalances: [] })
+    expect(em.transactional).toHaveBeenCalledWith(expect.any(Function), { clear: true })
+    expect(savepointEm.persist).toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(Number(outerBalance.quantityReserved)).toBe(0)
+    expect(keyLookups).toBe(2)
+  })
+
+  it('rethrows a non-unique write failure from the savepoint without a replay read', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    em.flush = jest.fn(async () => {
+      throw new Error('connection reset')
+    })
+    let keyLookups = 0
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === Warehouse) return { id: WAREHOUSE_ID, tenantId: TENANT, organizationId: ORG }
+      if (entity === InventoryReservation && where?.idempotencyKey) {
+        keyLookups += 1
+        return null
+      }
+      if (entity === InventoryBalance) return makeBalance()
+      return null
+    })
+    findWithDecryption.mockImplementation((_em: unknown, entity: unknown) => (entity === InventoryBalance ? [makeBalance()] : []))
+
+    await expect(service.reserveInTransaction(em, createCtx(em), makeReserveInput({ quantity: 2 }))).rejects.toThrow('connection reset')
+    expect(keyLookups).toBe(1)
+  })
+
   it('joins an already-open ambient transaction instead of starting a new one when the caller em has no .transactional', async () => {
     // Simulates the composed-caller shape the A1 extraction exists for
     // (`availability`'s future reserve, Phase 2): an EntityManager that is

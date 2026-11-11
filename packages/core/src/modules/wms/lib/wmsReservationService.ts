@@ -696,29 +696,30 @@ export class WmsReservationService {
         warehouseId: input.warehouseId,
         quantity: input.quantity,
       })
-      const existingReservation = await findExistingActiveReservationByIdempotencyKey(
-        innerTrx,
-        scope,
-        reservationIdempotencyKey,
-      )
-      if (existingReservation) {
-        const metadata = extractReservationMetadata(existingReservation)
+      const replay = (existing: InventoryReservation): ReserveInTransactionResult => {
+        const metadata = extractReservationMetadata(existing)
         const buckets = Array.isArray(metadata.allocatedBuckets)
           ? (metadata.allocatedBuckets as AllocationBucket[])
           : []
         return {
-          reservationId: existingReservation.id,
+          reservationId: existing.id,
           allocatedBuckets: serializeAllocationBuckets(buckets),
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
           warehouseId: input.warehouseId,
           catalogVariantId: input.catalogVariantId,
           quantity: input.quantity,
-          reservationEntity: existingReservation,
-          touchedBalances: [] as InventoryBalance[],
+          reservationEntity: existing,
+          touchedBalances: [],
           idempotentReplay: true,
         }
       }
+      const existingReservation = await findExistingActiveReservationByIdempotencyKey(
+        innerTrx,
+        scope,
+        reservationIdempotencyKey,
+      )
+      if (existingReservation) return replay(existingReservation)
       const strategy = await resolveReservationStrategy(innerTrx, ctx, input, scope)
       const balances = await listCandidateBalances(innerTrx, ctx, input, scope)
       const receiptMap = await loadReceivedAtByBucket(innerTrx, balances, scope)
@@ -730,67 +731,77 @@ export class WmsReservationService {
         strategy,
         receiptMap,
       )
-      let remaining = input.quantity
-      const buckets: AllocationBucket[] = []
-      const touchedBalances: InventoryBalance[] = []
-      for (const balance of ordered) {
-        if (remaining <= 0) break
-        const available = getAvailableQuantity(balance)
-        if (available <= 0) continue
-        const quantity = Math.min(available, remaining)
-        const locationId = typeof balance.location === 'string' ? balance.location : balance.location.id
-        const lotIdRaw = balance.lot ?? null
-        const lotId = typeof lotIdRaw === 'string' ? lotIdRaw : lotIdRaw?.id ?? null
-        const persistedBalance = await findExactBalanceForUpdate(innerTrx, scope, {
-          warehouseId: input.warehouseId,
-          locationId,
-          catalogVariantId: input.catalogVariantId,
-          lotId: lotId ?? undefined,
-          serialNumber: balance.serialNumber ?? undefined,
-        })
-        if (!persistedBalance) {
-          throw new CrudHttpError(409, { error: 'invalid_tracking_state' })
-        }
-        setNumeric(
-          persistedBalance as unknown as Record<string, unknown>,
-          'quantityReserved',
-          toNumber(persistedBalance.quantityReserved) + quantity,
-        )
-        touchedBalances.push(persistedBalance)
-        buckets.push({
-          balanceId: persistedBalance.id,
-          locationId,
-          lotId,
-          serialNumber: balance.serialNumber ?? null,
-          quantity,
-        })
-        remaining -= quantity
-      }
-      requireSufficientAvailability(remaining)
-      let reservation: InventoryReservation
+      // The writes run in a savepoint with its own identity map: when the insert loses the
+      // active-key race on PostgreSQL, only the savepoint is rolled back, so the replay read
+      // below runs in a live transaction and no half-applied balance change is left dirty.
+      let written: { reservation: InventoryReservation; buckets: AllocationBucket[]; touchedBalances: InventoryBalance[] }
       try {
-        reservation = innerTrx.create(InventoryReservation, {
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
-          warehouse: innerTrx.getReference(Warehouse, input.warehouseId),
-          catalogVariantId: input.catalogVariantId,
-          lot: buckets.length === 1 && buckets[0].lotId ? innerTrx.getReference(InventoryLot, buckets[0].lotId) : null,
-          serialNumber: buckets.length === 1 ? buckets[0].serialNumber : null,
-          quantity: toNumericString(input.quantity),
-          sourceType: input.sourceType,
-          sourceId: input.sourceId,
-          expiresAt: input.expiresAt ?? null,
-          status: 'active',
-          idempotencyKey: reservationIdempotencyKey,
-          metadata: {
-            ...(input.metadata ?? {}),
-            allocatedBuckets: buckets,
-            allocationState: 'reserved',
-            strategy,
+        written = await runInTransaction(
+          innerTrx,
+          async (writeTrx) => {
+            let remaining = input.quantity
+            const buckets: AllocationBucket[] = []
+            const touchedBalances: InventoryBalance[] = []
+            for (const balance of ordered) {
+              if (remaining <= 0) break
+              const available = getAvailableQuantity(balance)
+              if (available <= 0) continue
+              const quantity = Math.min(available, remaining)
+              const locationId = typeof balance.location === 'string' ? balance.location : balance.location.id
+              const lotIdRaw = balance.lot ?? null
+              const lotId = typeof lotIdRaw === 'string' ? lotIdRaw : lotIdRaw?.id ?? null
+              const persistedBalance = await findExactBalanceForUpdate(writeTrx, scope, {
+                warehouseId: input.warehouseId,
+                locationId,
+                catalogVariantId: input.catalogVariantId,
+                lotId: lotId ?? undefined,
+                serialNumber: balance.serialNumber ?? undefined,
+              })
+              if (!persistedBalance) {
+                throw new CrudHttpError(409, { error: 'invalid_tracking_state' })
+              }
+              setNumeric(
+                persistedBalance as unknown as Record<string, unknown>,
+                'quantityReserved',
+                toNumber(persistedBalance.quantityReserved) + quantity,
+              )
+              touchedBalances.push(persistedBalance)
+              buckets.push({
+                balanceId: persistedBalance.id,
+                locationId,
+                lotId,
+                serialNumber: balance.serialNumber ?? null,
+                quantity,
+              })
+              remaining -= quantity
+            }
+            requireSufficientAvailability(remaining)
+            const reservation = writeTrx.create(InventoryReservation, {
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+              warehouse: writeTrx.getReference(Warehouse, input.warehouseId),
+              catalogVariantId: input.catalogVariantId,
+              lot: buckets.length === 1 && buckets[0].lotId ? writeTrx.getReference(InventoryLot, buckets[0].lotId) : null,
+              serialNumber: buckets.length === 1 ? buckets[0].serialNumber : null,
+              quantity: toNumericString(input.quantity),
+              sourceType: input.sourceType,
+              sourceId: input.sourceId,
+              expiresAt: input.expiresAt ?? null,
+              status: 'active',
+              idempotencyKey: reservationIdempotencyKey,
+              metadata: {
+                ...(input.metadata ?? {}),
+                allocatedBuckets: buckets,
+                allocationState: 'reserved',
+                strategy,
+              },
+            })
+            writeTrx.persist(reservation)
+            await writeTrx.flush()
+            return { reservation, buckets, touchedBalances }
           },
-        })
-        innerTrx.persist(reservation)
-        await innerTrx.flush()
+          { clear: true },
+        )
       } catch (error) {
         if (!isUniqueConstraintError(error)) throw error
         const raced = await findExistingActiveReservationByIdempotencyKey(
@@ -799,33 +810,18 @@ export class WmsReservationService {
           reservationIdempotencyKey,
         )
         if (!raced) throw error
-        const metadata = extractReservationMetadata(raced)
-        const racedBuckets = Array.isArray(metadata.allocatedBuckets)
-          ? (metadata.allocatedBuckets as AllocationBucket[])
-          : []
-        return {
-          reservationId: raced.id,
-          allocatedBuckets: serializeAllocationBuckets(racedBuckets),
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          warehouseId: input.warehouseId,
-          catalogVariantId: input.catalogVariantId,
-          quantity: input.quantity,
-          reservationEntity: raced,
-          touchedBalances: [] as InventoryBalance[],
-          idempotentReplay: true,
-        }
+        return replay(raced)
       }
       return {
-        reservationId: reservation.id,
-        allocatedBuckets: serializeAllocationBuckets(buckets),
+        reservationId: written.reservation.id,
+        allocatedBuckets: serializeAllocationBuckets(written.buckets),
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         warehouseId: input.warehouseId,
         catalogVariantId: input.catalogVariantId,
         quantity: input.quantity,
-        reservationEntity: reservation,
-        touchedBalances,
+        reservationEntity: written.reservation,
+        touchedBalances: written.touchedBalances,
         idempotentReplay: false,
       }
     })

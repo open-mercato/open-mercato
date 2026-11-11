@@ -55,12 +55,18 @@ export function resolveScope(
 export async function runInTransaction<TResult>(
   em: EntityManager,
   operation: (trx: EntityManager) => Promise<TResult>,
+  options?: { clear?: boolean },
 ): Promise<TResult> {
   const transactionalEm = em as EntityManager & {
-    transactional?: (callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
+    transactional?: (
+      callback: (trx: EntityManager) => Promise<TResult>,
+      options?: { clear?: boolean },
+    ) => Promise<TResult>
   }
   if (typeof transactionalEm.transactional === 'function') {
-    return transactionalEm.transactional((trx) => operation(trx))
+    return options
+      ? transactionalEm.transactional((trx) => operation(trx), options)
+      : transactionalEm.transactional((trx) => operation(trx))
   }
   return operation(em)
 }

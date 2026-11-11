@@ -16,7 +16,8 @@
  * rows as covering (releasing or shrinking the checkout hold instead of converting all of
  * it), and rebuilds the converted row's idempotency key to the one `wms.inventory.reserve`
  * derives, so a late automation reserve for the same quantity replays it instead of
- * double-holding (`wms_inventory_reservations_idempotency_unique_idx`).
+ * double-holding (`wms_inventory_reservations_idempotency_unique_idx`). A reserve whose
+ * insert loses that key race writes in a savepoint and replays the winning row.
  *
  * What is REAL here: the registered `availability.reserve`/`availability.commit` handlers,
  * the registered `wms.inventory.reserve` handler dispatched through the real `CommandBus`,
@@ -348,6 +349,21 @@ maybe('confirmed-first conversion: availability.commit vs the sales.order.confir
     throw new Error(`[internal] timed out waiting for a session blocked by backend ${held.holderPid}`)
   }
 
+  // Polls until `count` sessions wait on a lock. A second waiter on the same row queues
+  // behind the first waiter's tuple lock, so `pg_blocking_pids` names the first, not the holder.
+  async function waitUntilLockWaiters(count: number, unlessSettled: () => boolean): Promise<void> {
+    const deadline = Date.now() + WAIT_TIMEOUT_MS
+    while (Date.now() < deadline) {
+      if (unlessSettled()) return
+      const rows = await orm.em.fork().execute<Array<{ waiting: number }>>(
+        'select count(*)::int as waiting from pg_stat_activity where datname = current_database() and cardinality(pg_blocking_pids(pid)) > 0',
+      )
+      if ((rows[0]?.waiting ?? 0) >= count) return
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+    }
+    throw new Error(`[internal] timed out waiting for ${count} sessions blocked on a lock`)
+  }
+
   test('confirmed first, stock for both: the order rows fully cover the hold and commit releases the checkout rows', async () => {
     const fixture = await seedCheckoutHold({ onHand: 4, quantity: 2 })
 
@@ -438,15 +454,10 @@ maybe('confirmed-first conversion: availability.commit vs the sales.order.confir
     expect(await readHoldState(fixture)).toEqual({ orderHeld: 2, checkoutHeld: 0, quantityReserved: 2, holdStatus: 'committed' })
   })
 
-  // KNOWN DEFECT, reported on #9183 (tests only here, no fix).
-  // `WmsReservationService.reserveInTransaction` catches the active-idempotency-key unique
-  // violation and re-reads the winning row to replay it, but on PostgreSQL that re-read runs
-  // in the transaction the violation already aborted ("current transaction is aborted"), so
-  // the replay can never succeed and the command fails instead. Reached here when the commit
-  // converts the hold (taking the automation's key) after the automation's own idempotency
-  // pre-check but before its insert; stock ends correct, the subscriber call throws. 9 of 10
-  // unpinned full-stock rounds threw locally. Flip `test.failing` to `test` with the fix.
-  test.failing('an automation whose insert loses the idempotency key to the converted row replays it instead of failing', async () => {
+  // The commit converts the hold (taking the automation's key) after the automation's own
+  // idempotency pre-check but before its insert. Before the fix, the replay read after the
+  // active-key unique violation ran in the aborted transaction and the subscriber threw.
+  test('an automation whose insert loses the idempotency key to the converted row replays it instead of failing', async () => {
     const fixture = await seedCheckoutHold({ onHand: 4, quantity: 2 })
     const balance = await orm.em.fork().findOneOrFail(InventoryBalance, { catalogVariantId: fixture.variantId })
 
@@ -464,5 +475,39 @@ maybe('confirmed-first conversion: availability.commit vs the sales.order.confir
 
     await expect(automation).resolves.toBeUndefined()
     expect(await readHoldState(fixture)).toEqual({ orderHeld: 2, checkoutHeld: 0, quantityReserved: 2, holdStatus: 'committed' })
+  })
+
+  test('two identical reserves past the idempotency pre-check: the losing insert replays the winning row', async () => {
+    const fixture = await seedCheckoutHold({ onHand: 6, quantity: 2 })
+    const balance = await orm.em.fork().findOneOrFail(InventoryBalance, { catalogVariantId: fixture.variantId })
+    const warehouseId = typeof balance.warehouse === 'string' ? balance.warehouse : balance.warehouse.id
+    const reserveInput = {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      warehouseId,
+      catalogVariantId: fixture.variantId,
+      quantity: 2,
+      sourceType: 'order' as const,
+      sourceId: fixture.orderId,
+    }
+
+    // Both calls pass the pre-check, then park on the balance `FOR UPDATE`; the second
+    // insert hits `wms_inventory_reservations_idempotency_unique_idx`.
+    const balanceRowLock = await holdRowLock('wms_inventory_balances', balance.id)
+    let settled = 0
+    const reserves = [0, 1].map(() =>
+      commandBus
+        .execute<typeof reserveInput, { reservationId: string }>('wms.inventory.reserve', { input: reserveInput, ctx: callerCtx() })
+        .finally(() => {
+          settled += 1
+        }),
+    )
+    await waitUntilLockWaiters(2, () => settled > 0)
+    expect(settled).toBe(0)
+    await balanceRowLock.release()
+
+    const [first, second] = await Promise.all(reserves)
+    expect(second.result.reservationId).toBe(first.result.reservationId)
+    expect(await readHoldState(fixture)).toEqual({ orderHeld: 2, checkoutHeld: 2, quantityReserved: 4, holdStatus: 'active' })
   })
 })
