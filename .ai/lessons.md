@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 184 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 185 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -246,3 +246,5 @@ This catalog indexes 184 focused lessons. Route the task first, then read only r
 - [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
 - [Write Open Mercato specifications in English](lessons/write-open-mercato-specifications-in-english.md) — area:spec-pr,ai-workflow; module:platform; topic:specifications,documentation-language
 - [Preserve generated fact row selectors when compacting](lessons/preserve-generated-fact-row-selectors-when-compacting.md) — area:testing,debugging; module:cli,create_app; topic:generated-files,context-budgets,backward-compatibility
+
+- [Jest must transform transitive ESM sanitizer dependencies](lessons/jest-transform-transitive-esm-sanitizer-dependencies.md) — area:testing; module:sync_shopify; topic:jest,esm,package-runtime
