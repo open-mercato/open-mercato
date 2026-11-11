@@ -40,14 +40,19 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
     await seedSystemEmailChannel(request, token)
     await clearCapturedSystemEmails(request, token)
     await withClient(async (client) => {
+      const current = await client.query<{ count: string }>(
+        `select count(distinct recipient_hash)::text as count from message_external_recipient_days where tenant_id = $1`,
+        [tenantId],
+      )
+      const dailyLimit = Number(current.rows[0]?.count ?? '0') + 1
       await client.query(
         `delete from module_configs where tenant_id = $1 and module_id = 'messages' and name = $2`,
         [tenantId, DAILY_LIMIT_CONFIG],
       )
       await client.query(
         `insert into module_configs (id, module_id, name, value_json, tenant_id, organization_id, created_at, updated_at)
-         values ($1, 'messages', $2, '1'::jsonb, $3, null, now(), now())`,
-        [randomUUID(), DAILY_LIMIT_CONFIG, tenantId],
+         values ($1, 'messages', $2, $3::jsonb, $4, null, now(), now())`,
+        [randomUUID(), DAILY_LIMIT_CONFIG, JSON.stringify(dailyLimit), tenantId],
       )
     })
     configInstalled = true
