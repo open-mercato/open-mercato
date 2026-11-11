@@ -30,6 +30,7 @@ import {
   writeOmnibusCache,
 } from '../lib/omnibusCache'
 import {
+  OMNIBUS_IN_WINDOW_LIMIT,
   fetchOmnibusCampaignIds,
   fetchOmnibusFirstOfferIds,
   fetchOmnibusPrecedingIds,
@@ -215,6 +216,7 @@ export function evaluateProgressiveCampaign(input: {
 }): OmnibusProgressiveFreeze | null {
   const campaign = [...input.campaign].sort(compareChronological)
   if (!input.baseline || campaign.length < 2) return null
+  if (campaign.length > OMNIBUS_IN_WINDOW_LIMIT) return null
   const baselineValue = priceValue(input.baseline, input.axis)
   const firstValue = priceValue(campaign[0], input.axis)
   if (baselineValue === null || firstValue === null || firstValue > baselineValue) return null
@@ -724,6 +726,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     const rows = await this.hydrate(em, lookups.map((lookup) => lookup.context), Array.from(ids))
     return lookups.map((lookup, position) => {
       const set = sets[position]
+      if (set.campaignTruncated) return null
       const frozen = evaluateProgressiveCampaign({
         campaign: set.campaignIds.map((id) => rows.get(id)).filter(isPresent),
         baseline: set.baselineId ? rows.get(set.baselineId) ?? null : null,

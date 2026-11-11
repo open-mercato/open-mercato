@@ -10,6 +10,7 @@ import {
   selectPrecedingObservation,
 } from '../catalogOmnibusService'
 import {
+  OMNIBUS_IN_WINDOW_LIMIT,
   fetchOmnibusCampaignIds,
   fetchOmnibusFirstOfferIds,
   fetchOmnibusPrecedingIds,
@@ -983,6 +984,18 @@ describe('omnibus derogation helpers', () => {
         maxGapDays: 7,
       }),
     ).toBeNull()
+  })
+
+  it('refuses to certify a campaign that reaches the observation cap', () => {
+    const baseline = row('baseline', '2026-04-01T00:00:00.000Z', '100.00')
+    const hour = 60 * 60 * 1000
+    const start = Date.parse('2026-05-01T00:00:00.000Z')
+    const build = (count: number) =>
+      Array.from({ length: count }, (_, index) =>
+        row(`c${index}`, new Date(start + index * hour).toISOString(), (100 - index / 100).toFixed(2)),
+      )
+    expect(evaluateProgressiveCampaign({ campaign: build(OMNIBUS_IN_WINDOW_LIMIT), baseline, axis: 'gross', maxGapDays: 7 })).not.toBeNull()
+    expect(evaluateProgressiveCampaign({ campaign: build(OMNIBUS_IN_WINDOW_LIMIT + 1), baseline, axis: 'gross', maxGapDays: 7 })).toBeNull()
   })
 
   it('orders the campaign chronologically before checking it', () => {

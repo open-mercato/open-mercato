@@ -357,6 +357,7 @@ export type OmnibusCampaignLookup = {
 export type OmnibusCampaignLookupResult = {
   campaignIds: string[]
   baselineId: string | null
+  campaignTruncated: boolean
 }
 
 async function runCampaignGroup(
@@ -393,7 +394,7 @@ async function runCampaignGroup(
           AND h.currency_code = w.currency_code
           ${OBSERVATION_CLAUSE}
         ORDER BY h.recorded_at ASC, h.id ASC
-        LIMIT ${OMNIBUS_IN_WINDOW_LIMIT}
+        LIMIT ${OMNIBUS_IN_WINDOW_LIMIT + 1}
       ) entry
     ),
     campaign_start AS (
@@ -444,7 +445,7 @@ export async function fetchOmnibusCampaignIds(
   em: EntityManager,
   lookups: OmnibusCampaignLookup[],
 ): Promise<OmnibusCampaignLookupResult[]> {
-  const results: OmnibusCampaignLookupResult[] = lookups.map(() => ({ campaignIds: [], baselineId: null }))
+  const results: OmnibusCampaignLookupResult[] = lookups.map(() => ({ campaignIds: [], baselineId: null, campaignTruncated: false }))
   const groups = new Map<string, number[]>()
   lookups.forEach((lookup, index) => {
     const key = `${lookup.baselineScopeColumn}|${lookup.channelId ? 'channel' : 'any'}`
@@ -462,6 +463,9 @@ export async function fetchOmnibusCampaignIds(
       if (row.part === 'baseline') target.baselineId = row.id
       else target.campaignIds.push(row.id)
     }
+  }
+  for (const result of results) {
+    result.campaignTruncated = result.campaignIds.length > OMNIBUS_IN_WINDOW_LIMIT
   }
   return results
 }

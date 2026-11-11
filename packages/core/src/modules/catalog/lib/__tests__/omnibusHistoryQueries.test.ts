@@ -8,6 +8,7 @@ import {
   type CompiledQuery,
 } from 'kysely'
 import {
+  OMNIBUS_IN_WINDOW_LIMIT,
   fetchOmnibusCampaignIds,
   fetchOmnibusFirstOfferIds,
   fetchOmnibusLatestPriceEntryIds,
@@ -181,6 +182,14 @@ describe('fetchOmnibusCampaignIds SQL', () => {
     expect(baselinePart).toContain('"h"."variant_id" = w.scope_id')
     expect(sql.match(TOMBSTONE_EXCLUSION)).toHaveLength(2)
     expect(sql.match(CHANNEL_OR_NULL)).toHaveLength(2)
+  })
+
+  it('requests one observation beyond the window cap so overflow is detectable', async () => {
+    const { em, queries } = recordingEm()
+    await fetchOmnibusCampaignIds(em, [campaignLookup()])
+    const [campaignPart] = queries[0].sql.split('UNION ALL')
+    expect(campaignPart).toContain('LIMIT')
+    expect(queries[0].parameters).toContain(OMNIBUS_IN_WINDOW_LIMIT + 1)
   })
 
   it('keeps variant rows out of a product-level baseline and splits lookups by scope', async () => {
