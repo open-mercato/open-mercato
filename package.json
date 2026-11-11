@@ -283,7 +283,7 @@
     "uuid@npm:^9.0.0": "11.1.1",
     "uuid@npm:^9.0.1": "11.1.1",
     "@grpc/grpc-js": "1.14.5",
-    "node-forge": "1.4.1",
+    "node-forge": "1.4.3",
     "esbuild": "0.28.2",
     "playwright": "1.61.1",
     "ws@npm:^7.3.1": "7.5.11",
