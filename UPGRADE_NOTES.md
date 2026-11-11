@@ -3499,3 +3499,11 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+## Production bootstrap superadmin credentials (#7809)
+
+With `NODE_ENV=production`, `mercato init` now rejects missing, blank, or built-in placeholder superadmin passwords and enforces the configured `OM_PASSWORD_*` policy. `--skip-password-policy` and `--allow-weak-password` no longer bypass it in production. Development and test defaults remain unchanged.
+
+Operators using starter or generated-app full-app Compose deployments must set a unique `OM_INIT_SUPERADMIN_PASSWORD` securely before first initialization or reinstall; the Compose `password` fallback is only usable outside production. On this release line, ordinary init retains the existing-users abort message before credential validation, allowing entrypoint scripts to continue with migrations when a seed marker is missing. Bootstrap scripts must supply the secret via environment or `--password` and handle initialization failures. Do not store secrets in source control or logs.
+
+This does not rotate existing credentials. If a deployment previously initialized with a predictable password, rotate the superadmin credential and review account access separately. No schema migration is needed. See [the specification](.ai/specs/2026-11-06-production-bootstrap-credentials.md#migration--backward-compatibility). Maintainer @pkarw approved the production-only emergency security exception on 2026-11-06; see the specification for the approval record. QA and validation remain required.
