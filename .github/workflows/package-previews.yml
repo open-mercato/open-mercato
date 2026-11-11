@@ -102,6 +102,7 @@ jobs:
           './packages/channel-fcm'
           './packages/channel-resend'
           './packages/channel-ses'
+          './packages/channel-smtp'
           './packages/checkout'
           './packages/cli'
           './packages/content'
