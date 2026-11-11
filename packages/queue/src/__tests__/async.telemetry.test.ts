@@ -51,7 +51,7 @@ jest.mock('bullmq', () => {
 })
 
 class MockBullMQOtel {
-  constructor(public readonly tracerName: string) {}
+  constructor(public readonly options: unknown) {}
 }
 jest.mock('bullmq-otel', () => ({ BullMQOtel: MockBullMQOtel }))
 
@@ -88,6 +88,7 @@ describe('Queue - async strategy telemetry wiring', () => {
     expect(queueOpts.telemetry).toBeInstanceOf(MockBullMQOtel)
     expect(workerOpts.telemetry).toBeInstanceOf(MockBullMQOtel)
     expect(queueOpts.telemetry).toBe(workerOpts.telemetry)
+    expect((queueOpts.telemetry as MockBullMQOtel).options).toEqual({ tracerName: 'open-mercato' })
   })
 
   it('omits the metadata._trace carrier when bullmq-otel owns propagation', async () => {

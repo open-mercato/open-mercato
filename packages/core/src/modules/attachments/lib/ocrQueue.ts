@@ -5,6 +5,7 @@ import type { StorageDriver } from './drivers/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveOcrMaxConcurrency, resolveOcrMaxWaitQueue } from './ocrLimits'
 import { extractAttachmentContent } from './textExtraction'
+import { stripNulCharacters } from './extractedText'
 
 const logger = createLogger('attachments').child({ component: 'ocr' })
 
@@ -23,7 +24,6 @@ export type OcrProcessingDispatch = 'queued' | 'inline_fallback'
 let activeOcrJobs = 0
 const ocrWaitQueue: Array<() => void> = []
 // Jobs scheduled with setImmediate that have not yet entered a slot or the wait queue.
-// Counted toward the wait-queue cap so a burst in one event-loop turn cannot pass the check together.
 let pendingOcrJobs = 0
 
 /** Test-only: reset in-process OCR concurrency bookkeeping. */
@@ -95,7 +95,7 @@ export async function processAttachmentOcr(
       return
     }
 
-    attachment.content = result.content
+    attachment.content = stripNulCharacters(result.content)
     await em.persist(attachment).flush()
 
     logger.info('Processing completed', {
@@ -176,11 +176,14 @@ export async function requestOcrProcessing(
   const workerEm = em.fork()
 
   const maxWaitQueue = resolveOcrMaxWaitQueue()
-  if (ocrWaitQueue.length + pendingOcrJobs >= maxWaitQueue) {
+  const freeOcrSlots = Math.max(0, resolveOcrMaxConcurrency() - activeOcrJobs)
+  const pendingWaiters = Math.max(0, pendingOcrJobs - freeOcrSlots)
+  if (ocrWaitQueue.length + pendingWaiters >= maxWaitQueue) {
     logger.warn('OCR wait queue full; falling back to inline text extraction', {
       attachmentId: attachment.id,
       waiting: ocrWaitQueue.length,
       pending: pendingOcrJobs,
+      pendingWaiters,
       maxWaitQueue,
     })
     await persistInlineTextExtractionFallback(workerEm, payload, driver)

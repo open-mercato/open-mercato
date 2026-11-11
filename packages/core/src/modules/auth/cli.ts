@@ -4,6 +4,7 @@ import { OM_LOG_LEVEL_ENV, resetLogLevelCache } from '@open-mercato/shared/lib/l
 import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
 import { hash } from 'bcryptjs'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EventBus } from '@open-mercato/events/types'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
@@ -407,13 +408,19 @@ const addOrganization: ModuleCli = {
       return
     }
     const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
-    // Create tenant implicitly for simplicity
-    const tenant = em.create(Tenant, { name: `${name} Tenant` })
+    const em = resolve('em') as EntityManager
+    const eventBus = resolve('eventBus') as EventBus
+    const tenant = em.create(Tenant, { name: `${name} Tenant` }, { partial: true })
     await em.persist(tenant).flush()
-    const org = em.create(Organization, { name, tenant, logoPreserveAspectRatio: false })
+    await eventBus.emit('directory.tenant.created', {
+      id: String(tenant.id), tenantId: null, organizationId: null,
+    }, { persistent: true, tenantId: null, organizationId: null, rethrowHandlerErrors: true })
+    const org = em.create(Organization, { name, tenant, logoPreserveAspectRatio: false }, { partial: true })
     await em.persist(org).flush()
     await rebuildHierarchyForTenant(em, String(tenant.id))
+    await eventBus.emit('directory.organization.created', {
+      id: String(org.id), tenantId: String(tenant.id), organizationId: String(org.id),
+    }, { persistent: true, tenantId: String(tenant.id), organizationId: String(org.id), rethrowHandlerErrors: true })
     console.log('Organization created with id', org.id, 'in tenant', tenant.id)
   },
 }
