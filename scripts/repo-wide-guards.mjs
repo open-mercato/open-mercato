@@ -49,6 +49,10 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/__tests__/di-classic-proxy.test.ts',
+        scans: 'module DI registrations across packages, host apps and the create-app template — CLASSIC factories require PROXY for destructuring',
+      },
+      {
         path: 'src/__tests__/explicit-sort-comparators.test.ts',
         scans: 'every packages/*/src root plus scripts/ — sort calls without an explicit comparator (#3620)',
       },
