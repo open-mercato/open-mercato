@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import handle from '../workers/webhook-processor'
 import { claimWebhookProcessing } from '@open-mercato/core/modules/payment_gateways/lib/webhook-utils'
-import { mapWebhookEventToStatus, mapStripeStatus } from '../lib/status-map'
+import { resolveStripeWebhookStatus } from '../lib/status-map'
 import type { WebhookEvent } from '@open-mercato/shared/modules/payment_gateways/types'
 
 jest.mock('@open-mercato/core/modules/payment_gateways/lib/webhook-utils', () => ({
@@ -10,8 +10,7 @@ jest.mock('@open-mercato/core/modules/payment_gateways/lib/webhook-utils', () =>
 }))
 
 jest.mock('../lib/status-map', () => ({
-  mapWebhookEventToStatus: jest.fn(() => 'paid'),
-  mapStripeStatus: jest.fn(() => 'paid'),
+  resolveStripeWebhookStatus: jest.fn(() => 'paid'),
   mapRefundReason: jest.fn(() => undefined),
 }))
 
@@ -65,8 +64,7 @@ describe('gateway_stripe webhook worker scope handling', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     ;(claimWebhookProcessing as jest.Mock).mockResolvedValue(true)
-    ;(mapWebhookEventToStatus as jest.Mock).mockReturnValue('paid')
-    ;(mapStripeStatus as jest.Mock).mockReturnValue('paid')
+    ;(resolveStripeWebhookStatus as jest.Mock).mockReturnValue('paid')
   })
 
   it('never derives tenant scope from event.data.metadata (fails closed on a scope-less job)', async () => {

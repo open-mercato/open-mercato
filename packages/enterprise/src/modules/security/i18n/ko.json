@@ -329,6 +329,8 @@
   "security.notifications.enforcementDeadline.bodyOverdue": "MFA 등록 마감일인 {deadline}이(가) 지났습니다. 계정 접근을 유지하려면 즉시 MFA를 설정하세요.",
   "security.notifications.enforcementDeadline.bodyWithDeadline": "이제 조직에서 MFA를 요구합니다. 계정 접근을 유지하려면 {deadline} 전까지 {days}일 이내에 설정하세요.",
   "security.notifications.enforcementDeadline.title": "MFA 등록이 필요합니다",
+  "security.notifications.mfaEmergencyBypass.body": "조직에서 MFA 긴급 우회가 감지되었습니다. MFA 보호가 비활성화되어 있을 수 있습니다. 긴급 상황이 끝나면 시스템 운영자에게 OM_SECURITY_MFA_EMERGENCY_BYPASS를 비활성화하도록 요청하세요.",
+  "security.notifications.mfaEmergencyBypass.title": "MFA 긴급 우회 감지",
   "security.notifications.mfaEnrolled.body": "계정에 {method}이(가) 활성화되었습니다.",
   "security.notifications.mfaEnrolled.title": "MFA 방법이 활성화됨",
   "security.notifications.mfaReset.body": "관리자가 회원님의 MFA 방법을 재설정했습니다. 사유: {reason}",

@@ -133,7 +133,13 @@ themselves — that would bypass every control below in a single step.
 - **SSRF guard** on every request and every redirect hop: private, loopback,
   link-local, CGNAT and cloud-metadata targets are blocked, including the
   IPv4-mapped IPv6 spelling (`new URL('http://[::ffff:127.0.0.1]/').hostname` is
-  `::ffff:7f00:1`, which a dotted-quad check never matches).
+  `::ffff:7f00:1`, which a dotted-quad check never matches). The guard also blocks
+  the entire local-use IPv4/IPv6 translation prefix `64:ff9b:1::/48` and 6to4
+  addresses (`2002::/16`) whose embedded IPv4 destination is non-public. Public
+  IPv6, including 6to4 and well-known NAT64 addresses embedding public IPv4,
+  remains allowed. These checks apply to literals and DNS answers in both the
+  HTTP client and browser proxy. Whether a local-use destination could reach an
+  internal service depends on the deployment's IPv6 routing.
 - **A named escape hatch, not a switch.** A service you run yourself — a SearXNG
   instance on the container network — is unreachable under that guard, so
   **Agents → Web search → Network egress** takes a list of hosts allowed to

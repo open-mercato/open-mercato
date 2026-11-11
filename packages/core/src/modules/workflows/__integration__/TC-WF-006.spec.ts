@@ -81,6 +81,8 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       // the drawer footer Save share an accessible name.
       await drawer.getByRole('button', { name: /^save$/i }).click()
       await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 })
+      const savedEditorUrl = new URL(page.url())
+      const definitionEditorHref = `${savedEditorUrl.pathname}${savedEditorUrl.search}`
 
       // Back to the list — the entry should be visible
       await page.goto('/backend/definitions')
@@ -88,9 +90,16 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
 
       const searchBox = page.getByPlaceholder(/search/i).first()
       if (await searchBox.isVisible().catch(() => false)) {
+        // Wait for the filtered list, so its rows do not re-render and shift
+        // under the pointer once the row menu below is open.
+        const filteredList = page.waitForResponse((response) => {
+          const url = new URL(response.url())
+          return url.pathname === '/api/workflows/definitions' && url.searchParams.get('search') === workflowId
+        })
         await fillText(page, searchBox, workflowId)
         // Filter bar submits on Enter or via Apply button; both work in this repo
         await searchBox.press('Enter').catch(() => undefined)
+        await filteredList
       }
 
       // Match on the NAME, not the id: the list dropped its "Workflow ID"
@@ -102,9 +111,6 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       await expect(row).toBeVisible({ timeout: 10_000 })
 
       // Delete via row action menu → confirm dialog.
-      // RowActions opens on pointerenter AND toggles on click, so hovering is the
-      // stable way to open the menu without the click flipping it back closed.
-      //
       // Scroll the trigger near the bottom of the viewport BEFORE opening the
       // menu. The demo feedback FAB lives at fixed bottom-6 right-6 and the
       // menu opens downward by default — if the trigger is mid-viewport the
@@ -114,7 +120,10 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       const triggerBtn = row.getByRole('button', { name: /open actions/i })
       await triggerBtn.evaluate((el) => el.scrollIntoView({ block: 'end' }))
       await triggerBtn.hover()
-      await page.getByRole('menuitem', { name: /^delete$/i }).click()
+      const definitionMenu = page.getByRole('menu').filter({
+        has: page.locator(`a[href="${definitionEditorHref}"]`),
+      })
+      await definitionMenu.getByRole('menuitem', { name: /^delete$/i }).click()
 
       // The definition list no longer hand-rolls its delete confirmation as a
       // Radix `Dialog`: it goes through the shared `ConfirmDialog`, which is a
