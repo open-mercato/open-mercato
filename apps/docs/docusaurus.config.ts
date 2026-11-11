@@ -5,7 +5,7 @@ const config: Config = {
   title: 'Open Mercato Docs',
   tagline: 'Extensible commerce platform with modular architecture',
   favicon: 'img/open-mercato.svg',
-  url: 'https://docs.open-mercato.dev',
+  url: 'https://docs.openmercato.com',
   baseUrl: '/',
   organizationName: 'open-mercato',
   projectName: 'documentation',

@@ -519,5 +519,6 @@
   "documents.versions.snapshot.labelPlaceholder": "Etykieta (opcjonalnie)",
   "documents.versions.snapshotTooLarge": "Ta wersja jest zbyt duża, aby można ją było bezpiecznie przetworzyć.",
   "documents.versions.title": "Historia wersji",
+  "notifications.categories.documents": "Dokumenty",
   "search.entityType.documents.document": "Dokument"
 }

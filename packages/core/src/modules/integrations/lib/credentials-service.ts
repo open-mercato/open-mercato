@@ -1,18 +1,25 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { decryptWithAesGcm, encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { decryptWithAesGcm, encryptWithAesGcm, isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { createKmsService, resolveEncryptionMode } from '@open-mercato/shared/lib/encryption/kms'
-import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { createKmsService, resolveEncryptionMode, type KmsService } from '@open-mercato/shared/lib/encryption/kms'
+import {
+  parseDecryptedFieldValue,
+  type TenantDataEncryptionService,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import {
   getBundle,
   getIntegration,
   resolveIntegrationCredentialsSchema,
   type IntegrationScope,
 } from '@open-mercato/shared/modules/integrations/types'
-import { EncryptionMap } from '../../entities/data/entities'
+import { upsertCanonicalEncryptionMap } from '../../entities/lib/encryption-maps'
 import { IntegrationCredentials } from '../data/entities'
+import { OAUTH_GRANT_ROW_SUFFIX } from './oauth/grant-blob'
 
 const ENCRYPTED_CREDENTIALS_BLOB_KEY = '__om_encrypted_credentials_blob_v1'
+const CREDENTIALS_ENCRYPTION_ENTITY_ID = 'integrations:integration_credentials'
+const CREDENTIALS_ENCRYPTION_FIELDS = [{ field: 'credentials' }]
 
 /**
  * Raised when integration credentials cannot be encrypted or decrypted because
@@ -102,40 +109,208 @@ export function buildCredentialsFilter(integrationId: string, scope: Integration
   return base
 }
 
-export function createCredentialsService(em: EntityManager) {
-  const credentialsEncryptionSpec = [{ field: 'credentials' }]
+/**
+ * @internal True for an id ending in the `__oauth_grant` suffix, which is reserved for OAuth grant
+ * rows: no integration or bundle id may end in it.
+ */
+export function isReservedOAuthGrantId(id: string): boolean {
+  return id.endsWith(OAUTH_GRANT_ROW_SUFFIX)
+}
 
-  async function ensureCredentialsEncryptionMap(scope: IntegrationScope): Promise<void> {
-    const existing = await findOneWithDecryption(
-      em,
-      EncryptionMap,
-      {
-        entityId: 'integrations:integration_credentials',
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        deletedAt: null,
-      },
-      undefined,
-      scope,
-    )
+/**
+ * @internal The bundle whose credentials an integration falls through to, or `null` when it has none
+ * or its `bundleId` ends in the reserved `__oauth_grant` suffix, so no child integration reads another
+ * owner's OAuth grant row through its bundle.
+ */
+export function bundleFallthroughId(integrationId: string): string | null {
+  const bundleId = getIntegration(integrationId)?.bundleId
+  if (!bundleId || isReservedOAuthGrantId(bundleId)) return null
+  return bundleId
+}
 
-    if (!existing) {
-      const created = em.create(EncryptionMap, {
-        entityId: 'integrations:integration_credentials',
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        fieldsJson: credentialsEncryptionSpec,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(created)
-      return
-    }
+type EncryptionMapCacheInvalidator = Pick<TenantDataEncryptionService, 'invalidateMap'>
 
-    existing.fieldsJson = credentialsEncryptionSpec
-    existing.isActive = true
+export type CredentialsWriteOptions = {
+  deferAfterCommit?: (callback: () => void | Promise<void>) => void
+  /**
+   * @internal `'always'` (default) upserts the scope's credentials encryption map on every write.
+   * `'when-not-canonical'` first reads the scope's live exact-scope map with a plain `SELECT` and
+   * upserts it, and registers its invalidation, only when it is missing, inactive or differs from
+   * the canonical field list, so a write over a canonical map never takes the map row's lock.
+   */
+  ensureEncryptionMap?: 'always' | 'when-not-canonical'
+}
+
+async function isCredentialsEncryptionMapCanonical(em: EntityManager, scope: IntegrationScope): Promise<boolean> {
+  const rows = await em.execute<Array<{ id: string }>>(
+    `
+      select "id"
+      from "encryption_maps"
+      where "entity_id" = ?
+        and "tenant_id" is not distinct from ?
+        and "organization_id" is not distinct from ?
+        and "deleted_at" is null
+        and "is_active" = true
+        and "fields_json" = ?::jsonb
+      limit 1
+    `,
+    [
+      CREDENTIALS_ENCRYPTION_ENTITY_ID,
+      scope.tenantId,
+      scope.organizationId,
+      JSON.stringify(CREDENTIALS_ENCRYPTION_FIELDS),
+    ],
+  )
+  return rows.length > 0
+}
+
+export async function ensureCredentialsEncryptionMap(
+  em: EntityManager,
+  scope: IntegrationScope,
+  encryptionService?: EncryptionMapCacheInvalidator | null,
+  options?: CredentialsWriteOptions,
+): Promise<void> {
+  if (
+    options?.ensureEncryptionMap === 'when-not-canonical'
+    && await isCredentialsEncryptionMapCanonical(em, scope)
+  ) {
+    return
   }
+  await upsertCanonicalEncryptionMap(em, {
+    entityId: CREDENTIALS_ENCRYPTION_ENTITY_ID,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    fields: CREDENTIALS_ENCRYPTION_FIELDS,
+    isActive: true,
+  })
+  const invalidator = encryptionService ?? resolveTenantEncryptionService(em)
+  if (!invalidator) return
+  const invalidate = () => invalidator.invalidateMap(
+    CREDENTIALS_ENCRYPTION_ENTITY_ID, scope.tenantId, scope.organizationId,
+  )
+  if (options?.deferAfterCommit) options.deferAfterCommit(invalidate)
+  else await invalidate()
+}
+
+async function resolveTenantDekKey(kms: KmsService, tenantId: string): Promise<string | null> {
+  const existing = await kms.getTenantDek(tenantId)
+  if (existing?.key) return existing.key
+  const created = await kms.createTenantDek(tenantId)
+  return created?.key ?? null
+}
+
+async function findCredentialRowIdOnly(
+  em: EntityManager,
+  integrationId: string,
+  scope: IntegrationScope,
+): Promise<IntegrationCredentials | null> {
+  const located = await em.findOne(IntegrationCredentials, buildCredentialsFilter(integrationId, scope), {
+    fields: ['id', 'tenantId', 'organizationId'],
+  })
+  return located ? em.getReference(IntegrationCredentials, located.id) : null
+}
+
+/**
+ * @internal Erases the strict live row (no bundle or user→tenant fallthrough): sets
+ * `credentials = {}` and `deletedAt = now` and flushes on `em`. The row is located by an id-only
+ * lookup that loads `id`, `tenantId` and `organizationId`, never `credentials`, so erasure needs
+ * no DEK. Returns `false` when no live row exists.
+ */
+export async function eraseIntegrationCredentials(
+  em: EntityManager,
+  integrationId: string,
+  scope: IntegrationScope,
+): Promise<boolean> {
+  const row = await findCredentialRowIdOnly(em, integrationId, scope)
+  if (!row) return false
+  row.credentials = {}
+  row.deletedAt = new Date()
+  await em.flush()
+  return true
+}
+
+/** @internal Outcome of {@link readCredentialRowLayered}, one per encryption layer that can fail. */
+export type LayeredCredentialRead<T> =
+  | { kind: 'none' }
+  | { kind: 'field_ciphertext'; rowId: string }
+  | { kind: 'no_dek'; rowId: string; reason: CredentialsEncryptionUnavailableReason }
+  | { kind: 'envelope_undecryptable'; rowId: string }
+  | { kind: 'invalid'; rowId: string; cause: 'parse' | 'schema' }
+  | { kind: 'ok'; rowId: string; value: T }
+
+function parseStoredCredentialsRecord(value: unknown): Record<string, unknown> | null {
+  if (isRecordValue(value)) return value
+  if (typeof value !== 'string') return null
+  const parsed = parseDecryptedFieldValue(value)
+  return isRecordValue(parsed) ? parsed : null
+}
+
+function parseDecryptedCredentialsBlob(decrypted: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(decrypted)
+    return isRecordValue(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * @internal Reads the strict live row (no bundle or user→tenant fallthrough) and reports which
+ * layer could not be opened instead of degrading to `{}` like `getRaw`: field-level ciphertext the
+ * decrypt pass left sealed, a missing DEK for the credentials envelope, an envelope that does not
+ * open under that DEK, or a value that is not a JSON object or that `validate` rejects. The
+ * envelope DEK comes from `kms` only.
+ */
+export async function readCredentialRowLayered<T>(
+  em: EntityManager,
+  integrationId: string,
+  scope: IntegrationScope,
+  options: { kms: KmsService; validate: (value: Record<string, unknown>) => T | null },
+): Promise<LayeredCredentialRead<T>> {
+  const row = await findOneWithDecryption(
+    em,
+    IntegrationCredentials,
+    buildCredentialsFilter(integrationId, scope),
+    undefined,
+    scope,
+  )
+  if (!row) return { kind: 'none' }
+  const rowId = row.id
+  const stored: unknown = row.credentials
+  if (isEncryptedPayloadShape(stored)) return { kind: 'field_ciphertext', rowId }
+  const record = parseStoredCredentialsRecord(stored)
+  if (!record) return { kind: 'invalid', rowId, cause: 'parse' }
+
+  const envelope = record[ENCRYPTED_CREDENTIALS_BLOB_KEY]
+  let value: Record<string, unknown> = record
+  if (typeof envelope === 'string' && envelope) {
+    if (resolveEncryptionMode(options.kms) === 'disabled') {
+      return { kind: 'no_dek', rowId, reason: 'sealed-while-disabled' }
+    }
+    const dek = (await options.kms.getTenantDek(scope.tenantId))?.key ?? null
+    if (!dek) return { kind: 'no_dek', rowId, reason: 'no-dek' }
+    const decrypted = decryptWithAesGcm(envelope, dek)
+    if (decrypted === null) return { kind: 'envelope_undecryptable', rowId }
+    const opened = parseDecryptedCredentialsBlob(decrypted)
+    if (!opened) return { kind: 'invalid', rowId, cause: 'parse' }
+    value = opened
+  }
+
+  const validated = options.validate(value)
+  if (validated === null) return { kind: 'invalid', rowId, cause: 'schema' }
+  return { kind: 'ok', rowId, value: validated }
+}
+
+/**
+ * `encryptionService` is the map invalidator. The third parameter is `@internal` (the OAuth grant
+ * service's pinned KMS): its `kms` replaces the per-call `createKmsService()` of the
+ * credentials-envelope DEK resolution, for both `save` and `getRaw`.
+ */
+export function createCredentialsService(
+  em: EntityManager,
+  encryptionService?: EncryptionMapCacheInvalidator | null,
+  options?: { kms?: KmsService },
+) {
 
   /**
    * Resolve the DEK this tenant's credentials blob is sealed with, or `null` when the operator
@@ -149,14 +324,11 @@ export function createCredentialsService(em: EntityManager) {
    * `unavailable` throws.
    */
   async function resolveCredentialsDek(scope: IntegrationScope): Promise<string | null> {
-    const kms = createKmsService()
+    const kms = options?.kms ?? createKmsService()
     if (resolveEncryptionMode(kms) === 'disabled') return null
 
-    const existing = await kms.getTenantDek(scope.tenantId)
-    if (existing?.key) return existing.key
-
-    const created = await kms.createTenantDek(scope.tenantId)
-    if (created?.key) return created.key
+    const key = await resolveTenantDekKey(kms, scope.tenantId)
+    if (key) return key
 
     throw new CredentialsEncryptionUnavailableError(scope.tenantId)
   }
@@ -255,28 +427,38 @@ export function createCredentialsService(em: EntityManager) {
      * would read via {@link resolve} (direct row first, then the bundle
      * fallthrough). Returns `null` when no credentials row exists yet — the
      * optimistic-lock guard treats a missing current version as "no conflict".
+     * A `bundleId` ending in the reserved `__oauth_grant` suffix is never followed.
      */
     async resolveUpdatedAt(integrationId: string, scope: IntegrationScope): Promise<Date | null> {
       const direct = await this.getRowUpdatedAt(integrationId, scope)
       if (direct) return direct
 
-      const definition = getIntegration(integrationId)
-      if (!definition?.bundleId) return null
-      return this.getRowUpdatedAt(definition.bundleId, scope)
+      const bundleId = bundleFallthroughId(integrationId)
+      if (!bundleId) return null
+      return this.getRowUpdatedAt(bundleId, scope)
     },
 
+    /**
+     * The integration's own credentials, else its bundle's. A `bundleId` ending in the reserved
+     * `__oauth_grant` suffix is never followed.
+     */
     async resolve(integrationId: string, scope: IntegrationScope): Promise<Record<string, unknown> | null> {
       const direct = await this.getRaw(integrationId, scope)
       if (direct) return direct
 
-      const definition = getIntegration(integrationId)
-      if (!definition?.bundleId) return null
-      return this.getRaw(definition.bundleId, scope)
+      const bundleId = bundleFallthroughId(integrationId)
+      if (!bundleId) return null
+      return this.getRaw(bundleId, scope)
     },
 
-    async save(integrationId: string, credentials: Record<string, unknown>, scope: IntegrationScope): Promise<void> {
+    async save(
+      integrationId: string,
+      credentials: Record<string, unknown>,
+      scope: IntegrationScope,
+      options?: CredentialsWriteOptions,
+    ): Promise<void> {
       const encryptedCredentials = await encryptCredentialsBlob(credentials, scope)
-      await ensureCredentialsEncryptionMap(scope)
+      await ensureCredentialsEncryptionMap(em, scope, encryptionService, options)
 
       const row = await findOneWithDecryption(
         em,
@@ -307,10 +489,11 @@ export function createCredentialsService(em: EntityManager) {
       fieldKey: string,
       value: unknown,
       scope: IntegrationScope,
+      options?: CredentialsWriteOptions,
     ): Promise<Record<string, unknown>> {
       const current = (await this.getRaw(integrationId, scope)) ?? {}
       const updated = { ...current, [fieldKey]: value }
-      await this.save(integrationId, updated, scope)
+      await this.save(integrationId, updated, scope, options)
       return updated
     },
 

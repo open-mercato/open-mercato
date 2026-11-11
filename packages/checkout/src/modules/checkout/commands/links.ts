@@ -17,6 +17,7 @@ import {
   ensureGatewayProviderConfigured,
   type PaymentGatewayDescriptorService,
 } from '../lib/gatewayProviderAvailability'
+import { ensurePayerFieldsCollected } from '../lib/payerFieldRequirements'
 import { emitCheckoutEvent } from '../events'
 import {
   deriveConfiguredCurrencies,
@@ -37,6 +38,7 @@ import {
   extractUndoPayload,
   readCommandId,
   resolveCommandScope,
+  resolveUndoScope,
   restoreLinkFromSnapshot,
   toCheckoutAuditSnapshot,
   type CheckoutLinkSnapshot,
@@ -100,6 +102,7 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
     validateDescriptorCurrencies(sourceValues.gatewayProviderKey ?? null, deriveConfiguredCurrencies(sourceValues))
     const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
     await ensureGatewayProviderConfigured(sourceValues.gatewayProviderKey ?? null, descriptorService, scope)
+    ensurePayerFieldsCollected(sourceValues)
     if (isCheckoutLinkPublic(sourceValues.status) && !sourceValues.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be published' })
     }
@@ -182,6 +185,7 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
   undo: async ({ logEntry, ctx }) => {
     const after = extractUndoPayload<CheckoutLinkUndoPayload>(logEntry)?.after
     if (!after) return
+    const scope = resolveUndoScope(ctx, after)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const reset = buildCustomFieldResetMap(undefined, after.custom)
@@ -196,7 +200,7 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
         notify: false,
       })
     }
-    const link = await em.findOne(CheckoutLink, { id: after.id })
+    const link = await em.findOne(CheckoutLink, { id: after.id, ...scope })
     if (!link) return
     link.deletedAt = new Date()
     await em.flush()
@@ -204,15 +208,10 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
   redo: async ({ logEntry, ctx }) => {
     const after = resolveRedoSnapshot<CheckoutLinkSnapshot>(logEntry)
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for checkout link create' })
+    const scope = resolveUndoScope(ctx, after)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    let link = await findOneWithDecryption(
-      em,
-      CheckoutLink,
-      { id: after.id },
-      {},
-      { tenantId: after.tenantId, organizationId: after.organizationId },
-    )
+    let link = await findOneWithDecryption(em, CheckoutLink, { id: after.id, ...scope }, {}, scope)
     if (link) {
       restoreLinkFromSnapshot(link, after)
       link.deletedAt = null
@@ -305,6 +304,7 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
     )
     const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
     await ensureGatewayProviderConfigured(nextValues.gatewayProviderKey ?? null, descriptorService, scope)
+    ensurePayerFieldsCollected(nextValues)
     if (isCheckoutLinkPublic(nextValues.status) && !nextValues.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be published' })
     }
@@ -387,10 +387,17 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
     const before = undo?.before
     const after = undo?.after
     if (!before) return
+    const scope = resolveUndoScope(ctx, before)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const link = await em.findOne(CheckoutLink, { id: before.id, deletedAt: null })
+    const link = await em.findOne(CheckoutLink, { id: before.id, ...scope, deletedAt: null })
     if (!link) return
+    if (link.isLocked) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(422, {
+        error: translate('checkout.errors.links.lockedEdit', 'This link has active transactions and cannot be edited'),
+      })
+    }
     restoreLinkFromSnapshot(link, before)
     link.slug = await resolveRestoredLinkSlug(em, before)
     await em.flush()
@@ -486,9 +493,10 @@ const deleteLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
   undo: async ({ logEntry, ctx }) => {
     const before = extractUndoPayload<CheckoutLinkUndoPayload>(logEntry)?.before
     if (!before) return
+    const scope = resolveUndoScope(ctx, before)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    let link = await em.findOne(CheckoutLink, { id: before.id })
+    let link = await em.findOne(CheckoutLink, { id: before.id, ...scope })
     if (link) {
       restoreLinkFromSnapshot(link, before)
       link.slug = await resolveRestoredLinkSlug(em, before)

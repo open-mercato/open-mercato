@@ -76,6 +76,23 @@ describe('generateModulePackageSources', () => {
     expect(output).toContain('node_modules/@open-mercato/test-package/src/**/*.{ts,tsx}')
   })
 
+  it('includes source paths through the selected installed npm alias binding', async () => {
+    const packageRoot = path.join(tmpDir, 'app', 'node_modules', 'consents_candidate')
+    copyDir(fixturePackageRoot, packageRoot)
+    const packageJsonPath = path.join(packageRoot, 'package.json')
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>
+    packageJson.name = '@publisher/consents'
+    fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson))
+    const resolver = createResolver(tmpDir, packageRoot, 'consents_candidate')
+    fs.writeFileSync(path.join(resolver.getAppDir(), 'package.json'), JSON.stringify({ dependencies: { consents_candidate: 'npm:@publisher/consents@1.0.0' } }))
+
+    await generateModulePackageSources({ resolver, quiet: true })
+
+    const output = fs.readFileSync(path.join(resolver.getOutputDir(), 'module-package-sources.css'), 'utf8')
+    expect(output).toContain('node_modules/consents_candidate/src/**/*.{ts,tsx}')
+    expect(output).not.toContain('node_modules/@publisher/consents')
+  })
+
   it('does not checksum unrelated files below the installed package root', async () => {
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
     copyDir(fixturePackageRoot, packageRoot)
@@ -86,9 +103,11 @@ describe('generateModulePackageSources', () => {
     await generateModulePackageSources({ resolver, quiet: true })
     const outputBefore = fs.readFileSync(outFile, 'utf8')
     const checksumBefore = readChecksumRecord(checksumFile)
-    const pinnedTime = new Date(Date.now() - 60_000)
+    const pinnedTime = new Date('2020-01-01T00:00:00.000Z')
     fs.utimesSync(outFile, pinnedTime, pinnedTime)
     fs.utimesSync(checksumFile, pinnedTime, pinnedTime)
+    const outputMtimeBefore = fs.statSync(outFile).mtimeMs
+    const checksumMtimeBefore = fs.statSync(checksumFile).mtimeMs
 
     fs.writeFileSync(path.join(packageRoot, 'src', 'unrelated-runtime.ts'), 'export const unrelated = true\n')
     const result = await generateModulePackageSources({ resolver, quiet: true })
@@ -96,8 +115,8 @@ describe('generateModulePackageSources', () => {
     expect(result.filesWritten).toEqual([])
     expect(result.filesUnchanged).toEqual([outFile])
     expect(fs.readFileSync(outFile, 'utf8')).toBe(outputBefore)
-    expect(fs.statSync(outFile).mtimeMs).toBe(pinnedTime.getTime())
-    expect(fs.statSync(checksumFile).mtimeMs).toBe(pinnedTime.getTime())
+    expect(fs.statSync(outFile).mtimeMs).toBe(outputMtimeBefore)
+    expect(fs.statSync(checksumFile).mtimeMs).toBe(checksumMtimeBefore)
     expect(readChecksumRecord(checksumFile)).toEqual(checksumBefore)
   })
 
@@ -121,14 +140,15 @@ describe('generateModulePackageSources', () => {
     await generateModulePackageSources({ resolver: initialResolver, quiet: true })
     const outputBefore = fs.readFileSync(outFile, 'utf8')
     const initialStructure = readChecksumRecord(checksumFile)?.structure
-    const pinnedTime = new Date(Date.now() - 60_000)
+    const pinnedTime = new Date('2020-01-01T00:00:00.000Z')
     fs.utimesSync(outFile, pinnedTime, pinnedTime)
+    const outputMtimeBefore = fs.statSync(outFile).mtimeMs
 
     await generateModulePackageSources({ resolver: alternateResolver, quiet: true })
     const alternateStructure = readChecksumRecord(checksumFile)?.structure
     expect(alternateStructure).not.toBe(initialStructure)
     expect(fs.readFileSync(outFile, 'utf8')).toBe(outputBefore)
-    expect(fs.statSync(outFile).mtimeMs).toBe(pinnedTime.getTime())
+    expect(fs.statSync(outFile).mtimeMs).toBe(outputMtimeBefore)
 
     const packageJsonPath = path.join(packageRoot, 'package.json')
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>
@@ -140,15 +160,15 @@ describe('generateModulePackageSources', () => {
     expect(result.filesWritten).toEqual([])
     expect(result.filesUnchanged).toEqual([outFile])
     expect(fs.readFileSync(outFile, 'utf8')).toBe(outputBefore)
-    expect(fs.statSync(outFile).mtimeMs).toBe(pinnedTime.getTime())
+    expect(fs.statSync(outFile).mtimeMs).toBe(outputMtimeBefore)
   })
 
-  it('keeps official package validation as the source inclusion gate', async () => {
+  it('keeps package manifest validation as the source inclusion gate', async () => {
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
     copyDir(fixturePackageRoot, packageRoot)
     const packageJsonPath = path.join(packageRoot, 'package.json')
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>
-    packageJson.name = '@open-mercato/different-package'
+    packageJson.name = 'invalid package name'
     fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
     const resolver = createResolver(tmpDir, packageRoot, '@open-mercato/test-package')
 

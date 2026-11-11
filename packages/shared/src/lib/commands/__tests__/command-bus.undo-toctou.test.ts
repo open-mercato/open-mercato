@@ -92,10 +92,11 @@ describe('CommandBus.undo TOCTOU race guard', () => {
     const bus = new CommandBus()
     await expect(
       bus.undo('undo-token', { ...ctx, container: buildContainer(service) } as never),
-    ).rejects.toThrow('Undo token already consumed')
+    ).rejects.toThrow('[internal] Undo token already consumed')
 
     expect(undoMock).not.toHaveBeenCalled()
     expect(service.markUndone).not.toHaveBeenCalled()
+    expect(service.releaseUndoClaim).not.toHaveBeenCalled()
   })
 
   it('releases the claim when the undo handler fails so the action stays retryable', async () => {

@@ -1,6 +1,6 @@
 import * as React from 'react'
 import type { ActivityType } from './fieldConfig'
-import { isDateRequired } from './fieldConfig'
+import { isDateRequired, resolveScheduleActivityType } from './fieldConfig'
 
 export type RsvpStatus = 'pending' | 'accepted' | 'declined' | 'tentative'
 
@@ -22,6 +22,14 @@ export type ScheduleActivityEditData = {
   id: string
   /** Record version for the OSS optimistic-lock header on edit (#2055). */
   updatedAt?: string | null
+  /**
+   * The activity's own linked person/company id, captured at edit time. Callers
+   * that show activities from more than one entity (e.g. the deal detail page's
+   * multi-entity activity list) must set this so `ScheduleActivityDialog` keeps
+   * the edit payload's `entityId` pinned to the activity's actual record instead
+   * of whichever entity happens to be selected in the host page's picker (#6050).
+   */
+  entityId?: string | null
   interactionType?: string
   title?: string | null
   body?: string | null
@@ -130,7 +138,12 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
   // the seeding below must agree or new records inherit edit-mode fallbacks (#5940).
   const isEditing = Boolean(editData?.id)
   const [initialStart] = React.useState(() => resolveDefaultActivityStart('meeting', new Date()))
-  const [activityType, setActivityType] = React.useState<ActivityType>('meeting')
+  // Holds the raw persisted/selected interaction type — may be a built-in Event, a
+  // custom dictionary key, or a historical key the type picker no longer offers
+  // (#7486). Lookups into the five-kind presentation maps (`FIELD_VISIBILITY`,
+  // `TYPE_CHROME`, `DEFAULT_REMINDER_MINUTES`) must resolve through
+  // `resolveScheduleActivityType` first; this state is saved back verbatim.
+  const [activityType, setActivityType] = React.useState<string>('meeting')
   const [title, setTitle] = React.useState('')
   const [date, setDate] = React.useState(() => formatLocalDateInput(initialStart))
   const [startTime, setStartTime] = React.useState(() => formatLocalTimeInput(initialStart))
@@ -156,15 +169,20 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
     if (open) {
       if (editData) {
         // Edit mode: populate from existing interaction
-        const resolvedType = (editData.interactionType as ActivityType) ?? 'meeting'
-        setActivityType(resolvedType)
+        const rawType = editData.interactionType ?? 'meeting'
+        const resolvedType = resolveScheduleActivityType(rawType)
+        setActivityType(rawType)
         setTitle(editData.title ?? '')
-        // For historical activities the canonical timestamp is `occurredAt`; for
-        // planned/future ones it's `scheduledAt`. Without this fallback editing a
-        // past activity prefilled to "today" instead of its actual moment (#1807).
+        // `scheduledAt` is the canonical term of anything that was ever planned, so it
+        // wins whenever it is set: the save path recomputes `scheduledAt` from these
+        // seeded date/time fields, and seeding from `occurredAt` first silently
+        // overwrote a completed task's due date on unrelated edits (#5939).
+        // `occurredAt` stays the fallback for purely historical entries (a logged call
+        // or note) that never had a `scheduledAt`, so editing those still restores
+        // their actual moment instead of falling back to "today" (#1807).
         // Keep seed values in the user's local timezone, matching the cluster-E
         // local-day convention.
-        const sourceTimestamp = editData.occurredAt ?? editData.scheduledAt ?? null
+        const sourceTimestamp = editData.scheduledAt ?? editData.occurredAt ?? null
         const seedDate = sourceTimestamp ? new Date(sourceTimestamp) : null
         const seedDateValid = seedDate !== null && !Number.isNaN(seedDate.getTime())
         // A real edit of an undated task must stay undated: falling back to a
@@ -265,7 +283,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
   // Update the Reminder default when the activity type changes in create mode.
   // Skipped in edit mode (the persisted value wins), and gated by `open` to
   // avoid flipping the default in a closed-but-mounted dialog.
-  const lastReminderTypeRef = React.useRef<ActivityType>('meeting')
+  const lastReminderTypeRef = React.useRef<string>('meeting')
   React.useEffect(() => {
     if (!open || isEditing) {
       lastReminderTypeRef.current = activityType
@@ -273,7 +291,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
     }
     if (lastReminderTypeRef.current === activityType) return
     lastReminderTypeRef.current = activityType
-    setReminderMinutes(DEFAULT_REMINDER_MINUTES[activityType])
+    setReminderMinutes(DEFAULT_REMINDER_MINUTES[resolveScheduleActivityType(activityType)])
   }, [activityType, isEditing, open])
 
   const removeParticipant = React.useCallback((index: number) => {

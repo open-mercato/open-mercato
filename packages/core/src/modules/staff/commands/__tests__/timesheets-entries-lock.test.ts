@@ -91,10 +91,12 @@ type Entities = {
 
 type RegisteredCommand = {
   execute: (input: unknown, ctx: unknown) => Promise<unknown>
+  undo: (params: { input: unknown; ctx: unknown; logEntry: unknown }) => Promise<void>
 }
 
 type Loaded = {
   update: RegisteredCommand
+  create: RegisteredCommand
   remove: RegisteredCommand
   duplicate: RegisteredCommand
   startTimer: RegisteredCommand
@@ -113,6 +115,7 @@ async function loadCommands(): Promise<Loaded> {
   const entities = await import('../../data/entities')
   const rounding = await import('../../lib/time-tracking/rounding')
   return {
+    create: commandRegistry.get('staff.timesheets.time_entries.create') as RegisteredCommand,
     update: commandRegistry.get('staff.timesheets.time_entries.update') as RegisteredCommand,
     remove: commandRegistry.get('staff.timesheets.time_entries.delete') as RegisteredCommand,
     duplicate: commandRegistry.get('staff.timesheets.time_entries.duplicate') as RegisteredCommand,
@@ -199,7 +202,10 @@ function makeEm(world: World, entities: Entities) {
         if (where.id === undefined) return null
         return (
           world.entries.find(
-            (row) => row.id === where.id && !row.deletedAt && matchesScope(row as never, where),
+            (row) =>
+              row.id === where.id &&
+              !(where.deletedAt === null && row.deletedAt) &&
+              matchesScope(row as never, where),
           ) ?? null
         )
       }
@@ -213,6 +219,8 @@ function makeEm(world: World, entities: Entities) {
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => {}),
+    isInTransaction: jest.fn(() => true),
+    execute: jest.fn(async () => []),
     transactional: jest.fn(async (cb: (trx: unknown) => Promise<unknown>) => cb(em)),
   }
   em.fork.mockReturnValue(em)
@@ -423,6 +431,147 @@ describe('staff timesheets lock gate (T4.2 / TC-TT-018)', () => {
       // manufacture an overlap with the entry it came from.
       expect(busCalls[0].input.startedAt).toBeUndefined()
       expect(busCalls[0].input.endedAt).toBeUndefined()
+    })
+  })
+
+  describe('undo — the audit-log undo of an earlier write', () => {
+    function snapshotOf(row: EntryRow): Record<string, unknown> {
+      return {
+        ...row,
+        date: (row.date as Date).toISOString(),
+        startedAt: null,
+        endedAt: null,
+        deletedAt: row.deletedAt ? (row.deletedAt as Date).toISOString() : null,
+      }
+    }
+
+    it('refuses to restore the pre-edit values of an entry a report has since locked', async () => {
+      const { update, entities, lockedCode } = await loadCommands()
+      const entry = lockedEntryRow({ durationMinutes: 90, roundedMinutes: 90, notes: 'Billed' })
+      const world: World = { projects: [projectRow()], entries: [entry], created: [] }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+      const before = snapshotOf(entryRow({ durationMinutes: 60, roundedMinutes: 60, notes: 'Draft' }))
+
+      const error = await update
+        .undo({ input: {}, ctx, logEntry: { commandPayload: { undo: { before } } } })
+        .catch((err) => err)
+
+      expect(error).toMatchObject({ status: 409 })
+      expect(error.body).toMatchObject({ code: lockedCode, lockedReportId: REPORT_ID, lockedEntryIds: [ENTRY_ID] })
+      expect(entry.durationMinutes).toBe(90)
+      expect(entry.roundedMinutes).toBe(90)
+      expect(entry.notes).toBe('Billed')
+      expect(em.flush).not.toHaveBeenCalled()
+    })
+
+    it('still restores the pre-edit values of an unlocked entry', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ durationMinutes: 90, roundedMinutes: 90 })
+      const world: World = { projects: [projectRow()], entries: [entry], created: [] }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+      const before = snapshotOf(entryRow({ durationMinutes: 60, roundedMinutes: 60 }))
+
+      await update.undo({ input: {}, ctx, logEntry: { commandPayload: { undo: { before } } } })
+
+      expect(entry.durationMinutes).toBe(60)
+      expect(entry.roundedMinutes).toBe(60)
+      expect(em.flush).toHaveBeenCalled()
+    })
+
+    it('refuses to undo an edit of an entry deleted since, instead of reviving it without its segments', async () => {
+      // Zeroing the grid cell soft-deletes the entry and cascades to its segments,
+      // with no undo of its own. Restoring the edit's `before` snapshot wrote
+      // `deletedAt: null` and brought the entry back while its segments stayed
+      // deleted, so a timer entry lost its clock history.
+      const { update, entities } = await loadCommands()
+      const deletedAt = new Date('2026-07-05T00:00:00.000Z')
+      const entry = entryRow({ deletedAt, notes: 'Edited' })
+      const world: World = { projects: [projectRow()], entries: [entry], created: [] }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+      const before = snapshotOf(entryRow({ notes: 'Original' }))
+
+      const error = await update
+        .undo({ input: {}, ctx, logEntry: { commandPayload: { undo: { before } } } })
+        .catch((err) => err)
+
+      expect(error).toMatchObject({ status: 409 })
+      expect(entry.deletedAt).toBe(deletedAt)
+      expect(entry.notes).toBe('Edited')
+      expect(em.flush).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['create', (cmd: Loaded) => cmd.create],
+      ['start_timer', (cmd: Loaded) => cmd.startTimer],
+    ])('refuses to soft-delete an entry a report has since locked when undoing %s', async (_label, pick) => {
+      const loaded = await loadCommands()
+      const entry = lockedEntryRow()
+      const world: World = { projects: [projectRow()], entries: [entry], created: [] }
+      const em = makeEm(world, loaded.entities)
+      const { ctx } = makeCtx(em)
+      const after = snapshotOf(entryRow())
+
+      const error = await pick(loaded)
+        .undo({ input: {}, ctx, logEntry: { commandPayload: { undo: { after } } } })
+        .catch((err) => err)
+
+      expect(error).toMatchObject({ status: 409 })
+      expect(error.body).toMatchObject({ code: loaded.lockedCode, lockedReportId: REPORT_ID })
+      expect(entry.deletedAt).toBeNull()
+      expect(em.flush).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['create', (cmd: Loaded) => cmd.create],
+      ['start_timer', (cmd: Loaded) => cmd.startTimer],
+    ])('still soft-deletes an unlocked entry when undoing %s', async (_label, pick) => {
+      const loaded = await loadCommands()
+      const entry = entryRow()
+      const world: World = { projects: [projectRow()], entries: [entry], created: [] }
+      const em = makeEm(world, loaded.entities)
+      const { ctx } = makeCtx(em)
+      const after = snapshotOf(entryRow())
+
+      await pick(loaded).undo({ input: {}, ctx, logEntry: { commandPayload: { undo: { after } } } })
+
+      expect(entry.deletedAt).toBeInstanceOf(Date)
+    })
+
+    it('defensively refuses to rewrite a soft-deleted row that carries a report lock when undoing delete', async () => {
+      const { remove, entities, lockedCode } = await loadCommands()
+      const deletedAt = new Date('2026-07-05T00:00:00.000Z')
+      const entry = lockedEntryRow({ deletedAt, durationMinutes: 90 })
+      const world: World = { projects: [projectRow()], entries: [entry], created: [] }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+      const before = snapshotOf(entryRow({ durationMinutes: 60 }))
+
+      const error = await remove
+        .undo({ input: {}, ctx, logEntry: { commandPayload: { undo: { before } } } })
+        .catch((err) => err)
+
+      expect(error).toMatchObject({ status: 409 })
+      expect(error.body).toMatchObject({ code: lockedCode, lockedReportId: REPORT_ID })
+      expect(entry.deletedAt).toBe(deletedAt)
+      expect(entry.durationMinutes).toBe(90)
+      expect(em.flush).not.toHaveBeenCalled()
+    })
+
+    it('still restores an unlocked soft-deleted entry when undoing delete', async () => {
+      const { remove, entities } = await loadCommands()
+      const entry = entryRow({ deletedAt: new Date('2026-07-05T00:00:00.000Z') })
+      const world: World = { projects: [projectRow()], entries: [entry], created: [] }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+      const before = snapshotOf(entryRow())
+
+      await remove.undo({ input: {}, ctx, logEntry: { commandPayload: { undo: { before } } } })
+
+      expect(entry.deletedAt).toBeNull()
+      expect(em.flush).toHaveBeenCalled()
     })
   })
 

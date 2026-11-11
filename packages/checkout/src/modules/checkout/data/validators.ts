@@ -45,6 +45,8 @@ const optionalFieldsetCodeSchema = z.preprocess(
 )
 const positiveMoneySchema = z.coerce.number().finite('checkout.validation.common.invalidNumber').nonnegative('checkout.validation.common.nonNegativeNumber')
 const linkStatusSchema = z.enum(CHECKOUT_LINK_STATUSES)
+const themeModeSchema = z.enum(['light', 'dark', 'auto'])
+const checkoutTypeSchema = z.enum(['pay_link', 'simple_checkout'])
 
 export const customerFieldOptionSchema = z.object({
   value: requiredTrimmedString('checkout.validation.common.required'),
@@ -99,7 +101,7 @@ const checkoutContentSchema = z.object({
   primaryColor: hexColorSchema.optional().nullable(),
   secondaryColor: hexColorSchema.optional().nullable(),
   backgroundColor: hexColorSchema.optional().nullable(),
-  themeMode: z.enum(['light', 'dark', 'auto']).default('auto'),
+  themeMode: themeModeSchema.default('auto'),
   pricingMode: z.enum(['fixed', 'custom_amount', 'price_list']),
   fixedPriceAmount: positiveMoneySchema.optional().nullable(),
   fixedPriceCurrencyCode: currencyCodeSchema.optional().nullable(),
@@ -134,7 +136,20 @@ const checkoutContentSchema = z.object({
   password: optionalTrimmedString,
   maxCompletions: z.coerce.number().int('checkout.validation.common.integer').positive('checkout.validation.common.positiveInteger').optional().nullable(),
   status: linkStatusSchema.default('draft'),
-  checkoutType: z.enum(['pay_link', 'simple_checkout']).default('pay_link'),
+  checkoutType: checkoutTypeSchema.default('pay_link'),
+})
+
+const checkoutContentUpdateSchema = checkoutContentSchema.partial().extend({
+  themeMode: themeModeSchema.optional(),
+  fixedPriceIncludesTax: z.boolean().optional(),
+  collectCustomerDetails: z.boolean().optional(),
+  customerFieldsSchema: z.array(customerFieldDefinitionSchema).optional(),
+  displayCustomFieldsOnPage: z.boolean().optional(),
+  sendSuccessEmail: z.boolean().optional(),
+  sendErrorEmail: z.boolean().optional(),
+  sendStartEmail: z.boolean().optional(),
+  status: linkStatusSchema.optional(),
+  checkoutType: checkoutTypeSchema.optional(),
 })
 
 function validatePricingConsistency<T extends z.infer<typeof checkoutContentSchema>>(value: T, ctx: z.RefinementCtx) {
@@ -198,10 +213,8 @@ function applyPartialPricingConsistency(value: Record<string, unknown>, ctx: z.R
   }, ctx)
 }
 
-export const updateTemplateSchema = checkoutContentSchema.partial().extend({
+export const updateTemplateSchema = checkoutContentUpdateSchema.extend({
   id: z.string().uuid('checkout.validation.common.invalidUuid'),
-  password: optionalTrimmedString,
-  customerFieldsSchema: z.array(customerFieldDefinitionSchema).optional(),
 }).superRefine((value, ctx) => {
   applyPartialPricingConsistency(value, ctx)
   if (Object.prototype.hasOwnProperty.call(value, 'gatewayProviderKey') && !value.gatewayProviderKey) {
@@ -218,12 +231,10 @@ export const createLinkSchema = createTemplateSchema.safeExtend({
   slug: optionalTrimmedString,
 })
 
-export const updateLinkSchema = checkoutContentSchema.partial().safeExtend({
+export const updateLinkSchema = checkoutContentUpdateSchema.safeExtend({
   id: z.string().uuid('checkout.validation.common.invalidUuid'),
   templateId: z.string().uuid('checkout.validation.common.invalidUuid').optional().nullable(),
   slug: optionalTrimmedString,
-  password: optionalTrimmedString,
-  customerFieldsSchema: z.array(customerFieldDefinitionSchema).optional(),
 }).superRefine((value, ctx) => {
   applyPartialPricingConsistency(value, ctx)
 })

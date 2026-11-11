@@ -383,6 +383,16 @@ export const staffTimeEntryStartTimerSchema = z.object({
   notes: z.string().max(2000).optional().nullable(),
 })
 
+export const staffTimeEntryStopTimerSchema = z.object({
+  ...scopedCreateFields,
+  ...scopedUpdateFields,
+})
+
+export const staffTimeEntryStartTimerExistingSchema = z.object({
+  ...scopedCreateFields,
+  ...scopedUpdateFields,
+})
+
 export const staffTimeEntryBulkItemSchema = z.object({
   id: z.string().uuid().optional().nullable(),
   date: z.coerce.date(),
@@ -476,6 +486,7 @@ export const staffTimeProjectUpdateSchema = z.object({
   budgetKind: timeProjectBudgetKindSchema.optional(),
   budgetValue: numericAmountSchema.optional().nullable(),
   budgetWarnAtPercent: z.number().int().min(1).max(100).optional(),
+  defaultAssigneeStaffMemberId: z.string().uuid().optional().nullable(),
 })
 
 export const staffTimeProjectMemberAssignSchema = z.object({
@@ -486,6 +497,7 @@ export const staffTimeProjectMemberAssignSchema = z.object({
   status: timeProjectMemberStatusSchema.optional().default('active'),
   assignedStartDate: z.coerce.date(),
   assignedEndDate: z.coerce.date().optional().nullable(),
+  isAssigner: z.boolean().optional(),
 })
 
 export const staffTimeProjectMemberUpdateSchema = z.object({
@@ -493,15 +505,22 @@ export const staffTimeProjectMemberUpdateSchema = z.object({
   role: z.string().max(100).optional().nullable(),
   status: timeProjectMemberStatusSchema.optional(),
   assignedEndDate: z.coerce.date().optional().nullable(),
+  isAssigner: z.boolean().optional(),
 })
 
 export const staffMyProjectVisibilityUpdateSchema = z.object({
   showInGrid: z.boolean(),
 })
 
+export const staffTimesheetPreferenceUpdateSchema = z.object({
+  lastProjectId: z.string().uuid().nullable(),
+})
+
 export type StaffTimeEntryCreateInput = z.infer<typeof staffTimeEntryCreateSchema>
 export type StaffTimeEntryUpdateInput = z.infer<typeof staffTimeEntryUpdateSchema>
 export type StaffTimeEntryStartTimerInput = z.infer<typeof staffTimeEntryStartTimerSchema>
+export type StaffTimeEntryStopTimerInput = z.infer<typeof staffTimeEntryStopTimerSchema>
+export type StaffTimeEntryStartTimerExistingInput = z.infer<typeof staffTimeEntryStartTimerExistingSchema>
 export type StaffTimeEntryBulkSaveInput = z.infer<typeof staffTimeEntryBulkSaveSchema>
 export type StaffTimeEntrySegmentCreateInput = z.infer<typeof staffTimeEntrySegmentCreateSchema>
 export type StaffTimeEntrySegmentUpdateInput = z.infer<typeof staffTimeEntrySegmentUpdateSchema>
@@ -510,6 +529,7 @@ export type StaffTimeProjectUpdateInput = z.infer<typeof staffTimeProjectUpdateS
 export type StaffTimeProjectMemberAssignInput = z.infer<typeof staffTimeProjectMemberAssignSchema>
 export type StaffTimeProjectMemberUpdateInput = z.infer<typeof staffTimeProjectMemberUpdateSchema>
 export type StaffMyProjectVisibilityUpdateInput = z.infer<typeof staffMyProjectVisibilityUpdateSchema>
+export type StaffTimesheetPreferenceUpdateInput = z.infer<typeof staffTimesheetPreferenceUpdateSchema>
 
 // --- Time tracking consulting suite validators (tasks, tags, reports, settings) ---
 
@@ -596,12 +616,23 @@ export const staffTimeTaskCommentCreateSchema = z.object({
   taskId: z.string().uuid(),
   body: z.string().trim().min(1).max(5000),
   authorUserId: z.string().uuid().optional().nullable(),
+  visibility: z.enum(['internal', 'customer']).optional(),
 })
 
 export const staffTimeTaskCommentUpdateSchema = z.object({
   ...scopedUpdateFields,
   body: z.string().trim().min(1).max(5000),
+  visibility: z.enum(['internal', 'customer']).optional(),
 })
+
+export const staffTimeTaskCommentUpdateRequestSchema = staffTimeTaskCommentUpdateSchema
+  .extend({
+    body: z.string().trim().min(1).max(5000).optional(),
+  })
+  .refine((value) => value.body !== undefined || value.visibility !== undefined, {
+    message: 'body or visibility is required',
+    path: ['body'],
+  })
 
 export const staffTimeTagCreateSchema = z.object({
   ...scopedCreateFields,
@@ -721,6 +752,7 @@ export type StaffTimeTaskUpdateInput = z.infer<typeof staffTimeTaskUpdateSchema>
 export type StaffTimeTaskStatusChangeInput = z.infer<typeof staffTimeTaskStatusChangeSchema>
 export type StaffTimeTaskCommentCreateInput = z.infer<typeof staffTimeTaskCommentCreateSchema>
 export type StaffTimeTaskCommentUpdateInput = z.infer<typeof staffTimeTaskCommentUpdateSchema>
+export type StaffTimeTaskCommentUpdateRequestInput = z.infer<typeof staffTimeTaskCommentUpdateRequestSchema>
 export type StaffTimeTagCreateInput = z.infer<typeof staffTimeTagCreateSchema>
 export type StaffTimeTaskTagAssignmentInput = z.infer<typeof staffTimeTaskTagAssignmentSchema>
 export type StaffTimeEntryTagAssignmentInput = z.infer<typeof staffTimeEntryTagAssignmentSchema>
@@ -731,3 +763,24 @@ export type StaffTimeReportCloseInput = z.infer<typeof staffTimeReportCloseSchem
 export type StaffTimeReportUnlockInput = z.infer<typeof staffTimeReportUnlockSchema>
 export type StaffTimeProjectChangeCurrencyInput = z.infer<typeof staffTimeProjectChangeCurrencySchema>
 export type StaffTimeTrackingSettingsInput = z.infer<typeof staffTimeTrackingSettingsSchema>
+
+export const staffSupportRoutingRuleCreateSchema = z.object({
+  ...scopedCreateFields,
+  categoryValue: z.string().trim().min(1).max(150).optional().nullable(),
+  timeProjectId: z.string().uuid(),
+  isActive: z.boolean().optional().default(true),
+})
+
+export const staffSupportRoutingRuleUpdateSchema = z.object({
+  ...scopedUpdateFields,
+  timeProjectId: z.string().uuid().optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const staffSupportFallbackProjectCreateSchema = z.object({
+  ...scopedCreateFields,
+})
+
+export type StaffSupportRoutingRuleCreateInput = z.infer<typeof staffSupportRoutingRuleCreateSchema>
+export type StaffSupportRoutingRuleUpdateInput = z.infer<typeof staffSupportRoutingRuleUpdateSchema>
+export type StaffSupportFallbackProjectCreateInput = z.infer<typeof staffSupportFallbackProjectCreateSchema>

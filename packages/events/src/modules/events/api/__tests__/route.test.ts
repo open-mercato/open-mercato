@@ -22,6 +22,15 @@ jest.mock('@open-mercato/shared/modules/events', () => ({
       category: 'crud',
     },
     {
+      id: 'catalog.product.created',
+      module: 'catalog',
+      entity: 'product',
+      label: 'Product Created',
+      category: 'crud',
+      clientBroadcast: true,
+      broadcastCoalescing: true,
+    },
+    {
       id: 'webhooks.delivery.lifecycle',
       module: 'webhooks',
       entity: 'delivery',
@@ -53,20 +62,24 @@ describe('GET /api/events (core events module route)', () => {
     const res = await GET(makeReq())
     expect(res.status).toBe(200)
     const body = (await res.json()) as { data: Array<{ id: string }>; total: number }
-    expect(body.total).toBe(2)
-    expect(body.data.map((e) => e.id)).toEqual(['customers.person.created', 'sales.order.placed'])
+    expect(body.total).toBe(3)
+    expect(body.data.map((e) => e.id)).toEqual([
+      'customers.person.created',
+      'sales.order.placed',
+      'catalog.product.created',
+    ])
   })
 
   it('respects excludeTriggerExcluded=false and returns trigger-excluded events too', async () => {
     const res = await GET(makeReq('http://localhost/api/events?excludeTriggerExcluded=false'))
     const body = (await res.json()) as { total: number }
-    expect(body.total).toBe(3)
+    expect(body.total).toBe(4)
   })
 
   it('filters by category', async () => {
     const res = await GET(makeReq('http://localhost/api/events?category=crud'))
     const body = (await res.json()) as { total: number; data: Array<{ category: string }> }
-    expect(body.total).toBe(2)
+    expect(body.total).toBe(3)
     expect(body.data.every((e) => e.category === 'crud')).toBe(true)
   })
 
@@ -93,5 +106,15 @@ describe('GET /api/events (core events module route)', () => {
     const untyped = body.data.find((e) => e.id === 'sales.order.placed')
     expect(untyped).toBeDefined()
     expect(untyped?.payloadSchema).toBeUndefined()
+  })
+
+  it('round-trips broadcastCoalescing for events that declare it and omits it otherwise', async () => {
+    const res = await GET(makeReq())
+    const body = (await res.json()) as { data: Array<{ id: string; broadcastCoalescing?: boolean }> }
+    const coalesced = body.data.find((e) => e.id === 'catalog.product.created')
+    expect(coalesced?.broadcastCoalescing).toBe(true)
+    const notCoalesced = body.data.find((e) => e.id === 'sales.order.placed')
+    expect(notCoalesced).toBeDefined()
+    expect(notCoalesced?.broadcastCoalescing).toBeUndefined()
   })
 })

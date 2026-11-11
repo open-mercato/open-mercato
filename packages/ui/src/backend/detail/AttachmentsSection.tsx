@@ -61,6 +61,7 @@ function AttachmentsSectionImpl({
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [deleteTarget, setDeleteTarget] = React.useState<AttachmentItem | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  const uploadingRef = React.useRef(false)
 
   const load = React.useCallback(async (targetPage = 1, replace = true) => {
     if (!recordId) return
@@ -121,9 +122,12 @@ function AttachmentsSectionImpl({
 
   const acceptFiles = React.useCallback(
     async (files: FileList | null) => {
-      if (!files || !files.length || !recordId) return
+      if (!files || !files.length || !recordId || uploadingRef.current) return
+      uploadingRef.current = true
       setError(null)
       setIsUploading(true)
+      let uploadedCount = 0
+      let uploadError: string | null = null
       try {
         for (const file of Array.from(files)) {
           const fd = new FormData()
@@ -139,12 +143,19 @@ function AttachmentsSectionImpl({
             const message = call.result?.error || t('attachments.library.upload.failed', 'Upload failed.')
             throw new Error(message)
           }
+          uploadedCount += 1
         }
-        await load(1, true)
-        onChanged?.()
       } catch (err: any) {
-        setError(err?.message || t('attachments.library.upload.failed', 'Upload failed.'))
+        uploadError = err?.message || t('attachments.library.upload.failed', 'Upload failed.')
+      }
+      try {
+        if (uploadedCount > 0) {
+          await load(1, true)
+          onChanged?.()
+        }
       } finally {
+        if (uploadError) setError(uploadError)
+        uploadingRef.current = false
         setIsUploading(false)
         if (fileInputRef.current) {
           fileInputRef.current.value = ''
@@ -271,12 +282,13 @@ function AttachmentsSectionImpl({
             type="file"
             multiple
             className="hidden"
+            disabled={isUploading}
             onChange={(event) => void acceptFiles(event.target.files)}
           />
         </div>
       )}
 
-      {error ? <p className="text-xs font-medium text-status-error-text">{error}</p> : null}
+      {error ? <p role="alert" className="text-xs font-medium text-status-error-text">{error}</p> : null}
 
       {loading ? (
         <div className="text-sm text-muted-foreground">{t('attachments.library.loading', 'Loading attachments…')}</div>

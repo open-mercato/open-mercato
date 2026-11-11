@@ -8,6 +8,7 @@ import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { registerCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import cli from '@open-mercato/core/modules/auth/cli'
+import { createTransactionalEntityManagerDouble } from '../../../test-utils/transactionalEntityManagerDouble'
 
 jest.setTimeout(60_000)
 
@@ -51,13 +52,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (_: string) => {
       const baseEm = { findOne, findOneOrFail, create, find, persist, flush }
-      return {
-        ...baseEm,
-        transactional: async (cb: (tem: any) => any) => {
-          const tem = { ...baseEm }
-          return await cb(tem)
-        },
-      }
+      return createTransactionalEntityManagerDouble(baseEm)
     },
   }),
 }))
@@ -180,15 +175,14 @@ describe('mercato auth setup --include-demo-users', () => {
     // includeDerivedUsers: true without consenting to demo passwords in production.
     const { setupInitialTenant, DerivedUserPasswordRequiredError } = await import('@open-mercato/core/modules/auth/lib/setup-app')
     process.env.NODE_ENV = 'production'
-    const em: any = {
+    const em: any = createTransactionalEntityManagerDouble({
       findOne,
       findOneOrFail,
       create,
       find,
       persist,
       flush,
-      transactional: async (cb: any) => cb({ findOne, findOneOrFail, create, find, persist, flush }),
-    }
+    })
     await expect(
       setupInitialTenant(em, {
         orgName: 'Acme',

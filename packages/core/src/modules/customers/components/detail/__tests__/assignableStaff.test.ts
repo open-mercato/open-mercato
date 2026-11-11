@@ -7,9 +7,10 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 import {
+  fetchCurrentUserName,
   fetchAssignableStaffMembers,
   fetchAssignableStaffMembersPage,
-} from '../assignableStaff'
+} from '../../../lib/assignableStaff'
 
 function httpError(status: number): Error & { status: number } {
   const error = new Error(`Request failed (${status})`) as Error & { status: number }
@@ -222,5 +223,31 @@ describe('fetchAssignableStaffMembers', () => {
         teamName: null,
       },
     ])
+  })
+})
+
+describe('fetchCurrentUserName', () => {
+  beforeEach(() => {
+    readApiResultOrThrowMock.mockReset()
+  })
+
+  it('resolves the signed-in owner without the optional staff module', async () => {
+    readApiResultOrThrowMock.mockResolvedValueOnce({
+      name: 'Ada Lovelace',
+      email: 'ada@example.com',
+    })
+
+    await expect(fetchCurrentUserName()).resolves.toBe('Ada Lovelace')
+    expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+      '/api/auth/profile',
+      undefined,
+    )
+  })
+
+  it('falls back to email and fails soft when profile lookup fails', async () => {
+    readApiResultOrThrowMock.mockResolvedValueOnce({ name: null, email: 'ada@example.com' })
+    await expect(fetchCurrentUserName()).resolves.toBe('ada@example.com')
+    readApiResultOrThrowMock.mockRejectedValueOnce(httpError(403))
+    await expect(fetchCurrentUserName()).resolves.toBeNull()
   })
 })

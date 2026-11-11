@@ -44,10 +44,16 @@ describe('channelOrgScopeWhereFromFilter', () => {
     })
   })
 
-  it('applies no org restriction for an unrestricted caller', () => {
+  it('applies no org restriction for an unrestricted or absent filter', () => {
     expect(channelOrgScopeWhereFromFilter({ organizationIds: undefined })).toEqual({})
-    expect(channelOrgScopeWhereFromFilter({ organizationIds: [] })).toEqual({})
     expect(channelOrgScopeWhereFromFilter(null)).toEqual({})
+    expect(channelOrgScopeWhereFromFilter(undefined)).toEqual({})
+  })
+
+  it('denies every row for an explicitly empty organization scope', () => {
+    expect(channelOrgScopeWhereFromFilter({ organizationIds: [] })).toEqual({
+      organizationId: { $in: [] },
+    })
   })
 })
 

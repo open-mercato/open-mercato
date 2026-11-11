@@ -121,7 +121,7 @@ export default function PortalDashboardPage({ params }: Props) {
               const isHidden = hiddenWidgets.has(widget.metadata.id)
               return (
                 <Button key={widget.metadata.id} type="button" variant={isHidden ? 'outline' : 'default'} size="sm" className="rounded-lg text-sm" onClick={() => toggleWidget(widget.metadata.id)}>
-                  {widget.metadata.title || widget.metadata.id}
+                  {widget.metadata.title ? t(widget.metadata.title, widget.metadata.title) : widget.metadata.id}
                 </Button>
               )
             })}
@@ -136,7 +136,7 @@ export default function PortalDashboardPage({ params }: Props) {
             if (!WidgetComponent) return null
             return (
               <PortalCard key={widget.metadata.id}>
-                <PortalCardHeader title={widget.metadata.title || widget.metadata.id} />
+                <PortalCardHeader title={widget.metadata.title ? t(widget.metadata.title, widget.metadata.title) : widget.metadata.id} />
                 <WidgetComponent context={{ orgSlug: params.orgSlug, user, roles: auth.roles, resolvedFeatures: auth.resolvedFeatures }} />
               </PortalCard>
             )
