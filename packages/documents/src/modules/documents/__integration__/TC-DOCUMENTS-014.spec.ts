@@ -44,6 +44,26 @@ async function deleteDocument(request: APIRequestContext, token: string | null, 
   }).catch(() => undefined)
 }
 
+/**
+ * The canonical CRM detail pages mount the panel as a tab of their related-content
+ * workspace (#7488); the person page folds extra tabs into a More menu. Legacy CRM,
+ * sales and catalog hosts still render the inline stack. The tab is injected after the
+ * built-in ones, so keep looking until it shows up inline or in the menu.
+ */
+const TAB_HOSTS = [/\/backend\/customers\/people-v2\//, /\/backend\/customers\/companies-v2\//, /\/backend\/customers\/deals\//]
+
+async function openRelatedDocumentsTab(page: import('@playwright/test').Page): Promise<void> {
+  await expect(async () => {
+    const tab = page.getByRole('tab', { name: /^Related documents/ })
+    if (await tab.isVisible()) {
+      await tab.click()
+      return
+    }
+    await page.getByTestId('detail-tabs-more').click({ timeout: 2_000 })
+    await page.getByRole('menuitem', { name: /^Related documents/ }).click({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
+}
+
 async function deleteTemplate(request: APIRequestContext, token: string | null, template: Created | null): Promise<void> {
   if (!token || !template) return
   await request.fetch('/api/documents/templates', {
@@ -104,11 +124,17 @@ test.describe('TC-DOCUMENTS-014: UMES related documents across host records', ()
         await createLink(request, token, document.id, { entityType: host.entityType, entityId: hostId, label: `Related ${host.kind} ${stamp}`, href: `${host.path.replace(/-v2$/, '')}/${hostId}` })
         await login(page, 'admin')
         await page.goto(href, { waitUntil: 'domcontentloaded' })
+        if (TAB_HOSTS.some((tabHost) => tabHost.test(href))) {
+          await expect(page.getByRole('tab', { name: /^activit/i }), `workspace on ${href}`).toBeVisible({ timeout: 30_000 })
+          await expect(page.getByRole('heading', { name: 'Related documents' }), `no detached panel on ${href}`).toHaveCount(0)
+          await openRelatedDocumentsTab(page)
+          await expect(page.getByRole('heading', { name: 'Related documents' }), `only the tab panel on ${href}`).toHaveCount(1, { timeout: 30_000 })
+        }
         await expect(page.getByRole('heading', { name: 'Related documents' }).first(), `widget on ${href}`).toBeVisible()
         const titleLink = page.getByRole('link', { name: title }).first()
         await expect(titleLink).toBeVisible()
         await expect(titleLink).toHaveAttribute('href', `/backend/documents/${document.id}`)
-        await expect(page).toHaveURL(new RegExp(`${href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`))
+        await expect(page).toHaveURL(new RegExp(`${href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\?tab=related-documents)?$`))
       } finally {
         await deleteDocument(request, token, document?.id ?? null)
         await deleteHost(request, token, host.kind, hostId)
@@ -128,6 +154,7 @@ test.describe('TC-DOCUMENTS-014: UMES related documents across host records', ()
       personId = await createHost(request, token, 'person', stamp)
       await login(page, 'admin')
       await page.goto(`/backend/customers/people-v2/${personId}`, { waitUntil: 'domcontentloaded' })
+      await openRelatedDocumentsTab(page)
       await expect(page.getByRole('heading', { name: 'Related documents' })).toBeVisible()
       await page.getByRole('button', { name: 'Link existing' }).click()
       await expect(page.getByRole('link', { name: title })).toHaveCount(0)
@@ -177,6 +204,7 @@ test.describe('TC-DOCUMENTS-014: UMES related documents across host records', ()
       template = { id: expectId(templateBody?.id, 'template id'), updatedAt: expectId(templateBody?.updatedAt, 'template updatedAt') }
       await login(page, 'admin')
       await page.goto(`/backend/customers/people-v2/${personId}`, { waitUntil: 'domcontentloaded' })
+      await openRelatedDocumentsTab(page)
       await page.getByRole('button', { name: 'New from template' }).click()
       const templateDialog = page.getByRole('dialog', { name: 'New from template' })
       await templateDialog.getByLabel('Search templates').fill(templateName)
@@ -205,6 +233,7 @@ test.describe('TC-DOCUMENTS-014: UMES related documents across host records', ()
       await login(page, 'admin')
       const href = `/backend/customers/people-v2/${personId}`
       await page.goto(href, { waitUntil: 'domcontentloaded' })
+      await openRelatedDocumentsTab(page)
       await expect(page.getByRole('button', { name: 'Link existing' })).toBeVisible()
       const relatedUrl = `**/api/documents?entityType=customer-person&entityId=${personId}&*`
       await page.route(relatedUrl, async (route) => {
@@ -216,9 +245,10 @@ test.describe('TC-DOCUMENTS-014: UMES related documents across host records', ()
           return url.pathname === '/api/documents' && url.searchParams.get('entityId') === personId && response.status() === 403
         })
         await page.reload({ waitUntil: 'domcontentloaded' })
+        await openRelatedDocumentsTab(page)
         await deniedResponse
         await expect(page.getByRole('heading', { name: `Related Person ${stamp}`, exact: true })).toBeVisible()
-        await expect(page).toHaveURL(new RegExp(`${href}$`))
+        await expect(page).toHaveURL(new RegExp(`${href}(\\?tab=related-documents)?$`))
         await expect(page.getByRole('heading', { name: 'Related documents' })).toHaveCount(0)
       } finally {
         await page.unroute(relatedUrl)
