@@ -302,6 +302,74 @@ describe('RateLimiterService', () => {
       expect(internals.getOrCreateLimiter(sharedLimitConfig))
         .not.toBe(internals.getOrCreateLimiter(defaultLimitConfig))
     })
+
+    // The redis branch is where the flag matters. The mocked ioredis client cannot run any
+    // command, which stands in for a Redis outage.
+    describe('redis strategy', () => {
+      async function createRedisService(): Promise<RateLimiterService> {
+        const redisService = new RateLimiterService(createConfig({
+          strategy: 'redis',
+          redisUrl: 'redis://localhost:6379',
+        }))
+        await redisService.initialize()
+        return redisService
+      }
+
+      function buildLimiter(redisService: RateLimiterService, config: RateLimitConfig): unknown {
+        const internals = redisService as unknown as {
+          getOrCreateLimiter: (config: RateLimitConfig) => unknown
+        }
+        return internals.getOrCreateLimiter(config)
+      }
+
+      it('builds a flagged limiter without the in-memory insurance limiter and rejecting when redis is not ready', async () => {
+        service = await createRedisService()
+
+        const flagged = buildLimiter(service, sharedLimitConfig) as {
+          insuranceLimiter?: unknown
+          _rejectIfRedisNotReady?: boolean
+        }
+
+        expect(service.sharedEnabled).toBe(true)
+        expect(flagged).toBeInstanceOf(RateLimiterRedis)
+        expect(flagged.insuranceLimiter).toBeUndefined()
+        expect(flagged._rejectIfRedisNotReady).toBe(true)
+      })
+
+      it('keeps the in-memory insurance limiter for an unflagged limiter', async () => {
+        service = await createRedisService()
+
+        const unflagged = buildLimiter(service, defaultLimitConfig) as {
+          insuranceLimiter?: unknown
+          _rejectIfRedisNotReady?: boolean
+        }
+
+        expect(unflagged).toBeInstanceOf(RateLimiterRedis)
+        expect(unflagged.insuranceLimiter).toBeInstanceOf(RateLimiterMemory)
+        expect(unflagged._rejectIfRedisNotReady).toBe(false)
+      })
+
+      it('returns a degraded result and never counts in memory when redis fails and the limiter is flagged', async () => {
+        service = await createRedisService()
+        const memoryConsume = jest.spyOn(RateLimiterMemory.prototype, 'consume')
+
+        const result = await service.consume('redis-key', sharedLimitConfig)
+
+        expect(result.degraded).toBe(true)
+        expect(memoryConsume).not.toHaveBeenCalled()
+      })
+
+      it('still falls back to the in-memory insurance limiter when redis fails and the limiter is not flagged', async () => {
+        service = await createRedisService()
+        const memoryConsume = jest.spyOn(RateLimiterMemory.prototype, 'consume')
+
+        const result = await service.consume('redis-key', defaultLimitConfig)
+
+        expect(result.degraded).toBeFalsy()
+        expect(result.consumedPoints).toBe(1)
+        expect(memoryConsume).toHaveBeenCalledTimes(1)
+      })
+    })
   })
 
   describe('limiter caching', () => {
