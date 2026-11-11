@@ -46,7 +46,7 @@ PR: #9283
 
 ### Phase 2: Patch and verify
 
-- [ ] 2.1 Patch compatible graph and add focused coverage
+- [x] 2.1 Patch compatible graph and add focused coverage — ff27127dc9
 - [ ] 2.2 Execute focused and ordered validation
 
 ### Phase 3: Handoff
