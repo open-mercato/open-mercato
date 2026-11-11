@@ -1,8 +1,8 @@
 /** @jest-environment node */
 
 /**
- * `applyDocumentUpdate` groups each method id with its code and snapshot. A
- * PATCH that sends only the code or only the snapshot must change only that
+ * `applyDocumentUpdate` groups each method id with its code and snapshot. An
+ * update that sends only the code or only the snapshot must change only that
  * field: the method id, the method relation and the other sibling stay as they
  * were. Sending the id (a new one or null) still re-derives code and snapshot.
  */
