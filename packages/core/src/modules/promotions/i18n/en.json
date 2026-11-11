@@ -270,7 +270,7 @@
   "promotions.list.searchPlaceholder": "Search promotions...",
   "promotions.list.title": "Promotions",
   "promotions.nav.group": "Promotions",
-  "promotions.notifications.usageReinstateBlocked.body": "Reviving order {orderId} could not restore its promotion/code usage without exceeding the limit, so the order has been automatically returned to cancelled rather than keeping an unbacked discount.",
+  "promotions.notifications.usageReinstateBlocked.body": "Reviving order {orderId} could not restore its promotion/code usage without exceeding the limit, so the order is being automatically returned to cancelled rather than keeping an unbacked discount.",
   "promotions.notifications.usageReinstateBlocked.title": "Promotion usage could not be reinstated",
   "promotions.operators.eq": "Equals",
   "promotions.operators.gt": "Greater than",

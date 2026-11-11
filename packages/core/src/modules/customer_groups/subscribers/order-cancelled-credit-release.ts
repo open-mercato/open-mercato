@@ -121,7 +121,11 @@ export async function handleOrderCreditRelease(
       // acting on a STALE event. Cancel A, revive A (reinstating its credit hold), then
       // deliver a delayed/redelivered `sales.order.cancelled` for A: without this check
       // the serialized release would still re-release the just-reinstated reservation.
-      // Only a currently-`canceled` order gets its reservation released.
+      // Only a currently-canceled order gets its reservation released. Sales recognizes
+      // BOTH `canceled` and `cancelled` as live cancellation spellings (its own
+      // `isCancelledOrderStatus` guard, and `sales.order.cancelled` fires for either) —
+      // #8268 review Major 3 (re-review): comparing against only `canceled` here let an
+      // order left as `cancelled` skip this release entirely.
       const current = await tx.getConnection().execute(
         'select status from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
         [orderId, tenantId, organizationId],
@@ -129,7 +133,7 @@ export async function handleOrderCreditRelease(
       const currentStatus = Array.isArray(current) && current.length > 0
         ? (current[0] as { status?: string | null }).status ?? null
         : null
-      if (currentStatus !== 'canceled') {
+      if (currentStatus !== 'canceled' && currentStatus !== 'cancelled') {
         logger.debug('[customer_groups:order-cancelled-credit-release] skipped stale cancellation redelivery — order is no longer canceled', {
           orderId,
           tenantId,

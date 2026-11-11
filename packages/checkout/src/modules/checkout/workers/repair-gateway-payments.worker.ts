@@ -2,8 +2,10 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { CheckoutSession, CheckoutTransaction } from '../data/entities'
 import { recordGatewayPayment } from '../commands/submit'
+import { tryResolve } from '../lib/tryResolve'
 
 const logger = createLogger('checkout').child({ component: 'repair-gateway-payments' })
 
@@ -28,6 +30,12 @@ type RepairScope = { tenantId: string; organizationId: string }
 // would re-scan every historical completed transaction forever. `recordGatewayPayment`'s
 // own 3 immediate in-process retries cover almost every case; this worker exists only for
 // the rare leftover, so a generous-but-finite lookback catches it without unbounded growth.
+//
+// That lookback is ONLY a cheap default scanning window, not this worker's sole recovery
+// path: a transaction can still be outstanding when its `updatedAt` crosses the cutoff
+// (e.g. during a multi-day outage of whatever this worker depends on), and the small
+// "ancient" safety-net scan below (`REPAIR_ANCIENT_PAGE_SIZE`) exists specifically so that
+// still-broken work older than the window is never permanently unreachable.
 const REPAIR_LOOKBACK_MS = 48 * 60 * 60 * 1000
 
 // #8268 review Major 6 (re-review): the previous fix bounded the batch this worker ACTS
@@ -43,7 +51,92 @@ const REPAIR_PAGE_SIZE = 200
 // through the whole window every single run looking for the few still-outstanding ones.
 const REPAIR_MAX_PAGES = 25
 
+// #8268 review: bounded repair still starves and expires unresolved payments. Scanning
+// always started from `cursor = null` (the oldest row in the window) on every single run,
+// so once more than `REPAIR_MAX_PAGES * REPAIR_PAGE_SIZE` already-correct rows accumulate
+// in the window, the sweep re-discards that SAME dead zone forever and can never reach
+// anything past it. The cursor is now persisted across runs (see `loadCursorState` /
+// `persistCursorState`) so each run resumes roughly where the previous one stopped,
+// wrapping back to `null` only once a run's page comes back short of `REPAIR_PAGE_SIZE`
+// (i.e. the scan actually caught up to "now" within the window) — so the sweep still
+// eventually revisits the whole window without re-scanning the same prefix every time.
+const REPAIR_CURSOR_CONFIG_MODULE_ID = 'checkout'
+const repairCursorConfigName = (organizationId: string) => `repair-gateway-payments:cursor:${organizationId}`
+
+// The ancient safety-net scan's own page size — deliberately tiny and fixed, independent
+// of how large the ancient (pre-cutoff) backlog grows during an outage. It keyset-pages
+// through `updatedAt < cutoff` the same way the main scan pages through `updatedAt >=
+// cutoff`, using its OWN persisted cursor, so a bad outage that ages many transactions out
+// of the lookback window gets worked through a little at a time across many runs instead
+// of either being scanned in full (reintroducing unbounded growth) or never revisited.
+const REPAIR_ANCIENT_PAGE_SIZE = 20
+
 type TransactionCursor = { updatedAt: Date; id: string }
+type ScanMode = 'window' | 'ancient'
+
+type RepairCursorState = {
+  mainCursor: TransactionCursor | null
+  ancientCursor: TransactionCursor | null
+}
+
+const NULL_CURSOR_STATE: RepairCursorState = { mainCursor: null, ancientCursor: null }
+
+function serializeCursor(cursor: TransactionCursor | null): { updatedAt: string; id: string } | null {
+  return cursor ? { updatedAt: cursor.updatedAt.toISOString(), id: cursor.id } : null
+}
+
+function deserializeCursor(raw: unknown): TransactionCursor | null {
+  if (!raw || typeof raw !== 'object') return null
+  const updatedAtRaw = (raw as Record<string, unknown>).updatedAt
+  const idRaw = (raw as Record<string, unknown>).id
+  if (typeof updatedAtRaw !== 'string' || typeof idRaw !== 'string') return null
+  const updatedAt = new Date(updatedAtRaw)
+  if (Number.isNaN(updatedAt.getTime())) return null
+  return { updatedAt, id: idRaw }
+}
+
+async function loadCursorState(
+  moduleConfigService: ModuleConfigService | undefined,
+  scope: RepairScope,
+): Promise<RepairCursorState> {
+  if (!moduleConfigService) return NULL_CURSOR_STATE
+  try {
+    const raw = await moduleConfigService.getValue<Record<string, unknown>>(
+      REPAIR_CURSOR_CONFIG_MODULE_ID,
+      repairCursorConfigName(scope.organizationId),
+      { scope: { tenantId: scope.tenantId } },
+    )
+    if (!raw || typeof raw !== 'object') return NULL_CURSOR_STATE
+    return {
+      mainCursor: deserializeCursor((raw as Record<string, unknown>).mainCursor),
+      ancientCursor: deserializeCursor((raw as Record<string, unknown>).ancientCursor),
+    }
+  } catch (err) {
+    logger.error('[internal] repair-gateway-payments: failed to load the persisted scan cursor, restarting the sweep from the oldest row', { err })
+    return NULL_CURSOR_STATE
+  }
+}
+
+async function persistCursorState(
+  moduleConfigService: ModuleConfigService | undefined,
+  scope: RepairScope,
+  state: RepairCursorState,
+): Promise<void> {
+  if (!moduleConfigService) return
+  try {
+    await moduleConfigService.setValue(
+      REPAIR_CURSOR_CONFIG_MODULE_ID,
+      repairCursorConfigName(scope.organizationId),
+      { mainCursor: serializeCursor(state.mainCursor), ancientCursor: serializeCursor(state.ancientCursor) },
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
+  } catch (err) {
+    // Correctness (not just observability) depends on this write landing — a silent
+    // failure here reintroduces the starvation this worker exists to fix, so this is
+    // logged loudly rather than swallowed.
+    logger.error('[internal] repair-gateway-payments: failed to persist the scan cursor, next run will restart the sweep from the oldest row', { err })
+  }
+}
 
 /**
  * #8268 review Medium 7: `recordGatewayPayment` (`commands/submit.ts`) already retries 3
@@ -88,6 +181,8 @@ async function fetchCandidatePage(
   scope: RepairScope,
   cutoff: Date,
   cursor: TransactionCursor | null,
+  mode: ScanMode,
+  pageSize: number,
 ): Promise<CheckoutTransaction[]> {
   const where: FilterQuery<CheckoutTransaction> = {
     tenantId: scope.tenantId,
@@ -95,7 +190,10 @@ async function fetchCandidatePage(
     status: 'completed',
     sessionId: { $ne: null },
     orderId: { $ne: null },
-    updatedAt: { $gte: cutoff },
+    // `window` is this worker's normal, bounded-recent scan (`updatedAt >= cutoff`);
+    // `ancient` is the safety-net scan for work that already aged past the cutoff
+    // (`updatedAt < cutoff`) — see the comments above `REPAIR_ANCIENT_PAGE_SIZE`.
+    updatedAt: mode === 'window' ? { $gte: cutoff } : { $lt: cutoff },
   }
   if (cursor) {
     // Keyset pagination tiebreaker: `updatedAt` alone can repeat across rows, `id` never
@@ -107,7 +205,7 @@ async function fetchCandidatePage(
   }
   return em.find(CheckoutTransaction, where, {
     orderBy: { updatedAt: 'ASC', id: 'ASC' },
-    limit: REPAIR_PAGE_SIZE,
+    limit: pageSize,
   })
 }
 
@@ -121,29 +219,79 @@ export default async function handle(job: QueuedJob<RepairGatewayPaymentsJob>, c
   const em = (ctx.resolve('em') as EntityManager).fork()
   const container = { resolve: ctx.resolve } as unknown as CommandRuntimeContext['container']
   const cutoff = new Date(Date.now() - REPAIR_LOOKBACK_MS)
+  // `configs` is a core platform module but still optional from `checkout`'s point of view
+  // (per `packages/core/AGENTS.md` § Cross-Module Coupling) — when it is disabled the
+  // cursor simply cannot persist and every run falls back to the old oldest-first scan.
+  const moduleConfigService = tryResolve<ModuleConfigService>(container, 'moduleConfigService')
 
+  const persistedCursorState = await loadCursorState(moduleConfigService, scope)
   const outstanding: CheckoutTransaction[] = []
-  let cursor: TransactionCursor | null = null
+
+  // Ancient safety-net scan: a single tiny page, run BEFORE the main window scan so the
+  // longest-overdue outstanding work (if any) always gets first claim on this run's
+  // `batchSize` budget rather than being crowded out by the (usually much larger) recent
+  // backlog. Its own cursor keyset-pages through `updatedAt < cutoff` independently of the
+  // main cursor and wraps back to `null` once a page comes back short, so it eventually
+  // cycles through every structurally-eligible pre-cutoff row without ever growing its
+  // per-run cost.
+  const ancientPage = await fetchCandidatePage(em, scope, cutoff, persistedCursorState.ancientCursor, 'ancient', REPAIR_ANCIENT_PAGE_SIZE)
+  let nextAncientCursor: TransactionCursor | null = null
+  if (ancientPage.length > 0) {
+    const lastAncient = ancientPage[ancientPage.length - 1]
+    nextAncientCursor = ancientPage.length < REPAIR_ANCIENT_PAGE_SIZE
+      ? null
+      : { updatedAt: lastAncient.updatedAt, id: lastAncient.id }
+    const ancientOutstanding = await filterOutstandingGatewayPayments(em, scope, ancientPage)
+    if (ancientOutstanding.length > 0) {
+      // #8268 review: this is the loud operational signal the lookback-only design lacked
+      // — transactions that are still genuinely unrepaired despite having left the normal
+      // scanning window. Nothing is lost (the safety-net scan above will keep retrying
+      // them), but their mere existence means the live `recordGatewayPayment` retries and
+      // this worker's normal window both already failed to recover them once.
+      logger.warn('[internal] repair-gateway-payments: found transactions still outstanding after aging out of the lookback window', {
+        tenantId,
+        organizationId,
+        count: ancientOutstanding.length,
+        oldestUpdatedAt: ancientOutstanding[0]?.updatedAt ?? null,
+        lookbackMs: REPAIR_LOOKBACK_MS,
+      })
+    }
+    outstanding.push(...ancientOutstanding)
+  }
+
+  let cursor = persistedCursorState.mainCursor
   let pagesScanned = 0
 
   while (outstanding.length < batchSize && pagesScanned < REPAIR_MAX_PAGES) {
-    const page = await fetchCandidatePage(em, scope, cutoff, cursor)
+    const page = await fetchCandidatePage(em, scope, cutoff, cursor, 'window', REPAIR_PAGE_SIZE)
     pagesScanned += 1
-    if (page.length === 0) break
+    if (page.length === 0) {
+      // Nothing left ahead of the cursor in the window — wrap so the next run restarts
+      // the sweep from the oldest row instead of re-fetching this same empty tail forever.
+      cursor = null
+      break
+    }
     const last = page[page.length - 1]
-    cursor = { updatedAt: last.updatedAt, id: last.id }
     outstanding.push(...(await filterOutstandingGatewayPayments(em, scope, page)))
-    if (page.length < REPAIR_PAGE_SIZE) break
+    if (page.length < REPAIR_PAGE_SIZE) {
+      // Short page: the scan caught up to "now" within the window. Wrap to `null` so the
+      // next run revisits the whole window again rather than resuming from a cursor that
+      // would otherwise just keep returning this same empty tail every time.
+      cursor = null
+      break
+    }
+    cursor = { updatedAt: last.updatedAt, id: last.id }
   }
+
+  await persistCursorState(moduleConfigService, scope, { mainCursor: cursor, ancientCursor: nextAncientCursor })
 
   // Observability for the recovery policy the bounded scan trades away: a sweep that
   // exhausts its page budget without clearing the backlog down to `batchSize` means more
-  // outstanding work sits further back in the window than this run reached. Nothing here
-  // is lost yet — the next run resumes from the same oldest-first ordering — but if the
-  // backlog persists for close to `REPAIR_LOOKBACK_MS`, the oldest entries will leave the
-  // `updatedAt >= cutoff` window unrepaired. This is this worker's only signal of that risk.
+  // outstanding work sits further ahead in the window than this run reached. Nothing here
+  // is lost — the cursor just persisted above means the next run resumes from exactly
+  // where this one stopped, instead of re-scanning the same dead zone from the start.
   if (pagesScanned >= REPAIR_MAX_PAGES) {
-    logger.warn('[internal] repair-gateway-payments: scan hit its page cap before clearing the backlog — older outstanding transactions may be close to aging out of the lookback window', {
+    logger.warn('[internal] repair-gateway-payments: scan hit its page cap before clearing the backlog — resuming from the persisted cursor next run', {
       tenantId,
       organizationId,
       pagesScanned,

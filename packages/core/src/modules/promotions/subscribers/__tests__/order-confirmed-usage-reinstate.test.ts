@@ -436,4 +436,182 @@ describe('promotions order-confirmed-usage-reinstate subscriber', () => {
       handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute })),
     ).rejects.toThrow('sales.orders.update unavailable')
   })
+
+  // #8268 review Finding 6: the lock+reinstate+blocked-check runs in TWO separate
+  // transactions — once before the lock releases, and again (via `reinstateUsageUnderLock`)
+  // immediately before the cancel. Between those two calls, the blocking "B" order's own
+  // live use can itself be reverted (e.g. B got cancelled, freeing the budget), so a fresh
+  // re-check of the SAME order's rows reports not-blocked on the second pass even though
+  // the first pass found it blocked. The stale first-pass snapshot must not drive the
+  // cancel in that case.
+  describe('#8268 review Finding 6: re-verifies the blocked condition immediately before cancelling', () => {
+    it('does not re-cancel the order when the fresh re-check finds the condition already resolved', async () => {
+      const { em, tables } = createFakeEm()
+      const promotion = seedPromotion(tables, { maxBudget: '10.00', budgetCurrency: 'USD' })
+      const blockingUsage = seedPromotionUsage(tables, {
+        promotionId: promotion.id,
+        totalDiscountAmount: '10.00',
+        currency: 'USD',
+        orderId: 'order-b',
+        revertedAt: null,
+      })
+      const promotionUsageA = seedPromotionUsage(tables, {
+        promotionId: promotion.id,
+        totalDiscountAmount: '10.00',
+        currency: 'USD',
+      })
+      const commandBusExecute = jest.fn(async () => ({ result: {} }))
+      const codeService = new PromotionCodeService({
+        resolve: () => {
+          throw new Error('[internal] unexpected DI resolve in test: rateLimiterService')
+        },
+      })
+      const usageService = new PromotionUsageService()
+      const realReinstateUsage = usageService.reinstateUsage.bind(usageService)
+      let call = 0
+      // Simulate the interleaving: on the FIRST lock+reinstate pass, order B's own usage
+      // (never reverted) is still live, so A's reinstatement is correctly blocked by the
+      // budget cap. Between that pass and the fresh re-check, B gets cancelled — its own
+      // usage row reverts, freeing the budget — so the SECOND pass's real re-check of A's
+      // row now succeeds and reinstates it live.
+      jest.spyOn(usageService, 'reinstateUsage').mockImplementation(async (...args) => {
+        call += 1
+        if (call === 2) blockingUsage.revertedAt = new Date()
+        return realReinstateUsage(...args)
+      })
+      const commandBus = { execute: commandBusExecute }
+      const ctx = {
+        resolve: <T = unknown>(name: string): T => {
+          if (name === 'em') return asEm(em) as unknown as T
+          if (name === 'promotionCodeService') return codeService as unknown as T
+          if (name === 'promotionUsageService') return usageService as unknown as T
+          if (name === 'commandBus') return commandBus as unknown as T
+          throw new Error(`[internal] unexpected DI resolve in test: ${name}`)
+        },
+      }
+
+      await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, ctx)
+
+      expect(call).toBe(2)
+      expect(promotionUsageA.revertedAt).toBeNull()
+      expect(commandBusExecute).not.toHaveBeenCalled()
+    })
+
+    it('control: still re-cancels the order when the fresh re-check still finds it blocked', async () => {
+      const { em, tables } = createFakeEm()
+      const promotion = seedPromotion(tables, { maxBudget: '10.00', budgetCurrency: 'USD' })
+      seedPromotionUsage(tables, {
+        promotionId: promotion.id,
+        totalDiscountAmount: '10.00',
+        currency: 'USD',
+        orderId: 'order-b',
+        revertedAt: null,
+      })
+      const promotionUsageA = seedPromotionUsage(tables, {
+        promotionId: promotion.id,
+        totalDiscountAmount: '10.00',
+        currency: 'USD',
+      })
+      const commandBusExecute = jest.fn(async () => ({ result: {} }))
+
+      await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute }))
+
+      expect(promotionUsageA.revertedAt).not.toBeNull()
+      expect(commandBusExecute).toHaveBeenCalledWith('sales.orders.update', expect.objectContaining({
+        input: { id: ORDER_ID, statusEntryId: 'status-canceled' },
+      }))
+    })
+  })
+
+  // #8268 review Finding 7: a missing `sales.order_status` "canceled" dictionary entry
+  // used to be acknowledged (handler returned successfully) while the order stayed
+  // CONFIRMED with refused/reverted usage and no way to retry the cancel. The handler is
+  // `persistent: true`, so it must instead throw and let the dispatcher redeliver —
+  // repairing the missing config and retrying must then succeed.
+  describe('#8268 review Finding 7: missing cancellation configuration rejects for retry', () => {
+    function buildCtxWithDictionary(em: FakeEm, hasDictionaryEntry: boolean, options: { commandBusExecute?: jest.Mock } = {}) {
+      const base = buildCtx(em, options)
+      const patchedEm: FakeEm = {
+        ...em,
+        getKysely: () => ({
+          selectFrom: (table: string) => {
+            const builder = {
+              innerJoin: () => builder,
+              select: () => builder,
+              where: () => builder,
+              executeTakeFirst: async () => (table === 'dictionary_entries' && hasDictionaryEntry ? { id: 'status-canceled' } : undefined),
+            }
+            return builder
+          },
+        }),
+        fork: () => patchedEm,
+      }
+      return {
+        resolve: <T = unknown>(name: string): T => {
+          if (name === 'em') return patchedEm as unknown as T
+          return base.resolve<T>(name)
+        },
+      }
+    }
+
+    it('rejects instead of resolving when no dictionary entry exists', async () => {
+      const { em, tables } = createFakeEm()
+      const promotion = seedPromotion(tables, { maxBudget: '10.00', budgetCurrency: 'USD' })
+      seedPromotionUsage(tables, { promotionId: promotion.id, totalDiscountAmount: '10.00', currency: 'USD', orderId: 'order-b', revertedAt: null })
+      const promotionUsageA = seedPromotionUsage(tables, { promotionId: promotion.id, totalDiscountAmount: '10.00', currency: 'USD' })
+      const commandBusExecute = jest.fn(async () => ({ result: {} }))
+
+      await expect(
+        handle(
+          { orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' },
+          buildCtxWithDictionary(em, false, { commandBusExecute }),
+        ),
+      ).rejects.toThrow()
+
+      // Never cancelled — the ledger stays exactly where the refusal left it, pending retry.
+      expect(promotionUsageA.revertedAt).not.toBeNull()
+      expect(commandBusExecute).not.toHaveBeenCalled()
+    })
+
+    it('succeeds on retry once the dictionary entry is repaired', async () => {
+      const { em, tables } = createFakeEm()
+      const promotion = seedPromotion(tables, { maxBudget: '10.00', budgetCurrency: 'USD' })
+      seedPromotionUsage(tables, { promotionId: promotion.id, totalDiscountAmount: '10.00', currency: 'USD', orderId: 'order-b', revertedAt: null })
+      const promotionUsageA = seedPromotionUsage(tables, { promotionId: promotion.id, totalDiscountAmount: '10.00', currency: 'USD' })
+      const commandBusExecute = jest.fn(async () => ({ result: {} }))
+
+      await expect(
+        handle(
+          { orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' },
+          buildCtxWithDictionary(em, false, { commandBusExecute }),
+        ),
+      ).rejects.toThrow()
+      expect(commandBusExecute).not.toHaveBeenCalled()
+
+      // Operator repairs the dictionary; the redelivered event now resolves the entry and
+      // the cancel goes through.
+      await handle(
+        { orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' },
+        buildCtxWithDictionary(em, true, { commandBusExecute }),
+      )
+
+      expect(promotionUsageA.revertedAt).not.toBeNull()
+      expect(commandBusExecute).toHaveBeenCalledWith('sales.orders.update', expect.objectContaining({
+        input: { id: ORDER_ID, statusEntryId: 'status-canceled' },
+      }))
+    })
+  })
+
+  // #8268 review Finding 8: the notification body must not assert a completed cancellation
+  // outcome at the moment it is emitted (during reinstatement, before the later cancel
+  // command even runs and can itself fail-and-retry per Finding 7, or — per Finding 6 — may
+  // turn out not to be needed at all).
+  it('#8268 review Finding 8: the blocked-reinstatement notification body no longer claims a completed cancellation', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const en = require('../../i18n/en.json') as Record<string, string>
+    const body = en['promotions.notifications.usageReinstateBlocked.body']
+    expect(body).toBeDefined()
+    expect(body).not.toContain('has been automatically returned to cancelled')
+    expect(body).toContain('{orderId}')
+  })
 })

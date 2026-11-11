@@ -353,4 +353,17 @@ describe('customer_groups order-confirmed-credit-reinstate subscriber', () => {
     expect(reserveCreditMock).not.toHaveBeenCalled()
     expect(linkCreditReservationToOrderMock).not.toHaveBeenCalled()
   })
+
+  it('#8268 review Major 3 (re-review): treats the \'cancelled\' spelling the same as \'canceled\' when checking for a stale/live order', async () => {
+    const { em, tables } = createFakeEm({ orderStatus: 'cancelled' })
+    seedReleasedReservation(tables)
+
+    await handle(
+      { orderId: ORDER_ID, previousStatus: 'canceled', tenantId: TENANT, organizationId: ORG },
+      buildCtx(em),
+    )
+
+    expect(reserveCreditMock).not.toHaveBeenCalled()
+    expect(linkCreditReservationToOrderMock).not.toHaveBeenCalled()
+  })
 })

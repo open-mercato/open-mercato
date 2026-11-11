@@ -250,4 +250,15 @@ describe('customer_groups order-cancelled-credit-release subscriber', () => {
     const entries = tables.get(CustomerCreditLedgerEntry) ?? []
     expect(entries.filter((row) => row.entryType === 'release')).toHaveLength(0)
   })
+
+  it('#8268 review Major 3 (re-review): treats the \'cancelled\' spelling the same as \'canceled\' when checking for a stale/live order', async () => {
+    const { em, tables } = createFakeEm({ orderStatus: 'cancelled' })
+    seedReservedOrder(tables)
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG }, buildCtx(em))
+
+    const entries = tables.get(CustomerCreditLedgerEntry) ?? []
+    const releaseEntries = entries.filter((row) => row.entryType === 'release')
+    expect(releaseEntries).toHaveLength(1)
+  })
 })

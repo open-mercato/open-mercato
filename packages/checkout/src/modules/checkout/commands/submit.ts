@@ -3,7 +3,7 @@ import { asValue } from 'awilix'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { buildTrustedCommandContext } from '@open-mercato/shared/lib/commands/trusted-context'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { SalesLineSnapshot } from '@open-mercato/core/modules/sales/lib/types'
@@ -1364,12 +1364,24 @@ export async function resumeOrderCancellationCompensation(
     try {
       await cartService.unlock({ cartId: session.cartId, tenantId: scope.tenantId, organizationId: scope.organizationId, checkoutSessionId: session.id })
     } catch (err) {
-      // `cart.unlock` (§9) throws the SAME uniform not-found error whether the cart is
-      // missing or simply no longer `locked` — the second case is exactly what a retry
-      // after an earlier successful unlock looks like (this compensation's own prior
-      // attempt, or a concurrent one), so it is treated as already-done rather than a
-      // failure that would wedge this session on `submitProgress: 'compensating'` forever.
-      logger.debug('[internal] checkout submit compensation: cart unlock no-op (already unlocked, or cart missing)', { err, sessionId: session.id, cartId: session.cartId })
+      // `cart.unlock` (§9) throws a uniform 404 whether the cart is missing or simply no
+      // longer `locked` — the second case is exactly what a retry after an earlier
+      // successful unlock looks like (this compensation's own prior attempt, or a
+      // concurrent one), so ONLY that specific outcome is treated as already-done. Any
+      // other error (a transient DB/command failure before the unlock commits) must NOT
+      // be swallowed here — finalizing anyway would clear `submitProgress: 'compensating'`
+      // while the cart is still actually locked, with nothing left to retry it.
+      if (isCrudHttpError(err) && err.status === 404) {
+        logger.debug('[internal] checkout submit compensation: cart unlock no-op (already unlocked, or cart missing)', { err, sessionId: session.id, cartId: session.cartId })
+      } else {
+        logger.error('[internal] checkout submit compensation: cart unlock failed', { err, sessionId: session.id, cartId: session.cartId })
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'checkout',
+          code: 'checkout.compensation_unlock_failed',
+          attributes: { sessionId: session.id, orderId },
+        })
+        return false
+      }
     }
   }
 
@@ -1960,6 +1972,24 @@ export async function continueOrderOutcome(
           module: 'checkout',
           code: 'checkout.recovered_submit_capture_requires_manual_review',
         })
+        // #8268 review Major 4 (re-review): persist the capture onto the CheckoutTransaction
+        // itself BEFORE the fallible `recordGatewayPayment` write below — if every one of
+        // that function's 3 in-process attempts fails, this durable `status: 'completed'`
+        // flip is what lets `repair-gateway-payments.worker.ts`'s sweep (which only selects
+        // `status: 'completed'` transactions) find and retry this row later. Without it the
+        // transaction stays `processing` forever: the gateway poller already excludes
+        // captured rows, and a same-status authoritative read never re-emits a capture event.
+        const recoveredGatewayTransactionId = sessionResult.transaction.id
+        const recoveredTransactionAffected = await em.nativeUpdate(
+          CheckoutTransaction,
+          { id: transaction.id, ...scope, status: 'processing' },
+          { status: 'completed', paymentStatus: currentStatus, gatewayTransactionId: recoveredGatewayTransactionId, updatedAt: new Date() },
+        )
+        if (recoveredTransactionAffected > 0) {
+          transaction.status = 'completed'
+          transaction.paymentStatus = currentStatus
+          transaction.gatewayTransactionId = recoveredGatewayTransactionId
+        }
         await recordGatewayPayment(container, em, session, scope, orderId, {
           amount: transaction.amount,
           currencyCode: transaction.currencyCode,
@@ -1969,7 +1999,7 @@ export async function continueOrderOutcome(
           // Preferring the external `gatewayPaymentId` here made this reference diverge
           // from the webhook path's, so a later reconciliation pass could never find this
           // row and recorded a duplicate payment instead.
-          paymentReference: sessionResult.transaction.id,
+          paymentReference: transaction.gatewayTransactionId ?? sessionResult.transaction.id,
           captured: true,
         })
       } else {

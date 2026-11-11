@@ -56,6 +56,7 @@ function matchesWhere(row: FakeRow, where: Record<string, unknown>): boolean {
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { notFound } from '@open-mercato/shared/lib/crud/errors'
 import { CheckoutSession, CheckoutTransaction } from '../../data/entities'
 import type { CheckoutSessionSubmitCommandInput, CheckoutSessionSubmitStageResult } from '../submit'
 import approvalApprovedSubscriber from '../../subscribers/approval-approved'
@@ -1065,6 +1066,57 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
     expect(h.seededPayments).toHaveLength(1)
   })
 
+  // #8268 review Major 4 (re-review): even when `recordGatewayPayment`'s 3 in-process
+  // attempts ALL fail, the capture must not disappear — the CheckoutTransaction itself
+  // has to durably flip to `completed` so a later `repair-gateway-payments` sweep (which
+  // only selects `status: 'completed'` transactions) can find and retry it, without
+  // relying on a provider webhook ever arriving.
+  it('persists the capture onto the CheckoutTransaction even when every recordGatewayPayment attempt fails, so repair can find it later', async () => {
+    const harnessOpts = {
+      createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'pending', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'pending' } },
+      cancelPaymentError: Object.assign(new Error('Cannot cancel a payment in status "captured"'), { status: 409 }),
+      getPaymentStatusResult: { status: 'captured' },
+      paymentsCreateError: new Error('sales ledger unreachable') as Error | undefined,
+    }
+    const h = buildHarness(harnessOpts)
+    const paymentGatewayService = h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock }
+    const originalCreatePaymentSession = paymentGatewayService.createPaymentSession.getMockImplementation()!
+    paymentGatewayService.createPaymentSession.mockImplementation(async (...args: unknown[]) => {
+      h.seededSessions[0].status = 'failed'
+      return originalCreatePaymentSession(...args)
+    })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({ status: 409 })
+
+    // `recordGatewayPayment` exhausted every attempt — no SalesPayment row exists yet —
+    // but the transaction must still be durably marked `completed` with the gateway's
+    // reference, exactly as the synchronous-capture happy path does.
+    expect(h.seededPayments).toHaveLength(0)
+    expect(h.seededTransactions[0]).toMatchObject({ status: 'completed', gatewayTransactionId: 'gw-1' })
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ module: 'checkout', code: 'checkout.gateway_payment_record_failed' }),
+    )
+
+    // A later repair sweep (its real selection query only matches `status: 'completed'`
+    // transactions) retries the SAME primitive against the now-durable row and succeeds —
+    // no provider webhook required. The ledger is healthy again by the time repair runs.
+    harnessOpts.paymentsCreateError = undefined
+    const { repairOneGatewayPayment } = await import('../../workers/repair-gateway-payments.worker')
+    const em = h.ctx.container.resolve('em') as FakeRow
+    // The harness's own `findOne` mock only resolves `CheckoutTransaction` (nothing in the
+    // rest of this suite needs a `CheckoutSession` lookup); the repair worker needs both.
+    ;(em.findOne as jest.Mock).mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+      if (entity === CheckoutSession) return h.seededSessions.find((row) => matchesWhere(row, where)) ?? null
+      if (entity === CheckoutTransaction) return h.seededTransactions.find((row) => matchesWhere(row, where)) ?? null
+      return null
+    })
+    await repairOneGatewayPayment(h.ctx.container, em as never, h.seededTransactions[0] as never, { tenantId: TENANT_ID, organizationId: ORG_ID })
+
+    expect(h.seededPayments).toHaveLength(1)
+    expect(h.seededPayments[0]).toMatchObject({ paymentReference: 'gw-1', capturedAmount: h.seededPayments[0].amount })
+  })
+
   it('extends the cart lock to the gateway payment expiry PLUS a 15-minute margin (spec R11/§6)', async () => {
     const paymentExpiresAt = new Date(Date.now() + 10 * 60 * 1000)
     const h = buildHarness({
@@ -1643,15 +1695,15 @@ describe('checkout.session.submit — pay-link slot ownership and unexpected-fai
     expect(slotCalls(h, 'release')).toHaveLength(0)
   })
 
-  it('treats a cart.unlock failure as already-unlocked (not a hard failure) and still finalizes', async () => {
-    // `cart.unlock` (§9) throws the SAME uniform not-found error whether the cart is
-    // missing or simply no longer `locked` — exactly what a retry after an earlier
-    // successful unlock looks like. This must not wedge the session on
-    // `submitProgress: 'compensating'` forever.
+  it('treats a cart.unlock 404 as already-unlocked (not a hard failure) and still finalizes', async () => {
+    // `cart.unlock` (§9) throws the SAME uniform 404 whether the cart is missing or
+    // simply no longer `locked` — exactly what a retry after an earlier successful
+    // unlock looks like. This must not wedge the session on `submitProgress:
+    // 'compensating'` forever.
     const h = buildHarness({ session: makeSession({ linkId: 'link-1', status: 'failed', submitProgress: 'compensating', salesOrderId: 'order-1' }), seededOrders: [{ id: 'order-1', tenant_id: TENANT_ID, organization_id: ORG_ID, deleted_at: null }] })
     const { resumeOrderCancellationCompensation } = await import('../submit')
     const em = h.ctx.container.resolve('em') as FakeRow
-    h.cartService.unlock.mockRejectedValueOnce(new Error('[internal] cart not found'))
+    h.cartService.unlock.mockRejectedValueOnce(notFound('[internal] cart not found'))
 
     const resumed = await resumeOrderCancellationCompensation(
       h.ctx.container,
@@ -1665,6 +1717,35 @@ describe('checkout.session.submit — pay-link slot ownership and unexpected-fai
     expect(resumed).toBe(true)
     expect(h.seededSessions[0].submitProgress).toBeNull()
     expect(slotCalls(h, 'release')).toHaveLength(1)
+  })
+
+  // #8268 review Major 2 (re-review): a cart.unlock rejection that is NOT the uniform
+  // 404 (a transient DB/command failure before the unlock actually commits) must leave
+  // the cart locked and the session retryable — finalizing anyway would clear
+  // `submitProgress: 'compensating'` while nothing had actually released the cart, and
+  // the repair sweep (which only selects that marker) could never find the session again.
+  it('leaves submitProgress at compensating (retryable) when cart.unlock fails for a non-404 reason', async () => {
+    const h = buildHarness({ session: makeSession({ linkId: 'link-1', status: 'failed', submitProgress: 'compensating', salesOrderId: 'order-1' }), seededOrders: [{ id: 'order-1', tenant_id: TENANT_ID, organization_id: ORG_ID, deleted_at: null }] })
+    const { resumeOrderCancellationCompensation } = await import('../submit')
+    const em = h.ctx.container.resolve('em') as FakeRow
+    h.cartService.unlock.mockRejectedValueOnce(new Error('db connection lost'))
+
+    const resumed = await resumeOrderCancellationCompensation(
+      h.ctx.container,
+      em as never,
+      h.seededSessions[0] as never,
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+      'order-1',
+      'payment_failed',
+    )
+
+    expect(resumed).toBe(false)
+    expect(h.seededSessions[0].submitProgress).toBe('compensating')
+    expect(slotCalls(h, 'release')).toHaveLength(0)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ module: 'checkout', code: 'checkout.compensation_unlock_failed' }),
+    )
   })
 
   it('leaves the session retryable (submitProgress: compensating) and reports the error when every cancel attempt fails', async () => {

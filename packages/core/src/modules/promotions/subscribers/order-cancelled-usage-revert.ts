@@ -127,7 +127,11 @@ export async function handleOrderUsageRevert(
         // acting on a STALE event. Cancel A, revive A (reinstating its promotion/code
         // usage), then deliver a delayed/redelivered `sales.order.cancelled` for A:
         // without this check the serialized revert would still re-revert the
-        // just-reinstated usage. Only a currently-`canceled` order gets its usage reverted.
+        // just-reinstated usage. Only a currently-canceled order gets its usage reverted.
+        // Sales recognizes BOTH `canceled` and `cancelled` as live cancellation spellings
+        // (its own `isCancelledOrderStatus` guard, and `sales.order.cancelled` fires for
+        // either) — #8268 review Major 3 (re-review): comparing against only `canceled`
+        // here let an order left as `cancelled` skip this revert entirely.
         const current = await tx.getConnection().execute(
           'select status from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
           [orderId, tenantId, organizationId],
@@ -135,7 +139,7 @@ export async function handleOrderUsageRevert(
         const currentStatus = Array.isArray(current) && current.length > 0
           ? (current[0] as { status?: string | null }).status ?? null
           : null
-        if (currentStatus !== 'canceled') {
+        if (currentStatus !== 'canceled' && currentStatus !== 'cancelled') {
           logger.debug('[internal] promotions:order-cancelled-usage-revert skipped stale cancellation redelivery — order is no longer canceled', {
             orderId,
             tenantId,

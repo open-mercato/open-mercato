@@ -270,7 +270,7 @@
   "promotions.list.searchPlaceholder": "Buscar promociones...",
   "promotions.list.title": "Promociones",
   "promotions.nav.group": "Promociones",
-  "promotions.notifications.usageReinstateBlocked.body": "Al revivir el pedido {orderId} no se pudo restaurar su uso de promoción/código sin superar el límite, por lo que el pedido se ha devuelto automáticamente a cancelado en lugar de mantener un descuento sin respaldo.",
+  "promotions.notifications.usageReinstateBlocked.body": "Al revivir el pedido {orderId} no se pudo restaurar su uso de promoción/código sin superar el límite, por lo que el pedido se está devolviendo automáticamente a cancelado en lugar de mantener un descuento sin respaldo.",
   "promotions.notifications.usageReinstateBlocked.title": "No se pudo restablecer el uso de la promoción",
   "promotions.operators.eq": "Igual a",
   "promotions.operators.gt": "Mayor que",

@@ -275,4 +275,18 @@ describe('promotions order-cancelled-usage-revert subscriber', () => {
     expect(promotionUsage.revertedAt).toBeNull()
     expect(codeUsage.revertedAt).toBeNull()
   })
+
+  it('#8268 review Major 3 (re-review): treats the \'cancelled\' spelling the same as \'canceled\' when checking for a stale/live order', async () => {
+    const { em, tables } = createFakeEm({ orderStatus: 'cancelled' })
+    const promotionUsage = seedPromotionUsage(tables)
+    const code = seedCode(tables)
+    const codeUsage = seedCodeUsage(tables, { codeId: code.id })
+
+    await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG }, buildCtx(em))
+
+    expect(promotionUsage.revertedAt).not.toBeNull()
+    expect(codeUsage.revertedAt).not.toBeNull()
+    expect(code.used).toBe(0)
+    expect(code.active).toBe(true)
+  })
 })

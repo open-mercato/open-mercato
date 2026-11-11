@@ -101,7 +101,11 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
     // event. Deliver a delayed/redelivered `sales.order.confirmed` AFTER the order was
     // cancelled again (or deleted): without this check the serialized reinstate would
     // still re-reserve credit for an order that is no longer live. Only reinstate when the
-    // order still exists and is not currently `canceled`.
+    // order still exists and is not currently canceled. Sales recognizes BOTH `canceled`
+    // and `cancelled` as live cancellation spellings (its own `isCancelledOrderStatus`
+    // guard, and `sales.order.cancelled` fires for either) — #8268 review Major 3
+    // (re-review): comparing against only `canceled` here let a delayed confirmation
+    // reinstate credit for an order left as `cancelled`.
     const current = await tx.getConnection().execute(
       'select status from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
       [orderId, tenantId, organizationId],
@@ -109,7 +113,7 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
     const currentStatus = Array.isArray(current) && current.length > 0
       ? (current[0] as { status?: string | null }).status ?? null
       : null
-    if (currentStatus == null || currentStatus === 'canceled') {
+    if (currentStatus == null || currentStatus === 'canceled' || currentStatus === 'cancelled') {
       logger.debug('[customer_groups:order-confirmed-credit-reinstate] skipped stale confirmation redelivery — order no longer live', {
         orderId,
         tenantId,
