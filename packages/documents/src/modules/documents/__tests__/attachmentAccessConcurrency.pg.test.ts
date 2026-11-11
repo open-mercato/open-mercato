@@ -52,6 +52,8 @@ maybe('attachment upload commit-boundary recheck vs. concurrent Documents mutati
   let database: DocumentsPgDatabase | undefined
   let documentId: string
   let shareId: string
+  let documentId2: string
+  let shareId2: string
 
   const scope = { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
   const resolver = attachmentAccessResolvers[0]
@@ -76,6 +78,8 @@ maybe('attachment upload commit-boundary recheck vs. concurrent Documents mutati
   beforeEach(async () => {
     documentId = randomUUID()
     shareId = randomUUID()
+    documentId2 = randomUUID()
+    shareId2 = randomUUID()
     const em = orm.em.fork()
     em.create(Document, {
       id: documentId,
@@ -90,6 +94,24 @@ maybe('attachment upload commit-boundary recheck vs. concurrent Documents mutati
       organizationId: ORGANIZATION_ID,
       tenantId: TENANT_ID,
       documentId,
+      principalType: 'user',
+      principalId: EDITOR_ID,
+      permission: 'editor',
+      createdByUserId: OWNER_ID,
+    })
+    em.create(Document, {
+      id: documentId2,
+      organizationId: ORGANIZATION_ID,
+      tenantId: TENANT_ID,
+      title: 'Invoice',
+      ownerUserId: OWNER_ID,
+      createdByUserId: OWNER_ID,
+    })
+    em.create(DocumentShare, {
+      id: shareId2,
+      organizationId: ORGANIZATION_ID,
+      tenantId: TENANT_ID,
+      documentId: documentId2,
       principalType: 'user',
       principalId: EDITOR_ID,
       permission: 'editor',
@@ -160,6 +182,62 @@ maybe('attachment upload commit-boundary recheck vs. concurrent Documents mutati
     return share.deletedAt != null
   }
 
+  // Two-target variant of `buildResolverInput`: a primary owner plus a
+  // secondary assignment, both `documents:document`, in caller-supplied
+  // order — used to prove the resolver locks by document id, not by the
+  // order targets arrive in (#8975 re-review).
+  function buildMultiTargetResolverInput(
+    em: EntityManager,
+    primaryRecordId: string,
+    assignmentRecordId: string,
+  ): AttachmentAccessInput {
+    return Object.freeze({
+      action: 'create',
+      subject: Object.freeze({
+        auth: Object.freeze({
+          sub: EDITOR_ID, userId: EDITOR_ID, tenantId: TENANT_ID, orgId: ORGANIZATION_ID,
+          isApiKey: false, isSuperAdmin: false,
+        }),
+        userFeatures: Object.freeze(['documents.view', 'documents.edit']),
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        isSuperAdmin: false,
+      }),
+      attachment: Object.freeze({
+        id: randomUUID(), entityId: 'documents:document', recordId: primaryRecordId,
+        partitionCode: 'default', tenantId: TENANT_ID, organizationId: ORGANIZATION_ID,
+        fileName: 'contract.pdf', mimeType: 'application/pdf',
+      }),
+      partition: Object.freeze({ code: 'default', isPublic: false, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }),
+      targets: Object.freeze([
+        { entityId: 'documents:document', recordId: primaryRecordId, origin: 'primary' as const },
+        { entityId: 'documents:document', recordId: assignmentRecordId, origin: 'assignment' as const },
+      ]),
+      container: { resolve: (name: string) => { throw new Error(`Unexpected dependency: ${name}`) } },
+      cache: new Map(),
+      signal: new AbortController().signal,
+      em,
+      commitBoundary: true,
+    }) as AttachmentAccessInput
+  }
+
+  // Runs the commit-boundary recheck for an upload whose primary/assignment
+  // pair is given in caller order — mirroring the route's real transaction
+  // boundary (resolve, then hold the lock(s) open until `releaseSignal`).
+  async function runMultiTargetUpload(
+    primaryRecordId: string,
+    assignmentRecordId: string,
+    releaseSignal: Promise<void> = Promise.resolve(),
+  ): Promise<AttachmentAccessDecision> {
+    const em = orm.em.fork()
+    let decision!: AttachmentAccessDecision
+    await em.transactional(async (tx) => {
+      decision = await resolver.resolve(buildMultiTargetResolverInput(tx, primaryRecordId, assignmentRecordId))
+      await releaseSignal
+    })
+    return decision
+  }
+
   it('blocks the commit-boundary recheck on Postgres row lock until a concurrent revoke commits, then denies on the now-revoked share', async () => {
     const revoke = deferred()
     const revokePromise = runConcurrentShareRevoke(revoke.promise)
@@ -205,5 +283,24 @@ maybe('attachment upload commit-boundary recheck vs. concurrent Documents mutati
     await revokePromise
     expect(revokeSettled).toBe(true)
     expect(await isShareRevoked()).toBe(true) // the revoke only lands after the upload committed
+  })
+
+  it('acquires locks for a reversed primary/assignment pair in a deterministic order and never deadlocks on real Postgres', async () => {
+    // Before the fix, the resolver locked targets in request order —
+    // `collectAttachmentAccessTargets` always puts the primary owner first —
+    // so an upload with primary/assignment (documentId, documentId2) racing
+    // one with the pair reversed could each hold their first document while
+    // waiting for the other's lock: a genuine Postgres deadlock, not a slow
+    // path. Running several reversed pairs concurrently against real
+    // Postgres exercises that race directly; a reintroduced request-order
+    // lock would surface here as a rejected promise (deadlock_detected) or a
+    // hang, not just a wrong decision.
+    const attempts = await Promise.all([
+      runMultiTargetUpload(documentId, documentId2),
+      runMultiTargetUpload(documentId2, documentId),
+      runMultiTargetUpload(documentId, documentId2),
+      runMultiTargetUpload(documentId2, documentId),
+    ])
+    for (const decision of attempts) expect(decision).toEqual({ ok: true })
   })
 })

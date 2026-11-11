@@ -117,6 +117,28 @@ it('memoizes scoped owner policy within one request but recomputes the action de
   expect(findWithDecryption).toHaveBeenCalledTimes(1)
 })
 
+it('evaluates multi-target owners in sorted document-id order regardless of caller-provided target order', async () => {
+  // Request order puts `otherId` first; the resolver must still evaluate
+  // (and, at the commit boundary, lock) by sorted document id so two
+  // callers with a reversed primary/assignment pair always take the same
+  // lock order and cannot deadlock against each other (#8975 re-review).
+  const callOrder: string[] = []
+  jest.mocked(findOneWithDecryption).mockImplementation(async (_em, _entity, raw) => {
+    const where = raw as { id: string }
+    callOrder.push(where.id)
+    return { id: where.id, ownerUserId: ownerId, archivedAt: null } as never
+  })
+  const reversed = input({ targets: [
+    { entityId: 'documents:document', recordId: otherId, origin: 'primary' },
+    { entityId: 'documents:document', recordId: documentId, origin: 'assignment' },
+  ] })
+  expect(await resolve(reversed)).toEqual({ ok: true })
+  // Each document is read twice (`loadScopedDocument`, then `resolvePermission`)
+  // before the loop moves to the next one — so all of the smaller id's calls
+  // precede all of the larger id's calls, regardless of request order.
+  expect(callOrder).toEqual([documentId, documentId, otherId, otherId])
+})
+
 it.each([
   { sub: `api_key:${keyId}`, isApiKey: true },
   { sub: `api_key:${otherId}`, keyId, isApiKey: true },

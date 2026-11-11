@@ -88,7 +88,14 @@ export const attachmentAccessResolvers: AttachmentAccessResolver[] = [{
     }
     const requireEvery = input.action !== 'read' && input.action !== 'render'
     let visible = false
-    for (const target of targets) {
+    // Acquire locks (below, when `commitBoundary` is set) in a document-id
+    // order every caller agrees on, not request order. `collectAttachmentAccessTargets`
+    // always puts the primary owner first, so two uploads whose primary/assignment
+    // pair is reversed (A/B vs B/A) would otherwise each hold their first document
+    // while waiting for the other's lock — a real Postgres deadlock, not just a
+    // slow path (#8975 re-review).
+    const orderedTargets = [...targets].sort((left, right) => left.recordId.localeCompare(right.recordId))
+    for (const target of orderedTargets) {
       const capabilities = await capabilitiesForDocument(input, target.recordId)
       const allowed = input.action === 'delete' || input.action === 'reassign' || input.action === 'create'
         ? capabilities?.canEdit === true
