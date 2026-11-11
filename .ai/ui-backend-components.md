@@ -54,6 +54,7 @@ Decision tables, exports, props, and MUST rules for the backend component famili
 | Undo bar after bulk/destructive op | `pushOperation` (banner is AppShell-mounted) | `@open-mercato/ui/backend/operations/store` |
 | Guided "next step" callout | `NextStepCallout` | `@open-mercato/ui/backend/NextStepCallout` |
 | Collapsible inline help box | `ContextHelp` | `@open-mercato/ui/backend/ContextHelp` |
+| "?" explaining one section or field | `HelpTip` | `@open-mercato/ui/backend/HelpTip` |
 | Generic empty state | `EmptyState` | `@open-mercato/ui/backend/EmptyState` |
 | Notification inbox UI | `NotificationPanel` / `NotificationItem` / hooks | `@open-mercato/ui/backend/notifications` |
 | Calendar / availability view | `ScheduleView` | `@open-mercato/ui/backend/schedule` |
@@ -292,6 +293,7 @@ App-level feedback surfaces. The banners (`FlashMessages`, `LastOperationBanner`
 | `ProgressTopBar` | `@open-mercato/ui/backend/progress/ProgressTopBar` | Sticky operation-progress bar — AppShell-mounted; drive it with `ProgressJob`s (see `packages/core/src/modules/progress/AGENTS.md`), never mount your own |
 | `NextStepCallout` | `@open-mercato/ui/backend/NextStepCallout` | Guided callout: `title`, `description?`, `steps?: { id, label, state }[]`, `actionLabel`, `onAction`, `status?` with tone/progress |
 | `ContextHelp` | `@open-mercato/ui/backend/ContextHelp` | Collapsible inline help box: `title`, `children`, `defaultOpen?`, `bulb?` |
+| `HelpTip` | `@open-mercato/ui/backend/HelpTip` | The "?" beside one section heading or field label: `title`, `body`, `size?: 'xs' \| 'sm'`. Opens a `TooltipCard` on CLICK (keyboard-reachable, `Escape` closes, works on touch). Both strings must arrive translated. Usually reached through `SectionHeader`'s / `CrudForm` field's `help` prop rather than mounted directly |
 
 ### Example
 

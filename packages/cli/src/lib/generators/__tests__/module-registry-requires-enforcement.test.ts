@@ -21,7 +21,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import type { PackageResolver, ModuleEntry } from '../../resolver'
-import { generateModuleRegistry } from '../module-registry'
+import { generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } from '../module-registry'
 
 let tmpDir: string
 let outputDir: string
@@ -62,6 +62,14 @@ function scaffoldDependentFixture(): void {
   touchFile(
     pkgModulePath('dependent', 'index.ts'),
     "export const metadata = { id: 'dependent', label: 'Dependent', requires: ['leaf'] }\n",
+  )
+}
+
+function scaffoldOptionalDependentFixture(): void {
+  touchFile(pkgModulePath('leaf', 'index.ts'), "export const metadata = { id: 'leaf', label: 'Leaf' }\n")
+  touchFile(
+    pkgModulePath('dependent', 'index.ts'),
+    "export const metadata = { id: 'dependent', label: 'Dependent', requires: ['leaf'], optionalRequires: ['ghost'] }\n",
   )
 }
 
@@ -110,6 +118,59 @@ describe('module registry enforces metadata.requires', () => {
 
     expect(result.errors).toEqual([])
     expect(exitSpy).not.toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    exitSpy.mockRestore()
+  })
+})
+
+describe('module registry deliberately does not enforce metadata.optionalRequires', () => {
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'registry-optional-requires-'))
+    outputDir = path.join(tmpDir, 'app', '.mercato', 'generated')
+    fs.mkdirSync(outputDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  const variants = [
+    ['generateModuleRegistry (modules.generated.ts)', generateModuleRegistry],
+    ['generateModuleRegistryApp (modules.app.generated.ts)', generateModuleRegistryApp],
+    ['generateModuleRegistryCli (modules.cli.generated.ts)', generateModuleRegistryCli],
+  ] as const
+
+  it.each(variants)('%s generates cleanly when only the optionalRequires peer is missing', async (_label, generate) => {
+    scaffoldOptionalDependentFixture()
+    const resolver = createMockResolver([
+      { id: 'leaf', from: '@open-mercato/core' },
+      { id: 'dependent', from: '@open-mercato/core' },
+    ])
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const exitSpy = mockProcessExit()
+
+    const result = await generate({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    expect(exitSpy).not.toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    exitSpy.mockRestore()
+  })
+
+  it.each(variants)('%s still rejects the missing hard requirement, ignoring the also-missing optional one', async (_label, generate) => {
+    scaffoldOptionalDependentFixture()
+    const resolver = createMockResolver([{ id: 'dependent', from: '@open-mercato/core' }])
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const exitSpy = mockProcessExit()
+
+    await expect(generate({ resolver, quiet: true })).rejects.toThrow('process.exit(1)')
+
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    const errorOutput = consoleErrorSpy.mock.calls.flat().join('\n')
+    expect(errorOutput).toContain('Module "dependent" requires: leaf')
+    expect(errorOutput).not.toContain('ghost')
 
     consoleErrorSpy.mockRestore()
     exitSpy.mockRestore()
