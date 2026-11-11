@@ -11,6 +11,10 @@
 
 Module authors who ship workflows in `workflows.ts` cannot change a workflow's shape safely: every in-flight instance re-reads the **current** code definition on each step, so a deploy that renames or removes a step strands parked instances, and a rollback strands instances that already moved forward. `defineWorkflow({ version })` is accepted but inert. **Proposed (future behaviour):** the code registry keeps every exported version of a workflow; new starts use the highest version, and an in-flight instance resolves the version it persisted at start. A workflow exporting a single version behaves exactly as today, the persisted `definitionId` is unchanged, and no migration is needed.
 
+## 📝 Overview
+
+The `workflows` module lets module authors ship workflow definitions in code (`workflows.ts`). This spec makes the already-accepted `defineWorkflow({ version })` field meaningful: the code registry retains every exported version of a workflow, new starts use the highest version, and an in-flight instance keeps resolving the version it persisted at start (`workflow_instances.version`). The change is limited to the shared code registry and the core definition-resolution functions (plus two direct lookups that bypass them); there is no schema change, no migration and no new authoring API. Visibility additions (a `?version=` read param and `retainedVersions`) ship as a separate, read-only phase.
+
 ## 📝 Problem Statement
 
 Today (`packages/core/src/modules/workflows/lib/find-definition.ts`):
@@ -82,7 +86,7 @@ Takeaway: the generator and every caller keep their signatures; only the registr
 
 **Customization** — `customize` and the `[id]` PUT override path copy the **latest** code version (`existingOverride.version = codeDef.version`). A DB override created at v1 and re-customized after v2 ships therefore moves to v2; instances started on the DB row are unaffected because they resolve by row id. Instances started on the code UUID keep resolving code versions by `instance.version` even after a customization exists. `reset-to-code` removes the override; new starts return to the latest code version.
 
-## 📝 Data Model
+## 📝 Data Models
 
 No schema change and no migration. Relies on existing columns: `workflow_instances.definition_id`, `workflow_instances.workflow_id`, `workflow_instances.version` (non-null, written at start).
 
@@ -121,12 +125,14 @@ No new pages, forms or dialogs; no mockups needed (text-only spec).
 
 ## 📝 Risks & Impact Review
 
-- **Contract surfaces (`BACKWARD_COMPATIBILITY.md`)**: shared exports — additive functions, unchanged signatures; types — one optional field; API — one optional query param + one additive response field; DB — none; generated files — unchanged. No deprecation required.
-- **Behavioural change**: a workflow that exports several entries with the same `workflowId` today gets "last wins"; after this change it gets "highest version wins for new starts". Only affects modules that already export duplicates, which today is a warned misconfiguration.
-- **Pre-existing defect fixed in passing**: code-defined SUB_WORKFLOW parents and milestone emission currently resolve no definition; routing them through `findDefinitionForInstance` changes behaviour for code workflows only (from broken to working). DB-row behaviour is identical.
-- **Memory**: retained versions stay in memory; negligible (definitions are small JSON) and bounded by what authors export.
-- **Product direction call (not a rule violation)**: retention is manual (author keeps old exports). Automatic drain detection / a migration hook is deferred.
-- Rollback of this feature: revert restores latest-only resolution — exactly today's behaviour; no data to undo.
+| Scenario | Severity | Affected area | Mitigation | Residual risk |
+|----------|----------|---------------|------------|---------------|
+| A change to a contract surface in `BACKWARD_COMPATIBILITY.md` (shared exports, types, API, DB, generated files) breaks third-party modules | Low | Shared registry exports, `find-definition.ts`, definitions API | Additive functions with unchanged signatures; one optional type field; one optional query param and one additive response field; no DB or generated-file change | None; no deprecation required |
+| A module that exports several entries with the same `workflowId` today gets "last wins"; after this change it gets "highest version wins" for new starts | Low | Modules already exporting duplicate `workflowId`s | Today this is a warned misconfiguration; the duplicate `(workflowId, version)` warning is kept | Behaviour of such modules changes; it only affects the already-unsupported configuration |
+| Pre-existing defect fixed in passing: code-defined SUB_WORKFLOW parents and milestone emission resolve no definition; routing them through `findDefinitionForInstance` changes their behaviour | Low | `activity-worker-handler.ts`, `step-handler.ts` (code workflows only) | Behaviour goes from broken to working for code workflows; DB-row behaviour is identical; unit tests cover code and DB parents | None |
+| Retained versions stay in memory | Low | Process memory of the shared code registry | Definitions are small JSON, bounded by what authors export | Negligible |
+| Retention is manual (author keeps old exports), so an old version dropped while instances still run falls back to the latest | Medium | In-flight instances of workflows whose old version was removed | Fallback to latest (today's behaviour) with a once-per-process `logger.warn`; operational guidance to keep a version exported until no non-terminal instance references it; strict mode and a migration hook deferred | Instances may run a different shape than they started on until a drain-detection or migration hook ships (product direction call, not a rule violation) |
+| Rolling this feature back | Low | Registry and resolution | Revert restores latest-only resolution, exactly today's behaviour | None; no data to undo |
 
 ## Resolved assumptions (autonomous defaults)
 
