@@ -2,20 +2,13 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import {
-  Users,
-  Handshake,
-  Clock,
-  History,
-  Paperclip,
-  Plus,
-} from 'lucide-react'
+import { Users, Handshake, Clock, History, Paperclip } from 'lucide-react'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { resolveInjectedIcon } from '@open-mercato/ui/backend/injection/resolveInjectedIcon'
 import { useDealsAccess } from './useDealsAccess'
+import { DetailTabRail } from './DetailTabRail'
 
 export const COMPANY_DETAIL_TAB_IDS = ['people', 'deals', 'activity-log', 'changelog', 'files'] as const
 
@@ -40,7 +33,7 @@ export const COMPANY_DETAIL_TABS_COMPONENT_ID = 'section:customers.companies.det
 export type CompanyDetailTabsProps = {
   activeTab: CompanyTabId
   onTabChange: (tab: CompanyTabId) => void
-  injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  injectedTabs?: Array<{ id: string; label: string; icon?: string; priority?: number }>
   isLoadingInjectedTabs?: boolean
   hiddenTabIds?: string[]
   peopleCount?: number
@@ -136,6 +129,7 @@ function DefaultCompanyDetailTabs({
       ...injectedTabs.filter((tab, index) => !builtInTabs.some((native) => native.id === tab.id) && injectedTabs.findIndex((candidate) => candidate.id === tab.id) === index).map((tab) => ({
         id: tab.id as CompanyTabId,
         label: tab.label,
+        icon: resolveInjectedIcon(tab.icon),
         priority: tab.priority,
       })),
     ]
@@ -150,45 +144,17 @@ function DefaultCompanyDetailTabs({
   }, [activeTab, allTabs, isLoadingInjectedTabs, onTabChange, isDealsAccessReady])
 
   return (
-    <div>
-      {/* Tab navigation */}
-      <div className="flex items-end justify-between gap-2 border-b">
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) => onTabChange(value as CompanyTabId)}
-          variant="underline"
-          className="min-w-0 flex-1"
-        >
-          <TabsList
-            aria-label={t('customers.companies.detail.tabs.label', 'Company detail sections')}
-            className="-mb-px w-full overflow-x-auto border-b-0 px-1"
-          >
-            {allTabs.map((tab) => (
-              <TabsTrigger key={tab.id} value={tab.id} leading={tab.icon} count={tab.count}>
-                {tab.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-        {sectionAction ? (
-          <Button
-            type="button"
-            size="sm"
-            onClick={sectionAction.onClick}
-            disabled={sectionAction.disabled}
-            className="mb-1.5 mr-1 shrink-0"
-          >
-            <Plus className="mr-1.5 h-4 w-4" />
-            {sectionAction.label}
-          </Button>
-        ) : null}
-      </div>
-
-      {/* Tab content */}
-      <div className="pt-6" role="tabpanel">
-        {children}
-      </div>
-    </div>
+    <DetailTabRail
+      busy={isLoadingInjectedTabs}
+      tabs={allTabs}
+      activeTab={activeTab}
+      onTabChange={(tab) => onTabChange(tab as CompanyTabId)}
+      listLabel={t('customers.companies.detail.tabs.label', 'Company detail sections')}
+      moreLabel={t('customers.companies.detail.tabs.more', 'More')}
+      sectionAction={sectionAction}
+    >
+      {children}
+    </DetailTabRail>
   )
 }
 
