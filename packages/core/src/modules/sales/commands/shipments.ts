@@ -658,7 +658,13 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
     await em.transactional(async (tx) => {
-      const order = await findOneWithDecryption(tx, SalesOrder, { id: after.orderId }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
+      const order = await findOneWithDecryption(
+        tx,
+        SalesOrder,
+        { id: after.orderId, tenantId: after.tenantId, organizationId: after.organizationId },
+        {},
+        { tenantId: after.tenantId, organizationId: after.organizationId },
+      )
       if (order) assertOrderPaymentsNotFullyRefunded(order, translate)
       await restoreShipmentSnapshot(tx, after)
       await tx.flush()

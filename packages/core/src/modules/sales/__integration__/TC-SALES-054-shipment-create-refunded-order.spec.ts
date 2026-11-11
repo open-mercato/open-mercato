@@ -6,7 +6,7 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
 
 const REFUSED_MESSAGE = "Cannot create a shipment: the order's payments have been fully refunded."
 
-type Cleanup = { shipmentIds: string[]; paymentIds: string[]; orderIds: string[] }
+type Cleanup = { shipmentIds: string[]; paymentIds: string[]; orderIds: string[]; shippingMethodIds: string[] }
 
 async function postForId(request: APIRequestContext, token: string, path: string, data: Record<string, unknown>): Promise<string> {
   const response = await apiRequest(request, 'POST', path, { token, data })
@@ -20,8 +20,10 @@ async function createPaidOrder(
   token: string,
   cleanup: Cleanup,
   refundedAmount: number,
+  orderFields: Record<string, unknown> = {},
 ): Promise<{ orderId: string; lineId: string }> {
   const orderId = await postForId(request, token, '/api/sales/orders', {
+    ...orderFields,
     currencyCode: 'USD',
     lines: [{ currencyCode: 'USD', quantity: 1, name: 'TC-SALES-054 seed line', unitPriceNet: 0, unitPriceGross: 0 }],
   })
@@ -57,12 +59,13 @@ async function cleanupAll(request: APIRequestContext, token: string | null, clea
   for (const id of cleanup.shipmentIds) await deleteSalesEntityIfExists(request, token, '/api/sales/shipments', id)
   for (const id of cleanup.paymentIds) await deleteSalesEntityIfExists(request, token, '/api/sales/payments', id)
   for (const id of cleanup.orderIds) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', id)
+  for (const id of cleanup.shippingMethodIds) await deleteSalesEntityIfExists(request, token, '/api/sales/shipping-methods', id)
 }
 
 test.describe('TC-SALES-054: no new shipment on an order whose payments were fully refunded', () => {
   test('POST /api/sales/shipments returns 422 and records nothing once the payment is fully refunded', async ({ request }) => {
     test.slow()
-    const cleanup: Cleanup = { shipmentIds: [], paymentIds: [], orderIds: [] }
+    const cleanup: Cleanup = { shipmentIds: [], paymentIds: [], orderIds: [], shippingMethodIds: [] }
     let token: string | null = null
     try {
       token = await getAuthToken(request, 'admin')
@@ -85,7 +88,7 @@ test.describe('TC-SALES-054: no new shipment on an order whose payments were ful
 
   test('a partially refunded paid order can still be shipped', async ({ request }) => {
     test.slow()
-    const cleanup: Cleanup = { shipmentIds: [], paymentIds: [], orderIds: [] }
+    const cleanup: Cleanup = { shipmentIds: [], paymentIds: [], orderIds: [], shippingMethodIds: [] }
     let token: string | null = null
     try {
       token = await getAuthToken(request, 'admin')
@@ -105,11 +108,30 @@ test.describe('TC-SALES-054: no new shipment on an order whose payments were ful
 
   test('the Add shipment dialog shows the refusal for a fully refunded order', async ({ page, request }) => {
     test.slow()
-    const cleanup: Cleanup = { shipmentIds: [], paymentIds: [], orderIds: [] }
+    const cleanup: Cleanup = { shipmentIds: [], paymentIds: [], orderIds: [], shippingMethodIds: [] }
     let token: string | null = null
     try {
       token = await getAuthToken(request, 'admin')
-      const { orderId } = await createPaidOrder(request, token, cleanup, 100)
+      const stamp = Date.now()
+      const methodName = `TC-SALES-054 method ${stamp}`
+      const shippingMethodId = await postForId(request, token, '/api/sales/shipping-methods', {
+        name: methodName,
+        code: `tc-sales-054-${stamp}`,
+        isActive: true,
+        currencyCode: 'USD',
+        baseRateNet: '0',
+        baseRateGross: '0',
+      })
+      cleanup.shippingMethodIds.push(shippingMethodId)
+      const { orderId } = await createPaidOrder(request, token, cleanup, 100, {
+        shippingAddressSnapshot: {
+          name: 'TC-SALES-054 Receiver',
+          addressLine1: '54 Refund Street',
+          city: 'Warsaw',
+          postalCode: '00-054',
+          country: 'PL',
+        },
+      })
 
       await login(page, 'admin')
       await page.goto(`/backend/sales/orders/${encodeURIComponent(orderId)}?kind=order`, { waitUntil: 'domcontentloaded' })
@@ -117,9 +139,11 @@ test.describe('TC-SALES-054: no new shipment on an order whose payments were ful
       await page.getByRole('button', { name: 'Add shipment' }).first().click()
       const dialog = page.getByRole('dialog', { name: 'Add shipment' })
       await expect(dialog).toBeVisible()
-      const quantityInputs = dialog.getByRole('spinbutton')
-      await expect(quantityInputs.first()).toBeVisible()
-      await quantityInputs.last().fill('1')
+      await dialog.getByLabel(/Shipment number/i).first().fill(`TC-SALES-054-${stamp}`)
+      const methodInput = dialog.getByPlaceholder(/Select method/i).first()
+      await methodInput.fill(methodName)
+      await page.getByText(methodName).last().click()
+      await dialog.getByRole('spinbutton').last().fill('1')
       await dialog.press('ControlOrMeta+Enter')
 
       await expect(page.getByText(REFUSED_MESSAGE).first()).toBeVisible()

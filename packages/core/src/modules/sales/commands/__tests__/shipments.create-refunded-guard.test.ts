@@ -5,6 +5,7 @@ import type { CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/s
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { SalesOrder, SalesOrderLine, SalesShipment } from '../../data/entities'
+import type { ShipmentSnapshot } from '../shipments'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -121,6 +122,33 @@ function shipmentCreatedOn(tx: ReturnType<typeof buildTx>): boolean {
   return tx.create.mock.calls.some(([entity]) => entity === SalesShipment)
 }
 
+function buildRedoLogEntry(): CommandUndoLogEntry {
+  const after: ShipmentSnapshot = {
+    id: SHIPMENT_ID,
+    orderId: ORDER_ID,
+    organizationId: ORG_ID,
+    tenantId: TENANT_ID,
+    shipmentNumber: 'SHIP-1',
+    shippingMethodId: null,
+    statusEntryId: null,
+    status: null,
+    carrierName: null,
+    trackingNumbers: null,
+    shippedAt: null,
+    deliveredAt: null,
+    weightValue: null,
+    weightUnit: null,
+    declaredValueNet: null,
+    declaredValueGross: null,
+    currencyCode: 'USD',
+    notesText: null,
+    metadata: null,
+    customFields: null,
+    items: [],
+  }
+  return { resourceId: SHIPMENT_ID, payload: { undo: { after } } } as unknown as CommandUndoLogEntry
+}
+
 async function captureError(run: () => Promise<unknown>): Promise<unknown> {
   try {
     await run()
@@ -172,22 +200,24 @@ describe('createShipmentCommand — refuses new shipments on fully refunded orde
   it('rejects redo with 422 before restoring the shipment when the order was fully refunded after undo', async () => {
     const handler = commandRegistry.get('sales.shipments.create')
     const { tx, ctx } = buildHarness({ paid: '100.00', refunded: '100.00', grandTotal: '100.00' })
-    const logEntry = {
-      resourceId: SHIPMENT_ID,
-      payload: {
-        undo: {
-          after: { id: SHIPMENT_ID, orderId: ORDER_ID, tenantId: TENANT_ID, organizationId: ORG_ID, items: [] },
-        },
-      },
-    } as unknown as CommandUndoLogEntry
 
-    const error = await captureError(async () => handler?.redo?.({ input: createInput(), ctx, logEntry }))
+    const error = await captureError(async () => handler?.redo?.({ input: createInput(), ctx, logEntry: buildRedoLogEntry() }))
 
     expect(error).toBeInstanceOf(CrudHttpError)
     expect((error as CrudHttpError).status).toBe(422)
-    expect(findOneWithDecryption).toHaveBeenCalledTimes(1)
+    expect((error as CrudHttpError).body).toEqual({ error: 'sales.shipments.create_order_refunded' })
     expect(shipmentCreatedOn(tx)).toBe(false)
     expect(tx.persist).not.toHaveBeenCalled()
     expect(tx.flush).not.toHaveBeenCalled()
+  })
+
+  it('still restores the shipment on redo when the order was not refunded', async () => {
+    const handler = commandRegistry.get('sales.shipments.create')
+    const { tx, ctx } = buildHarness({ paid: '100.00', refunded: '0', grandTotal: '100.00' })
+
+    await expect(handler?.redo?.({ input: createInput(), ctx, logEntry: buildRedoLogEntry() })).resolves.toEqual({
+      shipmentId: SHIPMENT_ID,
+    })
+    expect(shipmentCreatedOn(tx)).toBe(true)
   })
 })
