@@ -90,9 +90,16 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
 
       const searchBox = page.getByPlaceholder(/search/i).first()
       if (await searchBox.isVisible().catch(() => false)) {
+        // Wait for the filtered list, so its rows do not re-render and shift
+        // under the pointer once the row menu below is open.
+        const filteredList = page.waitForResponse((response) => {
+          const url = new URL(response.url())
+          return url.pathname === '/api/workflows/definitions' && url.searchParams.get('search') === workflowId
+        })
         await fillText(page, searchBox, workflowId)
         // Filter bar submits on Enter or via Apply button; both work in this repo
         await searchBox.press('Enter').catch(() => undefined)
+        await filteredList
       }
 
       // Match on the NAME, not the id: the list dropped its "Workflow ID"
