@@ -1,4 +1,5 @@
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
+import type { Locale } from '@open-mercato/shared/lib/i18n/config'
 
 // Password-reset and magic-link requests must respond identically whether the
 // email matches an account or not — see customer_accounts/AGENTS.md and #8889.
@@ -11,6 +12,11 @@ export const MAGIC_LINK_DELIVERY_QUEUE = 'customer-accounts-magic-link-delivery'
 export type AuthLinkDeliveryJobPayload = {
   email: string
   tenantId: string
+  // Resolved from the request's cookie/Accept-Language — identically for a
+  // known and an unknown account — so the worker renders the recovery email
+  // in the requester's language instead of always falling back to the
+  // default locale once delivery moves outside the HTTP request.
+  locale: Locale
 }
 
 const queues = new Map<string, Queue<AuthLinkDeliveryJobPayload>>()

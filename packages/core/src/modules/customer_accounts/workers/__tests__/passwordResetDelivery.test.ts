@@ -41,8 +41,8 @@ const tenantId = '11111111-1111-4111-8111-111111111111'
 const orgId = '33333333-3333-4333-8333-333333333333'
 const userId = '22222222-2222-4222-8222-222222222222'
 
-function makeJob(email: string) {
-  return { id: 'job-1', payload: { email, tenantId }, createdAt: new Date().toISOString() }
+function makeJob(email: string, locale = 'en') {
+  return { id: 'job-1', payload: { email, tenantId, locale }, createdAt: new Date().toISOString() }
 }
 
 const ctx = { jobId: 'job-1', attemptNumber: 1, queueName: 'customer-accounts-password-reset-delivery', resolve: jest.fn() }
@@ -66,7 +66,14 @@ describe('customer_accounts:password-reset-delivery worker (#8889)', () => {
       organizationId: orgId,
       email: 'buyer@example.com',
       rawToken: 'raw-one-time-token',
+      locale: 'en',
     })
+  })
+
+  it('renders the delivery email in the locale captured on the request', async () => {
+    await handle(makeJob('buyer@example.com', 'pl'), ctx)
+
+    expect(mockSendEmail).toHaveBeenCalledWith(expect.objectContaining({ locale: 'pl' }))
   })
 
   it('never puts the raw token on the event bus', async () => {

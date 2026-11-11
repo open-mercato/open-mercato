@@ -14,6 +14,7 @@ import {
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
 import { getMagicLinkDeliveryQueue } from '@open-mercato/core/modules/customer_accounts/lib/authLinkQueue'
+import { detectLocale } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -55,7 +56,11 @@ export async function POST(req: Request) {
   // (see workers/magicLinkDelivery.ts) so the response never depends on
   // whether the account exists — known and unknown emails return identically,
   // without waiting on a DB write or outbound email transport latency (#8889).
-  await getMagicLinkDeliveryQueue().enqueue({ email, tenantId })
+  // `detectLocale()` only reads the request's cookie/Accept-Language — it runs
+  // identically regardless of whether the account exists, so capturing it here
+  // preserves the recovery-email language once delivery moves to the worker.
+  const locale = await detectLocale()
+  await getMagicLinkDeliveryQueue().enqueue({ email, tenantId, locale })
 
   return NextResponse.json({ ok: true })
 }

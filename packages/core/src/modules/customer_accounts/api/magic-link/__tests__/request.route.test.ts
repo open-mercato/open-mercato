@@ -24,6 +24,10 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext
   }
 })
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  detectLocale: jest.fn(async () => 'en'),
+}))
+
 import { POST } from '@open-mercato/core/modules/customer_accounts/api/magic-link/request'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -48,7 +52,7 @@ describe('customer /api/customer_accounts/magic-link/request — account-indepen
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
     expect(mockEnqueue).toHaveBeenCalledTimes(1)
-    expect(mockEnqueue).toHaveBeenCalledWith({ email: 'buyer@example.com', tenantId })
+    expect(mockEnqueue).toHaveBeenCalledWith({ email: 'buyer@example.com', tenantId, locale: 'en' })
   })
 
   it('enqueues the exact same shape for an unknown email — the route never looks up the account', async () => {
@@ -57,14 +61,23 @@ describe('customer /api/customer_accounts/magic-link/request — account-indepen
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
     expect(mockEnqueue).toHaveBeenCalledTimes(1)
-    expect(mockEnqueue).toHaveBeenCalledWith({ email: 'nobody@example.com', tenantId })
+    expect(mockEnqueue).toHaveBeenCalledWith({ email: 'nobody@example.com', tenantId, locale: 'en' })
+  })
+
+  it('resolves the requester locale identically regardless of account existence', async () => {
+    const { detectLocale } = jest.requireMock('@open-mercato/shared/lib/i18n/server') as { detectLocale: jest.Mock }
+    detectLocale.mockResolvedValueOnce('de')
+
+    await POST(makeRequest({ email: 'buyer@example.com', tenantId }))
+
+    expect(mockEnqueue).toHaveBeenCalledWith({ email: 'buyer@example.com', tenantId, locale: 'de' })
   })
 
   it('never puts a raw token or any secret on the queue payload', async () => {
     await POST(makeRequest({ email: 'buyer@example.com', tenantId }))
 
     const [payload] = mockEnqueue.mock.calls[0]
-    expect(Object.keys(payload).sort()).toEqual(['email', 'tenantId'])
+    expect(Object.keys(payload).sort()).toEqual(['email', 'locale', 'tenantId'])
   })
 
   it('still answers 200 without enqueueing when the request body is invalid', async () => {

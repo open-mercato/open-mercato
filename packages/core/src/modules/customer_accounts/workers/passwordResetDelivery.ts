@@ -23,7 +23,7 @@ export default async function handle(
   job: QueuedJob<AuthLinkDeliveryJobPayload>,
   _ctx: HandlerContext,
 ): Promise<void> {
-  const { email, tenantId } = job.payload
+  const { email, tenantId, locale } = job.payload
   const container = await createRequestContainer()
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
@@ -40,6 +40,7 @@ export default async function handle(
       organizationId: user.organizationId,
       email: user.email,
       rawToken,
+      locale,
     })
   } catch (error) {
     logger.error('Password reset email failed', { err: error })

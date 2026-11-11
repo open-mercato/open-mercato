@@ -2,12 +2,17 @@
 
 import * as React from 'react'
 
-const mockResolveTranslations = jest.fn()
+const mockLoadDictionary = jest.fn()
+const mockCreateFallbackTranslator = jest.fn()
 const mockSendEmail = jest.fn()
 const mockUrlForCustomerOrg = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: (...args: unknown[]) => mockResolveTranslations(...args),
+  loadDictionary: (...args: unknown[]) => mockLoadDictionary(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/translate', () => ({
+  createFallbackTranslator: (...args: unknown[]) => mockCreateFallbackTranslator(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/email/send', () => ({
@@ -29,14 +34,14 @@ const input = {
   organizationId: 'org-1',
   email: 'buyer@example.com',
   rawToken: 'raw token+/=',
+  locale: 'en' as const,
 }
 
 describe('customer auth link emails', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockResolveTranslations.mockResolvedValue({
-      translate: (key: string, fallback: string) => `${key}:${fallback}`,
-    })
+    mockLoadDictionary.mockResolvedValue({})
+    mockCreateFallbackTranslator.mockReturnValue((key: string, fallback: string) => `${key}:${fallback}`)
     mockUrlForCustomerOrg.mockImplementation(async (_orgId: string, path: string) => `https://acme.example/portal${path}`)
     mockSendEmail.mockResolvedValue(undefined)
   })
@@ -46,6 +51,7 @@ describe('customer auth link emails', () => {
 
     await sendCustomerPasswordResetEmail(input)
 
+    expect(mockLoadDictionary).toHaveBeenCalledWith('en')
     expect(mockUrlForCustomerOrg).toHaveBeenCalledWith(
       'org-1',
       '/reset-password?token=raw%20token%2B%2F%3D',
@@ -72,6 +78,7 @@ describe('customer auth link emails', () => {
 
     await sendCustomerMagicLinkEmail(input)
 
+    expect(mockLoadDictionary).toHaveBeenCalledWith('en')
     expect(mockUrlForCustomerOrg).toHaveBeenCalledWith(
       'org-1',
       '/magic-link?token=raw%20token%2B%2F%3D',
