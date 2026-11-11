@@ -22,6 +22,7 @@ export const integrationMeta = {
 }
 
 const locales = ['en', 'pl', 'es', 'de', 'ko'] as const
+const legacyAdminEmail = 'piotr@catchthetornado.com'
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
 const dictionaries = Object.fromEntries(locales.map((locale) => [
   locale,
@@ -43,6 +44,7 @@ test.describe('TC-ONB-006: onboarding notification privacy', () => {
     const signupEmail = `qa-onb-006-${unique}@example.test`
     const feedbackEmail = `qa-onb-006-feedback-${unique}@example.test`
     const adminEmail = process.env.ADMIN_EMAIL?.trim()
+    const notificationCaptureRecipient = adminEmail || legacyAdminEmail
     const token = await getAuthToken(request, 'admin')
     const channelSeedingAvailable = await isChannelSeedingAvailable(request, token)
     test.skip(!channelSeedingAvailable, 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
@@ -50,6 +52,7 @@ test.describe('TC-ONB-006: onboarding notification privacy', () => {
 
     await seedSystemEmailChannel(request, token)
     await clearCapturedSystemEmails(request, token)
+    await clearCapturedSystemEmails(request, token, { systemRecipient: notificationCaptureRecipient })
     await page.setViewportSize({ width: 390, height: 844 })
 
     try {
@@ -101,7 +104,7 @@ test.describe('TC-ONB-006: onboarding notification privacy', () => {
 
       const signupNotifications = adminEmail
         ? await listCapturedSystemEmails(request, token, { systemRecipient: adminEmail })
-        : await listCapturedSystemEmails(request, token)
+        : await listCapturedSystemEmails(request, token, { systemRecipient: legacyAdminEmail })
       const signupAdminNotice = signupNotifications.find((email) =>
         email.metadata?.subject === 'New self-service onboarding request'
           && [email.content.text, email.content.html].some((body) => body?.includes(signupEmail)),
@@ -109,6 +112,7 @@ test.describe('TC-ONB-006: onboarding notification privacy', () => {
       if (adminEmail) expect(signupAdminNotice?.metadata?.to).toBe(adminEmail)
       else expect(signupAdminNotice).toBeUndefined()
 
+      await clearCapturedSystemEmails(request, token, { systemRecipient: notificationCaptureRecipient })
       const feedbackResponse = await request.post('/api/onboarding/demo-feedback', {
         headers: { 'content-type': 'application/json' },
         data: {
@@ -119,7 +123,7 @@ test.describe('TC-ONB-006: onboarding notification privacy', () => {
         },
       })
       expect(feedbackResponse.status()).toBe(demoModeEnabled ? 200 : 404)
-      const feedbackNotifications = await listCapturedSystemEmails(request, token)
+      const feedbackNotifications = await listCapturedSystemEmails(request, token, { systemRecipient: notificationCaptureRecipient })
       const feedbackNotice = feedbackNotifications.find((email) =>
         email.metadata?.subject === `Demo feedback from ${feedbackEmail}`,
       )

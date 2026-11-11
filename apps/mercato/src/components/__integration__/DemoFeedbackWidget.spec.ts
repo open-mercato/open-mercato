@@ -169,7 +169,7 @@ for (const appRoot of ['apps/mercato', 'packages/create-app/template']) {
 
 test('apps/mercato: displays the disabled-feedback message in every locale and recovers on retry at 390px', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  const button = await mountFeedbackFixture(page, 'apps/mercato')
+  await mountFeedbackFixture(page, 'apps/mercato')
 
   for (const locale of ['en', 'pl', 'es', 'de', 'ko']) {
     await page.evaluate((value) => { document.documentElement.lang = value }, locale)
@@ -177,7 +177,9 @@ test('apps/mercato: displays the disabled-feedback message in every locale and r
       { status: 404, result: { ok: false, error: feedbackTranslations[locale]['demoFeedback.errors.disabled'] } },
       { status: 200, result: { ok: true } },
     ])
-    await button.click()
+    const localizedButton = page.getByRole('button', { name: feedbackTranslations[locale]['demoFeedback.button.ariaLabel'] })
+    await expect(localizedButton).toBeVisible()
+    await localizedButton.click()
     const dialog = page.getByRole('dialog')
     const bounds = await dialog.boundingBox()
     expect(bounds).not.toBeNull()

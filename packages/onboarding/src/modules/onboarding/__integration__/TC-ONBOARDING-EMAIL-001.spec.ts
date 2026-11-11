@@ -12,6 +12,8 @@ import {
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 
+const legacyAdminEmail = 'piotr@catchthetornado.com'
+
 // `onboarding_requests.email` is encrypted at rest, so a plaintext `where email = $1` matches
 // nothing. `email_hash` is the deterministic lookup key the service itself uses; the candidate
 // list covers key rotation the same way `lookupHashCandidates` does for the application.
@@ -57,10 +59,11 @@ test.describe('TC-ONBOARDING-EMAIL-001: Onboarding emails use system channel', (
     const onboardingEmail = `qa-onboarding-email-${stamp}@example.test`
     const feedbackEmail = `qa-demo-feedback-${stamp}@example.test`
     const adminEmail = process.env.ADMIN_EMAIL?.trim()
+    const notificationCaptureRecipient = adminEmail || legacyAdminEmail
 
     await seedSystemEmailChannel(request, token)
     await clearCapturedSystemEmails(request, token, { systemRecipient: onboardingEmail })
-    if (adminEmail) await clearCapturedSystemEmails(request, token, { systemRecipient: adminEmail })
+    await clearCapturedSystemEmails(request, token, { systemRecipient: notificationCaptureRecipient })
 
     try {
       const start = await request.post('/api/onboarding/onboarding', {
@@ -95,7 +98,7 @@ test.describe('TC-ONBOARDING-EMAIL-001: Onboarding emails use system channel', (
           { description: 'onboarding admin email', systemRecipient: adminEmail },
         )
       } else {
-        const captured = await listCapturedSystemEmails(request, token)
+        const captured = await listCapturedSystemEmails(request, token, { systemRecipient: legacyAdminEmail })
         expect(captured.some((email) => email.metadata?.subject === 'New self-service onboarding request'
           && [email.content.text, email.content.html].some((body) => body?.includes(onboardingEmail)))).toBe(false)
       }
@@ -139,7 +142,7 @@ test.describe('TC-ONBOARDING-EMAIL-001: Onboarding emails use system channel', (
           { description: 'demo feedback admin email', systemRecipient: adminEmail },
         )
       } else if (demoModeEnabled) {
-        const captured = await listCapturedSystemEmails(request, token)
+        const captured = await listCapturedSystemEmails(request, token, { systemRecipient: legacyAdminEmail })
         expect(captured.some((email) => email.metadata?.subject === `Demo feedback from ${feedbackEmail}`)).toBe(false)
       }
     } finally {
