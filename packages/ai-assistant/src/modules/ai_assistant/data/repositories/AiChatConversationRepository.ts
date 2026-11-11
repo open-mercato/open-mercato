@@ -259,7 +259,7 @@ export class AiChatConversationRepository {
       AiChatConversation,
       where as any,
       {
-        orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }] as any,
+        orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
         limit: limit + 1,
       },
       {
