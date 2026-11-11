@@ -10,6 +10,8 @@ const editableEntities = [
   'DocumentTemplate',
   'DocumentEntityLink',
   'DocumentAttachment',
+  'DocumentReviewPlaybook',
+  'DocumentReviewRule',
 ] as const
 
 const appendOnlyEntities = [

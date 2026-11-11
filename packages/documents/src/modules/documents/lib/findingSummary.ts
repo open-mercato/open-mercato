@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { DocumentFinding, type DocumentFindingSeverity } from '../data/entities'
+import { DocumentFinding, DocumentReviewPlaybook, type DocumentFindingSeverity } from '../data/entities'
 
 export type DocumentFindingScope = {
   tenantId: string
@@ -9,9 +9,17 @@ export type DocumentFindingScope = {
 
 export type DocumentFindingSeverityCounts = Record<DocumentFindingSeverity, number>
 
+export type DocumentReviewPlaybookInfo = {
+  id: string
+  code: string
+  name: string
+  version: number | null
+}
+
 export type DocumentFindingSummary = {
   reviewId: string | null
   reviewedAt: string | null
+  playbook: DocumentReviewPlaybookInfo | null
   open: DocumentFindingSeverityCounts
   decided: { applied: number; kept: number }
   unlocated: number
@@ -25,6 +33,9 @@ export type SerializedDocumentFinding = {
   source: string
   sourceWorkflowInstanceId: string | null
   sourceAgentRunId: string | null
+  playbookId: string | null
+  playbookVersion: number | null
+  ruleId: string | null
   ruleCode: string | null
   severity: string
   title: string
@@ -72,6 +83,9 @@ export function serializeDocumentFinding(finding: DocumentFinding): SerializedDo
     source: finding.source,
     sourceWorkflowInstanceId: finding.sourceWorkflowInstanceId ?? null,
     sourceAgentRunId: finding.sourceAgentRunId ?? null,
+    playbookId: finding.playbookId ?? null,
+    playbookVersion: finding.playbookVersion ?? null,
+    ruleId: finding.ruleId ?? null,
     ruleCode: finding.ruleCode ?? null,
     severity: finding.severity,
     title: finding.title,
@@ -163,6 +177,7 @@ export async function countLatestReviewOpenBlocking(
 export function summarizeFindings(
   review: { reviewId: string; reviewedAt: Date } | null,
   findings: ReadonlyArray<Pick<DocumentFinding, 'severity' | 'status' | 'anchorStatus'>>,
+  playbook: DocumentReviewPlaybookInfo | null = null,
 ): DocumentFindingSummary {
   const open = emptySeverityCounts()
   const decided = { applied: 0, kept: 0 }
@@ -176,6 +191,7 @@ export function summarizeFindings(
   return {
     reviewId: review?.reviewId ?? null,
     reviewedAt: review ? review.reviewedAt.toISOString() : null,
+    playbook,
     open,
     decided,
     unlocated,
@@ -202,5 +218,48 @@ export async function loadDocumentFindingSummary(
     { fields: ['id', 'severity', 'status', 'anchorStatus'], limit: DOCUMENT_FINDING_SUMMARY_SCAN_LIMIT },
     scope,
   )
-  return summarizeFindings(review, findings)
+  const playbook = await loadReviewPlaybookInfo(em, scope, documentId, review.reviewId)
+  return summarizeFindings(review, findings, playbook)
+}
+
+/**
+ * Playbook snapshot of one review: the current playbook code and name with
+ * the version the findings were produced against. A soft-deleted playbook
+ * still labels the reviews it produced.
+ */
+export async function loadReviewPlaybookInfo(
+  em: EntityManager,
+  scope: DocumentFindingScope,
+  documentId: string,
+  reviewId: string,
+): Promise<DocumentReviewPlaybookInfo | null> {
+  const linked = await findOneWithDecryption(
+    em,
+    DocumentFinding,
+    {
+      documentId,
+      reviewId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+      playbookId: { $ne: null },
+    },
+    { fields: ['id', 'playbookId', 'playbookVersion'] },
+    scope,
+  )
+  if (!linked?.playbookId) return null
+  const playbook = await findOneWithDecryption(
+    em,
+    DocumentReviewPlaybook,
+    { id: linked.playbookId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { fields: ['id', 'code', 'name'], filters: false },
+    scope,
+  )
+  if (!playbook) return null
+  return {
+    id: playbook.id,
+    code: playbook.code,
+    name: playbook.name,
+    version: linked.playbookVersion ?? null,
+  }
 }

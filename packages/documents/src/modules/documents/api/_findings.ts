@@ -50,6 +50,9 @@ export const findingResponseSchema = z.object({
   source: documentFindingSourceSchema,
   sourceWorkflowInstanceId: z.string().nullable(),
   sourceAgentRunId: z.string().nullable(),
+  playbookId: z.string().uuid().nullable(),
+  playbookVersion: z.number().int().nullable(),
+  ruleId: z.string().uuid().nullable(),
   ruleCode: z.string().nullable(),
   severity: documentFindingSeveritySchema,
   title: z.string(),
@@ -68,6 +71,13 @@ export const findingResponseSchema = z.object({
   createdByUserId: z.string().uuid(),
   createdAt: z.string(),
   updatedAt: z.string(),
+})
+
+export const reviewPlaybookInfoSchema = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  version: z.number().int().nullable(),
 })
 
 export const findingPathParamsSchema = z.object({ id: z.string().uuid() })

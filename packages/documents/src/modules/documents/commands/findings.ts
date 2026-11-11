@@ -12,7 +12,13 @@ import {
   findWithDecryption,
 } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { Document, DocumentFinding, type DocumentFindingStatus } from '../data/entities'
+import {
+  Document,
+  DocumentFinding,
+  DocumentReviewPlaybook,
+  DocumentReviewRule,
+  type DocumentFindingStatus,
+} from '../data/entities'
 import { findingIngestCommandSchema } from '../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
 import { loadDocumentContent } from '../lib/contentService'
@@ -304,14 +310,53 @@ function emittedEventIds(projections: DocumentsProjectionDescriptor[]): string[]
   return projections.flatMap((projection) => (projection.kind === 'event' ? [projection.eventId] : []))
 }
 
+export type ResolvedReviewPlaybook = {
+  playbookId: string
+  playbookVersion: number
+  ruleIdsByCode: Map<string, string>
+}
+
+export async function resolveIngestPlaybook(
+  em: EntityManager,
+  scope: FindingScope,
+  playbookCode: string | undefined,
+): Promise<ResolvedReviewPlaybook | null> {
+  const code = playbookCode?.trim()
+  if (!code) return null
+  const playbook = await findOneWithDecryption(
+    em,
+    DocumentReviewPlaybook,
+    { code, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+    { fields: ['id', 'version'] },
+    scope,
+  )
+  if (!playbook) return null
+  const rules = await findWithDecryption(
+    em,
+    DocumentReviewRule,
+    { playbookId: playbook.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+    { fields: ['id', 'code'] },
+    scope,
+  )
+  return {
+    playbookId: playbook.id,
+    playbookVersion: playbook.version,
+    ruleIdsByCode: new Map(rules.map((rule) => [rule.code, rule.id])),
+  }
+}
+
 function applyIngestFields(
   finding: DocumentFinding,
   input: ResolvedIngestInput,
   item: ResolvedIngestInput['findings'][number],
   anchor: ReturnType<ReturnType<typeof createFindingAnchorer>['locate']>,
   actorUserId: string,
+  playbook: ResolvedReviewPlaybook | null,
 ): void {
   finding.reviewId = input.reviewId
+  finding.playbookId = playbook?.playbookId ?? null
+  finding.playbookVersion = playbook?.playbookVersion ?? null
+  finding.ruleId = playbook && item.ruleCode ? playbook.ruleIdsByCode.get(item.ruleCode) ?? null : null
   finding.source = input.source
   finding.sourceWorkflowInstanceId = input.origin.workflowInstanceId ?? null
   finding.sourceAgentRunId = input.origin.agentRunId ?? null
@@ -403,6 +448,7 @@ export const ingestFindingsCommand: CommandHandler<FindingIngestCommandInput, Fi
       if (openBefore - superseded.length + input.findings.length > DOCUMENTS_MAX_OPEN_FINDINGS_PER_DOCUMENT) {
         throw new CrudHttpError(422, { error: 'documents.findings.openLimitExceeded' })
       }
+      const playbook = await resolveIngestPlaybook(em, scope, input.playbookCode)
       const content = await loadDocumentContent(em, input.documentId, scope)
       const anchorer = createFindingAnchorer(content?.yjsState ?? null)
       try {
@@ -431,7 +477,7 @@ export const ingestFindingsCommand: CommandHandler<FindingIngestCommandInput, Fi
             status: 'open',
             createdByUserId: actorUserId,
           })
-          applyIngestFields(finding, input, item, anchor, actorUserId)
+          applyIngestFields(finding, input, item, anchor, actorUserId, playbook)
           finding.updatedAt = nextDocumentVersion(finding.updatedAt)
           if (!revived) em.persist(finding)
           created.push(finding)

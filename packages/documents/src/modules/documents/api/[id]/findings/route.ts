@@ -6,7 +6,11 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { DocumentFinding } from '../../../data/entities'
 import { findingIngestSchema, findingListQuerySchema } from '../../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
-import { resolveLatestReview, serializeDocumentFinding } from '../../../lib/findingSummary'
+import {
+  loadReviewPlaybookInfo,
+  resolveLatestReview,
+  serializeDocumentFinding,
+} from '../../../lib/findingSummary'
 import { DOCUMENTS_JSON_BODY_LIMITS } from '../../../lib/requestBody'
 import type {
   FindingIngestCommandInput,
@@ -22,6 +26,7 @@ import {
   findingPathParamsSchema,
   findingResponseSchema,
   resolveFindingRouteParams,
+  reviewPlaybookInfoSchema,
   type FindingRouteParams,
 } from '../../_findings'
 import {
@@ -44,6 +49,7 @@ const findingListResponseSchema = z.object({
   items: z.array(findingResponseSchema),
   total: z.number().int().nonnegative(),
   reviewId: z.string().uuid().nullable(),
+  playbook: reviewPlaybookInfoSchema.nullable(),
   page: z.number().int().positive(),
   pageSize: z.number().int().positive(),
 })
@@ -65,7 +71,7 @@ export async function GET(request: Request, context: FindingRouteParams): Promis
     const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
     const reviewId = query.reviewId ?? (await resolveLatestReview(ctx.em, scope, documentId))?.reviewId ?? null
     if (!reviewId) {
-      return NextResponse.json({ items: [], total: 0, reviewId: null, page: query.page, pageSize: query.pageSize })
+      return NextResponse.json({ items: [], total: 0, reviewId: null, playbook: null, page: query.page, pageSize: query.pageSize })
     }
     const where: FilterQuery<DocumentFinding> = {
       documentId,
@@ -88,10 +94,12 @@ export async function GET(request: Request, context: FindingRouteParams): Promis
       scope,
     )
     const total = await ctx.em.count(DocumentFinding, where)
+    const playbook = await loadReviewPlaybookInfo(ctx.em, scope, documentId, reviewId)
     return NextResponse.json({
       items: findings.map(serializeDocumentFinding),
       total,
       reviewId,
+      playbook,
       page: query.page,
       pageSize: query.pageSize,
     })

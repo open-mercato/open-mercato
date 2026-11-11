@@ -299,6 +299,83 @@ export const findingListQuerySchema = z.object({
     .transform((value) => Math.min(value, DOCUMENTS_FINDING_LIST_MAX_PAGE_SIZE)),
 })
 
+const reviewCodeSchema = (requiredMessage: string) => z.string()
+  .trim()
+  .min(1, requiredMessage)
+  .max(64, 'documents.reviewPlaybooks.validation.codeTooLong')
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'documents.reviewPlaybooks.validation.codeFormat')
+
+const optionalLongText = (max: number) => z.preprocess(
+  (value) => (typeof value === 'string' && value.trim().length === 0 ? null : value),
+  z.string().trim().max(max).nullable().optional(),
+)
+
+const optionalExpectedUpdatedAt = z.string().datetime({ offset: true }).nullable().optional()
+
+export const reviewPlaybookCreateSchema = z.object({
+  code: reviewCodeSchema('documents.reviewPlaybooks.validation.codeRequired'),
+  name: requiredTrimmedString(200, 'documents.reviewPlaybooks.validation.nameRequired'),
+  description: optionalLongText(4000),
+  instructions: optionalLongText(8000),
+  isActive: z.boolean().optional(),
+})
+
+export const reviewPlaybookUpdateSchema = z.object({
+  id: uuid(),
+  code: reviewCodeSchema('documents.reviewPlaybooks.validation.codeRequired').optional(),
+  name: requiredTrimmedString(200, 'documents.reviewPlaybooks.validation.nameRequired').optional(),
+  description: optionalLongText(4000),
+  instructions: optionalLongText(8000),
+  isActive: z.boolean().optional(),
+  expectedUpdatedAt: optionalExpectedUpdatedAt,
+})
+
+export const reviewRuleCreateSchema = z.object({
+  playbookId: uuid(),
+  code: reviewCodeSchema('documents.reviewPlaybooks.validation.ruleCodeRequired'),
+  title: requiredTrimmedString(200, 'documents.reviewPlaybooks.validation.ruleTitleRequired'),
+  topic: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim().length === 0 ? null : value),
+    z.string().trim().max(120).nullable().optional(),
+  ),
+  position: requiredTrimmedString(4000, 'documents.reviewPlaybooks.validation.positionRequired'),
+  preferredWording: optionalLongText(4000),
+  severity: documentFindingSeveritySchema,
+  sortOrder: z.coerce.number().int().min(0).max(100000).optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const reviewRuleUpdateSchema = z.object({
+  id: uuid(),
+  code: reviewCodeSchema('documents.reviewPlaybooks.validation.ruleCodeRequired').optional(),
+  title: requiredTrimmedString(200, 'documents.reviewPlaybooks.validation.ruleTitleRequired').optional(),
+  topic: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim().length === 0 ? null : value),
+    z.string().trim().max(120).nullable().optional(),
+  ),
+  position: requiredTrimmedString(4000, 'documents.reviewPlaybooks.validation.positionRequired').optional(),
+  preferredWording: optionalLongText(4000),
+  severity: documentFindingSeveritySchema.optional(),
+  sortOrder: z.coerce.number().int().min(0).max(100000).optional(),
+  isActive: z.boolean().optional(),
+  expectedUpdatedAt: optionalExpectedUpdatedAt,
+})
+
+export const reviewPlaybookReferenceCreateSchema = z.object({
+  documentId: uuid(),
+  sortOrder: z.coerce.number().int().min(0).max(100000).optional(),
+}).strict()
+
+export const reviewPlaybookReferenceDeleteSchema = z.object({
+  documentId: uuid(),
+}).strict()
+
+export type ReviewPlaybookCreateInput = z.infer<typeof reviewPlaybookCreateSchema>
+export type ReviewPlaybookUpdateInput = z.infer<typeof reviewPlaybookUpdateSchema>
+export type ReviewRuleCreateInput = z.infer<typeof reviewRuleCreateSchema>
+export type ReviewRuleUpdateInput = z.infer<typeof reviewRuleUpdateSchema>
+export type ReviewPlaybookReferenceCreateInput = z.infer<typeof reviewPlaybookReferenceCreateSchema>
+
 export type DocumentFindingSeverityInput = z.infer<typeof documentFindingSeveritySchema>
 export type FindingItemInput = z.infer<typeof findingItemSchema>
 export type FindingIngestInput = z.infer<typeof findingIngestSchema>

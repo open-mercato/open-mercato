@@ -5,6 +5,7 @@ import { loadDocumentFindingSummary } from '../../../../lib/findingSummary'
 import {
   assertFindingsAccess,
   findingPathParamsSchema,
+  reviewPlaybookInfoSchema,
   resolveFindingRouteParams,
   type FindingRouteParams,
 } from '../../../_findings'
@@ -28,6 +29,7 @@ const severityCountsSchema = z.object({
 const findingSummaryResponseSchema = z.object({
   reviewId: z.string().uuid().nullable(),
   reviewedAt: z.string().nullable(),
+  playbook: reviewPlaybookInfoSchema.nullable(),
   open: severityCountsSchema,
   decided: z.object({
     applied: z.number().int().nonnegative(),

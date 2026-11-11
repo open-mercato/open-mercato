@@ -21,6 +21,14 @@ const events = [
   { id: 'documents.finding.kept', label: 'Review Finding Kept', entity: 'finding', category: 'lifecycle' },
   { id: 'documents.finding.reopened', label: 'Review Finding Reopened', entity: 'finding', category: 'lifecycle' },
   { id: 'documents.review.cleared', label: 'Document Review Cleared', entity: 'review', category: 'lifecycle' },
+  { id: 'documents.review_playbook.created', label: 'Review Playbook Created', entity: 'review_playbook', category: 'crud' },
+  { id: 'documents.review_playbook.updated', label: 'Review Playbook Updated', entity: 'review_playbook', category: 'crud' },
+  { id: 'documents.review_playbook.deleted', label: 'Review Playbook Deleted', entity: 'review_playbook', category: 'crud' },
+  { id: 'documents.review_rule.created', label: 'Review Rule Created', entity: 'review_rule', category: 'crud' },
+  { id: 'documents.review_rule.updated', label: 'Review Rule Updated', entity: 'review_rule', category: 'crud' },
+  { id: 'documents.review_rule.deleted', label: 'Review Rule Deleted', entity: 'review_rule', category: 'crud' },
+  { id: 'documents.review_playbook_reference.created', label: 'Review Playbook Guidance Linked', entity: 'review_playbook_reference', category: 'crud' },
+  { id: 'documents.review_playbook_reference.deleted', label: 'Review Playbook Guidance Unlinked', entity: 'review_playbook_reference', category: 'crud' },
 ] as const
 
 export const eventsConfig = createModuleEvents({ moduleId: 'documents', events })

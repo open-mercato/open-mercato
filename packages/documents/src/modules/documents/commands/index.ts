@@ -13,6 +13,7 @@ import './favorites'
 import './watchers'
 import './duplicate'
 import './findings'
+import './reviewPlaybooks'
 
 export { createLinkCommand, deleteLinkCommand } from './links'
 export { instantiateDocumentCommand } from './documents'
@@ -38,3 +39,13 @@ export {
   keepFindingCommand,
   reopenFindingCommand,
 } from './findings'
+export {
+  createReviewPlaybookCommand,
+  updateReviewPlaybookCommand,
+  deleteReviewPlaybookCommand,
+  createReviewRuleCommand,
+  updateReviewRuleCommand,
+  deleteReviewRuleCommand,
+  createReviewPlaybookReferenceCommand,
+  deleteReviewPlaybookReferenceCommand,
+} from './reviewPlaybooks'
