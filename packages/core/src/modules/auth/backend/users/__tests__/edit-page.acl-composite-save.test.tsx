@@ -19,8 +19,39 @@
 import * as React from 'react'
 import { act, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import type { AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 
-const crudFormPropsCapture: { current: Record<string, any> | null } = { current: null }
+// The props the real `AclEditor` element is invoked with — captured off the
+// group's `component()` factory result, mirroring `AclEditor`'s own `onChange`
+// / `onVersionChange` prop types.
+type AclEditorElementProps = {
+  onChange: (data: AclData) => void
+  onVersionChange: (updatedAt: string | null) => void
+}
+
+// The subset of `CrudFormProps` this harness actually reads off the mocked
+// `CrudForm` — just `onSubmit` and the `acl` group's `component()` factory.
+type CapturedCrudFormGroup = {
+  id: string
+  component?: () => React.ReactElement<AclEditorElementProps> | null
+}
+
+type SubmittedUserValues = {
+  email: string
+  name: string
+  password: string
+  tenantId: string | null
+  organizationId: string | null
+  roles: string[]
+  isConfirmed: boolean
+}
+
+type CapturedCrudFormProps = {
+  onSubmit?: (values: SubmittedUserValues) => Promise<void>
+  groups?: CapturedCrudFormGroup[]
+}
+
+const crudFormPropsCapture: { current: CapturedCrudFormProps | null } = { current: null }
 const apiCallMock = jest.fn()
 let scopedHeadersHistory: Record<string, string>[] = []
 
@@ -38,7 +69,7 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
-  CrudForm: (props: Record<string, any>) => {
+  CrudForm: (props: CapturedCrudFormProps) => {
     crudFormPropsCapture.current = props
     return <div>form</div>
   },
@@ -92,10 +123,10 @@ function mockUsersResponse(user: Record<string, unknown>) {
   })
 }
 
-function getAclEditorElement(): React.ReactElement<Record<string, any>> {
-  const groups = crudFormPropsCapture.current!.groups as Array<Record<string, any>>
+function getAclEditorElement(): React.ReactElement<AclEditorElementProps> {
+  const groups = crudFormPropsCapture.current?.groups ?? []
   const aclGroup = groups.find((group) => group.id === 'acl')
-  const element = aclGroup!.component() as React.ReactElement<Record<string, any>> | null
+  const element = aclGroup?.component?.() ?? null
   if (!element) throw new Error('acl group did not render an AclEditor element')
   return element
 }

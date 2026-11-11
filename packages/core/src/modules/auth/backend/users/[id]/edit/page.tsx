@@ -127,18 +127,18 @@ function TenantAwareOrganizationSelectInput({
   )
 }
 
-function aclDataEqual(a: AclData | null, b: AclData): boolean {
-  if (!a) return false
-  if (a.isSuperAdmin !== b.isSuperAdmin) return false
-  const sorted = (list: string[] | null | undefined) => [...(list ?? [])].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-  const aFeatures = sorted(a.features)
-  const bFeatures = sorted(b.features)
-  if (aFeatures.length !== bFeatures.length || aFeatures.some((feature, i) => feature !== bFeatures[i])) return false
-  if (a.organizations === null || b.organizations === null) return a.organizations === b.organizations
-  const aOrgs = sorted(a.organizations)
-  const bOrgs = sorted(b.organizations)
-  if (aOrgs.length !== bOrgs.length) return false
-  return aOrgs.every((org, i) => org === bOrgs[i])
+function aclDataEqual(baseline: AclData | null, candidate: AclData): boolean {
+  if (!baseline) return false
+  if (baseline.isSuperAdmin !== candidate.isSuperAdmin) return false
+  const sorted = (list: string[] | null | undefined) => [...(list ?? [])].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+  const baselineFeatures = sorted(baseline.features)
+  const candidateFeatures = sorted(candidate.features)
+  if (baselineFeatures.length !== candidateFeatures.length || baselineFeatures.some((feature, i) => feature !== candidateFeatures[i])) return false
+  if (baseline.organizations === null || candidate.organizations === null) return baseline.organizations === candidate.organizations
+  const baselineOrgs = sorted(baseline.organizations)
+  const candidateOrgs = sorted(candidate.organizations)
+  if (baselineOrgs.length !== candidateOrgs.length) return false
+  return baselineOrgs.every((org, i) => org === candidateOrgs[i])
 }
 
 export default function EditUserPage({ params }: { params?: { id?: string } }) {
