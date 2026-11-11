@@ -54,7 +54,11 @@ function extractAuthTokenClaims(token: string | null): AuthTokenClaims {
 
 export async function POST(req: Request) {
   const sessToken = parseCookie(req, 'session_token')
-  const authToken = parseCookie(req, 'auth_token')
+  const authorization = (req.headers.get('authorization') || '').trim()
+  const bearerToken = authorization.toLowerCase().startsWith('bearer ')
+    ? authorization.slice(7).trim()
+    : null
+  const authToken = bearerToken || parseCookie(req, 'auth_token')
   if (!sessToken && !authToken) return buildSafeRedirectResponse(req, '/login', 303)
   const claims = extractAuthTokenClaims(authToken)
   let sessionRevoked = false
@@ -101,7 +105,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Invalidate session and redirect',
-      description: 'Revokes the session identified by the `auth_token` sid claim and the `session_token` cookie, clears both cookies together with the organization-scope cookies (`om_selected_org`, `om_selected_tenant`), and redirects the browser to the login page. A valid access token is not required, so a logout submitted after the access token expired still revokes the remember-me refresh session. A request that carries neither session cookie is only redirected.',
+      description: 'Revokes the session identified by the staff bearer JWT (preferred) or `auth_token` cookie sid claim and the `session_token` cookie, clears both cookies together with the organization-scope cookies (`om_selected_org`, `om_selected_tenant`), and redirects the browser to the login page. A valid access token is not required, so a logout submitted after the access token expired still revokes the remember-me refresh session. A request that carries neither bearer credentials nor a session cookie is only redirected.',
       responses: [
         { status: 303, description: 'See Other: navigate to login with GET after logout', mediaType: 'text/html' },
       ],
