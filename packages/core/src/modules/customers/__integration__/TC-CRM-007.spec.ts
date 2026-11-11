@@ -53,6 +53,13 @@ test.describe('TC-CRM-007: Create Deal', () => {
       await login(page, 'admin');
       await page.goto('/backend/customers/deals/create');
 
+      // Status and probability sit under the collapsed "More details" disclosure (#5109);
+      // open it first so the fields below are visible and interactable.
+      const moreDetailsToggle = page.getByRole('button', { name: 'More details', exact: true });
+      await expect(moreDetailsToggle).toBeVisible({ timeout: 30_000 });
+      if ((await moreDetailsToggle.getAttribute('aria-expanded')) !== 'true') await moreDetailsToggle.click();
+      await expect(moreDetailsToggle).toHaveAttribute('aria-expanded', 'true');
+
       // Wait for all dictionary-driven dropdowns to finish loading before any
       // user input. Radix Select renders the trigger as `disabled` while the
       // options promise is pending (DictionaryEntrySelect.loading), and a late
@@ -79,9 +86,8 @@ test.describe('TC-CRM-007: Create Deal', () => {
       }
       await selectByFieldId('status', 'Open')
       await selectByFieldId('pipelineId', pipelineName)
-      // Stage options render "<label> stage N of M", so match by substring (not exact) —
-      // same pattern as the currency option below.
-      await selectByFieldId('pipelineStageId', stageName, false)
+      // Stages are picked on the pipeline strip (#5109): each stage is a button named by its label.
+      await page.locator('[data-crud-field-id="pipelineStageId"]').getByRole('button', { name: stageName, exact: true }).click();
       // Deal value + probability are sanitized text inputs (SuffixInput with a currency-code / %
       // adornment), not native number spinbuttons — target them by their stable field id.
       await page.locator('[data-crud-field-id="valueAmount"]').getByRole('textbox').fill('25000');

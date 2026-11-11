@@ -93,6 +93,50 @@ describe('AssignRoleDialog', () => {
     })
   })
 
+  it('lets a candidate row wrap so a long advisory badge stays inside the card on a narrow screen (#7491)', async () => {
+    renderWithProviders(
+      <AssignRoleDialog
+        open
+        onClose={jest.fn()}
+        onAssign={jest.fn(async () => undefined)}
+        roleTypes={[
+          { id: 'rt-1', value: 'budget_holder', label: 'Budget holder' },
+          { id: 'rt-2', value: 'decision_maker', label: 'Decision maker' },
+          { id: 'rt-3', value: 'end_user', label: 'End user' },
+        ]}
+        entityName="Acme Corp"
+        initialRoleType="end_user"
+        existingRoleTypes={new Set(['budget_holder', 'decision_maker'])}
+        existingAssignments={[
+          {
+            id: 'role-1',
+            roleType: 'budget_holder',
+            userId: 'user-1',
+            userName: 'Ada Lovelace',
+            userEmail: 'ada@example.com',
+            createdAt: '2026-04-10T10:00:00.000Z',
+          },
+          {
+            id: 'role-2',
+            roleType: 'decision_maker',
+            userId: 'user-1',
+            userName: 'Ada Lovelace',
+            userEmail: 'ada@example.com',
+            createdAt: '2026-04-10T10:00:00.000Z',
+          },
+        ]}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Already assigned: Budget holder, Decision maker')).toBeInTheDocument()
+    })
+
+    const candidateRow = screen.getByRole('button', { name: /Ada Lovelace/i })
+    expect(candidateRow).toHaveClass('whitespace-normal', 'break-words')
+    expect(candidateRow).not.toHaveClass('whitespace-nowrap')
+  })
+
   it('changes an existing assignee through the same dialog with the role fixed (#7490)', async () => {
     readApiResultOrThrowMock.mockResolvedValue({
       items: [
@@ -179,7 +223,7 @@ describe('AssignRoleDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps the dialog and the selection when the save fails (#7490)', async () => {
+  it('restores keyboard retry focus and preserves the selection after a failed save (#7490)', async () => {
     readApiResultOrThrowMock.mockResolvedValue({
       items: [
         { userId: 'user-1', displayName: 'Ada Lovelace', user: { email: 'ada@example.com' } },
@@ -189,9 +233,10 @@ describe('AssignRoleDialog', () => {
       page: 1,
       pageSize: 24,
     })
-    const onReassign = jest.fn(async () => {
-      throw new Error('[internal] save failed')
-    })
+    let rejectSave: (error: Error) => void = () => undefined
+    const onReassign = jest.fn()
+      .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectSave = reject }))
+      .mockResolvedValueOnce(undefined)
     const onClose = jest.fn()
     renderWithProviders(
       <AssignRoleDialog
@@ -208,7 +253,14 @@ describe('AssignRoleDialog', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /Grace Hopper/i }))
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Save change' }))
+    const saveButton = screen.getByRole('button', { name: 'Save change' })
+    saveButton.focus()
+    fireEvent.click(saveButton)
+    await waitFor(() => expect(saveButton).toBeDisabled())
+    document.body.tabIndex = -1
+    document.body.focus()
+    document.body.removeAttribute('tabindex')
+    rejectSave(new Error('[internal] save failed'))
 
     await waitFor(() => {
       expect(onReassign).toHaveBeenCalledTimes(1)
@@ -216,50 +268,11 @@ describe('AssignRoleDialog', () => {
     expect(onClose).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Save change' })).toBeEnabled()
     expect(screen.getAllByText('Grace Hopper').length).toBeGreaterThan(0)
-  })
-
-  it('lets a candidate row wrap so a long advisory badge stays inside the card on a narrow screen (#7491)', async () => {
-    renderWithProviders(
-      <AssignRoleDialog
-        open
-        onClose={jest.fn()}
-        onAssign={jest.fn(async () => undefined)}
-        roleTypes={[
-          { id: 'rt-1', value: 'budget_holder', label: 'Budget holder' },
-          { id: 'rt-2', value: 'decision_maker', label: 'Decision maker' },
-          { id: 'rt-3', value: 'end_user', label: 'End user' },
-        ]}
-        entityName="Acme Corp"
-        initialRoleType="end_user"
-        existingRoleTypes={new Set(['budget_holder', 'decision_maker'])}
-        existingAssignments={[
-          {
-            id: 'role-1',
-            roleType: 'budget_holder',
-            userId: 'user-1',
-            userName: 'Ada Lovelace',
-            userEmail: 'ada@example.com',
-            createdAt: '2026-04-10T10:00:00.000Z',
-          },
-          {
-            id: 'role-2',
-            roleType: 'decision_maker',
-            userId: 'user-1',
-            userName: 'Ada Lovelace',
-            userEmail: 'ada@example.com',
-            createdAt: '2026-04-10T10:00:00.000Z',
-          },
-        ]}
-      />,
-    )
-
-    await waitFor(() => {
-      expect(screen.getByText('Already assigned: Budget holder, Decision maker')).toBeInTheDocument()
-    })
-
-    const candidateRow = screen.getByRole('button', { name: /Ada Lovelace/i })
-    expect(candidateRow).toHaveClass('whitespace-normal', 'break-words')
-    expect(candidateRow).not.toHaveClass('whitespace-nowrap')
+    await waitFor(() => expect(saveButton).toHaveFocus())
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(onReassign).toHaveBeenCalledTimes(2))
+    expect(onReassign).toHaveBeenLastCalledWith('role-1', 'user-2')
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })
 
   it('shows a visible load error instead of an empty results state when staff lookup fails', async () => {

@@ -24,6 +24,12 @@ const PORTAL_ACCOUNT_TAB_KEY = 'customer_accounts.widgets.portalAccountTab'
 
 const INVITE_KEYS = [
   'customer_accounts.widgets.invite.button',
+  'customer_accounts.widgets.invite.cancel.button',
+  'customer_accounts.widgets.invite.cancel.title',
+  'customer_accounts.widgets.invite.cancel.description',
+  'customer_accounts.widgets.invite.cancel.confirm',
+  'customer_accounts.widgets.invite.cancel.success',
+  'customer_accounts.widgets.invite.cancel.error',
   'customer_accounts.widgets.invite.displayName',
   'customer_accounts.widgets.invite.error.emailRequired',
   'customer_accounts.widgets.invite.error.failed',
@@ -38,6 +44,8 @@ const INVITE_KEYS = [
 // (invite.roles is excluded: "Roles" is a valid Spanish spelling.)
 const MUST_DIFFER_KEYS = [
   'customer_accounts.widgets.invite.button',
+  'customer_accounts.widgets.invite.cancel.button',
+  'customer_accounts.widgets.invite.cancel.description',
   'customer_accounts.widgets.invite.error.emailRequired',
   'customer_accounts.widgets.invite.error.failed',
   'customer_accounts.widgets.invite.error.roleRequired',
@@ -58,7 +66,7 @@ const dictionaries = Object.fromEntries(LOCALES.map((locale) => [locale, loadLoc
 >
 
 describe('customer_accounts invite widget i18n (#3953)', () => {
-  const allKeys = [...INVITE_KEYS, DESCRIPTION_KEY, PORTAL_ACCOUNT_TAB_KEY]
+  const allKeys = [...INVITE_KEYS, DESCRIPTION_KEY, PORTAL_ACCOUNT_TAB_KEY, 'customer_accounts.actions.cancelInvitation']
 
   it('defines every invite key and the description key in all locales', () => {
     for (const locale of LOCALES) {

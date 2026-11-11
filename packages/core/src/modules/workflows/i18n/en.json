@@ -1591,6 +1591,7 @@
   "workflows.selectors.workflow.close": "Close workflow picker",
   "workflows.signals.awaiting": "Waiting for signal",
   "workflows.signals.correlationKey": "Correlation Key",
+  "workflows.signals.errors.deliveryFailed": "Failed to deliver signal",
   "workflows.signals.payload": "Signal Payload",
   "workflows.signals.plural": "Signals",
   "workflows.signals.received": "Signal received",

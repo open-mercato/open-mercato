@@ -15,7 +15,7 @@ jest.mock('@open-mercato/core/modules/dictionaries/components/hooks/useDictionar
 }))
 
 import * as React from 'react'
-import { fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CustomDataSection } from '../detail/CustomDataSection'
@@ -44,6 +44,7 @@ describe('CustomDataSection relation display', () => {
 
   afterEach(() => {
     delete (window as WindowWithOriginalFetch).__omOriginalFetch
+    jest.useRealTimers()
     jest.restoreAllMocks()
   })
 
@@ -116,6 +117,7 @@ describe('CustomDataSection relation display', () => {
   })
 
   it('keeps deep links for relation displays that need route context', async () => {
+    jest.useFakeTimers()
     ;(window as WindowWithOriginalFetch).__omOriginalFetch = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       expect(url).toContain('/api/entities/relations/options?')
@@ -174,7 +176,12 @@ describe('CustomDataSection relation display', () => {
       />,
     )
 
-    const relationLink = await screen.findByRole('link', { name: 'Ada Lovelace' })
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0)
+    })
+
+    expect((window as WindowWithOriginalFetch).__omOriginalFetch).toHaveBeenCalledTimes(1)
+    const relationLink = screen.getByRole('link', { name: 'Ada Lovelace' })
     expect(relationLink).toHaveAttribute(
       'href',
       `/backend/customers/people-v2/${encodeURIComponent(relationId)}`,
