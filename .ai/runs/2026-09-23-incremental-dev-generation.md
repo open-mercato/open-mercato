@@ -71,3 +71,11 @@ CLI watcher, source/distribution snapshot discovery, generator selection and reg
 - Runner: local isolated worktree. Package build passed (38 tasks); CLI tests passed (111 suites, 2,098 tests, two snapshots); locale tests passed (9); hidden-group tests passed (18). These checks ran under the shell's Node 22.20.0.
 - The generation runtime guard rejected Node 22; reran generation with installed Node 24.13.1 successfully (641 bundled OpenAPI paths), followed by successful workspace typechecking (38 tasks). No runtime guard or repository configuration was changed.
 - A disposable filesystem smoke exercised source deletion, retained compiled CLI discovery, incremental compiled edits/deletion, and unchanged-capture no-op behavior. No application UI behavior changed; manual dev-watcher QA and reviewer approval remain separate merge prerequisites.
+
+## Main-branch conflict resolution — 2026-11-11
+
+- Merged `main` at `6c779bc21b` into the approved PR head `6e4020133a`. Kept upstream `exitOnMissingModuleRequires` validation while preserving lazy selected-output rendering; did not restore eager rendering of unrelated registry families.
+- Focused regressions exposed an automatic-merge omission: the CLI registry renderer used `quiet` without binding it. Restored the same `quiet = false` option binding as the other renderers.
+- Latest reviews from AHKSammich, pkarw and haxiorz approve the prior head and confirm earlier runtime/resource/spec findings are resolved. The review-thread API returned no threads; no outstanding review change remained to apply.
+- Validation source: local fallback for the unpublished merge, using an isolated worktree and Node 24.13.1. CLI/dependency builds passed; all 57 tests across incremental-registry, module-requires, module-requirements and module-registry-requires-enforcement passed after the binding fix; CLI typechecking passed.
+- Built-ESM filesystem smoke confirmed missing dependencies exit with status 1 before registry output, metadata side effects do not execute, and a selected main registry is the only emitted registry and matches full-generation bytes. Fresh remote CI and required manual QA remain merge gates; no full local workspace suite or application build was run.

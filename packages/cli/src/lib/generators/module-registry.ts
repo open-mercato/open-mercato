@@ -6,7 +6,7 @@ import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import ts from 'typescript-js'
 import type { ModuleEntry, PackageResolver } from '../resolver'
 import { getEnabledModuleIdentities } from '../module-identity'
-import { getModuleRequirementHint, resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
+import { getModuleRequirementHint, resolveModuleRequirement, type ModuleIdentity } from '@open-mercato/shared/modules/module-locators'
 import {
   DEV_SUPERVISOR_MANIFEST_FILE,
   DEV_SUPERVISOR_MANIFEST_VERSION,
@@ -526,6 +526,145 @@ function extractNamedObjectLiteralSource(sourceFile: string, exportName: string)
   }
 
   return null
+}
+
+export type ModuleRequiresExtraction =
+  | { status: 'declared'; requires: string[] }
+  | { status: 'absent' }
+  | { status: 'unresolvable'; reason: string }
+
+function isCommonJsMetadataTarget(expression: ts.Expression): boolean {
+  if (!ts.isPropertyAccessExpression(expression) || expression.name.text !== 'metadata') return false
+  const target = expression.expression
+  if (ts.isIdentifier(target)) return target.text === 'exports'
+  return ts.isPropertyAccessExpression(target)
+    && target.name.text === 'exports'
+    && ts.isIdentifier(target.expression)
+    && target.expression.text === 'module'
+}
+
+type ExportedMetadataSource =
+  | { kind: 'initializer'; expression: ts.Expression }
+  | { kind: 're-export' }
+  | { kind: 'no-initializer' }
+
+function findExportedMetadataSource(parsed: ts.SourceFile): ExportedMetadataSource | undefined {
+  const localNamesExportedAsMetadata = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (
+      ts.isExportDeclaration(statement)
+      && !statement.isTypeOnly
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+    ) {
+      for (const element of statement.exportClause.elements) {
+        if (element.name.text !== 'metadata' || element.isTypeOnly) continue
+        if (statement.moduleSpecifier) return { kind: 're-export' }
+        localNamesExportedAsMetadata.add(element.propertyName?.text ?? element.name.text)
+      }
+    }
+  }
+
+  let commonJsInitializer: ts.Expression | undefined
+  for (const statement of parsed.statements) {
+    if (ts.isVariableStatement(statement)) {
+      const exportsDirectly = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+        ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name)) continue
+        const localName = declaration.name.text
+        const exported = (exportsDirectly && localName === 'metadata') || localNamesExportedAsMetadata.has(localName)
+        if (!exported) continue
+        return declaration.initializer
+          ? { kind: 'initializer', expression: declaration.initializer }
+          : { kind: 'no-initializer' }
+      }
+      continue
+    }
+    if (
+      ts.isExpressionStatement(statement)
+      && ts.isBinaryExpression(statement.expression)
+      && statement.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && isCommonJsMetadataTarget(statement.expression.left)
+      && !ts.isVoidExpression(statement.expression.right)
+    ) {
+      commonJsInitializer = statement.expression.right
+    }
+  }
+  if (commonJsInitializer) return { kind: 'initializer', expression: commonJsInitializer }
+  if (localNamesExportedAsMetadata.size > 0) return { kind: 're-export' }
+  return undefined
+}
+
+/**
+ * Reads `metadata.requires` from a module `index` source purely syntactically — the file is parsed,
+ * never executed, so packaged TypeScript sources and module side effects are both safe. Only the
+ * exported `metadata` object is consulted, and only string-literal entries are accepted: anything
+ * computed is reported as unresolvable instead of being guessed.
+ */
+export function extractModuleRequiresFromSource(sourceFile: string): ModuleRequiresExtraction {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return { status: 'absent' }
+  }
+
+  const parsed = ts.createSourceFile(
+    sourceFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    inferScriptKind(sourceFile),
+  )
+
+  const metadataSource = findExportedMetadataSource(parsed)
+  if (!metadataSource) return { status: 'absent' }
+  if (metadataSource.kind === 're-export') {
+    return { status: 'unresolvable', reason: 'exported metadata is re-exported from another file' }
+  }
+  if (metadataSource.kind === 'no-initializer') {
+    return { status: 'unresolvable', reason: 'exported metadata has no initializer' }
+  }
+
+  const metadata = unwrapExpression(metadataSource.expression)
+  if (!ts.isObjectLiteralExpression(metadata)) {
+    return { status: 'unresolvable', reason: 'exported metadata is not an object literal' }
+  }
+
+  let requiresInitializer: ts.Expression | undefined
+  for (const property of metadata.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      return { status: 'unresolvable', reason: 'exported metadata uses a spread' }
+    }
+    const name = property.name
+    if (!name) continue
+    if (ts.isComputedPropertyName(name)) {
+      return { status: 'unresolvable', reason: 'exported metadata uses a computed key' }
+    }
+    const key = ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : null
+    if (key !== 'requires') continue
+    if (!ts.isPropertyAssignment(property)) {
+      return { status: 'unresolvable', reason: 'metadata.requires is not a property assignment' }
+    }
+    requiresInitializer = property.initializer
+  }
+  if (!requiresInitializer) return { status: 'absent' }
+
+  const requiresArray = unwrapExpression(requiresInitializer)
+  if (!ts.isArrayLiteralExpression(requiresArray)) {
+    return { status: 'unresolvable', reason: 'metadata.requires is not an array literal' }
+  }
+
+  const requires: string[] = []
+  for (const element of requiresArray.elements) {
+    const value = unwrapExpression(element)
+    if (!ts.isStringLiteral(value) && !ts.isNoSubstitutionTemplateLiteral(value)) {
+      return { status: 'unresolvable', reason: 'metadata.requires contains a non-literal entry' }
+    }
+    requires.push(value.text)
+  }
+  return { status: 'declared', requires }
 }
 
 function resolveLocalStringConstants(parsed: ts.SourceFile): Map<string, string> {
@@ -1588,6 +1727,52 @@ function alreadyWarned(sourcePath: string): boolean {
   return false
 }
 
+export type MissingModuleRequires = { moduleId: string; missing: string[] }
+
+export function findMissingModuleRequires(
+  modules: readonly ModuleIdentity[],
+  requiresByModule: ReadonlyMap<string, string[]>,
+): MissingModuleRequires[] {
+  const problems: MissingModuleRequires[] = []
+  for (const [moduleId, requires] of requiresByModule.entries()) {
+    const missing = requires.filter((requirement) => !resolveModuleRequirement(requirement, modules))
+    if (missing.length) problems.push({ moduleId, missing })
+  }
+  return problems
+}
+
+function exitOnMissingModuleRequires(
+  modules: readonly ModuleIdentity[],
+  requiresByModule: ReadonlyMap<string, string[]>,
+): void {
+  const problems = findMissingModuleRequires(modules, requiresByModule)
+  if (!problems.length) return
+  console.error('\nModule dependency check failed:')
+  for (const problem of problems) console.error(`- Module "${problem.moduleId}" requires: ${problem.missing.join(', ')}`)
+  const missingRequirements = new Set(problems.flatMap((problem) => problem.missing))
+  for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
+  process.exit(1)
+}
+
+function collectDeclaredModuleRequires(
+  moduleId: string,
+  indexPath: string,
+  requiresByModule: Map<string, string[]>,
+  quiet: boolean,
+): void {
+  const extraction = extractModuleRequiresFromSource(indexPath)
+  if (extraction.status === 'declared') {
+    if (extraction.requires.length) requiresByModule.set(moduleId, extraction.requires)
+    return
+  }
+  if (extraction.status === 'unresolvable' && !quiet && !alreadyWarned(`requires:${indexPath}`)) {
+    console.warn(
+      `[generate] ⚠ Module "${moduleId}" declares metadata.requires that cannot be read statically `
+      + `(${extraction.reason}); its dependency check is skipped. Use an array of string literals: ${indexPath}`,
+    )
+  }
+}
+
 /**
  * Warns when a discovered page metadata file exports no `metadata` binding.
  *
@@ -1694,20 +1879,6 @@ function resolveApiPathFromMetadata(metadata: unknown, fallbackPath: string): st
   if (!metadata || typeof metadata !== 'object') return fallbackPath
   const candidate = (metadata as Record<string, unknown>).path
   return typeof candidate === 'string' && candidate.length > 0 ? candidate : fallbackPath
-}
-
-function resolveModuleRequiresFromMetadata(metadata: unknown): string[] | undefined {
-  if (!metadata || typeof metadata !== 'object') return undefined
-  const requires = (metadata as Record<string, unknown>).requires
-  if (!Array.isArray(requires)) return undefined
-  const resolved = requires.filter((value): value is string => typeof value === 'string')
-  return resolved.length > 0 ? resolved : undefined
-}
-
-async function resolveModuleRequiresFromIndexFile(indexFileAbsolutePath: string): Promise<string[] | undefined> {
-  const loadedModule = await loadModuleExportsFromSource<Record<string, unknown>>(indexFileAbsolutePath)
-  const metadata = loadedModule?.metadata ?? extractNamedObjectLiteralExport(indexFileAbsolutePath, 'metadata')
-  return resolveModuleRequiresFromMetadata(metadata)
 }
 
 function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
@@ -3651,8 +3822,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       runtimeImports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      const reqs = await resolveModuleRequiresFromIndexFile(indexResolved.absolutePath)
-      if (reqs && reqs.length) requiresByModule.set(modId, reqs)
+      collectDeclaredModuleRequires(modId, indexResolved.absolutePath, requiresByModule, quiet)
     }
 
     // 2. Pages: frontend
@@ -4128,25 +4298,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     }
   }
 
-  // Validate module dependencies declared via ModuleInfo.requires
-  {
-    const identities = discovery.identities
-    const problems: string[] = []
-    const missingRequirements = new Set<string>()
-    for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((requirement) => !resolveModuleRequirement(requirement, identities))
-      for (const requirement of missing) missingRequirements.add(requirement)
-      if (missing.length) {
-        problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
-      }
-    }
-    if (problems.length) {
-      console.error('\nModule dependency check failed:')
-      for (const p of problems) console.error(p)
-      for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
-      process.exit(1)
-    }
-  }
+  exitOnMissingModuleRequires(discovery.identities, requiresByModule)
 
   writeOutput('main', 'modules.generated.ts', () => renderAstModuleRegistryFile({
     fileName: 'modules.generated.ts',
@@ -4342,8 +4494,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       bootstrapImports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      const reqs = await resolveModuleRequiresFromIndexFile(indexResolved.absolutePath)
-      if (reqs && reqs.length) requiresByModule.set(modId, reqs)
+      collectDeclaredModuleRequires(modId, indexResolved.absolutePath, requiresByModule, quiet)
     }
 
     {
@@ -4609,24 +4760,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   }
 
 
-  {
-    const identities = discovery.identities
-    const problems: string[] = []
-    const missingRequirements = new Set<string>()
-    for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((requirement) => !resolveModuleRequirement(requirement, identities))
-      for (const requirement of missing) missingRequirements.add(requirement)
-      if (missing.length) {
-        problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
-      }
-    }
-    if (problems.length) {
-      console.error('\nModule dependency check failed:')
-      for (const p of problems) console.error(p)
-      for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
-      process.exit(1)
-    }
-  }
+  exitOnMissingModuleRequires(discovery.identities, requiresByModule)
 
   writeOutput('app', 'modules.app.generated.ts', () => renderAstModuleRegistryFile({
     fileName: 'modules.app.generated.ts',
@@ -4697,7 +4831,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
  */
 async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRenderOptions): Promise<GeneratorResult> {
   let hasAbandonHookWorkers = false
-  const { resolver } = options
+  const { resolver, quiet = false } = options
   const { discovery } = options
   const result = createGeneratorResult()
   if (options.outputGroups !== undefined && !options.outputGroups.some((group) =>
@@ -4746,8 +4880,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      const reqs = await resolveModuleRequiresFromIndexFile(indexResolved.absolutePath)
-      if (reqs && reqs.length) requiresByModule.set(modId, reqs)
+      collectDeclaredModuleRequires(modId, indexResolved.absolutePath, requiresByModule, quiet)
     }
 
     // Module setup configuration: setup.ts
@@ -4978,25 +5111,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
   }
 
 
-  // Validate module dependencies declared via ModuleInfo.requires
-  {
-    const identities = discovery.identities
-    const problems: string[] = []
-    const missingRequirements = new Set<string>()
-    for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((requirement) => !resolveModuleRequirement(requirement, identities))
-      for (const requirement of missing) missingRequirements.add(requirement)
-      if (missing.length) {
-        problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
-      }
-    }
-    if (problems.length) {
-      console.error('\nModule dependency check failed:')
-      for (const p of problems) console.error(p)
-      for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
-      process.exit(1)
-    }
-  }
+  exitOnMissingModuleRequires(discovery.identities, requiresByModule)
 
   writeOutput('cli', 'modules.cli.generated.ts', () => renderAstModuleRegistryFile({
     fileName: 'modules.cli.generated.ts',
