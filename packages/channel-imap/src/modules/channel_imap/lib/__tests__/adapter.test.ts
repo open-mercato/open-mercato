@@ -107,6 +107,39 @@ describe('ImapChannelAdapter.sendMessage', () => {
     expect(appendCalls).toHaveLength(1)
   })
 
+  it('carries List-Unsubscribe through to the SMTP client, which had been silently dropping it', async () => {
+    const sendCalls: Array<Record<string, unknown>> = []
+    setSmtpClient({
+      verify: async () => undefined,
+      send: async (_options, message) => {
+        sendCalls.push(message as unknown as Record<string, unknown>)
+        return { messageId: '<outbound@example.com>', raw: Buffer.alloc(0) }
+      },
+    })
+    setImapClient({
+      connectAndValidate: async () => ({ capabilities: [] }),
+      selectInbox: async () => ({}),
+      fetchUidRange: async () => [],
+      appendSent: async () => undefined,
+    })
+
+    const adapter = getImapChannelAdapter()
+    await adapter.sendMessage({
+      content: { html: '<p>Hi</p>', bodyFormat: 'html' },
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      metadata: {
+        subject: 'Hi',
+        to: ['bob@example.com'],
+        headers: { 'List-Unsubscribe': '<mailto:x@y.test>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+      },
+    })
+    expect(sendCalls[0].headers).toEqual({
+      'List-Unsubscribe': '<mailto:x@y.test>',
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    })
+  })
+
   it('returns failed when no recipients are provided', async () => {
     setSmtpClient({ verify: async () => undefined, send: async () => ({ messageId: 'x', raw: Buffer.alloc(0) }) })
     setImapClient({ connectAndValidate: async () => ({ capabilities: [] }), selectInbox: async () => ({}), fetchUidRange: async () => [], appendSent: async () => undefined })

@@ -6,6 +6,7 @@ import {
   assembleRfc2822,
   escapeQuotes,
   generateMessageId,
+  headersFromMeta,
   htmlToText,
   referencesFromMeta,
   stringOrUndefined,
@@ -98,6 +99,7 @@ export async function convertOutboundForGmail(
     inReplyTo,
     references,
     messageId,
+    extraHeaders: headersFromMeta(meta.headers),
   })
 
   const metadata: GmailEmailNativeMetadata = {

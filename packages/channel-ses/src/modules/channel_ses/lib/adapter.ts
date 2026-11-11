@@ -13,6 +13,7 @@ import type {
   VerifyWebhookInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import {
+  headersFromMeta,
   htmlToText,
   sanitizeHeaderValue,
   stringOrUndefined,
@@ -96,6 +97,7 @@ class SesChannelAdapter implements ChannelAdapter {
       ...(stringOrUndefined(meta.replyTo) ? { replyTo: stringOrUndefined(meta.replyTo) } : {}),
       ...(attachmentsFromMeta(meta.attachments)?.length ? { attachments: attachmentsFromMeta(meta.attachments) } : {}),
       ...(configurationSetName ? { ses: { ConfigurationSetName: configurationSetName } } : {}),
+      ...(headersFromMeta(meta.headers) ? { headers: headersFromMeta(meta.headers) } : {}),
     }
 
     try {
@@ -142,6 +144,7 @@ class SesChannelAdapter implements ChannelAdapter {
         from: stringOrUndefined(meta.from),
         replyTo: stringOrUndefined(meta.replyTo),
         attachments: attachmentsFromMeta(meta.attachments),
+        headers: headersFromMeta(meta.headers),
       },
     }
   }
