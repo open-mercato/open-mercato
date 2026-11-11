@@ -1056,6 +1056,7 @@
   "customers.deals.detail.actions.backToList": "Powrót do listy szans",
   "customers.deals.detail.actions.cancel": "Anuluj",
   "customers.deals.detail.actions.delete": "Usuń",
+  "customers.deals.detail.actions.moveStage": "Zmień etap",
   "customers.deals.detail.actions.save": "Zapisz",
   "customers.deals.detail.actions.sendMessage": "Wyślij wiadomość",
   "customers.deals.detail.activities.linkEntityDescription": "Aktywności na szansie i tak wymagają rekordu klienta jako właściciela osi czasu.",

@@ -13,6 +13,7 @@ import { ObjectHistoryButton } from './ObjectHistoryButton'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { formatFallbackLabel } from './utils'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
+import { StageSelectMenu, type StageSelectOption } from './StageSelectMenu'
 
 type DealAssociation = {
   id: string
@@ -42,6 +43,18 @@ type DealDetailHeaderProps = {
   extraActions?: React.ReactNode
   /** A second, quieter row under the action cluster, e.g. the Close deal menu. */
   secondaryActions?: React.ReactNode
+  /**
+   * @deprecated The built-in page moves stages from the `PipelineStepper` strip. Passed together with
+   * `onStageChange`, these inputs still render a stage menu in the action cluster. Kept for at least one
+   * minor release after 0.10.0; see `UPGRADE_NOTES.md`.
+   */
+  stageOptions?: StageSelectOption[]
+  /** @deprecated See `stageOptions`. */
+  currentStageId?: string | null
+  /** @deprecated See `stageOptions`. */
+  onStageChange?: (stageId: string) => Promise<void> | void
+  /** @deprecated See `stageOptions`. */
+  isStageSaving?: boolean
   onSave: () => void
   onDelete: () => Promise<void> | void
   isDirty: boolean
@@ -115,6 +128,10 @@ export function DealDetailHeader({
   pipelineName,
   extraActions = null,
   secondaryActions = null,
+  stageOptions = [],
+  currentStageId = null,
+  onStageChange,
+  isStageSaving = false,
   onSave,
   onDelete,
   isDirty,
@@ -145,6 +162,16 @@ export function DealDetailHeader({
   const statusLabel = statusEntry?.label ?? (deal.status ? formatFallbackLabel(deal.status) : null)
   const showStatusChip = statusLabel && (!deal.closureOutcome || !isTerminalPipelineOutcomeLabel(deal.status))
   const pipelineBadgeLabel = pipelineName ?? null
+  const legacyStageMenu = stageOptions.length > 0 && !deal.closureOutcome && typeof onStageChange === 'function' ? (
+    <StageSelectMenu
+      stages={stageOptions}
+      currentStageId={currentStageId}
+      onStageChange={onStageChange}
+      disabled={isDirty || isSaving}
+      isSaving={isStageSaving}
+      showCurrentStage
+    />
+  ) : null
   const messageSubtitle = React.useMemo(() => (
     [companyLabel, amountLabel].filter(Boolean).join(', ') || statusLabel || undefined
   ), [amountLabel, companyLabel, statusLabel])
@@ -212,6 +239,7 @@ export function DealDetailHeader({
         <div className="flex flex-wrap items-center gap-2 xl:justify-end">
           {extraActions}
           {actions}
+          {legacyStageMenu}
           <SendObjectMessageDialog
             object={{
               entityModule: 'customers',

@@ -17,7 +17,8 @@ import {
  * strip (`PipelineStepper`) and a "Close deal" popover (`DealClosureActionBar`). This
  * covers each path end to end: a segment click persists the stage, a dirty form makes
  * the strip read-only, Close deal > Won shows the outcome, and Close deal > Lost opens
- * the loss dialog without closing the deal.
+ * the loss dialog without closing the deal. Below `sm` the strip collapses to the current
+ * stage plus a "Move stage" menu, covered at a 390px viewport with the same guards.
  *
  * Self-contained: every test creates its own pipeline, stages and deal through the API
  * and removes them in `finally`.
@@ -75,6 +76,18 @@ async function openDeal(page: Page, fixtures: DealFixtures) {
   const strip = page.getByRole('list', { name: /^Pipeline progress/ });
   await expect(strip.getByText('Second stage')).toBeVisible();
   return strip;
+}
+
+async function openDealOnPhone(page: Page, fixtures: DealFixtures) {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page, 'admin');
+  await page.goto(`/backend/customers/deals/${fixtures.dealId}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { level: 1, name: fixtures.title })).toBeVisible({ timeout: 20_000 });
+  const compact = page.getByRole('group', { name: /^Pipeline progress/ });
+  await expect(compact).toBeVisible();
+  await expect(compact).toContainText('First stage');
+  await expect(page.getByRole('list', { name: /^Pipeline progress/ })).toBeHidden();
+  return compact;
 }
 
 async function chooseCloseDealOutcome(page: Page, outcome: 'Won' | 'Lost') {
@@ -163,6 +176,51 @@ test.describe('TC-CRM-8552: deal header write paths', () => {
       await expect(lossDialog).toBeVisible();
       await expect(lossDialog).toContainText(fixtures.title);
       expect((await readDeal(request, fixtures.token, fixtures.dealId)).closureOutcome ?? null).toBeNull();
+    } finally {
+      await cleanUp(request, token, created);
+    }
+  });
+
+  test('on a phone, the Move stage menu persists the stage', async ({ page, request }) => {
+    const created = { pipelineId: null as string | null, stageIds: [] as string[], dealId: null as string | null };
+    let token: string | null = null;
+    try {
+      token = await getAuthToken(request, 'admin');
+      const fixtures = await createDealOnTwoStagePipeline(request, token, 'TC-CRM-8552 phone', created);
+      const compact = await openDealOnPhone(page, fixtures);
+
+      await compact.getByRole('button', { name: 'Move stage' }).click();
+      const menu = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Second stage', exact: true }) });
+      await expect(menu.getByRole('button', { name: 'First stage', exact: true })).toBeDisabled();
+      await menu.getByRole('button', { name: 'Second stage', exact: true }).click();
+
+      await expect(compact).toContainText('Second stage');
+      await expect
+        .poll(async () => (await readDeal(request, fixtures.token, fixtures.dealId)).pipelineStageId)
+        .toBe(fixtures.stageIds[1]);
+    } finally {
+      await cleanUp(request, token, created);
+    }
+  });
+
+  test('on a phone, a dirty form hides the Move stage menu', async ({ page, request }) => {
+    test.slow();
+    const created = { pipelineId: null as string | null, stageIds: [] as string[], dealId: null as string | null };
+    let token: string | null = null;
+    try {
+      token = await getAuthToken(request, 'admin');
+      const fixtures = await createDealOnTwoStagePipeline(request, token, 'TC-CRM-8552 phone dirty', created);
+      const compact = await openDealOnPhone(page, fixtures);
+      await expect(compact.getByRole('button', { name: 'Move stage' })).toBeVisible();
+
+      const titleInput = page.locator('[data-crud-field-id="title"]').getByRole('textbox');
+      await expect(titleInput).toBeVisible();
+      await titleInput.fill(`${fixtures.title} edited`);
+      await expect(titleInput).toHaveValue(`${fixtures.title} edited`);
+
+      await expect(compact.getByRole('button', { name: 'Move stage' })).toHaveCount(0);
+      await expect(compact).toContainText('First stage');
+      expect((await readDeal(request, fixtures.token, fixtures.dealId)).pipelineStageId).toBe(fixtures.stageIds[0]);
     } finally {
       await cleanUp(request, token, created);
     }

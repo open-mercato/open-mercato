@@ -1353,6 +1353,20 @@ Pin an activity:
 
 This section satisfies the root `BACKWARD_COMPATIBILITY.md` deprecation-protocol requirement for every PR that touches contract surfaces. The feat/crm-details-screens branch introduces:
 
+### Deprecated deal header inputs (2026-11-10, #8552)
+
+The decluttered deal header (Enhancement 4 revisited) moved stage changes to clickable `PipelineStepper` segments and the Won / Lost buttons to a "Close deal" menu in `DealDetailHeader.secondaryActions`. The component inputs that drove the previous presentation remain accepted and `@deprecated`, with a functional bridge where the input carried behavior:
+
+| Surface | Bridge | Removal |
+| ------- | ------ | ------- |
+| `DealDetailHeader.stageOptions` / `currentStageId` / `onStageChange` / `isStageSaving` | Rendered as a `StageSelectMenu` in the action cluster when `stageOptions` and `onStageChange` are both passed for an open deal; disabled while dirty, saving or a stage change is in flight | Not before one minor release after 0.10.0 |
+| `PipelineStepper.footer` | Rendered under the strip, separated by a rule, with and without stages | Same |
+| `DealClosureActionBar.embedded` | Accepted, no effect (popover trigger, no card) | Same |
+| `DealCreateSidebarProps.customCount` | Accepted, no effect (count no longer printed) | Same |
+| `CollapsibleGroupProps.fieldCount` (`packages/ui`) | Accepted, no effect | Same |
+
+`StageSelectMenu` is also what `PipelineStepper` renders below `sm`, so narrow screens keep a quick stage change with the same callback and dirty/saving guards as the desktop strip. Consumer-side regressions: `components/detail/__tests__/{DealDetailHeader,PipelineStepper,DealClosureActionBar,DealCreateSidebar,StageSelectMenu}.test.tsx`; browser coverage in `TC-CRM-8552-deal-header-write-paths.spec.ts` (desktop strip and phone-width menu). Release note: `UPGRADE_NOTES.md`.
+
 ### New contract surfaces (purely additive — no deprecation bridge required)
 
 | Surface | Addition | Notes |
@@ -1430,6 +1444,7 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-11-10 | Rev 9 (#8552): deal header declutter review follow-up. `DealDetailHeader` stage inputs, `PipelineStepper.footer`, `DealClosureActionBar.embedded` and `DealCreateSidebarProps.customCount` restored as deprecated inputs with a functional bridge (`StageSelectMenu`); the same menu gives `PipelineStepper` a stage change below `sm`. Removal target and consumer regressions recorded under Migration & Backward Compatibility. |
 | 2026-11-04 | Rev 8 (#7494): The planned list selects open activities with the new additive `excludeStatus` query parameter on `GET /api/customers/interactions`, so custom non-terminal statuses stay visible on person, company and deal records. Complete and cancel send the displayed activity's `updatedAt` as the optimistic-lock version. |
 | 2026-11-01 | Rev 7 (#7490): one modal flow for role assignment and reassignment. `AssignRoleDialog` gains optional `editingAssignment` + `onReassign` (role fixed, incumbent preselected, `PUT …/roles?roleId=`), `RoleAssignmentRow` gains optional `onChangeUser`, the generic shortcut is labelled *Assign role* and hidden once every role type is assigned. Existing routes, commands, schema and ACLs unchanged; the inline lookup remains as a fallback for hosts that do not pass `onChangeUser` |
 | 2026-11-03 | Rev 7 (#7494): `ActivitiesSection` gains the optional `serverHistoryControls` prop, set by `ActivityLogTab` for person and company. It sends `search` and `sortField`/`sortDir` to `GET /api/customers/interactions`, shows the sort control, and turns failed interaction loads into `ErrorMessage` with retry. Other callers keep the local filter. Loaded rows are still matched locally because the API search does not cover author, deal or type. |

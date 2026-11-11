@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { PipelineStepper } from '../PipelineStepper'
 
@@ -105,6 +105,68 @@ describe('PipelineStepper', () => {
     expect(proposalSegment).toHaveAttribute('type', 'button')
     fireEvent.click(proposalSegment)
     expect(onStageChange).toHaveBeenCalledWith('stage-2')
+  })
+
+  it('offers a compact stage menu for narrow screens with the same callback', () => {
+    const onStageChange = jest.fn()
+    renderWithProviders(
+      <PipelineStepper
+        stages={[
+          { id: 'stage-1', label: 'Qualification', order: 1 },
+          { id: 'stage-2', label: 'Proposal', order: 2 },
+          { id: 'stage-won', label: 'Won', order: 3 },
+        ]}
+        transitions={[]}
+        currentStageId="stage-1"
+        pipelineName="Enterprise Sales"
+        onStageChange={onStageChange}
+      />,
+    )
+    const compact = screen.getByRole('group', { name: 'Pipeline progress — Enterprise Sales' })
+    fireEvent.click(within(compact).getByRole('button', { name: 'Move stage' }))
+    const menu = within(screen.getByRole('dialog'))
+    expect(menu.getByRole('button', { name: 'Qualification' })).toBeDisabled()
+    expect(menu.queryByRole('button', { name: 'Won' })).not.toBeInTheDocument()
+    fireEvent.click(menu.getByRole('button', { name: 'Proposal' }))
+    expect(onStageChange).toHaveBeenCalledWith('stage-2')
+  })
+
+  it('hides the compact stage menu once the deal is closed', () => {
+    renderWithProviders(
+      <PipelineStepper
+        stages={[{ id: 'stage-1', label: 'Qualification', order: 1 }]}
+        transitions={[]}
+        currentStageId="stage-1"
+        closureOutcome="won"
+        onStageChange={jest.fn()}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Move stage' })).not.toBeInTheDocument()
+  })
+
+  it('renders the deprecated footer under the strip, with and without stages', () => {
+    const { unmount } = renderWithProviders(
+      <PipelineStepper
+        stages={[{ id: 'stage-1', label: 'Qualification', order: 1 }]}
+        transitions={[]}
+        currentStageId="stage-1"
+        footer={<button type="button">Legacy closure footer</button>}
+      />,
+    )
+    const footer = screen.getByRole('button', { name: 'Legacy closure footer' })
+    expect(footer.parentElement).toHaveClass('border-t')
+    expect(footer.compareDocumentPosition(screen.getByRole('list'))).toBe(Node.DOCUMENT_POSITION_PRECEDING)
+    unmount()
+
+    renderWithProviders(
+      <PipelineStepper
+        stages={[]}
+        transitions={[]}
+        currentStageId={null}
+        footer={<button type="button">Legacy closure footer</button>}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Legacy closure footer' })).toBeInTheDocument()
   })
 
   it('renders a read-only path while the form is dirty', () => {

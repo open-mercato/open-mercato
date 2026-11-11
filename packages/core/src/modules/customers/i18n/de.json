@@ -1056,6 +1056,7 @@
   "customers.deals.detail.actions.backToList": "Zurück zu Deals",
   "customers.deals.detail.actions.cancel": "Cancel",
   "customers.deals.detail.actions.delete": "Delete",
+  "customers.deals.detail.actions.moveStage": "Phase ändern",
   "customers.deals.detail.actions.save": "Save",
   "customers.deals.detail.actions.sendMessage": "Nachricht senden",
   "customers.deals.detail.activities.linkEntityDescription": "Activities on a deal still need a customer record for timeline ownership.",

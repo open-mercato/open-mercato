@@ -6,6 +6,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
+import { StageSelectMenu } from './StageSelectMenu'
 
 type PipelineStageInfo = {
   id: string
@@ -31,6 +32,12 @@ type PipelineStepperProps = {
   /** Moves the deal to the clicked stage; without it the path is read-only. */
   onStageChange?: (stageId: string) => Promise<void> | void
   stageChangeDisabled?: boolean
+  /**
+   * @deprecated Still rendered under the stage strip, separated by a rule. The built-in page places
+   * closure controls in `DealDetailHeader.secondaryActions` instead. Kept for at least one minor
+   * release after 0.10.0; see `UPGRADE_NOTES.md`.
+   */
+  footer?: React.ReactNode
 }
 
 function isTerminalOutcomeStage(stage: PipelineStageInfo): boolean {
@@ -67,6 +74,7 @@ export function PipelineStepper({
   closureOutcome = null,
   onStageChange,
   stageChangeDisabled = false,
+  footer = null,
 }: PipelineStepperProps) {
   const t = useT()
   const allStages = React.useMemo(
@@ -131,7 +139,17 @@ export function PipelineStepper({
     </div>
   ) : null
 
-  if (!sortedStages.length) return outcomeSegment
+  const footerBlock = footer ? <div className="mt-4 border-t border-border pt-4">{footer}</div> : null
+
+  if (!sortedStages.length) {
+    if (!outcomeSegment && !footerBlock) return null
+    return (
+      <div>
+        {outcomeSegment}
+        {footerBlock}
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -145,7 +163,7 @@ export function PipelineStepper({
         className="sr-only"
       />
 
-      <div className="sm:hidden">
+      <div className="sm:hidden" role="group" aria-label={progressLabel}>
         {compactStage ? (
           <div
             className="rounded-md bg-muted px-3 py-2.5"
@@ -170,6 +188,14 @@ export function PipelineStepper({
                   {formatStageSubtitle(transitionByStageId.get(compactStage.id) ?? null, !renderClosedProgress, t)}
                 </div>
               </div>
+              {canSelectStages && onStageChange ? (
+                <StageSelectMenu
+                  stages={sortedStages}
+                  currentStageId={currentVisibleStage?.id ?? null}
+                  onStageChange={onStageChange}
+                  className="ml-auto shrink-0"
+                />
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -234,6 +260,7 @@ export function PipelineStepper({
           {outcomeSegment ? <li className="min-w-0 flex-1">{outcomeSegment}</li> : null}
         </ol>
       </div>
+      {footerBlock}
     </div>
   )
 }

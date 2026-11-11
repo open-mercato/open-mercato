@@ -17,6 +17,11 @@ describe('DealClosureActionBar', () => {
     expect(onLost).not.toHaveBeenCalled()
   })
 
+  it('still accepts the deprecated embedded flag', () => {
+    renderWithProviders(<DealClosureActionBar closureOutcome={null} onWon={jest.fn()} onLost={jest.fn()} embedded />)
+    expect(screen.getByRole('button', { name: 'Close deal' })).toBeInTheDocument()
+  })
+
   it('renders nothing once the deal is closed', () => {
     const { container } = renderWithProviders(
       <DealClosureActionBar closureOutcome="won" onWon={jest.fn()} onLost={jest.fn()} />,

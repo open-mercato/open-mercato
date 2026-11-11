@@ -16,6 +16,11 @@ export type DealCreateSidebarProps = {
   onCustomChange: (key: string, value: unknown) => void
   errors: Record<string, string>
   disabled: boolean
+  /**
+   * @deprecated The custom-attributes card no longer prints a field count. Kept so existing callers keep
+   * compiling for at least one minor release after 0.10.0.
+   */
+  customCount?: number
   manageHref: string
   onCustomLoaded: (state: DealCustomAttributesLoadState) => void
 }

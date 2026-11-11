@@ -11,6 +11,11 @@ type DealClosureActionBarProps = {
   onWon: () => void
   onLost: () => void
   disabled?: boolean
+  /**
+   * @deprecated The bar is a "Close deal" popover trigger and draws no card of its own, so the flag has no
+   * effect. Kept so existing callers keep compiling for at least one minor release after 0.10.0.
+   */
+  embedded?: boolean
 }
 
 export function DealClosureActionBar({
