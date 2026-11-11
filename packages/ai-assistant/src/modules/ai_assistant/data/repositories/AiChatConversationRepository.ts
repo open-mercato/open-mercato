@@ -849,7 +849,7 @@ function parseIso(value: string): Date | null {
 const listCursorSchema = z.object({
   l: z.string().datetime().nullable(),
   c: z.string().datetime(),
-  i: z.string().uuid(),
+  i: z.guid(),
 })
 
 function encodeListCursor(row: AiChatConversation): string {

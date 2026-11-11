@@ -73,7 +73,7 @@ function matchesWhere(row: Record<string, any>, where: any): boolean {
       continue
     }
     if (key === '$and') {
-      const conditions = where[key] as any[]
+      const conditions = where[key] as unknown[]
       if (!conditions.every((cond) => matchesWhere(row, cond))) return false
       continue
     }
