@@ -548,6 +548,51 @@ describe('POST /api/ai/chat', () => {
       }
       expect(callArg.requestOverride?.baseURL).toBe('https://openrouter.ai/api/v1')
     })
+
+    describe('with the real AI_RUNTIME_BASEURL_ALLOWLIST helper (issue #7228)', () => {
+      const originalAllowlist = process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+      const actualBaseurlAllowlist = jest.requireActual<typeof import('../../../../lib/baseurl-allowlist')>(
+        '../../../../lib/baseurl-allowlist',
+      )
+
+      beforeEach(() => {
+        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'api.openai.com,http://localhost:11434'
+        readBaseurlAllowlistMock.mockImplementation(actualBaseurlAllowlist.readBaseurlAllowlist)
+        isBaseurlAllowlistedMock.mockImplementation(actualBaseurlAllowlist.isBaseurlAllowlisted)
+        seedAgentRegistryForTests([
+          makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+        ])
+      })
+
+      afterEach(() => {
+        if (originalAllowlist === undefined) delete process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+        else process.env.AI_RUNTIME_BASEURL_ALLOWLIST = originalAllowlist
+      })
+
+      it.each([
+        ['http://api.openai.com/v1'],
+        ['https://api.openai.com:8443/v1'],
+        ['https://localhost:11434/v1'],
+      ])('rejects %s with baseurl_not_allowlisted and never dispatches', async (baseUrl) => {
+        const response = await POST(buildRequestWithOverrides({ baseUrl }) as any)
+
+        expect(response.status).toBe(400)
+        const json = await response.json()
+        expect(json.code).toBe('baseurl_not_allowlisted')
+        expect(runAiAgentTextMock).not.toHaveBeenCalled()
+      })
+
+      it.each([
+        ['https://api.openai.com/v1'],
+        ['http://localhost:11434/v1'],
+      ])('forwards %s', async (baseUrl) => {
+        const response = await POST(buildRequestWithOverrides({ baseUrl }) as any)
+
+        expect(response.status).toBe(200)
+        const callArg = runAiAgentTextMock.mock.calls[0][0] as { requestOverride?: { baseURL?: string | null } }
+        expect(callArg.requestOverride?.baseURL).toBe(baseUrl)
+      })
+    })
   })
 
   describe('Phase 1780-5 / 1780-6 — env + tenant allowlist rejections', () => {

@@ -1,4 +1,5 @@
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import type { SearchIndexDocFilter } from '@open-mercato/shared/modules/search'
 import type {
   VectorDriverId,
   VectorIndexSource,
@@ -52,6 +53,11 @@ export type VectorDriverQuery = {
     organizationId?: string | null
     organizationIds?: string[] | null
     tenantId: string
+    /**
+     * Applied inside the similarity query (additive, 2026-10-06). Only drivers that declare
+     * `supportsIndexDocFilter` receive it; see `SearchOptions.indexDocFilter`.
+     */
+    indexDocFilter?: SearchIndexDocFilter
   }
 }
 
@@ -103,6 +109,11 @@ export type VectorDriverStatus = {
 
 export interface VectorDriver {
   readonly id: VectorDriverId
+  /**
+   * Whether `query()` applies `filter.indexDocFilter` in the same query that ranks by similarity.
+   * Absent or `false` makes the vector strategy return no results for a filtered search.
+   */
+  readonly supportsIndexDocFilter?: boolean
   ensureReady(): Promise<void>
   /**
    * Cheap, cached probe answering whether the backing store can serve reads and

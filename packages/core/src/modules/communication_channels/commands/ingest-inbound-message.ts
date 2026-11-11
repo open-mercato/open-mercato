@@ -8,7 +8,6 @@ import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
 import { emitCommunicationChannelsEvent } from '../events'
 import { resolveContact } from '../lib/contact-resolver'
 import type { ChannelAdapterRegistry } from '../lib/registry'
-import type { NormalizedInboundMessage } from '../lib/adapter'
 import { matchThread, type ThreadMatch } from '../lib/thread-matcher'
 import {
   ChannelThreadMapping,
@@ -18,6 +17,7 @@ import {
   MessageChannelLink,
 } from '../data/entities'
 import { normalizedInboundMessageSchema } from '../data/validators'
+import { buildInboundIdempotencyKey } from '../lib/inbound-message-origin'
 import { resolveCommunicationChannelsSystemUserId } from '../lib/system-user'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -212,7 +212,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         subject: m.subject ?? null,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-        lastMessageAt: m.timestamp ?? new Date(),
+        lastMessageAt: m.timestamp,
         assignedUserId: channel.userId ?? null,
       })
       em.persist(conversation)
@@ -280,7 +280,6 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
           ccAddresses: extractStringArrayFromMeta(metaForMatcher, 'cc'),
           bodyPlain: m.bodyFormat === 'html' ? null : m.body ?? null,
           bodyHtml: m.bodyFormat === 'html' ? m.body ?? null : null,
-          receivedAt: m.timestamp ?? new Date(),
         },
         { em },
       )
@@ -421,14 +420,14 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // mail, not when this worker ran. Otherwise a history import lands every
       // message on the import minute and the inbox (sorted on `sent_at`) shows
       // a 90-day mailbox as one block in import order. Adapters without a
-      // timestamp fall through to compose's own `new Date()`.
-      sentAt: m.timestamp ?? undefined,
+      // timestamp retain an explicitly unknown occurrence time.
+      sentAt: m.timestamp,
       // Stable dedup key so a retried ingest (after a transient failure between
       // compose and the ExternalMessage anchor insert) reuses the message
       // composed by the first attempt instead of duplicating it. Mirrors the
       // (channel, externalMessageId) ExternalMessage anchor's natural key.
       idempotencyKey: m.externalMessageId
-        ? `cc:${input.channelId}:${m.externalMessageId}`
+        ? buildInboundIdempotencyKey(input.channelId, m.externalMessageId)
         : undefined,
       tenantId: input.scope.tenantId,
       organizationId: input.scope.organizationId,
@@ -489,7 +488,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       direction: 'inbound',
       senderIdentifier: m.senderIdentifier,
       senderDisplayName: m.senderDisplayName ?? null,
-      providerTimestamp: m.timestamp,
+      providerTimestamp: m.providerTimestamp ?? null,
       tenantId: input.scope.tenantId,
       organizationId: input.scope.organizationId ?? null,
     })
@@ -587,7 +586,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         // this worker ran. Carried here so no consumer has to read the
         // ExternalMessage row across the module boundary. ISO string because a
         // persistent event is serialized onto the queue; null when the adapter
-        // supplied no timestamp, which leaves the consumer's own fallback.
+        // supplied no provider-native timestamp.
         providerTimestamp:
           externalMessage.providerTimestamp instanceof Date
             ? externalMessage.providerTimestamp.toISOString()

@@ -21,6 +21,8 @@ function DateTimeRow({
   showTime,
   onDateChange,
   onTimeChange,
+  error,
+  disabled,
 }: {
   label: string
   date: string
@@ -28,14 +30,17 @@ function DateTimeRow({
   showTime: boolean
   onDateChange(next: string): void
   onTimeChange(next: string): void
+  error?: string | null
+  disabled?: boolean
 }) {
   return (
-    <div className="flex w-full items-end gap-2.5">
+    <div className="flex w-full flex-wrap items-end gap-x-2.5 gap-y-1">
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <span className={LABEL_CLASS}>{label}</span>
-        <DateControl value={date} onChange={onDateChange} ariaLabel={label} />
+        <DateControl value={date} onChange={onDateChange} ariaLabel={label} disabled={disabled} />
       </div>
-      {showTime ? <TimeControl value={time} onChange={onTimeChange} ariaLabel={label} /> : null}
+      {showTime ? <TimeControl value={time} onChange={onTimeChange} ariaLabel={label} disabled={disabled} /> : null}
+      {error ? <p className="w-full text-xs text-status-error-text">{error}</p> : null}
     </div>
   )
 }
@@ -49,7 +54,9 @@ export function ScheduleSection({
   startTime,
   endDate,
   endTime,
+  startError,
   endsError,
+  disabled,
   onAllDayChange,
   onDateChange,
   onStartTimeChange,
@@ -64,7 +71,9 @@ export function ScheduleSection({
   startTime: string
   endDate: string
   endTime: string
+  startError?: string | null
   endsError?: string | null
+  disabled?: boolean
   onAllDayChange(next: boolean): void
   onDateChange(next: string): void
   onStartTimeChange(next: string): void
@@ -79,7 +88,7 @@ export function ScheduleSection({
       {hasAllDay ? (
         <div className="flex w-full items-center justify-between">
           <span className={LABEL_CLASS}>{t('customers.calendar.editor.allDay', 'All day')}</span>
-          <AllDayToggle checked={allDay} onCheckedChange={onAllDayChange} label={t('customers.calendar.editor.allDay', 'All day')} />
+          <AllDayToggle checked={allDay} onCheckedChange={onAllDayChange} label={t('customers.calendar.editor.allDay', 'All day')} disabled={disabled} />
         </div>
       ) : null}
       <DateTimeRow
@@ -89,6 +98,8 @@ export function ScheduleSection({
         showTime={showTime}
         onDateChange={onDateChange}
         onTimeChange={onStartTimeChange}
+        error={startError}
+        disabled={disabled}
       />
       {hasEnd ? (
         <DateTimeRow
@@ -98,6 +109,7 @@ export function ScheduleSection({
           showTime={showTime}
           onDateChange={onEndDateChange}
           onTimeChange={onEndTimeChange}
+          disabled={disabled}
         />
       ) : null}
       {endsError ? <p className="text-xs text-status-error-text">{endsError}</p> : null}

@@ -174,7 +174,10 @@ export interface NormalizedInboundMessage {
   body: string
   bodyFormat: 'text' | 'markdown' | 'html'
   attachments?: NormalizedAttachment[]
-  timestamp: Date
+  /** Best meaningful occurrence time selected by the adapter; null when unknown. */
+  timestamp: Date | null
+  /** Provider-native transport or storage time when separately available. */
+  providerTimestamp?: Date | null
   replyToExternalId?: string
   channelPayload: Record<string, unknown>
   channelContentType: string
@@ -379,6 +382,13 @@ export interface ImportHistoryInput {
   credentials: Record<string, unknown>
   scope: TenantScope
   /**
+   * Provider conversation identifier, typically `channel.externalIdentifier`
+   * (for email channels this is the mailbox address). Optional for back-compat:
+   * adapters whose history import needs a channel identity must fail closed
+   * when it is absent rather than guessing from the credential scope.
+   */
+  conversationId?: string
+  /**
    * Look back at most this many days. The hub accepts 1..`OM_IMPORT_HISTORY_MAX_SINCE_DAYS`
    * (default ceiling 3650, i.e. ten years) and defaults to 30 when omitted.
    */
@@ -506,8 +516,8 @@ export interface RefreshCredentialsInput {
    * - For OAuth providers (Gmail): MUST be present; the adapter uses
    *   `clientId` + `clientSecret` to call the provider's token endpoint.
    * - For static-credential providers (IMAP, WhatsApp): ignored.
-   * - When `undefined`: legacy `credentials._client` path is read by the
-   *   adapter (deprecated; will be removed in the next minor release).
+   * - When `undefined`: Gmail refresh fails with a clear error (legacy
+   *   `credentials._client` fallback was removed — see #3828 / UPGRADE_NOTES).
    */
   oauthClient?: OAuthClientConfig
 }

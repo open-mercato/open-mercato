@@ -4,7 +4,7 @@ import { User, Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/d
 
 /**
  * In-memory EntityManager fake covering the surface the provisioning service uses
- * (transactional, findOne with simple equality where-clauses, create, persist,
+ * (transactional, find/findOne with relation-aware where-clauses, create, persist,
  * flush). Idempotency (one User/Role/AgentPrincipal per (org, agentDefinitionId))
  * and the non-interactive-credential property are behaviors of
  * provisionAgentPrincipal, so a fake EM exercises them without a DB; the
@@ -24,10 +24,29 @@ function createFakeEm() {
     if (rowValue instanceof Date && condition instanceof Date) {
       return rowValue.getTime() === condition.getTime()
     }
+    if (typeof condition === 'object' && condition !== null && '$in' in condition) {
+      const candidates = (condition as { $in?: unknown }).$in
+      if (!Array.isArray(candidates)) return false
+      const comparableValue = typeof rowValue === 'object' && rowValue !== null && 'id' in rowValue
+        ? (rowValue as { id?: unknown }).id
+        : rowValue
+      return candidates.includes(comparableValue)
+    }
+    if (typeof condition === 'object' && condition !== null && '$contains' in condition) {
+      const candidates = (condition as { $contains?: unknown }).$contains
+      return Array.isArray(rowValue)
+        && Array.isArray(candidates)
+        && candidates.every((candidate) => rowValue.includes(candidate))
+    }
     return rowValue === condition
   }
   function matches(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
     return Object.entries(where).every(([key, value]) => {
+      if (key === '$or') {
+        return Array.isArray(value) && value.some((condition) => (
+          typeof condition === 'object' && condition !== null && matches(row, condition as Record<string, unknown>)
+        ))
+      }
       // Relation filters (e.g. { user }, { role }) compare the linked object identity.
       return matchValue(row[key], value)
     })
@@ -55,6 +74,9 @@ function createFakeEm() {
     },
     async findOne(entity: unknown, where: Record<string, unknown>) {
       return storeFor(entity).find((row) => matches(row, where)) ?? null
+    },
+    async find(entity: unknown, where: Record<string, unknown>) {
+      return storeFor(entity).filter((row) => matches(row, where))
     },
     async transactional<T>(cb: (tem: typeof em) => Promise<T>): Promise<T> {
       return cb(em)
@@ -164,6 +186,36 @@ describe('provisionAgentPrincipal', () => {
     expect(em.__stores.get(RoleAcl) ?? []).toHaveLength(1)
     expect(em.__stores.get(UserRole) ?? []).toHaveLength(1)
     expect(em.__stores.get(AgentPrincipal) ?? []).toHaveLength(1)
+  })
+
+  it('replaces revoked ACL and membership rows while preserving their history', async () => {
+    const em = createFakeEm()
+    const container = createContainer(em)
+    const first = await provisionAgentPrincipal(container, SCOPE, INPUT)
+    const revokedAcl = em.__stores.get(RoleAcl)![0]
+    const revokedLink = em.__stores.get(UserRole)![0]
+    const revokedAt = new Date()
+    revokedAcl.deletedAt = revokedAt
+    revokedLink.deletedAt = revokedAt
+    revokedAcl.featuresJson = ['revoked.secret']
+
+    const second = await provisionAgentPrincipal(container, SCOPE, INPUT)
+
+    expect(second.userId).toBe(first.userId)
+    expect(second.roleId).toBe(first.roleId)
+    expect(second.principal.id).toBe(first.principal.id)
+    expect(em.__stores.get(RoleAcl)).toHaveLength(2)
+    expect(em.__stores.get(UserRole)).toHaveLength(2)
+    expect(revokedAcl.deletedAt).toBe(revokedAt)
+    expect(revokedAcl.featuresJson).toEqual(['revoked.secret'])
+    expect(revokedLink.deletedAt).toBe(revokedAt)
+    expect(em.__stores.get(RoleAcl)![1]).toMatchObject({
+      featuresJson: INPUT.roleFeatures,
+      isSuperAdmin: false,
+      organizationsJson: [SCOPE.organizationId],
+    })
+    expect(em.__stores.get(RoleAcl)![1].deletedAt ?? null).toBeNull()
+    expect(em.__stores.get(UserRole)![1].deletedAt ?? null).toBeNull()
   })
 
   it('merges newly-requested role features on re-provision (idempotent ACL grant)', async () => {

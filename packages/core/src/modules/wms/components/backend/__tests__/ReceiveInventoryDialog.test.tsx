@@ -110,7 +110,7 @@ describe('ReceiveInventoryDialog', () => {
         access={buildAccess()}
       />,
     )
-    expect(screen.getByText('Receive inventory')).toBeTruthy()
+    expect(screen.getByText('Receive inventory (no ASN)')).toBeTruthy()
   })
 
   it('does not render when closed', () => {
@@ -121,7 +121,7 @@ describe('ReceiveInventoryDialog', () => {
         access={buildAccess()}
       />,
     )
-    expect(screen.queryByText('Receive inventory')).toBeNull()
+    expect(screen.queryByText('Receive inventory (no ASN)')).toBeNull()
   })
 
   it('shows the quantity label and defaults to 1', () => {

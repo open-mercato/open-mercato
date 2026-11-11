@@ -66,14 +66,6 @@ export interface UnifiedTrigger {
   organizationId: string
 }
 
-interface CachedTriggers {
-  triggers: UnifiedTrigger[]
-  cachedAt: number
-}
-
-// Cache TTL: 5 minutes
-const TRIGGER_CACHE_TTL = 5 * 60 * 1000
-
 function readEventActorUserId(payload: Record<string, unknown>): string | null {
   const candidate = payload.userId ?? payload.actorUserId
   if (typeof candidate !== 'string') return null
@@ -325,33 +317,8 @@ export function mapEventToContext(
 }
 
 // ============================================================================
-// Trigger Loading with Caching
+// Trigger Loading
 // ============================================================================
-
-// In-memory cache for triggers (per tenant/org).
-// Park the Map on globalThis so the same compiled module loaded under two
-// paths (a Next.js server chunk vs. a worker resolving the file through a
-// different import root) shares one cache. Without this,
-// `invalidateTriggerCache(...)` called from the PUT /api/workflows/definitions
-// route clears its own copy while the wildcard event-trigger subscriber keeps
-// reading a stale copy populated before the trigger was added — newly added
-// triggers stay invisible for up to TRIGGER_CACHE_TTL. Mirrors the same
-// workaround used by the modules registry and `getDiRegistrars()`.
-const GLOBAL_TRIGGER_CACHE_KEY = '__openMercatoWorkflowTriggerCache__'
-
-function getTriggerCache(): Map<string, CachedTriggers> {
-  const existing = (globalThis as any)[GLOBAL_TRIGGER_CACHE_KEY] as
-    | Map<string, CachedTriggers>
-    | undefined
-  if (existing) return existing
-  const created = new Map<string, CachedTriggers>()
-  ;(globalThis as any)[GLOBAL_TRIGGER_CACHE_KEY] = created
-  return created
-}
-
-function getCacheKey(tenantId: string, organizationId: string): string {
-  return `${tenantId}:${organizationId}`
-}
 
 /**
  * Load legacy triggers from WorkflowEventTrigger entity table.
@@ -374,6 +341,7 @@ async function loadLegacyTriggers(
     },
     {
       orderBy: { priority: 'DESC', createdAt: 'ASC' },
+      refresh: true,
     },
     { tenantId, organizationId },
   )
@@ -386,7 +354,7 @@ async function loadLegacyTriggers(
     organizationId,
     enabled: true,
     deletedAt: null,
-  }, {}, { tenantId, organizationId }) : []
+  }, { refresh: true }, { tenantId, organizationId }) : []
   const definitionMap = new Map(definitions.map(d => [d.id, d]))
 
   return legacyTriggers
@@ -420,6 +388,13 @@ async function loadLegacyTriggers(
  * those with no triggers — so the caller can let a materialized (customized)
  * definition suppress its code-registry counterpart regardless of whether the
  * customization kept any triggers (#4425).
+ *
+ * Versions of a workflow coexist as separate rows, and publishing copies the
+ * triggers into the new row while the previous one stays enabled for the
+ * instances and pinned callers still running it. Triggers are therefore taken
+ * only from the database row an unpinned start resolves to
+ * (`findWorkflowDefinition`): the highest enabled, published version. Projecting every enabled row would
+ * start one instance per version for a single event.
  */
 async function loadEmbeddedTriggers(
   em: EntityManager,
@@ -428,7 +403,8 @@ async function loadEmbeddedTriggers(
 ): Promise<{ triggers: UnifiedTrigger[]; workflowIds: Set<string> }> {
   const postgresEm = em as unknown as PostgreSqlEntityManager
   // Load all definitions so disabled customizations still shadow their code
-  // counterpart. Only enabled definitions contribute embedded triggers below.
+  // counterpart. Only the resolved version of each workflow contributes
+  // embedded triggers below.
   const definitions = await findWithDecryption(
     postgresEm,
     WorkflowDefinition,
@@ -437,17 +413,25 @@ async function loadEmbeddedTriggers(
       organizationId,
       deletedAt: null,
     },
-    {},
+    { refresh: true },
     { tenantId, organizationId },
   )
 
   const triggers: UnifiedTrigger[] = []
   const workflowIds = new Set<string>()
+  const resolvedVersions = new Map<string, WorkflowDefinition>()
 
   for (const def of definitions) {
     workflowIds.add(def.workflowId)
-    if (!def.enabled) continue
+    if (!def.enabled || def.lifecycle !== 'published') continue
 
+    const resolved = resolvedVersions.get(def.workflowId)
+    if (!resolved || def.version > resolved.version) {
+      resolvedVersions.set(def.workflowId, def)
+    }
+  }
+
+  for (const def of resolvedVersions.values()) {
     const embeddedTriggers = def.definition?.triggers as WorkflowDefinitionTrigger[] | undefined
     if (!embeddedTriggers || embeddedTriggers.length === 0) continue
 
@@ -533,7 +517,9 @@ export function loadCodeTriggers(
 }
 
 /**
- * Load all enabled triggers for a tenant/organization with caching.
+ * Load current enabled triggers for a tenant/organization.
+ * Read each event from storage so independent app and worker processes observe
+ * committed definition changes without relying on process-local invalidation.
  * Merges legacy (entity), embedded (definition), and code-registry triggers;
  * a DB-backed source for a given workflowId takes precedence over its code
  * trigger so `customize` semantics are preserved.
@@ -542,17 +528,8 @@ export async function loadTriggersForTenant(
   em: EntityManager,
   tenantId: string,
   organizationId: string,
-  cacheService?: CacheService
+  _cacheService?: CacheService
 ): Promise<UnifiedTrigger[]> {
-  const cacheKey = getCacheKey(tenantId, organizationId)
-  const cache = getTriggerCache()
-
-  // Check in-memory cache
-  const cached = cache.get(cacheKey)
-  if (cached && Date.now() - cached.cachedAt < TRIGGER_CACHE_TTL) {
-    return cached.triggers
-  }
-
   // Load from both DB sources
   const [legacyTriggers, embedded] = await Promise.all([
     loadLegacyTriggers(em, tenantId, organizationId),
@@ -573,36 +550,14 @@ export async function loadTriggersForTenant(
   const allTriggers = [...legacyTriggers, ...embeddedTriggers, ...codeTriggers]
     .sort((a, b) => b.priority - a.priority)
 
-  // Update cache
-  cache.set(cacheKey, {
-    triggers: allTriggers,
-    cachedAt: Date.now(),
-  })
-
   return allTriggers
 }
 
 /**
- * Invalidate trigger cache for a tenant/organization.
- * Call this when:
- * - Legacy triggers are created/updated/deleted
- * - Workflow definitions with embedded triggers are created/updated/deleted
+ * Compatibility hook for definition writers. Trigger lists are read fresh for
+ * every event, so no process-local snapshot needs invalidation.
  */
-export function invalidateTriggerCache(tenantId: string, organizationId?: string): void {
-  const cache = getTriggerCache()
-  if (organizationId) {
-    // Invalidate specific org
-    const cacheKey = getCacheKey(tenantId, organizationId)
-    cache.delete(cacheKey)
-  } else {
-    // Invalidate all orgs for tenant
-    for (const key of cache.keys()) {
-      if (key.startsWith(`${tenantId}:`)) {
-        cache.delete(key)
-      }
-    }
-  }
-}
+export function invalidateTriggerCache(_tenantId: string, _organizationId?: string): void {}
 
 // ============================================================================
 // Trigger Matching
@@ -642,7 +597,7 @@ export async function findMatchingTriggers(
 
 // Open debounce windows for triggers configured with `debounceMs`, keyed by
 // tenant/org/trigger/entity and holding the timestamp each window closes at.
-// Parked on globalThis for the same reason as the trigger cache above: the
+// Parked on globalThis so duplicated service modules share debounce windows: the
 // compiled module can be loaded under two import roots (a Next.js server chunk
 // vs. a worker), and a module-local Map would debounce each copy separately —
 // halving the effective window whenever both copies see the same event stream.

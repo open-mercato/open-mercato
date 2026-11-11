@@ -23,6 +23,7 @@ const widgetsRoot = path.join(__dirname, '..', 'injection')
 
 /** Host module for a spot id, or null when the spot belongs to the example module itself. */
 function hostModuleOf(spotId: string): string | null {
+  if (spotId.startsWith('calendar:')) return spotId.slice('calendar:'.length).split('.')[0] || null
   const target = spotId
     .replace(/^(data-table|crud-form|menu|widget|detail):/, '')
     .replace(/:(columns|row-actions|bulk-actions|filters|fields|header|toolbar|footer|tabs|sidebar|search-trailing|addon)$/, '')

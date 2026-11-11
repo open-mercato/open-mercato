@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Building2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormSubmitResult } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -12,6 +12,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { E } from '#generated/entities.ids.generated'
+import { extensionPoints } from '../../extension-points'
 import {
   buildPersonPayload,
   createPersonFormFields,
@@ -28,15 +29,30 @@ type GuardedMutationRunner = <T,>(
 export type CreatedPersonSummary = {
   id: string
   displayName: string
-  companyId: string
-  companyName: string
+  /**
+   * Always emitted, but nullable now that the dialog also serves the company-less case.
+   *
+   * This IS a lost guarantee, not a free widening: on a result type, `string | null` breaks a
+   * consumer that previously wrote `const owner: string = created.companyId`. It is safe here
+   * only because no in-repo consumer reads either field — the two `onPersonCreated` callers in
+   * `CompanyPeopleSection` ignore the argument entirely, and `DealPeopleSection` reads only
+   * `id` and `displayName`. Widening a result is not generally safe; do not read this as
+   * precedent.
+   */
+  companyId: string | null
+  companyName: string | null
 }
 
 interface CreatePersonDialogProps {
   open: boolean
   onClose: () => void
-  companyId: string
-  companyName: string
+  /**
+   * When set, the company field is locked to it and the create command links the person on
+   * the same request. Omit it for the ordinary editable company picker — the deal side does,
+   * and links the new person to the deal itself afterwards.
+   */
+  companyId?: string
+  companyName?: string
   runGuardedMutation?: GuardedMutationRunner
   onPersonCreated?: (created?: CreatedPersonSummary) => void
 }
@@ -65,7 +81,7 @@ export function CreatePersonDialog({
     return createPersonFormFields(t)
       .filter((field) => field.id !== 'addresses')
       .map((field) => {
-        if (field.id !== 'companyEntityId') {
+        if (field.id !== 'companyEntityId' || !companyId) {
           return field
         }
         return {
@@ -90,7 +106,7 @@ export function CreatePersonDialog({
           ),
         } satisfies CrudField
       })
-  }, [companyName, t])
+  }, [companyId, companyName, t])
 
   const groups = React.useMemo(
     () => createPersonFormGroups(t).filter((group) => group.id !== 'addresses'),
@@ -98,9 +114,7 @@ export function CreatePersonDialog({
   )
 
   const initialValues = React.useMemo<Partial<PersonFormValues>>(
-    () => ({
-      companyEntityId: companyId,
-    }),
+    () => (companyId ? { companyEntityId: companyId } : {}),
     [companyId],
   )
 
@@ -121,17 +135,27 @@ export function CreatePersonDialog({
       ? await runGuardedMutation(operation, payload)
       : await operation()
 
-    flash(t('customers.people.createDialog.success', 'Person created and linked to company'), 'success')
     const newId = response?.result?.id ?? response?.result?.entityId ?? ''
+    flash(
+      companyId
+        ? t('customers.people.createDialog.success', 'Person created and linked to company')
+        : t('customers.people.createDialog.successPlain', 'Person created'),
+      'success',
+    )
+    return newId ? { resourceId: newId } : undefined
+  }, [companyId, organizationId, runGuardedMutation, t])
+
+  const handleSubmitSuccess = React.useCallback(async (values: PersonFormValues, result: CrudFormSubmitResult | void) => {
+    const payload = buildPersonPayload(values, organizationId)
     const displayNameFromPayload = typeof payload.displayName === 'string' ? payload.displayName : ''
     onPersonCreated?.({
-      id: newId,
+      id: result?.resourceId ?? '',
       displayName: displayNameFromPayload,
-      companyId,
-      companyName,
+      companyId: companyId ?? null,
+      companyName: companyName ?? null,
     })
     onClose()
-  }, [companyId, companyName, onClose, onPersonCreated, organizationId, runGuardedMutation, t])
+  }, [companyId, companyName, onClose, onPersonCreated, organizationId])
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -148,17 +172,23 @@ export function CreatePersonDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[1028px]" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle>{t('customers.people.createDialog.title', 'Add new person')}</DialogTitle>
-          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <Building2 className="size-3.5" />
-            <span>{companyName}</span>
-            <span className="text-xs">·</span>
-            <span>{t('customers.people.createDialog.autoLink', 'auto-linked to company')}</span>
-          </div>
+          {companyId ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <Building2 className="size-3.5" />
+              <span>{companyName}</span>
+              <span className="text-xs">·</span>
+              <span>{t('customers.people.createDialog.autoLink', 'auto-linked to company')}</span>
+            </div>
+          ) : null}
         </DialogHeader>
 
         <CrudForm<PersonFormValues>
-          key={`${companyId}:${formInstanceKey}`}
+          key={`${companyId ?? 'no-company'}:${formInstanceKey}`}
           embedded
+          injectionSpotId={extensionPoints.hosts.personForm.spotId}
+          legacyInjectionSpotId="crud-form:customers.customer_entity"
+          entityId="customers.person"
+          resourceKind="customers.person"
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           fields={fields}
           groups={groups}
@@ -166,6 +196,7 @@ export function CreatePersonDialog({
           submitLabel={t('customers.people.createDialog.submit', 'Create person')}
           schema={formSchema}
           onSubmit={handleSubmit}
+          onSubmitSuccess={handleSubmitSuccess}
           extraActions={(
             <Button type="button" variant="outline" onClick={onClose}>
               {t('customers.people.createDialog.cancel', 'Cancel')}

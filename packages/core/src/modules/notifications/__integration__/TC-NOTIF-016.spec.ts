@@ -1,7 +1,17 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { readJsonSafe, getTokenScope } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { readJsonSafe, getTokenScope, expectId, deleteGeneralEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+
+import {
+  createOrganizationFixture,
+  createRoleFixture,
+  createUserFixture,
+  deleteOrganizationIfExists,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 
 const PREFERENCES_PAGE = '/backend/profile/notification-preferences'
 const ADMIN_PREFERENCES_PATH = '/api/notifications/admin/preferences'
@@ -17,6 +27,8 @@ type NotificationTypeItem = {
   description?: string | null
   silent: boolean
   nonOptOut: boolean
+  channels: string[] | null
+  updatedAt: string | null
 }
 type TypesResponse = { items: NotificationTypeItem[] }
 
@@ -252,4 +264,101 @@ test.describe('TC-NOTIF-016: Notification type catalogue + channel preferences',
     await expect(reloaded).toBeVisible()
     await expect(reloaded).toHaveAttribute('aria-checked', before === 'true' ? 'false' : 'true')
   })
+
+  test('admin delivery settings group registered types and persist a channel toggle', async ({ page, request }) => {
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const email = `qa-notif-groups-${stamp}@test.invalid`
+    const password = 'Valid1!Pass'
+    let tenantId: string | null = null
+    let organizationId: string | null = null
+    let roleId: string | null = null
+    let userId: string | null = null
+    let actorToken: string | null = null
+    let targetTypeId: string | null = null
+
+    try {
+      const tenantResponse = await apiRequest(request, 'POST', '/api/directory/tenants', {
+        token: superadminToken,
+        data: { name: `QA notification groups ${stamp}` },
+      })
+      expect(tenantResponse.status()).toBe(201)
+      tenantId = expectId((await readJsonSafe<{ id?: string }>(tenantResponse))?.id, 'Tenant creation should return an id')
+      organizationId = await createOrganizationFixture(request, superadminToken, { name: `QA notification groups ${stamp}`, tenantId })
+      roleId = await createRoleFixture(request, superadminToken, { name: `qa-notif-groups-${stamp}`, tenantId })
+      await setRoleAclFeatures(request, superadminToken, { roleId, features: ['notifications.view', 'notifications.manage'], organizations: [organizationId] })
+      userId = await createUserFixture(request, superadminToken, { email, password, organizationId, roles: [roleId] })
+
+      await page.context().clearCookies()
+      actorToken = await getAuthToken(page.request, email, password)
+      const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
+      await page.context().addCookies([
+        { name: 'om_selected_tenant', value: tenantId, url: baseUrl },
+        { name: 'om_selected_org', value: organizationId, url: baseUrl },
+        { name: 'locale', value: 'en', url: baseUrl },
+        { name: 'om_demo_notice_ack', value: 'ack', url: baseUrl },
+        { name: 'om_cookie_notice_ack', value: 'ack', url: baseUrl },
+        { name: 'om_feedback_suppress', value: '1', url: baseUrl },
+      ])
+      const { items } = await getTypes(request, actorToken, { locale: 'en' })
+      const categories = [...new Set(items.map((item) => item.category).filter((category): category is string => Boolean(category)))].sort()
+      expect(categories.length).toBeGreaterThanOrEqual(2)
+      const target = items.find((item) => item.category === categories[0])!
+      targetTypeId = target.id
+      const channelsResponse = await apiRequest(request, 'GET', '/api/notifications/channels', { token: actorToken })
+      expect(channelsResponse.status()).toBe(200)
+      const channels = (await readJsonSafe<{ items: Array<{ id: string }> }>(channelsResponse))?.items ?? []
+      expect(channels.length).toBeGreaterThanOrEqual(2)
+      const setup = await apiRequest(request, 'PATCH', TYPES_PATH, {
+        token: actorToken,
+        data: { id: target.id, channels: channels.slice(0, 2).map((channel) => channel.id) },
+      })
+      expect(setup.status()).toBe(200)
+
+      await page.goto('/backend/config/notifications', { waitUntil: 'domcontentloaded' })
+      const table = page.getByRole('table')
+      await expect(table.getByRole('rowheader')).toHaveText(categories.map((category) => {
+        const item = items.find((entry) => entry.category === category)!
+        return item.categoryLabel || category
+      }))
+      for (const category of categories) {
+        const groupItems = items.filter((item) => item.category === category)
+        const group = table.getByRole('rowgroup', { name: groupItems[0]!.categoryLabel || category, exact: true })
+        await expect(group.getByRole('row')).toHaveCount(groupItems.length + 1)
+        await expect(group.getByText(groupItems[0]!.label || groupItems[0]!.id, { exact: true })).toBeVisible()
+      }
+      await expect(table.getByRole('row')).toHaveCount(items.length + categories.length + 1)
+      const targetGroup = table.getByRole('rowgroup', { name: target.categoryLabel || target.category!, exact: true })
+      const targetRow = targetGroup.getByRole('row').filter({ has: page.getByText(target.label || target.id, { exact: true }) })
+      const toggle = targetRow.getByRole('switch').first()
+      await expect(toggle).toHaveAttribute('aria-checked', 'true')
+      const channelPath = `${TYPES_PATH}/${encodeURIComponent(target.id)}/channels/${encodeURIComponent(channels[0]!.id)}`
+      const savedResponse = page.waitForResponse((response) => new URL(response.url()).pathname === channelPath && response.request().method() === 'DELETE')
+      await toggle.click()
+      expect((await savedResponse).status()).toBe(200)
+      await expect(toggle).toHaveAttribute('aria-checked', 'false')
+      const saved = (await getTypes(request, actorToken)).items.find((item) => item.id === target.id)
+      expect(saved?.channels).not.toContain(channels[0]!.id)
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await expect(toggle).toHaveAttribute('aria-checked', 'false')
+    } finally {
+      try {
+        if (actorToken && targetTypeId) {
+          const current = (await getTypes(request, actorToken)).items.find((item) => item.id === targetTypeId)
+          const cleared = await apiRequest(request, 'PATCH', TYPES_PATH, {
+            token: actorToken,
+            data: { id: targetTypeId, channels: null, nonOptOut: null },
+            headers: current?.updatedAt ? { 'x-om-ext-optimistic-lock-expected-updated-at': current.updatedAt } : undefined,
+          })
+          expect(cleared.status()).toBe(200)
+        }
+      } finally {
+        await deleteUserIfExists(request, superadminToken, userId)
+        await deleteRoleIfExists(request, superadminToken, roleId)
+        await deleteOrganizationIfExists(request, superadminToken, organizationId)
+        await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId)
+      }
+    }
+  })
+
 })
