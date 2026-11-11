@@ -1,13 +1,22 @@
-# Execution plan — absolute user-task deadline (`deadline.at`)
+# Execution plan — absolute user-task deadline (`userTaskConfig.deadlineAt`)
 
 Source doc: `.ai/specs/2026-07-26-workflows-ux-redesign.md` (§6.1 "When") — extended by issue #7181.
 Issue: open-mercato/open-mercato#7181
 
 ## Goal
 
-Let a USER_TASK's deadline be an absolute, interpolated ISO date/datetime (`userTaskConfig.deadline.at`,
-e.g. `'{{context.dueDate}}'`) as an alternative to the creation-anchored `duration`, so tasks whose
-due date is computed elsewhere still get reminders and breach handling.
+Let a USER_TASK's deadline be an absolute, interpolated ISO date/datetime (`userTaskConfig.deadlineAt`,
+e.g. `'{{context.dueDate}}'`) as an alternative to the creation-anchored `deadline.duration`, so tasks
+whose due date is computed elsewhere still get reminders and breach handling.
+
+> **Design revision (review 5790962301 on #7189).** The first implementation stored the absolute form
+> INSIDE `deadline` (`deadline.at`), which broke the published HTTP response contract of the definition
+> routes: `taskDeadlineSchema` requires a non-empty `duration`, so an old client parsing GET list/detail
+> or a mutation response rejected any record authored with it. `deadline` is now strictly
+> duration-only again, and the absolute deadline is the optional SIBLING `userTaskConfig.deadlineAt`,
+> mutually exclusive with `deadline` (refused on the step). The parallel `*Spec` schema family is
+> gone; the routes document their original response schemas, which only gain the optional key.
+> Mentions of `deadline.at` below describe the superseded first design.
 
 ## Scope
 
@@ -41,12 +50,10 @@ due date is computed elsewhere still get reminders and breach handling.
 
 ## Risks
 
-- Contract: the exported `TaskDeadline` / `taskDeadlineSchema`, `UserTaskConfig` / `userTaskConfigSchema`,
-  `TaskDeadlinePersistence` and `resolveTaskDeadlinePersistence` stay duration-only (maintainer reviews on
-  #7189). The `at` form lives in the additive `TaskDeadlineSpec`, `UserTaskConfigSpec`,
-  `TaskDeadlineSpecPersistence` and `resolveTaskDeadlineSpecPersistence`; `workflowStepSpecSchema` (and the `*Spec` definition, input and response schemas built on it) validates
-  `userTaskConfig` with `userTaskConfigSpecSchema`. `data/task-primitives.typecheck.tsx` guards the nested
-  contracts.
+- Contract: `TaskDeadline` / `taskDeadlineSchema` stay duration-only and every definition response keeps
+  the published shape (maintainer reviews on #7189). The absolute form is the additive optional
+  `userTaskConfig.deadlineAt` (`taskDeadlineAtSchema`); `data/task-primitives.typecheck.tsx` guards the
+  nested contracts and `api/__tests__/definitions.deadline-at-contract.route.test.ts` the HTTP one.
 - i18n: deadline diagnostics carry `workflows.validation.taskDeadline.*` keys, localized at the API
   response and Studio display boundaries.
 
@@ -79,3 +86,7 @@ PR: #7189
 ### Phase 2: Docs
 
 - [x] 2.1 Docs page + spec changelog — fd33a712a
+
+### Phase 3: Review 5790962301 — keep the HTTP response contract
+
+- [x] 3.1 Sibling `userTaskConfig.deadlineAt`; `deadline` duration-only; route-level legacy-schema regression — e99d86511
