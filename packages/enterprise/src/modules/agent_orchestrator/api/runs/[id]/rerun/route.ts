@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { ATTACHMENT_STORAGE_ERROR_DESCRIPTION, attachmentStorageErrorResponse, attachmentStorageErrorSchema } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -106,6 +107,8 @@ export async function POST(req: Request, ctx: RouteContext) {
     const agentRuntime = container.resolve('agentRuntime') as AgentRuntimeService
     await withRerunOf(sourceRun.id, () => agentRuntime.run(sourceRun.agentId, sourceRun.input, runCtx))
   } catch (err) {
+    const storageResponse = await attachmentStorageErrorResponse(err)
+    if (storageResponse) return storageResponse
     if (err instanceof AgentNotFoundError) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     }
@@ -189,6 +192,7 @@ export const openApi: OpenApiRouteDoc = {
           schema: z.union([errorSchema, guardrailBlockedErrorSchema]),
         },
         { status: 429, description: 'Agent run capacity exhausted (admission control); includes Retry-After', schema: errorSchema },
+        { status: 503, description: ATTACHMENT_STORAGE_ERROR_DESCRIPTION, schema: attachmentStorageErrorSchema },
       ],
     },
   },

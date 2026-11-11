@@ -6,6 +6,7 @@
  */
 
 import { JobHandler } from '@open-mercato/queue'
+import { isAttachmentStorageConfigurationError } from '@open-mercato/core/modules/attachments'
 import {
   WorkflowActivityJob,
   WorkflowActivityJobActivity,
@@ -850,11 +851,16 @@ async function resumeInvokeAgentWithError(
   payload: WorkflowActivityJobInvokeAgent,
   agentError: unknown,
 ): Promise<boolean> {
-  const message = agentError instanceof Error ? agentError.message : String(agentError)
+  const message = describeInvokeAgentError(agentError)
   return resumeInvokeAgentWithOutcome(em, container, instance, payload, 'error', {
     agentId: payload.agentId,
     [WORKFLOW_ERROR_CONTEXT_KEY]: buildErrorContextEntry(payload.stepId, message),
   })
+}
+
+function describeInvokeAgentError(error: unknown): string {
+  if (isAttachmentStorageConfigurationError(error)) return `${error.code}: ${error.reason}`
+  return error instanceof Error ? error.message : String(error)
 }
 
 async function failInvokeAgentStep(
@@ -864,7 +870,7 @@ async function failInvokeAgentStep(
   payload: WorkflowActivityJobInvokeAgent,
   agentError: unknown,
 ): Promise<void> {
-  const message = agentError instanceof Error ? agentError.message : String(agentError)
+  const message = describeInvokeAgentError(agentError)
   logger.error('invoke_agent failed; failing instance', {
     agentId: payload.agentId,
     workflowInstanceId: payload.workflowInstanceId,

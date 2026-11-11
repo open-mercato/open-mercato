@@ -15,7 +15,13 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
-import { StorageDriverFactory } from '@open-mercato/core/modules/attachments/lib/drivers'
+import { StorageDriverFactory, type StorageDriver } from '@open-mercato/core/modules/attachments/lib/drivers'
+import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy, isAttachmentStorageConfigurationError } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
+import {
+  ATTACHMENT_STORAGE_ERROR_DESCRIPTION,
+  attachmentStorageErrorSchema,
+  withAttachmentStorageErrors,
+} from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
 import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
 import { readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
@@ -30,7 +36,7 @@ import {
   isScopedAttachmentUploadError,
   type ScopedAttachmentUploadErrorCode,
 } from '@open-mercato/core/modules/attachments/lib/scoped-upload-service'
-import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { OpenApiResponseDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim } from '../../../data/entities'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 import { CUSTOMER_VISIBLE_ATTACHMENT_TAG, isCustomerVisibleAttachment } from '../../../lib/attachmentVisibility'
@@ -205,7 +211,21 @@ async function loadOwnedVisibleAttachment(
   return { attachment, claim }
 }
 
-async function deletePortalAttachment(context: PortalContext, attachment: Attachment): Promise<void> {
+async function resolvePortalAttachmentDriver(context: PortalContext, attachment: Attachment) {
+  return (await resolveStorageDriverFactory(context)).resolveForPartition(attachment.partitionCode, {
+    tenantId: attachment.tenantId ?? context.tenantId,
+    organizationId: attachment.organizationId ?? context.organizationId,
+  })
+}
+
+async function deletePortalAttachment(
+  context: PortalContext,
+  attachment: Attachment,
+  driver?: StorageDriver,
+): Promise<void> {
+  const resolvedDriver = driver ?? (getAttachmentStoragePolicy() === 'strict'
+    ? await resolvePortalAttachmentDriver(context, attachment)
+    : undefined)
   const removal = await removeAttachmentRecord(context.em, attachment)
   if (!removal.removed) return
   await clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((error) => {
@@ -213,11 +233,8 @@ async function deletePortalAttachment(context: PortalContext, attachment: Attach
   })
   if (attachment.storagePath && removal.releaseStorage) {
     try {
-      const driver = await (await resolveStorageDriverFactory(context)).resolveForPartition(attachment.partitionCode, {
-        tenantId: attachment.tenantId ?? context.tenantId,
-        organizationId: attachment.organizationId ?? context.organizationId,
-      })
-      await driver.delete(attachment.partitionCode, attachment.storagePath)
+      const storageDriver = resolvedDriver ?? await resolvePortalAttachmentDriver(context, attachment)
+      await storageDriver.delete(attachment.partitionCode, attachment.storagePath)
     } catch (error) {
       logger.error('Failed to remove portal attachment storage', { err: error, attachmentId: attachment.id })
     }
@@ -257,6 +274,7 @@ async function streamOwnedAttachment(
   }
   const { attachment } = owned
   const partition = await context.em.findOne(AttachmentPartition, { code: attachment.partitionCode })
+  assertAttachmentStoragePartitionExists(Boolean(partition))
   if (!partition) {
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data.') }, { status: 500 })
   }
@@ -271,7 +289,8 @@ async function streamOwnedAttachment(
   let buffer: Buffer
   try {
     buffer = (await driver.read(attachment.partitionCode, attachment.storagePath)).buffer
-  } catch {
+  } catch (error) {
+    if (isAttachmentStorageConfigurationError(error)) throw error
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
   }
   const headers: Record<string, string> = {
@@ -285,7 +304,7 @@ async function streamOwnedAttachment(
   return new NextResponse(new Uint8Array(buffer), { status: 200, headers })
 }
 
-export async function GET(req: Request) {
+async function GETImpl(req: Request) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
@@ -429,6 +448,10 @@ async function handleUpload(req: Request, replacement: boolean): Promise<Respons
     return guarded.response
   }
 
+  const replacementDriver = replacementTarget && getAttachmentStoragePolicy() === 'strict'
+    ? await resolvePortalAttachmentDriver(context, replacementTarget.attachment)
+    : undefined
+
   const uploadService = resolvePortalAttachmentUploadService(context.container)
   if (!uploadService) {
     return NextResponse.json({ ok: false, error: translate('warranty_claims.portal.detail.attachmentError', 'Attachment upload failed.') }, { status: 503 })
@@ -459,7 +482,7 @@ async function handleUpload(req: Request, replacement: boolean): Promise<Respons
   }
 
   if (replacementTarget) {
-    await deletePortalAttachment(context, replacementTarget.attachment)
+    await deletePortalAttachment(context, replacementTarget.attachment, replacementDriver)
   }
   await guarded.runAfterSuccess()
 
@@ -472,15 +495,15 @@ async function handleUpload(req: Request, replacement: boolean): Promise<Respons
   })
 }
 
-export async function POST(req: Request) {
+async function POSTImpl(req: Request) {
   return handleUpload(req, false)
 }
 
-export async function PUT(req: Request) {
+async function PUTImpl(req: Request) {
   return handleUpload(req, true)
 }
 
-export async function DELETE(req: Request) {
+async function DELETEImpl(req: Request) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
@@ -507,6 +530,11 @@ export async function DELETE(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
+export const GET = withAttachmentStorageErrors(GETImpl)
+export const POST = withAttachmentStorageErrors(POSTImpl)
+export const PUT = withAttachmentStorageErrors(PUTImpl)
+export const DELETE = withAttachmentStorageErrors(DELETEImpl)
+
 const assignmentSchema = z.object({
   type: z.string(),
   id: z.string(),
@@ -529,6 +557,22 @@ const attachmentItemSchema = z.object({
   createdAt: z.string().nullable(),
 })
 
+const portalErrorSchema = z.object({ ok: z.literal(false), error: z.string() })
+
+const storageUnavailableError: OpenApiResponseDoc = {
+  status: 503,
+  description: ATTACHMENT_STORAGE_ERROR_DESCRIPTION,
+  schema: attachmentStorageErrorSchema,
+}
+
+const uploadUnavailableError: OpenApiResponseDoc = {
+  status: 503,
+  description: `Attachment upload service unavailable, or ${ATTACHMENT_STORAGE_ERROR_DESCRIPTION}`,
+  schema: z.union([portalErrorSchema, attachmentStorageErrorSchema]),
+}
+
+const uploadRateLimitError: OpenApiResponseDoc = { status: 429, description: 'Attachment upload rate limit exceeded', schema: rateLimitErrorSchema }
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Warranty Claims Portal',
   summary: 'Customer portal warranty claim attachments',
@@ -536,6 +580,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List attachments for an owned claim',
       query: attachmentQuerySchema,
+      errors: [storageUnavailableError],
       responses: [
         {
           status: 200,
@@ -546,7 +591,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Upload an attachment for an owned claim',
-      errors: [{ status: 429, description: 'Attachment upload rate limit exceeded', schema: rateLimitErrorSchema }],
+      errors: [uploadRateLimitError, uploadUnavailableError],
       requestBody: { contentType: 'multipart/form-data', schema: uploadBodySchema },
       responses: [
         {
@@ -558,7 +603,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Replace an attachment on an owned claim',
-      errors: [{ status: 429, description: 'Attachment upload rate limit exceeded', schema: rateLimitErrorSchema }],
+      errors: [uploadRateLimitError, uploadUnavailableError],
       requestBody: { contentType: 'multipart/form-data', schema: replaceBodySchema },
       responses: [
         {
@@ -571,6 +616,7 @@ export const openApi: OpenApiRouteDoc = {
     DELETE: {
       summary: 'Delete an attachment from an owned claim',
       query: deleteQuerySchema,
+      errors: [storageUnavailableError],
       responses: [
         {
           status: 200,

@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { AttachmentService } from '@open-mercato/core/modules/attachments'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { OcrService } from '@open-mercato/core/modules/attachments/lib/ocrService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -12,7 +13,7 @@ const logger = createLogger('agent_orchestrator').child({ component: 'attachment
 /**
  * Attachment-in staging (file plane, #12). Resolves the reserved `__files`
  * envelope's attachment ids under STRICT tenant+org scope, reads their bytes
- * through the attachments module's `StorageDriver`, and writes each into the run
+ * through the authenticated attachment service, and writes each into the run
  * sandbox `in/` dir (raw file + optional `<name>.txt` OCR sidecar). A staged file
  * is attacker-controllable, so it is treated as untrusted content: the sidecar
  * MUST reuse the existing OcrService only (never a sunsetted converter chain per
@@ -21,15 +22,6 @@ const logger = createLogger('agent_orchestrator').child({ component: 'attachment
  * un-grounded on a file it could not read.
  */
 
-type StorageDriverLike = {
-  read(partitionCode: string, storagePath: string): Promise<{ buffer: Buffer; contentType?: string }>
-}
-type StorageDriverFactoryLike = {
-  resolveForPartition(
-    partitionCode: string,
-    scope: { tenantId: string; organizationId: string },
-  ): Promise<StorageDriverLike>
-}
 type MinimalContainer = { resolve<T = unknown>(name: string): T }
 
 export type StagedInput = { fileName: string; hasSidecar: boolean }
@@ -47,10 +39,12 @@ export async function stageAttachments(args: {
   inDir: string
   tenantId: string
   organizationId: string
+  userId?: string | null
 }): Promise<StagedInput[]> {
   if (args.files.attachments.length === 0) return []
-  const factory = args.container.resolve<StorageDriverFactoryLike>('storageDriverFactory')
-  const scope = { tenantId: args.tenantId, organizationId: args.organizationId }
+  if (!args.userId?.trim()) throw new Error('[internal] attachment staging requires an authenticated actor')
+  const attachmentService = args.container.resolve<AttachmentService>('attachmentService')
+  const auth = { sub: args.userId, tenantId: args.tenantId, orgId: args.organizationId }
   const staged: StagedInput[] = []
 
   for (const entry of args.files.attachments) {
@@ -62,12 +56,15 @@ export async function stageAttachments(args: {
       { tenantId: args.tenantId, organizationId: args.organizationId },
     )
     if (!attachment) {
-      throw new Error(`[internal] attachment ${entry.attachmentId} not found in this tenant/org; cannot stage`)
+      throw new Error('[internal] attachment not found in this tenant/org; cannot stage')
     }
 
-    const driver = await factory.resolveForPartition(attachment.partitionCode, scope)
-    const { buffer } = await driver.read(attachment.partitionCode, attachment.storagePath)
-    const fileName = safeName(entry.as ?? attachment.fileName)
+    const { buffer, fileName: originalFileName, mimeType } = await attachmentService.readScoped({
+      attachmentId: entry.attachmentId,
+      auth,
+      expectedOwner: { entityId: attachment.entityId, recordId: attachment.recordId },
+    })
+    const fileName = safeName(entry.as ?? originalFileName)
     const destPath = path.join(args.inDir, fileName)
     await writeFile(destPath, buffer)
 
@@ -78,7 +75,7 @@ export async function stageAttachments(args: {
         const ocr = new OcrService()
         if (ocr.available) {
           try {
-            const result = await ocr.processFile({ filePath: destPath, mimeType: attachment.mimeType })
+            const result = await ocr.processFile({ filePath: destPath, mimeType })
             text = result?.content ?? null
           } catch (err) {
             logger.warn('OCR sidecar failed for attachment', {
