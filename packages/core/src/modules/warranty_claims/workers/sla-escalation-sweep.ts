@@ -6,7 +6,7 @@ import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildFeatureNotificationFromType, buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
-import { resolveNotificationService } from '../../notifications/lib/notificationService'
+import type { NotificationService } from '../../notifications/lib/notificationService'
 import {
   WarrantyClaim,
   WarrantyClaimSlaSignal,
@@ -276,7 +276,7 @@ function buildCommandContext(container: ResolverContainer, scope: SweepScope): C
 }
 
 async function createEscalationNotification(
-  container: ResolverContainer,
+  notificationService: NotificationService,
   claim: WarrantyClaim,
   scope: SweepScope,
   tierIndex: number,
@@ -285,7 +285,6 @@ async function createEscalationNotification(
   const typeDef = notificationTypes.find((type) => type.type === 'warranty_claims.claim.escalated')
   if (!typeDef) return
 
-  const notificationService = resolveNotificationService(container)
   const common = {
     bodyVariables: {
       claimNumber: claim.claimNumber,
@@ -320,8 +319,9 @@ async function runEscalationTier(
   progressPct: number,
 ): Promise<void> {
   if (tier.action === 'notify') {
-    if (tryResolve(container, 'notificationService')) {
-      await createEscalationNotification(container, claim, scope, tierIndex, progressPct)
+    const notificationService = tryResolve<NotificationService>(container, 'notificationService')
+    if (notificationService) {
+      await createEscalationNotification(notificationService, claim, scope, tierIndex, progressPct)
     } else {
       logger.warn('[warranty_claims:sla-escalation-sweep] notifications module disabled; escalating without notification', {
         claimId: claim.id,

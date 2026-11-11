@@ -21,6 +21,10 @@ const resolveEffectiveWarrantyClaimSettingsMock = jest.fn<Promise<WarrantyClaimE
 const enforceWithGuardsMock = jest.fn<Promise<void>, [unknown, Record<string, unknown>]>()
 const createNotificationMock = jest.fn()
 const createForFeatureNotificationMock = jest.fn()
+const notificationServiceMock = {
+  create: createNotificationMock,
+  createForFeature: createForFeatureNotificationMock,
+}
 
 let mockClaims: WarrantyClaim[] = []
 let mockSignals: Array<Record<string, unknown>> = []
@@ -38,13 +42,6 @@ jest.mock('../lib/settings', () => ({
 jest.mock('../../notifications/lib/notificationBuilder', () => ({
   buildFeatureNotificationFromType: jest.fn((_type, input) => input),
   buildNotificationFromType: jest.fn((_type, input) => input),
-}))
-
-jest.mock('../../notifications/lib/notificationService', () => ({
-  resolveNotificationService: jest.fn(() => ({
-    create: createNotificationMock,
-    createForFeature: createForFeatureNotificationMock,
-  })),
 }))
 
 jest.mock('../notifications', () => ({
@@ -501,7 +498,7 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
       resolve: <T = unknown>(name: string): T => {
         if (name === 'em') return em as T
         if (name === 'commandBus') return { execute: executeMock } as T
-        if (name === 'notificationService') return {} as T
+        if (name === 'notificationService') return notificationServiceMock as T
         throw new Error(`[internal] unexpected sweep dependency ${name}`)
       },
     } as unknown as SweepHandlerArgs[1]
@@ -533,7 +530,7 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
       resolve: <T = unknown>(name: string): T => {
         if (name === 'em') return em as T
         if (name === 'commandBus') return { execute: executeMock } as T
-        if (name === 'notificationService') return {} as T
+        if (name === 'notificationService') return notificationServiceMock as T
         throw new Error(`[internal] unexpected sweep dependency ${name}`)
       },
     } as unknown as SweepHandlerArgs[1]

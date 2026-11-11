@@ -11,6 +11,7 @@ const mockFindWithDecryption = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
 const mockUpload = jest.fn()
 const mockEmFind = jest.fn()
+let mockUploadService: { upload: jest.Mock } | null = null
 
 jest.mock('#generated/entities.ids.generated', () => ({
   E: { warranty_claims: { warranty_claim: 'warranty_claims:warranty_claim' } },
@@ -46,7 +47,7 @@ jest.mock('../lib/portalClaimAccess', () => ({
 }))
 
 jest.mock('../lib/portalAttachmentUpload', () => ({
-  resolvePortalAttachmentUploadService: jest.fn(() => null),
+  resolvePortalAttachmentUploadService: jest.fn(() => mockUploadService),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -60,12 +61,12 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 type RouteModule = typeof import('../api/portal/attachments/route')
 let route: RouteModule
 
-function replaceRequest(): Request {
+function uploadRequest(method: 'POST' | 'PUT'): Request {
   const form = new FormData()
   form.set('claimId', CLAIM_ID)
-  form.set('attachmentId', ATTACHMENT_ID)
+  if (method === 'PUT') form.set('attachmentId', ATTACHMENT_ID)
   form.set('file', new File([new Uint8Array([0x41, 0x42])], 'evidence.bin', { type: 'application/octet-stream' }))
-  return new Request('http://localhost/api/warranty_claims/portal/attachments', { method: 'PUT', body: form })
+  return new Request('http://localhost/api/warranty_claims/portal/attachments', { method, body: form })
 }
 
 describe('warranty portal attachments when the attachments module is disabled', () => {
@@ -83,6 +84,7 @@ describe('warranty portal attachments when the attachments module is disabled', 
     mockFindWithDecryption.mockRejectedValue(new Error(MISSING_METADATA))
     mockFindOneWithDecryption.mockRejectedValue(new Error(MISSING_METADATA))
     mockEmFind.mockRejectedValue(new Error(MISSING_METADATA))
+    mockUploadService = null
   })
 
   afterEach(() => {
@@ -123,8 +125,18 @@ describe('warranty portal attachments when the attachments module is disabled', 
     expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
   })
 
+  it('answers 503 when uploading an attachment', async () => {
+    const response = await route.POST(uploadRequest('POST'))
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({ ok: false, error: 'Attachment upload failed.' })
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
   it('answers 503 when replacing an attachment', async () => {
-    const response = await route.PUT(replaceRequest())
+    mockUploadService = { upload: mockUpload }
+
+    const response = await route.PUT(uploadRequest('PUT'))
 
     expect(response.status).toBe(503)
     await expect(response.json()).resolves.toEqual({ ok: false, error: 'Attachment upload failed.' })
