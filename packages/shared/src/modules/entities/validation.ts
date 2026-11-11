@@ -114,10 +114,10 @@ function evalScalarRule(rule: ValidationRule, value: any, kind: string): string 
       return Number(value) >= (rule as any).param ? null : rule.message
     case 'eq':
       if (isEmpty(value)) return null
-      return comparableValue(value, kind) === comparableValue((rule as any).param, kind) ? null : rule.message
+      return comparableValue(value, kind) === comparableValue(rule.param, kind) ? null : rule.message
     case 'ne':
       if (isEmpty(value)) return null
-      return comparableValue(value, kind) !== comparableValue((rule as any).param, kind) ? null : rule.message
+      return comparableValue(value, kind) !== comparableValue(rule.param, kind) ? null : rule.message
     case 'regex':
       if (isEmpty(value)) return null
       const regexResult = testLinearRegex(String((rule as any).param), String(value), {
