@@ -1479,6 +1479,7 @@
   "sales.shipment-statuses.create": "Add shipment status",
   "sales.shipment-statuses.delete": "Delete shipment status",
   "sales.shipment-statuses.update": "Update shipment status",
+  "sales.shipments.create_order_refunded": "Cannot create a shipment: the order's payments have been fully refunded.",
   "sales.shipments.fully_returned": "Cannot modify shipment: order is fully returned.",
   "sales.shipments.invalid_order": "Shipment does not belong to this order.",
   "sales.shipments.items_required": "Add at least one line to ship.",

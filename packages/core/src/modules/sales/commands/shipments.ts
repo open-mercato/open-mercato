@@ -355,6 +355,28 @@ async function loadOrder(
   return order
 }
 
+function assertOrderPaymentsNotFullyRefunded(
+  order: SalesOrder,
+  translate: Awaited<ReturnType<typeof resolveTranslations>>['translate'],
+): void {
+  const tolerance = 1e-4
+  const refundedAmount = parseFloat(order.refundedTotalAmount || '0')
+  const paidAmount = parseFloat(order.paidTotalAmount || '0')
+  const grandTotal = parseFloat(order.grandTotalGrossAmount || '0')
+  const isFullyRefunded =
+    refundedAmount > tolerance &&
+    refundedAmount >= paidAmount - tolerance &&
+    refundedAmount >= grandTotal - tolerance
+  if (isFullyRefunded) {
+    throw new CrudHttpError(422, {
+      error: translate(
+        'sales.shipments.create_order_refunded',
+        "Cannot create a shipment: the order's payments have been fully refunded.",
+      ),
+    })
+  }
+}
+
 async function loadShippedTotals(
   em: EntityManager,
   order: SalesOrder,
@@ -462,6 +484,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       // recalculates the order's fulfilled quantities, so a stale parent must 409
       // before we touch it.
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
+      assertOrderPaymentsNotFullyRefunded(order, translate)
       if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
         const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
         if (isCancelledOrderStatus(requestedOrderStatus)) {
@@ -633,9 +656,11 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for sales.shipments.create' })
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const { translate } = await resolveTranslations()
     await em.transactional(async (tx) => {
-      await restoreShipmentSnapshot(tx, after)
       const order = await findOneWithDecryption(tx, SalesOrder, { id: after.orderId }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
+      if (order) assertOrderPaymentsNotFullyRefunded(order, translate)
+      await restoreShipmentSnapshot(tx, after)
       await tx.flush()
       if (order) {
         await recomputeFulfilledQuantities(tx, order)

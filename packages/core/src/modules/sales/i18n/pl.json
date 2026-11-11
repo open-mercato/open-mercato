@@ -1479,6 +1479,7 @@
   "sales.shipment-statuses.create": "Dodaj status wysyłki",
   "sales.shipment-statuses.delete": "Usuń status wysyłki",
   "sales.shipment-statuses.update": "Zaktualizuj status wysyłki",
+  "sales.shipments.create_order_refunded": "Nie można utworzyć wysyłki: płatności za zamówienie zostały w pełni zwrócone.",
   "sales.shipments.fully_returned": "Nie można zmodyfikować wysyłki: zamówienie zostało w pełni zwrócone.",
   "sales.shipments.invalid_order": "Wysyłka nie należy do tego zamówienia.",
   "sales.shipments.items_required": "Dodaj co najmniej jedną linię do wysyłki.",

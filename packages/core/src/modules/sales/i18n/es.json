@@ -1479,6 +1479,7 @@
   "sales.shipment-statuses.create": "Agregar estado de envío",
   "sales.shipment-statuses.delete": "Eliminar estado de envío",
   "sales.shipment-statuses.update": "Actualizar estado de envío",
+  "sales.shipments.create_order_refunded": "No se puede crear el envío: los pagos del pedido se han reembolsado por completo.",
   "sales.shipments.fully_returned": "No se puede modificar el envío: el pedido fue devuelto por completo.",
   "sales.shipments.invalid_order": "El envío no pertenece a este pedido.",
   "sales.shipments.items_required": "Agrega al menos una línea para enviar.",

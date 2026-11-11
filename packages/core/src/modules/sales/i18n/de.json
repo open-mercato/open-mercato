@@ -1479,6 +1479,7 @@
   "sales.shipment-statuses.create": "Sendungsstatus hinzufügen",
   "sales.shipment-statuses.delete": "Sendungsstatus löschen",
   "sales.shipment-statuses.update": "Sendungsstatus aktualisieren",
+  "sales.shipments.create_order_refunded": "Die Sendung kann nicht erstellt werden: Die Zahlungen der Bestellung wurden vollständig erstattet.",
   "sales.shipments.fully_returned": "Die Sendung kann nicht geändert werden: Die Bestellung wurde vollständig retourniert.",
   "sales.shipments.invalid_order": "Die Sendung gehört nicht zu dieser Bestellung.",
   "sales.shipments.items_required": "Füge mindestens eine Position zur Sendung hinzu.",

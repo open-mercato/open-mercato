@@ -1479,6 +1479,7 @@
   "sales.shipment-statuses.create": "배송 상태 추가",
   "sales.shipment-statuses.delete": "배송 상태 삭제",
   "sales.shipment-statuses.update": "배송 상태 수정",
+  "sales.shipments.create_order_refunded": "배송을 생성할 수 없습니다: 주문의 결제가 전액 환불되었습니다.",
   "sales.shipments.fully_returned": "배송을 수정할 수 없습니다: 주문이 전체 반품되었습니다.",
   "sales.shipments.invalid_order": "배송이 이 주문에 속하지 않습니다.",
   "sales.shipments.items_required": "배송할 항목을 하나 이상 추가하세요.",
