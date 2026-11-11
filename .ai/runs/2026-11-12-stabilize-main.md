@@ -44,6 +44,9 @@ No application behavior, public contracts, database schema, dependencies, releas
 - Runner: local. All 43 focused full-suite/concurrency/coverage/bootstrap regression tests, whitespace checks and the instruction-budget check passed. This documentation-only diff uses the skill's docs-only local validation exception; no configured Markdown lint command exists. Broad application validation runs in this PR's full CI.
 - PR verification: https://github.com/open-mercato/open-mercato/pull/9310#issuecomment-6809359725. Initial full PR CI: https://github.com/open-mercato/open-mercato/actions/runs/43117451691.
 - Required-checks API returns 404; conservatively require all reported applicable checks to pass.
+- Initial full PR CI completed successfully: 24 successful jobs, including all 15 integration shards, full typecheck/unit tests, package/app builds, generation, locale checks, template parity, Docker, timezone and document multi-instance checks. The dependency audit was intentionally skipped by its existing path filter.
+- Independent final review `154a1816-af49-4fe0-8c63-84f1c66fde15` approved the entire branch at `733cf5ef0bf7bb6c8c04ca1bd1040bd0071120dd` with no findings: https://github.com/open-mercato/open-mercato/pull/9310#issuecomment-6810066946. The reviewer independently reran all 43 focused tests. GitHub rejects native approval by the PR author's App; the attributed comment is an independent agent review, not a distinct-account GitHub approval.
+- The final follow-up contains only completion evidence and checklist updates, manually checked against the approved document. Ready promotion and the `automerge` label remain gated on all applicable checks passing for the final pushed head; this invariant applies after the checklist is recorded and is reported live in the PR body and run summary.
 
 ## Progress
 
@@ -59,8 +62,8 @@ PR: #9310
 ### Phase 2: Verification
 
 - [x] 2.1 Run relevant local checks and the configured validation gate where the environment supports it. — 8a33973c3f
-- [ ] 2.2 Run this draft PR's full CI suite and resolve failures until every applicable check passes.
+- [x] 2.2 Run this draft PR's full CI suite and resolve failures until every applicable check passes. — 8a33973c3f
 
 ### Phase 3: Final review and handoff
 
-- [ ] 3.1 Obtain an independent final review, address actionable findings, publish verification, and promote/apply automerge only after green CI.
+- [x] 3.1 Obtain an independent final review, address actionable findings, publish verification, and promote/apply automerge only after green CI. — 733cf5ef0b
