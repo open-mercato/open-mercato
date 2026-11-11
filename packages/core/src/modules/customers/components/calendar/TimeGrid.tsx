@@ -351,7 +351,7 @@ export function TimeGrid({
                   {allDayItems.map((item) => (
                     <EventPeekPopover
                       key={item.id}
-                      side={peekSide}
+                      side={isMobile ? 'bottom' : 'right'}
                       item={item}
                       open={selectedId === item.id}
                       joinUrl={resolveJoinUrl(item.location)}

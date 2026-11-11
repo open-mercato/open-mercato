@@ -44,6 +44,13 @@ describe('TimeGrid peek placement and dismissal (#8868)', () => {
     expect(screen.getByRole('button', { name: 'Join' })).toBeVisible()
   })
 
+  it('opens phone Day all-day events vertically', () => {
+    renderCalendar({ mobile: true, days: 1, allDay: true })
+    fireEvent.click(screen.getByRole('button', { name: /Quarterly review/ }))
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-side', 'bottom')
+    expect(screen.getByRole('button', { name: 'Join' })).toBeVisible()
+  })
+
   it.each([
     { mobile: false, days: 7 as const },
     { mobile: false, days: 1 as const },
