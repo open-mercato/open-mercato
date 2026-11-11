@@ -12,6 +12,7 @@ import './lifecycle'
 import './favorites'
 import './watchers'
 import './duplicate'
+import './findings'
 
 export { createLinkCommand, deleteLinkCommand } from './links'
 export { instantiateDocumentCommand } from './documents'
@@ -31,3 +32,9 @@ export { archiveDocumentCommand, unarchiveDocumentCommand } from './lifecycle'
 export { createFavoriteCommand, deleteFavoriteCommand } from './favorites'
 export { createWatchCommand, deleteWatchCommand } from './watchers'
 export { duplicateDocumentCommand } from './duplicate'
+export {
+  ingestFindingsCommand,
+  applyFindingCommand,
+  keepFindingCommand,
+  reopenFindingCommand,
+} from './findings'

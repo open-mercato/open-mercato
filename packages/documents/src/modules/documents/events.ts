@@ -16,6 +16,11 @@ const events = [
   { id: 'documents.version.restored', label: 'Version Restored', entity: 'version', category: 'lifecycle', crossProcessBroadcast: true },
   { id: 'documents.link.created', label: 'Document Link Created', entity: 'link', category: 'crud' },
   { id: 'documents.link.deleted', label: 'Document Link Deleted', entity: 'link', category: 'crud' },
+  { id: 'documents.finding.ingested', label: 'Review Findings Ingested', entity: 'finding', category: 'lifecycle' },
+  { id: 'documents.finding.applied', label: 'Review Finding Applied', entity: 'finding', category: 'lifecycle' },
+  { id: 'documents.finding.kept', label: 'Review Finding Kept', entity: 'finding', category: 'lifecycle' },
+  { id: 'documents.finding.reopened', label: 'Review Finding Reopened', entity: 'finding', category: 'lifecycle' },
+  { id: 'documents.review.cleared', label: 'Document Review Cleared', entity: 'review', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({ moduleId: 'documents', events })

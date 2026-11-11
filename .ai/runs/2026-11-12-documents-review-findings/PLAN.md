@@ -12,7 +12,7 @@ Goal: implement structured, text-anchored review findings in the Documents modul
 |------|-------|--------|--------|
 | 0.1 | Spec + run folder | done | |
 | 1.1 | Finding entity, validators, caps, migration | done | 523b1ddce3 |
-| 1.2 | Review content + anchoring libs with unit tests | todo | |
+| 1.2 | Review content + anchoring libs with unit tests | done | dca9ac331b |
 | 1.3 | Finding commands (ingest/apply/keep/reopen), events, summary, undo | todo | |
 | 1.4 | Findings API routes | todo | |
 | 1.5 | Phase 1 integration tests | todo | |

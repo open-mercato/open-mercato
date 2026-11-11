@@ -11,6 +11,11 @@ export type DocumentsProjectedEventId =
   | 'documents.comment.mentioned'
   | 'documents.comment.resolved'
   | 'documents.version.restored'
+  | 'documents.finding.ingested'
+  | 'documents.finding.applied'
+  | 'documents.finding.kept'
+  | 'documents.finding.reopened'
+  | 'documents.review.cleared'
 
 export type DocumentsProjectionDescriptor =
   | {
