@@ -51,6 +51,11 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
       )
     })
     configInstalled = true
+    const cachePurge = await apiRequest(request, 'POST', '/api/configs/cache', {
+      token,
+      data: { action: 'purgeAll' },
+    })
+    expect(cachePurge.status()).toBe(200)
   })
 
   test.afterEach(async ({ request }) => {
@@ -75,6 +80,10 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
     await drainIntegrationQueue('events')
     await drainIntegrationQueue('messages-email')
     await clearCapturedSystemEmails(request, token)
+    await apiRequest(request, 'POST', '/api/configs/cache', {
+      token,
+      data: { action: 'purgeAll' },
+    })
   })
 
   test('rejects the second distinct compose recipient without creating a message or email', async ({ request }) => {
