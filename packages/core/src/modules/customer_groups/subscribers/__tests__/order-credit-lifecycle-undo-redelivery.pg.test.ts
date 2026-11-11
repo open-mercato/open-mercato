@@ -396,4 +396,115 @@ maybe('sales order delete -> credit release -> undo -> reinstate under redeliver
       ['reserve', `reinstate:${order.reserveKey}`],
     ])
   })
+
+  // KNOWN DEFECT, reported on #9183 (tests only here, no fix). Both credit lifecycle handlers
+  // read `sales_orders` through `tx.getConnection().execute(...)`, which runs on a SECOND
+  // pooled connection, not the transaction holding the lifecycle lock (backend pids differ).
+  // A handler therefore holds one connection while waiting for another: with as many
+  // concurrent deliveries as pool connections, every one of them can be parked waiting for
+  // a second connection that never frees up, the #8414 starvation shape. The promotions
+  // reinstate handler was moved off this pattern ("read on the lock transaction's own
+  // connection"); these two were not. Same standard as
+  // `availability/lib/__tests__/reservationCommands.pool-exhaustion.integration.test.ts`: a
+  // pool of exactly the concurrency, every delivery must still complete. `test.failing`
+  // passes while the defect exists; flip it to `test` with the fix.
+  const TIGHT_POOL = 3
+
+  // Deterministic starvation: the test first holds every order's lifecycle lock from its own
+  // pool, so each handler parks on `pg_advisory_xact_lock` while already holding its
+  // transaction connection. Once all of them are parked the tight pool is full; only then
+  // are the locks released, and each handler's next step needs a second connection.
+  async function deliverWithLifecycleLocksPreheld(orderIds: string[], deliver: () => Promise<Array<PromiseSettledResult<void>>>): Promise<Array<PromiseSettledResult<void>>> {
+    let signalAcquired: () => void = () => undefined
+    let signalRelease: () => void = () => undefined
+    const acquired = new Promise<void>((resolve) => {
+      signalAcquired = resolve
+    })
+    const releaseRequested = new Promise<void>((resolve) => {
+      signalRelease = resolve
+    })
+    const holding = orm.em.fork().transactional(async (trx) => {
+      for (const orderId of orderIds) {
+        await trx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [`customer_groups_credit_lifecycle:${orderId}`])
+      }
+      signalAcquired()
+      await releaseRequested
+    })
+    await Promise.race([acquired, holding])
+    let delivered: Promise<Array<PromiseSettledResult<void>>> | null = null
+    try {
+      delivered = deliver()
+      await pollUntil('every delivery to park on its lifecycle lock', async () => {
+        const waiting = await Promise.all(orderIds.map((orderId) => countLifecycleLockWaiters(orderId)))
+        return waiting.every((count) => count >= 1)
+      })
+    } finally {
+      signalRelease()
+      await holding
+    }
+    return delivered
+  }
+
+  async function withTightPool(work: (ctx: ReturnType<typeof subscriberCtx>) => Promise<void>): Promise<void> {
+    const tight = await MikroORM.init({
+      clientUrl: orm.config.get('clientUrl'),
+      contextName: 'customer-groups-credit-lifecycle-tight-pool',
+      entities: orm.config.get('entities'),
+      metadataProvider: ReflectMetadataProvider,
+      allowGlobalContext: true,
+      debug: false,
+      pool: { min: 0, max: TIGHT_POOL },
+      driverOptions: { connectionTimeoutMillis: 1_500 },
+    })
+    try {
+      await work({
+        resolve: <T,>(name: string): T => {
+          if (name === 'em') return tight.em as unknown as T
+          throw new Error(`[internal] not registered: ${name}`)
+        },
+      })
+    } finally {
+      await tight.close(true)
+    }
+  }
+
+  async function seedOnAccountOrders(count: number): Promise<OnAccountOrder[]> {
+    const orders: OnAccountOrder[] = []
+    for (let index = 0; index < count; index += 1) orders.push(await seedOnAccountOrder())
+    return orders
+  }
+
+  test.failing(`${TIGHT_POOL} concurrent delete releases for different orders all complete on a pool of ${TIGHT_POOL} connections`, async () => {
+    const orders = await seedOnAccountOrders(TIGHT_POOL)
+    const deletions = await Promise.all(orders.map((order) => deleteOrder(order)))
+
+    await withTightPool(async (ctx) => {
+      const outcomes = await deliverWithLifecycleLocksPreheld(
+        orders.map((order) => order.orderId),
+        () => Promise.allSettled(deletions.map((payload) => handleOrderDeleted(payload, ctx))),
+      )
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(orders.map(() => 'fulfilled'))
+    })
+
+    for (const order of orders) expect(await exposure(order)).toBe(0)
+  })
+
+  test.failing(`${TIGHT_POOL} concurrent reinstates for different orders all complete on a pool of ${TIGHT_POOL} connections`, async () => {
+    const orders = await seedOnAccountOrders(TIGHT_POOL)
+    const confirmations: OrderEventPayload[] = []
+    for (const order of orders) {
+      await handleOrderDeleted(await deleteOrder(order), subscriberCtx())
+      confirmations.push(await undoDelete(order))
+    }
+
+    await withTightPool(async (ctx) => {
+      const outcomes = await deliverWithLifecycleLocksPreheld(
+        orders.map((order) => order.orderId),
+        () => Promise.allSettled(confirmations.map((payload) => handleOrderConfirmed(payload, ctx))),
+      )
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(orders.map(() => 'fulfilled'))
+    })
+
+    for (const order of orders) expect(await exposure(order)).toBe(100)
+  })
 })

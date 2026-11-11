@@ -637,4 +637,118 @@ describeWithPostgres('sales order delete -> promotion usage revert -> undo -> re
     expect(cancelledEvents.map((event) => event.orderId)).toEqual([fixture.orderId])
     expect(await usageOf(fixture, fixture.orderId)).toEqual({ promotionUsageLive: true, codeUsageLive: false })
   })
+
+  // KNOWN DEFECT, reported on #9183 (tests only here, no fix). `handleOrderUsageRevert` reads
+  // `sales_orders` through `tx.getConnection().execute(...)` (both the delete and the cancel
+  // branch), which runs on a SECOND pooled connection rather than the transaction holding
+  // the lifecycle lock. With as many concurrent deliveries as pool connections, each holds
+  // one connection while waiting for another: the #8414 starvation shape. The reinstate
+  // handler was already moved onto its lock transaction's own connection, and survives the
+  // same pool (the control test right after). `test.failing` passes while the defect
+  // exists; flip it to `test` with the fix.
+  const TIGHT_POOL = 3
+
+  // Deterministic starvation: the test first holds every order's lifecycle lock from its own
+  // pool, so each handler parks on `pg_advisory_xact_lock` while already holding its
+  // transaction connection. Once all of them are parked the tight pool is full; only then
+  // are the locks released, and each handler's next step needs a second connection.
+  async function deliverWithLifecycleLocksPreheld(orderIds: string[], deliver: () => Promise<Array<PromiseSettledResult<void>>>): Promise<Array<PromiseSettledResult<void>>> {
+    let signalAcquired: () => void = () => undefined
+    let signalRelease: () => void = () => undefined
+    const acquired = new Promise<void>((resolve) => {
+      signalAcquired = resolve
+    })
+    const releaseRequested = new Promise<void>((resolve) => {
+      signalRelease = resolve
+    })
+    const holding = orm.em.fork().transactional(async (trx) => {
+      for (const orderId of orderIds) {
+        await trx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [`promotions_usage_lifecycle:${orderId}`])
+      }
+      signalAcquired()
+      await releaseRequested
+    })
+    await Promise.race([acquired, holding])
+    let delivered: Promise<Array<PromiseSettledResult<void>>> | null = null
+    try {
+      delivered = deliver()
+      await pollUntil('every delivery to park on its lifecycle lock', async () => {
+        const waiting = await Promise.all(orderIds.map((orderId) => countLifecycleLockWaiters(orderId)))
+        return waiting.every((count) => count >= 1)
+      })
+    } finally {
+      signalRelease()
+      await holding
+    }
+    return delivered
+  }
+
+  async function withTightPool(work: (ctx: ReturnType<typeof subscriberCtx>) => Promise<void>): Promise<void> {
+    const tight = await MikroORM.init({
+      clientUrl: orm.config.get('clientUrl'),
+      contextName: 'promotions-usage-lifecycle-tight-pool',
+      entities: orm.config.get('entities'),
+      metadataProvider: ReflectMetadataProvider,
+      allowGlobalContext: true,
+      debug: false,
+      pool: { min: 0, max: TIGHT_POOL },
+      driverOptions: { connectionTimeoutMillis: 1_500 },
+    })
+    const tightContainer = createContainer()
+    tightContainer.register({
+      em: asValue(tight.em),
+      commandBus: asValue(new PausableCommandBus(pauses)),
+      promotionUsageService: asValue(new PromotionUsageService()),
+    })
+    tightContainer.register({ promotionCodeService: asValue(new PromotionCodeService(tightContainer)) })
+    try {
+      await work({ resolve: <T,>(name: string): T => tightContainer.resolve<T>(name) })
+    } finally {
+      await tight.close(true)
+    }
+  }
+
+  async function seedPromotedOrders(count: number): Promise<PromotedOrder[]> {
+    const fixtures: PromotedOrder[] = []
+    for (let index = 0; index < count; index += 1) fixtures.push(await seedPromotedOrder())
+    return fixtures
+  }
+
+  test.failing(`${TIGHT_POOL} concurrent delete reverts for different orders all complete on a pool of ${TIGHT_POOL} connections`, async () => {
+    const fixtures = await seedPromotedOrders(TIGHT_POOL)
+    const deletions = await Promise.all(fixtures.map((fixture) => deleteOrder(fixture)))
+
+    await withTightPool(async (ctx) => {
+      const outcomes = await deliverWithLifecycleLocksPreheld(
+        fixtures.map((fixture) => fixture.orderId),
+        () => Promise.allSettled(deletions.map((payload) => handleOrderDeleted(payload, ctx))),
+      )
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(fixtures.map(() => 'fulfilled'))
+    })
+
+    for (const fixture of fixtures) {
+      expect(await usageOf(fixture, fixture.orderId)).toEqual({ promotionUsageLive: false, codeUsageLive: false })
+    }
+  })
+
+  test(`control: ${TIGHT_POOL} concurrent reinstates (read on the lock transaction) all complete on the same pool`, async () => {
+    const fixtures = await seedPromotedOrders(TIGHT_POOL)
+    const confirmations: OrderEventPayload[] = []
+    for (const fixture of fixtures) {
+      await handleOrderDeleted(await deleteOrder(fixture), subscriberCtx())
+      confirmations.push(await undoDelete(fixture))
+    }
+
+    await withTightPool(async (ctx) => {
+      const outcomes = await deliverWithLifecycleLocksPreheld(
+        fixtures.map((fixture) => fixture.orderId),
+        () => Promise.allSettled(confirmations.map((payload) => handleOrderConfirmed(payload, ctx))),
+      )
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(fixtures.map(() => 'fulfilled'))
+    })
+
+    for (const fixture of fixtures) {
+      expect(await usageOf(fixture, fixture.orderId)).toEqual({ promotionUsageLive: true, codeUsageLive: true })
+    }
+  })
 })
