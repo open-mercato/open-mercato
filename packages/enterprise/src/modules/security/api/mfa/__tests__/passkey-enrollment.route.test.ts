@@ -1,3 +1,4 @@
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { generateRegistrationOptions, verifyRegistrationResponse } from '@simplewebauthn/server'
 import { emitSecurityEvent } from '../../../events'
@@ -46,7 +47,9 @@ describe('passkey enrollment route with the real service and provider', () => {
     }
     const pending = { ...method }
     const em = {
-      findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => query.secret === setup.setupId ? method : null),
+      findOne: jest.fn(async (entity: unknown, query: Record<string, unknown>) => entity === User
+        ? { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null }
+        : query.userId === method.userId && query.tenantId === method.tenantId && query.organizationId === method.organizationId && query.isActive === false && '$or' in query ? method : null),
       flush: jest.fn(),
     }
     const registry = new MfaProviderRegistry()

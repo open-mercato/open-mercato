@@ -1,5 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { UserMfaMethod } from '../../data/entities'
+import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitSecurityEvent } from '../../events'
 import { MfaProviderRegistry } from '../../lib/mfa-provider-registry'
@@ -21,6 +23,7 @@ jest.mock('../../events', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn((em, entity, query, options) => em.find(entity, query, options)),
 }))
 
 type MockMethod = {
@@ -30,6 +33,7 @@ type MockMethod = {
   organizationId?: string | null
   type: string
   label?: string | null
+  secretHash?: string | null
   secret?: string | null
   providerMetadata?: Record<string, unknown> | null
   isActive: boolean
@@ -99,6 +103,7 @@ function createServiceContext(
         organizationId: (data.organizationId as string | null | undefined) ?? null,
         type: String(data.type),
         label: (data.label as string | null | undefined) ?? null,
+        secretHash: (data.secretHash as string | null | undefined) ?? null,
         secret: (data.secret as string | null | undefined) ?? null,
         providerMetadata: (data.providerMetadata as Record<string, unknown> | null | undefined) ?? null,
         isActive: Boolean(data.isActive),
@@ -157,6 +162,18 @@ function createServiceContext(
     }),
   }
 
+  const userLookup = mockedFindOneWithDecryption.getMockImplementation()
+  mockedFindOneWithDecryption.mockImplementation(async (manager, entity, query, options, scope) => {
+    if (entity !== UserMfaMethod) return userLookup?.(manager, entity, query, options, scope) as never
+    const filter = query as { userId: string; tenantId: string; organizationId: string | null; $or: Array<{ secretHash: { $in: string[] } } | { secretHash: null; secret: string }> }
+    return methods.find((method) => method.userId === filter.userId
+      && method.tenantId === filter.tenantId && method.organizationId === filter.organizationId
+      && !method.isActive && !method.deletedAt
+      && filter.$or.some((branch) => branch.secretHash === null
+        ? !method.secretHash && method.secret === branch.secret
+        : branch.secretHash.$in.includes(method.secretHash ?? ''))) as never ?? null
+  })
+
   const registry = new MfaProviderRegistry()
   const provider = createProvider()
   registry.register(provider)
@@ -206,6 +223,30 @@ describe('MfaService', () => {
       userId: 'user-1',
       methodType: 'totp',
     }))
+  })
+
+  test('confirms an encrypted pending secret using its lookup hash', async () => {
+    const { service, methods } = createServiceContext()
+    await service.setupMethod('user-1', 'totp', {})
+    methods[0].secret = 'ciphertext-is-not-the-setup-token'
+    expect(methods[0].secretHash).toBe(hashForLookup('setup-1'))
+    await expect(service.confirmMethod('user-1', 'setup-1', { code: '123456' })).resolves.toEqual({})
+    expect(methods[0].isActive).toBe(true)
+  })
+
+  test('confirms a legacy pending setup without a lookup hash', async () => {
+    const { service, methods } = createServiceContext()
+    await service.setupMethod('user-1', 'totp', {})
+    methods[0].secretHash = null
+    await expect(service.confirmMethod('user-1', 'setup-1', { code: '123456' })).resolves.toEqual({})
+  })
+
+  test('refuses a pending method outside the account organization', async () => {
+    const { service, methods, provider } = createServiceContext()
+    await service.setupMethod('user-1', 'totp', {})
+    methods[0].organizationId = 'other-org'
+    await expect(service.confirmMethod('user-1', 'setup-1', {})).rejects.toMatchObject({ statusCode: 404 })
+    expect(provider.confirmSetup).not.toHaveBeenCalled()
   })
 
   test('setupMethod rejects duplicate single-instance provider enrollment', async () => {
@@ -318,12 +359,10 @@ describe('MfaService', () => {
   test('confirmMethod rejects duplicate label for allowMultiple provider', async () => {
     const { service } = createServiceContext()
 
-    mockedFindOneWithDecryption.mockResolvedValue({
-      id: 'user-1',
-      tenantId: 'tenant-1',
-      organizationId: null,
-      email: 'user@example.com',
-    } as never)
+    const methodLookup = mockedFindOneWithDecryption.getMockImplementation()
+    mockedFindOneWithDecryption.mockImplementation((manager, entity, query, options, scope) => entity === UserMfaMethod
+      ? methodLookup!(manager, entity, query, options, scope)
+      : Promise.resolve({ id: 'user-1', tenantId: 'tenant-1', organizationId: null, email: 'user@example.com' } as never))
 
     await service.setupMethod('user-1', 'totp', {})
     await service.confirmMethod('user-1', 'setup-1', { code: '123456' })
