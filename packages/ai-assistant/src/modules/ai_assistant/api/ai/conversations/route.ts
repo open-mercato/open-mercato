@@ -31,7 +31,7 @@ export const openApi: OpenApiRouteDoc = {
         'descending. View-only callers receive only their own conversations. Callers with ' +
         '`ai_assistant.conversations.manage` may list conversations across users in the same ' +
         'tenant/organization. The ' +
-        '`agent` and `status` filters are optional; `cursor` is the ISO timestamp returned by a ' +
+        '`agent` and `status` filters are optional; `cursor` is the opaque `nextCursor` returned by a ' +
         'previous response.',
       responses: [
         {

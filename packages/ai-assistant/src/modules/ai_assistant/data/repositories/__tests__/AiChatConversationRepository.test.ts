@@ -72,11 +72,24 @@ function matchesWhere(row: Record<string, any>, where: any): boolean {
       if (!conditions.some((cond) => matchesWhere(row, cond))) return false
       continue
     }
+    if (key === '$and') {
+      const conditions = where[key] as any[]
+      if (!conditions.every((cond) => matchesWhere(row, cond))) return false
+      continue
+    }
     const expected = where[key]
     const actual = row[key] ?? null
     if (expected && typeof expected === 'object' && '$lt' in expected) {
-      const lt = expected.$lt as Date
-      if (!(actual instanceof Date) || !(actual.getTime() < lt.getTime())) return false
+      const lt = expected.$lt
+      if (typeof lt === 'string') {
+        if (typeof actual !== 'string' || !(actual < lt)) return false
+        continue
+      }
+      if (!(actual instanceof Date) || !(actual.getTime() < (lt as Date).getTime())) return false
+      continue
+    }
+    if (expected instanceof Date) {
+      if (!(actual instanceof Date) || actual.getTime() !== expected.getTime()) return false
       continue
     }
     if (expected && typeof expected === 'object' && '$in' in expected) {
@@ -108,8 +121,8 @@ function applyOrder<T extends Record<string, any>>(rows: T[], orderBy: any): T[]
         const aTime = av instanceof Date ? av.getTime() : av ?? null
         const bTime = bv instanceof Date ? bv.getTime() : bv ?? null
         if (aTime === bTime) continue
-        if (aTime === null) return direction === 'asc' ? -1 : 1
-        if (bTime === null) return direction === 'asc' ? 1 : -1
+        if (aTime === null) return direction === 'asc' ? 1 : -1
+        if (bTime === null) return direction === 'asc' ? -1 : 1
         if (aTime < bTime) return direction === 'asc' ? -1 : 1
         return direction === 'asc' ? 1 : -1
       }
@@ -448,6 +461,110 @@ describe('AiChatConversationRepository', () => {
     const result = await repo.list(ctx, { agentId: 'agent-b' })
     expect(result.items).toHaveLength(1)
     expect(result.items[0].agentId).toBe('agent-b')
+  })
+
+  describe('list cursor pagination', () => {
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+
+    async function seed(
+      repo: AiChatConversationRepository,
+      em: ReturnType<typeof mockEm>,
+      rows: Array<{ conversationId: string; createdAt: string; lastMessageAt: string | null }>,
+    ) {
+      for (const [index, row] of rows.entries()) {
+        await repo.createOrGet(
+          { conversationId: row.conversationId, agentId: 'x', now: new Date(row.createdAt) },
+          ctx,
+        )
+        const stored = em.__stores.conv.find(
+          (candidate: ConvRow) => candidate.conversationId === row.conversationId,
+        )
+        stored.id = `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`
+        stored.lastMessageAt = row.lastMessageAt ? new Date(row.lastMessageAt) : null
+      }
+    }
+
+    async function walk(repo: AiChatConversationRepository, limit: number): Promise<string[]> {
+      const seen: string[] = []
+      let cursor: string | null = null
+      for (let page = 0; page < 20; page += 1) {
+        const result = await repo.list(ctx, { limit, cursor })
+        seen.push(...result.items.map((row) => row.conversationId))
+        if (!result.nextCursor) return seen
+        cursor = result.nextCursor
+      }
+      throw new Error('[internal] pagination did not terminate')
+    }
+
+    it('returns conversations that share the page-boundary lastMessageAt on a later page', async () => {
+      const em = mockEm()
+      const repo = new AiChatConversationRepository(em)
+      const tie = '2026-05-01T10:00:00.000Z'
+      await seed(repo, em, [
+        { conversationId: 'latest', createdAt: '2026-04-01T00:00:00.000Z', lastMessageAt: '2026-05-02T00:00:00.000Z' },
+        { conversationId: 'tie-newest', createdAt: '2026-04-05T00:00:00.000Z', lastMessageAt: tie },
+        { conversationId: 'tie-middle', createdAt: '2026-04-04T00:00:00.000Z', lastMessageAt: tie },
+        { conversationId: 'tie-older', createdAt: '2026-04-03T00:00:00.000Z', lastMessageAt: tie },
+        { conversationId: 'tie-oldest', createdAt: '2026-04-02T00:00:00.000Z', lastMessageAt: tie },
+        { conversationId: 'stale', createdAt: '2026-03-01T00:00:00.000Z', lastMessageAt: '2026-04-30T00:00:00.000Z' },
+      ])
+
+      expect(await walk(repo, 2)).toEqual([
+        'latest',
+        'tie-newest',
+        'tie-middle',
+        'tie-older',
+        'tie-oldest',
+        'stale',
+      ])
+    })
+
+    it('breaks a full lastMessageAt and createdAt tie by id without skipping rows', async () => {
+      const em = mockEm()
+      const repo = new AiChatConversationRepository(em)
+      const at = '2026-05-01T10:00:00.000Z'
+      await seed(repo, em, [
+        { conversationId: 'a', createdAt: at, lastMessageAt: at },
+        { conversationId: 'b', createdAt: at, lastMessageAt: at },
+        { conversationId: 'c', createdAt: at, lastMessageAt: at },
+      ])
+
+      const seen = await walk(repo, 1)
+      expect([...seen].sort()).toEqual(['a', 'b', 'c'])
+    })
+
+    it('pages through conversations without messages before the ones with messages', async () => {
+      const em = mockEm()
+      const repo = new AiChatConversationRepository(em)
+      await seed(repo, em, [
+        { conversationId: 'empty-new', createdAt: '2026-05-03T00:00:00.000Z', lastMessageAt: null },
+        { conversationId: 'empty-mid', createdAt: '2026-05-02T00:00:00.000Z', lastMessageAt: null },
+        { conversationId: 'empty-old', createdAt: '2026-04-01T00:00:00.000Z', lastMessageAt: null },
+        { conversationId: 'active-recent', createdAt: '2026-01-01T00:00:00.000Z', lastMessageAt: '2026-05-10T00:00:00.000Z' },
+        { conversationId: 'active-old', createdAt: '2026-01-02T00:00:00.000Z', lastMessageAt: '2026-02-01T00:00:00.000Z' },
+      ])
+
+      expect(await walk(repo, 2)).toEqual([
+        'empty-new',
+        'empty-mid',
+        'empty-old',
+        'active-recent',
+        'active-old',
+      ])
+    })
+
+    it('still accepts a plain ISO timestamp cursor issued before the compound cursor', async () => {
+      const em = mockEm()
+      const repo = new AiChatConversationRepository(em)
+      await seed(repo, em, [
+        { conversationId: 'newer', createdAt: '2026-04-01T00:00:00.000Z', lastMessageAt: '2026-05-02T00:00:00.000Z' },
+        { conversationId: 'older', createdAt: '2026-04-01T00:00:00.000Z', lastMessageAt: '2026-04-20T00:00:00.000Z' },
+      ])
+
+      const result = await repo.list(ctx, { limit: 5, cursor: '2026-05-01T00:00:00.000Z' })
+      expect(result.items.map((row) => row.conversationId)).toEqual(['older'])
+      expect(result.nextCursor).toBeNull()
+    })
   })
 
   it('importLocalConversation imports unique messages and skips duplicates idempotently', async () => {

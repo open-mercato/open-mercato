@@ -1,4 +1,5 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import { z } from 'zod'
 import {
   findOneWithDecryption,
   findWithDecryption,
@@ -250,17 +251,15 @@ export class AiChatConversationRepository {
     if (options.agentId) where.agentId = options.agentId
     if (options.status) where.status = options.status
     if (options.cursor) {
-      const cursorDate = parseIso(options.cursor)
-      if (cursorDate) {
-        where.lastMessageAt = { $lt: cursorDate }
-      }
+      const cursorFilter = buildListCursorFilter(options.cursor)
+      if (cursorFilter) where.$and = [cursorFilter]
     }
     const rows = await findWithDecryption<AiChatConversation>(
       this.em,
       AiChatConversation,
       where as any,
       {
-        orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }] as any,
+        orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }] as any,
         limit: limit + 1,
       },
       {
@@ -270,9 +269,7 @@ export class AiChatConversationRepository {
     )
     let nextCursor: string | null = null
     if (rows.length > limit) {
-      const lastIncluded = rows[limit - 1]
-      const cursorValue = lastIncluded.lastMessageAt ?? lastIncluded.createdAt
-      nextCursor = cursorValue ? cursorValue.toISOString() : null
+      nextCursor = encodeListCursor(rows[limit - 1])
     }
     return { items: rows.slice(0, limit), nextCursor }
   }
@@ -847,6 +844,49 @@ function parseIso(value: string): Date | null {
   if (!value) return null
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? null : date
+}
+
+const listCursorSchema = z.object({
+  l: z.string().datetime().nullable(),
+  c: z.string().datetime(),
+  i: z.string().uuid(),
+})
+
+function encodeListCursor(row: AiChatConversation): string {
+  const payload: z.infer<typeof listCursorSchema> = {
+    l: row.lastMessageAt ? row.lastMessageAt.toISOString() : null,
+    c: row.createdAt.toISOString(),
+    i: row.id,
+  }
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+}
+
+function decodeListCursor(value: string): z.infer<typeof listCursorSchema> | null {
+  try {
+    const parsed = listCursorSchema.safeParse(
+      JSON.parse(Buffer.from(value, 'base64url').toString('utf8')),
+    )
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+function buildListCursorFilter(value: string): Record<string, unknown> | null {
+  const cursor = decodeListCursor(value)
+  if (!cursor) {
+    const legacyDate = parseIso(value)
+    return legacyDate ? { lastMessageAt: { $lt: legacyDate } } : null
+  }
+  const lastMessageAt = cursor.l ? new Date(cursor.l) : null
+  const createdAt = new Date(cursor.c)
+  return {
+    $or: [
+      lastMessageAt ? { lastMessageAt: { $lt: lastMessageAt } } : { lastMessageAt: { $ne: null } },
+      { lastMessageAt, createdAt: { $lt: createdAt } },
+      { lastMessageAt, createdAt, id: { $lt: cursor.i } },
+    ],
+  }
 }
 
 function generateConversationId(): string {
