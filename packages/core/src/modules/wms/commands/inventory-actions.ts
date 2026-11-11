@@ -49,14 +49,14 @@ import {
   inventoryMoveSchema,
   inventoryReceiveSchema,
   inventoryReservationAllocateSchema,
-  inventoryReservationCreateSchema,
+  inventoryReservationCreateCommandSchema,
   inventoryReservationReleaseSchema,
   type InventoryAdjustInput,
   type InventoryCycleCountInput,
   type InventoryMoveInput,
   type InventoryReceiveInput,
   type InventoryReservationAllocateInput,
-  type InventoryReservationCreateInput,
+  type InventoryReservationCreateCommandInput,
   type InventoryReservationReleaseInput,
 } from '../data/validators'
 import { evaluateLowStock } from '../lib/inventoryPolicy'
@@ -73,6 +73,7 @@ import { buildMovementIdempotencyKey } from '../lib/inventoryIdempotency'
 import {
   extractReservationMetadata,
   findReservationBucketBalance,
+  isSourceReservationBusyError,
   requireReservation,
   WmsReservationService,
   type AllocationBucket,
@@ -110,6 +111,24 @@ function resolveReservationService(ctx: CommandRuntimeContext): WmsReservationSe
 type ReservationCommandResult = {
   reservationId: string
   allocatedBuckets: Array<{ locationId: string; lotId: string | null; quantity: string }>
+  sourceHeldQuantity?: number
+}
+
+const SOURCE_RESERVATION_BUSY_RETRY_DELAYS_MS = [20, 40, 80, 160, 320]
+
+// A `sourceTargetQuantity` reserve fails fast with `source_reservation_busy` instead of waiting
+// on the source-variant lock while it holds balance locks. Each attempt is its own transaction
+// on a fresh fork, so nothing is held between attempts; the last failure surfaces as a 409.
+async function retryWhileSourceReservationBusy<TResult>(operation: () => Promise<TResult>): Promise<TResult> {
+  for (const delayMs of SOURCE_RESERVATION_BUSY_RETRY_DELAYS_MS) {
+    try {
+      return await operation()
+    } catch (error) {
+      if (!isSourceReservationBusyError(error)) throw error
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs))
+  }
+  return operation()
 }
 
 type MutationLogInput = {
@@ -565,12 +584,12 @@ async function persistMovementWithIdempotency(
   }
 }
 
-const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, ReservationCommandResult> = {
+const reserveInventoryCommand: CommandHandler<InventoryReservationCreateCommandInput, ReservationCommandResult> = {
   id: 'wms.inventory.reserve',
   // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
   isUndoable: false,
   async execute(rawInput, ctx) {
-    const input = inventoryReservationCreateSchema.parse(rawInput ?? {})
+    const { sourceTargetQuantity, ...input } = inventoryReservationCreateCommandSchema.parse(rawInput ?? {})
     // A16: `'checkout'` is a system-only source written only by
     // `wmsReservationService.reserveLinesForCheckout`/`convertInTransaction`
     // (`availability`'s reserve/commit, called in-process, never through this command).
@@ -581,12 +600,17 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
     }
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
-    const em = resolveEm(ctx)
     // A1 extraction: the lock/allocation/idempotency logic itself now lives in
     // `wmsReservationService.reserveInTransaction` so a future in-process
     // caller can run it inside its OWN transaction. This wrapper still forks
     // its own `em` exactly as before, so behaviour is unchanged.
-    const result = await resolveReservationService(ctx).reserveInTransaction(em, ctx, input)
+    const service = resolveReservationService(ctx)
+    const result =
+      sourceTargetQuantity === undefined
+        ? await service.reserveInTransaction(resolveEm(ctx), ctx, input)
+        : await retryWhileSourceReservationBusy(() =>
+            service.reserveInTransaction(resolveEm(ctx), ctx, input, { sourceTargetQuantity }),
+          )
     if (!result.idempotentReplay) {
       await emitInventorySideEffects(ctx, {
         reservations: [{ entity: result.reservationEntity, action: 'created' }],
@@ -611,6 +635,7 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
     return {
       reservationId: result.reservationId,
       allocatedBuckets: result.allocatedBuckets,
+      ...(result.sourceHeldQuantity === undefined ? {} : { sourceHeldQuantity: result.sourceHeldQuantity }),
     }
   },
   buildLog: async ({ input, result, ctx }) =>

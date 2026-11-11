@@ -251,6 +251,12 @@ export const inventoryReservationCreateSchema = scopedSchema.extend({
   metadata: metadataSchema,
 })
 
+// `wms.inventory.reserve` command input for in-process callers. The public route validates
+// with `inventoryReservationCreateSchema`, which strips `sourceTargetQuantity`.
+export const inventoryReservationCreateCommandSchema = inventoryReservationCreateSchema.extend({
+  sourceTargetQuantity: positiveQuantity.optional(),
+})
+
 export const inventoryReservationReleaseSchema = scopedSchema.extend({
   reservationId: uuid(),
   reason: z.string().trim().min(1).max(120),
@@ -524,6 +530,7 @@ export type InventoryLotCreateInput = z.infer<typeof inventoryLotCreateSchema>
 export type InventoryLotUpdateInput = z.infer<typeof inventoryLotUpdateSchema>
 export type InventoryReceiveInput = z.infer<typeof inventoryReceiveSchema>
 export type InventoryReservationCreateInput = z.infer<typeof inventoryReservationCreateSchema>
+export type InventoryReservationCreateCommandInput = z.infer<typeof inventoryReservationCreateCommandSchema>
 export type InventoryReservationReleaseInput = z.infer<typeof inventoryReservationReleaseSchema>
 export type InventoryReservationAllocateInput = z.infer<typeof inventoryReservationAllocateSchema>
 export type InventoryAdjustInput = z.infer<typeof inventoryAdjustSchema>

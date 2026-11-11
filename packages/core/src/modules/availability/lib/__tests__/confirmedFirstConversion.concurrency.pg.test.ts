@@ -17,7 +17,10 @@
  * it), and rebuilds the converted row's idempotency key to the one `wms.inventory.reserve`
  * derives, so a late automation reserve for the same quantity replays it instead of
  * double-holding (`wms_inventory_reservations_idempotency_unique_idx`). A reserve whose
- * insert loses that key race writes in a savepoint and replays the winning row.
+ * insert loses that key race writes in a savepoint and replays the winning row. The
+ * conversion's covering read and the automation's `sourceTargetQuantity` re-count both run
+ * under one per-order/variant advisory lock; the reserve only try-locks it (it already holds
+ * balance locks the conversion's shrink may need) and backs off when busy.
  *
  * What is REAL here: the registered `availability.reserve`/`availability.commit` handlers,
  * the registered `wms.inventory.reserve` handler dispatched through the real `CommandBus`,
@@ -434,14 +437,11 @@ maybe('confirmed-first conversion: availability.commit vs the sales.order.confir
     expect(await readHoldState(fixture)).toEqual({ orderHeld: 2, checkoutHeld: 0, quantityReserved: 2, holdStatus: 'committed' })
   })
 
-  // KNOWN DEFECT, reported on #9183 (tests only here, no fix). With only part of the order's
-  // stock left beyond the checkout hold, the automation's reserve quantity (what is still
-  // free) differs from the converted row's (the whole hold), so the two idempotency keys
-  // differ and nothing serializes the automation's "still missing" read against the commit:
-  // the order ends up holding 3 units for a 2-unit order, one unit leaked out of sale. The
-  // same outcome showed up in 10 of 10 unpinned `Promise.all(commit, automation)` rounds
-  // locally. `test.failing` passes while the defect exists; flip it to `test` with the fix.
-  test.failing('with partial stock, an automation acting on a pre-commit read never holds more than the order needs', async () => {
+  // With only part of the order's stock left beyond the checkout hold, the automation's
+  // reserve quantity (what is still free) differs from the converted row's (the whole hold),
+  // so the idempotency keys differ. Before the fix the order ended up holding 3 units for a
+  // 2-unit order; the reserve now re-counts the order's rows under the conversion's lock.
+  test('with partial stock, an automation acting on a pre-commit read never holds more than the order needs', async () => {
     const fixture = await seedCheckoutHold({ onHand: 3, quantity: 2 })
 
     const automationAboutToReserve = commandBus.pauseBefore('wms.inventory.reserve')
@@ -475,6 +475,68 @@ maybe('confirmed-first conversion: availability.commit vs the sales.order.confir
 
     await expect(automation).resolves.toBeUndefined()
     expect(await readHoldState(fixture)).toEqual({ orderHeld: 2, checkoutHeld: 0, quantityReserved: 2, holdStatus: 'committed' })
+  })
+
+  test('an automation reserve that finds the commit holding the order lock backs off, then counts the conversion', async () => {
+    // 6 on hand, 3 held for checkout, 2 already held for the order by hand: the automation
+    // wants the 1 still free (a quantity, and so a key, unlike the manual row's).
+    const fixture = await seedCheckoutHold({ onHand: 6, quantity: 3 })
+    const balance = await orm.em.fork().findOneOrFail(InventoryBalance, { catalogVariantId: fixture.variantId })
+    const warehouseId = typeof balance.warehouse === 'string' ? balance.warehouse : balance.warehouse.id
+    const manual = await commandBus.execute<Record<string, unknown>, { reservationId: string }>('wms.inventory.reserve', {
+      input: {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        warehouseId,
+        catalogVariantId: fixture.variantId,
+        quantity: 2,
+        sourceType: 'order',
+        sourceId: fixture.orderId,
+      },
+      ctx: callerCtx(),
+    })
+
+    // The commit takes the order/variant lock, then parks on its covering `FOR UPDATE` of the
+    // manual order row. Its shrink then needs the balance row the automation's reserve locks
+    // before trying the order lock: a blocking wait there would be a deadlock.
+    const orderRowLock = await holdRowLock('wms_inventory_reservations', manual.result.reservationId)
+    const service = container.resolve<WmsReservationService>('wmsReservationService')
+    const reserveAttempts = jest.spyOn(service, 'reserveInTransaction')
+    try {
+      let committed = false
+      const commitCall = commit(fixture).finally(() => {
+        committed = true
+      })
+      await waitUntilBlockedBy(orderRowLock, () => committed)
+      expect(committed).toBe(false)
+
+      const automation = runOrderConfirmedAutomation(fixture)
+      const deadline = Date.now() + WAIT_TIMEOUT_MS
+      while (reserveAttempts.mock.calls.length < 2 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+      expect(reserveAttempts.mock.calls.length).toBeGreaterThanOrEqual(2)
+
+      await orderRowLock.release()
+      expect((await commitCall).status).toBe('committed')
+      await expect(automation).resolves.toBeUndefined()
+    } finally {
+      reserveAttempts.mockRestore()
+      await orderRowLock.release()
+    }
+    expect(await readHoldState(fixture)).toEqual({ orderHeld: 3, checkoutHeld: 0, quantityReserved: 3, holdStatus: 'committed' })
+  })
+
+  test.each([
+    { label: 'partial stock', onHand: 3 },
+    { label: 'stock for both', onHand: 4 },
+  ])('unpinned commit and automation rounds ($label) always end holding exactly the order quantity', async ({ onHand }) => {
+    for (let round = 0; round < 10; round += 1) {
+      const fixture = await seedCheckoutHold({ onHand, quantity: 2 })
+      const [committed] = await Promise.all([commit(fixture), runOrderConfirmedAutomation(fixture)])
+      expect(committed.status).toBe('committed')
+      expect(await readHoldState(fixture)).toEqual({ orderHeld: 2, checkoutHeld: 0, quantityReserved: 2, holdStatus: 'committed' })
+    }
   })
 
   test('two identical reserves past the idempotency pre-check: the losing insert replays the winning row', async () => {

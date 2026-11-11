@@ -59,6 +59,7 @@ function createEm(opts: { transactional?: boolean } = {}) {
     flush: jest.fn(async () => undefined),
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     fork: jest.fn(),
+    execute: jest.fn(async () => [{ acquired: true }]),
   } as Record<string, unknown>
   em.fork = jest.fn(() => em)
   if (opts.transactional !== false) {
@@ -272,6 +273,95 @@ describe('WmsReservationService.reserveInTransaction', () => {
     expect(keyLookups).toBe(1)
   })
 
+  describe('with sourceTargetQuantity', () => {
+    const SOURCE_LOCK_KEY = `wms:source-variant-reservation:${ORG}:order:${ORDER_ID}:${VARIANT_ID}`
+    const OTHER_ROW_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+
+    function mockTargetLookups(held: Array<Record<string, unknown>>, balance: Record<string, unknown>) {
+      findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown) => {
+        if (entity === Warehouse) return { id: WAREHOUSE_ID, tenantId: TENANT, organizationId: ORG }
+        if (entity === InventoryBalance) return balance
+        return null
+      })
+      findWithDecryption.mockImplementation((_em: unknown, entity: unknown) => {
+        if (entity === InventoryBalance) return [balance]
+        if (entity === InventoryReservation) return held
+        return []
+      })
+    }
+
+    function callIndex(entity: unknown): number {
+      return findWithDecryption.mock.calls.findIndex(([, called]) => called === entity)
+    }
+
+    it('reserves only what the source still misses, counted under a try lock taken after the balance lock', async () => {
+      const service = new WmsReservationService()
+      const em = createEm()
+      const balance = makeBalance({ quantityOnHand: '10' })
+      mockTargetLookups([makeReservation({ id: OTHER_ROW_ID, quantity: '3', warehouse: { id: 'ffffffff-ffff-4fff-8fff-ffffffffffff' } })], balance)
+
+      const result = await service.reserveInTransaction(em, createCtx(em), makeReserveInput({ quantity: 8 }), {
+        sourceTargetQuantity: 5,
+      })
+
+      expect(result).toMatchObject({ idempotentReplay: false, quantity: 2, sourceHeldQuantity: 5 })
+      expect(Number(result.reservationEntity.quantity)).toBe(2)
+      expect(Number(balance.quantityReserved)).toBe(2)
+      const execute = em.execute as unknown as jest.Mock
+      expect(execute).toHaveBeenCalledWith(expect.stringContaining('pg_try_advisory_xact_lock'), [SOURCE_LOCK_KEY])
+      const balanceLockOrder = findWithDecryption.mock.invocationCallOrder[callIndex(InventoryBalance)]
+      const heldReadOrder = findWithDecryption.mock.invocationCallOrder[callIndex(InventoryReservation)]
+      expect(execute.mock.invocationCallOrder[0]).toBeGreaterThan(balanceLockOrder)
+      expect(execute.mock.invocationCallOrder[0]).toBeLessThan(heldReadOrder)
+      expect(findWithDecryption.mock.calls[callIndex(InventoryReservation)][2]).toEqual(
+        expect.objectContaining({ sourceType: 'order', sourceId: ORDER_ID, catalogVariantId: VARIANT_ID, status: 'active' }),
+      )
+      expect(findWithDecryption.mock.calls[callIndex(InventoryReservation)][2]).not.toHaveProperty('warehouse')
+    })
+
+    it('replays an existing row and writes nothing when the source already holds the target', async () => {
+      const service = new WmsReservationService()
+      const em = createEm()
+      const balance = makeBalance({ quantityOnHand: '10' })
+      mockTargetLookups(
+        [makeReservation({ id: OTHER_ROW_ID, quantity: '3' }), makeReservation({ quantity: '2', metadata: { convertedFromCheckout: true } })],
+        balance,
+      )
+
+      const result = await service.reserveInTransaction(em, createCtx(em), makeReserveInput({ quantity: 1 }), {
+        sourceTargetQuantity: 5,
+      })
+
+      expect(result).toMatchObject({ idempotentReplay: true, reservationId: OTHER_ROW_ID, sourceHeldQuantity: 5, touchedBalances: [] })
+      expect(em.persist).not.toHaveBeenCalled()
+      expect(em.flush).not.toHaveBeenCalled()
+      expect(Number(balance.quantityReserved)).toBe(0)
+    })
+
+    it('fails fast with source_reservation_busy, before the held read, when another transaction holds the lock', async () => {
+      const service = new WmsReservationService()
+      const em = createEm()
+      em.execute = jest.fn(async () => [{ acquired: false }]) as unknown as typeof em.execute
+      mockTargetLookups([], makeBalance({ quantityOnHand: '10' }))
+
+      await expect(
+        service.reserveInTransaction(em, createCtx(em), makeReserveInput({ quantity: 2 }), { sourceTargetQuantity: 2 }),
+      ).rejects.toMatchObject({ status: 409, body: { error: 'source_reservation_busy' } })
+      expect(callIndex(InventoryReservation)).toBe(-1)
+      expect(em.persist).not.toHaveBeenCalled()
+    })
+
+    it('takes no source-variant lock without a target', async () => {
+      const service = new WmsReservationService()
+      const em = createEm()
+      mockTargetLookups([], makeBalance({ quantityOnHand: '10' }))
+
+      await service.reserveInTransaction(em, createCtx(em), makeReserveInput({ quantity: 2 }))
+
+      expect(em.execute as unknown as jest.Mock).not.toHaveBeenCalled()
+    })
+  })
+
   it('joins an already-open ambient transaction instead of starting a new one when the caller em has no .transactional', async () => {
     // Simulates the composed-caller shape the A1 extraction exists for
     // (`availability`'s future reserve, Phase 2): an EntityManager that is
@@ -418,6 +508,36 @@ describe('WmsReservationService.convertInTransaction', () => {
       return null
     })
   }
+
+  it('takes the blocking source-variant lock after the checkout row lock and before the covering read', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    findOneWithDecryption.mockReset()
+    findWithDecryption.mockReset()
+    mockReservationLookup(makeReservation({ sourceType: 'checkout', sourceId: 'checkout-session-1' }))
+    findWithDecryption.mockReturnValue([])
+
+    const result = await service.convertInTransaction(em, createCtx(em), convertInput)
+
+    expect(result.outcome).toBe('converted')
+    const execute = em.execute as unknown as jest.Mock
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute.mock.calls[0][0]).toContain('pg_advisory_xact_lock')
+    expect(execute.mock.calls[0][0]).not.toContain('try')
+    expect(execute.mock.calls[0][1]).toEqual([`wms:source-variant-reservation:${ORG}:order:${ORDER_ID}:${VARIANT_ID}`])
+    expect(execute.mock.invocationCallOrder[0]).toBeGreaterThan(findOneWithDecryption.mock.invocationCallOrder[0])
+    expect(execute.mock.invocationCallOrder[0]).toBeLessThan(findWithDecryption.mock.invocationCallOrder[0])
+  })
+
+  it('takes no source-variant lock for a row it will not convert', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    mockReservationLookup(makeReservation({ sourceType: 'checkout', sourceId: 'checkout-session-1', status: 'released' }))
+
+    await service.convertInTransaction(em, createCtx(em), convertInput)
+
+    expect(em.execute as unknown as jest.Mock).not.toHaveBeenCalled()
+  })
 
   it('does not convert a released checkout row and leaves it untouched', async () => {
     const service = new WmsReservationService()

@@ -29,7 +29,7 @@
 // place today, so there is nothing to extract yet.
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -112,6 +112,25 @@ export type ReserveInTransactionResult = {
   reservationEntity: InventoryReservation
   touchedBalances: InventoryBalance[]
   idempotentReplay: boolean
+  /** Set with `sourceTargetQuantity`: the source's active quantity of the variant after this call. */
+  sourceHeldQuantity?: number
+}
+
+export type ReserveInTransactionOptions = {
+  /**
+   * Caps what `sourceType`/`sourceId` holds of the variant across all warehouses. The call
+   * reserves at most the still-missing part of this target, counted under the source-variant
+   * lock `convertInTransaction` also takes, so a reserve and a checkout conversion for the
+   * same order can never jointly hold more than the target. When nothing is missing it
+   * replays an existing row instead of writing.
+   */
+  sourceTargetQuantity?: number
+}
+
+export const SOURCE_RESERVATION_BUSY_ERROR = 'source_reservation_busy'
+
+export function isSourceReservationBusyError(error: unknown): boolean {
+  return isCrudHttpError(error) && error.status === 409 && error.body?.error === SOURCE_RESERVATION_BUSY_ERROR
 }
 
 export type ReleaseInTransactionResult = {
@@ -541,6 +560,65 @@ async function findExistingActiveReservationByIdempotencyKey(
   )
 }
 
+// Serializes "what does this source already hold of this variant" decisions: the checkout
+// conversion (`convertInTransaction`, blocking) and a `sourceTargetQuantity` reserve (try
+// only, after its balance locks). Same transaction, same connection, released at commit.
+const SOURCE_VARIANT_LOCK_SQL = 'select pg_advisory_xact_lock(hashtextextended(?, 0))'
+const SOURCE_VARIANT_TRY_LOCK_SQL = 'select pg_try_advisory_xact_lock(hashtextextended(?, 0)) as acquired'
+
+function sourceVariantLockKey(scope: Scope, sourceType: string, sourceId: string, catalogVariantId: string): string {
+  return ['wms:source-variant-reservation', scope.organizationId, sourceType, sourceId, catalogVariantId]
+    .map((segment) => segment.toLowerCase())
+    .join(':')
+}
+
+async function lockSourceVariant(
+  em: EntityManager,
+  scope: Scope,
+  sourceType: string,
+  sourceId: string,
+  catalogVariantId: string,
+): Promise<void> {
+  await em.execute(SOURCE_VARIANT_LOCK_SQL, [sourceVariantLockKey(scope, sourceType, sourceId, catalogVariantId)])
+}
+
+async function tryLockSourceVariant(
+  em: EntityManager,
+  scope: Scope,
+  sourceType: string,
+  sourceId: string,
+  catalogVariantId: string,
+): Promise<boolean> {
+  const rows = await em.execute<Array<{ acquired: boolean }>>(SOURCE_VARIANT_TRY_LOCK_SQL, [
+    sourceVariantLockKey(scope, sourceType, sourceId, catalogVariantId),
+  ])
+  return rows[0]?.acquired === true
+}
+
+async function listActiveSourceVariantReservations(
+  em: EntityManager,
+  scope: Scope,
+  sourceType: InventoryReservation['sourceType'],
+  sourceId: string,
+  catalogVariantId: string,
+): Promise<InventoryReservation[]> {
+  return findWithDecryption(
+    em,
+    InventoryReservation,
+    {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      sourceType,
+      sourceId,
+      catalogVariantId,
+      status: 'active',
+      deletedAt: null,
+    },
+    { orderBy: { createdAt: 'asc', id: 'asc' } },
+    scope,
+  )
+}
+
 async function listCandidateBalances(
   em: EntityManager,
   ctx: CommandRuntimeContext,
@@ -685,6 +763,7 @@ export class WmsReservationService {
     trx: EntityManager,
     ctx: CommandRuntimeContext,
     input: InventoryReservationCreateInput,
+    options?: ReserveInTransactionOptions,
   ): Promise<ReserveInTransactionResult> {
     return runInTransaction(trx, async (innerTrx) => {
       const scope = resolveScope(ctx, input)
@@ -706,7 +785,7 @@ export class WmsReservationService {
           allocatedBuckets: serializeAllocationBuckets(buckets),
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
-          warehouseId: input.warehouseId,
+          warehouseId: typeof existing.warehouse === 'string' ? existing.warehouse : existing.warehouse.id,
           catalogVariantId: input.catalogVariantId,
           quantity: input.quantity,
           reservationEntity: existing,
@@ -722,6 +801,29 @@ export class WmsReservationService {
       if (existingReservation) return replay(existingReservation)
       const strategy = await resolveReservationStrategy(innerTrx, ctx, input, scope)
       const balances = await listCandidateBalances(innerTrx, ctx, input, scope)
+      let reserveQuantity = input.quantity
+      let sourceHeldQuantity: number | undefined
+      if (options?.sourceTargetQuantity !== undefined) {
+        // Taken after the balance locks, so it must never wait: a commit holding this lock may
+        // be waiting on those same balance rows. Busy rolls back and is retried by the caller.
+        if (!(await tryLockSourceVariant(innerTrx, scope, input.sourceType, input.sourceId, input.catalogVariantId))) {
+          throw new CrudHttpError(409, { error: SOURCE_RESERVATION_BUSY_ERROR })
+        }
+        const held = await listActiveSourceVariantReservations(
+          innerTrx,
+          scope,
+          input.sourceType,
+          input.sourceId,
+          input.catalogVariantId,
+        )
+        const heldQuantity = held.reduce((sum, row) => sum + toNumber(row.quantity), 0)
+        const missing = options.sourceTargetQuantity - heldQuantity
+        if (missing <= 0.000001 && held.length > 0) {
+          return { ...replay(held[0]), sourceHeldQuantity: heldQuantity }
+        }
+        reserveQuantity = Math.min(input.quantity, missing)
+        sourceHeldQuantity = heldQuantity + reserveQuantity
+      }
       const receiptMap = await loadReceivedAtByBucket(innerTrx, balances, scope)
       const now = new Date()
       const ordered = sortBalancesForStrategy(
@@ -739,7 +841,7 @@ export class WmsReservationService {
         written = await runInTransaction(
           innerTrx,
           async (writeTrx) => {
-            let remaining = input.quantity
+            let remaining = reserveQuantity
             const buckets: AllocationBucket[] = []
             const touchedBalances: InventoryBalance[] = []
             for (const balance of ordered) {
@@ -783,7 +885,7 @@ export class WmsReservationService {
               catalogVariantId: input.catalogVariantId,
               lot: buckets.length === 1 && buckets[0].lotId ? writeTrx.getReference(InventoryLot, buckets[0].lotId) : null,
               serialNumber: buckets.length === 1 ? buckets[0].serialNumber : null,
-              quantity: toNumericString(input.quantity),
+              quantity: toNumericString(reserveQuantity),
               sourceType: input.sourceType,
               sourceId: input.sourceId,
               expiresAt: input.expiresAt ?? null,
@@ -819,10 +921,11 @@ export class WmsReservationService {
         organizationId: scope.organizationId,
         warehouseId: input.warehouseId,
         catalogVariantId: input.catalogVariantId,
-        quantity: input.quantity,
+        quantity: reserveQuantity,
         reservationEntity: written.reservation,
         touchedBalances: written.touchedBalances,
         idempotentReplay: false,
+        ...(sourceHeldQuantity === undefined ? {} : { sourceHeldQuantity }),
       }
     })
   }
@@ -926,6 +1029,11 @@ export class WmsReservationService {
    * one is shrunk to the uncovered quantity before conversion. The rebuilt idempotency key
    * gets a deterministic suffix when another active row already owns it, so the active-key
    * unique index can never reject the conversion.
+   *
+   * The covering read runs under the source-variant advisory lock (taken after the checkout
+   * row lock) that a `sourceTargetQuantity` reserve also takes. The automation's reserve either
+   * commits first and is counted here, or runs after this commit and counts the converted row,
+   * so the two never jointly hold more than the order needs.
    */
   async convertInTransaction(
     trx: EntityManager,
@@ -979,6 +1087,7 @@ export class WmsReservationService {
 
       const warehouseId =
         typeof reservation.warehouse === 'string' ? reservation.warehouse : reservation.warehouse.id
+      await lockSourceVariant(innerTrx, scope, input.sourceType, input.sourceId, reservation.catalogVariantId)
       const covering = await findWithDecryption(
         innerTrx,
         InventoryReservation,

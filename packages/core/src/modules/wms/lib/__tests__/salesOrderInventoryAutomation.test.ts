@@ -193,6 +193,88 @@ describe('reserveInventoryForConfirmedOrder', () => {
     )
   })
 
+  describe('re-counting under the conversion lock (sourceTargetQuantity)', () => {
+    function runWith(input: { lineQuantity: number; balances: Array<{ warehouseId: string; available: number }> }) {
+      loadExplicitWarehouseIdForOrderMock.mockResolvedValue(null)
+      findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+        if (entity === InventoryReservation) return []
+        if (entity === InventoryBalance) {
+          return input.balances.map((balance) => ({
+            catalogVariantId: 'variant-1',
+            quantityOnHand: String(balance.available),
+            quantityReserved: '0',
+            quantityAllocated: '0',
+            warehouse: { id: balance.warehouseId },
+          }))
+        }
+        return []
+      })
+      const queryEngine = {
+        query: jest
+          .fn()
+          .mockResolvedValueOnce({ items: [{ id: 'order-1', order_number: 'SO-3' }] })
+          .mockResolvedValueOnce({
+            items: [{ id: 'line-1', kind: 'product', product_variant_id: 'variant-1', quantity: String(input.lineQuantity), line_number: 1 }],
+          }),
+      }
+      const featureTogglesService = {
+        getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: true }),
+        invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
+      }
+      return reserveInventoryForConfirmedOrder(
+        { orderId: 'order-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+        {
+          resolve: (name: string) => {
+            if (name === 'em') return { fork: () => ({}) }
+            if (name === 'commandBus') return { execute }
+            if (name === 'queryEngine') return queryEngine
+            if (name === 'featureTogglesService') return featureTogglesService
+            throw new Error(`Unexpected resolve: ${name}`)
+          },
+        },
+      )
+    }
+
+    it('targets the order line quantity and stops once the command reports it held', async () => {
+      execute.mockImplementationOnce(async () => ({ result: { reservationId: 'res-1', sourceHeldQuantity: 2 } }))
+
+      await runWith({ lineQuantity: 2, balances: [{ warehouseId: 'warehouse-1', available: 1 }, { warehouseId: 'warehouse-2', available: 1 }] })
+
+      expect(execute).toHaveBeenCalledTimes(1)
+      expect(execute).toHaveBeenCalledWith(
+        'wms.inventory.reserve',
+        expect.objectContaining({
+          input: expect.objectContaining({ quantity: 1, sourceType: 'order', sourceId: 'order-1', sourceTargetQuantity: 2 }),
+        }),
+      )
+      expect(emitWmsEventMock).not.toHaveBeenCalledWith('wms.inventory.reservation_shortfall', expect.anything())
+    })
+
+    it('reports a shortfall from the held quantity the command re-counted, not from its own stale read', async () => {
+      execute.mockImplementationOnce(async () => ({ result: { reservationId: 'res-1', sourceHeldQuantity: 2 } }))
+
+      await runWith({ lineQuantity: 3, balances: [{ warehouseId: 'warehouse-1', available: 1 }] })
+
+      expect(emitWmsEventMock).toHaveBeenCalledWith(
+        'wms.inventory.reservation_shortfall',
+        expect.objectContaining({
+          shortfalls: [expect.objectContaining({ catalogVariantId: 'variant-1', requiredQuantity: 3, reservedQuantity: 2, shortfallQuantity: 1 })],
+        }),
+      )
+    })
+
+    it('rethrows a lock-busy failure so the persistent subscriber redelivers', async () => {
+      execute.mockImplementationOnce(async () => {
+        throw new CrudHttpError(409, { error: 'source_reservation_busy' })
+      })
+
+      await expect(runWith({ lineQuantity: 2, balances: [{ warehouseId: 'warehouse-1', available: 2 }] })).rejects.toMatchObject({
+        status: 409,
+        body: { error: 'source_reservation_busy' },
+      })
+    })
+  })
+
   it('continues reserving other variants and emits shortfall when one line lacks stock', async () => {
     loadExplicitWarehouseIdForOrderMock.mockResolvedValue(null)
     findWithDecryptionMock.mockImplementation(async (_em, entity) => {

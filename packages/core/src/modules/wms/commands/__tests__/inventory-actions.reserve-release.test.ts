@@ -206,6 +206,75 @@ describe('wms inventory reserve command', () => {
     expect(em.flush).not.toHaveBeenCalled()
   })
 
+  describe('sourceTargetQuantity (sales.order.confirmed automation)', () => {
+    const busy = () => new CrudHttpError(409, { error: 'source_reservation_busy' })
+    const replayResult = {
+      reservationId: RESERVATION_ID,
+      allocatedBuckets: [],
+      tenantId: TENANT,
+      organizationId: ORG,
+      warehouseId: WAREHOUSE_ID,
+      catalogVariantId: VARIANT_ID,
+      quantity: 5,
+      reservationEntity: makeReservation(),
+      touchedBalances: [],
+      idempotentReplay: true,
+      sourceHeldQuantity: 5,
+    }
+
+    function ctxWithService(em: ReturnType<typeof createEm>, reserveInTransaction: jest.Mock) {
+      const base = createCtx(em)
+      return {
+        ...base,
+        container: {
+          resolve: (name: string) =>
+            name === 'wmsReservationService' ? { reserveInTransaction } : base.container.resolve(name),
+        },
+      }
+    }
+
+    it('passes the target to the service, retries each busy attempt on a fresh fork, and returns sourceHeldQuantity', async () => {
+      const em = createEm()
+      const reserveInTransaction = jest.fn().mockRejectedValueOnce(busy()).mockResolvedValueOnce(replayResult)
+      const handler = commandRegistry.get('wms.inventory.reserve')
+
+      const result = await handler!.execute!(makeReserveInput({ sourceTargetQuantity: 5 }), ctxWithService(em, reserveInTransaction))
+
+      expect(reserveInTransaction).toHaveBeenCalledTimes(2)
+      expect(reserveInTransaction.mock.calls[0][2]).not.toHaveProperty('sourceTargetQuantity')
+      expect(reserveInTransaction.mock.calls[0][3]).toEqual({ sourceTargetQuantity: 5 })
+      expect(em.fork).toHaveBeenCalledTimes(2)
+      expect(result).toEqual({ reservationId: RESERVATION_ID, allocatedBuckets: [], sourceHeldQuantity: 5 })
+    })
+
+    it('surfaces source_reservation_busy as a 409 once the bounded retries run out', async () => {
+      const em = createEm()
+      const reserveInTransaction = jest.fn().mockImplementation(async () => {
+        throw busy()
+      })
+      const handler = commandRegistry.get('wms.inventory.reserve')
+
+      await expect(
+        handler!.execute!(makeReserveInput({ sourceTargetQuantity: 5 }), ctxWithService(em, reserveInTransaction)),
+      ).rejects.toMatchObject({ status: 409, body: { error: 'source_reservation_busy' } })
+      expect(reserveInTransaction).toHaveBeenCalledTimes(6)
+    })
+
+    it('neither retries nor passes options for a reserve without a target', async () => {
+      const em = createEm()
+      const reserveInTransaction = jest.fn().mockImplementation(async () => {
+        throw busy()
+      })
+      const handler = commandRegistry.get('wms.inventory.reserve')
+
+      await expect(handler!.execute!(makeReserveInput(), ctxWithService(em, reserveInTransaction))).rejects.toMatchObject({
+        status: 409,
+      })
+      expect(reserveInTransaction).toHaveBeenCalledTimes(1)
+      expect(reserveInTransaction.mock.calls[0]).toHaveLength(3)
+    })
+  })
+
   it('throws insufficient_stock when no available quantity exists', async () => {
     const em = createEm()
     const balance = makeBalance({ quantityOnHand: '5', quantityReserved: '5' })
