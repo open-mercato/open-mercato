@@ -179,4 +179,46 @@ describeWithPostgres('cart.proposal.accept vs a checkout cart.lock through the r
     expect((await races().readCart(proposal.proposalCartId)).status).toBe('merged')
     expect(await races().countMergeLogs(target.cartId)).toBe(1)
   })
+
+  // KNOWN DEFECT, reported on #9183 (not fixed here: this change adds tests only).
+  // `executeProposalAcceptance` commits the merged lines inside its guarded transaction but
+  // leaves `Cart.totals`/`requiresApproval` to a separately dispatched `cart.reprice` after
+  // commit, which takes no `cart:lines` lock. A checkout lock already waiting on the target's
+  // cart lock acquires it the moment the merge commits, and `assertLockGate` judges the
+  // stored pre-merge totals. Here: 2 x 12.00 = 24.00 is covered by a 30.00 approval; after the
+  // merge the cart is 36.00, and an accept-then-lock in sequence is refused
+  // `409 cart_requires_approval`. Raced, the lock succeeds. Pinning the accept's post-merge
+  // re-price only makes the order deterministic: unpinned, the lock won all 10 rounds of a
+  // local run. `test.failing` passes while the defect exists; flip it to `test` with the fix.
+  test.failing('a checkout lock that waited out a proposal merge refuses the merged cart above its approval', async () => {
+    const scope = races().newTenant()
+    const product = await races().seedPricedProduct(scope)
+    const target = await races().seedBasketCart(scope, [{ product, quantity: 2 }], {
+      approval: { approvalRequiredAbove: 10, approvedAmountGross: 30 },
+    })
+    const proposal = await races().seedProposal(scope, target, product, 1)
+    const checkoutSessionId = randomUUID()
+
+    const lockPausedAfterReprice = races().checkpoints.arm('after:cart.reprice')
+    const lock = track(lockCart(scope, target, checkoutSessionId))
+    await reachedBy(lockPausedAfterReprice, lock)
+    const acceptanceToken = await races().mintAcceptanceToken(proposal.proposalCartId, target.cartId)
+    const proposalRowLock = await races().holdRowLock('carts', proposal.proposalCartId)
+    const accept = track(acceptProposal(scope, target, { ...proposal, acceptanceToken }))
+    await races().waitForLockWaiters('row', proposal.proposalCartId, 1, accept)
+    lockPausedAfterReprice.release()
+    await races().waitForLockWaiters('advisory', target.cartId, 1, lock)
+
+    // The accept's post-merge `cart.reprice` is the next dispatch of that command.
+    const acceptRepricePaused = races().checkpoints.arm('before:cart.reprice')
+    await proposalRowLock.release()
+    await reachedBy(acceptRepricePaused, accept)
+    const lockOutcome = await lock.settled
+    acceptRepricePaused.release()
+    await accept.settled
+
+    const refusal = expectHttpRejection(lockOutcome)
+    expect(refusal).toEqual({ status: 409, body: expect.objectContaining({ code: 'cart_requires_approval' }) })
+    expect((await races().readCart(target.cartId)).status).toBe('active')
+  })
 })
