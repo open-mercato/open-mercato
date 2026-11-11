@@ -14,21 +14,26 @@ import PricesDataTable from '../PricesDataTable'
 
 const mockUseQuery = jest.fn()
 jest.mock('@tanstack/react-query', () => ({
-  useQuery: (...args: any[]) => mockUseQuery(...args),
+  useQuery: (...args: unknown[]) => mockUseQuery(...args),
   useQueryClient: () => ({ invalidateQueries: jest.fn() }),
 }))
 
 const mockApiCall = jest.fn()
 const mockReadApiResultOrThrow = jest.fn()
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCall: (...args: any[]) => mockApiCall(...args),
+  apiCall: (...args: unknown[]) => mockApiCall(...args),
   apiCallOrThrow: jest.fn(),
-  readApiResultOrThrow: (...args: any[]) => mockReadApiResultOrThrow(...args),
+  readApiResultOrThrow: (...args: unknown[]) => mockReadApiResultOrThrow(...args),
 }))
 
-let capturedColumns: any[] = []
+type CapturedColumn = {
+  id?: string
+  cell: (props: { row: { original: Record<string, unknown> } }) => React.ReactNode
+}
+
+let capturedColumns: CapturedColumn[] = []
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
-  DataTable: ({ columns, data }: any) => {
+  DataTable: ({ columns, data }: { columns: CapturedColumn[]; data?: Array<Record<string, unknown>> }) => {
     capturedColumns = columns
     return <div data-testid="data-table">{JSON.stringify(data?.length ?? 0)}</div>
   },
@@ -41,11 +46,11 @@ jest.mock('@open-mercato/ui/backend/filters/ListEmptyState', () => ({
 jest.mock('@open-mercato/ui/backend/RowActions', () => ({ RowActions: () => <div /> }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
-  Button: ({ children }: any) => <button type="button">{children}</button>,
+  Button: ({ children }: { children?: React.ReactNode }) => <button type="button">{children}</button>,
 }))
 
 jest.mock('@open-mercato/ui/primitives/tag', () => ({
-  Tag: ({ children }: any) => <span>{children}</span>,
+  Tag: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
@@ -64,7 +69,7 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
 
 jest.mock('next/link', () => ({
   __esModule: true,
-  default: ({ children }: any) => <>{children}</>,
+  default: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }))
 
 const PERSON_ID = '55555555-5555-4555-8555-555555555555'
@@ -100,7 +105,8 @@ describe('PricesDataTable customer labels (#8107)', () => {
     await waitFor(() => expect(capturedColumns.length).toBeGreaterThan(0))
 
     await waitFor(() => {
-      const scopeColumn = capturedColumns.find((col) => col.id === 'scope')
+      const scopeColumn = capturedColumns.find((column) => column.id === 'scope')
+      if (!scopeColumn) throw new Error('[internal] Scope column missing')
       const { container, unmount } = render(
         <>{scopeColumn.cell({ row: { original: rows[1] } })}</>,
       )
@@ -119,7 +125,8 @@ describe('PricesDataTable customer labels (#8107)', () => {
     await waitFor(() => expect(capturedColumns.length).toBeGreaterThan(0))
 
     await waitFor(() => {
-      const scopeColumn = capturedColumns.find((col) => col.id === 'scope')
+      const scopeColumn = capturedColumns.find((column) => column.id === 'scope')
+      if (!scopeColumn) throw new Error('[internal] Scope column missing')
       const { container, unmount } = render(
         <>{scopeColumn.cell({ row: { original: rows[0] } })}</>,
       )
