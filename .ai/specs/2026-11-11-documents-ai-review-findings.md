@@ -390,13 +390,14 @@ A consumer workflow definition for NDA review:
 
 ### UI details
 
-- **Side rail tabs:** Changes · {open count} | Comments · {count} | Versions. Changes is the default tab when the latest review has open findings.
+- **Side rail tabs:** Changes · {open count} | Comments. Versions keeps its existing header toggle. Changes is the default tab when the latest review has open findings; the summary is fetched on page load for editors, the findings list on first open of Changes (the panel then stays mounted so decorations persist).
+- **Locating passages** requires the live collaboration binding (Yjs relative positions). In the single-user fallback, located findings show "Text changed since the review" and Apply is disabled.
 - **Groups:** Blocking ("Must clear before release"), Warnings ("Your call"), Info; each group collapsible (`CollapsibleSection`); decided findings in a "Decided" group filtered out by default.
 - **Card:** severity via `StatusBadge` (`error` / `warning` / `info` variants) plus icon (`lucide-react` `OctagonAlert`, `TriangleAlert`, `Info`) so severity is never color-only; title; section label · rule code (mono); explanation; diff block (`line-through text-status-error-text` original, `bg-status-success-bg text-status-success-text` suggestion); actions `Note` (opens the comment composer anchored to the same range), `Keep as is`, `Apply` (primary). Icon-only buttons carry `aria-label`.
 - **Keep dialog:** textarea for the note (required for blocking), `Cmd/Ctrl+Enter` submit, `Escape` cancel.
 - **Decorations:** inline decoration on the anchor range with classes using `status-error` / `status-warning` / `status-info` border and background tokens; clicking a decorated range focuses the card; focusing a card scrolls and selects the range.
 - **Outline:** `OutlinePane` receives `findingCountsByHeading` and renders up to two severity dots with an `sr-only` count.
-- **Review header line:** "Reviewed by {agent} against {playbook} v{version} · {n} sections · {time}" with links to the workflow instance and agent run when those routes are registered.
+- **Review header line:** "Reviewed by {source} · Sections flagged: {n} · {time}"; the workflow instance links to `/backend/instances/{id}`, the agent run id renders as text. Playbook name and version join the line once Phase 3 snapshots them.
 - **Admin:** `/backend/documents/review-playbooks` (DataTable), `/backend/documents/review-playbooks/[id]` (CrudForm for playbook, inline rules table, guidance document picker). Menu entry in Documents settings.
 - All strings via `useT()` under `documents.findings.*` and `documents.reviewPlaybooks.*`, in en, pl, de, es.
 
@@ -539,3 +540,4 @@ Purely additive: new tables, new routes, new events, new ACL feature, new option
 - 2026-11-11 — Q8 resolved by maintainer: keep one spec. Phases 1–2 (findings + editor) remain independently shippable; Phases 3–4 (playbooks, tools, agent contract, workflow registration) build on the Phase 1 ingest contract.
 - 2026-11-11 — Status set to implementation-ready; peer dependency approved; consumer examples made client-agnostic.
 - 2026-11-12 — Phase 1 implemented. Aligned with implementation: anchoring via `@tiptap/y-tiptap`; undo does not emit `review.cleared`; 404 for findings is a deliberate exception to the module's 403 tier denials; apply refused on unlocated findings.
+- 2026-11-12 — Phase 2 implemented. UI details aligned: rail tabs Changes | Comments (Versions stays a header toggle), locating needs the live collaboration binding, review header wording.
