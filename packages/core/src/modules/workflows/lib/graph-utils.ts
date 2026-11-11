@@ -158,6 +158,13 @@ export function graphToDefinition(
         const authored = (node.data as any)[key] ?? (node.data as any).userTaskConfig?.[key]
         if (authored !== undefined) step.userTaskConfig[key] = authored
       }
+
+      // The completion surface (issue #7179) has no inspector section yet; it is
+      // authored in the Code view or the Advanced JSON, which both write it onto
+      // `userTaskConfig` only — so it is read from there alone, never from a
+      // top-level copy a later Advanced edit could not overwrite.
+      const completion = (node.data as any).userTaskConfig?.completion
+      if (completion !== undefined) step.userTaskConfig.completion = completion
     }
 
     // Wait for signal configuration

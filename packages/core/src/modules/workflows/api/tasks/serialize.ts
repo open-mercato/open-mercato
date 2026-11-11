@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 import type { UserTask } from '../../data/entities'
 import type { userTaskRowSchema } from '../openapi'
+import { readTaskCompletion } from '../../lib/task-completion'
 
 /**
  * Work-inbox row projection for `UserTask`.
@@ -115,5 +116,6 @@ export function serializeUserTask(task: UserTask): SerializedUserTask {
     proposalId: readProposalId(task),
     priority: readPriority(task),
     entityBindings: readEntityBindings(task),
+    completion: readTaskCompletion(task.completion),
   }
 }

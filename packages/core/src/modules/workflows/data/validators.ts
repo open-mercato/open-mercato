@@ -228,6 +228,32 @@ export const taskDecisionSchema = z.object({
 })
 export type TaskDecision = z.infer<typeof taskDecisionSchema>
 
+/**
+ * Where the assignee finishes the task (issue #7179).
+ *
+ * `'core'` — the default an absent key has always meant — is the generic task
+ * page, its form and decision buttons, the Work Inbox complete action and the
+ * notification quick action. `'host'` declares that a host module's own UI flow
+ * owns completion: core then offers none of those, and every deep link points at
+ * `href` (a same-origin backend path, `{{context.*}}` resolved once at task
+ * creation) or, without one, at the task page, where the host renders its UI in
+ * the `workflows.task.detail:context` injection spot.
+ *
+ * A host `href` must be a relative path (`/backend/…`); a protocol-relative or
+ * absolute URL is refused here and again after interpolation
+ * (`lib/task-completion.ts`), so a link in a notification email can never leave
+ * the panel origin.
+ */
+export const taskCompletionSchema = z.object({
+  surface: z.enum(['core', 'host']),
+  href: z
+    .string()
+    .min(1)
+    .regex(/^\/(?![/\\])\S*$/, 'Completion href must be a relative path starting with a single "/"')
+    .optional(),
+})
+export type TaskCompletionConfig = z.infer<typeof taskCompletionSchema>
+
 // ============================================================================
 // Complex Object Schemas - Workflow Definition Components
 // ============================================================================
@@ -331,6 +357,8 @@ export const userTaskConfigSchema = z.object({
   // fields the assignee may edit before deciding.
   decisions: z.array(taskDecisionSchema).optional(),
   editablePrefilled: z.array(z.string()).optional(),
+  // "Where": which surface owns completion (issue #7179). Absent means 'core'.
+  completion: taskCompletionSchema.optional(),
 })
 export type UserTaskConfig = z.infer<typeof userTaskConfigSchema>
 

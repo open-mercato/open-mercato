@@ -55,6 +55,8 @@ import {
   type ReassignTaskTarget,
 } from '../../../components/work-inbox/ReassignTaskDialog'
 import { TaskFormFields } from '../../../components/work-inbox/TaskFormFields'
+import { HostCompletionNotice } from '../../../components/work-inbox/HostCompletionNotice'
+import { readTaskCompletion } from '../../../lib/task-completion'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { UserTaskDecision, UserTaskResponse, UserTaskStatus } from '../../../data/types'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -455,6 +457,13 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   const blockDescriptor = canComplete
     ? null
     : describeTaskActionBlock(task.actBlockedReason ?? 'not-workable')
+  // Issue #7179: a host module's own flow owns completion, so the generic form
+  // and Complete/decision buttons are never offered — the notice links there.
+  // `canComplete` stays the server's answer about the CALLER; this is about the
+  // SURFACE, and the two compose.
+  const hostCompletion = readTaskCompletion(task.completion)
+  const showHostCompletion = hostCompletion !== null && isCompletable
+  const offerCoreCompletion = canComplete && hostCompletion === null
 
   if (isMobile) {
     return (
@@ -474,12 +483,15 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 onReassign={() => setReassignOpen(true)}
               />
             ) : null}
+            {showHostCompletion && hostCompletion ? (
+              <HostCompletionNotice completion={hostCompletion} />
+            ) : null}
             <MobileTaskForm
               task={task}
               formData={formData}
               comments={comments}
               submitting={submitting}
-              isCompletable={canComplete}
+              isCompletable={offerCoreCompletion}
               isOverdue={isOverdue}
               onFieldChange={handleFieldChange}
               onCommentsChange={setComments}
@@ -564,6 +576,10 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               */}
               <InjectionSpot spotId={TASK_DETAIL_INJECTION_SPOT_ID} context={taskInjectionContext} />
 
+              {showHostCompletion && hostCompletion ? (
+                <HostCompletionNotice completion={hostCompletion} />
+              ) : null}
+
               {canClaim ? (
                 <div className="rounded-lg border border-border bg-muted/50 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-muted-foreground">
@@ -625,7 +641,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 </div>
               ) : null}
 
-              {canComplete ? (
+              {offerCoreCompletion ? (
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <TaskFormFields
                     formSchema={task.formSchema}

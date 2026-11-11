@@ -355,6 +355,26 @@ describe('user_task row projection', () => {
     expect(row.detailHref).toBe('/backend/tasks/11111111-2222-4333-8444-555555555555')
   })
 
+  test('a host-owned task (issue #7179) deep-links to the declared host href', () => {
+    const row = toUserTaskWorkInboxRow(
+      makeTask({ completion: { surface: 'host', href: '/backend/invoices/inv-42/approve' } }),
+      NOW,
+    )
+
+    expect(row.detailHref).toBe('/backend/invoices/inv-42/approve')
+    expect(row.details.completion).toEqual({ surface: 'host', href: '/backend/invoices/inv-42/approve' })
+    expect(row.actions.some((action) => action.id === 'complete')).toBe(false)
+  })
+
+  test('a host-owned task without an href, or no declaration at all, keeps the task page', () => {
+    const hostWithoutHref = toUserTaskWorkInboxRow(makeTask({ completion: { surface: 'host', href: null } }), NOW)
+    const core = toUserTaskWorkInboxRow(makeTask(), NOW)
+
+    expect(hostWithoutHref.detailHref).toBe('/backend/tasks/11111111-2222-4333-8444-555555555555')
+    expect(core.detailHref).toBe('/backend/tasks/11111111-2222-4333-8444-555555555555')
+    expect(core.details.completion).toBeNull()
+  })
+
   test('derives overdue and lifts the bound entity types', () => {
     const row = toUserTaskWorkInboxRow(
       makeTask({

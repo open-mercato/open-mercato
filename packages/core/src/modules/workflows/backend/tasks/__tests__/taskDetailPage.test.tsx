@@ -30,8 +30,8 @@ jest.mock('next/navigation', () => ({
 
 jest.mock('next/link', () => ({
   __esModule: true,
-  default: ({ children, href }: { children?: React.ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
+  default: ({ children, href, ...rest }: { children?: React.ReactNode; href: string }) => (
+    <a href={href} {...rest}>{children}</a>
   ),
 }))
 
@@ -122,6 +122,12 @@ jest.mock('@open-mercato/ui/primitives/drawer', () => ({
   DrawerTitle: ({ children }: { children?: React.ReactNode }) => <h2>{children}</h2>,
   DrawerDescription: ({ children }: { children?: React.ReactNode }) => <p>{children}</p>,
   DrawerClose: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+}))
+
+jest.mock('@open-mercato/ui/primitives/alert', () => ({
+  Alert: ({ children, status: _status, ...rest }: { children?: React.ReactNode; status?: string }) => (
+    <div role="status" {...rest}>{children}</div>
+  ),
 }))
 
 jest.mock('@open-mercato/ui/primitives/input', () => ({
@@ -216,6 +222,7 @@ jest.mock('lucide-react', () => ({
   CheckCircle2: () => null,
   Circle: () => null,
   Clock: () => null,
+  ExternalLink: () => null,
   Flame: () => null,
   Loader: () => null,
   Minus: () => null,
@@ -743,5 +750,56 @@ describe('reassignment', () => {
     await waitFor(() => expect(screen.getByTestId('task-complete')).toBeTruthy())
     expect(screen.getByTestId('task-reassign')).toBeTruthy()
     expect(screen.queryByTestId('task-act-blocked')).toBeNull()
+  })
+})
+
+describe('a host-owned task (issue #7179)', () => {
+  const decisions = [{ id: 'approve', label: 'Approve refund', transitionId: 't_approve' }]
+
+  test('offers no generic form or decision buttons and links to the host surface', async () => {
+    mockTask(
+      baseTask({
+        decisions,
+        canComplete: true,
+        completion: { surface: 'host', href: '/backend/refunds/r-1/approve' },
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-host-completion')).toBeTruthy())
+    expect(screen.getByTestId('task-host-completion-link').getAttribute('href')).toBe(
+      '/backend/refunds/r-1/approve',
+    )
+    expect(screen.queryByTestId('task-decisions')).toBeNull()
+    expect(screen.queryByTestId('task-complete')).toBeNull()
+    expect(screen.getByText('workflows.tasks.detail.hostCompletion.description')).toBeTruthy()
+  })
+
+  test('without an href it points at the host UI rendered on this page', async () => {
+    mockTask(baseTask({ canComplete: true, completion: { surface: 'host', href: null } }))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-host-completion')).toBeTruthy())
+    expect(screen.queryByTestId('task-host-completion-link')).toBeNull()
+    expect(screen.queryByTestId('task-complete')).toBeNull()
+    expect(screen.getByText('workflows.tasks.detail.hostCompletion.descriptionInline')).toBeTruthy()
+  })
+
+  test('a completed host task shows no notice', async () => {
+    mockTask(
+      baseTask({ status: 'COMPLETED', completion: { surface: 'host', href: '/backend/refunds/r-1/approve' } }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-next')).toBeTruthy())
+    expect(screen.queryByTestId('task-host-completion')).toBeNull()
+  })
+
+  test('regression: no completion key keeps the generic Complete form', async () => {
+    mockTask(baseTask({ canComplete: true, completion: null }))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-complete')).toBeTruthy())
+    expect(screen.queryByTestId('task-host-completion')).toBeNull()
   })
 })

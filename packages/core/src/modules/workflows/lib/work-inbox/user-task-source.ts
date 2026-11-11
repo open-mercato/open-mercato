@@ -13,6 +13,7 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/core'
 import { UserTask } from '../../data/entities'
 import { serializeUserTask, USER_TASK_INBOX_KIND } from '../../api/tasks/serialize'
+import { resolveTaskCompletionHref } from '../task-completion'
 import {
   WORK_INBOX_TERMINAL_STATUSES,
   deriveWorkInboxOverdue,
@@ -188,7 +189,8 @@ export function toUserTaskWorkInboxRow(task: UserTask, now: Date): WorkInboxRow 
     claimedBy: details.claimedBy ?? null,
     entityTypes: [...new Set(bindings.map((binding) => binding.entityType))],
     entityBindings: bindings,
-    detailHref: `/backend/tasks/${details.id}`,
+    // A host-owned task (issue #7179) deep-links to where the work happens.
+    detailHref: resolveTaskCompletionHref(details.completion) ?? `/backend/tasks/${details.id}`,
     actions: USER_TASK_WORK_INBOX_ACTIONS,
     details,
   }
