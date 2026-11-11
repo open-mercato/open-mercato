@@ -27,7 +27,7 @@ const noDictionary = createFallbackTranslator({})
 describe('localizeRuntimeErrorMessage', () => {
   test('the persisted English message names both values', () => {
     expect(english).toBe(
-      'Invalid user task deadline "at": "{{context.dueDate}}" resolved to "soon", which is not an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z',
+      'Invalid user task "deadlineAt": "{{context.dueDate}}" resolved to "soon", which is not an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z',
     )
     expect((en as Record<string, string>)[key]).toBe(fallback)
   })
@@ -35,7 +35,7 @@ describe('localizeRuntimeErrorMessage', () => {
   test('renders the invalid resolved deadline in Polish, keeping both values', () => {
     const message = localizeRuntimeErrorMessage(english, details, polish)
     expect(message).toBe(
-      'Nieprawidłowy termin zadania "at": "{{context.dueDate}}" dało wartość "soon", która nie jest datą ISO (RRRR-MM-DD) ani datą i godziną ISO ze strefą czasową lub Z',
+      'Nieprawidłowy "deadlineAt" zadania: "{{context.dueDate}}" dało wartość "soon", która nie jest datą ISO (RRRR-MM-DD) ani datą i godziną ISO ze strefą czasową lub Z',
     )
   })
 

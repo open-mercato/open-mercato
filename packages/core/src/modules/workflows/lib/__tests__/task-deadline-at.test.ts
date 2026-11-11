@@ -4,12 +4,12 @@ import { interpolateVariables } from '../activity-executor'
 import { parseAbsoluteDeadline } from '../duration'
 import { resolveTaskDeadline, resolveTaskDeadlineDuration } from '../task-resolution'
 import { computeTaskSlaSchedule, scheduleUserTaskSla } from '../task-sla'
-import { taskDeadlineSchema, taskDeadlineSpecSchema, workflowStepSpecSchema } from '../../data/validators'
+import { taskDeadlineAtSchema, taskDeadlineSchema, userTaskConfigSchema, workflowStepSchema } from '../../data/validators'
 import { agentReviewConfigSchema } from '../../data/activity-config-schemas'
 import type { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
 
 /**
- * Issue #7181 — an ABSOLUTE user-task deadline (`deadline.at`), interpolated
+ * Issue #7181 — an ABSOLUTE user-task deadline (`userTaskConfig.deadlineAt`), interpolated
  * from the run context, as the alternative to a duration anchored to creation.
  */
 
@@ -62,37 +62,41 @@ describe('taskDeadlineSchema (legacy duration-only contract)', () => {
     expect(taskDeadlineSchema.safeParse({}).success).toBe(false)
     expect(taskDeadlineSchema.safeParse({ at: '2026-10-20' }).success).toBe(false)
   })
-
-  test('every legacy deadline is also a valid spec', () => {
-    const legacy = { duration: 'PT4H' }
-    expect(taskDeadlineSchema.parse(legacy)).toEqual(taskDeadlineSpecSchema.parse(legacy))
-  })
 })
 
-describe('taskDeadlineSpecSchema', () => {
-  test('accepts a duration, a literal instant or a template', () => {
-    expect(taskDeadlineSpecSchema.safeParse({ duration: 'P3D' }).success).toBe(true)
-    expect(taskDeadlineSpecSchema.safeParse({ at: '2026-10-20' }).success).toBe(true)
-    expect(taskDeadlineSpecSchema.safeParse({ at: '2026-10-20T15:00:00Z' }).success).toBe(true)
-    expect(taskDeadlineSpecSchema.safeParse({ at: '{{context.dueDate}}' }).success).toBe(true)
+describe('userTaskConfig.deadlineAt', () => {
+  test('accepts a literal instant or a template', () => {
+    expect(taskDeadlineAtSchema.safeParse('2026-10-20').success).toBe(true)
+    expect(taskDeadlineAtSchema.safeParse('2026-10-20T15:00:00Z').success).toBe(true)
+    expect(taskDeadlineAtSchema.safeParse('{{context.dueDate}}').success).toBe(true)
+    expect(userTaskConfigSchema.parse({ deadlineAt: '{{context.dueDate}}' })).toEqual({
+      deadlineAt: '{{context.dueDate}}',
+    })
   })
 
-  test('refuses both forms at once, neither form, and an unparseable literal', () => {
-    const both = taskDeadlineSpecSchema.safeParse({ duration: 'P3D', at: '{{context.dueDate}}' })
-    expect(both.success).toBe(false)
-    expect(both.error?.issues[0]?.path).toEqual(['at'])
-
-    expect(taskDeadlineSpecSchema.safeParse({}).success).toBe(false)
-    expect(taskDeadlineSpecSchema.safeParse({ at: 'next tuesday' }).success).toBe(false)
-    expect(taskDeadlineSpecSchema.safeParse({ at: '2026-10-20T15:00:00' }).success).toBe(false)
+  test('refuses an unparseable or empty literal', () => {
+    expect(taskDeadlineAtSchema.safeParse('next tuesday').success).toBe(false)
+    expect(taskDeadlineAtSchema.safeParse('2026-10-20T15:00:00').success).toBe(false)
+    expect(taskDeadlineAtSchema.safeParse('').success).toBe(false)
   })
 
-  test('a step declaring both forms fails save-time validation', () => {
-    const result = workflowStepSpecSchema.safeParse({
+  test('a step declaring both deadline and deadlineAt fails save-time validation', () => {
+    const result = workflowStepSchema.safeParse({
       stepId: 'review',
       stepName: 'Review',
       stepType: 'USER_TASK',
-      userTaskConfig: { deadline: { duration: 'P3D', at: '{{context.dueDate}}' } },
+      userTaskConfig: { deadline: { duration: 'P3D' }, deadlineAt: '{{context.dueDate}}' },
+    })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.path).toEqual(['userTaskConfig', 'deadlineAt'])
+  })
+
+  test('an at-only `deadline` is still refused, as it always was', () => {
+    const result = workflowStepSchema.safeParse({
+      stepId: 'review',
+      stepName: 'Review',
+      stepType: 'USER_TASK',
+      userTaskConfig: { deadline: { at: '{{context.dueDate}}' } },
     })
     expect(result.success).toBe(false)
   })
@@ -107,24 +111,24 @@ describe('resolveTaskDeadline', () => {
   const interpolate = (value: unknown) =>
     interpolateVariables(value, { dueDate: '2026-10-20', dueAt: '2026-10-20T09:30:00+02:00' })
 
-  test('interpolates and parses deadline.at against the run context', () => {
-    expect(resolveTaskDeadline({ deadline: { at: '{{context.dueDate}}' } }, interpolate)).toEqual({
+  test('interpolates and parses deadlineAt against the run context', () => {
+    expect(resolveTaskDeadline({ deadlineAt: '{{context.dueDate}}' }, interpolate)).toEqual({
       kind: 'at',
       authored: '{{context.dueDate}}',
       resolved: '2026-10-20',
       dueDate: new Date('2026-10-20T23:59:59.999Z'),
     })
-    const datetime = resolveTaskDeadline({ deadline: { at: '{{context.dueAt}}' } }, interpolate)
+    const datetime = resolveTaskDeadline({ deadlineAt: '{{context.dueAt}}' }, interpolate)
     expect(datetime?.kind === 'at' && datetime.dueDate?.toISOString()).toBe('2026-10-20T07:30:00.000Z')
   })
 
   test('an unresolved template yields no due date, for the caller to fail on', () => {
-    const missing = resolveTaskDeadline({ deadline: { at: '{{context.notThere}}' } }, interpolate)
+    const missing = resolveTaskDeadline({ deadlineAt: '{{context.notThere}}' }, interpolate)
     expect(missing).toMatchObject({ kind: 'at', dueDate: null })
   })
 
-  test('deadline.at supersedes slaDuration; durations behave as before', () => {
-    const config = { deadline: { at: '{{context.dueDate}}' }, slaDuration: 'P30D' }
+  test('deadlineAt supersedes slaDuration; durations behave as before', () => {
+    const config = { deadlineAt: '{{context.dueDate}}', slaDuration: 'P30D' }
     expect(resolveTaskDeadline(config, interpolate)?.kind).toBe('at')
     expect(resolveTaskDeadlineDuration(config)).toBeNull()
 
@@ -161,7 +165,7 @@ describe('reminders and breach are scheduled against the absolute deadline', () 
   })
 })
 
-describe('USER_TASK creation with deadline.at', () => {
+describe('USER_TASK creation with deadlineAt', () => {
   const tenantId = '00000000-0000-4000-8000-000000000001'
   const organizationId = '00000000-0000-4000-8000-000000000002'
   const definitionId = '00000000-0000-4000-8000-000000000003'
@@ -185,7 +189,7 @@ describe('USER_TASK creation with deadline.at', () => {
       nativeDelete: jest.fn(),
     } as any
 
-    const step = workflowStepSpecSchema.parse({
+    const step = workflowStepSchema.parse({
       stepId: 'sign-deed',
       stepName: 'Sign the deed',
       stepType: 'USER_TASK',
@@ -232,7 +236,7 @@ describe('USER_TASK creation with deadline.at', () => {
 
   test('the task is due at the interpolated instant and SLA jobs are scheduled against it', async () => {
     const { result, task } = await runUserTask(
-      { deadline: { at: '{{context.dueAt}}' }, reminders: [{ offset: 'P1D' }] },
+      { deadlineAt: '{{context.dueAt}}', reminders: [{ offset: 'P1D' }] },
       { dueAt: '2099-10-20T12:00:00Z' }
     )
 
@@ -246,7 +250,7 @@ describe('USER_TASK creation with deadline.at', () => {
   })
 
   test('an unresolved context value fails the step closed with a clear error and raises no task', async () => {
-    const { result, task } = await runUserTask({ deadline: { at: '{{context.dueAt}}' } }, {})
+    const { result, task } = await runUserTask({ deadlineAt: '{{context.dueAt}}' }, {})
 
     expect(result.status).toBe('FAILED')
     expect(result.error).toContain('{{context.dueAt}}')
@@ -256,7 +260,7 @@ describe('USER_TASK creation with deadline.at', () => {
   })
 
   test('an unparseable context value fails the step closed', async () => {
-    const { result } = await runUserTask({ deadline: { at: '{{context.dueAt}}' } }, { dueAt: 'soon' })
+    const { result } = await runUserTask({ deadlineAt: '{{context.dueAt}}' }, { dueAt: 'soon' })
 
     expect(result.status).toBe('FAILED')
     expect(result.error).toContain('resolved to "soon"')
@@ -272,7 +276,7 @@ describe('USER_TASK creation with deadline.at', () => {
   })
 
   test('an invalid Date in the context fails like any other value, with its code', async () => {
-    const { result } = await runUserTask({ deadline: { at: '{{context.dueAt}}' } }, { dueAt: new Date('soon') })
+    const { result } = await runUserTask({ deadlineAt: '{{context.dueAt}}' }, { dueAt: new Date('soon') })
 
     expect(result.status).toBe('FAILED')
     expect(result.error).toContain('resolved to "Invalid Date"')
@@ -280,7 +284,7 @@ describe('USER_TASK creation with deadline.at', () => {
   })
 
   test('a long resolved value is truncated in the step error', async () => {
-    const { result } = await runUserTask({ deadline: { at: '{{context.dueAt}}' } }, { dueAt: 'x'.repeat(500) })
+    const { result } = await runUserTask({ deadlineAt: '{{context.dueAt}}' }, { dueAt: 'x'.repeat(500) })
 
     expect(result.status).toBe('FAILED')
     expect(result.error).toContain(`resolved to "${'x'.repeat(64)}…"`)
@@ -288,7 +292,7 @@ describe('USER_TASK creation with deadline.at', () => {
   })
 
   test('a dry run with an unresolved context value fails like a real run', async () => {
-    const { result, task, simulated } = await runUserTask({ deadline: { at: '{{context.dueAt}}' } }, {}, { isDryRun: true })
+    const { result, task, simulated } = await runUserTask({ deadlineAt: '{{context.dueAt}}' }, {}, { isDryRun: true })
 
     expect(result.status).toBe('FAILED')
     expect(result.error).toContain('{{context.dueAt}}')
@@ -298,7 +302,7 @@ describe('USER_TASK creation with deadline.at', () => {
   })
 
   test('a dry run with an unparseable value fails like a real run', async () => {
-    const { result, simulated } = await runUserTask({ deadline: { at: '{{context.dueAt}}' } }, { dueAt: 'soon' }, { isDryRun: true })
+    const { result, simulated } = await runUserTask({ deadlineAt: '{{context.dueAt}}' }, { dueAt: 'soon' }, { isDryRun: true })
 
     expect(result.status).toBe('FAILED')
     expect(result.error).toContain('resolved to "soon"')
@@ -316,7 +320,7 @@ describe('USER_TASK creation with deadline.at', () => {
 
   test('a dry run logs the resolved instant and raises no task', async () => {
     const { result, task, simulated } = await runUserTask(
-      { deadline: { at: '{{context.dueAt}}' } },
+      { deadlineAt: '{{context.dueAt}}' },
       { dueAt: '2099-10-20' },
       { isDryRun: true }
     )

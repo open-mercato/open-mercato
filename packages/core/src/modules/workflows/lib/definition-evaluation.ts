@@ -6,7 +6,7 @@
  * `WorkflowValidationIssue[]` via `collectValidationIssues`, the routes build
  * the structured `{path, code, message, expected?, got?}` body via
  * `normalizeDefinitionValidationIssues`. Neither reimplements the checks — they
- * share `workflowDefinitionDataSpecSchema` — but nothing composed both.
+ * share `workflowDefinitionDataSchema` — but nothing composed both.
  *
  * This module composes them, and NOTHING ELSE. Every check below is an existing
  * exported function; a second validator that could disagree with the panel is
@@ -15,7 +15,7 @@
  */
 
 import { collectActivityConfigWarnings } from '../data/activity-config-warnings'
-import { workflowDefinitionDataSpecSchema } from '../data/validators'
+import { workflowDefinitionDataSchema } from '../data/validators'
 import type { WorkflowDefinitionData } from '../data/entities'
 import {
   collectValidationIssues,
@@ -115,7 +115,7 @@ export function evaluateWorkflowDefinition(
     Array.isArray((definition as { steps?: unknown })?.steps) &&
     Array.isArray((definition as { transitions?: unknown })?.transitions)
   if (!shaped) {
-    const parsedShape = workflowDefinitionDataSpecSchema.safeParse(definition)
+    const parsedShape = workflowDefinitionDataSchema.safeParse(definition)
     const structuralIssues = parsedShape.success
       ? []
       : normalizeDefinitionValidationIssues(parsedShape.error)
@@ -134,7 +134,7 @@ export function evaluateWorkflowDefinition(
 
   const { nodes, edges } = definitionToGraph(definition, { autoLayout: false })
   const graphErrors = validateWorkflowGraph(nodes, edges)
-  const parsed = workflowDefinitionDataSpecSchema.safeParse(definition)
+  const parsed = workflowDefinitionDataSchema.safeParse(definition)
   const mappingMessage = options.translate
     ? options.translate(UNSAFE_MAPPING_TARGET_MESSAGE_KEY, UNSAFE_MAPPING_TARGET_MESSAGE, {})
     : UNSAFE_MAPPING_TARGET_MESSAGE

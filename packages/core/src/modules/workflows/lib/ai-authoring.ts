@@ -21,7 +21,7 @@
  *  - `interpretWorkflowDraftObject` maps a model response onto a definition, or
  *    refuses. It NEVER hand-rolls validation: the caller passes the definition
  *    parser in, so the Studio, the API route and the tests all reach the one
- *    `workflowDefinitionDataSpecSchema`.
+ *    `workflowDefinitionDataSchema`.
  *  - `buildAiCheckpointLabel` names the undo entry. Spec §9 asks for a *named
  *    checkpoint in the undo stack (§4.5)* — `lib/editor-history.ts` already
  *    carries a translated label per entry, so "checkpoint" is a NAMING problem,
@@ -60,7 +60,7 @@ export const WORKFLOW_DRAFT_PROMPT_MAX_LENGTH = 2000
 /**
  * What the model is allowed to produce.
  *
- * Deliberately NARROWER than `workflowDefinitionDataSpecSchema`, in both
+ * Deliberately NARROWER than `workflowDefinitionDataSchema`, in both
  * directions:
  *
  *  - It omits identity (`workflowId`, `workflowName`, `version`). Those are the
@@ -74,7 +74,7 @@ export const WORKFLOW_DRAFT_PROMPT_MAX_LENGTH = 2000
  *
  * `activityType` is a plain string rather than the registry-driven enum
  * because this module is pure and must not import the registry. The catalog in
- * the prompt is what steers it, and `workflowDefinitionDataSpecSchema` is what
+ * the prompt is what steers it, and `workflowDefinitionDataSchema` is what
  * enforces it — the model's output is re-parsed through the real schema before
  * anything reaches a canvas.
  */

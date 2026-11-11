@@ -30,33 +30,27 @@ export type TaskPriority = z.infer<typeof taskPrioritySchema>
 export const TASK_DEADLINE_MESSAGES = {
   bothForms: {
     key: 'workflows.validation.taskDeadline.bothForms',
-    fallback: 'A deadline is either a duration or an absolute "at", not both',
-  },
-  missingForm: {
-    key: 'workflows.validation.taskDeadline.missingForm',
-    fallback: 'A deadline needs a duration or an absolute "at"',
+    fallback: 'A user task deadline is either "deadline" (a duration) or "deadlineAt" (an absolute date), not both',
   },
   invalidAt: {
     key: 'workflows.validation.taskDeadline.invalidAt',
-    fallback: 'Deadline "at" must be an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z',
+    fallback: '"deadlineAt" must be an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z',
   },
   invalidResolvedAt: {
     key: 'workflows.validation.taskDeadline.invalidResolvedAt',
     fallback:
-      'Invalid user task deadline "at": "{authored}" resolved to "{resolved}", which is not an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z',
+      'Invalid user task "deadlineAt": "{authored}" resolved to "{resolved}", which is not an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z',
   },
 } as const
-
-export const TASK_DEADLINE_AT_ERROR = TASK_DEADLINE_MESSAGES.invalidAt.fallback
 
 /**
  * Business-word deadline, anchored to task creation. A strict superset of
  * `slaDuration`: an object so the anchor and later qualifiers have somewhere to
  * live, while `slaDuration` keeps working forever as the bare-duration form.
  *
- * This is the duration-only contract and it stays exactly that: consumers read
- * `deadline.duration` as a `string`. A USER_TASK deadline that may also be an
- * absolute `at` is the additive `TaskDeadlineSpec` below.
+ * Duration-only, and it stays exactly that: consumers read `deadline.duration`
+ * as a `string`, and every stored or served `deadline` carries one. An absolute
+ * deadline is the sibling `userTaskConfig.deadlineAt` (`taskDeadlineAtSchema`).
  */
 export const taskDeadlineSchema = z.object({
   duration: z.string().min(1),
@@ -64,48 +58,23 @@ export const taskDeadlineSchema = z.object({
 export type TaskDeadline = z.infer<typeof taskDeadlineSchema>
 
 /**
- * A USER_TASK deadline (`userTaskConfig.deadline`): either a `TaskDeadline`
- * duration or an absolute `at`. Exactly one form per deadline:
- * - `duration` — anchored to task creation (e.g. `P3D`);
- * - `at` — an ABSOLUTE ISO date or datetime, usually interpolated from the run
- *   context (`{{context.dueDate}}`), for deadlines computed elsewhere. Resolved
- *   once, at task creation, by `resolveTaskDeadline` (`lib/task-resolution.ts`).
- *   A literal is validated here; a template is validated once it resolves.
+ * An ABSOLUTE user-task deadline (`userTaskConfig.deadlineAt`, #7181): an ISO
+ * date or datetime, usually interpolated from the run context
+ * (`{{context.dueDate}}`), for deadlines computed elsewhere. Resolved once, at
+ * task creation, by `resolveTaskDeadline` (`lib/task-resolution.ts`).
  *
- * Every value `taskDeadlineSchema` accepts, this accepts too.
+ * A literal is validated here; a template is validated once it resolves. It is
+ * a sibling of `deadline`, never a form of it, so a reader of the duration-only
+ * `deadline` contract never meets it; the two are mutually exclusive on a step.
  */
-export const taskDeadlineSpecSchema = z
-  .object({
-    duration: z.string().min(1).optional(),
-    at: z.string().optional(),
+export const taskDeadlineAtSchema = z.string().superRefine((value, ctx) => {
+  if (value.includes('{{') || parseAbsoluteDeadline(value)) return
+  ctx.addIssue({
+    code: 'custom',
+    message: TASK_DEADLINE_MESSAGES.invalidAt.fallback,
+    params: { i18nKey: TASK_DEADLINE_MESSAGES.invalidAt.key },
   })
-  .superRefine((deadline, ctx) => {
-    const hasDuration = deadline.duration !== undefined
-    const hasAt = deadline.at !== undefined
-    if (hasDuration && hasAt) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['at'],
-        message: TASK_DEADLINE_MESSAGES.bothForms.fallback,
-        params: { i18nKey: TASK_DEADLINE_MESSAGES.bothForms.key },
-      })
-    } else if (!hasDuration && !hasAt) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['duration'],
-        message: TASK_DEADLINE_MESSAGES.missingForm.fallback,
-        params: { i18nKey: TASK_DEADLINE_MESSAGES.missingForm.key },
-      })
-    } else if (deadline.at !== undefined && !deadline.at.includes('{{') && !parseAbsoluteDeadline(deadline.at)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['at'],
-        message: TASK_DEADLINE_MESSAGES.invalidAt.fallback,
-        params: { i18nKey: TASK_DEADLINE_MESSAGES.invalidAt.key },
-      })
-    }
-  })
-export type TaskDeadlineSpec = z.infer<typeof taskDeadlineSpecSchema>
+})
 
 /** Nudge fired `offset` before the deadline. */
 export const taskReminderSchema = z.object({

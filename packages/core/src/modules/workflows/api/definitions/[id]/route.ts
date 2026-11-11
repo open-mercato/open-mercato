@@ -15,14 +15,14 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowDefinition, WorkflowInstance } from '../../../data/entities'
 import {
-  updateWorkflowDefinitionInputSpecSchema,
-  updateWorkflowDefinitionInputSpecCheckedSchema,
-  type UpdateWorkflowDefinitionSpecApiInput,
+  updateWorkflowDefinitionInputSchema,
+  updateWorkflowDefinitionInputCheckedSchema,
+  type UpdateWorkflowDefinitionApiInput,
 } from '../../../data/validators'
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from '../serialize'
 import {
-  workflowDefinitionSpecDetailResponseSchema,
-  workflowDefinitionSpecMutationResponseSchema,
+  workflowDefinitionDetailResponseSchema,
+  workflowDefinitionMutationResponseSchema,
   workflowDefinitionDeleteResponseSchema,
   workflowErrorSchema,
 } from '../../openapi'
@@ -194,7 +194,7 @@ export async function PUT(
     const body = await request.json()
 
     // Validate input
-    const validation = updateWorkflowDefinitionInputSpecCheckedSchema.safeParse(body)
+    const validation = updateWorkflowDefinitionInputCheckedSchema.safeParse(body)
     if (!validation.success) {
       const { translate } = await resolveTranslations()
       return NextResponse.json(
@@ -206,7 +206,7 @@ export async function PUT(
       )
     }
 
-    const input: UpdateWorkflowDefinitionSpecApiInput = validation.data
+    const input: UpdateWorkflowDefinitionApiInput = validation.data
     const { translate } = await resolveTranslations()
     const mappingMessage = translate(UNSAFE_MAPPING_TARGET_MESSAGE_KEY, UNSAFE_MAPPING_TARGET_MESSAGE)
     const mappingIssues = input.definition
@@ -624,7 +624,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition found',
-          schema: workflowDefinitionSpecDetailResponseSchema,
+          schema: workflowDefinitionDetailResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',
@@ -719,7 +719,7 @@ export const openApi = {
         id: z.string().uuid(),
       }),
       requestBody: {
-        schema: updateWorkflowDefinitionInputSpecSchema,
+        schema: updateWorkflowDefinitionInputSchema,
         example: {
           definition: {
             steps: [
@@ -783,7 +783,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition updated successfully',
-          schema: workflowDefinitionSpecMutationResponseSchema,
+          schema: workflowDefinitionMutationResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',

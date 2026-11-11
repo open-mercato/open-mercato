@@ -1,12 +1,7 @@
 import { describe, test, expect } from '@jest/globals'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { TASK_DEADLINE_MESSAGES } from '../../data/task-primitives'
-import {
-  userTaskConfigSchema,
-  userTaskConfigSpecSchema,
-  workflowStepSchema,
-  workflowStepSpecSchema,
-} from '../../data/validators'
+import { workflowStepSchema } from '../../data/validators'
 import { normalizeDefinitionValidationIssues, readIssueMessageKey } from '../definition-error-body'
 import { collectValidationIssues } from '../collect-validation-issues'
 import en from '../../i18n/en.json'
@@ -21,17 +16,17 @@ import ko from '../../i18n/ko.json'
  * every boundary localizes them.
  */
 
-function userTaskStep(deadline: Record<string, unknown>) {
+function userTaskStep(deadlineConfig: Record<string, unknown>) {
   return {
     stepId: 'review',
     stepName: 'Review',
     stepType: 'USER_TASK',
-    userTaskConfig: { assignedTo: 'admin', deadline },
+    userTaskConfig: { assignedTo: 'admin', ...deadlineConfig },
   }
 }
 
-function parseIssues(deadline: Record<string, unknown>) {
-  const parsed = workflowStepSpecSchema.safeParse(userTaskStep(deadline))
+function parseIssues(deadlineConfig: Record<string, unknown>) {
+  const parsed = workflowStepSchema.safeParse(userTaskStep(deadlineConfig))
   if (parsed.success) throw new Error('[internal] expected the deadline to be rejected')
   return parsed.error
 }
@@ -40,31 +35,30 @@ const polish = createFallbackTranslator(pl as Record<string, string>)
 
 describe('deadline diagnostics are localized', () => {
   const cases = [
-    ['bothForms', { duration: 'P1D', at: '2026-10-20' }],
-    ['missingForm', {}],
-    ['invalidAt', { at: 'next friday' }],
-    ['invalidAt', { at: '' }],
+    ['bothForms', { deadline: { duration: 'P1D' }, deadlineAt: '2026-10-20' }],
+    ['invalidAt', { deadlineAt: 'next friday' }],
+    ['invalidAt', { deadlineAt: '' }],
   ] as const
 
-  test.each(cases)('%s carries its i18n key and the English fallback', (name, deadline) => {
-    const [issue] = parseIssues(deadline).issues
+  test.each(cases)('%s carries its i18n key and the English fallback', (name, deadlineConfig) => {
+    const [issue] = parseIssues(deadlineConfig).issues
     expect(readIssueMessageKey(issue)).toBe(TASK_DEADLINE_MESSAGES[name].key)
     expect(issue.message).toBe(TASK_DEADLINE_MESSAGES[name].fallback)
   })
 
-  test.each(cases)('%s reaches the definition API body in Polish', (name, deadline) => {
-    const [detail] = normalizeDefinitionValidationIssues(parseIssues(deadline), polish)
+  test.each(cases)('%s reaches the definition API body in Polish', (name, deadlineConfig) => {
+    const [detail] = normalizeDefinitionValidationIssues(parseIssues(deadlineConfig), polish)
     expect(detail.message).toBe((pl as Record<string, string>)[TASK_DEADLINE_MESSAGES[name].key])
     expect(detail.message).not.toBe(TASK_DEADLINE_MESSAGES[name].fallback)
   })
 
   test('without a translator the API body keeps the English message', () => {
-    const [detail] = normalizeDefinitionValidationIssues(parseIssues({ at: 'next friday' }))
+    const [detail] = normalizeDefinitionValidationIssues(parseIssues({ deadlineAt: 'next friday' }))
     expect(detail.message).toBe(TASK_DEADLINE_MESSAGES.invalidAt.fallback)
   })
 
   test('the Studio Problems panel renders the Polish message', () => {
-    const error = parseIssues({ duration: 'P1D', at: '2026-10-20' })
+    const error = parseIssues({ deadline: { duration: 'P1D' }, deadlineAt: '2026-10-20' })
     const [problem] = collectValidationIssues({
       graphErrors: [],
       zodIssues: error.issues,
@@ -73,7 +67,7 @@ describe('deadline diagnostics are localized', () => {
       translate: (key, fallback, params) => polish(key, fallback, params),
     })
     expect(problem.message).toBe(
-      `userTaskConfig.deadline.at - ${(pl as Record<string, string>)[TASK_DEADLINE_MESSAGES.bothForms.key]}`,
+      `userTaskConfig.deadlineAt - ${(pl as Record<string, string>)[TASK_DEADLINE_MESSAGES.bothForms.key]}`,
     )
   })
 
@@ -86,20 +80,5 @@ describe('deadline diagnostics are localized', () => {
     for (const message of Object.values(TASK_DEADLINE_MESSAGES)) {
       expect((en as Record<string, string>)[message.key]).toBe(message.fallback)
     }
-  })
-})
-
-describe('legacy userTaskConfigSchema keeps its duration-only deadline', () => {
-  test('the extended schema accepts an absolute deadline the legacy one never did', () => {
-    const config = { assignedTo: 'admin', deadline: { at: '2026-10-20' } }
-    expect(userTaskConfigSpecSchema.safeParse(config).success).toBe(true)
-    expect(userTaskConfigSchema.safeParse(config).success).toBe(false)
-    expect(workflowStepSpecSchema.safeParse(userTaskStep({ at: '2026-10-20' })).success).toBe(true)
-    expect(workflowStepSchema.safeParse(userTaskStep({ at: '2026-10-20' })).success).toBe(false)
-  })
-
-  test('every legacy config parses identically through both schemas', () => {
-    const config = { assignedTo: 'admin', deadline: { duration: 'P3D' }, slaDuration: 'P1D' }
-    expect(userTaskConfigSpecSchema.parse(config)).toEqual(userTaskConfigSchema.parse(config))
   })
 })

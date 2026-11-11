@@ -8,27 +8,23 @@
 // directory from `tsc --noEmit`, and it is a `.tsx` for the same mutation-gate
 // reason as `packages/shared/src/lib/i18n/config.typecheck.tsx`.
 //
-// What it protects (#7181): the absolute `deadline.at` form is the ADDITIVE
-// `TaskDeadlineSpec`. `TaskDeadline` — re-exported from `data/validators` — must
-// keep `duration` as a required `string`, so consumer code reading
-// `deadline.duration` as a `string` keeps compiling (BACKWARD_COMPATIBILITY.md).
-// The same holds for every schema RESULT that nests it: a parsed step or
-// definition, the definition API inputs, and the definition response schemas.
+// What it protects (#7181): an absolute deadline is the ADDITIVE sibling
+// `userTaskConfig.deadlineAt`, never a form of `deadline`. `TaskDeadline` —
+// re-exported from `data/validators` — must keep `duration` as a required
+// `string`, so consumer code reading `deadline.duration` as a `string` keeps
+// compiling (BACKWARD_COMPATIBILITY.md). The same holds for every schema RESULT
+// that nests it: a parsed step or definition, the definition API inputs, and the
+// definition response schemas the routes document.
 import type { z } from 'zod'
 import type { CodeStepDefinition } from '@open-mercato/shared/modules/workflows'
-import type { TaskDeadline, TaskDeadlineSpec } from './task-primitives'
+import type { TaskDeadline } from './task-primitives'
 import type {
   CreateWorkflowDefinitionApiInput,
   CreateWorkflowDefinitionInput,
-  CreateWorkflowDefinitionSpecApiInput,
   TaskDeadline as ValidatorsTaskDeadline,
   UpdateWorkflowDefinitionApiInput,
   UpdateWorkflowDefinitionInput,
-  UpdateWorkflowDefinitionSpecApiInput,
   UserTaskConfig,
-  UserTaskConfigSpec,
-  WorkflowDefinitionDataSpec,
-  WorkflowStepSpec,
 } from './validators'
 import { workflowDefinitionDataSchema, workflowStepSchema } from './validators'
 import type {
@@ -38,7 +34,7 @@ import type {
   workflowDefinitionResetResponseSchema,
   workflowDefinitionResponseSchema,
 } from '../api/openapi'
-import type { TaskDeadlinePersistence, TaskDeadlineSpecPersistence } from '../lib/task-inspector-config'
+import type { TaskDeadlinePersistence } from '../lib/task-inspector-config'
 import { resolveTaskDeadlinePersistence } from '../lib/task-inspector-config'
 
 type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
@@ -57,13 +53,13 @@ function readDuration(deadline: TaskDeadline): string {
   return deadline.duration
 }
 
-// 5. A legacy deadline is still a valid spec, so the spec is a strict superset.
-const legacyIsASpec: TaskDeadlineSpec = { duration: 'P3D' } satisfies TaskDeadline
-
-// 6. An absolute `at` is a spec only — it is NOT a `TaskDeadline`.
-const absoluteSpec: TaskDeadlineSpec = { at: '{{context.dueDate}}' }
+// 5. An absolute `at` was never a `TaskDeadline` and still is not one.
 // @ts-expect-error an `at`-only deadline has no `duration`, so it is not a TaskDeadline
-const absoluteIsNotLegacy: TaskDeadline = { at: '{{context.dueDate}}' }
+const absoluteIsNotADeadline: TaskDeadline = { at: '{{context.dueDate}}' }
+
+// 6. The absolute form is the optional sibling `deadlineAt`, a plain string.
+const deadlineAtIsOptionalString: MutuallyAssignable<UserTaskConfig['deadlineAt'], string | undefined> = true
+const absoluteConfig: UserTaskConfig = { deadlineAt: '{{context.dueDate}}' }
 
 // 7. The NESTED contracts are unchanged too: `UserTaskConfig['deadline']`,
 //    `TaskDeadlinePersistence['deadline']` and the `resolveTaskDeadlinePersistence`
@@ -92,14 +88,6 @@ function readPersistedDuration(config: UserTaskConfig, edited: string): string |
   const duration: string = persisted.deadline.duration
   return deadline.duration === duration ? duration : null
 }
-
-// 9. The absolute form lives on the ADDITIVE extended types only, which accept
-//    every legacy value.
-const legacyConfigIsASpec: UserTaskConfigSpec = {} as UserTaskConfig
-const absoluteConfigSpec: UserTaskConfigSpec = { deadline: { at: '{{context.dueDate}}' } }
-// @ts-expect-error an `at`-only deadline is not part of the legacy UserTaskConfig
-const absoluteConfigIsNotLegacy: UserTaskConfig = { deadline: { at: '{{context.dueDate}}' } }
-const legacyPersistenceIsASpec: TaskDeadlineSpecPersistence = {} as TaskDeadlinePersistence
 
 // 10. The enclosing schema RESULTS are unchanged: a consumer parsing with them
 //     narrows the deadline and reads `duration` as a `string`, and may assign the
@@ -158,30 +146,18 @@ const resetResponseIsLegacy: MutuallyAssignable<
   ResponseRow | null
 > = true
 
-// 11. The extended results are the only ones carrying the absolute form, and
-//     each accepts every legacy value.
-const stepSpecCarriesAt: MutuallyAssignable<StepDeadline<WorkflowStepSpec>, TaskDeadlineSpec | undefined> = true
-const definitionSpecCarriesAt: MutuallyAssignable<
-  DefinitionDeadline<WorkflowDefinitionDataSpec>,
-  TaskDeadlineSpec | undefined
-> = true
-const legacyDefinitionIsASpec: WorkflowDefinitionDataSpec = {} as ReturnType<typeof workflowDefinitionDataSchema.parse>
-const createSpecCarriesAt: MutuallyAssignable<
-  DefinitionDeadline<CreateWorkflowDefinitionSpecApiInput['definition']>,
-  TaskDeadlineSpec | undefined
-> = true
-const updateSpecCarriesAt: MutuallyAssignable<
-  DefinitionDeadline<NonNullable<UpdateWorkflowDefinitionSpecApiInput['definition']>>,
-  TaskDeadlineSpec | undefined
-> = true
-
-// 12. A code-defined USER_TASK may declare the absolute form.
+// 11. A code-defined USER_TASK declares the absolute form as the sibling key,
+//     and its `deadline` stays duration-only.
 const codeStepCarriesAt: CodeStepDefinition = {
   stepId: 'review',
   stepName: 'Review',
   stepType: 'USER_TASK',
-  userTaskConfig: { deadline: { at: '{{context.dueDate}}' } },
+  userTaskConfig: { deadlineAt: '{{context.dueDate}}' },
 }
+const codeStepDeadlineIsLegacy: MutuallyAssignable<
+  NonNullable<CodeStepDefinition['userTaskConfig']>['deadline'],
+  TaskDeadline | undefined
+> = true
 
 void codeStepCarriesAt
 void readParsedStepDuration
@@ -195,24 +171,16 @@ void listResponseIsLegacy
 void detailResponseIsLegacy
 void mutationResponseIsLegacy
 void resetResponseIsLegacy
-void stepSpecCarriesAt
-void definitionSpecCarriesAt
-void legacyDefinitionIsASpec
-void createSpecCarriesAt
-void updateSpecCarriesAt
 void configDeadlineIsLegacy
 void persistenceDeadlineIsLegacy
 void persistenceReturnIsLegacy
 void readConfigDuration
 void readPersistedDuration
-void legacyConfigIsASpec
-void absoluteConfigSpec
-void absoluteConfigIsNotLegacy
-void legacyPersistenceIsASpec
 void durationIsString
 void shapeIsUnchanged
 void validatorsReExportIsUnchanged
 void readDuration
-void legacyIsASpec
-void absoluteSpec
-void absoluteIsNotLegacy
+void absoluteIsNotADeadline
+void deadlineAtIsOptionalString
+void absoluteConfig
+void codeStepDeadlineIsLegacy

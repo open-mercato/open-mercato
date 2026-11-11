@@ -16,7 +16,6 @@
 import { flattenTaskText } from './task-resolution'
 import type {
   TaskDeadline,
-  TaskDeadlineSpec,
   TaskDecision,
   TaskEntityBinding,
   TaskLocalizedString,
@@ -25,7 +24,6 @@ import type {
   TaskReminder,
   UserTaskAssigneeKind,
   UserTaskConfig,
-  UserTaskConfigSpec,
 } from '../data/validators'
 
 /** Mirrors the platform's priority labels; `''` is "not set". */
@@ -318,16 +316,8 @@ export function newEntityBindingDraft(): TaskEntityBindingDraft {
 
 export interface TaskDeadlinePersistence {
   deadline?: TaskDeadline
-  slaDuration?: string
-}
-
-/**
- * `TaskDeadlinePersistence` whose `deadline` may also be an absolute `at`
- * (#7181). Additive: the legacy interface keeps `deadline: TaskDeadline`, and
- * every value of it is a value of this one.
- */
-export interface TaskDeadlineSpecPersistence {
-  deadline?: TaskDeadlineSpec
+  /** An absolute deadline the control left untouched (#7181). */
+  deadlineAt?: string
   slaDuration?: string
 }
 
@@ -341,14 +331,20 @@ export interface TaskDeadlineSpecPersistence {
  * shape an older engine can read, and a definition that already declares a
  * `deadline` keeps it.
  *
- * Duration-only contract, unchanged. For a config that may carry an absolute
- * `deadline.at`, use `resolveTaskDeadlineSpecPersistence`.
+ * The control edits a DURATION only. An absolute `deadlineAt` (authored in the
+ * Code view) opens as an empty control and survives a save untouched; typing a
+ * duration over it is the author deliberately switching to `deadline`, which
+ * drops `deadlineAt` because the two are mutually exclusive.
  */
 export function resolveTaskDeadlinePersistence(
-  config: Pick<UserTaskConfig, 'deadline' | 'slaDuration'>,
+  config: Pick<UserTaskConfig, 'deadline' | 'deadlineAt' | 'slaDuration'>,
   edited: string,
 ): TaskDeadlinePersistence {
   const duration = edited.trim()
+  if (config.deadlineAt) {
+    if (duration) return { deadline: { duration } }
+    return { deadlineAt: config.deadlineAt, ...(config.slaDuration ? { slaDuration: config.slaDuration } : {}) }
+  }
   if (!duration) return {}
   if (config.deadline) {
     return { deadline: config.deadline.duration === duration ? config.deadline : { duration } }
@@ -357,36 +353,11 @@ export function resolveTaskDeadlinePersistence(
 }
 
 /**
- * `resolveTaskDeadlinePersistence` for a config whose deadline may be an
- * absolute `deadline.at` (#7181) — what the Studio inspector calls.
- *
- * The control edits a DURATION only, so an absolute `deadline.at` (authored in
- * the Code view) opens as an empty control and survives a save untouched —
- * typing a duration over it is the author deliberately switching forms. Without
- * an `at` it answers exactly what `resolveTaskDeadlinePersistence` answers.
- */
-export function resolveTaskDeadlineSpecPersistence(
-  config: Pick<UserTaskConfigSpec, 'deadline' | 'slaDuration'>,
-  edited: string,
-): TaskDeadlineSpecPersistence {
-  const duration = edited.trim()
-  const deadline = config.deadline
-  if (deadline?.at) {
-    return duration ? { deadline: { duration } } : { deadline }
-  }
-  const legacyDeadline = deadline?.duration !== undefined ? { duration: deadline.duration } : undefined
-  return resolveTaskDeadlinePersistence(
-    { deadline: legacyDeadline, slaDuration: config.slaDuration },
-    edited,
-  )
-}
-
-/**
  * The duration the deadline control opens with, whichever key carries it —
- * empty for an absolute `deadline.at`, which supersedes any `slaDuration`.
+ * empty for an absolute `deadlineAt`, which supersedes any `slaDuration`.
  */
-export function readTaskDeadlineDraft(config: Pick<UserTaskConfigSpec, 'deadline' | 'slaDuration'>): string {
-  if (config.deadline?.at) return ''
+export function readTaskDeadlineDraft(config: Pick<UserTaskConfig, 'deadline' | 'deadlineAt' | 'slaDuration'>): string {
+  if (config.deadlineAt) return ''
   const duration = config.deadline?.duration ?? config.slaDuration
   return typeof duration === 'string' ? duration : ''
 }

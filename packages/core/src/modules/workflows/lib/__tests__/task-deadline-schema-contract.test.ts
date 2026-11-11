@@ -2,30 +2,29 @@ import { describe, test, expect } from '@jest/globals'
 import {
   createWorkflowDefinitionInputCheckedSchema,
   createWorkflowDefinitionInputSchema,
-  createWorkflowDefinitionInputSpecCheckedSchema,
   createWorkflowDefinitionSchema,
+  taskDeadlineSchema,
   updateWorkflowDefinitionInputCheckedSchema,
-  updateWorkflowDefinitionInputSpecCheckedSchema,
+  userTaskConfigSchema,
   workflowDefinitionDataSchema,
-  workflowDefinitionDataSpecSchema,
-  workflowStepSchema,
-  workflowStepSpecSchema,
 } from '../../data/validators'
 import {
   workflowDefinitionDetailResponseSchema,
+  workflowDefinitionListResponseSchema,
+  workflowDefinitionMutationResponseSchema,
   workflowDefinitionResponseSchema,
-  workflowDefinitionSpecDetailResponseSchema,
-  workflowDefinitionSpecResponseSchema,
 } from '../../api/openapi'
 import { evaluateWorkflowDefinition } from '../definition-evaluation'
 import { clearCodeWorkflowRegistry, getCodeWorkflow, registerCodeWorkflows } from '../code-registry'
 
 /**
- * Issue #7181 review — every existing schema keeps its duration-only result, and
- * the `at`-capable `*Spec` schemas are what the feature paths validate with.
+ * Issue #7181 review — an absolute deadline is the optional sibling
+ * `userTaskConfig.deadlineAt`. `deadline` keeps its duration-only contract on
+ * every schema, so every response a definition route serves still parses with
+ * the response schemas those routes have always documented.
  */
 
-function definition(deadline: Record<string, unknown>) {
+function definition(userTaskConfig: Record<string, unknown>) {
   return {
     steps: [
       { stepId: 'start', stepName: 'Start', stepType: 'START' },
@@ -33,7 +32,7 @@ function definition(deadline: Record<string, unknown>) {
         stepId: 'review',
         stepName: 'Review',
         stepType: 'USER_TASK',
-        userTaskConfig: { assignedTo: 'clerk@example.com', deadline },
+        userTaskConfig: { assignedTo: 'clerk@example.com', ...userTaskConfig },
       },
       { stepId: 'end', stepName: 'End', stepType: 'END' },
     ],
@@ -44,8 +43,9 @@ function definition(deadline: Record<string, unknown>) {
   }
 }
 
-const absolute = definition({ at: '{{context.dueDate}}' })
-const duration = definition({ duration: 'P3D' })
+const absolute = definition({ deadlineAt: '{{context.dueDate}}' })
+const atOnlyDeadline = definition({ deadline: { at: '{{context.dueDate}}' } })
+const both = definition({ deadline: { duration: 'P3D' }, deadlineAt: '{{context.dueDate}}' })
 const createBody = (body: unknown) => ({ workflowId: 'deeds', workflowName: 'Deeds', definition: body })
 const responseRow = (body: unknown) => ({
   id: '11111111-1111-4111-8111-111111111111',
@@ -70,89 +70,86 @@ const responseRow = (body: unknown) => ({
   isCodeBased: false,
   codeModuleId: null,
 })
+const reviewConfig = (value: { steps: Array<{ stepId: string; userTaskConfig?: unknown }> }) =>
+  value.steps.find((step) => step.stepId === 'review')?.userTaskConfig
 
-describe('the existing schemas keep their duration-only result', () => {
-  const legacyParsers = [
-    ['workflowDefinitionDataSchema', () => workflowDefinitionDataSchema.safeParse(absolute)],
-    ['createWorkflowDefinitionInputSchema', () => createWorkflowDefinitionInputSchema.safeParse(createBody(absolute))],
-    ['createWorkflowDefinitionInputCheckedSchema', () => createWorkflowDefinitionInputCheckedSchema.safeParse(createBody(absolute))],
-    ['updateWorkflowDefinitionInputCheckedSchema', () => updateWorkflowDefinitionInputCheckedSchema.safeParse({ definition: absolute })],
+describe('the deadline contract stays duration-only', () => {
+  test('taskDeadlineSchema still requires a non-empty duration', () => {
+    expect(taskDeadlineSchema.safeParse({ duration: 'P3D' }).success).toBe(true)
+    expect(taskDeadlineSchema.safeParse({ duration: '' }).success).toBe(false)
+    expect(taskDeadlineSchema.safeParse({ at: '2026-10-20' }).success).toBe(false)
+  })
+
+  test('the only key added to userTaskConfig is the optional deadlineAt', () => {
+    const preReviewKeys = [
+      'allowedActions', 'assignedTo', 'assignedToRoles', 'assigneeKind', 'assignmentRule', 'deadline',
+      'decisions', 'editablePrefilled', 'entityBindings', 'escalationRules', 'formKey', 'formSchema',
+      'instructions', 'onBreach', 'priority', 'reminders', 'slaDuration',
+    ]
+    const added = Object.keys(userTaskConfigSchema.shape).filter((key) => !preReviewKeys.includes(key))
+    expect(added).toEqual(['deadlineAt'])
+    expect(userTaskConfigSchema.shape.deadlineAt.safeParse(undefined).success).toBe(true)
+  })
+
+  const atOnlyParsers = [
+    ['workflowDefinitionDataSchema', () => workflowDefinitionDataSchema.safeParse(atOnlyDeadline)],
+    ['createWorkflowDefinitionInputSchema', () => createWorkflowDefinitionInputSchema.safeParse(createBody(atOnlyDeadline))],
+    ['createWorkflowDefinitionInputCheckedSchema', () => createWorkflowDefinitionInputCheckedSchema.safeParse(createBody(atOnlyDeadline))],
+    ['updateWorkflowDefinitionInputCheckedSchema', () => updateWorkflowDefinitionInputCheckedSchema.safeParse({ definition: atOnlyDeadline })],
     ['createWorkflowDefinitionSchema', () => createWorkflowDefinitionSchema.safeParse({
-      ...createBody(absolute),
+      ...createBody(atOnlyDeadline),
       tenantId: '11111111-1111-4111-8111-111111111111',
       organizationId: '11111111-1111-4111-8111-111111111111',
     })],
-    ['workflowDefinitionResponseSchema', () => workflowDefinitionResponseSchema.safeParse(responseRow(absolute))],
-    ['workflowDefinitionDetailResponseSchema', () => workflowDefinitionDetailResponseSchema.safeParse({ data: responseRow(absolute) })],
+    ['workflowDefinitionResponseSchema', () => workflowDefinitionResponseSchema.safeParse(responseRow(atOnlyDeadline))],
   ] as const
 
-  test.each(legacyParsers)('%s refuses an absolute deadline', (_name, parse) => {
+  test.each(atOnlyParsers)('%s refuses an at-only deadline', (_name, parse) => {
     expect(parse().success).toBe(false)
   })
 
-  test('a parsed duration deadline is the same through both generations', () => {
-    expect(workflowDefinitionDataSpecSchema.parse(duration)).toEqual(workflowDefinitionDataSchema.parse(duration))
-    const step = duration.steps[1]
-    expect(workflowStepSpecSchema.parse(step)).toEqual(workflowStepSchema.parse(step))
+  test('declaring both deadline and deadlineAt is refused on every authoring schema', () => {
+    expect(workflowDefinitionDataSchema.safeParse(both).success).toBe(false)
+    expect(createWorkflowDefinitionInputCheckedSchema.safeParse(createBody(both)).success).toBe(false)
+    expect(updateWorkflowDefinitionInputCheckedSchema.safeParse({ definition: both }).success).toBe(false)
   })
 })
 
-describe('the *Spec schemas carry the absolute deadline', () => {
+describe('the absolute deadline travels as the sibling deadlineAt', () => {
   test('through the definition, create, update and response schemas', () => {
-    const steps = (value: { steps: Array<{ userTaskConfig?: { deadline?: unknown } }> }) =>
-      value.steps[1].userTaskConfig?.deadline
-    expect(steps(workflowDefinitionDataSpecSchema.parse(absolute))).toEqual({ at: '{{context.dueDate}}' })
-    expect(steps(createWorkflowDefinitionInputSpecCheckedSchema.parse(createBody(absolute)).definition)).toEqual({
-      at: '{{context.dueDate}}',
-    })
-    const updated = updateWorkflowDefinitionInputSpecCheckedSchema.parse({ definition: absolute })
-    expect(steps(updated.definition!)).toEqual({ at: '{{context.dueDate}}' })
-    expect(steps(workflowDefinitionSpecResponseSchema.parse(responseRow(absolute)).definition)).toEqual({
-      at: '{{context.dueDate}}',
-    })
-    expect(workflowDefinitionSpecDetailResponseSchema.safeParse({ data: responseRow(absolute) }).success).toBe(true)
+    const expected = { assignedTo: 'clerk@example.com', deadlineAt: '{{context.dueDate}}' }
+    expect(reviewConfig(workflowDefinitionDataSchema.parse(absolute))).toEqual(expected)
+    expect(reviewConfig(createWorkflowDefinitionInputCheckedSchema.parse(createBody(absolute)).definition)).toEqual(expected)
+    expect(reviewConfig(updateWorkflowDefinitionInputCheckedSchema.parse({ definition: absolute }).definition!)).toEqual(expected)
+    expect(reviewConfig(workflowDefinitionResponseSchema.parse(responseRow(absolute)).definition)).toEqual(expected)
   })
 
-  test('the refinements of the schemas they extend still run', () => {
+  test('list, detail and mutation response bodies carrying it parse with the published schemas', () => {
+    const row = responseRow(absolute)
     expect(
-      workflowStepSpecSchema.safeParse({ stepId: 'wait', stepName: 'Wait', stepType: 'WAIT_FOR_TIMER' }).success,
-    ).toBe(false)
-    const stranded = {
-      ...absolute,
-      steps: [
-        ...absolute.steps,
-        { stepId: 'wait', stepName: 'Wait', stepType: 'WAIT_FOR_CONDITION', config: {} },
-      ],
-    }
-    const result = workflowDefinitionDataSpecSchema.safeParse(stranded)
-    expect(result.success).toBe(false)
-    expect(
-      createWorkflowDefinitionInputSpecCheckedSchema.safeParse({
-        ...createBody({
-          ...absolute,
-          triggers: [{ triggerId: 'on-event', name: 'On event', eventPattern: 'a.b.c' }],
-        }),
-        kind: 'component',
+      workflowDefinitionListResponseSchema.safeParse({
+        data: [row],
+        pagination: { total: 1, limit: 50, offset: 0, hasMore: false },
       }).success,
-    ).toBe(false)
+    ).toBe(true)
+    expect(workflowDefinitionDetailResponseSchema.safeParse({ data: row }).success).toBe(true)
+    expect(workflowDefinitionMutationResponseSchema.safeParse({ data: row, message: 'ok' }).success).toBe(true)
   })
 
-  test('the update input stays strict', () => {
-    expect(updateWorkflowDefinitionInputSpecCheckedSchema.safeParse({ unknownKey: true }).success).toBe(false)
-  })
-})
-
-describe('the feature paths accept the absolute deadline', () => {
   test('the shared evaluator reports no schema problem', () => {
     const evaluation = evaluateWorkflowDefinition(absolute as never, {})
     expect(evaluation.issues.filter((issue) => issue.path.includes('deadline'))).toEqual([])
     expect(evaluation.valid).toBe(true)
   })
 
-  test('a code-defined workflow registers', () => {
+  test('a code-defined workflow registers with it, and is refused with both forms', () => {
     clearCodeWorkflowRegistry()
-    registerCodeWorkflows([{ workflowId: 'deeds.code', workflowName: 'Deeds', definition: absolute } as never])
+    registerCodeWorkflows([
+      { workflowId: 'deeds.code', workflowName: 'Deeds', definition: absolute } as never,
+      { workflowId: 'deeds.both', workflowName: 'Deeds', definition: both } as never,
+    ])
     expect(getCodeWorkflow('deeds.code')).toBeTruthy()
+    expect(getCodeWorkflow('deeds.both')).toBeFalsy()
     clearCodeWorkflowRegistry()
   })
 })

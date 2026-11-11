@@ -163,7 +163,7 @@ function isCalendarDate(year: number, month: number, day: number): boolean {
 }
 
 /**
- * Parse an ABSOLUTE deadline (`userTaskConfig.deadline.at`, already
+ * Parse an ABSOLUTE deadline (`userTaskConfig.deadlineAt`, already
  * interpolated) into an instant, or `null` when it is not one.
  *
  * Deliberately strict, because a deadline the author got wrong must surface

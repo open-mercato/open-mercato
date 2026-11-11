@@ -843,7 +843,7 @@ async function handleAutomatedStep(
 
 /**
  * Resolve a user task's deadline — an authored duration anchored to now, or an
- * absolute `deadline.at` already resolved against the run context.
+ * absolute `deadlineAt` already resolved against the run context.
  *
  * Either one that does not parse fails the step with an actionable message
  * instead of quietly resolving to some default the author never asked for.
