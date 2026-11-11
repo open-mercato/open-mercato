@@ -104,6 +104,13 @@ export class UserTaskError extends Error {
  * 4. Logs completion event
  * 5. Resumes workflow execution
  *
+ * Closing the task is a COMPARE-AND-SET, like `claimUserTask`: the lookup only
+ * decides which error to report, while the row is closed with a conditional
+ * `UPDATE … WHERE status IN ('PENDING', 'IN_PROGRESS')`. Two submissions of the
+ * same task (a double click, a retried request) can both pass the lookup; only
+ * one closes the row, and the other gets the same `TASK_NOT_FOUND` a later
+ * submission would, before any event is logged or the run is advanced.
+ *
  * @param em - Entity manager
  * @param container - DI container for workflow execution
  * @param options - Task completion options
@@ -197,8 +204,33 @@ export async function completeUserTask(
   // it once the payload is merged into the run context.
   const completionData = withRecordedDecision(formData, chosenDecision?.id)
 
-  // Update task
   const now = new Date()
+  const closed = await em.nativeUpdate(
+    UserTask,
+    {
+      id: taskId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      status: { $in: ['PENDING', 'IN_PROGRESS'] },
+    },
+    {
+      status: 'COMPLETED',
+      formData: completionData,
+      completedBy: userId,
+      completedAt: now,
+      comments: comments || null,
+      updatedAt: now,
+    },
+  )
+
+  if (closed === 0) {
+    throw new UserTaskError(
+      'Task not found or already completed',
+      'TASK_NOT_FOUND',
+      { taskId }
+    )
+  }
+
   task.status = 'COMPLETED'
   task.formData = completionData
   task.completedBy = userId
