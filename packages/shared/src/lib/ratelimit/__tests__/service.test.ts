@@ -261,6 +261,49 @@ describe('RateLimiterService', () => {
     })
   })
 
+  describe('requireShared', () => {
+    const sharedLimitConfig: RateLimitConfig = { ...defaultLimitConfig, requireShared: true }
+
+    beforeEach(() => {
+      jest.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    it('returns a degraded result instead of counting in memory when the shared store is not configured', async () => {
+      const memoryConsume = jest.spyOn(RateLimiterMemory.prototype, 'consume')
+      service = new RateLimiterService(createConfig())
+
+      const result = await service.consume('key1', sharedLimitConfig)
+
+      expect(service.sharedEnabled).toBe(false)
+      expect(result.degraded).toBe(true)
+      expect(memoryConsume).not.toHaveBeenCalled()
+    })
+
+    it('keeps the in-memory behaviour when the flag is not set', async () => {
+      service = new RateLimiterService(createConfig())
+
+      const result = await service.consume('key2', defaultLimitConfig)
+
+      expect(result.allowed).toBe(true)
+      expect(result.degraded).toBeFalsy()
+      expect(result.consumedPoints).toBe(1)
+    })
+
+    it('does not share a cached limiter between flagged and unflagged configs', async () => {
+      service = new RateLimiterService(createConfig())
+      const internals = service as unknown as {
+        getOrCreateLimiter: (config: RateLimitConfig) => unknown
+      }
+
+      expect(internals.getOrCreateLimiter(sharedLimitConfig))
+        .not.toBe(internals.getOrCreateLimiter(defaultLimitConfig))
+    })
+  })
+
   describe('limiter caching', () => {
     it('reuses the same limiter for the same config', async () => {
       service = new RateLimiterService(createConfig())
