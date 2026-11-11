@@ -2,7 +2,11 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import {
+  createOrderLineFixture,
+  createShipmentFixture,
+  deleteSalesEntityIfExists,
+} from '@open-mercato/core/helpers/integration/salesFixtures'
 
 const REFUSED_MESSAGE = "Cannot create a shipment: the order's payments have been fully refunded."
 
@@ -28,9 +32,7 @@ async function createPaidOrder(
     lines: [{ currencyCode: 'USD', quantity: 1, name: 'TC-SALES-054 seed line', unitPriceNet: 0, unitPriceGross: 0 }],
   })
   cleanup.orderIds.push(orderId)
-  const lineId = await postForId(request, token, '/api/sales/order-lines', {
-    orderId,
-    currencyCode: 'USD',
+  const lineId = await createOrderLineFixture(request, token, orderId, {
     quantity: 2,
     name: 'TC-SALES-054 line',
     unitPriceNet: 50,
@@ -94,10 +96,7 @@ test.describe('TC-SALES-054: no new shipment on an order whose payments were ful
       token = await getAuthToken(request, 'admin')
       const { orderId, lineId } = await createPaidOrder(request, token, cleanup, 50)
 
-      const shipmentId = await postForId(request, token, '/api/sales/shipments', {
-        orderId,
-        items: [{ orderLineId: lineId, quantity: 1 }],
-      })
+      const shipmentId = await createShipmentFixture(request, token, orderId, [{ orderLineId: lineId, quantity: 1 }])
       cleanup.shipmentIds.push(shipmentId)
 
       expect(await countShipments(request, token, orderId)).toBe(1)
