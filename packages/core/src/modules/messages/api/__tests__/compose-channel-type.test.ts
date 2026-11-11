@@ -60,6 +60,10 @@ jest.mock('../../lib/routeHelpers', () => {
   return { ...actual, canUseMessageEmailFeature: jest.fn(async () => true) }
 })
 
+jest.mock('../../lib/externalEmailBudget', () => ({
+  checkExternalEmailBudget: jest.fn(async () => null),
+}))
+
 import { GET as listMessages, POST as composeMessage } from '../route'
 
 function publicComposeBody(extra: Record<string, unknown> = {}) {

@@ -141,6 +141,30 @@ export class Message {
   externalEmailError?: string | null
 }
 
+@Entity({ tableName: 'message_external_recipient_days' })
+@Unique({
+  name: 'message_external_recipient_days_unique',
+  properties: ['tenantId', 'utcDay', 'recipientHash'],
+})
+export class MessageExternalRecipientDay {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'utc_day', type: 'text' })
+  utcDay!: string
+
+  @Property({ name: 'recipient_hash', type: 'text' })
+  recipientHash!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
 export type RecipientType = 'to' | 'cc' | 'bcc'
 export type RecipientStatus = 'unread' | 'read' | 'archived' | 'deleted'
 
@@ -297,4 +321,11 @@ export class MessageConfirmation {
   updatedAt: Date = new Date()
 }
 
-export default [Message, MessageRecipient, MessageObject, MessageAccessToken, MessageConfirmation]
+export default [
+  Message,
+  MessageRecipient,
+  MessageObject,
+  MessageAccessToken,
+  MessageConfirmation,
+  MessageExternalRecipientDay,
+]

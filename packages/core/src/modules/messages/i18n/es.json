@@ -116,6 +116,7 @@
   "messages.errors.conversationActionFailed": "No se pudo actualizar la conversación.",
   "messages.errors.conversationHasNoChannelThread": "La conversación no tiene un hilo de canal al que entregar el mensaje",
   "messages.errors.deleteFailed": "No se pudo eliminar el mensaje.",
+  "messages.errors.externalRecipientDailyLimit": "Se alcanzó el límite diario de destinatarios externos. Inténtalo de nuevo mañana.",
   "messages.errors.forwardPreviewFailed": "No se pudo cargar la vista previa de reenvío.",
   "messages.errors.invalidComposePayload": "Datos del mensaje no válidos",
   "messages.errors.invalidContext": "Falta el contexto del mensaje.",

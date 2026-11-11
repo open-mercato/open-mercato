@@ -116,6 +116,7 @@
   "messages.errors.conversationActionFailed": "Failed to update conversation.",
   "messages.errors.conversationHasNoChannelThread": "Conversation has no channel thread to deliver into",
   "messages.errors.deleteFailed": "Failed to delete message.",
+  "messages.errors.externalRecipientDailyLimit": "Daily external recipient limit reached. Try again tomorrow.",
   "messages.errors.forwardPreviewFailed": "Failed to load forward preview.",
   "messages.errors.invalidComposePayload": "Invalid message payload",
   "messages.errors.invalidContext": "Message context is missing.",

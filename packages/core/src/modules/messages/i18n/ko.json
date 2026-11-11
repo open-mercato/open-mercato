@@ -116,6 +116,7 @@
   "messages.errors.conversationActionFailed": "대화 업데이트에 실패했습니다.",
   "messages.errors.conversationHasNoChannelThread": "이 대화에는 메시지를 전달할 채널 스레드가 없습니다",
   "messages.errors.deleteFailed": "메시지 삭제에 실패했습니다.",
+  "messages.errors.externalRecipientDailyLimit": "일일 외부 수신자 한도에 도달했습니다. 내일 다시 시도하세요.",
   "messages.errors.forwardPreviewFailed": "전달 미리보기를 불러오지 못했습니다.",
   "messages.errors.invalidComposePayload": "메시지 데이터가 올바르지 않습니다",
   "messages.errors.invalidContext": "메시지 컨텍스트가 없습니다.",

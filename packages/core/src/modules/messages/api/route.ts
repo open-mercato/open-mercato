@@ -23,6 +23,7 @@ import {
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
 import { delegateComposeToSender, requiresSenderDelegation } from '../lib/composeSenderDelegation'
+import { checkExternalEmailBudget } from '../lib/externalEmailBudget'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveMessageChannelThreadAccess,
@@ -647,6 +648,15 @@ export async function POST(req: Request) {
     )
   }
 
+  if (!input.isDraft && input.externalEmail) {
+    const budgetResponse = await checkExternalEmailBudget(
+      ctx.container,
+      { tenantId: scope.tenantId, userId: scope.userId },
+      input.externalEmail,
+    )
+    if (budgetResponse) return budgetResponse
+  }
+
   // #6258: an explicitly chosen mailbox routes the whole send through the
   // communication-channels facade, which writes the conversation, thread mapping
   // and outbound channel link the inbound thread matcher needs. Without the
@@ -762,6 +772,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Compose payload failed validation', schema: errorResponseSchema },
         { status: 403, description: 'Access denied, including a parentMessageId the caller cannot read', schema: errorResponseSchema },
         { status: 404, description: 'parentMessageId is unknown, deleted, or outside the caller organization', schema: errorResponseSchema },
+        { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
+        { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
       ],
     },
   },

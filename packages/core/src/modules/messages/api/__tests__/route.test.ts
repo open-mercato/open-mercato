@@ -7,6 +7,7 @@ const resolveMessageChannelThreadAccessMock = jest.fn()
 const delegateComposeToSenderMock = jest.fn()
 const resolveReplyParentMessageMock = jest.fn()
 const canPostToChannelThreadMock = jest.fn(async () => true)
+const checkExternalEmailBudgetMock: jest.Mock<Promise<Response | null>> = jest.fn(async () => null)
 
 jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: async <T>(_tenantId: string | null, callback: () => Promise<T> | T) => callback(),
@@ -40,6 +41,10 @@ jest.mock('@open-mercato/core/modules/messages/lib/channelThreadAccess', () => (
 jest.mock('@open-mercato/core/modules/messages/lib/composeSenderDelegation', () => ({
   ...jest.requireActual('@open-mercato/core/modules/messages/lib/composeSenderDelegation'),
   delegateComposeToSender: (...args: unknown[]) => delegateComposeToSenderMock(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/messages/lib/externalEmailBudget', () => ({
+  checkExternalEmailBudget: (...args: unknown[]) => checkExternalEmailBudgetMock(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/messages/lib/message-types-registry', () => ({
@@ -262,6 +267,11 @@ describe('messages /api/messages POST', () => {
     }))
 
     expect(response.status).toBe(201)
+    expect(checkExternalEmailBudgetMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { tenantId, userId },
+      'external-recipient@example.test',
+    )
     expect(commandBus.execute).toHaveBeenCalledWith(
       'messages.messages.compose',
       expect.objectContaining({
@@ -290,6 +300,47 @@ describe('messages /api/messages POST', () => {
 
     expect(response.status).toBe(201)
     expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not enforce an external recipient budget while saving a draft', async () => {
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'default',
+        visibility: 'public',
+        externalEmail: 'draft-recipient@example.test',
+        recipients: [],
+        subject: 'Draft',
+        body: 'Body',
+        isDraft: true,
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(checkExternalEmailBudgetMock).not.toHaveBeenCalled()
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops both compose paths when the external recipient budget rejects the message', async () => {
+    checkExternalEmailBudgetMock.mockResolvedValueOnce(
+      Response.json({ error: 'Too many requests' }, { status: 429 }),
+    )
+
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'default',
+        visibility: 'public',
+        externalEmail: 'limited@example.test',
+        recipients: [],
+        subject: 'Subject',
+        body: 'Body',
+      }),
+    }))
+
+    expect(response.status).toBe(429)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(delegateComposeToSenderMock).not.toHaveBeenCalled()
   })
 
   it('threads a delegated mailbox send onto the conversation thread the server resolved', async () => {
