@@ -109,6 +109,51 @@ describe('sendSystemEmail', () => {
     }))
   })
 
+  it('passes headers through to the adapter channelMetadata', async () => {
+    const convertOutbound = jest.fn().mockResolvedValue({
+      content: { text: 'Hello', bodyFormat: 'text' },
+      metadata: { to: ['user@example.com'], subject: 'Hello', from: 'from@example.com' },
+    })
+    const sendMessage = jest.fn().mockResolvedValue({ externalMessageId: 'email-1', status: 'sent' })
+    const adapter = {
+      providerKey: 'test-email',
+      channelType: 'email',
+      capabilities: {} as ChannelAdapter['capabilities'],
+      convertOutbound,
+      sendMessage,
+      normalizeInbound: jest.fn(),
+      verifyWebhook: jest.fn(),
+      getStatus: jest.fn(),
+    } satisfies ChannelAdapter
+    const container = {
+      resolve(name: string) {
+        if (name === 'em') return { fork: () => ({}) }
+        if (name === 'channelAdapterRegistry') return { get: () => adapter }
+        throw new Error(`[internal] unexpected dependency ${name}`)
+      },
+    }
+
+    await sendSystemEmail(container as never, {
+      to: 'user@example.com',
+      subject: 'Hello',
+      from: 'from@example.com',
+      react: React.createElement('div', null, 'Hello'),
+      headers: {
+        'List-Unsubscribe': '<https://example.com/unsubscribe>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    })
+
+    expect(convertOutbound).toHaveBeenCalledWith(expect.objectContaining({
+      channelMetadata: expect.objectContaining({
+        headers: {
+          'List-Unsubscribe': '<https://example.com/unsubscribe>',
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
+      }),
+    }))
+  })
+
   it('does not fall back to a channel from another organization', async () => {
     const findOne = jest
       .fn()
