@@ -129,6 +129,11 @@ function stageApp(): string {
     path.join(root, 'src', 'app', 'globals.css'),
   )
   for (const [packageName, relativePaths] of Object.entries({
+    cli: [
+      'src/lib/module-install.ts',
+      'src/lib/module-identity.ts',
+      'src/lib/eject.ts',
+    ],
     core: [
       'src/modules/design_system/gallery/entries/buttons.tsx',
       'src/modules/customers/backend/customers/people-v2/[id]/page.tsx',
@@ -219,7 +224,9 @@ const fs = require('node:fs')
 for (const readPath of ${JSON.stringify([path.join(controller, 'package.json'), secretPath])}) {
   assert.throws(() => fs.readFileSync(readPath), { code: /^(EPERM|EACCES|ENOENT)$/ })
 }
-assert.throws(() => fs.writeFileSync(${JSON.stringify(deniedWritePath)}, 'escaped'), { code: /^(EPERM|EACCES|ENOENT|EROFS)$/ })
+for (const writePath of ${JSON.stringify([deniedWritePath, path.join(os.tmpdir(), 'om-harness-unadmitted-write'), '/om-harness-unadmitted-write'])}) {
+  assert.throws(() => fs.writeFileSync(writePath, 'escaped'), { code: /^(EPERM|EACCES|ENOENT|EROFS)$/ })
+}
 fs.writeFileSync('target-edit.txt', 'contained')
 console.log('fixture boundary verified')
 `)

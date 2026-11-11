@@ -1,3 +1,7 @@
+jest.mock('../../db/advisoryLock', () => ({
+  withAdvisoryXactLock: async <T>(em: unknown, _key: string, work: (txEm: unknown) => Promise<T>): Promise<T> => work(em),
+}))
+
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { DefaultDataEngine, clearDataEngineTableExistsCache } from '../engine'
 import { decryptWithAesGcm, encryptWithAesGcm, isEncryptedPayloadShape, TenantDataEncryptionErrorCode } from '../../encryption/aes'
