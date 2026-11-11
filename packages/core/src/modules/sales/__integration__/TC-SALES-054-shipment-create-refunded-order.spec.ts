@@ -139,10 +139,8 @@ test.describe('TC-SALES-054: no new shipment on an order whose payments were ful
       await page.getByRole('button', { name: 'Add shipment' }).first().click()
       const dialog = page.getByRole('dialog', { name: 'Add shipment' })
       await expect(dialog).toBeVisible()
-      await dialog.getByLabel(/Shipment number/i).first().fill(`TC-SALES-054-${stamp}`)
-      const methodInput = dialog.getByPlaceholder(/Select method/i).first()
-      await methodInput.fill(methodName)
-      await page.getByText(methodName).last().click()
+      await dialog.getByRole('textbox').first().fill(`TC-SALES-054-${stamp}`)
+      await dialog.getByText(methodName).first().click()
       await dialog.getByRole('spinbutton').last().fill('1')
       await dialog.press('ControlOrMeta+Enter')
 
