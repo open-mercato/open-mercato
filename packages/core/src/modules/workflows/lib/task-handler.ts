@@ -31,6 +31,7 @@ import { isRunClosedToUserTasks } from './instance-status'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitInstanceParkTransition } from './instance-lifecycle-events'
 
 const logger = createLogger('workflows')
 
@@ -353,8 +354,10 @@ export async function completeUserTask(
 
     if (!firstValidTransition || !firstValidTransition.transition) {
       // Resume workflow execution anyway, maybe conditions will be met later
+      const previousInstanceStatus = instance.status
       instance.status = 'RUNNING'
       await em.flush()
+      await emitInstanceParkTransition(instance, previousInstanceStatus)
       return
     }
 
@@ -368,8 +371,10 @@ export async function completeUserTask(
   // sits there as PAUSED and never reaches END. Guarded on PAUSED so completing
   // a stale task can never resurrect a CANCELLED or terminal run.
   if (instance.status === 'PAUSED') {
+    const previousInstanceStatus = instance.status
     instance.status = 'RUNNING'
     await em.flush()
+    await emitInstanceParkTransition(instance, previousInstanceStatus)
   }
 
   // Execute the transition to move to next step

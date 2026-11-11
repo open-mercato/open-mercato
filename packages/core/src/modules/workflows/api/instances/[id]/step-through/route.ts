@@ -33,6 +33,7 @@ import {
 import { workflowsTag, workflowErrorSchema } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { emitInstanceParkTransition } from '../../../../lib/instance-lifecycle-events'
 
 const logger = createLogger('workflows')
 
@@ -138,10 +139,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     // The instance was parked with PAUSED; every resume path flips it back to
     // RUNNING before re-entering, and this one is no different.
     if (instance.status === 'PAUSED') {
+      const previousInstanceStatus = instance.status
       instance.status = 'RUNNING'
       instance.pausedAt = null
       instance.updatedAt = new Date()
       await em.flush()
+      await emitInstanceParkTransition(instance, previousInstanceStatus)
     }
 
     const result = await workflowExecutor.executeWorkflow(em, container, instance.id, {

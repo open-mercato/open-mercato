@@ -247,6 +247,57 @@ describe('workflows.instance.* lifecycle bus emission', () => {
       })
       expect(busCallsFor('workflows.instance.completed')).toHaveLength(1)
       expect(busCallsFor('workflows.instance.failed')).toHaveLength(0)
+      expect(busCallsFor('workflows.instance.paused')).toHaveLength(0)
+      expect(busCallsFor('workflows.instance.resumed')).toHaveLength(0)
+    })
+
+    function primeExecution(instance: WorkflowInstance) {
+      mockEm.findOne.mockImplementation((async (entity: unknown) => {
+        const name = typeof entity === 'function' ? (entity as { name?: string }).name : String(entity)
+        if (name === 'WorkflowDefinition') return mockDefinition
+        return instance
+      }) as never)
+    }
+
+    test('a step-through pause emits paused exactly once (#7186)', async () => {
+      const instance = makeInstance({ metadata: { stepThrough: { enabled: true, releaseStepId: null } } } as never)
+      primeExecution(instance)
+
+      await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+
+      expect(instance.status).toBe('PAUSED')
+      const paused = busCallsFor('workflows.instance.paused')
+      expect(paused).toHaveLength(1)
+      expect(paused[0][1]).toEqual({
+        id: testInstanceId,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        workflowId: 'lifecycle-workflow',
+        version: 1,
+        status: 'PAUSED',
+        stepId: 'start',
+      })
+    })
+
+    test('a failure-queue park emits paused exactly once (#7186)', async () => {
+      const instance = makeInstance()
+      primeExecution(instance)
+      const transitionHandler = jest.mocked(await import('../transition-handler'))
+      transitionHandler.findValidTransitions.mockResolvedValue([
+        { isValid: true, transition: mockDefinition.definition!.transitions[0] },
+      ] as never)
+      transitionHandler.executeTransition.mockResolvedValue({
+        success: false,
+        error: 'gateway timeout',
+        failedStepId: 'start',
+        parkForAttention: true,
+      } as never)
+
+      await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+
+      expect(instance.status).toBe('PAUSED')
+      expect(busCallsFor('workflows.instance.paused')).toHaveLength(1)
+      expect(busCallsFor('workflows.instance.failed')).toHaveLength(0)
     })
   })
 })

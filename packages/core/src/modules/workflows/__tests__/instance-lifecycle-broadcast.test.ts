@@ -51,7 +51,7 @@ describe('workflows.instance.* client broadcast', () => {
 
   test('the lifecycle payload carries tenant scope and no run context', () => {
     const source = fs.readFileSync(
-      path.join(__dirname, '..', 'lib', 'workflow-executor.ts'),
+      path.join(__dirname, '..', 'lib', 'instance-lifecycle-events.ts'),
       'utf8'
     )
     const emitBody = source.slice(

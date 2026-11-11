@@ -14,9 +14,10 @@
  *   did.
  */
 
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { describe, test, expect, jest, beforeEach, afterAll } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 
 jest.mock('../find-definition', () => ({
   findDefinitionForInstance: jest.fn(),
@@ -357,5 +358,49 @@ describe('completeUserTask on a live run is unchanged', () => {
     )
     expect(transitionHandler.executeTransition).not.toHaveBeenCalled()
     expect(executeWorkflow).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('workflows.instance.resumed bus emission (#7186)', () => {
+  let busEmit: jest.Mock
+
+  beforeEach(() => {
+    busEmit = jest.fn(async () => {})
+    setGlobalEventBus({ emit: busEmit as never })
+  })
+
+  afterAll(() => {
+    setGlobalEventBus({ emit: async () => {} })
+  })
+
+  const resumedCalls = () => busEmit.mock.calls.filter((call) => call[0] === 'workflows.instance.resumed')
+
+  test('completing the task of a PAUSED run emits resumed exactly once', async () => {
+    const instance = makeInstance('PAUSED')
+    const harness = makeEm(makeTask(), instance)
+
+    await complete(harness.em)
+
+    expect(resumedCalls()).toHaveLength(1)
+    expect(resumedCalls()[0][1]).toMatchObject({
+      id: INSTANCE_ID,
+      tenantId: TENANT,
+      organizationId: ORG,
+      workflowId: 'refunds',
+      status: 'RUNNING',
+    })
+    expect(resumedCalls()[0][1]).not.toHaveProperty('context')
+  })
+
+  test('completing the task of a RUNNING run emits nothing', async () => {
+    await complete(makeEm(makeTask(), makeInstance('RUNNING')).em)
+
+    expect(resumedCalls()).toHaveLength(0)
+  })
+
+  test('completing a branch task of a FORKED run emits nothing', async () => {
+    await complete(makeEm(makeTask({ branchInstanceId: BRANCH_INSTANCE_ID }), makeInstance('FORKED')).em)
+
+    expect(resumedCalls()).toHaveLength(0)
   })
 })
