@@ -20,6 +20,7 @@ import {
   uniqueStamp,
   type OmnibusTenantActor,
 } from './omnibusHelpers';
+import { OMNIBUS_IN_WINDOW_LIMIT } from '../lib/omnibusHistoryQueries';
 
 /**
  * TC-CAT-OMNI-005: member-state derogations of the Omnibus reference price.
@@ -195,6 +196,111 @@ test.describe('TC-CAT-OMNI-005: Omnibus member-state derogations', () => {
       });
     } finally {
       if (actor) {
+        await deleteEntityIfExists(request, actor.token, PRICES_PATH, priceId);
+        await deleteEntityIfExists(request, actor.token, PRODUCTS_PATH, productId);
+        await deleteEntityIfExists(request, actor.token, '/api/catalog/price-kinds', priceKindId);
+        await deleteSalesChannelIfExists(request, actor.token, channelId);
+      }
+      await cleanupOmnibusTenantActor(request, superadminToken, actor);
+    }
+  });
+
+  test('progressive reduction freezes the pre-campaign price and never certifies an overflowed campaign', async ({ request }) => {
+    const superadminToken = await getAuthToken(request, 'superadmin');
+    const stamp = uniqueStamp();
+    let actor: OmnibusTenantActor | null = null;
+    let channelId: string | null = null;
+    let productId: string | null = null;
+    let priceKindId: string | null = null;
+    let priceId: string | null = null;
+    let offerId: string | null = null;
+    try {
+      actor = await createOmnibusTenantActor(request, superadminToken, stamp, ACTOR_FEATURES);
+      const token = actor.token;
+      channelId = await createSalesChannelFixture(request, token, stamp);
+      priceKindId = await createPriceKindFixture(request, token, { stamp, suffix: 'prog' });
+      productId = await createOmnibusProductFixture(request, token, stamp);
+      priceId = await createPriceFixture(request, token, {
+        productId,
+        priceKindId,
+        channelId,
+        unitPriceNet: 89.4309,
+        unitPriceGross: 110,
+      });
+
+      const offerResponse = await apiRequest(request, 'POST', '/api/catalog/offers', {
+        token,
+        data: { title: `QA OMNI progressive ${stamp}`, productId, channelId },
+      });
+      expect(offerResponse.status(), `offer fixture create should be 201 (${await offerResponse.text()})`).toBe(201);
+      const offerBody = await readJsonSafe<{ id?: string }>(offerResponse);
+      expect(typeof offerBody?.id, 'offer fixture should return an id').toBe('string');
+      offerId = offerBody!.id as string;
+
+      const now = Date.now();
+      const priceKindCode = await readPriceKindCode(priceKindId);
+      const baseRow = {
+        tenantId: actor.tenantId,
+        organizationId: actor.organizationId,
+        priceId,
+        productId,
+        channelId,
+        priceKindId,
+        priceKindCode,
+        currencyCode: 'EUR',
+        taxRate: '23.0000',
+      };
+      await insertPriceHistoryRows([
+        { ...baseRow, offerId: null, unitPriceNet: '81.3008', unitPriceGross: '100.0000', recordedAt: new Date(now - 40 * DAY_MS), changeType: 'create' },
+        { ...baseRow, offerId, unitPriceNet: '73.1707', unitPriceGross: '90.0000', recordedAt: new Date(now - 20 * DAY_MS), changeType: 'update' },
+        { ...baseRow, offerId, unitPriceNet: '65.0407', unitPriceGross: '80.0000', recordedAt: new Date(now - 16 * DAY_MS), changeType: 'update' },
+        { ...baseRow, offerId, unitPriceNet: '56.9106', unitPriceGross: '70.0000', recordedAt: new Date(now - 12 * DAY_MS), changeType: 'update' },
+      ]);
+
+      const configured = await patchOmnibusConfig(request, token, {
+        enabled: true,
+        enabledCountryCodes: ['PL'],
+        lookbackDays: 30,
+        channels: {
+          [channelId]: {
+            presentedPriceKindId: priceKindId,
+            countryCode: 'PL',
+            progressiveReductionRule: true,
+            progressiveMaxGapDays: 7,
+          },
+        },
+      });
+      expect(configured.status, JSON.stringify(configured.body)).toBe(200);
+
+      const previewQuery = { productId, offerId, priceKindId, currencyCode: 'EUR', channelId };
+      const frozen = await fetchOmnibusPreview(request, token, previewQuery);
+      expect(frozen.status, frozen.text).toBe(200);
+      expect(frozen.body).toMatchObject({
+        applicabilityReason: 'progressive_reduction_frozen',
+        applicable: true,
+        lowestPriceGross: '100.0000',
+        previousPriceGross: '70.0000',
+      });
+
+      const overflowRows = Array.from({ length: OMNIBUS_IN_WINDOW_LIMIT + 1 }, (_, index) => ({
+        ...baseRow,
+        offerId,
+        unitPriceNet: '56.9106',
+        unitPriceGross: (69.99 - index / 1000).toFixed(4),
+        recordedAt: new Date(now + (index + 1) * 60 * 60 * 1000),
+        changeType: 'update' as const,
+      }));
+      await insertPriceHistoryRows(overflowRows);
+
+      const overflowed = await fetchOmnibusPreview(request, token, previewQuery);
+      expect(overflowed.status, overflowed.text).toBe(200);
+      expect(
+        overflowed.body?.applicabilityReason,
+        'a campaign past the observation cap must fall back instead of freezing a truncated sequence',
+      ).not.toBe('progressive_reduction_frozen');
+    } finally {
+      if (actor) {
+        await deleteEntityIfExists(request, actor.token, '/api/catalog/offers', offerId);
         await deleteEntityIfExists(request, actor.token, PRICES_PATH, priceId);
         await deleteEntityIfExists(request, actor.token, PRODUCTS_PATH, productId);
         await deleteEntityIfExists(request, actor.token, '/api/catalog/price-kinds', priceKindId);

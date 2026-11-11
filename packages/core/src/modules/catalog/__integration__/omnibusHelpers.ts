@@ -224,6 +224,7 @@ export type HistoryRowInput = {
   organizationId: string;
   priceId: string;
   productId: string;
+  offerId?: string | null;
   channelId: string | null;
   priceKindId: string;
   priceKindCode: string;
@@ -240,16 +241,17 @@ export async function insertPriceHistoryRows(rows: HistoryRowInput[]): Promise<v
     for (const row of rows) {
       await client.query(
         `insert into catalog_price_history_entries
-           (id, tenant_id, organization_id, price_id, product_id, channel_id, price_kind_id, price_kind_code,
+           (id, tenant_id, organization_id, price_id, product_id, offer_id, channel_id, price_kind_id, price_kind_code,
             currency_code, unit_price_net, unit_price_gross, tax_rate, min_quantity, recorded_at,
             change_type, source, is_announced, idempotency_key)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 1, $13, $14, 'system', false, null)`,
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 1, $14, $15, 'system', false, null)`,
         [
           randomUUID(),
           row.tenantId,
           row.organizationId,
           row.priceId,
           row.productId,
+          row.offerId ?? null,
           row.channelId,
           row.priceKindId,
           row.priceKindCode,
