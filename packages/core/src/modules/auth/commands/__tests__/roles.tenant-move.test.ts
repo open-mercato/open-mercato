@@ -147,6 +147,77 @@ describe('auth.roles.update tenant move', () => {
     expect(updateOrmEntity).toHaveBeenCalled()
   })
 
+  it.each([
+    {
+      guard: 'rename',
+      input: { id: roleId, name: 'Senior Manager' },
+      isSuperAdmin: false,
+      error: 'Role name cannot be changed while users are assigned',
+    },
+    {
+      guard: 'tenant move',
+      input: { id: roleId, tenantId: tenantB },
+      isSuperAdmin: true,
+      error: 'Role cannot be moved to another tenant while users are assigned',
+    },
+  ])('counts assigned holders inside the transaction after locking the role ($guard)', async ({ input, isSuperAdmin, error }) => {
+    const existingRole = { id: roleId, name: 'Manager', tenantId: tenantA, deletedAt: null } as unknown as Role
+    const updateOrmEntity = jest.fn()
+    const dataEngine = { updateOrmEntity, markOrmEntityChange: jest.fn() }
+    const em = {
+      findOne: jest.fn(async () => existingRole),
+      find: jest.fn(async () => []),
+      count: jest.fn(async () => 1),
+      nativeDelete: jest.fn(async () => 0),
+      begin: jest.fn(async () => undefined),
+      rollback: jest.fn(async () => undefined),
+    }
+    const ctx = makeCtx(dataEngine, em, { isSuperAdmin })
+
+    await expect(getHandler().execute(input, ctx))
+      .rejects.toMatchObject<Partial<CrudHttpError>>({ status: 400, body: { error } })
+
+    const roleLockCall = em.find.mock.invocationCallOrder.find((_order, index) => {
+      const [entity, , options] = em.find.mock.calls[index] as unknown as [unknown, unknown, { lockMode?: unknown } | undefined]
+      return entity === RoleEntity && options?.lockMode !== undefined
+    })
+    expect(em.count).toHaveBeenCalledTimes(1)
+    expect(em.count).toHaveBeenCalledWith(UserRole, { role: existingRole, deletedAt: null })
+    expect(roleLockCall).toBeDefined()
+    expect(em.begin.mock.invocationCallOrder[0]).toBeLessThan(em.count.mock.invocationCallOrder[0])
+    expect(roleLockCall!).toBeLessThan(em.count.mock.invocationCallOrder[0])
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.nativeDelete).not.toHaveBeenCalled()
+    expect(updateOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('evaluates the rename guard against the role row read under the lock', async () => {
+    const existingRole = { id: roleId, name: 'Manager', tenantId: tenantA, deletedAt: null } as unknown as Role
+    const updateOrmEntity = jest.fn()
+    const dataEngine = { updateOrmEntity, markOrmEntityChange: jest.fn() }
+    const em = {
+      findOne: jest.fn(async () => existingRole),
+      find: jest.fn(async (entity: unknown, _where: unknown, options?: { lockMode?: unknown }) => {
+        if (entity === RoleEntity && options?.lockMode !== undefined) {
+          (existingRole as unknown as { name: string }).name = 'Renamed Concurrently'
+        }
+        return []
+      }),
+      count: jest.fn(async () => 1),
+      nativeDelete: jest.fn(async () => 0),
+    }
+    const ctx = makeCtx(dataEngine, em, { isSuperAdmin: false })
+
+    await expect(getHandler().execute({ id: roleId, name: 'Manager' }, ctx))
+      .rejects.toMatchObject<Partial<CrudHttpError>>({
+        status: 400,
+        body: { error: 'Role name cannot be changed while users are assigned' },
+      })
+
+    expect(em.count).toHaveBeenCalledTimes(1)
+    expect(updateOrmEntity).not.toHaveBeenCalled()
+  })
+
   it('returns 404 when non-superadmin attempts to update a role in another tenant (defense-in-depth)', async () => {
     const updateOrmEntity = jest.fn()
     const nativeDelete = jest.fn(async () => 0)

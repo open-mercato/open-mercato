@@ -46,15 +46,49 @@ This creates a `my-store/` directory with the full application template, includi
 
 | Option | Description |
 | --- | --- |
+| `--app <name>` | Import the official ready app `open-mercato/ready-app-<name>` at the tag of this CLI version. |
+| `--app-url <url>` | Import a ready app from a GitHub repository URL, optionally with `/tree/<ref>`. |
+| `--template <slug \| owner/repo>[#ref]` | Create the app from an app template instead of the scaffold. See [Start from an app template](#start-from-an-app-template). |
+| `--keep-name` | With `--template`, keep the template's `package.json` `name`. |
 | `--preset <id>` | Select `classic`, `empty`, `crm`, or `wms` without the preset prompt. |
 | `--agents <list>` | Install the standalone AI harness non-interactively for `claude-code`, `codex`, `cursor`, a comma-separated subset, `all`, or `none`. |
 | `--skip-agentic-setup` | Skip the AI setup wizard; equivalent to `--agents none`. |
+| `--modules <list>` | Plan modules from the [Open Mercato Modules](https://modules.openmercato.com/) catalog that are verified on this Open Mercato line. Prints their `yarn mercato module add` commands; installs nothing. |
+| `--module-picker` | Pick catalog modules from a numbered list. In a terminal it is offered by default when neither `--preset` nor `--modules` is given; Enter adds none. |
+| `--no-module-picker` | Do not offer the catalog module picker. |
 | `--registry <url>` | Use a custom npm registry for `@open-mercato` packages. |
 | `--verdaccio` | Shorthand for `--registry http://localhost:4873` (local Verdaccio). |
 | `--help`, `-h` | Show usage information. |
 | `--version`, `-v` | Print the CLI version. |
 
 **App name rules:** lowercase alphanumeric characters and hyphens only. Cannot start or end with a hyphen.
+
+## Start from an app template
+
+An app template is a GitHub repository with a complete standalone app at its root, for example a CRM or a partner portal. Browse the listed ones at [modules.openmercato.com/templates](https://modules.openmercato.com/templates).
+
+```bash
+npx create-mercato-app my-crm --template crm
+npx create-mercato-app my-portal --template some-agency/b2b-portal#v1.0.0
+```
+
+- `--template` takes a slug from the template index, or `owner/repo` for any GitHub repository, listed or not. A private repository needs `GITHUB_TOKEN`. `#ref` is a branch, tag or commit.
+- Before the download the CLI prints the one commit it will use and its state: `Template: owner/repo@<sha> (verified)`, `(not verified)`, `(not listed, not verified)` or `(catalog status unknown, not verified)` when the index cannot be read. Check that line before you continue.
+- A template on hold is refused with its reason. An unmaintained template works and prints its reason.
+- The CLI warns, and continues, when the template is built on another Open Mercato line than the latest stable one, or registers `@open-mercato/enterprise` modules on every start, which need an Enterprise license. Modules behind a flag such as `OM_ENABLE_ENTERPRISE_MODULES`, as in the stock scaffold, do not trigger it.
+- `--template` cannot be combined with `--app`, `--app-url`, `--modules`, `--module-picker`, `--agents`, `--experimental-hooks-validator` or a `--preset` other than `classic`. There is no module picker and no AI setup wizard; run `yarn mercato agentic:init` inside the app later if you want the harness. `--registry` and `--verdaccio` do not apply, because the app keeps its own `.yarnrc.yml`.
+- The app is copied as it is, with three changes: the `package.json` `name` becomes your app name (unless `--keep-name`), `package.json` gets an `openMercatoTemplate` field with the repository, ref and commit, and the root `mercato-template.json` is removed. A failed import removes the directory it created.
+- Every import, with `--template`, `--app-url` or `--app`, is inspected before the app directory is created: at most a 64 MiB download, 10,000 entries and 128 MiB unpacked, and only files and directories. A link, a special file, an absolute path or a `..` segment stops it.
+
+Then follow the next steps the CLI prints. They match the scripts in the app's `package.json`:
+
+- `setup` and `infra:up`: `yarn setup`, as for a new app (`yarn setup --no-infra` for your own services). When the template declares env keys, `cp .env.example .env` and the keys come first.
+- `setup` only (apps from before `yarn setup` started Docker): `cp .env.example .env`, the declared keys, `docker compose up -d` (or start PostgreSQL, Redis and Meilisearch yourself), then `yarn setup`.
+- Neither: `cp .env.example .env`, the declared keys, `yarn install`, `yarn initialize` and `yarn dev`.
+
+To share your own app as a template, save it with [create-mercato-template](https://github.com/open-mercato/create-mercato-template): `prepare` builds a reviewed, code-only snapshot of one commit and `publish` pushes it as a one-commit GitHub template repository.
+
+`--app <name>` still imports `open-mercato/ready-app-<name>` at the tag of your CLI version. When that repository does not exist, the error points to app templates.
 
 ## Set up the AI development harness
 
@@ -65,7 +99,7 @@ npx create-mercato-app my-store --preset classic --agents all
 npx create-mercato-app my-store --agents claude-code,codex
 ```
 
-`--agents` applies to bare scaffolds. Ready apps imported with `--app` or `--app-url` manage their own setup; after importing one, run `yarn mercato agentic:init` inside it instead. The generated harness is standalone-specific and includes a compact root router, task and module guides, local skills, pinned delivery skills from `open-mercato/skills`, context tools, and reproducible evaluations.
+`--agents` applies to bare scaffolds. Apps imported with `--app`, `--app-url` or `--template` manage their own setup; after importing one, run `yarn mercato agentic:init` inside it instead. The generated harness is standalone-specific and includes a compact root router, task and module guides, local skills, pinned delivery skills from `open-mercato/skills`, context tools, and reproducible evaluations.
 
 The setup attempts to install the selected skill set. Re-run the integrity-checked installer after cloning, when a setup-time download was unavailable, or after changing tiers:
 
@@ -139,26 +173,30 @@ When a new failure or use case is discovered, invoke the bundled `om-evolve-harn
 
 ```bash
 cd my-store
+yarn setup
+```
 
-# 1. Copy environment template and configure
-cp .env.example .env
-# Edit .env — set DATABASE_URL, JWT_SECRET, REDIS_URL at minimum
+`yarn setup` copies `.env.example` to `.env` when it is missing (an existing `.env` is never overwritten), checks Docker, starts PostgreSQL, Redis and Meilisearch from `docker-compose.yml` and waits until they are healthy. Only then does it install dependencies, generate, migrate, initialize and start the dev server. If Docker is missing or stopped, or a port is taken, it stops before touching the database and says what to fix. Re-running it is safe: containers and volumes are reused and an already initialized database is kept.
 
-# 2. Start infrastructure
-docker compose up -d
+Running PostgreSQL, Redis and Meilisearch yourself? Point `.env` at them and run:
 
-# 3. Install dependencies
+```bash
+yarn setup --no-infra
+```
+
+It makes no Docker calls and keeps your URLs. The containers on their own: `yarn infra:up` (start and wait for health) and `yarn infra:down` (stop, data kept; `--volumes --yes` deletes it).
+
+The manual equivalent, against services you started yourself:
+
+```bash
+cp .env.example .env   # then set DATABASE_URL, JWT_SECRET, REDIS_URL at minimum
 yarn install
-
-# 4. Bootstrap the app (generates modules, runs migrations, seeds data)
-yarn initialize
-
-# 5. Start the dev server
+yarn initialize        # generates modules, runs migrations, seeds data
 yarn dev
 ```
 
 :::info
-`yarn initialize` handles code generation (`yarn generate`) and database migrations (`yarn db:migrate`) internally — you do not need to run them separately. It also seeds default data and will abort if existing users are found. For upgrades on an existing database, run `yarn db:migrate` instead of `yarn initialize`.
+`yarn initialize` handles code generation (`yarn generate`) and database migrations (`yarn db:migrate`) internally — you do not need to run them separately. It also seeds default data and will abort if existing users are found (`yarn setup` passes `--skip-if-initialized`, which keeps the existing data instead). For upgrades on an existing database, run `yarn db:migrate` instead of `yarn initialize`.
 :::
 
 If you prefer the old raw terminal output with no splash screen during standalone bootstrap, use `yarn setup:classic` instead of the compact `setup` flow.

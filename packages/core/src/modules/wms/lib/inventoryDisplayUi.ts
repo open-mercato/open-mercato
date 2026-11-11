@@ -159,6 +159,9 @@ function translateStableReasonCode(
   if (code === 'cycle_count') {
     return t('wms.backend.dashboard.activity.reasons.cycleCount', 'Cycle count')
   }
+  if (code === 'asn_receive') {
+    return t('wms.backend.dashboard.activity.reasons.asnReceive', 'Receive (from ASN)')
+  }
 
   const type = (movementType ?? '').trim()
   if (type === 'transfer' && code in MOVE_REASON_FALLBACKS) {
@@ -204,6 +207,49 @@ export function inventoryMovementReasonLabel(
   }
 
   return reason
+}
+
+/**
+ * Resolve a movement/activity subtitle. Prefers a stable reason label, then a
+ * human reference label (never the opaque idempotency `referenceId` UUID).
+ * Mirrors `formatReservationSourceLabel` so activity feeds stay readable.
+ */
+export function formatInventoryMovementActivitySubtitle(
+  input: {
+    reasonCode?: string | null
+    reason?: string | null
+    movementType?: string | null
+    referenceType?: string | null
+    referenceId?: string | null
+    referenceLabel?: string | null
+    /** Movement metadata `source` — used to recover ASN-receive labels for legacy rows. */
+    source?: string | null
+  },
+  t: InventoryDisplayTranslator,
+): string | null {
+  const source = input.source?.trim() || null
+  const effectiveReasonCode =
+    input.reasonCode?.trim() || (source === 'asn_receive' ? 'asn_receive' : null)
+  const reasonLabel = inventoryMovementReasonLabel(
+    {
+      reasonCode: effectiveReasonCode,
+      reason: input.reason,
+      movementType: input.movementType,
+    },
+    t,
+  )
+  const referenceLabel = input.referenceLabel?.trim() || null
+
+  if (reasonLabel && referenceLabel) return `${reasonLabel} · ${referenceLabel}`
+  if (reasonLabel) return reasonLabel
+
+  const referenceType = input.referenceType?.trim() || null
+  if (!referenceType) return null
+  const typeLabel = inventoryReferenceTypeLabel(referenceType, t)
+  if (referenceLabel) return `${typeLabel} · ${referenceLabel}`
+  // Never append raw referenceId UUIDs (ASN receive + manual receive both use
+  // synthetic idempotency UUIDs that truncate poorly in the activity feed).
+  return typeLabel
 }
 
 export function formatCatalogProductLabel(row: {

@@ -158,6 +158,38 @@ describe('useScheduleFormState seeding (#5940)', () => {
   })
 })
 
+describe('useScheduleFormState unsupported-type seeding (#7486)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(localDate(2026, 9, 11, 14, 12))
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it.each([
+    ['event'],      // built-in Event — outside this dialog's five legacy kinds
+    ['workshop'],   // custom dictionary key an admin configured
+    ['legacy-sms'], // historical key no longer offered by the type picker
+  ])('seeds an edit of an unsupported "%s" interactionType without crashing and preserves the raw key', (interactionType) => {
+    const editData = presetCreateData({
+      id: 'b0a1c2d3-0000-4000-8000-000000000005',
+      interactionType,
+      scheduledAt: localDate(2026, 9, 12, 10, 0).toISOString(),
+      reminderMinutes: null,
+    })
+    const { result } = renderHook(() => useScheduleFormState({ open: true, editData }))
+
+    // The raw persisted key is preserved verbatim — never silently rewritten to 'meeting'.
+    expect(result.current.activityType).toBe(interactionType)
+    // Seeding resolves presentation safely (falls back to Meeting's field shape)
+    // instead of throwing while indexing a map keyed by the five legacy kinds.
+    expect(result.current.date).toBe('2026-09-12')
+    expect(result.current.startTime).toBe('10:00')
+    expect(result.current.reminderMinutes).toBe(15)
+  })
+})
+
 describe('useScheduleFormState undated seeding (#5941)', () => {
   beforeEach(() => {
     jest.useFakeTimers().setSystemTime(localDate(2026, 9, 11, 14, 12))

@@ -4,6 +4,7 @@ Load this reference only when the root router does not make the task family obvi
 
 | Signal in the request | Primary local skill | Add when needed |
 |---|---|---|
+| Feature that may already exist as a module ("is there a module for X", build or install) | `om-find-module` | `om-module-scaffold` when nothing in core or the catalog fits |
 | New app domain/module, complete CRUD, one-shot system | `om-module-scaffold` | data, UI, extension, integration, AI/workflow branches |
 | Entity, schema, relation, encryption, migration, lost update | `om-data-model-design` | module scaffold for API/command/surfaces |
 | Page, form, table, detail, portal, navigation, translation | `om-backend-ui-design` | system extension when the host is installed |

@@ -38,6 +38,7 @@ export interface ActivityExecuteDeps {
   em: EntityManager
   container: AwilixContainer
   signal?: AbortSignal
+  timeoutMs?: number
 }
 
 export interface ActivityTypeEntry<TConfig = unknown> {

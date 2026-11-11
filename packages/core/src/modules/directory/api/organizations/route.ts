@@ -31,6 +31,8 @@ import {
 import { resolveIsSuperAdmin, enforceTenantSelection } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 
 type CrudInput = Record<string, unknown>
 const rawBodySchema = z.object({}).passthrough()
@@ -50,20 +52,26 @@ type TreeNode = {
   children: TreeNode[]
 }
 
+const organizationIdSchema = z.guid()
+
 const viewSchema = z.object({
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
   view: z.enum(['options', 'manage', 'tree']).default('options'),
-  ids: z.string().optional(),
+  ids: z
+    .string()
+    .refine((raw) => parseCommaSeparatedList(raw).every((id) => organizationIdSchema.safeParse(id).success), {
+      message: 'ids must be a comma-separated list of UUIDs',
+    })
+    .optional(),
   tenantId: z.string().uuid().optional(),
   includeInactive: z.enum(['true', 'false']).optional(),
   status: z.enum(['all', 'active', 'inactive']).optional(),
 })
 
 function parseIds(raw: string | null): string[] | null {
-  if (!raw) return null
-  const ids = raw.split(',').map((s) => s.trim()).filter(Boolean)
+  const ids = parseCommaSeparatedList(raw)
   return ids.length ? Array.from(new Set(ids)) : null
 }
 
@@ -139,7 +147,13 @@ export async function GET(req: Request) {
     includeInactive: url.searchParams.get('includeInactive') ?? undefined,
     status: url.searchParams.get('status') ?? undefined,
   })
-  if (!parsed.success) return NextResponse.json({ items: [] }, { status: 400 })
+  if (!parsed.success) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json(
+      { items: [], error: translate('directory.organizations.errors.invalidQuery', 'Invalid query') },
+      { status: 400 },
+    )
+  }
 
   const query = parsed.data
   const ids = parseIds(query.ids ?? null)

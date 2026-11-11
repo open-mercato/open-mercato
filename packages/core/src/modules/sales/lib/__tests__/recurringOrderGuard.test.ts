@@ -49,6 +49,15 @@ describe('assertRecurringOrderStatusAllowed', () => {
     }
   })
 
+  it.each(['canceled', 'on_hold'])('refuses %s on an invoiced recurring order without pointing at removing the schedule', async (status) => {
+    const { em, mock } = buildEm({ recurrence: { status: 'active' }, periods: 1 })
+    await expect(assertRecurringOrderStatusAllowed(em, order, status)).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'recurring_order_invoiced_stop' },
+    })
+    expect(mock.find.mock.calls[0][1]).toEqual({ order: 'order-1', tenantId: 'ten-1', organizationId: 'org-1' })
+  })
+
   it('allows stopping statuses once the recurrence is finished, and on orders without one', async () => {
     for (const recurrence of [{ status: 'completed' }, { status: 'cancelled' }, null]) {
       const { em } = buildEm({ recurrence })
@@ -62,6 +71,46 @@ describe('assertRecurringOrderStatusAllowed', () => {
     await expect(assertRecurringOrderStatusAllowed(em, order, null)).resolves.toBeUndefined()
     expect(mock.findOne).not.toHaveBeenCalled()
   })
+
+  describe('with the recurrence the same write leaves on the order', () => {
+    const schedule = { frequency: 'monthly' as const, startsOn: '2027-01-01' }
+
+    it('refuses a stopping status together with a new recurrence', async () => {
+      const { em } = buildEm({ recurrence: null })
+      await expect(assertRecurringOrderStatusAllowed(em, order, 'on_hold', schedule)).rejects.toMatchObject({
+        status: 409,
+        body: { code: 'recurring_order_use_cancel' },
+      })
+    })
+
+    it('refuses a changed schedule even when the current recurrence is finished', async () => {
+      const { em } = buildEm({ recurrence: { ...schedule, status: 'completed' } })
+      await expect(
+        assertRecurringOrderStatusAllowed(em, order, 'canceled', { ...schedule, frequency: 'yearly' }),
+      ).rejects.toMatchObject({ body: { code: 'recurring_order_use_cancel' } })
+    })
+
+    it('judges an echoed schedule by the current recurrence', async () => {
+      const finished = buildEm({ recurrence: { ...schedule, status: 'completed' } })
+      await expect(assertRecurringOrderStatusAllowed(finished.em, order, 'canceled', schedule)).resolves.toBeUndefined()
+      const unfinished = buildEm({ recurrence: { ...schedule, status: 'active' } })
+      await expect(assertRecurringOrderStatusAllowed(unfinished.em, order, 'canceled', schedule)).rejects.toMatchObject({
+        body: { code: 'recurring_order_use_cancel' },
+      })
+    })
+
+    it('allows stopping an order in the same write that removes its recurrence', async () => {
+      const { em, mock } = buildEm({ recurrence: { ...schedule, status: 'scheduled' } })
+      await expect(assertRecurringOrderStatusAllowed(em, order, 'canceled', null)).resolves.toBeUndefined()
+      expect(mock.findOne).not.toHaveBeenCalled()
+    })
+
+    it('looks up only the live recurrence', async () => {
+      const { em, mock } = buildEm({ recurrence: null })
+      await assertRecurringOrderStatusAllowed(em, order, 'canceled')
+      expect(mock.findOne.mock.calls[0][1]).toEqual({ orderId: 'order-1', tenantId: 'ten-1', organizationId: 'org-1', deletedAt: null })
+    })
+  })
 })
 
 describe('assertRecurringOrderDeletable', () => {
@@ -69,6 +118,14 @@ describe('assertRecurringOrderDeletable', () => {
     const { em, mock } = buildEm({ recurrence: { status: 'scheduled' }, periods: 0 })
     await expect(assertRecurringOrderDeletable(em, order)).resolves.toBeUndefined()
     expect(mock.findOne.mock.calls[0][2]).toMatchObject({ lockMode: expect.anything() })
+  })
+
+  it('filters the recurrence and its periods by the order scope', async () => {
+    const { em, mock } = buildEm({ recurrence: { status: 'scheduled' }, periods: 0 })
+    await assertRecurringOrderDeletable(em, order)
+    const scope = { tenantId: 'ten-1', organizationId: 'org-1' }
+    expect(mock.findOne.mock.calls[0][1]).toEqual({ orderId: 'order-1', ...scope })
+    expect(mock.find.mock.calls[0][1]).toEqual({ order: 'order-1', ...scope })
   })
 
   it('refuses to delete a recurring order with a period', async () => {

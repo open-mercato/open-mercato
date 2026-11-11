@@ -1,8 +1,10 @@
 import path from 'node:path'
 import fs from 'node:fs'
-import { setModuleRegistrationSource } from './modules-config'
+import { prepareModuleRegistrationSource, setModuleRegistrationSource } from './modules-config'
 import type { PackageResolver, ModuleEntry } from './resolver'
-import { resolveInstalledOfficialModulePackage } from './module-package'
+import { isModulePackageExportError, resolveInstalledOfficialModulePackage, resolveInstalledPackageRoot } from './module-package'
+import { normalizeModuleLocator } from '@open-mercato/shared/modules/module-locators'
+import { getEnabledModuleIdentities } from './module-identity'
 
 type ModuleMetadata = {
   ejectable?: boolean
@@ -178,8 +180,8 @@ export function copyDirRecursive(src: string, dest: string): void {
   }
 }
 
-export function updateModulesTs(modulesPath: string, moduleId: string): void {
-  setModuleRegistrationSource(modulesPath, moduleId, '@app')
+export function updateModulesTs(modulesPath: string, moduleId: string, provenance?: Pick<ModuleEntry, 'locator' | 'packageName'>): void {
+  setModuleRegistrationSource(modulesPath, moduleId, '@app', provenance)
 }
 
 export type EjectableModule = {
@@ -239,7 +241,8 @@ function resolveModuleSource(
         description: modulePackage.moduleInfo.description,
       },
     }
-  } catch {
+  } catch (error) {
+    if (isModulePackageExportError(error)) throw error
     return { pkgBase, metadata: fallbackMetadata }
   }
 }
@@ -268,7 +271,9 @@ export function listEjectableModules(resolver: PackageResolver): EjectableModule
 
 export function ejectModule(resolver: PackageResolver, moduleId: string): void {
   const modules = resolver.loadEnabledModules()
-  const entry = modules.find((m: ModuleEntry) => m.id === moduleId)
+  const identities = getEnabledModuleIdentities(resolver, modules)
+  const matches = modules.filter((module: ModuleEntry) => module.id === moduleId)
+  const entry = matches[0]
 
   if (!entry) {
     throw new Error(
@@ -302,13 +307,26 @@ export function ejectModule(resolver: PackageResolver, moduleId: string): void {
   if (fs.existsSync(appBase)) {
     throw new Error(
       `Destination directory already exists: ${appBase}. ` +
-      `Remove it first or resolve the conflict manually.`,
+      `Keep the existing local source and review the destination conflict before ejecting.`,
     )
   }
 
+  const locators = identities.find((identity) => identity.id === moduleId)?.locators ?? []
+  const packageRoot = resolveInstalledPackageRoot(resolver, entry.from || '@open-mercato/core')
+  const manifest: unknown = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))
+  const packageName = manifest && typeof manifest === 'object' && 'name' in manifest && typeof manifest.name === 'string'
+    ? manifest.name
+    : undefined
+  if (!packageName || normalizeModuleLocator(`npm:${packageName}`) !== `npm:${packageName}`) {
+    throw new Error(`Cannot retain source provenance for module "${moduleId}": the installed package manifest has no valid name.`)
+  }
+  const locator = locators.find((identity) => identity.startsWith('github:')) ?? locators.find((identity) => identity.startsWith('npm:'))
+  const provenance = { ...(packageName ? { packageName } : {}), ...(locator ? { locator } : {}) }
+  const modulesPath = resolver.getModulesConfigPath()
+  const originalConfig = fs.readFileSync(modulesPath, 'utf8')
+  const updatedConfig = prepareModuleRegistrationSource(originalConfig, moduleId, '@app', provenance)
+
   copyDirRecursive(pkgBase, appBase)
   rewriteCrossModuleImports(pkgBase, appBase, moduleId, entry.from || '@open-mercato/core')
-
-  const modulesPath = resolver.getModulesConfigPath()
-  updateModulesTs(modulesPath, moduleId)
+  fs.writeFileSync(modulesPath, updatedConfig)
 }

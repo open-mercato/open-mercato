@@ -1,14 +1,21 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
-import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { createShipmentFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import {
+  expectOperation,
+  redoOk,
+  skipIfUndoTestsDisabled,
+  undoByToken,
+  undoOk,
+} from '@open-mercato/core/helpers/integration/undoHarness'
 
 /**
  * TC-SALES-046 — recurring order locks and status guards (spec 2026-10-21-sales-recurring-orders, R5/R10).
  *
  * Once a recurring order has an issued period, nothing that changes what is billed can be
- * edited and the order cannot be deleted. Only *Cancel recurring order* may stop an
- * unfinished recurring order, so canceled / on-hold statuses are refused. Periods are
+ * edited and the order cannot be deleted. An unfinished recurring order cannot be
+ * canceled or put on hold while it keeps its schedule, so those statuses are refused. Periods are
  * inserted directly into the ledger: the invoicing worker ships in phase 2.
  */
 
@@ -39,12 +46,17 @@ async function readOrder(request: APIRequestContext, token: string, id: string):
   return items[0] ?? {}
 }
 
-async function createRecurringOrder(request: APIRequestContext, token: string, startsOn: string): Promise<string> {
+async function createRecurringOrder(
+  request: APIRequestContext,
+  token: string,
+  startsOn: string,
+  quantity = 1,
+): Promise<string> {
   const response = await apiRequest(request, 'POST', '/api/sales/orders', {
     token,
     data: {
       currencyCode: 'USD',
-      lines: [{ currencyCode: 'USD', name: 'QA TC-SALES-046 rent', quantity: 1, unitPriceNet: 100, unitPriceGross: 123, taxRate: 23 }],
+      lines: [{ currencyCode: 'USD', name: 'QA TC-SALES-046 rent', quantity, unitPriceNet: 100, unitPriceGross: 123, taxRate: 23 }],
       recurrence: { frequency: 'monthly', startsOn },
     },
   })
@@ -70,12 +82,41 @@ async function deletePeriods(orderId: string | null): Promise<void> {
   await withClient((client) => client.query('delete from sales_recurring_periods where order_id = $1', [orderId]))
 }
 
+async function firstLineId(request: APIRequestContext, token: string, orderId: string): Promise<string> {
+  const response = await apiRequest(request, 'GET', `/api/sales/order-lines?orderId=${orderId}&pageSize=10`, { token })
+  return (((await readJson(response)).items ?? []) as JsonRecord[])[0]?.id as string
+}
+
 async function orderStatusEntryId(request: APIRequestContext, token: string, value: string): Promise<string | null> {
   const response = await apiRequest(request, 'GET', '/api/sales/order-statuses?pageSize=100', { token })
   if (!response.ok()) return null
   const items = ((await readJson(response)).items ?? []) as JsonRecord[]
   const entry = items.find((item) => item.value === value)
   return typeof entry?.id === 'string' ? entry.id : null
+}
+
+async function createPaymentMethod(request: APIRequestContext, token: string): Promise<string> {
+  const stamp = `${Date.now()}${Math.floor(Math.random() * 1000)}`
+  const response = await apiRequest(request, 'POST', '/api/sales/payment-methods', {
+    token,
+    data: { name: `QA TC-SALES-046 method ${stamp}`, code: `qa_046_${stamp}` },
+  })
+  expect(response.status(), 'POST /api/sales/payment-methods should be 201').toBe(201)
+  return (await readJson(response)).id as string
+}
+
+async function recordPayment(
+  request: APIRequestContext,
+  token: string,
+  orderId: string,
+  paymentMethodId: string,
+): Promise<APIResponse> {
+  const response = await apiRequest(request, 'POST', '/api/sales/payments', {
+    token,
+    data: { orderId, paymentMethodId, amount: 10, currencyCode: 'USD' },
+  })
+  expect(response.status(), 'POST /api/sales/payments should be 201').toBe(201)
+  return response
 }
 
 function expectCode(response: APIResponse, body: JsonRecord, status: number, code: string, label: string): void {
@@ -97,8 +138,7 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
       })
       expect(adjustment.status(), 'adjustments can be added before the first period').toBe(201)
       const adjustmentId = (await readJson(adjustment)).id as string
-      const lineResponse = await apiRequest(request, 'GET', `/api/sales/order-lines?orderId=${orderId}&pageSize=10`, { token })
-      const lineId = (((await readJson(lineResponse)).items ?? []) as JsonRecord[])[0]?.id as string
+      const lineId = await firstLineId(request, token, orderId)
 
       await insertPeriod(orderId, startsOn)
       expect((await readOrder(request, token, orderId)).recurrence).toMatchObject({ locked: true })
@@ -113,6 +153,14 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
           data: { id: lineId, orderId, quantity: 2, currencyCode: 'USD' },
         })],
         ['delete line', () => apiRequest(request, 'DELETE', '/api/sales/order-lines', { token, data: { id: lineId, orderId } })],
+        ['batch edit lines', () => apiRequest(request, 'POST', '/api/sales/order-lines/batch', {
+          token,
+          data: { orderId, lines: [{ id: lineId, currencyCode: 'USD', quantity: 2 }] },
+        })],
+        ['batch delete lines', () => apiRequest(request, 'POST', '/api/sales/order-lines/batch', {
+          token,
+          data: { orderId, deleteIds: [lineId] },
+        })],
         ['add adjustment', () => apiRequest(request, 'POST', '/api/sales/order-adjustments', {
           token,
           data: { orderId, scope: 'order', kind: 'surcharge', amountNet: 1, amountGross: 1, currencyCode: 'USD' },
@@ -139,6 +187,19 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
       })
       expect(comment.status(), 'fields that do not change what is billed still save').toBe(200)
 
+      const echoed = await apiRequest(request, 'PUT', '/api/sales/orders', {
+        token,
+        data: { id: orderId, comments: 'QA TC-SALES-046 echoed schedule', recurrence: { frequency: 'monthly', startsOn } },
+      })
+      expect(echoed.status(), 'sending the current schedule back with an unlocked edit still saves').toBe(200)
+
+      for (const value of ['canceled', 'on_hold']) {
+        const statusEntryId = await orderStatusEntryId(request, token, value)
+        if (!statusEntryId) continue
+        const response = await apiRequest(request, 'PUT', '/api/sales/orders', { token, data: { id: orderId, statusEntryId } })
+        expectCode(response, await readJson(response), 409, 'recurring_order_invoiced_stop', `status ${value}`)
+      }
+
       const deletion = await apiRequest(request, 'DELETE', `/api/sales/orders?id=${encodeURIComponent(orderId)}`, { token })
       expectCode(deletion, await readJson(deletion), 409, 'recurring_order_invoiced', 'delete order')
       expect((await readOrder(request, token, orderId)).id).toBe(orderId)
@@ -164,17 +225,159 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
     }
   })
 
-  test('deletes an unbilled recurring order together with its recurrence', async ({ request }) => {
+  test('deletes an unbilled recurring order and keeps its recurrence only as a removed row', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const orderId = await createRecurringOrder(request, token, isoDayFromToday(10))
     const deletion = await apiRequest(request, 'DELETE', `/api/sales/orders?id=${encodeURIComponent(orderId)}`, { token })
     expect(deletion.status()).toBe(200)
     const remaining = await withClient(async (client) => {
-      const result = await client.query('select count(*)::int as count from sales_order_recurrences where order_id = $1', [
-        orderId,
-      ])
-      return result.rows[0].count as number
+      const result = await client.query(
+        'select count(*) filter (where deleted_at is null)::int as live, count(*)::int as total from sales_order_recurrences where order_id = $1',
+        [orderId],
+      )
+      return result.rows[0] as { live: number; total: number }
     })
-    expect(remaining).toBe(0)
+    expect(remaining, 'the removed row keeps the schedule version for an undo').toEqual({ live: 0, total: 1 })
+  })
+
+  test('refuses returns that would change a locked order', async ({ request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    const startsOn = isoDayFromToday(3)
+    let orderId: string | null = null
+    try {
+      orderId = await createRecurringOrder(request, token, startsOn, 2)
+      const orderLineId = await firstLineId(request, token, orderId)
+      await createShipmentFixture(request, token, orderId, [{ orderLineId, quantity: 2 }])
+      const created = await apiRequest(request, 'POST', '/api/sales/returns', {
+        token,
+        data: { orderId, reason: 'QA TC-SALES-046 return', lines: [{ orderLineId, quantity: 1 }] },
+      })
+      expect(created.status(), 'returns are allowed before the first period').toBe(201)
+      const returnId = (await readJson(created)).id as string
+      const createOperation = expectOperation(created, 'return create')
+
+      await insertPeriod(orderId, startsOn)
+      const totalBefore = (await readOrder(request, token, orderId)).grandTotalGrossAmount
+      expect(typeof totalBefore, 'the order total should be readable').toBe('number')
+
+      const another = await apiRequest(request, 'POST', '/api/sales/returns', {
+        token,
+        data: { orderId, reason: 'QA TC-SALES-046 second return', lines: [{ orderLineId, quantity: 1 }] },
+      })
+      expectCode(another, await readJson(another), 409, 'recurring_order_locked', 'create return')
+
+      const deletion = await apiRequest(request, 'DELETE', '/api/sales/returns', { token, data: { id: returnId, orderId } })
+      expectCode(deletion, await readJson(deletion), 409, 'recurring_order_locked', 'delete return')
+
+      const undo = await undoByToken(request, token, createOperation.undoToken)
+      expect(undo.ok(), 'undoing the return would change a locked order').toBeFalsy()
+
+      expect((await readOrder(request, token, orderId)).grandTotalGrossAmount).toBe(totalBefore)
+    } finally {
+      await deletePeriods(orderId)
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
+
+  test('records payments on a locked order without giving it a payment method', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const startsOn = isoDayFromToday(3)
+    let orderId: string | null = null
+    let methodId: string | null = null
+    let paymentId: string | null = null
+    try {
+      methodId = await createPaymentMethod(request, token)
+      orderId = await createRecurringOrder(request, token, startsOn)
+      await insertPeriod(orderId, startsOn)
+
+      const payment = await recordPayment(request, token, orderId, methodId)
+      paymentId = (await readJson(payment)).id as string
+
+      const order = await readOrder(request, token, orderId)
+      expect(order.paymentMethodId, 'the payment must not set the locked order\'s payment method').toBeNull()
+      expect(order.paymentMethodCode).toBeNull()
+      expect(Number(order.paidTotalAmount), 'the payment itself is still recorded').toBe(10)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/payments', paymentId)
+      await deletePeriods(orderId)
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+      await deleteSalesEntityIfExists(request, token, '/api/sales/payment-methods', methodId)
+    }
+  })
+
+  test('keeps a locked order\'s payment method when a payment is undone or redone', async ({ request }) => {
+    skipIfUndoTestsDisabled()
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    const startsOn = isoDayFromToday(3)
+    const orderIds: string[] = []
+    const paymentIds: string[] = []
+    let methodId: string | null = null
+    try {
+      methodId = await createPaymentMethod(request, token)
+
+      const undoneOrderId = await createRecurringOrder(request, token, startsOn)
+      orderIds.push(undoneOrderId)
+      const undonePayment = await recordPayment(request, token, undoneOrderId, methodId)
+      paymentIds.push((await readJson(undonePayment)).id as string)
+      expect((await readOrder(request, token, undoneOrderId)).paymentMethodId, 'an unbilled order adopts the method').toBe(methodId)
+      await insertPeriod(undoneOrderId, startsOn)
+      await undoOk(request, token, expectOperation(undonePayment, 'payment create').undoToken, 'payment create after billing')
+      expect(
+        (await readOrder(request, token, undoneOrderId)).paymentMethodId,
+        'undo must not clear the locked order\'s payment method',
+      ).toBe(methodId)
+
+      const redoneOrderId = await createRecurringOrder(request, token, startsOn)
+      orderIds.push(redoneOrderId)
+      const redonePayment = await recordPayment(request, token, redoneOrderId, methodId)
+      paymentIds.push((await readJson(redonePayment)).id as string)
+      const undoLogId = await undoOk(request, token, expectOperation(redonePayment, 'payment create').undoToken, 'payment create before billing')
+      expect((await readOrder(request, token, redoneOrderId)).paymentMethodId, 'undo before billing clears the adopted method').toBeNull()
+      await insertPeriod(redoneOrderId, startsOn)
+      await redoOk(request, token, undoLogId, 'payment create after billing')
+      const redone = await readOrder(request, token, redoneOrderId)
+      expect(redone.paymentMethodId, 'redo must not set the locked order\'s payment method').toBeNull()
+      expect(Number(redone.paidTotalAmount), 'redo restores the payment itself').toBe(10)
+    } finally {
+      for (const paymentId of paymentIds) await deleteSalesEntityIfExists(request, token, '/api/sales/payments', paymentId)
+      for (const orderId of orderIds) {
+        await deletePeriods(orderId)
+        await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+      }
+      await deleteSalesEntityIfExists(request, token, '/api/sales/payment-methods', methodId)
+    }
+  })
+
+  test('undoes consecutive changes to an unbilled recurring order', async ({ request }) => {
+    skipIfUndoTestsDisabled()
+    const token = await getAuthToken(request, 'admin')
+    let orderId: string | null = null
+    try {
+      orderId = await createRecurringOrder(request, token, isoDayFromToday(10))
+      const schedule = (await readOrder(request, token, orderId)).recurrence as JsonRecord
+
+      const edits: string[] = []
+      for (const comments of ['QA TC-SALES-046 first comment', 'QA TC-SALES-046 second comment']) {
+        const edit = await apiRequest(request, 'PUT', '/api/sales/orders', { token, data: { id: orderId, comments } })
+        expect(edit.status()).toBe(200)
+        edits.push(expectOperation(edit, comments).undoToken)
+      }
+
+      await undoOk(request, token, edits[1], 'second comment edit')
+      await undoOk(request, token, edits[0], 'first comment edit after an earlier undo bumped the schedule version')
+
+      const restored = await readOrder(request, token, orderId)
+      expect(restored.comment).toBeNull()
+      expect(restored.recurrence).toMatchObject({
+        frequency: schedule.frequency,
+        startsOn: schedule.startsOn,
+        nextInvoiceOn: schedule.nextInvoiceOn,
+        status: schedule.status,
+      })
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
   })
 })

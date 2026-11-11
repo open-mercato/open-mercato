@@ -8,7 +8,8 @@ import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type PushDeliveryStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'skipped' | 'expired'
@@ -44,15 +45,8 @@ const statusVariant: StatusMap<PushDeliveryStatus> = {
   expired: 'warning',
 }
 
-function formatDate(value: string | null, t: (key: string) => string) {
-  if (!value) return t('push_notifications.deliveries.noValue')
-  try {
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return t('push_notifications.deliveries.noValue')
-    return date.toLocaleString()
-  } catch {
-    return t('push_notifications.deliveries.noValue')
-  }
+function formatDate(value: string | null, locale: string | undefined, t: (key: string) => string) {
+  return formatDisplayDateTime(value, locale) ?? t('push_notifications.deliveries.noValue')
 }
 
 export default function PushDeliveriesListPage() {
@@ -64,6 +58,7 @@ export default function PushDeliveriesListPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+  const dateLocale = useLocale()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [userOptions, setUserOptions] = React.useState<{ value: string; label: string; description?: string | null }[]>([])
 
@@ -210,14 +205,14 @@ export default function PushDeliveriesListPage() {
     {
       accessorKey: 'created_at',
       header: t('push_notifications.deliveries.columns.created'),
-      cell: ({ row }) => formatDate(row.original.created_at, t),
+      cell: ({ row }) => formatDate(row.original.created_at, dateLocale, t),
     },
     {
       accessorKey: 'sent_at',
       header: t('push_notifications.deliveries.columns.sent'),
-      cell: ({ row }) => formatDate(row.original.sent_at, t),
+      cell: ({ row }) => formatDate(row.original.sent_at, dateLocale, t),
     },
-  ], [t, userLabelById])
+  ], [t, dateLocale, userLabelById])
 
   return (
     <Page>

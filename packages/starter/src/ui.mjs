@@ -51,15 +51,15 @@ export function printBanner(subtitle, { log = console.log } = {}) {
 
 export function stepHeader(index, total, title, expectation, { log = console.log } = {}) {
   log('')
-  log(`${color.bold(color.blue(`── Step ${index}/${total}`))} ${color.bold(title)}`)
-  if (expectation) log(color.dim(`   Expected: ${expectation}`))
+  log(`   ${color.bold(color.blue(`── Step ${index}/${total}`))} ${color.bold(title)}`)
+  if (expectation) log(`   ${color.bold(color.yellow('Expected:'))} ${expectation}`)
 }
 
 export const icons = {
-  ok: color.green('OK'),
-  warn: color.yellow('!!'),
-  fail: color.red('XX'),
-  info: color.cyan('--'),
+  ok: color.green('✅'),
+  warn: color.yellow('❗'),
+  fail: color.red('❌'),
+  info: color.cyan('💡'),
 }
 
 export function statusLine(kind, message, { log = console.log } = {}) {
@@ -80,37 +80,58 @@ const SPINNER_FRAMES = ['|', '/', '-', '\\']
 
 // Spinner for long waits that produce no streamed output. In non-TTY contexts
 // it prints the label once and then only meaningful updates via update().
-export function createSpinner(label) {
+export function createSpinner(label, {
+  output = process.stdout,
+  env = process.env,
+  log = console.log,
+  frames = SPINNER_FRAMES,
+  startPaused = false,
+  now = Date.now,
+  setIntervalImpl = setInterval,
+  clearIntervalImpl = clearInterval,
+} = {}) {
   let frame = 0
   let currentLabel = label
   let timer = null
-  const startedAt = Date.now()
+  let stopped = false
+  let rendered = false
+  const startedAt = now()
+  const animated = Boolean(output.isTTY && env.CI !== 'true' && env.TERM !== 'dumb')
 
   const render = () => {
-    const elapsed = Math.round((Date.now() - startedAt) / 1000)
-    process.stdout.write(`\r   ${color.cyan(SPINNER_FRAMES[frame % SPINNER_FRAMES.length])} ${currentLabel} ${color.dim(`(${elapsed}s)`)}   `)
+    const elapsed = Math.round((now() - startedAt) / 1000)
+    output.write(`\r   ${color.cyan(frames[frame % frames.length])} ${currentLabel} ${color.dim(`(${elapsed}s)`)}   `)
     frame += 1
+    rendered = true
   }
 
-  if (isTty) {
-    timer = setInterval(render, 120)
-    render()
-  } else {
-    console.log(`   ... ${label}`)
+  const pause = () => {
+    if (timer !== null) clearIntervalImpl(timer)
+    timer = null
+    if (rendered) output.write('\r' + ' '.repeat(Math.max(1, Math.min(output.columns ?? 100, 100) - 1)) + '\r')
+    rendered = false
   }
+  const resume = () => {
+    if (!animated || stopped || timer !== null) return
+    timer = setIntervalImpl(render, 120)
+    render()
+  }
+
+  if (animated) { if (!startPaused) resume() }
+  else log(`   ... ${label}`)
 
   return {
+    pause,
+    resume,
     update(nextLabel) {
       if (nextLabel === currentLabel) return
       currentLabel = nextLabel
-      if (!isTty) console.log(`   ... ${nextLabel}`)
+      if (!animated) log(`   ... ${nextLabel}`)
     },
     stop(kind = null, message = null) {
-      if (timer) {
-        clearInterval(timer)
-        process.stdout.write('\r' + ' '.repeat(100) + '\r')
-      }
-      if (kind && message) statusLine(kind, message)
+      pause()
+      stopped = true
+      if (kind && message) statusLine(kind, message, { log })
     },
   }
 }

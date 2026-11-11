@@ -1,4 +1,5 @@
 {
+  "notifications.categories.property_management": "Property management",
   "property_management.audit.building.archive": "Archive building",
   "property_management.audit.building.create": "Create building",
   "property_management.audit.building.delete": "Delete building",

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 
 const BASE_URL = process.env.BASE_URL?.trim() || null
 
@@ -17,11 +17,25 @@ test('TC-SALES-ADDR-CONTACT-002: the document form persists address contact fiel
 
   try {
     await login(page)
+    const numberResponsePromise = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === '/api/sales/document-numbers' &&
+        response.request().method() === 'POST',
+    )
     await page.goto(resolveUrl('/backend/sales/documents/create?kind=quote'), {
       waitUntil: 'domcontentloaded',
     })
+    const numberResponse = await numberResponsePromise
+    expect(numberResponse.ok(), 'initial document number generation should succeed').toBeTruthy()
+    const numberBody = (await numberResponse.json()) as { number: string }
+    expect(numberBody.number, 'initial generation should return a document number').toMatch(/\S/)
+    await expect(
+      page.locator('[data-crud-field-id="documentNumber"]').getByRole('textbox'),
+    ).toHaveValue(numberBody.number)
     await expect(page.getByRole('button', { name: 'Generate' })).toBeEnabled()
-    await page.getByRole('switch', { name: 'Define new address' }).click()
+    const newAddressSwitch = page.getByRole('switch', { name: 'Define new address' })
+    await newAddressSwitch.click()
+    await expect(newAddressSwitch).toBeChecked()
     await page.getByRole('textbox', { name: 'Label' }).fill('QA create contact fixture')
     await page.getByRole('textbox', { name: 'Address line 1' }).fill('12 Browser Street')
     await page.getByRole('textbox', { name: 'City' }).fill('London')
@@ -46,9 +60,11 @@ test('TC-SALES-ADDR-CONTACT-002: the document form persists address contact fiel
     quoteId = createBody.id ?? null
     expect(quoteId, 'quote creation should return an id').toBeTruthy()
 
-    const readResponse = await request.fetch(
-      resolveUrl(`/api/sales/quotes?id=${encodeURIComponent(quoteId as string)}`),
-      { headers: { Authorization: `Bearer ${token}` } },
+    const readResponse = await apiRequest(
+      request,
+      'GET',
+      `/api/sales/quotes?id=${encodeURIComponent(quoteId as string)}`,
+      { token },
     )
     expect(readResponse.status(), 'created quote should be readable').toBe(200)
     const readBody = (await readResponse.json()) as { items?: Array<Record<string, unknown>> }
@@ -66,9 +82,8 @@ test('TC-SALES-ADDR-CONTACT-002: the document form persists address contact fiel
     })
   } finally {
     if (quoteId) {
-      await request.fetch(resolveUrl('/api/sales/quotes'), {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      await apiRequest(request, 'DELETE', '/api/sales/quotes', {
+        token,
         data: { id: quoteId },
       })
     }

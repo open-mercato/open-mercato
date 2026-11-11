@@ -189,6 +189,93 @@ describe('padByCodePointWidth', () => {
   })
 })
 
+describe('module command argument logging', () => {
+  beforeEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('redacts legacy encryption keys before logging module command arguments', async () => {
+    const rotateEncryptionKey = jest.fn().mockResolvedValue(undefined)
+    registerCliModules([
+      {
+        id: 'entities',
+        cli: [{ command: 'rotate-encryption-key', run: rotateEncryptionKey }],
+      } as Module,
+    ])
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    expect(await run([
+      'node',
+      'mercato',
+      'entities',
+      'rotate-encryption-key',
+      '--old-key',
+      'argument-secret',
+    ])).toBe(0)
+    expect(await run([
+      'node',
+      'mercato',
+      'entities',
+      'rotate-encryption-key',
+      '--oldKey=inline-secret',
+    ])).toBe(0)
+
+    const output = consoleLogSpy.mock.calls.flat().map(String).join('\n')
+    expect(output).not.toContain('argument-secret')
+    expect(output).not.toContain('inline-secret')
+    expect(output).toContain('--old-key ****')
+    expect(output).toContain('--oldKey=****')
+    expect(rotateEncryptionKey).toHaveBeenCalledTimes(2)
+    consoleLogSpy.mockRestore()
+  })
+
+  // The echoed command line lands in terminal scrollback and CI logs, so every option that
+  // carries a credential has to be covered — not just the one the encryption work introduced.
+  it('redacts passwords and API keys passed to any module command', async () => {
+    const setup = jest.fn().mockResolvedValue(undefined)
+    const chat = jest.fn().mockResolvedValue(undefined)
+    registerCliModules([
+      { id: 'auth', cli: [{ command: 'setup', run: setup }] } as Module,
+      { id: 'ai_assistant', cli: [{ command: 'chat', run: chat }] } as Module,
+    ])
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    expect(await run(['node', 'mercato', 'auth', 'setup', '--password', 'hunter2-secret'])).toBe(0)
+    expect(await run(['node', 'mercato', 'ai_assistant', 'chat', '--api-key', 'sk-live-secret'])).toBe(0)
+    expect(await run(['node', 'mercato', 'ai_assistant', 'chat', '--apiKey=sk-inline-secret'])).toBe(0)
+
+    const output = consoleLogSpy.mock.calls.flat().map(String).join('\n')
+    expect(output).not.toContain('hunter2-secret')
+    expect(output).not.toContain('sk-live-secret')
+    expect(output).not.toContain('sk-inline-secret')
+    expect(output).toContain('--password ****')
+    expect(output).toContain('--api-key ****')
+    expect(output).toContain('--apiKey=****')
+    consoleLogSpy.mockRestore()
+  })
+
+  // `--key` is key material in `seeds encrypt|decrypt|load` and a custom-field key in
+  // `entities add-field`, so the redaction has to be per-command rather than global.
+  it('redacts --key only for the commands where it carries key material', async () => {
+    const encrypt = jest.fn().mockResolvedValue(undefined)
+    const addField = jest.fn().mockResolvedValue(undefined)
+    registerCliModules([
+      { id: 'seeds', cli: [{ command: 'encrypt', run: encrypt }] } as Module,
+      { id: 'entities', cli: [{ command: 'add-field', run: addField }] } as Module,
+    ])
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    expect(await run(['node', 'mercato', 'seeds', 'encrypt', '--key', 'base64-seed-key'])).toBe(0)
+    expect(await run(['node', 'mercato', 'entities', 'add-field', '--key', 'priority_level'])).toBe(0)
+
+    const output = consoleLogSpy.mock.calls.flat().map(String).join('\n')
+    expect(output).not.toContain('base64-seed-key')
+    expect(output).toContain('--key ****')
+    expect(output).toContain('--key priority_level')
+    consoleLogSpy.mockRestore()
+  })
+})
+
 describe('--help never triggers side effects (issue #5581)', () => {
   beforeEach(() => {
     jest.restoreAllMocks()
@@ -221,6 +308,33 @@ describe('--help never triggers side effects (issue #5581)', () => {
       expect(resolveEnvBootstrapOptions(['db', 'generate'])).toEqual({
         createIfMissing: true,
         quiet: false,
+      })
+    })
+
+    it('keeps module search and module info read-only and quiet, so --json output parses', () => {
+      expect(resolveEnvBootstrapOptions(['module', 'search', 'ksef', '--json'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['module', 'search', 'ksef'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['module', 'info', '@open-mercato/webhooks'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      // module add changes the app: it may still create .env, and prints as before
+      expect(resolveEnvBootstrapOptions(['module', 'add', '@open-mercato/webhooks'])).toEqual({
+        createIfMissing: true,
+        quiet: false,
+      })
+    })
+
+    it('silences the dotenv line for any --json invocation', () => {
+      expect(resolveEnvBootstrapOptions(['db', 'status', '--json'])).toEqual({
+        createIfMissing: true,
+        quiet: true,
       })
     })
 
@@ -324,6 +438,36 @@ describe('--help never triggers side effects (issue #5581)', () => {
       consoleErrorSpy.mockRestore()
     })
 
+    it('lists module search and info in the module command help', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+      const exitCode = await run(['node', 'mercato', 'module', '--help'])
+
+      expect(exitCode).toBe(0)
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('yarn mercato module search [<query>]')
+      expect(printed).toContain('yarn mercato module info <package-or-module-id> [--json]')
+
+      consoleLogSpy.mockRestore()
+    })
+
+    it('routes module search without a query to its usage, before any network call', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      const searchExit = await run(['node', 'mercato', 'module', 'search'])
+      const infoExit = await run(['node', 'mercato', 'module', 'info'])
+
+      expect(searchExit).toBe(1)
+      expect(infoExit).toBe(1)
+      const printed = consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('Usage: yarn mercato module search [<query>]')
+      expect(printed).toContain('Usage: yarn mercato module info <package-or-module-id> [--json]')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
     it('lists the module commands when the help flag sits in the command slot', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
@@ -405,6 +549,7 @@ describe('--help never triggers side effects (issue #5581)', () => {
       expect(exitCode).toBe(0)
       const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
       expect(printed).toContain('Usage: mercato init')
+      expect(printed).toContain('--skip-if-initialized')
 
       consoleLogSpy.mockRestore()
       consoleErrorSpy.mockRestore()
@@ -967,6 +1112,47 @@ describe('init command failure output', () => {
     )
   }
 
+  it.each(['--reinstall', '--no-demo-users'])('rejects unsafe production init before side effects with %s', async (flag) => {
+    const previousEnv = { ...process.env }
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+    process.env.NODE_ENV = 'production'
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'password'
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init', flag, '--skip-password-policy'])).toBe(1)
+      const { Client } = await import('pg')
+      const { generateEntityIds } = await import('../lib/generators')
+      const { dbMigrate } = await import('../lib/db')
+      expect(Client).not.toHaveBeenCalled()
+      expect(generateEntityIds).not.toHaveBeenCalled()
+      expect(dbMigrate).not.toHaveBeenCalled()
+      expect(authSetup).not.toHaveBeenCalled()
+    } finally {
+      process.env = previousEnv
+    }
+  })
+
+  it('passes valid production credentials to auth setup without bypassing policy', async () => {
+    const previousEnv = { ...process.env }
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+    process.env.NODE_ENV = 'production'
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'Unique-Owner-937!'
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init', '--no-demo-users', '--skip-password-policy'])).toBe(0)
+      expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--password', 'Unique-Owner-937!']))
+      expect(authSetup.mock.calls[0][0]).not.toContain('--skip-password-policy')
+    } finally {
+      process.env = previousEnv
+    }
+  })
+
   it('passes --include-demo-users to auth setup by default', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
@@ -980,8 +1166,8 @@ describe('init command failure output', () => {
     expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--include-demo-users']))
     expect(consoleLogSpy).toHaveBeenCalledWith('👤 Demo accounts (admin@/employee@): enabled')
     const loggedLines = consoleLogSpy.mock.calls.map((args) => args.join(' '))
-    expect(loggedLines.some((line) => line.includes('🧰 Admin:'))).toBe(true)
-    expect(loggedLines.some((line) => line.includes('👷 Employee:'))).toBe(true)
+    expect(loggedLines.some((line) => line.includes('🧰 Admin'))).toBe(true)
+    expect(loggedLines.some((line) => line.includes('👷 Employee'))).toBe(true)
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -1003,8 +1189,225 @@ describe('init command failure output', () => {
       '👤 Demo accounts (admin@/employee@): skipped (--no-demo-users)',
     )
     const loggedLines = consoleLogSpy.mock.calls.map((args) => args.join(' '))
-    expect(loggedLines.some((line) => line.includes('🧰 Admin:'))).toBe(false)
-    expect(loggedLines.some((line) => line.includes('👷 Employee:'))).toBe(false)
+    expect(loggedLines.some((line) => line.includes('🧰 Admin'))).toBe(false)
+    expect(loggedLines.some((line) => line.includes('👷 Employee'))).toBe(false)
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('derives admin/employee emails from the --email domain, not the acme.com default (#5806)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+
+    let adminEmailAtSetupTime: string | undefined
+    let employeeEmailAtSetupTime: string | undefined
+    // Reads OM_INIT_ADMIN_EMAIL/OM_INIT_EMPLOYEE_EMAIL at call time, mirroring what the
+    // real `auth setup` -> setupInitialTenant reads. `runModuleCommand` invokes this
+    // in-process (not spawned), so the env vars `mercato init` sets right before this
+    // call are visible here exactly as they would be for the real command.
+    const authSetup = jest.fn().mockImplementation(async () => {
+      adminEmailAtSetupTime = process.env.OM_INIT_ADMIN_EMAIL
+      employeeEmailAtSetupTime = process.env.OM_INIT_EMPLOYEE_EMAIL
+    })
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run([
+      'node',
+      'mercato',
+      'init',
+      '--email=superadmin@example.org',
+      '--password=Strong-Pa55!!',
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalled()
+    expect(adminEmailAtSetupTime).toBe('admin@example.org')
+    expect(employeeEmailAtSetupTime).toBe('employee@example.org')
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('does not set OM_INIT_ADMIN_EMAIL when it would equal the superadmin email (#5806)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+
+    let adminEmailAtSetupTime: string | undefined
+    let employeeEmailAtSetupTime: string | undefined
+    const authSetup = jest.fn().mockImplementation(async () => {
+      adminEmailAtSetupTime = process.env.OM_INIT_ADMIN_EMAIL
+      employeeEmailAtSetupTime = process.env.OM_INIT_EMPLOYEE_EMAIL
+    })
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run([
+      'node',
+      'mercato',
+      'init',
+      '--email=admin@example.org',
+      '--password=Strong-Pa55!!',
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalled()
+    // Derived admin@example.org would collide with the superadmin — leave unset so
+    // deactivateDemoUsersIfSelfOnboardingEnabled cannot lock the primary account out.
+    expect(adminEmailAtSetupTime).toBeUndefined()
+    expect(employeeEmailAtSetupTime).toBe('employee@example.org')
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('does not set OM_INIT_*_EMAIL when --no-demo-users is passed (#5806)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+
+    let adminEmailAtSetupTime: string | undefined
+    let employeeEmailAtSetupTime: string | undefined
+    const authSetup = jest.fn().mockImplementation(async () => {
+      adminEmailAtSetupTime = process.env.OM_INIT_ADMIN_EMAIL
+      employeeEmailAtSetupTime = process.env.OM_INIT_EMPLOYEE_EMAIL
+    })
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run([
+      'node',
+      'mercato',
+      'init',
+      '--email=superadmin@example.org',
+      '--password=Strong-Pa55!!',
+      '--no-demo-users',
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalled()
+    expect(adminEmailAtSetupTime).toBeUndefined()
+    expect(employeeEmailAtSetupTime).toBeUndefined()
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+})
+
+describe('init on an already initialized database', () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    jest.resetModules()
+    process.env.DATABASE_URL = 'postgres://postgres:secret@db.example.com:6543/shop_a'
+  })
+
+  afterEach(() => {
+    jest.dontMock('child_process')
+    jest.dontMock('pg')
+    jest.dontMock('../lib/generators')
+    jest.dontMock('../lib/resolver')
+    jest.resetModules()
+  })
+
+  afterAll(() => {
+    process.env.DATABASE_URL = originalDatabaseUrl
+  })
+
+  function mockSeededDatabase(usersCount: string) {
+    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
+    jest.doMock('child_process', () => ({ execSync: jest.fn() }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        end: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockImplementation(async (sql: string) => {
+          if (sql.includes('pg_database')) return { rows: [{ exists: 1 }] }
+          if (sql.includes('to_regclass')) return { rows: [{ regclass: 'users' }] }
+          if (sql.includes('COUNT(*)')) return { rows: [{ count: usersCount }] }
+          return { rows: [] }
+        }),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds,
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({ getAppDir: () => '/tmp/test-app' }),
+    }))
+    return { generateEntityIds }
+  }
+
+  it('aborts without --skip-if-initialized and points at the explicit reinstall', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const { generateEntityIds } = mockSeededDatabase('2')
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(1)
+    const errors = consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(errors).toContain('Initialization aborted: found 2 existing user(s)')
+    expect(generateEntityIds).not.toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('skips an initialized production database without bootstrap credentials', async () => {
+    const previousEnv = { ...process.env }
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    const { generateEntityIds } = mockSeededDatabase('3')
+    process.env.NODE_ENV = 'production'
+    delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init', '--skip-if-initialized'])).toBe(0)
+      expect(generateEntityIds).not.toHaveBeenCalled()
+    } finally {
+      process.env = previousEnv
+    }
+  })
+
+  it('keeps the data, names the target database and exits 0 with --skip-if-initialized', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const { generateEntityIds } = mockSeededDatabase('3')
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init', '--skip-if-initialized'])
+
+    expect(exitCode).toBe(0)
+    const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(printed).toContain('Database already initialized (3 user(s) in db.example.com:6543/shop_a)')
+    expect(printed).toContain('Check DATABASE_URL in .env')
+    expect(printed).not.toContain('secret')
+    expect(generateEntityIds).not.toHaveBeenCalled()
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -1389,6 +1792,11 @@ describe('server dev managed process exits', () => {
     expect(exitCode).toBe(0)
     expect(consoleErrorSpy).not.toHaveBeenCalled()
     expect(consoleLogSpy).toHaveBeenCalledWith('[server] Skipping scheduler auto-start — module not enabled')
+    const { spawn } = await import('child_process')
+    const nextSpawn = (spawn as jest.Mock).mock.calls.find((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next') && call[1]?.includes('dev'),
+    )
+    expect(nextSpawn?.[2]?.env.NODE_ENV).toBe('development')
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -2131,6 +2539,11 @@ describe('server start managed process exits', () => {
     expect(exitCode).toBe(0)
     expect(consoleErrorSpy).not.toHaveBeenCalled()
     expect(consoleLogSpy).toHaveBeenCalledWith('[server] Skipping scheduler auto-start — module not enabled')
+    const { spawn } = await import('child_process')
+    const nextSpawn = (spawn as jest.Mock).mock.calls.find((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next') && call[1]?.includes('start'),
+    )
+    expect(nextSpawn?.[2]?.env.NODE_ENV).toBe('production')
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()

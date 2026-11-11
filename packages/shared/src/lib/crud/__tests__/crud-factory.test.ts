@@ -12,7 +12,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ t: mockTranslate, translate: mockTranslate }),
 }))
 
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import {
@@ -586,6 +586,22 @@ describe('CRUD Factory', () => {
     } as any,
   })
 
+  it('GET forwards list.decryptEncryptedFields=false to the query engine (#5430)', async () => {
+    await makeSortedRoute({ decryptEncryptedFields: false }).GET(
+      new Request('http://x/api/example/todos?page=1&pageSize=10'),
+    )
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.decryptEncryptedFields).toBe(false)
+  })
+
+  it('GET leaves decryptEncryptedFields unset when the list does not opt out', async () => {
+    await makeSortedRoute().GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.decryptEncryptedFields).toBeUndefined()
+  })
+
   it('GET falls back to sorting by id when no default sort is configured', async () => {
     await makeSortedRoute().GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
 
@@ -773,6 +789,41 @@ describe('CRUD Factory', () => {
     expect(ids).toContain(otherTenant.id)
   })
 
+  it('GET ORM fallback still applies buildFilters scope on a full export when omitAutomaticTenantOrgScope is set', async () => {
+    // Regression test for #7806 — the ORM-fallback counterpart of the query-engine
+    // case covered elsewhere in this file: a full export must not drop the route's
+    // own scope just because it owns visibility itself via omitAutomaticTenantOrgScope.
+    const scopedBuildFilters = jest.fn((_query: z.infer<typeof querySchema>, ctx: CrudCtx) => ({
+      organizationId: ctx.auth?.orgId ?? null,
+    }))
+    const fallbackRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      list: {
+        schema: querySchema,
+        omitAutomaticTenantOrgScope: true,
+        buildFilters: scopedBuildFilters,
+      },
+    })
+
+    const mine = em.create(Todo, { title: 'Mine', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
+    mine.id = '550e8400-e29b-41d4-a716-446655440033'
+    await em.persist(mine).flush()
+    const other = em.create(Todo, { title: 'Other', organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', tenantId: defaultTenantId }) as Rec
+    other.id = '550e8400-e29b-41d4-a716-446655440034'
+    await em.persist(other).flush()
+
+    const res = await fallbackRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+    expect(res.status).toBe(200)
+
+    expect(scopedBuildFilters).toHaveBeenCalledWith({}, expect.objectContaining({
+      auth: expect.objectContaining({ orgId: defaultOrganizationId }),
+    }))
+    const text = await res.text()
+    expect(text).toContain(mine.id)
+    expect(text).not.toContain(other.id)
+  })
+
   it('GET resolves function-form CSV headers and rows per request', async () => {
     // Regression coverage for the additive `(query, ctx)` form of `ListConfig.csv`.
     // A route whose export columns depend on per-request discovery (custom-field keys,
@@ -866,6 +917,43 @@ describe('CRUD Factory', () => {
       'Organization Id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       'Tenant Id': '123e4567-e89b-12d3-a456-426614174000',
     })
+  })
+
+  it('GET still applies buildFilters scope on a full export when omitAutomaticTenantOrgScope is set', async () => {
+    // Regression test for #7806: a full export used to drop straight to `{}` as
+    // baseFilters, skipping buildFilters entirely. For a route that owns its own
+    // scope via omitAutomaticTenantOrgScope, neither the query engine nor the ORM
+    // fallback add a tenant/org predicate of their own, so that leaked every
+    // tenant's rows on `exportScope=full`.
+    const scopedBuildFilters = jest.fn((_query: z.infer<typeof querySchema>, ctx: CrudCtx) => ({
+      tenant_id: { $eq: ctx.auth?.tenantId ?? null },
+    }))
+    const scopedRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: {
+        schema: querySchema,
+        entityId: 'example.todo',
+        fields: ['id', 'title', 'is_done'],
+        sortFieldMap: { id: 'id' },
+        omitAutomaticTenantOrgScope: true,
+        buildFilters: scopedBuildFilters,
+        transformItem: (item: Record<string, unknown>) => ({ id: item.id, title: item.title }),
+      },
+    })
+
+    const res = await scopedRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+    expect(res.status).toBe(200)
+
+    // buildFilters runs with an empty query — the caller's own UI filters are
+    // dropped on a full export — but still receives the real ctx, so its scope
+    // predicate (derived from ctx.auth.tenantId here) is preserved.
+    expect(scopedBuildFilters).toHaveBeenCalledWith({}, expect.objectContaining({
+      auth: expect.objectContaining({ tenantId: '123e4567-e89b-12d3-a456-426614174000' }),
+    }))
+    const lastQueryCall = queryEngine.query.mock.calls.at(-1)
+    expect(lastQueryCall?.[1]?.filters).toEqual({ tenant_id: { $eq: '123e4567-e89b-12d3-a456-426614174000' } })
   })
 
   describe('afterList hook ordering on the export paths', () => {

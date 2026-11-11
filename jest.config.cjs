@@ -46,7 +46,7 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm)/)',
+    'node_modules/(?!(sanitize-html|htmlparser2|domhandler|domutils|dom-serializer|domelementtype|entities|@mikro-orm)/)',
   ],
   testMatch: ['**/__tests__/**/*.test.(ts|tsx)'],
   setupFiles: ['<rootDir>/jest.setup.ts'],

@@ -68,7 +68,7 @@ interface TypeExecutionResult {
   operationLogEntry?: ExecutionResult['operationLogEntry']
 }
 
-const ACTION_EXECUTABLE_STATUSES: InboxActionStatus[] = ['pending', 'failed']
+export const ACTION_EXECUTABLE_STATUSES: InboxActionStatus[] = ['pending', 'failed']
 
 export async function executeAction(
   action: InboxProposalAction,

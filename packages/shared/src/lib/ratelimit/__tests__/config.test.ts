@@ -43,3 +43,30 @@ describe('readRateLimitConfig', () => {
     expect(readRateLimitConfig().enabled).toBe(true)
   })
 })
+
+describe('explicit integration rate-limit verification', () => {
+  const originalEnv = { ...process.env }
+  afterEach(() => { process.env = { ...originalEnv } })
+
+  it('enables real counters only for an opted-in test environment', () => {
+    process.env.OM_INTEGRATION_TEST = 'true'
+    process.env.OM_TEST_MODE = '1'
+    process.env.OM_TEST_RATE_LIMIT_MODE = 'enabled'
+    expect(readRateLimitConfig().enabled).toBe(true)
+  })
+
+  it('keeps integration counters disabled without the test-mode guard', () => {
+    process.env.OM_INTEGRATION_TEST = 'true'
+    delete process.env.OM_TEST_MODE
+    process.env.OM_TEST_RATE_LIMIT_MODE = 'enabled'
+    expect(readRateLimitConfig().enabled).toBe(false)
+  })
+
+  it('cannot enable a disabled production limiter through the test switch', () => {
+    delete process.env.OM_INTEGRATION_TEST
+    process.env.OM_TEST_MODE = '1'
+    process.env.OM_TEST_RATE_LIMIT_MODE = 'enabled'
+    process.env.RATE_LIMIT_ENABLED = 'false'
+    expect(readRateLimitConfig().enabled).toBe(false)
+  })
+})

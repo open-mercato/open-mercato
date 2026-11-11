@@ -55,7 +55,7 @@ function extractAuthTokenClaims(token: string | null): AuthTokenClaims {
 export async function POST(req: Request) {
   const sessToken = parseCookie(req, 'session_token')
   const authToken = parseCookie(req, 'auth_token')
-  if (!sessToken && !authToken) return buildSafeRedirectResponse(req, '/login')
+  if (!sessToken && !authToken) return buildSafeRedirectResponse(req, '/login', 303)
   const claims = extractAuthTokenClaims(authToken)
   let sessionRevoked = false
   if (sessToken || claims.sessionId) {
@@ -83,9 +83,11 @@ export async function POST(req: Request) {
       at: new Date().toISOString(),
     }, { persistent: true }).catch(() => undefined)
   }
-  const res = buildSafeRedirectResponse(req, '/login')
+  const res = buildSafeRedirectResponse(req, '/login', 303)
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   res.cookies.set('session_token', '', { path: '/', maxAge: 0 })
+  res.cookies.set('om_selected_org', '', { path: '/', maxAge: 0 })
+  res.cookies.set('om_selected_tenant', '', { path: '/', maxAge: 0 })
   return res
 }
 
@@ -99,9 +101,9 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Invalidate session and redirect',
-      description: 'Revokes the session identified by the `auth_token` sid claim and the `session_token` cookie, clears both cookies, and redirects the browser to the login page. A valid access token is not required, so a logout submitted after the access token expired still revokes the remember-me refresh session. A request that carries neither cookie is only redirected.',
+      description: 'Revokes the session identified by the `auth_token` sid claim and the `session_token` cookie, clears both cookies together with the organization-scope cookies (`om_selected_org`, `om_selected_tenant`), and redirects the browser to the login page. A valid access token is not required, so a logout submitted after the access token expired still revokes the remember-me refresh session. A request that carries neither session cookie is only redirected.',
       responses: [
-        { status: 307, description: 'Redirect to login after successful logout', mediaType: 'text/html' },
+        { status: 303, description: 'See Other: navigate to login with GET after logout', mediaType: 'text/html' },
       ],
     },
   },

@@ -12,6 +12,7 @@ import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { emitSalesDocumentDataRefresh } from '../../../lib/frontend/documentDataEvents'
+import { useSalesDocumentMutation } from '../../../components/documents/useSalesDocumentMutation'
 import type { SalesOrderRecurrenceStatus } from '../../../lib/recurrence'
 import { formatRecurrenceDate, formatRecurrenceSchedule } from '../../../lib/recurrenceLabel'
 import {
@@ -66,6 +67,7 @@ export default function RecurrenceSectionWidget({
   const kind = context?.kind === 'quote' ? 'quote' : 'order'
   const recurrence = data?.recurrence ?? null
   const locked = recurrence?.locked === true
+  const runDocumentMutation = useSalesDocumentMutation(kind, data?.id)
 
   const fields = React.useMemo<CrudField[]>(
     () => [
@@ -106,20 +108,25 @@ export default function RecurrenceSectionWidget({
         const message = t(firstError, t('sales.recurring.errors.invalid', 'Check the recurring schedule.'))
         throw createCrudFormError(message, { recurrence: message })
       }
-      await apiCallOrThrow(
-        kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes',
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: data.id, recurrence: resolved.recurrence }),
-        },
-        { errorMessage: t('sales.recurring.section.saveError', 'Failed to save the recurring schedule.') },
+      const payload = { id: data.id, recurrence: resolved.recurrence }
+      await runDocumentMutation(
+        () =>
+          apiCallOrThrow(
+            kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes',
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('sales.recurring.section.saveError', 'Failed to save the recurring schedule.') },
+          ),
+        payload,
       )
       flash(t('sales.recurring.section.saved', 'Recurring schedule saved.'), 'success')
       setDialogOpen(false)
       emitSalesDocumentDataRefresh({ documentId: data.id, kind })
     },
-    [data?.id, kind, t],
+    [data?.id, kind, runDocumentMutation, t],
   )
 
   const submitForm = React.useCallback(() => dialogContentRef.current?.querySelector('form')?.requestSubmit(), [])

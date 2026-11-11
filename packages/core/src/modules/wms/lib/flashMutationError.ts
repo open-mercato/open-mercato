@@ -14,6 +14,8 @@ const FORBIDDEN_FEATURE_MESSAGE_KEYS: Record<string, string> = {
   'wms.manage_reservations': 'wms.errors.forbidden.manageReservations',
   'wms.adjust_inventory': 'wms.errors.forbidden.adjustInventory',
   'wms.receive_inventory': 'wms.errors.forbidden.receiveInventory',
+  'wms.manage_asn': 'wms.errors.forbidden.manageAsn',
+  'wms.manage_putaway': 'wms.errors.forbidden.managePutaway',
   'wms.cycle_count': 'wms.errors.forbidden.cycleCount',
   'wms.import': 'wms.errors.forbidden.import',
 }
@@ -26,6 +28,8 @@ const FORBIDDEN_FEATURE_MESSAGE_FALLBACKS: Record<string, string> = {
   'wms.manage_reservations': "You don't have permission to manage inventory reservations.",
   'wms.adjust_inventory': "You don't have permission to adjust or move inventory.",
   'wms.receive_inventory': "You don't have permission to receive inbound inventory.",
+  'wms.manage_asn': "You don't have permission to manage ASNs.",
+  'wms.manage_putaway': "You don't have permission to manage putaway tasks.",
   'wms.cycle_count': "You don't have permission to run cycle counts.",
   'wms.import': "You don't have permission to import inventory.",
 }

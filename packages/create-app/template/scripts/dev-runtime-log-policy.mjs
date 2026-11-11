@@ -257,7 +257,7 @@ export function buildUnexpectedChildExitReport({
         banner,
         `📄 Last ${replay.length} runtime log line(s) before the exit:`,
         ...replay,
-        'ℹ️ Rerun with MERCATO_DEV_OUTPUT=verbose for the full runtime output.',
+        '💡 Rerun with MERCATO_DEV_OUTPUT=verbose for the full runtime output.',
       ]
     : [banner]
 

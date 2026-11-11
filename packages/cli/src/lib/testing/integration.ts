@@ -11,6 +11,7 @@ import spawn from 'cross-spawn'
 import { fetchWithTimeout, type FetchWithTimeoutInit } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { isUnsafeJwtSecret } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveEnvironment } from '../resolver'
+import { resolveInitSuperadminCredentials } from '../init-secrets'
 import { resolveSpawnCommand } from '../spawn'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
 import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
@@ -202,6 +203,23 @@ export function resolveEphemeralJwtSecret(env: NodeJS.ProcessEnv = process.env):
   }
   return DEFAULT_EPHEMERAL_JWT_SECRET
 }
+const DEFAULT_EPHEMERAL_SUPERADMIN_PASSWORD = 'Om-Ephemeral-Superadmin-2026!'
+
+export function resolveEphemeralSuperadminPassword(env: NodeJS.ProcessEnv = process.env): string {
+  const inherited = env.OM_INIT_SUPERADMIN_PASSWORD
+  if (inherited !== undefined && inherited.trim().length > 0) {
+    try {
+      resolveInitSuperadminCredentials([], { ...env, NODE_ENV: 'production', OM_INIT_SUPERADMIN_PASSWORD: inherited })
+      return inherited
+    } catch {
+      console.warn(
+        '[integration] Ignoring the inherited OM_INIT_SUPERADMIN_PASSWORD: it is a placeholder or fails the password policy and the ephemeral app initializes with NODE_ENV=production. Using the ephemeral default instead.',
+      )
+    }
+  }
+  return DEFAULT_EPHEMERAL_SUPERADMIN_PASSWORD
+}
+
 const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
   /net::ERR_CONNECTION_REFUSED/i,
   /Failed to connect to .* (localhost|127\.0\.0\.1)/i,
@@ -456,6 +474,12 @@ function buildEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     ...process.env,
     ...overrides,
   }
+}
+
+export function withoutCoverageEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const result: NodeJS.ProcessEnv = { ...environment }
+  delete result.NODE_V8_COVERAGE
+  return result
 }
 
 function buildEnvironmentFingerprint(environment: NodeJS.ProcessEnv): string {
@@ -2197,6 +2221,7 @@ function buildReusableEnvironment(
     // OM_INIT_*_PASSWORD to fix the seeded credential.
     OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
     OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
+    OM_INIT_SUPERADMIN_PASSWORD: resolveEphemeralSuperadminPassword(),
     OM_INTEGRATION_TEST: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
@@ -3585,6 +3610,10 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       // NODE_ENV=production.
       OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
       OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
+      // Production init refuses a missing or placeholder superadmin password
+      // (#8896). Integration auth helpers read OM_INIT_SUPERADMIN_PASSWORD, so
+      // the Playwright runner logs in with the same value.
+      OM_INIT_SUPERADMIN_PASSWORD: resolveEphemeralSuperadminPassword(),
       // Pool sizing for the ephemeral integration runtime. Defaults were once
       // very aggressive (max=5, idle=1000) which exposed flaky 'timeout exceeded
       // when trying to connect' errors on `progressService.createJob`-backed
@@ -3746,6 +3775,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       const appReadyTimeoutMs = resolveAppReadyTimeoutMs(options.logPrefix)
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
       const environmentFingerprint = buildEnvironmentFingerprint(commandEnvironment)
+      const buildToolEnvironment = withoutCoverageEnvironment(commandEnvironment)
       let sourceFingerprintValue: string | null = null
       let needsBuild = true
       let shouldPersistBuildCache = true
@@ -3788,7 +3818,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
           console.log(`[${options.logPrefix}] Building packages...`)
           await runTimedStep(options.logPrefix, 'Building packages', { expectedSeconds: 20 }, async () =>
-            runYarnCommand(['build:packages'], commandEnvironment, {
+            runYarnCommand(['build:packages'], buildToolEnvironment, {
               silent: !options.verbose,
             }))
         } else {
@@ -3800,14 +3830,14 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
           force: true,
         })
         await runTimedStep(options.logPrefix, 'Regenerating module artifacts', { expectedSeconds: 8 }, async () =>
-          runYarnCommand(['generate'], commandEnvironment, {
+          runYarnCommand(['generate'], buildToolEnvironment, {
             silent: !options.verbose,
           }, appDirectory))
 
         if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
           console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
           await runTimedStep(options.logPrefix, 'Rebuilding packages after generation', { expectedSeconds: 20 }, async () =>
-            runYarnCommand(['build:packages'], commandEnvironment, {
+            runYarnCommand(['build:packages'], buildToolEnvironment, {
               silent: !options.verbose,
             }))
         }
@@ -3815,7 +3845,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         console.log(`[${options.logPrefix}] Building application...`)
         await resetNextBuildOutputDirectories(options.logPrefix)
         await runTimedStep(options.logPrefix, 'Building application', { expectedSeconds: 76 }, async () =>
-          runYarnCommand(['build'], commandEnvironment, {
+          runYarnCommand(['build'], buildToolEnvironment, {
             silent: !options.verbose,
           }, appDirectory))
       }

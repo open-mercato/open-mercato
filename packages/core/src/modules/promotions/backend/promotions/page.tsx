@@ -41,6 +41,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatPromotionCalendarDate } from '../../components/promotionDates'
 
 const PAGE_SIZE = 50
 const RESOURCE_KIND = 'promotions.promotion'
@@ -78,12 +79,6 @@ type OrderPatchResponse = {
 function sameOrder(a: PromotionRow[], b: PromotionRow[]): boolean {
   if (a.length !== b.length) return false
   return a.every((row, index) => row.id === b[index]?.id)
-}
-
-function formatDate(value: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString()
 }
 
 function isFilterValueActive(value: unknown): boolean {
@@ -134,8 +129,8 @@ function PromotionCard({
     transform: CSS.Transform.toString(transform),
     transition,
   }
-  const startsLabel = formatDate(row.startsAt)
-  const endsLabel = formatDate(row.endsAt)
+  const startsLabel = formatPromotionCalendarDate(row.startsAt)
+  const endsLabel = formatPromotionCalendarDate(row.endsAt)
   const windowLabel = startsLabel || endsLabel
     ? [
         startsLabel ? t('promotions.list.card.starts', 'Starts {date}', { date: startsLabel }) : null,

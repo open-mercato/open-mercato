@@ -124,9 +124,10 @@ test.describe('TC-CHANNEL-DISCORD-013: forged AI reply proposals', () => {
       messageIds.push(scopedMessage!.id)
       await stampSystemProposalFixture(adminToken, scopedMessage!.id, scopedProposal)
       const scopedApproval = await apiRequest(request, 'POST', `/api/messages/${scopedMessage!.id}/actions/${CHANNEL_DISCORD_AI_PROPOSAL_APPROVE_ACTION_ID}`, {
-        token: approverToken, data: {},
+        token: approverToken, data: {}, headers: { 'Accept-Language': 'en', Cookie: 'locale=en' },
       })
-      expect(scopedApproval.status()).toBe(500)
+      expect(scopedApproval.status()).toBe(404)
+      expect(await readJsonSafe(scopedApproval)).toEqual({ error: 'The conversation this proposal answers no longer exists.' })
       await withClient(async (client) => {
         const stored = await client.query<{ action_taken: string | null }>('select action_taken from messages where id = $1 and tenant_id = $2', [scopedMessage!.id, tenantId])
         expect(stored.rows[0].action_taken).toBeNull()

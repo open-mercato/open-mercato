@@ -229,7 +229,7 @@ describe('useAiPendingActionPolling', () => {
     }
   })
 
-  it('stops polling on a 404 and reports error.code=not_found', async () => {
+  it('stops polling on a 404 and reports error.code=not_found and unavailable', async () => {
     ;(apiCall as jest.Mock).mockImplementation(async () => mockStatusResponse(404))
 
     jest.useFakeTimers()
@@ -243,7 +243,9 @@ describe('useAiPendingActionPolling', () => {
         await Promise.resolve()
       })
       expect(result.current.error?.code).toBe('not_found')
+      expect(result.current.unavailable).toBe(true)
       expect(result.current.isPolling).toBe(false)
+      expect(loggerError).not.toHaveBeenCalled()
       const callsAfterNotFound = (apiCall as jest.Mock).mock.calls.length
 
       await act(async () => {
@@ -278,6 +280,7 @@ describe('useAiPendingActionPolling', () => {
       }
 
       expect(result.current.isPolling).toBe(false)
+      expect(result.current.unavailable).toBe(false)
       const callsAfterStop = (apiCall as jest.Mock).mock.calls.length
       expect(callsAfterStop).toBeGreaterThanOrEqual(5)
 

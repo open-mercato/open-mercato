@@ -130,8 +130,10 @@ describe('page subscriptions (source invariants)', () => {
 
   it('process list subscribes process.execution.* and renders the last-execution column', () => {
     const source = readSource('backend/processes/definitions/page.tsx')
-    expect(source).toContain("useAppEvent('agent_orchestrator.process.execution.*'")
-    expect(source).toContain('useCoalescedReload')
+    const hookSource = readSource('components/useProcessDefinitionsLiveUpdates.ts')
+    expect(source).toContain('useProcessDefinitionsLiveUpdates(')
+    expect(hookSource).toContain("useAppEvent('agent_orchestrator.process.execution.*'")
+    expect(hookSource).toContain('useCoalescedReload')
     expect(source).toContain('agent_orchestrator.processDefinitions.list.col.lastExecution')
     expect(source).toContain('agent_orchestrator.processDefinitions.list.lastExecutionNever')
   })

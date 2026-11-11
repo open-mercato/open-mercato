@@ -5,6 +5,7 @@
   "api_keys.copy.warning": "Keep this key safe — it cannot be retrieved later.",
   "api_keys.errors.forbidden": "Forbidden",
   "api_keys.errors.notFound": "Not found",
+  "api_keys.errors.organizationMustMatchCreator": "An organization-scoped API key must use your account’s organization. Select that organization to create a usable key.",
   "api_keys.errors.organizationOutOfScope": "Organization out of scope",
   "api_keys.errors.roleNotFound": "Role {identifier} not found",
   "api_keys.errors.roleWrongTenant": "Role {role} belongs to another tenant",

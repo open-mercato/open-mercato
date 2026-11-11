@@ -8,7 +8,11 @@ jest.mock('../../../../lib/time-tracking/access', () => ({
   resolveProjectAccess: jest.fn(),
 }))
 
-import { buildTaskListFilters } from '../route'
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: jest.fn(async (em: { find: Function }, cls: unknown, where: unknown, options: unknown) => em.find(cls, where, options)),
+}))
+
+import { SUPPORT_FILTER_MAX_TASK_IDS, buildTaskListFilters, markTaskListTotalCapped } from '../route'
 import { resolveProjectAccess } from '../../../../lib/time-tracking/access'
 
 const mockResolveProjectAccess = resolveProjectAccess as jest.Mock
@@ -257,5 +261,78 @@ describe('buildTaskListFilters — tag filter (W9)', () => {
     await buildTaskListFilters({} as never, ctx)
 
     expect((ctx as unknown as { __find: jest.Mock }).__find).not.toHaveBeenCalled()
+  })
+})
+
+describe('buildTaskListFilters — support filters', () => {
+  const TASK_A = 'bbbbbbbb-0000-4000-8000-00000000001a'
+  const TASK_B = 'bbbbbbbb-0000-4000-8000-00000000001b'
+
+  function ctxWithTicketRows(rows: { taskId: string }[] | Error) {
+    const find = jest.fn(async () => {
+      if (rows instanceof Error) throw rows
+      return rows
+    })
+    const ctx = {
+      auth: { sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID },
+      selectedOrganizationId: ORG_ID,
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') return { fork: () => ({ find }) }
+          throw new Error(`[internal] unexpected resolve ${name}`)
+        },
+      },
+    } as unknown as CrudCtx
+    return { ctx, find }
+  }
+
+  beforeEach(() => {
+    asManager()
+  })
+
+  it('caps the materialized ticket lookup, newest first, and scopes it', async () => {
+    const { ctx, find } = ctxWithTicketRows([{ taskId: TASK_A }])
+
+    await expect(buildTaskListFilters({ supportUnnotified: 'true' } as never, ctx)).resolves.toEqual({ id: { $in: [TASK_A] } })
+
+    expect(find.mock.calls[0][1]).toEqual(expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: null, unnotifiedAt: { $ne: null } }))
+    expect(find.mock.calls[0][2]).toEqual(expect.objectContaining({ limit: SUPPORT_FILTER_MAX_TASK_IDS + 1, orderBy: { createdAt: 'desc' } }))
+  })
+
+  it('reports a truncated support filter as a capped total', async () => {
+    const rows = Array.from({ length: SUPPORT_FILTER_MAX_TASK_IDS + 1 }, (_unused, index) => ({ taskId: `task-${index}` }))
+    const { ctx } = ctxWithTicketRows(rows)
+    const request = new Request('http://localhost/api/staff/timesheets/tasks?supportCategory=billing')
+    const scopedCtx = { ...ctx, request } as CrudCtx
+
+    const filters = await buildTaskListFilters({ supportCategory: 'billing' } as never, scopedCtx)
+    const narrowed = (filters.id as { $in: string[] }).$in
+    expect(narrowed).toHaveLength(SUPPORT_FILTER_MAX_TASK_IDS)
+
+    const payload: Record<string, unknown> = { items: [], total: SUPPORT_FILTER_MAX_TASK_IDS }
+    markTaskListTotalCapped(payload, { request })
+    expect(payload.totalIsCapped).toBe(true)
+  })
+
+  it('leaves the total uncapped when the support filter fits', async () => {
+    const { ctx } = ctxWithTicketRows([{ taskId: TASK_A }])
+    const request = new Request('http://localhost/api/staff/timesheets/tasks?supportCategory=billing')
+    await buildTaskListFilters({ supportCategory: 'billing' } as never, { ...ctx, request } as CrudCtx)
+
+    const payload: Record<string, unknown> = { items: [], total: 1 }
+    markTaskListTotalCapped(payload, { request })
+    expect(payload.totalIsCapped).toBeUndefined()
+  })
+
+  it('intersects the support filter with an explicit id list', async () => {
+    const { ctx } = ctxWithTicketRows([{ taskId: TASK_A }, { taskId: TASK_B }])
+    await expect(buildTaskListFilters({ supportCategory: 'billing', ids: `${TASK_B},${TASK_ID}` } as never, ctx)).resolves.toEqual({
+      id: { $in: [TASK_B] },
+    })
+  })
+
+  it('narrows to nothing rather than widening when the lookup fails', async () => {
+    const { ctx } = ctxWithTicketRows(new Error('[internal] db down'))
+    await expect(buildTaskListFilters({ supportCategory: 'billing' } as never, ctx)).resolves.toEqual({ id: { $in: [IMPOSSIBLE_ID] } })
   })
 })

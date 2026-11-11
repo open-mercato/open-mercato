@@ -90,7 +90,7 @@ describe('customers.account_assistant agent definition', () => {
     expect(agent.allowedTools).not.toContain('meta.update_task_plan')
   })
 
-  it('whitelists only read-only tools that exist in the customers pack or general-purpose packs', () => {
+  it('whitelists only tools that exist in the customers pack or general-purpose packs', () => {
     const customersToolNames = new Set(customersAiTools.map((tool) => tool.name))
     for (const toolName of agent.allowedTools) {
       const isCustomerRead = customersToolNames.has(toolName)

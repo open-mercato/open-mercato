@@ -1,0 +1,94 @@
+{
+  "runId": "fbc0d1bc-82d6-41ae-82bd-00c313d9c36a",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8836,
+    "title": "Workflow Retry/Cancel confirmation browser coverage",
+    "branch": "fix/issue-8825-confirmation-browser-fbc0d1bc",
+    "headSha": "b9f50c678a00494f14282c2cb2cdb88cf03b81ac"
+  },
+  "verdict": "PARTIAL",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:5001",
+    "role": "admin",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Create own FAILED/PAUSED fixtures and controls",
+      "expected": "Own API-created definitions and executor-started instances",
+      "observed": "Four fixtures per case; all four cases passed",
+      "result": "PASS"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "EN Retry/Cancel titles",
+      "expected": "Exact selected workflow identifier, no raw interpolation token",
+      "observed": "Both exact titles passed",
+      "result": "PASS",
+      "screenshot": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8836-workflows-fbc0d1bc/pr-8836/en-retry-390px.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "PL Retry/Cancel titles",
+      "expected": "Exact selected workflow identifier, no raw interpolation token",
+      "observed": "Both exact localized titles passed",
+      "result": "PASS",
+      "screenshot": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8836-workflows-fbc0d1bc/pr-8836/pl-cancel-390px.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "Cancel button and Escape",
+      "expected": "No action POST; every fixture API record unchanged",
+      "observed": "Full-record equality and zero requests passed",
+      "result": "PASS"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "Control+Enter",
+      "expected": "One request to selected instance; controls unchanged",
+      "observed": "Both actions passed in both locales",
+      "result": "PASS"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Meta+Enter",
+      "expected": "One request to selected instance; controls unchanged",
+      "observed": "Both actions passed in both locales",
+      "result": "PASS"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "390\u00d7844 with 100-character identifiers",
+      "expected": "Title and both actions fit within viewport without element overflow",
+      "observed": "Bounds assertions passed; four screenshots visually inspected",
+      "result": "PASS",
+      "screenshot": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8836-workflows-fbc0d1bc/pr-8836/pl-retry-390px.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "Finally cleanup",
+      "expected": "Cancel own instances and delete own execution records/definitions",
+      "observed": "All cases completed teardown successfully; managed environment stopped",
+      "result": "PASS"
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Managed repository runner passed all four cases in 28.0s, with the authorized temporary #8805 duplicate-import overlay; the overlay was restored before all commits.",
+    "This is not an unmodified exact-head runtime pass. Workflow test source SHA-256 de26296e6a0c5b43dc831d329f781953fb1933b83809c2d53cc88ca870b96487 matches committed source. Latest base sync after browser execution only changed customers module files.",
+    "Default complex-depth review is limited here to issue-required EN/PL/admin/list confirmations; other locales, RBAC and empty/error states were not exercised.",
+    "Unmodified typecheck/build remain blocked by #8805; full unit gate also fails create-app OMH-057 context budget. No qa-approved or qa-self-verified label was applied.",
+    "Earlier attempts with DOTENV_CONFIG_OVERRIDE=false overwrote managed settings; potential database-isolation impact was disclosed to parent and remains unverified. The successful run unsets that variable."
+  ]
+}

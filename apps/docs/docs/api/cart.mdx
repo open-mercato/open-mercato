@@ -58,6 +58,8 @@ Adds a line. Body (`cartLineAddRequestSchema`):
 
 **Responses**: `200`/`201` with the cart envelope; `404` cart not found; `409`/`423` if the cart is non-active/locked; `422` for a quantity-rule rejection; `429`/`503` as above.
 
+If `POST /current/lines` or `POST /current/lines/bulk` cannot acquire the cart line lock within 15 seconds, it returns `503` with `{ "error": "<localized message>", "code": "cart_busy" }`, `Retry-After: 1` and `Cache-Control: no-store`. The requested line add/bulk-add mutation phases did not run and no successful idempotency response was recorded. Existing preflight cart activity/reactivation or context-triggered repricing may already have persisted; normal optimistic-lock checks still apply to a retry. Wait at least one second, then retry the same request body and `Idempotency-Key`. This safe contention response does not apply to a generic `500` or an error after a mutation may have committed.
+
 ## `PATCH /api/cart/current/lines/{lineId}`
 
 Changes a line's quantity. Body (`cartLineUpdateRequestSchema`): `{ "quantity": "3" }` — quantity only; there is no configuration-change parameter in this release. Crossing a price tier boundary re-prices that one line immediately (trigger 1) and discloses `priceChanges`.
@@ -142,6 +144,7 @@ These three commands exist (`cart/commands/lock.ts`, exposed via the `cartServic
 | `cart_not_active` | 409 | A write (not a GET) against a merged/expired/converted cart — the response body carries the cart's real `status`. A write against an `abandoned` cart is not refused: it reactivates the cart to `active` and extends its expiry |
 | `cart_merge_scope_mismatch` | 400 | `cart.merge` rejected a cross-store or cross-currency merge |
 | `merge_undo_window_expired` | 409 | `cart.mergeUndo` called past the 15-minute window |
+| `cart_busy` | 503 | The requested line add/bulk-add phases did not run after a 15-second lock wait; preflight activity/context/repricing may have persisted; retry after `Retry-After: 1` with the same request and idempotency key |
 | `cart_locked` | 423 | The cart is locked (carries `checkoutSessionId`) — reachable once a `checkout` module starts calling `cart.lock` |
 | `cart_has_unavailable_lines` | 409 | Reachable only via `cart.lock`, which has no public route in this release |
 

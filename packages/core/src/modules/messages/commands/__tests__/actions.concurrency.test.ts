@@ -2,6 +2,14 @@ import '@open-mercato/core/modules/messages/commands/actions'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 import { registerMessageTypes } from '@open-mercato/core/modules/messages/lib/message-types-registry'
+import { forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
+import { POST } from '@open-mercato/core/modules/messages/api/[id]/actions/[actionId]/route'
+import { resolveMessageContext } from '@open-mercato/core/modules/messages/lib/routeHelpers'
+
+jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
+  resolveMessageContext: jest.fn(),
+}))
 
 const TENANT_ID = '55555555-5555-4555-8555-555555555555'
 const ORG_ID = '66666666-6666-4666-8666-666666666666'
@@ -141,6 +149,57 @@ describe('messages.actions.execute terminal-action concurrency (#3261)', () => {
           { id: ACTION_ID, label: 'Do it', commandId: TARGET_COMMAND_ID, isTerminal: true },
         ],
       },
+    ])
+  })
+
+  it.each([
+    forbidden('You can no longer read this conversation'),
+    notFound('The conversation no longer exists'),
+    new CommandInterceptorError('Approval blocked', { status: 422, body: { error: 'Approval blocked' } }),
+  ])('preserves an intentional refusal and releases the terminal claim', async (refusal) => {
+    const command = commandRegistry.get('messages.actions.execute')!
+    const state: ActionState = { actionTaken: null, actionTakenByUserId: null }
+    const emFork = buildEmFork(state)
+    const commandBus = { execute: jest.fn().mockRejectedValue(refusal) }
+
+    await expect(command.execute(buildInput(), buildCtx(emFork, commandBus))).rejects.toBe(refusal)
+
+    expect(state).toEqual({ actionTaken: null, actionTakenByUserId: null })
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).not.toHaveBeenCalledWith('messages.actions.record_terminal', expect.anything())
+  })
+
+  it.each([
+    [forbidden('You can no longer read this conversation'), 403, 'You can no longer read this conversation'],
+    [notFound('The conversation no longer exists'), 404, 'The conversation no longer exists'],
+    [new CommandInterceptorError('Approval blocked', { status: 422 }), 422, 'Approval blocked'],
+    [new Error('[internal] Private database failure'), 500, 'Action failed'],
+  ])('returns the sub-command refusal through the HTTP route (%s)', async (refusal, status, error) => {
+    const command = commandRegistry.get('messages.actions.execute')!
+    const state: ActionState = { actionTaken: null, actionTakenByUserId: null }
+    const emFork = buildEmFork(state)
+    const commandBus = {
+      execute: jest.fn(async (commandId: string, options: { input: unknown; ctx: never }) => {
+        if (commandId === 'messages.actions.execute') {
+          return { result: await command.execute(options.input, options.ctx) }
+        }
+        throw refusal
+      }),
+    }
+    jest.mocked(resolveMessageContext).mockResolvedValueOnce({
+      ctx: buildCtx(emFork, commandBus),
+      scope: { tenantId: TENANT_ID, organizationId: ORG_ID, userId: USER_ID },
+    } as never)
+
+    const response = await POST(new Request('http://localhost', { method: 'POST', body: '{}' }), {
+      params: { id: MESSAGE_ID, actionId: ACTION_ID },
+    })
+
+    expect(response.status).toBe(status)
+    await expect(response.json()).resolves.toEqual({ error })
+    expect(state).toEqual({ actionTaken: null, actionTakenByUserId: null })
+    expect(commandBus.execute.mock.calls.map(([commandId]) => commandId)).toEqual([
+      'messages.actions.execute', TARGET_COMMAND_ID,
     ])
   })
 

@@ -1,9 +1,12 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerTag, CustomerTagAssignment } from '../data/entities'
+import { LockMode, type FilterQuery } from '@mikro-orm/core'
+import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
+import { isUnrestrictedOrganizationScope } from '@open-mercato/shared/lib/auth/organizationAccess'
+import { CustomerEntity, CustomerTag, CustomerTagAssignment } from '../data/entities'
 import {
   tagCreateSchema,
   tagUpdateSchema,
@@ -19,11 +22,13 @@ import {
   requireCustomerEntity,
   ensureSameScope,
   loadEntityTagIds,
+  emitQueryIndexUpsertEvents,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCustomersEvent } from '../events'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
@@ -56,6 +61,15 @@ type TagSnapshot = {
   label: string
   color: string | null
   description: string | null
+  assignments?: TagMembershipSnapshot[]
+}
+
+type TagMembershipSnapshot = {
+  id: string
+  entityId: string
+  organizationId: string
+  tenantId: string
+  createdAt: string
 }
 
 type TagUndoPayload = {
@@ -74,8 +88,40 @@ type TagAssignmentUndoPayload = {
   before?: TagAssignmentSnapshot | null
 }
 
-async function loadTagSnapshot(em: EntityManager, id: string): Promise<TagSnapshot | null> {
-  const tag = await em.findOne(CustomerTag, { id })
+function tagDeleteLookup(id: string, ctx: CommandRuntimeContext) {
+  const isSuperAdmin = ctx.auth?.isSuperAdmin === true
+  const organizationScope = ctx.organizationScope
+  const tenantId = ctx.auth ? (ctx.auth.tenantId ?? null) : (organizationScope?.tenantId ?? null)
+  if (ctx.auth && !isSuperAdmin && (!tenantId || (organizationScope && !organizationScope.tenantId))) {
+    throw forbidden()
+  }
+  let organizationIds: string[] | undefined
+  if (organizationScope) {
+    if (!isUnrestrictedOrganizationScope({ isSuperAdmin, allowedOrganizationIds: organizationScope.allowedIds })) {
+      organizationIds = organizationScope.allowedIds ?? []
+    }
+  } else if (!isSuperAdmin) {
+    const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId
+    if (organizationId) organizationIds = [organizationId]
+  }
+  return {
+    where: buildScopedWhere({ id }, {
+      tenantId: tenantId ?? undefined,
+      organizationIds,
+      softDeleteField: null,
+    }) as FilterQuery<CustomerTag>,
+    scope: { tenantId, organizationId: organizationIds?.length === 1 ? organizationIds[0] : null },
+  }
+}
+
+async function loadTagSnapshot(
+  em: EntityManager,
+  id: string,
+  lookup?: ReturnType<typeof tagDeleteLookup>,
+): Promise<TagSnapshot | null> {
+  const tag = lookup
+    ? await findOneWithDecryption(em, CustomerTag, lookup.where, {}, lookup.scope)
+    : await em.findOne(CustomerTag, { id })
   if (!tag) return null
   return {
     id: tag.id,
@@ -86,6 +132,46 @@ async function loadTagSnapshot(em: EntityManager, id: string): Promise<TagSnapsh
     color: tag.color ?? null,
     description: tag.description ?? null,
   }
+}
+
+async function loadTagAssignments(em: EntityManager, tag: CustomerTag) {
+  const scope = { tenantId: tag.tenantId, organizationId: tag.organizationId }
+  return findWithDecryption(em, CustomerTagAssignment, { tag: tag.id, ...scope }, {}, scope)
+}
+
+async function refreshTagMemberships(
+  ctx: CommandRuntimeContext,
+  tag: CustomerTag,
+  assignments: CustomerTagAssignment[],
+  action: 'created' | 'deleted',
+) {
+  const dataEngine = ctx.container.resolve<DataEngine>('dataEngine')
+  for (const assignment of assignments) {
+    await emitCrudSideEffects({
+      dataEngine,
+      action,
+      entity: assignment,
+      identifiers: { id: assignment.id, tenantId: tag.tenantId, organizationId: tag.organizationId },
+      indexer: { entityType: E.customers.customer_tag_assignment },
+    })
+    await emitCustomersEvent(action === 'created' ? 'customers.tag.assigned' : 'customers.tag.removed', {
+      id: assignment.id,
+      tagId: tag.id,
+      entityId: assignment.entity.id,
+      organizationId: tag.organizationId,
+      tenantId: tag.tenantId,
+    }, { persistent: true })
+  }
+  await emitQueryIndexUpsertEvents(ctx, assignments.map((assignment) => ({
+    entityType: E.customers.customer_entity,
+    recordId: assignment.entity.id,
+    tenantId: tag.tenantId,
+    organizationId: tag.organizationId,
+  })))
+  await invalidateCrudCache(ctx.container, 'customers.tagAssignment', {
+    tenantId: tag.tenantId,
+    organizationId: tag.organizationId,
+  }, tag.tenantId, `customers.tags.delete.${action}`, ['customers.person', 'customers.company'])
 }
 
 const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
@@ -290,39 +376,64 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
 
 const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { tagId: string }> = {
   id: 'customers.tags.delete',
+  prepareSnapshotInsideTransaction: true,
   async prepare(input, ctx) {
     const id = requireId(input, 'Tag id required')
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTagSnapshot(em, id)
-    return snapshot ? { before: snapshot } : {}
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
+    const snapshot = await loadTagSnapshot(em, id, tagDeleteLookup(id, ctx))
+    if (!snapshot) return {}
+    ensureTenantScope(ctx, snapshot.tenantId)
+    ensureOrganizationScope(ctx, snapshot.organizationId)
+    const assignments = await findWithDecryption(em, CustomerTagAssignment, {
+      tag: id,
+      tenantId: snapshot.tenantId,
+      organizationId: snapshot.organizationId,
+    }, {}, snapshot)
+    snapshot.assignments = assignments.map((assignment) => ({
+      id: assignment.id,
+      entityId: assignment.entity.id,
+      tenantId: assignment.tenantId,
+      organizationId: assignment.organizationId,
+      createdAt: assignment.createdAt.toISOString(),
+    }))
+    return { before: snapshot }
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Tag id required')
+    const lookup = tagDeleteLookup(id, ctx)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const tag = await em.findOne(CustomerTag, { id })
-    if (!tag) throw notFound('Tag not found')
-    ensureTenantScope(ctx, tag.tenantId)
-    ensureOrganizationScope(ctx, tag.organizationId)
+    let tag: CustomerTag | null = null
+    let assignments: CustomerTagAssignment[] = []
     await withAtomicFlush(em, [
       async () => {
-        await em.nativeDelete(CustomerTagAssignment, { tag })
+        tag = await findOneWithDecryption(em, CustomerTag, lookup.where, { lockMode: LockMode.PESSIMISTIC_WRITE }, lookup.scope)
+        if (!tag) throw notFound('Tag not found')
+        ensureTenantScope(ctx, tag.tenantId)
+        ensureOrganizationScope(ctx, tag.organizationId)
+        await ctx.beforeTransactionalWrite?.(em, input)
+        assignments = await loadTagAssignments(em, tag)
+        await em.nativeDelete(CustomerTagAssignment, { tag, tenantId: tag.tenantId, organizationId: tag.organizationId })
         em.remove(tag)
       },
-    ], { transaction: true })
+    ], { transaction: true, label: 'customers.tags.delete' })
+    if (!tag) throw notFound('Tag not found')
+    const deletedTag = tag as CustomerTag
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'deleted',
-      entity: tag,
+      entity: deletedTag,
       identifiers: {
-        id: tag.id,
-        organizationId: tag.organizationId,
-        tenantId: tag.tenantId,
+        id: deletedTag.id,
+        organizationId: deletedTag.organizationId,
+        tenantId: deletedTag.tenantId,
       },
       events: tagCrudEvents,
+      indexer: tagCrudIndexer,
     })
-    return { tagId: tag.id }
+    await refreshTagMemberships(ctx, deletedTag, assignments, 'deleted')
+    return { tagId: deletedTag.id }
   },
   buildLog: async ({ snapshots }) => {
     const before = snapshots.before as TagSnapshot | undefined
@@ -334,6 +445,7 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
       resourceId: before.id,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
+      context: { cacheAliases: ['customers.tagAssignment', 'customers.person', 'customers.company'] },
       snapshotBefore: before,
       payload: {
         undo: {
@@ -346,31 +458,51 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
     const payload = extractUndoPayload<TagUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let tag = await em.findOne(CustomerTag, { id: before.id })
-    if (!tag) {
-      tag = em.create(CustomerTag, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        slug: before.slug,
-        label: before.label,
-        color: before.color,
-        description: before.description,
-      })
-      em.persist(tag)
-    } else {
-      tag.slug = before.slug
-      tag.label = before.label
-      tag.color = before.color
-      tag.description = before.description
-    }
-    const restoredTag = tag
+    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    const existingTag = await findOneWithDecryption(em, CustomerTag, { id: before.id, ...scope }, {}, scope)
+    const tag = existingTag ?? em.create(CustomerTag, { id: before.id, ...scope, slug: before.slug, label: before.label })
+    const restoredAssignments: CustomerTagAssignment[] = []
     await withAtomicFlush(em, [
       () => {
-        em.persist(restoredTag)
+        tag.slug = before.slug
+        tag.label = before.label
+        tag.color = before.color
+        tag.description = before.description
+        em.persist(tag)
       },
-    ], { transaction: true })
+      async () => {
+        const assignments = (before.assignments ?? []).filter((assignment) =>
+          assignment.tenantId === before.tenantId && assignment.organizationId === before.organizationId,
+        )
+        if (!assignments.length) return
+        const customers = await findWithDecryption(em, CustomerEntity, {
+          id: { $in: assignments.map((assignment) => assignment.entityId) },
+          ...scope,
+          deletedAt: null,
+          kind: { $in: ['person', 'company'] },
+        }, {}, scope)
+        const existingAssignments = await loadTagAssignments(em, tag)
+        const assignedEntityIds = new Set(existingAssignments.map((assignment) => assignment.entity.id))
+        const customersById = new Map(customers.map((customer) => [customer.id, customer]))
+        for (const snapshot of assignments) {
+          const entity = customersById.get(snapshot.entityId)
+          if (!entity || assignedEntityIds.has(entity.id)) continue
+          const assignment = em.create(CustomerTagAssignment, {
+            id: snapshot.id,
+            tag,
+            entity,
+            ...scope,
+            createdAt: new Date(snapshot.createdAt),
+          })
+          em.persist(assignment)
+          restoredAssignments.push(assignment)
+          assignedEntityIds.add(entity.id)
+        }
+      },
+    ], { transaction: true, label: 'customers.tags.delete.undo' })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
@@ -378,13 +510,14 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
       action: 'created',
       entity: tag,
       identifiers: {
-        id: tag.id,
-        organizationId: tag.organizationId,
-        tenantId: tag.tenantId,
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
       },
       events: tagCrudEvents,
       indexer: tagCrudIndexer,
     })
+    await refreshTagMemberships(ctx, tag, restoredAssignments, 'created')
   },
 }
 

@@ -98,19 +98,19 @@ export function DealCustomAttributes({
 
   return (
     <div className="space-y-4">
-      {fields.map((field) => (
-        <DealCustomFieldControl
-          key={field.id}
-          field={field}
-          value={values[field.id]}
-          onChange={(next) => onChange(field.id, next)}
-          error={errors?.[field.id]}
-          disabled={disabled}
-        />
-      ))}
-      <div className="pt-1">
-        <ManageFieldsLink href={manageHref} label={labels.manage} />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {fields.map((field) => (
+          <DealCustomFieldControl
+            key={field.id}
+            field={field}
+            value={values[field.id]}
+            onChange={(next) => onChange(field.id, next)}
+            error={errors?.[field.id]}
+            disabled={disabled}
+          />
+        ))}
       </div>
+      <ManageFieldsLink href={manageHref} label={labels.manage} />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
 
@@ -107,7 +107,40 @@ function collectModuleIdsFromModulesRoot(modulesRoot: string, enabledModules: Se
   }
 }
 
-function readDeclaredModuleIdsFromConfig(registryPath: string): string[] {
+function readModuleEntryId(element: ts.Expression): string[] {
+  if (!ts.isObjectLiteralExpression(element)) return []
+  const idProperty = element.properties.find((property): property is ts.PropertyAssignment =>
+    ts.isPropertyAssignment(property)
+    && (
+      (ts.isIdentifier(property.name) && property.name.text === 'id')
+      || (ts.isStringLiteralLike(property.name) && property.name.text === 'id')
+    ),
+  )
+  return idProperty && ts.isStringLiteralLike(idProperty.initializer)
+    ? [idProperty.initializer.text]
+    : []
+}
+
+function isPushOntoVariable(node: ts.Node, variableName: string): node is ts.CallExpression {
+  return ts.isCallExpression(node)
+    && ts.isPropertyAccessExpression(node.expression)
+    && node.expression.name.text === 'push'
+    && ts.isIdentifier(node.expression.expression)
+    && node.expression.expression.text === variableName
+}
+
+/**
+ * Module ids a registry file declares for `variableName`: the entries of its array
+ * literal initializer and, with `includePushes`, every `variableName.push({ id })` call.
+ * Pushes are usually conditional (enterprise or env-gated modules), so including them
+ * yields an upper bound of what the app can register, never narrower than the runtime set.
+ */
+function readDeclaredModuleIdsFromConfig(
+  registryPath: string,
+  options: { variableName?: string; includePushes?: boolean; optional?: boolean } = {},
+): string[] {
+  const variableName = options.variableName ?? 'enabledModules'
+  if (options.optional && !existsSync(registryPath)) return []
   const source = readFileSync(registryPath, 'utf8')
   const sourceFile = ts.createSourceFile(
     registryPath,
@@ -117,43 +150,55 @@ function readDeclaredModuleIdsFromConfig(registryPath: string): string[] {
     ts.ScriptKind.TS,
   )
 
-  for (const statement of sourceFile.statements) {
-    if (!ts.isVariableStatement(statement)) continue
-    for (const declaration of statement.declarationList.declarations) {
-      if (
-        !ts.isIdentifier(declaration.name)
-        || declaration.name.text !== 'enabledModules'
-        || !declaration.initializer
-        || !ts.isArrayLiteralExpression(declaration.initializer)
-      ) {
-        continue
-      }
-
-      return declaration.initializer.elements.flatMap((element) => {
-        if (!ts.isObjectLiteralExpression(element)) return []
-        const idProperty = element.properties.find((property): property is ts.PropertyAssignment =>
-          ts.isPropertyAssignment(property)
-          && (
-            (ts.isIdentifier(property.name) && property.name.text === 'id')
-            || (ts.isStringLiteralLike(property.name) && property.name.text === 'id')
-          ),
-        )
-        return idProperty && ts.isStringLiteralLike(idProperty.initializer)
-          ? [idProperty.initializer.text]
-          : []
-      })
+  const declared: string[] = []
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isVariableStatement(node.parent.parent)
+      && node.parent.parent.parent === sourceFile
+      && ts.isIdentifier(node.name)
+      && node.name.text === variableName
+      && node.initializer
+      && ts.isArrayLiteralExpression(node.initializer)
+    ) {
+      declared.push(...node.initializer.elements.flatMap(readModuleEntryId))
     }
+    if (options.includePushes && isPushOntoVariable(node, variableName)) {
+      declared.push(...node.arguments.flatMap(readModuleEntryId))
+    }
+    ts.forEachChild(node, visit)
   }
+  visit(sourceFile)
+  return declared
+}
 
-  return []
+function resolveTestAppRoot(): string | null {
+  const configuredTestAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
+  return configuredTestAppRoot ? path.resolve(configuredTestAppRoot) : null
+}
+
+/**
+ * Every module a standalone test app may register: its `enabledModules` literal, its
+ * conditional `enabledModules.push(...)` entries, and its official-module activations.
+ * Used to skip specs whose owning module the app does not ship at all.
+ */
+function resolvePossiblyEnabledTestAppModuleIds(testAppRoot: string): Set<string> {
+  return new Set(
+    [
+      ...readDeclaredModuleIdsFromConfig(path.join(testAppRoot, 'src', 'modules.ts'), { includePushes: true }),
+      ...readDeclaredModuleIdsFromConfig(
+        path.join(testAppRoot, 'src', 'official-modules.generated.ts'),
+        { variableName: 'officialModuleEntries', includePushes: true, optional: true },
+      ),
+    ].map(normalizeModuleId),
+  )
 }
 
 function resolveEnabledModuleIds(projectRoot: string): Set<string> {
-  const configuredTestAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
-  if (configuredTestAppRoot) {
-    const registryPath = path.join(path.resolve(configuredTestAppRoot), 'src', 'modules.ts')
+  const testAppRoot = resolveTestAppRoot()
+  if (testAppRoot) {
     return new Set(
-      readDeclaredModuleIdsFromConfig(registryPath).map(normalizeModuleId),
+      readDeclaredModuleIdsFromConfig(path.join(testAppRoot, 'src', 'modules.ts')).map(normalizeModuleId),
     )
   }
 
@@ -200,6 +245,22 @@ function extractModuleNameFromIntegrationPath(relativePath: string): string | nu
   }
   const moduleSegment = segments[integrationDirectoryIndex - 1]
   return moduleSegment && moduleSegment.length > 0 ? moduleSegment : null
+}
+
+/**
+ * The module a spec belongs to: the directory directly under the closest `modules/`
+ * ancestor of `__integration__`, provided that directory is a real module (it ships an
+ * `index.ts`/`index.js`). Returns null for specs outside a module, e.g. `packages/ui`.
+ */
+function resolveOwningModuleId(projectRoot: string, relativeSpecPath: string): string | null {
+  const segments = normalizePath(relativeSpecPath).split('/')
+  const integrationDirectoryIndex = segments.indexOf(MODULE_INTEGRATION_DIRECTORY_NAME)
+  if (integrationDirectoryIndex <= 0) return null
+  const modulesSegmentIndex = segments.lastIndexOf('modules', integrationDirectoryIndex - 1)
+  if (modulesSegmentIndex === -1 || modulesSegmentIndex + 1 >= integrationDirectoryIndex) return null
+  const moduleRoot = path.join(projectRoot, ...segments.slice(0, modulesSegmentIndex + 2))
+  const isRealModule = ['index.ts', 'index.js'].some((fileName) => existsSync(path.join(moduleRoot, fileName)))
+  return isRealModule ? normalizeModuleId(segments[modulesSegmentIndex + 1]) : null
 }
 
 function resolveOverlayRootPath(): string {
@@ -433,6 +494,8 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
 
   const discovered = Array.from(discoveredByPath.values())
   const enabledModules = resolveEnabledModuleIds(projectRoot)
+  const testAppRoot = resolveTestAppRoot()
+  const testAppModules = testAppRoot ? resolvePossiblyEnabledTestAppModuleIds(testAppRoot) : null
   const enabledModuleNames = new Set<string>()
   for (const file of discovered) {
     if (!file.isOverlay && file.moduleName) {
@@ -444,6 +507,12 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
     .filter((file) => {
       if (file.requiredModules.some((moduleId) => !enabledModules.has(normalizeModuleId(moduleId)))) {
         return false
+      }
+      if (testAppModules && !file.isOverlay) {
+        const owningModuleId = resolveOwningModuleId(projectRoot, file.path)
+        if (owningModuleId && !testAppModules.has(owningModuleId)) {
+          return false
+        }
       }
       if (file.requiredEnvVars.some((envVar) => !isEnvironmentVariableConfigured(envVar))) {
         return false

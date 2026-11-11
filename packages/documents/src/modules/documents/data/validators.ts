@@ -1,4 +1,5 @@
 import { z } from 'zod'
+
 import {
   DOCUMENTS_MAX_CONTENT_HTML_BYTES,
   DOCUMENTS_MAX_CONTENT_TEXT_BYTES,
@@ -6,6 +7,17 @@ import {
 } from '../lib/resourceLimits'
 import { containsCanonicalUuid } from '../lib/displayLabels'
 import { DOCUMENT_VERSION_LABEL_MAX_LENGTH } from '../lib/versionLabels'
+
+export const collabContentSaveRequestSchema = z.object({
+  type: z.literal('documents.content.save'),
+  requestId: z.string().uuid(),
+})
+
+export const collabContentSaveResponseSchema = z.object({
+  type: z.literal('documents.content.saved'),
+  requestId: z.string().uuid(),
+  saved: z.boolean(),
+})
 
 const uuid = () => z.string().uuid('documents.validation.common.invalidUuid')
 

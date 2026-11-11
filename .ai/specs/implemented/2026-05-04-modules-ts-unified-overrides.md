@@ -78,6 +78,7 @@ export interface ModuleOverrides {
     seedDefaults?: false                                        // skip the hook
     seedExamples?: false                                        // skip the hook
     onTenantCreated?: false                                     // skip the hook
+    onOrganizationCreated?: false                               // skip the hook
   }
   acl?: {
     features?: Record<string, AclFeatureOverride>              // key: feature id

@@ -16,6 +16,8 @@ jest.mock('@open-mercato/shared/lib/logger', () => ({
 }))
 
 import { EntityManager } from '@mikro-orm/core'
+import { createServer } from 'node:http'
+import { once } from 'node:events'
 import type { AwilixContainer } from 'awilix'
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
 import { WorkflowInstance } from '../../data/entities'
@@ -25,6 +27,8 @@ import {
   clearWorkflowSafeCommandsForTests,
   registerWorkflowSafeCommands,
 } from '../workflow-safe-commands'
+
+const realFetch = global.fetch
 
 // Mock global fetch
 global.fetch = jest.fn()
@@ -1233,13 +1237,11 @@ describe('Activity Executor (Unit Tests)', () => {
     })
 
     test('should execute CALL_WEBHOOK activity successfully', async () => {
-      ;(global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
+      ;(global.fetch as jest.Mock).mockResolvedValue(new Response(JSON.stringify({ success: true, orderId: 'order-123' }), {
         status: 200,
         statusText: 'OK',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ success: true, orderId: 'order-123' }),
-      })
+        headers: { 'content-type': 'application/json' },
+      }))
 
       const activity: ActivityDefinition = {
         activityId: 'activity-11',
@@ -1281,13 +1283,11 @@ describe('Activity Executor (Unit Tests)', () => {
       const originalSecret = process.env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET
       process.env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET = 'webhook-secret-value'
 
-      ;(global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
+      ;(global.fetch as jest.Mock).mockResolvedValue(new Response(JSON.stringify({ success: true }), {
         status: 200,
         statusText: 'OK',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ success: true }),
-      })
+        headers: { 'content-type': 'application/json' },
+      }))
 
       const activity: ActivityDefinition = {
         activityId: 'activity-webhook-secret',
@@ -1333,13 +1333,10 @@ describe('Activity Executor (Unit Tests)', () => {
     })
 
     test('should handle non-JSON webhook responses', async () => {
-      ;(global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
-        status: 200,
+      ;(global.fetch as jest.Mock).mockResolvedValue(new Response('Success', {
         statusText: 'OK',
-        headers: new Headers({ 'content-type': 'text/plain' }),
-        text: async () => 'Success',
-      })
+        headers: { 'content-type': 'text/plain' },
+      }))
 
       const activity: ActivityDefinition = {
         activityId: 'activity-12',
@@ -1362,13 +1359,11 @@ describe('Activity Executor (Unit Tests)', () => {
     })
 
     test('should fail CALL_WEBHOOK on HTTP error', async () => {
-      ;(global.fetch as jest.Mock).mockResolvedValue({
-        ok: false,
+      ;(global.fetch as jest.Mock).mockResolvedValue(new Response(JSON.stringify({ error: 'Not found' }), {
         status: 404,
         statusText: 'Not Found',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ error: 'Not found' }),
-      })
+        headers: { 'content-type': 'application/json' },
+      }))
 
       const activity: ActivityDefinition = {
         activityId: 'activity-13',
@@ -1417,15 +1412,252 @@ describe('Activity Executor (Unit Tests)', () => {
   // CALL_WEBHOOK SSRF guard tests
   // ============================================================================
 
+  describe('CALL_WEBHOOK response bounds', () => {
+    const maxResponseBytes = 1024 * 1024
+    const webhookActivity: ActivityDefinition = {
+      activityId: 'bounded-webhook',
+      activityName: 'Bounded webhook',
+      activityType: 'CALL_WEBHOOK',
+      config: { url: 'https://example.com/webhook' },
+    }
+
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    test('fails and aborts a request without a configured timeout after 30 seconds', async () => {
+      jest.useFakeTimers()
+      let requestSignal: AbortSignal | null | undefined
+      const fetchImpl = jest.fn((_url: string | URL | Request, init?: RequestInit) => {
+        requestSignal = init?.signal
+        return new Promise<Response>(() => {})
+      })
+      const pending = activityExecutor.executeCallWebhook(
+        webhookActivity.config, mockContext, { fetchImpl, allowPrivate: true },
+      )
+      const assertion = expect(pending).rejects.toThrow('timeout after 30000ms')
+
+      await jest.advanceTimersByTimeAsync(30000)
+
+      await assertion
+      expect(requestSignal?.aborted).toBe(true)
+      expect(jest.getTimerCount()).toBe(0)
+    })
+
+    test('includes time before headers in the deadline and cancels a stalled body without waiting', async () => {
+      jest.useFakeTimers()
+      const cancel = jest.fn(() => new Promise<void>(() => {}))
+      const response = new Response(new ReadableStream<Uint8Array>({ cancel }))
+      const fetchImpl = jest.fn(() => new Promise<Response>((resolve) => {
+        setTimeout(() => resolve(response), 20000)
+      }))
+      const pending = activityExecutor.executeCallWebhook(
+        webhookActivity.config, mockContext, { fetchImpl, allowPrivate: true },
+      )
+      const assertion = expect(pending).rejects.toThrow('timeout after 30000ms')
+
+      await jest.advanceTimersByTimeAsync(29999)
+      expect(cancel).not.toHaveBeenCalled()
+      await jest.advanceTimersByTimeAsync(1)
+
+      await assertion
+      expect(cancel).toHaveBeenCalledTimes(1)
+      expect(response.body?.locked).toBe(false)
+      expect(jest.getTimerCount()).toBe(0)
+    })
+
+    test('honors an earlier activity timeout while consuming the response body', async () => {
+      jest.useFakeTimers()
+      const cancel = jest.fn()
+      const response = new Response(new ReadableStream<Uint8Array>({ cancel }))
+      ;(global.fetch as jest.Mock).mockResolvedValue(response)
+      const originalAllowPrivate = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = '1'
+      try {
+        const pending = activityExecutor.executeActivity(
+          mockEm, mockContainer, { ...webhookActivity, timeoutMs: 10 }, mockContext,
+        )
+
+        await jest.advanceTimersByTimeAsync(10)
+
+        expect(await pending).toMatchObject({ success: false })
+        expect(cancel).toHaveBeenCalledTimes(1)
+        expect(response.body?.locked).toBe(false)
+        expect(jest.getTimerCount()).toBe(0)
+      } finally {
+        if (originalAllowPrivate === undefined) delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        else process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = originalAllowPrivate
+      }
+    })
+
+    test.each([{ timeoutMs: 120000 }, { timeout: 'PT2M' }])(
+      'honors a configured timeout longer than the default: %p',
+      async (timeout) => {
+        jest.useFakeTimers()
+        ;(global.fetch as jest.Mock).mockImplementation(() => new Promise<Response>((resolve) => {
+          setTimeout(() => resolve(new Response('complete')), 60000)
+        }))
+        const originalAllowPrivate = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = '1'
+        try {
+          const pending = activityExecutor.executeActivity(
+            mockEm, mockContainer, { ...webhookActivity, ...timeout }, mockContext,
+          )
+
+          await jest.advanceTimersByTimeAsync(60000)
+
+          expect(await pending).toMatchObject({ success: true, output: { result: 'complete' } })
+          expect(jest.getTimerCount()).toBe(0)
+        } finally {
+          if (originalAllowPrivate === undefined) delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+          else process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = originalAllowPrivate
+        }
+      },
+    )
+
+    test.each(['application/json', 'text/plain'])(
+      'rejects oversized streamed %s responses even with an understated Content-Length',
+      async (contentType) => {
+        const cancel = jest.fn()
+        const response = new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(maxResponseBytes))
+            controller.enqueue(new Uint8Array(1))
+          },
+          cancel,
+        }), { headers: { 'content-type': contentType, 'content-length': '1' } })
+        const fetchImpl = jest.fn().mockResolvedValue(response)
+
+        await expect(activityExecutor.executeCallWebhook(
+          webhookActivity.config, mockContext, { fetchImpl, allowPrivate: true },
+        )).rejects.toThrow('response exceeds 1048576 bytes')
+
+        expect(cancel).toHaveBeenCalledTimes(1)
+        expect(response.body?.locked).toBe(false)
+      },
+    )
+
+    test('rejects an oversized declared length before reading and cancels the body', async () => {
+      const cancel = jest.fn()
+      const response = new Response(new ReadableStream<Uint8Array>({ cancel }), {
+        headers: { 'content-length': String(maxResponseBytes + 1) },
+      })
+
+      await expect(activityExecutor.executeCallWebhook(
+        webhookActivity.config, mockContext,
+        { fetchImpl: jest.fn().mockResolvedValue(response), allowPrivate: true },
+      )).rejects.toThrow('response exceeds 1048576 bytes')
+
+      expect(cancel).toHaveBeenCalledTimes(1)
+    })
+
+    test('counts UTF-8 bytes rather than decoded characters without a Content-Length', async () => {
+      const response = new Response('é'.repeat(maxResponseBytes / 2 + 1))
+
+      await expect(activityExecutor.executeCallWebhook(
+        webhookActivity.config, mockContext,
+        { fetchImpl: jest.fn().mockResolvedValue(response), allowPrivate: true },
+      )).rejects.toThrow('response exceeds 1048576 bytes')
+    })
+
+    test.each(['application/json', 'text/plain'])(
+      'accepts exactly 1 MiB of %s and preserves the output envelope',
+      async (contentType) => {
+        const body = contentType === 'application/json'
+          ? JSON.stringify('x'.repeat(maxResponseBytes - 2))
+          : 'x'.repeat(maxResponseBytes)
+        const response = new Response(body, { headers: { 'content-type': contentType } })
+
+        const result = await activityExecutor.executeCallWebhook(
+          webhookActivity.config, mockContext,
+          { fetchImpl: jest.fn().mockResolvedValue(response), allowPrivate: true },
+        )
+
+        expect(result).toEqual({ status: 200, statusText: '', result: contentType === 'application/json' ? JSON.parse(body) : body })
+        expect(response.body?.locked).toBe(false)
+      },
+    )
+
+    test('preserves multibyte characters split across response chunks', async () => {
+      const bytes = new TextEncoder().encode('hello 🌍')
+      const response = new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bytes.slice(0, 8))
+          controller.enqueue(bytes.slice(8))
+          controller.close()
+        },
+      }))
+
+      await expect(activityExecutor.executeCallWebhook(
+        webhookActivity.config, mockContext,
+        { fetchImpl: jest.fn().mockResolvedValue(response), allowPrivate: true },
+      )).resolves.toMatchObject({ result: 'hello 🌍' })
+    })
+
+    test('cancels the body of a rejected redirect response', async () => {
+      const cancel = jest.fn()
+      const response = new Response(new ReadableStream<Uint8Array>({ cancel }), { status: 302 })
+
+      await expect(activityExecutor.executeCallWebhook(
+        webhookActivity.config, mockContext,
+        { fetchImpl: jest.fn().mockResolvedValue(response), allowPrivate: true },
+      )).rejects.toThrow('refused to follow redirect 302')
+
+      expect(cancel).toHaveBeenCalledTimes(1)
+    })
+
+    test.each(['oversized', 'stalled'] as const)(
+      'closes an actual HTTP connection for a %s response',
+      async (mode) => {
+        const controller = new AbortController()
+        let abortTimer: ReturnType<typeof setTimeout> | undefined
+        let closeTimer: ReturnType<typeof setTimeout> | undefined
+        let onResponseClosed: (() => void) | undefined
+        const responseClosed = new Promise<void>((resolve) => { onResponseClosed = resolve })
+        const server = createServer((_request, response) => {
+          response.on('close', () => onResponseClosed?.())
+          response.writeHead(200, { 'Content-Type': 'text/plain' })
+          if (mode === 'oversized') {
+            response.write(Buffer.alloc(maxResponseBytes + 1))
+          } else {
+            response.write('partial response')
+            abortTimer = setTimeout(() => controller.abort(), 50)
+          }
+        })
+        try {
+          server.listen(0, '127.0.0.1')
+          await once(server, 'listening')
+          const address = server.address()
+          if (!address || typeof address === 'string') throw new Error('[internal] Expected a TCP address')
+
+          await expect(activityExecutor.executeCallWebhook(
+            { url: `http://127.0.0.1:${address.port}/webhook` }, mockContext,
+            { fetchImpl: realFetch, allowPrivate: true, signal: controller.signal },
+          )).rejects.toThrow(mode === 'oversized' ? 'response exceeds 1048576 bytes' : /abort/i)
+
+          await Promise.race([
+            responseClosed,
+            new Promise<never>((_resolve, reject) => {
+              closeTimer = setTimeout(() => reject(new Error('[internal] HTTP connection was not closed')), 3000)
+            }),
+          ])
+        } finally {
+          clearTimeout(abortTimer)
+          clearTimeout(closeTimer)
+          server.closeAllConnections()
+          await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+      },
+    )
+  })
+
   describe('CALL_WEBHOOK SSRF guard', () => {
     const makeFetchMock = () =>
-      jest.fn().mockResolvedValue({
-        ok: true,
+      jest.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
         status: 200,
         statusText: 'OK',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ ok: true }),
-      }) as unknown as typeof fetch
+        headers: { 'content-type': 'application/json' },
+      })) as unknown as typeof fetch
 
     test('rejects loopback IPv4 literal without calling fetch', async () => {
       const fetchImpl = makeFetchMock()
@@ -1607,13 +1839,11 @@ describe('Activity Executor (Unit Tests)', () => {
     })
 
     test('should allow private URLs when OM_WORKFLOWS_ALLOW_PRIVATE_URLS=true', async () => {
-      ;(global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
+      ;(global.fetch as jest.Mock).mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
         status: 200,
         statusText: 'OK',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ ok: true }),
-      })
+        headers: { 'content-type': 'application/json' },
+      }))
 
       const activity: ActivityDefinition = {
         activityId: 'activity-14c',
@@ -1669,13 +1899,11 @@ describe('Activity Executor (Unit Tests)', () => {
     })
 
     test('should ignore OM_WORKFLOWS_ALLOW_PRIVATE_URLS in production', async () => {
-      ;(global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
+      ;(global.fetch as jest.Mock).mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
         status: 200,
         statusText: 'OK',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ ok: true }),
-      })
+        headers: { 'content-type': 'application/json' },
+      }))
 
       const activity: ActivityDefinition = {
         activityId: 'activity-14f',
@@ -1729,13 +1957,11 @@ describe('Activity Executor (Unit Tests)', () => {
     })
 
     test('should allow private URLs when WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS=true', async () => {
-      ;(global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
+      ;(global.fetch as jest.Mock).mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
         status: 200,
         statusText: 'OK',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ ok: true }),
-      })
+        headers: { 'content-type': 'application/json' },
+      }))
 
       const activity: ActivityDefinition = {
         activityId: 'activity-14c',
@@ -1791,13 +2017,11 @@ describe('Activity Executor (Unit Tests)', () => {
     })
 
     test('should ignore WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS in production', async () => {
-      ;(global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
+      ;(global.fetch as jest.Mock).mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
         status: 200,
         statusText: 'OK',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ ok: true }),
-      })
+        headers: { 'content-type': 'application/json' },
+      }))
 
       const activity: ActivityDefinition = {
         activityId: 'activity-14g',

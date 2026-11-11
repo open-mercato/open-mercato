@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, type APIRequestContext } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   createOrganizationFixture,
@@ -42,6 +42,24 @@ export function uniqueStamp(): string {
 export function fixturePriority(stamp: string, offset = 0): number {
   const numeric = Number(stamp.split('_')[0]) % 1_000_000;
   return 2_000_000 + numeric + offset;
+}
+
+/**
+ * The person page folds the tabs that do not fit into a More menu, and the
+ * injected Groups tab arrives after the built-in ones. Depending on its
+ * priority and the width it lands inline or in the menu, so keep looking until
+ * it shows up in one of them.
+ */
+export async function openGroupsTab(page: Page): Promise<void> {
+  await expect(async () => {
+    const groupsTab = page.getByRole('tab', { name: 'Groups' });
+    if (await groupsTab.isVisible()) {
+      await groupsTab.click();
+      return;
+    }
+    await page.getByTestId('detail-tabs-more').click({ timeout: 2_000 });
+    await page.getByRole('menuitem', { name: 'Groups' }).click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
 }
 
 export const CUSTOMER_GROUPS_FEATURES = [

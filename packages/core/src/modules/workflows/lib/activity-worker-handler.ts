@@ -47,7 +47,7 @@ const INVOKE_AGENT_QUEUE_MAX_ATTEMPTS = 3
  * place, so callers never need their own side-effect imports.
  */
 export async function executeRegistryActivity(
-  payload: Pick<WorkflowActivityJobActivity, 'activityType' | 'activityConfig'>,
+  payload: Pick<WorkflowActivityJobActivity, 'activityType' | 'activityConfig' | 'timeoutMs'>,
   activityContext: ActivityContext,
   deps: ActivityExecuteDeps
 ): Promise<unknown> {
@@ -61,7 +61,7 @@ export async function executeRegistryActivity(
     )
   }
   const runActivity = entry.executeAsync ?? entry.execute
-  return await runActivity(payload.activityConfig, activityContext, deps)
+  return await runActivity(payload.activityConfig, activityContext, { ...deps, timeoutMs: payload.timeoutMs })
 }
 
 /**

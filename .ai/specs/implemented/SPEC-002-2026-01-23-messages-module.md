@@ -3301,5 +3301,6 @@ export function register(container: AwilixContainer): void {
 
 ## Changelog
 
+- 2026-10-13: Message action execution preserves nested `CrudHttpError` and status-bearing command-interceptor refusals after releasing terminal claims (#7310). Unexpected sub-command failures retain the generic 500 response. Regression coverage exercises the command and HTTP route together, including 403/404/422 refusals, private-error masking, and retry/concurrency behavior.
 - 2026-04-15: Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs).
 - 2026-02-16: Refactored message write operations to command-bus handlers with undo support for message mutations, recipient state changes, draft attachment linking/unlinking, terminal action recording, and message confirmation state updates.

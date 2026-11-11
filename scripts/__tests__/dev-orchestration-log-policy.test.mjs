@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  extractInitSummaryBox,
+  extractInitSummaryLines,
   isIgnorableBoxDrawingLine,
   isIgnorableConsolidatedWatchLine,
   isIgnorableEnvInjectionLine,
@@ -126,4 +128,66 @@ test('isIgnorableConsolidatedWatchLine catches consolidated watcher progress onl
   assert.equal(isIgnorableConsolidatedWatchLine('[watch] shared: failed to start fs.watch: EMFILE'), false)
   assert.equal(isIgnorableConsolidatedWatchLine('Error: something else'), false)
   assert.equal(isIgnorableConsolidatedWatchLine(null), false)
+})
+
+test('extractInitSummaryBox surfaces the init credentials box that compact mode captures', () => {
+  const captured = [
+    '🧠 Building search indexes...',
+    '\u001b[32m✅ Search indexes built\u001b[39m',
+    '🎉 App initialization complete!',
+    '╔══════════════════════════════════════════════════════════════╗',
+    '║  🚀 You\'re now ready to start development!                   ║',
+    '║  The dev server is starting now (next time run: yarn dev).   ║',
+    '║    👑 Superadmin: superadmin@acme.com                        ║',
+    '║       Password: secret                                       ║',
+    '╚══════════════════════════════════════════════════════════════╝',
+    'Done in 12.3s',
+  ]
+  const box = extractInitSummaryBox(captured)
+  assert.equal(box.length, 6)
+  assert.ok(box[0].startsWith('╔'))
+  assert.ok(box[5].startsWith('╚'))
+  assert.ok(box.some((line) => line.includes('superadmin@acme.com')))
+})
+
+test('extractInitSummaryBox strips turbo task prefixes and keeps only the last box', () => {
+  const box = extractInitSummaryBox([
+    '╔═ old ═╗',
+    '╚═ old ═╝',
+    '@open-mercato/app:initialize: ╔════╗',
+    '@open-mercato/app:initialize: ║ Password: secret ║',
+    '@open-mercato/app:initialize: ╚════╝',
+  ])
+  assert.deepEqual(box, ['╔════╗', '║ Password: secret ║', '╚════╝'])
+})
+
+test('extractInitSummaryBox returns nothing for output without a complete box', () => {
+  assert.deepEqual(extractInitSummaryBox(['no box here']), [])
+  assert.deepEqual(extractInitSummaryBox(['╔════╗', '║ truncated']), [])
+  assert.deepEqual(extractInitSummaryBox(null), [])
+})
+
+test('extractInitSummaryLines falls back to the kept-data notice when a re-run skipped the seed', () => {
+  assert.deepEqual(
+    extractInitSummaryLines(['🚀 Initializing Open Mercato app...', '\u001b[32m✅ Database already initialized (3 user(s)) — keeping the existing data and skipping the first-run seed.\u001b[39m']),
+    ['✅ Database already initialized (3 user(s)) — keeping the existing data and skipping the first-run seed.'],
+  )
+  assert.deepEqual(extractInitSummaryLines(['╔═╗', '║ x ║', '╚═╝']), ['╔═╗', '║ x ║', '╚═╝'])
+  assert.deepEqual(extractInitSummaryLines(['nothing']), [])
+})
+
+test('extractInitSummaryLines preserves dark panel styling and removes turbo prefixes', () => {
+  const style = '\u001b[48;2;57;62;70m\u001b[38;2;238;238;238m'
+  const panel = ['━━━━━━━━━━━━━━━━━━━━', '  ', '  🔑 DEVELOPMENT', '  ACCOUNTS', '  ', '  👑 Superadmin', '  Email: demo', '━━━━━━━━━━━━━━━━━━━━']
+    .map((line) => `${style}${line}\u001b[0m`)
+  const prefixed = panel.map((line) => `\u001b[32mapp:initialize: \u001b[0m${line}`)
+  assert.deepEqual(extractInitSummaryLines(['noise', ...prefixed, 'done']), panel)
+  assert.deepEqual(extractInitSummaryLines(panel), panel)
+  assert.deepEqual(extractInitSummaryLines(prefixed.slice(0, -1)), [])
+})
+
+test('direct monorepo initialization also suppresses task prefixes around the panel', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const manifest = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'))
+  assert.match(manifest.scripts.initialize, /--log-prefix=none(?:\s|$)/)
 })

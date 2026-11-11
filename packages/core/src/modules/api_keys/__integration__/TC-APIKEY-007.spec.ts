@@ -94,9 +94,24 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
     let crossTenantKeyId: string | null = null
     let roleId: string | null = null
     let actorUserId: string | null = null
+    let keyCreatorRoleId: string | null = null
+    const keyCreators = new Map<string, { userId: string; token: string }>()
 
     const createKey = async (name: string, tenantId: string, organizationId: string): Promise<string> => {
-      const id = await createScopedApiKey(request, superadminToken, { name, tenantId, organizationId })
+      let creator = keyCreators.get(organizationId)
+      if (!creator) {
+        const email = `qa-tc-apikey-007-creator-${randomUUID()}@example.com`
+        const userId = await createUserFixture(request, superadminToken, {
+          email,
+          password,
+          organizationId,
+          roles: [expectId(keyCreatorRoleId, 'Key creator role should exist')],
+        })
+        creator = { userId, token: '' }
+        keyCreators.set(organizationId, creator)
+        creator.token = await getAuthToken(request, email, password)
+      }
+      const id = await createScopedApiKey(request, creator.token, { name, tenantId, organizationId })
       pendingKeyIds.add(id)
       return id
     }
@@ -112,6 +127,15 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
     }
 
     try {
+      keyCreatorRoleId = await createRoleFixture(request, superadminToken, {
+        name: `qa-tc-apikey-007-creator-${stamp}`,
+        tenantId: actorTenantId,
+      })
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId: keyCreatorRoleId,
+        features: ['api_keys.create'],
+        organizations: null,
+      })
       allowedOrganizationId = await createOrganizationFixture(request, superadminToken, {
         name: `QA TC-APIKEY-007 Allowed ${stamp}`,
         tenantId: actorTenantId,
@@ -320,6 +344,10 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
       for (const keyId of pendingKeyIds) {
         await deleteAsSuperadmin(keyId).catch(() => undefined)
       }
+      for (const creator of keyCreators.values()) {
+        await deleteUserIfExists(request, superadminToken, creator.userId)
+      }
+      await deleteRoleIfExists(request, superadminToken, keyCreatorRoleId)
       await deleteUserIfExists(request, superadminToken, foreignTenantUserId)
       await deleteRoleIfExists(request, superadminToken, foreignTenantRoleId)
       await deleteUserIfExists(request, superadminToken, actorUserId)

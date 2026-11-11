@@ -31,7 +31,7 @@ jest.mock(
 )
 
 import activitiesTasksAiTools from '../../ai-tools/activities-tasks-pack'
-import { CustomerDealCompanyLink, CustomerDealPersonLink } from '../../data/entities'
+import { CustomerDeal, CustomerDealCompanyLink, CustomerDealPersonLink } from '../../data/entities'
 import { makeCtx } from './shared'
 
 const DEAL_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
@@ -114,7 +114,7 @@ beforeEach(() => {
   findWithDecryptionMock.mockReset()
   runMock.mockReset()
   createRunnerMock.mockClear()
-  findOneWithDecryptionMock.mockResolvedValue(DEAL)
+  findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => entity === CustomerDeal ? DEAL : null)
   runMock.mockResolvedValue({ success: true, statusCode: 201, data: { id: 'created-1' } })
 })
 

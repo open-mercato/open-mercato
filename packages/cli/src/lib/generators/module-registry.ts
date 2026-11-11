@@ -1,9 +1,12 @@
+import { sourceHasDefaultExport, sourceExportedHttpMethods } from './source-exports'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import ts from 'typescript-js'
 import type { ModuleEntry, PackageResolver } from '../resolver'
+import { getEnabledModuleIdentities } from '../module-identity'
+import { getModuleRequirementHint, resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
 import {
   DEV_SUPERVISOR_MANIFEST_FILE,
   DEV_SUPERVISOR_MANIFEST_VERSION,
@@ -93,6 +96,7 @@ export interface ModuleRegistryOptions {
 interface ModuleRegistryDiscovery {
   enabled: ModuleEntry[]
   modules: ModuleRegistryDiscoveryEntry[]
+  identities: ReturnType<typeof getEnabledModuleIdentities>
   getStructureChecksum: () => string
 }
 
@@ -1158,44 +1162,11 @@ function inferScriptKind(filePath: string): ts.ScriptKind {
 }
 
 function hasDefaultExport(sourceFile: string): boolean {
-  let source = ''
   try {
-    source = fs.readFileSync(sourceFile, 'utf8')
+    return sourceHasDefaultExport(sourceFile, fs.readFileSync(sourceFile, 'utf8'))
   } catch {
     return false
   }
-
-  const parsed = ts.createSourceFile(
-    sourceFile,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    inferScriptKind(sourceFile),
-  )
-
-  for (const statement of parsed.statements) {
-    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
-      return true
-    }
-
-    if (
-      ts.isExportDeclaration(statement)
-      && statement.exportClause
-      && ts.isNamedExports(statement.exportClause)
-      && statement.exportClause.elements.some(
-        (element) => element.name.text === 'default' || element.propertyName?.text === 'default',
-      )
-    ) {
-      return true
-    }
-
-    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined
-    if (modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) {
-      return true
-    }
-  }
-
-  return false
 }
 
 function requiresRuntimePageMetadataFromSourceFile(sourceFile: string): boolean {
@@ -1722,67 +1693,26 @@ function resolveApiPathFromMetadata(metadata: unknown, fallbackPath: string): st
   return typeof candidate === 'string' && candidate.length > 0 ? candidate : fallbackPath
 }
 
+function resolveModuleRequiresFromMetadata(metadata: unknown): string[] | undefined {
+  if (!metadata || typeof metadata !== 'object') return undefined
+  const requires = (metadata as Record<string, unknown>).requires
+  if (!Array.isArray(requires)) return undefined
+  const resolved = requires.filter((value): value is string => typeof value === 'string')
+  return resolved.length > 0 ? resolved : undefined
+}
+
+async function resolveModuleRequiresFromIndexFile(indexFileAbsolutePath: string): Promise<string[] | undefined> {
+  const loadedModule = await loadModuleExportsFromSource<Record<string, unknown>>(indexFileAbsolutePath)
+  const metadata = loadedModule?.metadata ?? extractNamedObjectLiteralExport(indexFileAbsolutePath, 'metadata')
+  return resolveModuleRequiresFromMetadata(metadata)
+}
+
 function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
-  let source = ''
   try {
-    source = fs.readFileSync(sourceFile, 'utf8')
+    return sourceExportedHttpMethods(fs.readFileSync(sourceFile, 'utf8'))
   } catch {
     return []
   }
-
-  const knownMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as HttpMethod[]
-  const exportedMethods = new Set<HttpMethod>()
-  const collectKnownMethods = (rawSpecifiers: string[], opts?: { useExportedAlias?: boolean; useDestructuredProperty?: boolean }) => {
-    for (const specifier of rawSpecifiers) {
-      const trimmed = specifier.trim()
-      if (!trimmed) continue
-
-      let candidate = trimmed
-      if (opts?.useExportedAlias) {
-        candidate = trimmed.split(/\s+as\s+/i).pop()?.trim() ?? trimmed
-      }
-      if (opts?.useDestructuredProperty) {
-        candidate = trimmed.split(':')[0]?.trim() ?? trimmed
-      }
-
-      if (knownMethods.includes(candidate as HttpMethod)) {
-        exportedMethods.add(candidate as HttpMethod)
-      }
-    }
-  }
-
-  for (const method of knownMethods) {
-    const pattern = new RegExp(`export\\s+(?:async\\s+)?function\\s+${method}\\b|export\\s+(?:const|let|var)\\s+${method}\\b`)
-    if (pattern.test(source)) {
-      exportedMethods.add(method)
-    }
-  }
-
-  const reExportPattern = /export\s*{([^}]+)}/g
-  for (const match of source.matchAll(reExportPattern)) {
-    const exportBlock = match[1] ?? ''
-    collectKnownMethods(
-      exportBlock
-      .split(',')
-      .map((part) => part.trim())
-      .filter((part) => part.length > 0),
-      { useExportedAlias: true },
-    )
-  }
-
-  const destructuredExportPattern = /export\s+(?:const|let|var)\s*{([^}]+)}/g
-  for (const match of source.matchAll(destructuredExportPattern)) {
-    const exportBlock = match[1] ?? ''
-    collectKnownMethods(
-      exportBlock
-        .split(',')
-        .map((part) => part.trim())
-        .filter((part) => part.length > 0),
-      { useDestructuredProperty: true },
-    )
-  }
-
-  return knownMethods.filter((method) => exportedMethods.has(method))
 }
 
 function buildPageRouteProps(metaExpr: string, routePath: string): string {
@@ -2048,12 +1978,22 @@ async function createModuleRegistryDiscovery(
 ): Promise<ModuleRegistryDiscovery> {
   resetConventionWarnings()
   const enabled = resolver.loadEnabledModules()
+  const rootsByEntry = new Map<ModuleEntry, ModuleRoots>()
+  const getModulePaths = (entry: ModuleEntry): ModuleRoots => {
+    let roots = rootsByEntry.get(entry)
+    if (!roots) {
+      roots = resolver.getModulePaths(entry)
+      rootsByEntry.set(entry, roots)
+    }
+    return roots
+  }
+  const identities = getEnabledModuleIdentities({ ...resolver, getModulePaths }, enabled)
   const modules: ModuleRegistryDiscoveryEntry[] = []
   const trackedRoots = new Set<string>()
 
   for (const entry of enabled) {
     const modId = entry.id
-    const roots = resolver.getModulePaths(entry)
+    const roots = getModulePaths(entry)
     verifyThirdPartyModuleShape(entry, roots.pkgBase)
     const rawImps = resolver.getModuleImportBase(entry)
     const appImportBase = entry.from === '@app' ? `../../src/modules/${modId}` : rawImps.appBase
@@ -2096,6 +2036,7 @@ async function createModuleRegistryDiscovery(
   return {
     enabled,
     modules,
+    identities,
     getStructureChecksum: () => structureChecksum ??= calculateStructureChecksum(Array.from(trackedRoots)),
   }
 }
@@ -3409,11 +3350,21 @@ function sourceDeclaresCliCommand(filePath: string, commandName: string): boolea
     })
   }
 
-  return sourceFile.statements.some((statement) => (
-    ts.isExportAssignment(statement)
-    && !statement.isExportEquals
-    && expressionDeclaresCommand(statement.expression)
-  ))
+  return sourceFile.statements.some((statement) => {
+    if (ts.isExportAssignment(statement)) {
+      return !statement.isExportEquals && expressionDeclaresCommand(statement.expression)
+    }
+    if (
+      !ts.isExportDeclaration(statement)
+      || statement.moduleSpecifier
+      || !statement.exportClause
+      || !ts.isNamedExports(statement.exportClause)
+    ) return false
+    return statement.exportClause.elements.some((element) => (
+      element.name.text === 'default'
+      && expressionDeclaresCommand(element.propertyName && ts.isIdentifier(element.propertyName) ? element.propertyName : element.name)
+    ))
+  })
 }
 
 function appDeclaresProgrammaticDevSupervisorOverrides(appDir: string): boolean {
@@ -3681,13 +3632,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       runtimeImports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexResolved.absolutePath)
-        const reqs: string[] | undefined =
-          mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
-        if (reqs && reqs.length) requiresByModule.set(modId, reqs)
-      } catch {}
+      const reqs = await resolveModuleRequiresFromIndexFile(indexResolved.absolutePath)
+      if (reqs && reqs.length) requiresByModule.set(modId, reqs)
     }
 
     // 2. Pages: frontend
@@ -4221,10 +4167,12 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   })
   // Validate module dependencies declared via ModuleInfo.requires
   {
-    const enabledIds = new Set(enabled.map((e) => e.id))
+    const identities = discovery.identities
     const problems: string[] = []
+    const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((r) => !enabledIds.has(r))
+      const missing = reqs.filter((requirement) => !resolveModuleRequirement(requirement, identities))
+      for (const requirement of missing) missingRequirements.add(requirement)
       if (missing.length) {
         problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
       }
@@ -4232,12 +4180,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     if (problems.length) {
       console.error('\nModule dependency check failed:')
       for (const p of problems) console.error(p)
-      console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
-      console.error(
-        '  export const enabledModules = [ { id: \'' +
-          Array.from(new Set(requiresByModule.values()).values()).join("' }, { id: '") +
-          "' } ]"
-      )
+      for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
       process.exit(1)
     }
   }
@@ -4404,13 +4347,8 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       bootstrapImports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexResolved.absolutePath)
-        const reqs: string[] | undefined =
-          mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
-        if (reqs && reqs.length) requiresByModule.set(modId, reqs)
-      } catch {}
+      const reqs = await resolveModuleRequiresFromIndexFile(indexResolved.absolutePath)
+      if (reqs && reqs.length) requiresByModule.set(modId, reqs)
     }
 
     {
@@ -4706,10 +4644,12 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   })
 
   {
-    const enabledIds = new Set(enabled.map((e) => e.id))
+    const identities = discovery.identities
     const problems: string[] = []
+    const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((r) => !enabledIds.has(r))
+      const missing = reqs.filter((requirement) => !resolveModuleRequirement(requirement, identities))
+      for (const requirement of missing) missingRequirements.add(requirement)
       if (missing.length) {
         problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
       }
@@ -4717,12 +4657,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     if (problems.length) {
       console.error('\nModule dependency check failed:')
       for (const p of problems) console.error(p)
-      console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
-      console.error(
-        '  export const enabledModules = [ { id: \'' +
-          Array.from(new Set(requiresByModule.values()).values()).join("' }, { id: '") +
-          "' } ]"
-      )
+      for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
       process.exit(1)
     }
   }
@@ -4839,13 +4774,8 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexResolved.absolutePath)
-        const reqs: string[] | undefined =
-          mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
-        if (reqs && reqs.length) requiresByModule.set(modId, reqs)
-      } catch {}
+      const reqs = await resolveModuleRequiresFromIndexFile(indexResolved.absolutePath)
+      if (reqs && reqs.length) requiresByModule.set(modId, reqs)
     }
 
     // Module setup configuration: setup.ts
@@ -5100,10 +5030,12 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 
   // Validate module dependencies declared via ModuleInfo.requires
   {
-    const enabledIds = new Set(enabled.map((e) => e.id))
+    const identities = discovery.identities
     const problems: string[] = []
+    const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((r) => !enabledIds.has(r))
+      const missing = reqs.filter((requirement) => !resolveModuleRequirement(requirement, identities))
+      for (const requirement of missing) missingRequirements.add(requirement)
       if (missing.length) {
         problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
       }
@@ -5111,12 +5043,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     if (problems.length) {
       console.error('\nModule dependency check failed:')
       for (const p of problems) console.error(p)
-      console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
-      console.error(
-        '  export const enabledModules = [ { id: \'' +
-          Array.from(new Set(requiresByModule.values()).values()).join("' }, { id: '") +
-          "' } ]"
-      )
+      for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
       process.exit(1)
     }
   }

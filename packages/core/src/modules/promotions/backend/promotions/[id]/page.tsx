@@ -24,6 +24,7 @@ import {
   type PromotionFormValues,
 } from '../../../components/promotionFormFields'
 import { RuleTreeBuilder } from '../../../components/RuleTreeBuilder'
+import { promotionCalendarDate } from '../../../components/promotionDates'
 
 type PromotionDetailResponse = {
   id: string
@@ -122,8 +123,8 @@ export default function PromotionDetailPage({ params }: { params?: { id?: string
     updatedAt: record.updatedAt,
     name: record.name,
     description: record.description,
-    startsAt: record.startsAt,
-    endsAt: record.endsAt,
+    startsAt: promotionCalendarDate(record.startsAt),
+    endsAt: promotionCalendarDate(record.endsAt),
     active: record.active,
     cumulative: record.cumulative,
     tags: record.tags,

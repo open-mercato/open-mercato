@@ -27,6 +27,7 @@ describe('DealDetailHeader', () => {
   it('renders the send-message trigger in the header action cluster', () => {
     renderWithProviders(
       <DealDetailHeader
+        actions={<button type="button">Extension action</button>}
         deal={{
           id: 'deal-1',
           title: 'Expansion renewal',
@@ -51,6 +52,7 @@ describe('DealDetailHeader', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Extension action' }).parentElement).toBe(screen.getByRole('button', { name: 'Send message' }).parentElement)
     expect(mockSendObjectMessageDialog).toHaveBeenCalledWith(expect.objectContaining({
       object: expect.objectContaining({
         entityModule: 'customers',

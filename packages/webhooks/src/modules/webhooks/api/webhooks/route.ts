@@ -61,18 +61,7 @@ const webhookCreateResponseSchema = z.object({
   isActive: z.boolean(),
 })
 
-const webhookDetailResponseSchema = webhookListItemSchema.extend({
-  customHeaders: z.record(z.string(), z.string()).nullable().describe(
-    'Credential-like header values are returned as •••••••• unless the caller has webhooks.secrets. Sending •••••••• back on update keeps the stored value.',
-  ),
-  strategyConfig: z.record(z.string(), z.unknown()).nullable(),
-  timeoutMs: z.number(),
-  rateLimitPerMinute: z.number(),
-  autoDisableThreshold: z.number(),
-  integrationId: z.string().nullable(),
-})
-
-const deleteResponseSchema = z.object({ success: z.literal(true) })
+const successResponseSchema = z.object({ success: z.literal(true) })
 const errorSchema = z.object({ error: z.string() })
 
 function resolveTenantIdForInvalidation(entity: unknown, ctx: CrudCtx): string | null {
@@ -302,7 +291,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Update webhook',
       description: 'Updates an existing webhook configuration.',
       requestBody: { contentType: 'application/json', schema: webhookUpdateSchema, description: 'Fields to update.' },
-      responses: [{ status: 200, description: 'Webhook updated', schema: webhookDetailResponseSchema }],
+      responses: [{ status: 200, description: 'Webhook updated', schema: successResponseSchema }],
       errors: [
         {
           status: 400,
@@ -316,7 +305,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Delete webhook',
       description: 'Soft-deletes a webhook endpoint.',
       query: z.object({ id: z.string().uuid().describe('Webhook ID to delete') }),
-      responses: [{ status: 200, description: 'Deleted', schema: deleteResponseSchema }],
+      responses: [{ status: 200, description: 'Deleted', schema: successResponseSchema }],
       errors: [
         { status: 404, description: 'Not found', schema: errorSchema },
         { status: 403, description: 'Forbidden', schema: errorSchema },

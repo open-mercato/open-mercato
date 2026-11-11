@@ -257,13 +257,18 @@ export async function detachOperator(
     }
   }
 
-  const remaining = blob.operators.filter((entry) => entry.id !== operatorId)
-  await saveOperatorsBlob(deps.credentialsService, deps.scope, {
-    operators: remaining,
-    defaultOperatorId: blob.defaultOperatorId === operatorId
-      ? (remaining[0]?.id ?? null)
-      : blob.defaultOperatorId,
-  })
+  const current = await readOperatorsBlob(deps.credentialsService, deps.scope)
+  const remaining = current.operators.filter(
+    (entry) => entry.id !== operatorId || entry.token !== operator.token,
+  )
+  if (remaining.length < current.operators.length) {
+    await saveOperatorsBlob(deps.credentialsService, deps.scope, {
+      operators: remaining,
+      defaultOperatorId: current.defaultOperatorId === operatorId
+        ? (remaining[0]?.id ?? null)
+        : current.defaultOperatorId,
+    })
+  }
 
   return { ok: true, detached: true, revoked }
 }

@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
-import { isVisible, isDateRequired, isTimeRequired, getFieldLabel } from './fieldConfig'
+import { isDateRequired, isTimeRequired, getFieldLabel } from './fieldConfig'
 import { USER_TIMEZONE } from '../../../lib/localDay'
 
 function parseIsoDate(value: string): Date | null {
@@ -95,10 +95,10 @@ export function DateTimeFields({
 
   if (!visible.has('date')) return null
 
-  const showStartTime = isVisible(activityType, 'startTime')
-  const showDuration = isVisible(activityType, 'duration')
-  const showAllDay = isVisible(activityType, 'allDay')
-  const showRecurrence = isVisible(activityType, 'recurrence')
+  const showStartTime = visible.has('startTime')
+  const showDuration = visible.has('duration')
+  const showAllDay = visible.has('allDay')
+  const showRecurrence = visible.has('recurrence')
 
   const dateRequired = isDateRequired(activityType)
   const timeRequired = isTimeRequired(activityType)

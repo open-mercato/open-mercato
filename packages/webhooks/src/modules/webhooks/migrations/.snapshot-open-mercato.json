@@ -771,13 +771,16 @@
         {
           "columnNames": [
             "endpoint_id",
-            "message_id"
+            "message_id",
+            "tenant_id",
+            "organization_id"
           ],
           "composite": true,
           "constraint": true,
           "keyName": "webhook_inbound_receipts_endpoint_message_unique",
           "primary": false,
-          "unique": true
+          "unique": true,
+          "expression": "alter table \"webhook_inbound_receipts\" add constraint \"webhook_inbound_receipts_endpoint_message_unique\" unique nulls not distinct (\"endpoint_id\", \"message_id\", \"tenant_id\", \"organization_id\")"
         },
         {
           "columnNames": [

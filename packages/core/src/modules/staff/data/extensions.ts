@@ -8,7 +8,7 @@ import type { EntityExtension } from '@open-mercato/shared/modules/entities'
  * `staff_time_projects.customer_id` are plain uuid columns; the declarations below are
  * the traversal contract over them and nothing more. They contain **string ids only** —
  * no import of a customers or sales symbol — so they add no load-time dependency and
- * staff's `requires: ['planner', 'resources']` in `index.ts` does not grow. That matters:
+ * staff's `requires` in `index.ts` never gains `customers` or `sales`. That matters:
  * staff is slated for extraction into a standalone package, and a link that pulled in
  * `@open-mercato/core/modules/customers` would break the extraction.
  *
@@ -61,6 +61,14 @@ const entityExtensions: EntityExtension[] = [
     table: 'staff_time_projects',
     cardinality: 'one-to-many',
     description: 'Time projects owned by a customer record (D-9: the customers supertype)',
+  },
+  {
+    base: 'customers:customer_entity',
+    extension: 'staff:staff_time_task',
+    join: { baseKey: 'id', extensionKey: 'customer_id' },
+    table: 'staff_time_tasks',
+    cardinality: 'one-to-many',
+    description: 'Tasks filed for a customer record, such as customer portal support tickets',
   },
 ]
 

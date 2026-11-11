@@ -37,6 +37,7 @@ import {
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { assertOrderCanBeCancelled, isCancelledOrderStatus } from '../lib/orderCancellationGuard'
 import { assertRecurringOrderStatusAllowed } from '../lib/recurringOrderGuard'
+import { hasRecurringPeriods } from '../lib/recurrenceStore'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -528,7 +529,7 @@ const createPaymentCommand: CommandHandler<
       }
       const orderPaymentMethodIdBefore = order.paymentMethodId ?? null
       const orderPaymentMethodCodeBefore = order.paymentMethodCode ?? null
-      if (paymentMethod && !order.paymentMethodId) {
+      if (paymentMethod && !order.paymentMethodId && !(await hasRecurringPeriods(tx, order))) {
         order.paymentMethodId = paymentMethod.id
         order.paymentMethodCode = paymentMethod.code ?? null
         order.updatedAt = new Date()
@@ -746,7 +747,11 @@ const createPaymentCommand: CommandHandler<
       tx.remove(existing)
       await tx.flush()
       const primaryOrder = after.orderId ? lockedOrders.get(after.orderId.toLowerCase()) : undefined
-      if (primaryOrder && 'orderPaymentMethodIdBefore' in (payload ?? {})) {
+      if (
+        primaryOrder &&
+        'orderPaymentMethodIdBefore' in (payload ?? {}) &&
+        !(await hasRecurringPeriods(tx, primaryOrder))
+      ) {
         primaryOrder.paymentMethodId = payload.orderPaymentMethodIdBefore ?? null
         primaryOrder.paymentMethodCode = payload.orderPaymentMethodCodeBefore ?? null
         primaryOrder.updatedAt = new Date()
@@ -770,6 +775,7 @@ const createPaymentCommand: CommandHandler<
       beforeRecompute: async (tx, locked) => {
         const order = primaryOrderId ? locked.get(primaryOrderId) : undefined
         if (!order || !after.paymentMethodId || order.paymentMethodId) return
+        if (await hasRecurringPeriods(tx, order)) return
         const method = await findOneWithDecryption(
           tx,
           SalesPaymentMethod,
@@ -854,9 +860,6 @@ const updatePaymentCommand: CommandHandler<
           ? await findOneWithDecryption(em, SalesOrder, { id: input.orderId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId })
           : previousOrder
       const requestedOrderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId, { tenantId: resolvedTenantId })
-      if (targetOrder && requestedOrderStatus !== (targetOrder.status ?? null)) {
-        await assertRecurringOrderStatusAllowed(em, targetOrder, requestedOrderStatus)
-      }
       if (targetOrder && !isCancelledOrderStatus(targetOrder.status) && isCancelledOrderStatus(requestedOrderStatus)) {
         await assertOrderCanBeCancelled(em, targetOrder, {
           payment: {
@@ -929,6 +932,9 @@ const updatePaymentCommand: CommandHandler<
           throw new CrudHttpError(400, {
             error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
           })
+        }
+        if (orderStatus !== (lockedOrders.get(currentOrder.id)?.status ?? currentOrder.status ?? null)) {
+          await assertRecurringOrderStatusAllowed(tx, currentOrder, orderStatus)
         }
         currentOrder.statusEntryId = input.documentStatusEntryId ?? null
         currentOrder.status = orderStatus

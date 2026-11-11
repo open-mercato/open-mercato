@@ -17,7 +17,7 @@ jest.mock('../../commands/returns', () => ({
 import { attachRecurrences } from '../documents/factory'
 
 const orderRecurrence = {
-  order: { id: 'order-1' },
+  orderId: 'order-1',
   frequency: 'monthly',
   startsOn: '2026-11-01',
   anchorDay: null,
@@ -51,7 +51,7 @@ function buildCtx(rows: Record<string, unknown[]>) {
 describe('attachRecurrences', () => {
   it('adds the order schedule with its derived fields and marks invoiced orders locked', async () => {
     const { ctx, calls } = buildCtx({
-      SalesOrderRecurrence: [orderRecurrence, { ...orderRecurrence, order: { id: 'order-2' } }],
+      SalesOrderRecurrence: [orderRecurrence, { ...orderRecurrence, orderId: 'order-2' }],
       SalesRecurringPeriod: [{ id: 'period-1', order: { id: 'order-2' } }],
     })
     const payload = { items: [{ id: 'order-1' }, { id: 'order-2' }, { id: 'order-3' }] as Array<Record<string, unknown>> }
@@ -72,6 +72,16 @@ describe('attachRecurrences', () => {
     expect(payload.items[1].recurrence).toMatchObject({ locked: true })
     expect(payload.items[2].recurrence).toBeNull()
     expect(calls.every((call) => call.where.tenantId === 'ten-1')).toBe(true)
+    expect(calls.every((call) => JSON.stringify(call.where.organizationId) === JSON.stringify({ $in: ['org-1'] }))).toBe(true)
+  })
+
+  it('limits the lookup to every organization the list covers', async () => {
+    const { ctx, calls } = buildCtx({})
+    const payload = { items: [{ id: 'order-1' }] as Array<Record<string, unknown>> }
+
+    await attachRecurrences(payload, { ...ctx, organizationIds: ['org-1', null, 'org-2'] } as never, 'order')
+
+    expect(calls.map((call) => call.where.organizationId)).toEqual([{ $in: ['org-1', 'org-2'] }, { $in: ['org-1', 'org-2'] }])
   })
 
   it('adds the quote schedule with a calculated end date and no order-only state', async () => {

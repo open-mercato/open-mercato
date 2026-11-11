@@ -5,6 +5,8 @@ import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_t
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation, ProductInventoryProfile, SalesOrderWarehouseAssignment, Warehouse } from './entities'
+import { formatCatalogVariantLabel } from '../lib/inventoryDisplayUi'
+import { isBalanceLocationReservable } from '../lib/inventoryPolicy'
 import { resolvePrimaryWarehouseId } from '../lib/primaryWarehousePolicy'
 import {
   WMS_ENRICHER_CACHE_TTL_MS,
@@ -28,7 +30,21 @@ type SalesOrderLineRow = {
 type CatalogVariantRow = {
   id?: string
   product_id?: string | null
+  name?: string | null
+  sku?: string | null
 }
+
+type ReservationSummaryItem = {
+  id: string
+  reservationLabel: string
+  catalogVariantId: string
+  warehouseId: string | null
+  warehouseName: string | null
+  quantity: string
+  variantName: string | null
+  variantSku: string | null
+}
+
 type ReservationStatus = 'unreserved' | 'partially_reserved' | 'fully_reserved'
 type ReorderState = 'no_profile' | 'healthy' | 'below_reorder_point' | 'below_safety_stock'
 
@@ -60,6 +76,11 @@ type ReorderStatus = {
   safetyStock: string
 }
 
+type InboundSummary = {
+  openAsnCount: number
+  nextExpectedAt: string | null
+}
+
 type SalesOrderWmsEnrichment = {
   _wms: {
     assignedWarehouseId: string | null
@@ -73,7 +94,9 @@ type SalesOrderWmsEnrichment = {
     reservationSummary: {
       status: ReservationStatus
       reservationIds: string[]
+      reservations: ReservationSummaryItem[]
     }
+    inboundSummary: InboundSummary
   }
 }
 
@@ -90,6 +113,11 @@ type Scope = { organizationId: string; tenantId: string }
 type BalanceAggregate = { onHand: number; reserved: number; allocated: number; available: number }
 
 import { resolveWmsIntegrationToggleEnabled } from '../lib/wmsIntegrationToggles'
+const EMPTY_INBOUND_SUMMARY: InboundSummary = {
+  openAsnCount: 0,
+  nextExpectedAt: null,
+}
+
 const EMPTY_ENRICHMENT: SalesOrderWmsEnrichment = {
   _wms: {
     assignedWarehouseId: null,
@@ -99,7 +127,9 @@ const EMPTY_ENRICHMENT: SalesOrderWmsEnrichment = {
     reservationSummary: {
       status: 'unreserved',
       reservationIds: [],
+      reservations: [],
     },
+    inboundSummary: EMPTY_INBOUND_SUMMARY,
   },
 }
 
@@ -167,6 +197,55 @@ function resolveReservationStatus(requiredQuantity: number, reservedQuantity: nu
   return 'fully_reserved'
 }
 
+function buildReservationLabel(input: {
+  id: string
+  variantName: string | null
+  variantSku: string | null
+  warehouseName: string | null
+  quantity: string
+}): string {
+  const variantLabel = formatCatalogVariantLabel({
+    variant_name: input.variantName,
+    variant_sku: input.variantSku,
+  })
+  const segments: string[] = []
+  if (variantLabel && variantLabel !== '—') segments.push(variantLabel)
+  const warehouseName = input.warehouseName?.trim()
+  if (warehouseName) segments.push(warehouseName)
+  const quantity = formatQuantity(Number(input.quantity))
+  if (quantity !== '0') segments.push(quantity)
+  return segments.length > 0 ? segments.join(' · ') : input.id
+}
+
+function toReservationSummaryItem(
+  reservation: InventoryReservation,
+  warehouseNamesById: Map<string, string>,
+  variantLabelsById: Map<string, { name: string | null; sku: string | null }>,
+): ReservationSummaryItem {
+  const warehouseId = extractWarehouseId(reservation)
+  const warehouseName = warehouseId ? (warehouseNamesById.get(warehouseId) ?? null) : null
+  const variantMeta = variantLabelsById.get(reservation.catalogVariantId)
+  const variantName = variantMeta?.name ?? null
+  const variantSku = variantMeta?.sku ?? null
+  const quantity = formatQuantity(Number(reservation.quantity))
+  return {
+    id: reservation.id,
+    reservationLabel: buildReservationLabel({
+      id: reservation.id,
+      variantName,
+      variantSku,
+      warehouseName,
+      quantity,
+    }),
+    catalogVariantId: reservation.catalogVariantId,
+    warehouseId,
+    warehouseName,
+    quantity,
+    variantName,
+    variantSku,
+  }
+}
+
 function resolveReorderStatus(
   availableQuantity: number,
   profile: ProductInventoryProfile | null | undefined,
@@ -204,6 +283,10 @@ function buildBalanceSummaryByVariant(
   const byVariant = new Map<string, BalanceAggregate>()
 
   for (const balance of balances) {
+    // Match reservation / sales-automation: staging/dock are inbound holding
+    // and must not inflate widget "Available" (or sellable on-hand aggregates).
+    if (!isBalanceLocationReservable(balance)) continue
+
     const current = byVariant.get(balance.catalogVariantId) ?? {
       onHand: 0,
       reserved: 0,
@@ -251,6 +334,31 @@ async function isSalesOrderInventoryEnabled(context: EnricherContext): Promise<b
     )
   } catch {
     return true
+  }
+}
+
+async function loadInboundSummary(em: EntityManager, scope: Scope): Promise<InboundSummary> {
+  // Aggregate only — never load all open ASN rows (backlog can blow the enricher timeout).
+  const rows = await em.getConnection().execute<
+    Array<{ open_asn_count: string | number; next_expected_at: Date | string | null }>
+  >(
+    `select count(*)::int as open_asn_count,
+            min(expected_at) as next_expected_at
+     from wms_asns
+     where organization_id = ?
+       and tenant_id = ?
+       and deleted_at is null
+       and status in ('draft', 'in_transit')`,
+    [scope.organizationId, scope.tenantId],
+  )
+  const row = rows[0]
+  const openAsnCount = Number(row?.open_asn_count ?? 0)
+  const nextExpected = row?.next_expected_at
+  return {
+    openAsnCount: Number.isFinite(openAsnCount) ? openAsnCount : 0,
+    nextExpectedAt: nextExpected
+      ? (nextExpected instanceof Date ? nextExpected : new Date(nextExpected)).toISOString()
+      : null,
   }
 }
 
@@ -352,7 +460,8 @@ async function loadBalances(
       tenantId: scope.tenantId,
       deletedAt: null,
     },
-    undefined,
+    // Populate location so isBalanceLocationReservable can exclude staging/dock.
+    { populate: ['location'] },
     scope,
   )
 }
@@ -374,6 +483,32 @@ async function loadCatalogVariants(
     page: { page: 1, pageSize: 5000 },
   })
   return result.items
+}
+
+async function loadCatalogVariantLabelsByIds(
+  context: EnricherContext,
+  variantIds: string[],
+  scope: Scope,
+): Promise<Map<string, { name: string | null; sku: string | null }>> {
+  if (variantIds.length === 0) return new Map()
+  const container = context.container as { resolve: (name: string) => unknown }
+  const queryEngine = container.resolve('queryEngine') as QueryEngine
+  const result = await queryEngine.query<CatalogVariantRow>(E.catalog.catalog_product_variant, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    filters: { id: { $in: variantIds } },
+    fields: ['id', 'name', 'sku'],
+    page: { page: 1, pageSize: Math.max(variantIds.length, 1) },
+  })
+  const labels = new Map<string, { name: string | null; sku: string | null }>()
+  for (const row of result.items) {
+    if (typeof row.id !== 'string' || row.id.length === 0) continue
+    labels.set(row.id, {
+      name: typeof row.name === 'string' ? row.name : null,
+      sku: typeof row.sku === 'string' ? row.sku : null,
+    })
+  }
+  return labels
 }
 
 async function loadProductInventoryProfiles(
@@ -462,12 +597,16 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
       ),
     )
 
-    const [reservations, balances, primaryWarehouseId, explicitAssignments] = await Promise.all([
-      loadReservations(em, orderIds, scope),
-      loadBalances(em, variantIds, scope),
-      resolvePrimaryWarehouseId(em, scope),
-      loadExplicitAssignments(em, orderIds, scope),
-    ])
+    // inboundSummary is best-effort (raw ASN SQL); isolate so a missing table /
+    // migration lag cannot reject the whole Promise.all and drop stock/reservation.
+    const [reservations, balances, primaryWarehouseId, explicitAssignments, inboundSummary] =
+      await Promise.all([
+        loadReservations(em, orderIds, scope),
+        loadBalances(em, variantIds, scope),
+        resolvePrimaryWarehouseId(em, scope),
+        loadExplicitAssignments(em, orderIds, scope),
+        loadInboundSummary(em, scope).catch(() => EMPTY_INBOUND_SUMMARY),
+      ])
 
     const explicitWarehouseIdsByOrder = new Map<string, string>()
     for (const assignment of explicitAssignments) {
@@ -491,14 +630,31 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
     const warehouses = await loadWarehousesByIds(em, allRelevantWarehouseIds, scope)
     const warehouseNamesById = new Map(warehouses.map((w) => [w.id, w.name]))
 
+    const activeReservationVariantIds = Array.from(
+      new Set(
+        reservations
+          .filter((reservation) => reservation.status === 'active')
+          .map((reservation) => reservation.catalogVariantId)
+          .filter((value): value is string => typeof value === 'string' && value.length > 0),
+      ),
+    )
+    const variantLabelsById = await loadCatalogVariantLabelsByIds(
+      context,
+      activeReservationVariantIds,
+      scope,
+    )
+
     const variantAvailability = new Map<string, number>()
     const variantReserved = new Map<string, number>()
     for (const balance of balances) {
-      addToMap(
-        variantAvailability,
-        balance.catalogVariantId,
-        Number(balance.quantityOnHand) - Number(balance.quantityReserved) - Number(balance.quantityAllocated),
-      )
+      // Staging/dock must not count toward Available (same rule as reserve path).
+      if (isBalanceLocationReservable(balance)) {
+        addToMap(
+          variantAvailability,
+          balance.catalogVariantId,
+          Number(balance.quantityOnHand) - Number(balance.quantityReserved) - Number(balance.quantityAllocated),
+        )
+      }
       addToMap(variantReserved, balance.catalogVariantId, balance.quantityReserved)
     }
 
@@ -564,6 +720,10 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
         ? (warehouseNamesById.get(assignedWarehouseId) ?? null)
         : null
 
+      const reservationItems = reservationsForOrder.map((reservation) =>
+        toReservationSummaryItem(reservation, warehouseNamesById, variantLabelsById),
+      )
+
       return {
         ...record,
         _wms: {
@@ -580,8 +740,10 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
               requiredBySalesOrder.get(orderId) ?? 0,
               reservedBySalesOrder.get(orderId) ?? 0,
             ),
-            reservationIds: reservationsForOrder.map((reservation) => reservation.id),
+            reservationIds: reservationItems.map((item) => item.id),
+            reservations: reservationItems,
           },
+          inboundSummary,
         },
       }
     })

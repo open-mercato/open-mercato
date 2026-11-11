@@ -62,8 +62,11 @@ function SelectField({
     <div className="space-y-2" data-crud-field-id={field.id}>
       <Label htmlFor={field.id}>{label}</Label>
       <Select
-        value={typeof value === 'string' && value ? value : undefined}
-        onValueChange={(next) => onChange(field.id, next || undefined)}
+        value={typeof value === 'string' ? value : ''}
+        onValueChange={(next) => {
+          if (!next) return
+          onChange(field.id, next)
+        }}
         disabled={disabled || (options.length === 0 && !field.options?.length)}
       >
         <SelectTrigger id={field.id}>

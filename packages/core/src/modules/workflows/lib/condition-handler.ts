@@ -107,6 +107,21 @@ export function resolveMaxConditionAttempts(): number {
 }
 
 /**
+ * The attempt cap one waiter actually gets: the configured floor, raised to the
+ * number of polls its own timeout needs (`timeoutMs / pollIntervalMs`, plus
+ * the entry poll). A fixed 1000 would force a 90-day wait polled hourly to
+ * time out after ~42 days. The deadline still ends the wait first; this only
+ * bounds a loop whose deadline arithmetic went wrong.
+ */
+export function resolveConditionAttemptCap(
+  config: Pick<WaitForConditionConfig, 'timeoutMs' | 'pollIntervalMs'>
+): number {
+  const floor = resolveMaxConditionAttempts()
+  if (!(config.timeoutMs > 0) || !(config.pollIntervalMs > 0)) return floor
+  return Math.max(floor, Math.ceil(config.timeoutMs / config.pollIntervalMs) + 1)
+}
+
+/**
  * Read and normalise a WAIT_FOR_CONDITION step's config. Fails closed: the
  * predicate and the timeout are both mandatory, and the poll interval is
  * clamped into its supported range and never allowed past the deadline.
@@ -499,7 +514,7 @@ export async function evaluateWaitCondition(
 
   const deadlineMs = Date.parse(options.deadlineAt)
   const deadlinePassed = Number.isFinite(deadlineMs) ? nowMs >= deadlineMs : true
-  const attemptCapReached = attempts >= resolveMaxConditionAttempts()
+  const attemptCapReached = attempts >= resolveConditionAttemptCap(waiter.config)
 
   if (deadlinePassed || attemptCapReached) {
     const eventLogger = container.resolve<typeof eventLoggerModule>('eventLogger')

@@ -262,6 +262,13 @@ const mapUpdateResponse = (entity: any) => {
   }
 }
 
+function listOrganizationIds(ctx: Pick<CrudCtx, 'organizationIds' | 'selectedOrganizationId'> | null | undefined): string[] {
+  if (Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length) {
+    return ctx.organizationIds.filter((value): value is string => !!value)
+  }
+  return ctx?.selectedOrganizationId ? [ctx.selectedOrganizationId] : []
+}
+
 const attachTags = async (payload: any, ctx: any) => {
   const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, any>>) : []
   if (!items.length) return
@@ -276,12 +283,7 @@ const attachTags = async (payload: any, ctx: any) => {
     documentKind: ctx?.bindingKind ?? null,
   }
   if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
-  const orgIds =
-    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
-      ? ctx.organizationIds.filter((val: string | null) => !!val)
-      : ctx?.selectedOrganizationId
-        ? [ctx.selectedOrganizationId]
-        : []
+  const orgIds = listOrganizationIds(ctx)
   if (orgIds.length) where.organizationId = { $in: orgIds }
   const assignments = await em.find(
     SalesDocumentTagAssignment,
@@ -327,21 +329,23 @@ export const attachRecurrences = async (
   const tenantId = ctx?.auth?.tenantId ?? null
   if (!tenantId) return
   const scope = { tenantId, organizationId: ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null }
+  const orgIds = listOrganizationIds(ctx)
+  const scoped = orgIds.length ? { tenantId, organizationId: { $in: orgIds } } : { tenantId }
   const byDocument = new Map<string, Record<string, unknown>>()
   if (kind === 'order') {
     const [recurrences, periods] = await Promise.all([
-      findWithDecryption(em, SalesOrderRecurrence, { order: { $in: ids }, tenantId }, undefined, scope),
+      findWithDecryption(em, SalesOrderRecurrence, { orderId: { $in: ids }, ...scoped, deletedAt: null }, undefined, scope),
       findWithDecryption(
         em,
         SalesRecurringPeriod,
-        { order: { $in: ids }, tenantId },
+        { order: { $in: ids }, ...scoped },
         { fields: ['id', 'order'] },
         scope,
       ),
     ])
     const invoiced = new Set(periods.map((period) => period.order.id))
     recurrences.forEach((recurrence) => {
-      const orderId = recurrence.order.id
+      const orderId = recurrence.orderId
       byDocument.set(orderId, {
         ...toRecurrenceResponse(snapshotOrderRecurrence(recurrence)),
         locked: invoiced.has(orderId),
@@ -351,7 +355,7 @@ export const attachRecurrences = async (
     const recurrences = await findWithDecryption(
       em,
       SalesQuoteRecurrence,
-      { quote: { $in: ids }, tenantId },
+      { quote: { $in: ids }, ...scoped },
       undefined,
       scope,
     )
@@ -393,12 +397,7 @@ export const attachChannelNames = async (
 
   const where: Record<string, unknown> = { id: { $in: channelIds } }
   if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
-  const orgIds =
-    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
-      ? ctx.organizationIds.filter((val: string | null) => !!val)
-      : ctx?.selectedOrganizationId
-        ? [ctx.selectedOrganizationId]
-        : []
+  const orgIds = listOrganizationIds(ctx)
   if (orgIds.length) where.organizationId = { $in: orgIds }
 
   // Only `name` and `code` are read. Without this projection the query loads the whole channel row,
@@ -494,6 +493,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
 
   const orderOnlyFields = [
     'expected_delivery_at',
+    'totals_mode',
     'shipping_net_amount',
     'shipping_gross_amount',
     'surcharge_total_amount',
@@ -542,7 +542,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     indexer: {
       entityType: binding.entityId,
     },
-    enrichers: binding.kind === 'order' ? { entityId: binding.entityId } : undefined,
+    enrichers: { entityId: binding.entityId },
     list: {
       schema: listSchema,
       entityId: binding.entityId,
@@ -605,6 +605,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           paidTotalAmount: toNumber(item.paid_total_amount),
           refundedTotalAmount: toNumber(item.refunded_total_amount),
           outstandingAmount: toNumber(item.outstanding_amount),
+          ...(binding.kind === 'order' ? { totalsMode: item.totals_mode ?? 'computed' } : {}),
           customerSnapshot: normalizeJsonRecord(item.customer_snapshot),
           billingAddressSnapshot: normalizeJsonRecord(item.billing_address_snapshot),
           shippingAddressSnapshot: normalizeJsonRecord(item.shipping_address_snapshot),
@@ -748,6 +749,7 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     paidTotalAmount: z.number().nullable().optional(),
     refundedTotalAmount: z.number().nullable().optional(),
     outstandingAmount: z.number().nullable().optional(),
+    totalsMode: z.enum(['computed', 'external']).optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
     customFields: z.record(z.string(), z.unknown()).optional(),

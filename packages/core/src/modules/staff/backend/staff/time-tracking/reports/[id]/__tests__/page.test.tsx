@@ -14,6 +14,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { registerCoreInjectionWidgets, registerCoreInjectionTables } from '@open-mercato/shared/modules/widgets/injection-loader'
 import TimeTrackingReportDetailPage from '../page'
 
 function renderWithQueryClient(children: React.ReactElement) {
@@ -119,7 +120,12 @@ function renderPage(options: {
   rowCount?: number
 }) {
   mockSearchParams = new URLSearchParams(options.search)
-  mockUseBackendChrome.mockReturnValue({ payload: { grantedFeatures: options.features } } as never)
+  mockUseBackendChrome.mockReturnValue({
+    payload: { grantedFeatures: options.features },
+    isLoading: false,
+    isReady: true,
+    refresh: jest.fn(),
+  } as never)
   mockReadApiResultOrThrow.mockImplementation(
     async () => sheetPayload(options.status, options.rows, options.rowCount) as never,
   )
@@ -129,6 +135,8 @@ function renderPage(options: {
 const UNLOCK_FEATURES = ['staff.timesheets.reports.unlock', 'staff.timesheets.rates.view']
 
 beforeEach(() => {
+  registerCoreInjectionWidgets([])
+  registerCoreInjectionTables([])
   jest.clearAllMocks()
   mockUseConfirmDialog.mockReturnValue({
     confirm: jest.fn(async () => true),

@@ -47,9 +47,15 @@ Include separate rows for the focused case, deterministic `yarn harness:validate
 
 - `<concise item or none>`
 
+## Optional observation evidence
+
+- `<When requested, summarize observed scope, per-lane counts, unavailable responses/files/metrics, and sanitized evidence hashes. Omit local dashboard URLs and absolute paths. Observation is not release certification.>`
+
 ## Sanitization attestation
 
 No raw diff, commit/PR body, private prompt/transcript, credential, token, environment value, absolute path, remote URL, or author identity is included.
 ```
 
 Paraphrase failures and evidence. Include only repository-relative paths, case IDs, stable public IDs, counts, hashes, commands typed by the maintainer, and tool/model versions. Never paste runner output wholesale.
+
+For optional dashboard inspection, follow the [tool contract](../../../../scripts/experiment-dashboard/README.md) and `om-run-harness-evals`. Omit the observation section when no observer was requested; preserve every mandatory focused, deterministic, and release-suite row.
