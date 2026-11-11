@@ -1,0 +1,64 @@
+## 📸 UI QA evidence — FAIL
+
+**Targeted refund guard: PASS in observed cases. Complex QA: FAIL** because the reader UI exposes shipment creation and return tax totals fail reconciliation. Both finding paths are unchanged by this PR; this is evidence for human review, not a claim that the new guard introduced them.
+
+QA head: a2b63a6cb785618f8b2edc97b5f4ced546063866
+
+Tested on a disposable **production** instance, local runner, Chromium1.61.1, independently created tenants/roles/users/orders; English and explicitly selected Polish. Environment is stopped and its database removed. Full report: [Markdown](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/report.md), [JSON](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/report.json).
+
+### Findings
+
+- **F1 / medium:** A reader with `sales.orders.view` but no `sales.shipments.manage` sees two enabled **Add shipment** actions and can open the dialog. API mutation correctly returns403. [Unconditional header action](https://github.com/open-mercato/open-mercato/blob/a2b63a6cb785618f8b2edc97b5f4ced546063866/packages/core/src/modules/sales/components/documents/ShipmentsSection.tsx#L389); empty-state action at478. See screenshots10–11.
+- **F2 / high:** After returning a net100/gross123 unit from a net120/tax27.60/gross147.60 order, the remaining order shows **net20, tax27.60, gross24.60** in detail, API and CSV. Expected remaining tax4.60. Undo restores the original totals; redo reproduces the mismatch. A discounted PLN case also fails: net90/tax31.05/gross110.70 instead of tax20.70. [Return calculation loop](https://github.com/open-mercato/open-mercato/blob/a2b63a6cb785618f8b2edc97b5f4ced546063866/packages/core/src/modules/sales/lib/calculations.ts#L352). See screenshot14. Paid/refunded totals remain intact.
+
+### Scenario results
+
+| # | Action | Expected | Observed / evidence | Result |
+|---|---|---|---|---|
+| 1 | UI: Create own taxed order through English UI | 2 × net50 at23%: net100 + tax23 = gross123 | UI line/detail and API match 100 / 23 / 123; own VAT class and no-cost carrier created in settings. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-02-correct-taxed-order-en.png) | PASS |
+| 2 | UI: Record payment123 through UI with Ctrl/Cmd+Enter | Payment123; paid123; outstanding0 | Saved payment123.0000, paid123, outstanding0. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-03-payment-123-en.png) | PASS |
+| 3 | UI: Create shipment on fully paid, unrefunded order | 201 and fulfilled0→1 | UI201; one active shipment; fulfilled1. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-04-prepaid-shipment-created-en.png) | PASS |
+| 4 | API: Undo, redo, undo shipment create | 200 each; fulfillment1→0→1→0 | All200; active shipments0/1/0; corresponding fulfillment0/1/0. | PASS |
+| 5 | API: Refund123 after undo, then redo create | 422 before restoring shipment; no domain writes | 422 translated message; entire scoped order/line/shipment/payment rows byte-identical before/after. | PASS |
+| 6 | API: Direct create retries on fully refunded order | 422 on every attempt; no mutation | Three initial and ten later attempts all422; no active shipment, fulfilled0; complete refused-domain snapshots unchanged. | PASS |
+| 7 | UI: English UI create, keyboard retry and double click after refusal | Clear refusal; form usable; no mutation | Three UI requests422; expected English text; Escape closes; domain rows unchanged. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-05-refunded-create-refused-en.png) | PASS |
+| 8 | UI: Select Polski in UI and retry shipment | Polish refusal, no raw key, no mutation | Cookie locale=pl; exact new Polish message;422; domain unchanged. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-07-refunded-create-refused-pl.png) | PASS |
+| 9 | UI: 390×844 dialog and long note, Escape | Dialog controls remain usable within viewport | Dialog bounds0..390 in390px viewport; Save visible and Escape works; long note remains in refused form. Underlying detail page scrollWidth439px observed. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-08-refusal-mobile-pl.png) | PASS |
+| 10 | UI: Reader role UI with sales.orders.view and no shipment manage feature | Create shipment actions hidden or disabled | Two enabled Add shipment buttons; reader can open create dialog. Backend writes still403. FAIL in unchanged UI. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-11-reader-can-open-create-dialog.png) | FAIL |
+| 11 | API: Reader and other-tenant direct controls | Reader write403; other tenant cannot read or write target | Reader POST403 requires sales.shipments.manage, positive GET200/1item. TenantB POST403 Cross-tenant relation forbidden; GET200/0items. | PASS |
+| 12 | UI: Polish decimal-comma payment on partial-refund control | 10,25 stores10.25 and redisplays after reload | Stored10.2500; UI10,25 USD. Paid133.25−refund61.50=71.75; gross123−71.75=outstanding51.25. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-09-polish-decimal-payment-reloaded.png) | PASS |
+| 13 | UI: Partially refunded order, remaining unit via Polish UI | 201; fulfilled1→2; no leftover error after10s | 201, two active shipments, fulfilled2; no error alert after10s. Address fixture through document-address API because customerless detail address editor is disabled. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-12-partial-refund-shipment-success-pl.png) | PASS |
+| 14 | API: Full/excess-refund API controls with proper tax | 123 refund and124.23 refund both refuse | Paid123/gross123; both422; no shipment; fulfilled0; complete domain snapshots unchanged. | PASS |
+| 15 | API: Partial/deposit/unpaid/zero API controls | All still ship | Partial61.50 of paid123, deposit30 refunded30 on gross123, unpaid gross123 and zero-total controls all201; one shipment/fulfilled1 each. | PASS |
+| 16 | UI: Two distinct users: B saves reference while A has old shipment form | B save preserved; stale A write409 before refund guard | B UI save changes reference; A409 optimistic_lock_conflict; whole post-B domain unchanged by refusal. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-13-two-user-stale-refusal-pl.png) | PASS |
+| 17 | UI: Refresh conflict and repeat A shipment | Fresh attempt422; B reference retained | 422 Polish refund message; whole domain unchanged; second actor reference preserved. | PASS |
+| 18 | API: Delete/undo-delete/redo-delete existing shipment after full refund | Existing delete restore semantics preserved; money unchanged | All200; fulfilled1→0→1→0; active shipments1→0→1→0; paid/refunded/gross remain123. | PASS |
+| 19 | API: Reverse refund then redo previously refused shipment | Redo allowed after refund reversal | Refund reset0, redo200/fulfilled1; undo and restored refund123 afterward. | PASS |
+| 20 | API: Only expensive returned goods refunded; cheap lines remain | Refund123≥remaining total24.60 but <paid147.60 must still allow shipment | Remaining cheap line shipped201. Return undo/redo200 preserved paid147.60 and refunded123. | PASS |
+| 21 | API: Independent discounted PLN totals | 3 ×50 net less10%: net135 + tax31.05 = gross166.05 | Initial API/DB match135/31.05/166.05; after one return net90/gross110.70. Tax mismatch below. | PASS |
+| 22 | UI: Tax reconciliation after physical return; detail/API/CSV | USD net20 + tax4.60 = gross24.60; PLN net90 + tax20.70 = gross110.70 | USD tax wrongly stays27.60; PLN tax wrongly stays31.05. UI/API/CSV reproduce; undo removes mismatch and redo restores it. FAIL in unchanged calculation path. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-14-return-tax-does-not-reconcile-pl.png) | FAIL |
+| 23 | UI: Order list/detail/API/CSV consistency | Same monetary values in every available view | Primary order net100/gross123 matches UI/API/CSV. Returned-control mismatch is persisted consistently. No separate print/PDF action found in detail UI/source. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-15-order-list-totals-en.png) | PASS |
+| 24 | UI: Loading shell and responsiveness | Useful loading state before data | Polish loading shell visible with injected1.6s API delay; usable record within2.592s including delay; ordinary interactions responded without observed hangs after harness timeout repair. [image](https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9290-f2dac37a/pr-9290-f2dac37a/step-16-loading-shell-pl.png) | PASS |
+| 25 | CLI: Repository validation and locale coverage | Relevant tests/build/translation checks pass | Core Jest shipment-related8 suites/26 tests pass (focused guard9/9). Package build/generate and production app build pass. i18n sync and usage pass (8121 unused keys advisory). New key exists in en/pl/es/de/ko. | PASS |
+
+### Coverage and limits
+
+- No deterministic refund-commit versus order-row-lock race test; the PR already notes this remaining window. Ten repeated refused requests are not evidence of atomic concurrent refund ordering.
+- Live payment gateway webhooks, external carrier dispatch/labels, delivered email and stocked-catalog/WMS reservation balances were not exercised; fixtures use custom order lines and manual payments. Refusal checks cover order/line/shipment/payment rows and fulfilled quantity, not every optional external subscriber.
+- Refund setup, API control fixtures, audit-log undo/redo/delete lifecycle and document-address fixture were API-driven; main order/line/tax/carrier/payment/prepaid shipment/refused shipment/partial shipment/reference edit/locale selection were UI-driven.
+- No separate shipment-cancel endpoint exists in the shipment route surface inspected; undo/delete/repeat paths covered. No .uxproof directory exists, so that conditional contract check is inapplicable.
+- Mobile modal fits; underlying detail page overflow49px remains an observation for UI follow-up. Spanish/German/Korean message presence checked statically, not browser-tested.
+
+### Validation and run notes
+
+- Runtime: local runner; no running compose app found. om-prepare-test-env generated wrapper around repository ephemeral CLI, production build, V8 heap4096MiB/Rayon2/Turbo2. CLI timings: init58s, packages143s, generate12s, rebuild1s, app168s, readiness12s; warm reuse verified. Chromium1.61.1.
+- Own fixtures: two tenants, two organizations, four tenant-bound users, three roles (reader only order-view plus organization-view), nine orders. Managers use tenant/organization-scoped wildcard feature grants; neither negative actor is superadmin. Own VAT23 class and zero-cost carrier created through UI. Manual refund setup/API controls and lifecycle operations marked API.
+- All screenshots reviewed for demo-only fixture data. No production credentials, tokens, source edits, PR commits or pushes. Runtime-modified tracked email-capture fixture restored to exact HEAD after stopping workers.
+- Initial root Jest invocation failed before running tests (TS5011); canonical core package config passed. Initial i18n commands hit long TMPDIR Unix-socket limit; TMPDIR=/tmp retries passed. First two exploration harness runs were interrupted by unbounded network-idle wait/expired Undo notification listener; final bounded harness completed. Those harness errors are not product test failures.
+- Committed TC-SALES-054 was inspected and establishes hasUiTest=true; it was not blindly executed. All browser/API exploration was independently authored. Full monorepo unit/typecheck gate was not rerun. GitHub currently reports only label and CLA checks, not a green full CI gate.
+
+### Cleanup
+
+Browser contexts and DB connection closed; own app process stopped (port36077 unavailable), owned Postgres container311206b06403 removed by Testcontainers, source checkout clean. Own claim housekeeping is recorded in the final completion comment/task report; no foreign assignment or claim changed. Parent `.ai/meta/qa.json` untouched. No `qa-approved`, `qa-self-verified`, `qa-failed` or pipeline changes.
+
+PR: #9290 (link: https://github.com/open-mercato/open-mercato/pull/9290)
