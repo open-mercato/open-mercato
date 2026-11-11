@@ -170,7 +170,7 @@ export function TimeGrid({
   const t = useT()
   const locale = useLocale()
   const isMobile = useIsMobile()
-  const peekSide = days === 7 && isMobile ? 'bottom' : 'right'
+  const peekSide = isMobile ? 'bottom' : 'right'
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const nowMs = Date.now()
   const today = startOfDay(new Date())
@@ -351,7 +351,7 @@ export function TimeGrid({
                   {allDayItems.map((item) => (
                     <EventPeekPopover
                       key={item.id}
-                      side={isMobile ? 'bottom' : 'right'}
+                      side={peekSide}
                       item={item}
                       open={selectedId === item.id}
                       joinUrl={resolveJoinUrl(item.location)}

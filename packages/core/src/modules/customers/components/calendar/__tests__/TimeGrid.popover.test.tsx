@@ -44,8 +44,8 @@ describe('TimeGrid peek placement and dismissal (#8868)', () => {
     expect(screen.getByRole('button', { name: 'Join' })).toBeVisible()
   })
 
-  it('opens phone Day all-day events vertically', () => {
-    renderCalendar({ mobile: true, days: 1, allDay: true })
+  it.each([false, true])('opens phone Day events vertically (all day: %s)', (allDay) => {
+    renderCalendar({ mobile: true, days: 1, allDay })
     fireEvent.click(screen.getByRole('button', { name: /Quarterly review/ }))
     expect(screen.getByRole('dialog')).toHaveAttribute('data-side', 'bottom')
     expect(screen.getByRole('button', { name: 'Join' })).toBeVisible()
@@ -54,7 +54,6 @@ describe('TimeGrid peek placement and dismissal (#8868)', () => {
   it.each([
     { mobile: false, days: 7 as const },
     { mobile: false, days: 1 as const },
-    { mobile: true, days: 1 as const },
   ])('preserves the requested side for mobile=$mobile, days=$days', ({ mobile, days }) => {
     renderCalendar({ mobile, days })
     fireEvent.click(screen.getByRole('button', { name: /Quarterly review/ }))
