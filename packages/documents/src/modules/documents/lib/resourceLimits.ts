@@ -10,6 +10,11 @@ export const DOCUMENTS_MAX_YJS_STATE_BYTES = 8 * MEBIBYTE
 /** Bound cross-module verification and reverse-widget work per document. */
 export const DOCUMENTS_MAX_ENTITY_LINKS_PER_DOCUMENT = 100
 
+/** Bound one review ingest batch and the open review backlog of a document. */
+export const DOCUMENTS_MAX_FINDINGS_PER_INGEST = 100
+export const DOCUMENTS_MAX_OPEN_FINDINGS_PER_DOCUMENT = 500
+export const DOCUMENTS_FINDING_LIST_MAX_PAGE_SIZE = 100
+
 /** WebSocket messages include a small Hocuspocus/Yjs protocol envelope. */
 export const DOCUMENTS_COLLAB_MAX_PAYLOAD_BYTES = DOCUMENTS_MAX_YJS_STATE_BYTES + 64 * 1024
 

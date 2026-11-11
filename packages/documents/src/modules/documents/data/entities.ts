@@ -6,6 +6,10 @@ export type DocumentSharePrincipalType = 'user' | 'role'
 export type DocumentSharePermission = 'viewer' | 'commenter' | 'editor'
 export type DocumentEntityLinkCustomerKind = 'person' | 'company'
 export type DocumentEntityLinkSource = 'chip' | 'template' | 'related-panel'
+export type DocumentFindingSource = 'ai' | 'import'
+export type DocumentFindingSeverity = 'blocking' | 'warning' | 'info'
+export type DocumentFindingStatus = 'open' | 'applied' | 'kept' | 'superseded'
+export type DocumentFindingAnchorStatus = 'located' | 'unlocated'
 
 @Entity({ tableName: 'documents' })
 @Index({ name: 'documents_scope_idx', properties: ['organizationId', 'tenantId', 'deletedAt'] })
@@ -616,6 +620,113 @@ export class DocumentEntityLink {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'document_findings' })
+@Index({
+  name: 'document_findings_document_status_idx',
+  expression:
+    'create index "document_findings_document_status_idx" on "document_findings" ("document_id", "status", "severity") where "deleted_at" is null',
+})
+@Index({ name: 'document_findings_scope_idx', properties: ['organizationId', 'tenantId', 'deletedAt'] })
+@Index({ name: 'document_findings_review_idx', properties: ['reviewId'] })
+export class DocumentFinding {
+  [OptionalProps]?:
+    | 'sourceWorkflowInstanceId'
+    | 'sourceAgentRunId'
+    | 'ruleCode'
+    | 'sectionLabel'
+    | 'occurrence'
+    | 'suggestedText'
+    | 'anchor'
+    | 'appliedText'
+    | 'decisionNote'
+    | 'decidedByUserId'
+    | 'decidedAt'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => Document, { fieldName: 'document_id', mapToPk: true, deleteRule: 'cascade' })
+  documentId!: string
+
+  @Property({ name: 'review_id', type: 'uuid' })
+  reviewId!: string
+
+  @Property({ type: 'varchar', length: 16 })
+  source!: DocumentFindingSource
+
+  @Property({ name: 'source_workflow_instance_id', type: 'varchar', length: 64, nullable: true })
+  sourceWorkflowInstanceId?: string | null
+
+  @Property({ name: 'source_agent_run_id', type: 'varchar', length: 64, nullable: true })
+  sourceAgentRunId?: string | null
+
+  @Property({ name: 'rule_code', type: 'varchar', length: 64, nullable: true })
+  ruleCode?: string | null
+
+  @Property({ type: 'varchar', length: 16 })
+  severity!: DocumentFindingSeverity
+
+  @Property({ type: 'varchar', length: 200 })
+  title!: string
+
+  @Property({ type: 'text' })
+  explanation!: string
+
+  @Property({ name: 'section_label', type: 'varchar', length: 256, nullable: true })
+  sectionLabel?: string | null
+
+  @Property({ type: 'text' })
+  quote!: string
+
+  @Property({ type: 'smallint', default: 1 })
+  occurrence: number = 1
+
+  @Property({ name: 'suggested_text', type: 'text', nullable: true })
+  suggestedText?: string | null
+
+  @Property({ type: 'json', nullable: true })
+  anchor?: Record<string, unknown> | null
+
+  @Property({ name: 'anchor_status', type: 'varchar', length: 16 })
+  anchorStatus!: DocumentFindingAnchorStatus
+
+  @Property({ type: 'varchar', length: 16 })
+  status!: DocumentFindingStatus
+
+  @Property({ name: 'applied_text', type: 'text', nullable: true })
+  appliedText?: string | null
+
+  @Property({ name: 'decision_note', type: 'text', nullable: true })
+  decisionNote?: string | null
+
+  @Property({ name: 'decided_by_user_id', type: 'uuid', nullable: true })
+  decidedByUserId?: string | null
+
+  @Property({ name: 'decided_at', type: Date, nullable: true })
+  decidedAt?: Date | null
+
+  @Property({ name: 'created_by_user_id', type: 'uuid' })
+  createdByUserId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: preserveMonotonicDocumentVersionOnUpdate })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 export default [
   Document,
   DocumentContent,
@@ -628,4 +739,5 @@ export default [
   DocumentAttachment,
   DocumentTemplate,
   DocumentEntityLink,
+  DocumentFinding,
 ]
