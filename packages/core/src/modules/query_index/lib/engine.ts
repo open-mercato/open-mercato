@@ -75,7 +75,7 @@ import { resolveCfDefIndexOrgCandidates } from '@open-mercato/shared/lib/crud/cu
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
-import { createBoundedTtlMemo } from '@open-mercato/shared/lib/query/bounded-ttl-memo'
+import { createBoundedTtlMemo, type BoundedTtlMemo } from '@open-mercato/shared/lib/query/bounded-ttl-memo'
 
 function resolveEntityTableName(em: EntityManager, entity: string): string {
   return resolveQueryIndexSourceTableMetadata(em, entity)?.table ?? resolveFallbackEntityTableName(em, entity)
@@ -240,6 +240,8 @@ const baseTableExistsCache = createBoundedTtlMemo<true>({
   defaultTtlMs: 3_600_000,
   defaultMaxEntries: 1_000,
 })
+
+const joinedColumnTypeCaches = new WeakMap<object, BoundedTtlMemo<{ dataType: string | null }>>()
 
 /** Test-only: the module-scoped memo would otherwise leak state across specs. */
 export function clearBaseTableExistsCache(): void {
@@ -665,13 +667,7 @@ export class HybridQueryEngine implements QueryEngine {
         const targetTable = aliasTables.get(alias)
         if (!targetTable) return null
         if (targetTable === baseTable) return columns.get(column) ?? null
-        const row = await this.getDb().selectFrom('information_schema.columns')
-          .select('data_type').where('table_name', '=', targetTable).where('column_name', '=', column)
-          .where(sql<boolean>`table_schema = (select nspname from pg_namespace where oid = (
-            select relnamespace from pg_class where oid = to_regclass(${targetTable})
-          ))`)
-          .limit(1).executeTakeFirst()
-        return typeof row?.data_type === 'string' ? row.data_type : null
+        return this.getJoinedColumnType(targetTable, column)
       })
       await prepareNotIlikeFilters(normalizedFilters, async (field) => {
         const separator = field.indexOf('.')
@@ -3095,6 +3091,32 @@ export class HybridQueryEngine implements QueryEngine {
     if (!raw) { this.coverageOptimizationEnabled = false; return false }
     this.coverageOptimizationEnabled = parseBooleanToken(raw) === true
     return this.coverageOptimizationEnabled
+  }
+
+  private async getJoinedColumnType(table: string, column: string): Promise<string | null> {
+    const db = this.getDb()
+    let cache = joinedColumnTypeCaches.get(db)
+    if (!cache) {
+      cache = createBoundedTtlMemo<{ dataType: string | null }>({
+        ttlEnv: 'OM_QUERY_COLUMN_EXISTS_CACHE_MS',
+        maxEntriesEnv: 'OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES',
+        defaultTtlMs: 300_000,
+        defaultMaxEntries: 10_000,
+      })
+      joinedColumnTypeCaches.set(db, cache)
+    }
+    const key = `${table}.${column}`
+    const cached = cache.get(key)
+    if (cached) return cached.dataType
+    const row = await db.selectFrom('information_schema.columns')
+      .select('data_type').where('table_name', '=', table.split('.').pop() ?? table).where('column_name', '=', column)
+      .where(sql<boolean>`table_schema = (select nspname from pg_namespace where oid = (
+        select relnamespace from pg_class where oid = to_regclass(${table})
+      ))`)
+      .limit(1).executeTakeFirst()
+    const dataType = typeof row?.data_type === 'string' ? row.data_type : null
+    cache.set(key, { dataType })
+    return dataType
   }
 
   private async columnExists(table: string, column: string): Promise<boolean> {

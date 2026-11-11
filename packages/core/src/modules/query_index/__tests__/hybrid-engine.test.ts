@@ -188,7 +188,7 @@ function resolveFirstRow(
       const match = config.columns.find(
         (col) => col.table_name === tableName && col.column_name === columnName,
       )
-      return match ? { one: 1 } : undefined
+      return match ? (log.selects.includes('data_type') ? { data_type: match.data_type ?? 'text' } : { one: 1 }) : undefined
     }
     // Default: report that common columns exist so scope filters can apply.
     if (columnName === 'organization_id' || columnName === 'tenant_id' || columnName === 'deleted_at' || columnName === 'id') {
@@ -2734,6 +2734,66 @@ describe('HybridQueryEngine decrypt tenant binding (#5430)', () => {
   })
 })
 
+
+test('HybridQueryEngine shares joined overlap metadata across request engines and refreshes expired entries', async () => {
+  const originalTtl = process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS
+  process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS = '1000'
+  const db = createFakeKysely({
+    baseTable: 'staff_team_members', hasIndexAny: true, baseCount: 1, indexCount: 1,
+    customFieldKeys: {},
+    columns: [
+      { table_name: 'staff_team_members', column_name: 'id', data_type: 'uuid' },
+      { table_name: 'staff_member_labels', column_name: 'member_id', data_type: 'uuid' },
+      { table_name: 'staff_member_labels', column_name: 'labels', data_type: 'jsonb' },
+    ],
+  })
+  const query = async (database = db) => {
+    const em = buildEmWithOrmMetadata(database, { StaffTeamMember: 'staff_team_members' })
+    const engine = new HybridQueryEngine(em, new BasicQueryEngine(em, () => database))
+    await engine.query('staff:staff_team_member', {
+      fields: ['id'], tenantId: 'tenant-1', organizationId: 'org-1',
+      joins: [{ alias: 'labels', table: 'staff_member_labels', from: { field: 'id' }, to: { field: 'member_id' } }],
+      filters: [{ field: 'labels.labels', op: 'overlap', value: ['alpha'] }],
+    })
+  }
+  const probes = () => (db._chains as ChainLog[])
+    .filter((chain) => chain.table === 'information_schema.columns' && chain.selects.includes('data_type'))
+  try {
+    await query()
+    await query()
+    expect(probes()).toHaveLength(1)
+    const expressions = (db._chains as ChainLog[]).flatMap((chain) => chain.wheres.flat() as unknown[])
+      .filter((value): value is { toOperationNode: () => unknown } => !!value && typeof value === 'object' && 'toOperationNode' in value)
+      .map((value) => JSON.stringify(value.toOperationNode())).join('\n')
+    expect(expressions).toContain('?|')
+    const otherDatabase = createFakeKysely({
+      baseTable: 'staff_team_members', hasIndexAny: true, baseCount: 1, indexCount: 1,
+      customFieldKeys: {},
+      columns: [
+        { table_name: 'staff_team_members', column_name: 'id', data_type: 'uuid' },
+        { table_name: 'staff_member_labels', column_name: 'member_id', data_type: 'uuid' },
+        { table_name: 'staff_member_labels', column_name: 'labels', data_type: 'ARRAY' },
+      ],
+    })
+    await query(otherDatabase)
+    const otherChains = otherDatabase._chains as ChainLog[]
+    expect(otherChains.filter((chain) => chain.table === 'information_schema.columns' && chain.selects.includes('data_type'))).toHaveLength(1)
+    const otherExpressions = otherChains.flatMap((chain) => chain.wheres.flat() as unknown[])
+      .filter((value): value is { toOperationNode: () => unknown } => !!value && typeof value === 'object' && 'toOperationNode' in value)
+      .map((value) => JSON.stringify(value.toOperationNode())).join('\n')
+    expect(otherExpressions).toContain('&&')
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1001)
+    try {
+      await query()
+      expect(probes()).toHaveLength(2)
+    } finally {
+      clock.mockRestore()
+    }
+  } finally {
+    if (originalTtl === undefined) delete process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS
+    else process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS = originalTtl
+  }
+})
 
 test('HybridQueryEngine query uses resolved JSONB role metadata and retains both all-of members (#7996)', async () => {
   const db = createFakeKysely({
