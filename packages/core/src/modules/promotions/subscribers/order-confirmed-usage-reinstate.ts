@@ -3,6 +3,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildTrustedCommandContext } from '@open-mercato/shared/lib/commands/trusted-context'
+import { CodeUsage, PromotionUsage } from '../data/entities'
 import { PromotionCodeService, type PromotionsCodeScope } from '../lib/code-service'
 import { PromotionUsageService } from '../lib/promotion-usage-service'
 
@@ -94,11 +95,73 @@ async function resolveCanceledStatusEntryId(
   return row?.id ?? null
 }
 
+const lifecycleLockKey = (orderId: string) => `promotions_usage_lifecycle:${orderId}`
+
+// #8268 re-review Finding 2: the refusal decision and the cancellation used to commit in
+// separate transactions, so a concurrent confirmation handler could reinstate this order's
+// usage in between and the cancel would still remove a revival that was by then fully
+// backed. The cancel now carries its own fence: `sales.orders.update` runs
+// `beforeTransactionalWrite` inside its transaction right after locking the order row, and
+// this fence takes the same lifecycle advisory lock there and re-validates both the
+// observed order status and that this order still carries unreconciled (reverted) usage.
+// Any concurrent reinstate or revert for this order waits on that lock until the cancel
+// commits, then sees the order cancelled through its own stale-event fence. Nothing is
+// held across connections: this handler's own lock transaction has already committed.
+class RefusalSupersededError extends Error {
+  constructor(readonly reason: 'order_lifecycle_changed' | 'usage_backed') {
+    super(`[internal] promotions:order-confirmed-usage-reinstate refusal superseded (${reason})`)
+  }
+}
+
+async function readOrderStatus(
+  em: EntityManager,
+  orderId: string,
+  scope: PromotionsCodeScope,
+): Promise<string | null> {
+  const rows = await em.execute(
+    'select status from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
+    [orderId, scope.tenantId, scope.organizationId],
+  )
+  return Array.isArray(rows) && rows.length > 0
+    ? (rows[0] as { status?: string | null }).status ?? null
+    : null
+}
+
+function isLiveOrderStatus(status: string | null): status is string {
+  return status != null && status !== 'canceled' && status !== 'cancelled'
+}
+
+async function hasUnreconciledUsage(em: EntityManager, orderId: string, scope: PromotionsCodeScope): Promise<boolean> {
+  const where = {
+    orderId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    revertedAt: { $ne: null },
+  }
+  const revertedUsage = await em.findOne(PromotionUsage, where)
+  if (revertedUsage) return true
+  const revertedCodeUse = await em.findOne(CodeUsage, where)
+  return Boolean(revertedCodeUse)
+}
+
+async function assertRefusalStillWarranted(
+  salesTx: EntityManager,
+  orderId: string,
+  scope: PromotionsCodeScope,
+  observedStatus: string,
+): Promise<void> {
+  await salesTx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [lifecycleLockKey(orderId)])
+  const currentStatus = await readOrderStatus(salesTx, orderId, scope)
+  if (currentStatus !== observedStatus) throw new RefusalSupersededError('order_lifecycle_changed')
+  if (!(await hasUnreconciledUsage(salesTx, orderId, scope))) throw new RefusalSupersededError('usage_backed')
+}
+
 async function refuseRevivalForUnreconciledUsage(
   container: ResolverContainer,
   em: EntityManager,
   orderId: string,
   scope: PromotionsCodeScope,
+  observedStatus: string,
 ): Promise<void> {
   const canceledEntryId = await resolveCanceledStatusEntryId(em, scope)
   if (!canceledEntryId) {
@@ -113,11 +176,8 @@ async function refuseRevivalForUnreconciledUsage(
       attributes: { orderId, tenantId: scope.tenantId, organizationId: scope.organizationId },
     })
     // #8268 review Finding 7: this subscriber is `persistent: true` — the dispatcher
-    // retries on a thrown error. Returning here used to acknowledge the event while the
-    // order stayed CONFIRMED with refused/reverted usage and nothing left to retry the
-    // cancel once an operator adds the missing `sales.order_status` "canceled" entry.
-    // Throw so redelivery keeps retrying until the dictionary entry exists and the cancel
-    // can actually go through.
+    // retries on a thrown error, so throwing keeps redelivery going until the missing
+    // `sales.order_status` "canceled" entry exists and the cancel can go through.
     throw new Error('[internal] promotions:order-confirmed-usage-reinstate could not resolve a canceled status entry to enforce the refusal policy')
   }
   const commandBus = container.resolve<CommandBus>('commandBus')
@@ -129,79 +189,57 @@ async function refuseRevivalForUnreconciledUsage(
   })
   await commandBus.execute('sales.orders.update', {
     input: { id: orderId, statusEntryId: canceledEntryId },
-    ctx: { ...trustedCtx, container } as unknown as CommandRuntimeContext,
+    ctx: {
+      ...trustedCtx,
+      container,
+      beforeTransactionalWrite: (salesTx: EntityManager) => assertRefusalStillWarranted(salesTx, orderId, scope, observedStatus),
+    } as unknown as CommandRuntimeContext,
   })
 }
 
-// #8268 review Finding 6: the advisory-lock transaction below COMMITS (releasing the
-// lock) before `handle()` ever gets around to issuing the cancel outside it — see the
-// comment at that call site for why the cancel must stay outside this lock. Between the
-// commit and the cancel, a concurrent process can make a prior "blocked" determination
-// stale (capacity freed up, or a different invocation of this same handler already
-// reinstated this exact order live). Factored out so the cancel path can reacquire the
-// SAME advisory lock in a fresh, short-lived transaction and re-run the exact same
-// reinstate-and-check immediately before refusing, rather than trusting a snapshot taken
-// before the lock was released. `reinstateUsage`/`reinstateCodeUse` are idempotent (see
-// their own doc comments) — re-calling them here when nothing changed just re-confirms
-// still-blocked with no double mutation, and if capacity cleared in the interim this call
-// is the one that actually reinstates it live.
+type ReinstateOutcome =
+  | { kind: 'skipped' }
+  | { kind: 'reinstated' }
+  | { kind: 'blocked'; observedStatus: string }
+
 async function reinstateUsageUnderLock(
   container: ResolverContainer,
   em: EntityManager,
   orderId: string,
-  tenantId: string,
-  organizationId: string,
   scope: PromotionsCodeScope,
-): Promise<boolean> {
-  const lockKey = `promotions_usage_lifecycle:${orderId}`
-  let blocked = false
-  await em.transactional(async (tx) => {
+): Promise<ReinstateOutcome> {
+  return em.transactional(async (tx) => {
     // #8268 review Major 6: takes the SAME advisory transaction lock, keyed by this
     // order, as `order-cancelled-usage-revert.ts`'s revert handler — see that file's
     // comment for the exact race this closes.
-    await tx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [lockKey])
+    await tx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [lifecycleLockKey(orderId)])
 
-    // #8268 review Major 3 (re-review): the advisory lock alone only serializes this
-    // handler against `order-cancelled-usage-revert.ts` — it does not stop EITHER from
-    // acting on a STALE event. Deliver a delayed/redelivered `sales.order.confirmed`
-    // AFTER the order was cancelled again (or deleted): without this check the
-    // serialized reinstate would still re-register usage for an order that is no
-    // longer live. Only reinstate when the order still exists and is not currently
-    // canceled. Sales recognizes BOTH `canceled` and `cancelled` as live cancellation
-    // spellings (its own `isCancelledOrderStatus` guard, and `sales.order.cancelled`
-    // fires for either) — #8268 review Major 3 (re-review): comparing against only
-    // `canceled` here let a delayed confirmation reinstate usage for an order left as
-    // `cancelled`.
-    const current = await tx.getConnection().execute(
-      'select status from sales_orders where id = ? and tenant_id = ? and organization_id = ? limit 1',
-      [orderId, tenantId, organizationId],
-    )
-    const currentStatus = Array.isArray(current) && current.length > 0
-      ? (current[0] as { status?: string | null }).status ?? null
-      : null
-    if (currentStatus == null || currentStatus === 'canceled' || currentStatus === 'cancelled') {
+    // #8268 review Major 3 (re-review): only reinstate when the order still exists and is
+    // not currently cancelled (either spelling sales recognizes), so a delayed or
+    // redelivered confirmation never re-registers usage for an order that is no longer
+    // live. Read on the lock transaction's own connection, never a second pooled one.
+    const currentStatus = await readOrderStatus(tx, orderId, scope)
+    if (!isLiveOrderStatus(currentStatus)) {
       logger.debug('[internal] promotions:order-confirmed-usage-reinstate skipped stale confirmation redelivery — order no longer live', {
         orderId,
-        tenantId,
-        organizationId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
         currentStatus,
       })
-      return
+      return { kind: 'skipped' }
     }
 
-    // Same order as the revert subscriber's own comment names it ("`revertUsage` +
-    // `revertCodeUse`") — the two touch disjoint tables with no read-after-write
-    // dependency between them, so this is a documentation-matching choice, not a
-    // correctness requirement.
     const usageService = container.resolve<PromotionUsageService>('promotionUsageService')
     const usageResult = await usageService.reinstateUsage(tx, { orderId }, scope)
 
     const codeService = container.resolve<PromotionCodeService>('promotionCodeService')
     const codeResult = await codeService.reinstateCodeUse(tx, { orderId }, scope)
 
-    blocked = usageResult.blockedCount > 0 || codeResult.blockedCount > 0
+    if (usageResult.blockedCount > 0 || codeResult.blockedCount > 0) {
+      return { kind: 'blocked', observedStatus: currentStatus }
+    }
+    return { kind: 'reinstated' }
   })
-  return blocked
 }
 
 export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
@@ -235,9 +273,9 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
 
   const scope: PromotionsCodeScope = { tenantId, organizationId }
 
-  let revivalRefused = false
+  let outcome: ReinstateOutcome
   try {
-    revivalRefused = await reinstateUsageUnderLock(container, em, orderId, tenantId, organizationId, scope)
+    outcome = await reinstateUsageUnderLock(container, em, orderId, scope)
   } catch (error) {
     logger.error('[internal] promotions:order-confirmed-usage-reinstate failed', {
       err: error,
@@ -253,32 +291,20 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
     throw error
   }
 
-  if (!revivalRefused) return
+  if (outcome.kind !== 'blocked') return
 
-  // Outside the advisory-lock transaction above: `sales.orders.update` manages its own
-  // transaction/EM fork and re-emits `sales.order.cancelled`, which this same subscriber
-  // pair (and every other module's own cancel-side handler) must be free to react to —
-  // nesting it inside the lock would only risk a cross-transaction deadlock for no benefit.
   try {
-    // #8268 review Finding 6: re-verify the blocked condition is STILL true, under a
-    // fresh reacquisition of the SAME advisory lock, immediately before issuing the
-    // cancel — the snapshot taken above can go stale the instant that lock released (see
-    // `reinstateUsageUnderLock`'s own doc comment: capacity can clear, or a different
-    // invocation of this same handler can have already reinstated this exact order,
-    // between the commit above and this point). Only refuse when this fresh check still
-    // reports blocked; if it now succeeds, the order is live and reinstated — nothing
-    // further to do, the idempotent reinstate call itself already applied that outcome.
-    const stillBlocked = await reinstateUsageUnderLock(container, em, orderId, tenantId, organizationId, scope)
-    if (!stillBlocked) {
-      logger.debug('[internal] promotions:order-confirmed-usage-reinstate skipped refusal — the blocked condition resolved before the cancel could run', {
+    await refuseRevivalForUnreconciledUsage(container, em, orderId, scope, outcome.observedStatus)
+  } catch (error) {
+    if (error instanceof RefusalSupersededError) {
+      logger.debug('[internal] promotions:order-confirmed-usage-reinstate skipped refusal — superseded before the cancel could commit', {
         orderId,
         tenantId,
         organizationId,
+        reason: error.reason,
       })
       return
     }
-    await refuseRevivalForUnreconciledUsage(container, em, orderId, scope)
-  } catch (error) {
     logger.error('[internal] promotions:order-confirmed-usage-reinstate failed to enforce the refusal policy', {
       err: error,
       orderId,

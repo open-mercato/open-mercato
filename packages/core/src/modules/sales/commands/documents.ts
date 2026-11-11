@@ -6248,6 +6248,7 @@ const updateOrderCommand: CommandHandler<
       [
         async () => {
           order = await lockOrderForTotalsWrite(em, ctx, parsed.id, "Sales order not found");
+          await ctx.beforeTransactionalWrite?.(em, parsed);
           const currentTotalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
           nextTotalsMode = parsed.totalsMode ?? currentTotalsMode;
           totalsModeChanged = nextTotalsMode !== currentTotalsMode;

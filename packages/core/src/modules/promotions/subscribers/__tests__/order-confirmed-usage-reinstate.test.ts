@@ -54,8 +54,15 @@ type FakeEm = {
 // pre-existing test below — written when the order's live status was never queried —
 // keeps exercising the "order really is live" path unchanged; only the new
 // stale-redelivery tests override it.
-function createFakeEm(options: { orderStatus?: string | null } = {}): { em: FakeEm; tables: Map<Function, Row[]> } {
-  const orderStatus = options.orderStatus === undefined ? 'confirmed' : options.orderStatus
+type FakeEmControl = {
+  setOrderStatus: (status: string | null) => void
+  executed: Array<{ sql: string; params: unknown[] }>
+}
+
+function createFakeEm(options: { orderStatus?: string | null } = {}): { em: FakeEm; tables: Map<Function, Row[]>; control: FakeEmControl } {
+  let orderStatus = options.orderStatus === undefined ? 'confirmed' : options.orderStatus
+  const executed: FakeEmControl['executed'] = []
+  const statusRows = (): Row[] => (orderStatus == null ? [] : [{ status: orderStatus }])
   const tables = new Map<Function, Row[]>()
   let inTransaction = false
   let pendingCreates: Array<{ entity: Function; row: Row }> = []
@@ -94,9 +101,12 @@ function createFakeEm(options: { orderStatus?: string | null } = {}): { em: Fake
     },
     isInTransaction: () => inTransaction,
     fork: () => em,
-    execute: async () => [],
+    execute: async (sql, params = []) => {
+      executed.push({ sql, params })
+      return sql.includes('from sales_orders') ? statusRows() : []
+    },
     getConnection: () => ({
-      execute: async () => (orderStatus == null ? [] : [{ status: orderStatus }]),
+      execute: async () => statusRows(),
     }),
     // #8268 review Major 4: the enforced refusal policy resolves the 'canceled' dictionary
     // entry through this exact `dictionary_entries`/`dictionaries` join
@@ -125,7 +135,27 @@ function createFakeEm(options: { orderStatus?: string | null } = {}): { em: Fake
       }
     },
   }
-  return { em, tables }
+  return {
+    em,
+    tables,
+    control: {
+      setOrderStatus: (status) => {
+        orderStatus = status
+      },
+      executed,
+    },
+  }
+}
+
+type CancelCommandOptions = { input?: unknown; ctx?: { beforeTransactionalWrite?: (em: unknown, input?: unknown) => Promise<void> } }
+
+function simulateSalesOrderUpdate(em: FakeEm, hooks: { beforeFence?: () => void; onCommit?: () => void } = {}): jest.Mock {
+  return jest.fn(async (_commandId: string, options: CancelCommandOptions) => {
+    hooks.beforeFence?.()
+    await options.ctx?.beforeTransactionalWrite?.(em, options.input)
+    hooks.onCommit?.()
+    return { result: {} }
+  })
 }
 
 function asEm(fake: FakeEm): import('@mikro-orm/postgresql').EntityManager {
@@ -224,7 +254,7 @@ function buildCtx(em: FakeEm, options: { commandBusExecute?: jest.Mock } = {}) {
   // #8268 review Major 4: the enforced refusal policy resolves `commandBus` to re-cancel
   // the order when a revival gets blocked — defaults to a mock that succeeds, so every
   // pre-existing test below (none of which trigger a blocked revival) never needs it.
-  const commandBus = { execute: options.commandBusExecute ?? jest.fn(async () => ({ result: {} })) }
+  const commandBus = { execute: options.commandBusExecute ?? simulateSalesOrderUpdate(em) }
   return {
     resolve: <T = unknown>(name: string): T => {
       if (name === 'em') return asEm(em) as unknown as T
@@ -437,16 +467,8 @@ describe('promotions order-confirmed-usage-reinstate subscriber', () => {
     ).rejects.toThrow('sales.orders.update unavailable')
   })
 
-  // #8268 review Finding 6: the lock+reinstate+blocked-check runs in TWO separate
-  // transactions — once before the lock releases, and again (via `reinstateUsageUnderLock`)
-  // immediately before the cancel. Between those two calls, the blocking "B" order's own
-  // live use can itself be reverted (e.g. B got cancelled, freeing the budget), so a fresh
-  // re-check of the SAME order's rows reports not-blocked on the second pass even though
-  // the first pass found it blocked. The stale first-pass snapshot must not drive the
-  // cancel in that case.
-  describe('#8268 review Finding 6: re-verifies the blocked condition immediately before cancelling', () => {
-    it('does not re-cancel the order when the fresh re-check finds the condition already resolved', async () => {
-      const { em, tables } = createFakeEm()
+  describe('#8268 re-review Finding 2: the cancel re-validates the refusal inside its own transaction', () => {
+    function seedBlockedRevival(tables: Map<Function, Row[]>) {
       const promotion = seedPromotion(tables, { maxBudget: '10.00', budgetCurrency: 'USD' })
       const blockingUsage = seedPromotionUsage(tables, {
         promotionId: promotion.id,
@@ -455,31 +477,119 @@ describe('promotions order-confirmed-usage-reinstate subscriber', () => {
         orderId: 'order-b',
         revertedAt: null,
       })
-      const promotionUsageA = seedPromotionUsage(tables, {
+      const usageA = seedPromotionUsage(tables, {
         promotionId: promotion.id,
         totalDiscountAmount: '10.00',
         currency: 'USD',
       })
-      const commandBusExecute = jest.fn(async () => ({ result: {} }))
+      return { blockingUsage, usageA }
+    }
+
+    it('aborts the cancel when a concurrent handler reinstated the order after the last blocked check', async () => {
+      const { em, tables } = createFakeEm()
+      const { blockingUsage, usageA } = seedBlockedRevival(tables)
+      let cancelCommitted = false
+      const commandBusExecute = simulateSalesOrderUpdate(em, {
+        beforeFence: () => {
+          blockingUsage.revertedAt = new Date()
+          usageA.revertedAt = null
+        },
+        onCommit: () => {
+          cancelCommitted = true
+        },
+      })
+
+      await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute }))
+
+      expect(commandBusExecute).toHaveBeenCalledTimes(1)
+      expect(cancelCommitted).toBe(false)
+      expect(usageA.revertedAt).toBeNull()
+    })
+
+    it('aborts the cancel when a concurrent handler reinstated the order\'s code usage', async () => {
+      const { em, tables } = createFakeEm()
+      const code = seedCode(tables, { code: 'USEDONCE', usage: 'single', used: 1, active: false })
+      const usageA = seedCodeUsage(tables, { codeId: code.id, orderId: ORDER_ID })
+      seedCodeUsage(tables, { codeId: code.id, orderId: 'order-b', revertedAt: null })
+      let cancelCommitted = false
+      const commandBusExecute = simulateSalesOrderUpdate(em, {
+        beforeFence: () => {
+          usageA.revertedAt = null
+        },
+        onCommit: () => {
+          cancelCommitted = true
+        },
+      })
+
+      await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute }))
+
+      expect(cancelCommitted).toBe(false)
+    })
+
+    it('aborts the cancel when the order lifecycle moved on after the refusal decision', async () => {
+      const { em, tables, control } = createFakeEm()
+      seedBlockedRevival(tables)
+      let cancelCommitted = false
+      const commandBusExecute = simulateSalesOrderUpdate(em, {
+        beforeFence: () => control.setOrderStatus('on_hold'),
+        onCommit: () => {
+          cancelCommitted = true
+        },
+      })
+
+      await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute }))
+
+      expect(cancelCommitted).toBe(false)
+    })
+
+    it('takes the lifecycle lock inside the cancel transaction before validating anything', async () => {
+      const { em, tables, control } = createFakeEm()
+      seedBlockedRevival(tables)
+      let executedBeforeFence = 0
+      const commandBusExecute = simulateSalesOrderUpdate(em, {
+        beforeFence: () => {
+          executedBeforeFence = control.executed.length
+        },
+      })
+
+      await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute }))
+
+      const fenceStatements = control.executed.slice(executedBeforeFence)
+      expect(fenceStatements[0]?.sql).toContain('pg_advisory_xact_lock')
+      expect(fenceStatements[0]?.params).toEqual([`promotions_usage_lifecycle:${ORDER_ID}`])
+      expect(fenceStatements[1]?.sql).toContain('from sales_orders')
+    })
+
+    it('control: commits the cancel when the order is still live and still carries unreconciled usage', async () => {
+      const { em, tables } = createFakeEm()
+      const { usageA } = seedBlockedRevival(tables)
+      let cancelCommitted = false
+      const commandBusExecute = simulateSalesOrderUpdate(em, {
+        onCommit: () => {
+          cancelCommitted = true
+        },
+      })
+
+      await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute }))
+
+      expect(cancelCommitted).toBe(true)
+      expect(usageA.revertedAt).not.toBeNull()
+      expect(commandBusExecute).toHaveBeenCalledWith('sales.orders.update', expect.objectContaining({
+        input: { id: ORDER_ID, statusEntryId: 'status-canceled' },
+      }))
+    })
+
+    it('runs the blocked check exactly once before cancelling', async () => {
+      const { em, tables } = createFakeEm()
+      seedBlockedRevival(tables)
       const codeService = new PromotionCodeService({
         resolve: () => {
           throw new Error('[internal] unexpected DI resolve in test: rateLimiterService')
         },
       })
       const usageService = new PromotionUsageService()
-      const realReinstateUsage = usageService.reinstateUsage.bind(usageService)
-      let call = 0
-      // Simulate the interleaving: on the FIRST lock+reinstate pass, order B's own usage
-      // (never reverted) is still live, so A's reinstatement is correctly blocked by the
-      // budget cap. Between that pass and the fresh re-check, B gets cancelled — its own
-      // usage row reverts, freeing the budget — so the SECOND pass's real re-check of A's
-      // row now succeeds and reinstates it live.
-      jest.spyOn(usageService, 'reinstateUsage').mockImplementation(async (...args) => {
-        call += 1
-        if (call === 2) blockingUsage.revertedAt = new Date()
-        return realReinstateUsage(...args)
-      })
-      const commandBus = { execute: commandBusExecute }
+      const reinstateSpy = jest.spyOn(usageService, 'reinstateUsage')
+      const commandBus = { execute: simulateSalesOrderUpdate(em) }
       const ctx = {
         resolve: <T = unknown>(name: string): T => {
           if (name === 'em') return asEm(em) as unknown as T
@@ -492,34 +602,8 @@ describe('promotions order-confirmed-usage-reinstate subscriber', () => {
 
       await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, ctx)
 
-      expect(call).toBe(2)
-      expect(promotionUsageA.revertedAt).toBeNull()
-      expect(commandBusExecute).not.toHaveBeenCalled()
-    })
-
-    it('control: still re-cancels the order when the fresh re-check still finds it blocked', async () => {
-      const { em, tables } = createFakeEm()
-      const promotion = seedPromotion(tables, { maxBudget: '10.00', budgetCurrency: 'USD' })
-      seedPromotionUsage(tables, {
-        promotionId: promotion.id,
-        totalDiscountAmount: '10.00',
-        currency: 'USD',
-        orderId: 'order-b',
-        revertedAt: null,
-      })
-      const promotionUsageA = seedPromotionUsage(tables, {
-        promotionId: promotion.id,
-        totalDiscountAmount: '10.00',
-        currency: 'USD',
-      })
-      const commandBusExecute = jest.fn(async () => ({ result: {} }))
-
-      await handle({ orderId: ORDER_ID, tenantId: TENANT, organizationId: ORG, previousStatus: 'canceled' }, buildCtx(em, { commandBusExecute }))
-
-      expect(promotionUsageA.revertedAt).not.toBeNull()
-      expect(commandBusExecute).toHaveBeenCalledWith('sales.orders.update', expect.objectContaining({
-        input: { id: ORDER_ID, statusEntryId: 'status-canceled' },
-      }))
+      expect(reinstateSpy).toHaveBeenCalledTimes(1)
+      expect(commandBus.execute).toHaveBeenCalledTimes(1)
     })
   })
 
