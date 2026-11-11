@@ -89,9 +89,9 @@ function readPersistedDuration(config: UserTaskConfig, edited: string): string |
   return deadline.duration === duration ? duration : null
 }
 
-// 10. The enclosing schema RESULTS are unchanged: a consumer parsing with them
-//     narrows the deadline and reads `duration` as a `string`, and may assign the
-//     parsed config to `UserTaskConfig`.
+// 9. The enclosing schema RESULTS are unchanged: a consumer parsing with them
+//    narrows the deadline and reads `duration` as a `string`, and may assign the
+//    parsed config to `UserTaskConfig`.
 type StepDeadline<Step extends { userTaskConfig?: { deadline?: unknown } }> = NonNullable<
   Step['userTaskConfig']
 >['deadline']
@@ -146,8 +146,8 @@ const resetResponseIsLegacy: MutuallyAssignable<
   ResponseRow | null
 > = true
 
-// 11. A code-defined USER_TASK declares the absolute form as the sibling key,
-//     and its `deadline` stays duration-only.
+// 10. A code-defined USER_TASK declares the absolute form as the sibling key,
+//    and its `deadline` stays duration-only.
 const codeStepCarriesAt: CodeStepDefinition = {
   stepId: 'review',
   stepName: 'Review',
