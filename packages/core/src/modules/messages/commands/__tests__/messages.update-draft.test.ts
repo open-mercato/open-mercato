@@ -12,6 +12,7 @@ const mockRegisterCommand = jest.fn((command: RegisteredCommand) => {
 const emitMessagesEventMock = jest.fn(async () => {})
 const findOneWithDecryptionMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
+const assertExternalEmailBudgetMock = jest.fn(async () => {})
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({
   registerCommand: (command: RegisteredCommand) => mockRegisterCommand(command),
@@ -24,6 +25,10 @@ jest.mock('@open-mercato/core/modules/messages/events', () => ({
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
   findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/messages/lib/externalEmailBudget', () => ({
+  assertExternalEmailBudget: (...args: unknown[]) => assertExternalEmailBudgetMock(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/messages/lib/attachments', () => ({
@@ -206,6 +211,28 @@ describe('messages.messages.update_draft command send transition', () => {
     expect(emFork.flush.mock.invocationCallOrder[0]).toBeLessThan(
       emFork.commit.mock.invocationCallOrder[0],
     )
+  })
+
+  it('rejects an external draft send before mutation when the budget rejects it', async () => {
+    const { command, emFork, ctx } = createHarness({
+      visibility: 'public',
+      externalEmail: 'recipient@example.com',
+      sendViaEmail: true,
+    }, [
+      { recipientUserId, recipientType: 'to', deletedAt: null },
+    ])
+    const rejection = new Error('budget exceeded')
+    assertExternalEmailBudgetMock.mockRejectedValueOnce(rejection)
+
+    await expect(command.execute(updateInput(), ctx)).rejects.toBe(rejection)
+
+    expect(assertExternalEmailBudgetMock).toHaveBeenCalledWith(
+      ctx.container,
+      { tenantId, userId: senderUserId },
+      'recipient@example.com',
+    )
+    expect(emFork.flush).not.toHaveBeenCalled()
+    expect(emitMessagesEventMock).not.toHaveBeenCalled()
   })
 
   it('rolls back the transaction and emits no events when the atomic flush fails', async () => {

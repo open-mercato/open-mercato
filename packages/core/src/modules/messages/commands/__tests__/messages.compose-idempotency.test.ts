@@ -12,6 +12,7 @@ const mockRegisterCommand = jest.fn((command: RegisteredCommand) => {
 const emitMessagesEventMock = jest.fn(async () => {})
 const findOneWithDecryptionMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
+const assertExternalEmailBudgetMock = jest.fn(async () => {})
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({
   registerCommand: (command: RegisteredCommand) => mockRegisterCommand(command),
@@ -24,6 +25,10 @@ jest.mock('@open-mercato/core/modules/messages/events', () => ({
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
   findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/messages/lib/externalEmailBudget', () => ({
+  assertExternalEmailBudget: (...args: unknown[]) => assertExternalEmailBudgetMock(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/messages/lib/attachments', () => ({
@@ -160,6 +165,23 @@ describe('messages.messages.compose idempotency', () => {
     // No idempotency key → the pre-check is skipped and compose proceeds to the
     // transactional create path.
     expect(emFork.transactional).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects an external compose before opening a transaction when the budget rejects it', async () => {
+    const { command, emFork, ctx } = createHarness()
+    const rejection = new Error('budget exceeded')
+    assertExternalEmailBudgetMock.mockRejectedValueOnce(rejection)
+    findOneWithDecryptionMock.mockResolvedValue(null)
+
+    await expect(command.execute(composeInput({ sendViaEmail: true }), ctx)).rejects.toBe(rejection)
+
+    expect(assertExternalEmailBudgetMock).toHaveBeenCalledWith(
+      ctx.container,
+      { tenantId, userId: senderUserId },
+      'sender@example.com',
+    )
+    expect(emFork.transactional).not.toHaveBeenCalled()
+    expect(emitMessagesEventMock).not.toHaveBeenCalled()
   })
 
   it('skips the audit log + undo entry on an idempotent replay (no spurious soft-delete handle)', async () => {

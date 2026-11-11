@@ -11,6 +11,7 @@ import {
 } from '../../openapi'
 import { MessageCommandExecuteResult } from '../../../commands/shared'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { getExternalEmailBudgetErrorResponse } from '../../../lib/externalEmailBudget'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['messages.compose'] },
@@ -67,6 +68,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       },
     })
   } catch (error) {
+    const budgetResponse = getExternalEmailBudgetErrorResponse(error)
+    if (budgetResponse) return budgetResponse
     const interceptorRejection = getCommandInterceptorHttpRejection(error)
     if (interceptorRejection) {
       return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
@@ -121,6 +124,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
         { status: 409, description: 'Reply not allowed for message type', schema: errorResponseSchema },
         { status: 409, description: 'No recipients available for reply', schema: errorResponseSchema },
+        { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
+        { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
       ],
     },
   },

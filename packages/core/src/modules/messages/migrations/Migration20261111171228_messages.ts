@@ -9,4 +9,8 @@ export class Migration20261111171228_messages extends Migration {
     this.addSql(`alter table "message_external_recipient_days" add constraint "message_external_recipient_days_unique" unique ("tenant_id", "utc_day", "recipient_hash");`);
   }
 
+  override async down(): Promise<void> {
+    this.addSql(`drop table if exists "message_external_recipient_days";`);
+  }
+
 }

@@ -61,6 +61,7 @@ jest.mock('../../lib/routeHelpers', () => {
 })
 
 jest.mock('../../lib/externalEmailBudget', () => ({
+  ...jest.requireActual('../../lib/externalEmailBudget'),
   checkExternalEmailBudget: jest.fn(async () => null),
 }))
 

@@ -165,6 +165,39 @@ export class MessageExternalRecipientDay {
   createdAt: Date = new Date()
 }
 
+@Entity({ tableName: 'message_external_email_windows' })
+@Unique({
+  name: 'message_external_email_windows_unique',
+  properties: ['scope', 'tenantId', 'subjectId', 'windowStart'],
+})
+export class MessageExternalEmailWindow {
+  [OptionalProps]?: 'count' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'scope', type: 'text' })
+  scope!: 'user' | 'tenant'
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'subject_id', type: 'uuid' })
+  subjectId!: string
+
+  @Property({ name: 'window_start', type: 'int' })
+  windowStart!: number
+
+  @Property({ name: 'count', type: 'int', default: 0 })
+  count: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
 export type RecipientType = 'to' | 'cc' | 'bcc'
 export type RecipientStatus = 'unread' | 'read' | 'archived' | 'deleted'
 
@@ -328,4 +361,5 @@ export default [
   MessageAccessToken,
   MessageConfirmation,
   MessageExternalRecipientDay,
+  MessageExternalEmailWindow,
 ]

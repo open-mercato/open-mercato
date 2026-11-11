@@ -23,7 +23,7 @@ import {
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
 import { delegateComposeToSender, requiresSenderDelegation } from '../lib/composeSenderDelegation'
-import { checkExternalEmailBudget } from '../lib/externalEmailBudget'
+import { checkExternalEmailBudget, getExternalEmailBudgetErrorResponse } from '../lib/externalEmailBudget'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveMessageChannelThreadAccess,
@@ -44,6 +44,7 @@ import {
 import { applyMessageParticipantScope } from '../lib/participantScope'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { MessageCommandExecuteResult } from '../commands/shared'
 import {
   composeMessageRequestSchema as composeSchema,
@@ -648,20 +649,19 @@ export async function POST(req: Request) {
     )
   }
 
-  if (!input.isDraft && input.externalEmail) {
-    const budgetResponse = await checkExternalEmailBudget(
-      ctx.container,
-      { tenantId: scope.tenantId, userId: scope.userId },
-      input.externalEmail,
-    )
-    if (budgetResponse) return budgetResponse
-  }
-
   // #6258: an explicitly chosen mailbox routes the whole send through the
   // communication-channels facade, which writes the conversation, thread mapping
   // and outbound channel link the inbound thread matcher needs. Without the
   // field this stays the platform-sender path, unchanged.
   if (requiresSenderDelegation(input)) {
+    if (!input.isDraft && sendViaEmail && input.externalEmail) {
+      const budgetResponse = await checkExternalEmailBudget(
+        ctx.container,
+        { tenantId: scope.tenantId, userId: scope.userId },
+        input.externalEmail,
+      )
+      if (budgetResponse) return budgetResponse
+    }
     const delegated = await delegateComposeToSender(
       ctx.container,
       {
@@ -695,24 +695,36 @@ export async function POST(req: Request) {
     return delegatedResponse
   }
 
-  const { result, logEntry } = await commandBus.execute('messages.messages.compose', {
-    input: {
-      ...input,
-      parentMessageId: composeParentMessageId,
-      sendViaEmail,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      userId: scope.userId,
-    },
-    ctx: {
-      container: ctx.container,
-      auth: ctx.auth ?? null,
-      organizationScope: null,
-      selectedOrganizationId: scope.organizationId,
-      organizationIds: scope.organizationId ? [scope.organizationId] : null,
-      request: req,
-    },
-  })
+  let execution: Awaited<ReturnType<CommandBus['execute']>>
+  try {
+    execution = await commandBus.execute('messages.messages.compose', {
+      input: {
+        ...input,
+        parentMessageId: composeParentMessageId,
+        sendViaEmail,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: scope.userId,
+      },
+      ctx: {
+        container: ctx.container,
+        auth: ctx.auth ?? null,
+        organizationScope: null,
+        selectedOrganizationId: scope.organizationId,
+        organizationIds: scope.organizationId ? [scope.organizationId] : null,
+        request: req,
+      },
+    })
+  } catch (error) {
+    const budgetResponse = getExternalEmailBudgetErrorResponse(error)
+    if (budgetResponse) return budgetResponse
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
+    throw error
+  }
+  const { result, logEntry } = execution
   const { id: messageId, threadId: responseThreadId } = result as unknown as MessageCommandExecuteResultWithThreadId
 
   const response = Response.json({ id: messageId, threadId: responseThreadId }, { status: 201 })
