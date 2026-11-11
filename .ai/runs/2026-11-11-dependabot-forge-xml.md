@@ -35,12 +35,14 @@ A compatible parser minor introduces necessary transitive patches. Missing insta
 
 ## Progress
 
+PR: #9283
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Publish and inspect
 
-- [ ] 1.1 Publish draft and acquire verified claim
-- [ ] 1.2 Capture installed baseline and advisory proof
+- [x] 1.1 Publish draft and acquire verified claim — afaa42437f
+- [x] 1.2 Capture installed baseline and advisory proof — afaa42437f
 
 ### Phase 2: Patch and verify
 
