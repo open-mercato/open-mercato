@@ -2,11 +2,24 @@ import * as client from 'openid-client'
 import { createHash } from 'node:crypto'
 import type { SsoConfig } from '../data/entities'
 import type { SsoIdentityPayload, SsoProtocolProvider } from './types'
+import type { UrlSafetyReason } from '@open-mercato/shared/lib/url-safety'
 import { createOidcFetch, UnsafeOidcUrlError } from './oidc-url-safety'
 
 const OIDC_DISCOVERY_TIMEOUT_SECONDS = 10
 const OIDC_DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000
 const OIDC_DISCOVERY_CACHE_MAX_ENTRIES = 100
+
+const OIDC_URL_ERROR_MESSAGES: Record<UrlSafetyReason, string> = {
+  invalid_url: 'OIDC endpoint URL is invalid',
+  forbidden_protocol: 'OIDC endpoint URL must use HTTPS',
+  credentials_in_url: 'OIDC endpoint URL must not contain credentials',
+  missing_host: 'OIDC endpoint URL must include a host',
+  blocked_hostname: 'OIDC endpoint host is not allowed',
+  private_ip_literal: 'OIDC endpoint must use a public IP address',
+  private_ip_resolved: 'OIDC endpoint must resolve only to public IP addresses',
+  dns_resolution_failed: 'OIDC endpoint DNS lookup failed; check the provider configuration',
+  dns_resolution_empty: 'OIDC endpoint has no DNS address records; check the provider configuration',
+}
 
 interface CachedDiscovery {
   expiresAt: number
@@ -112,7 +125,7 @@ export class OidcProvider implements SsoProtocolProvider {
       let cause: unknown = err
       for (let depth = 0; depth < 10 && cause instanceof Error; depth += 1) {
         if (cause instanceof UnsafeOidcUrlError) {
-          return { ok: false, error: cause.message }
+          return { ok: false, error: OIDC_URL_ERROR_MESSAGES[cause.reason] }
         }
         cause = cause.cause
       }

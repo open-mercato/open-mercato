@@ -4,7 +4,8 @@ jest.mock('openid-client', () => ({
 }))
 
 import * as client from 'openid-client'
-import { UnsafeOidcUrlError } from '../oidc-url-safety'
+import type { UrlSafetyReason } from '@open-mercato/shared/lib/url-safety'
+import { createOidcFetch, UnsafeOidcUrlError } from '../oidc-url-safety'
 
 import {
   OidcProvider,
@@ -133,7 +134,7 @@ describe('OidcProvider discovery errors', () => {
 
     expect(await new OidcProvider().validateConfig(config)).toEqual({
       ok: false,
-      error: guardError().message,
+      error: 'OIDC endpoint must resolve only to public IP addresses',
     })
   })
 
@@ -166,6 +167,118 @@ describe('OidcProvider discovery errors', () => {
     expect(await new OidcProvider().validateConfig(config)).toEqual({
       ok: false,
       error: 'Discovery failed',
+    })
+  })
+})
+
+describe('OidcProvider discovery error disclosure', () => {
+  const config = {
+    id: 'error-disclosure-config',
+    organizationId: 'organization-id',
+    protocol: 'oidc',
+    allowedDomains: [],
+    jitEnabled: false,
+    autoLinkByEmail: false,
+    isActive: false,
+    ssoRequired: false,
+    appRoleMappings: {},
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    issuer: 'https://idp.example.com',
+    clientId: 'client-id',
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+  }
+  const messages: Record<UrlSafetyReason, string> = {
+    invalid_url: 'OIDC endpoint URL is invalid',
+    forbidden_protocol: 'OIDC endpoint URL must use HTTPS',
+    credentials_in_url: 'OIDC endpoint URL must not contain credentials',
+    missing_host: 'OIDC endpoint URL must include a host',
+    blocked_hostname: 'OIDC endpoint host is not allowed',
+    private_ip_literal: 'OIDC endpoint must use a public IP address',
+    private_ip_resolved: 'OIDC endpoint must resolve only to public IP addresses',
+    dns_resolution_failed: 'OIDC endpoint DNS lookup failed; check the provider configuration',
+    dns_resolution_empty: 'OIDC endpoint has no DNS address records; check the provider configuration',
+  }
+
+  async function validateError(error: unknown) {
+    const discovery = client.discovery as jest.MockedFunction<typeof client.discovery>
+    discovery.mockRejectedValueOnce(error)
+    return new OidcProvider().validateConfig(config)
+  }
+
+  test.each(Object.entries(messages))('sanitizes direct and wrapped %s errors', async (reason, message) => {
+    const unsafeError = new UnsafeOidcUrlError(
+      reason as UrlSafetyReason,
+      'idp.example.com resolved to 10.23.45.67: getaddrinfo EAI_AGAIN private-resolver',
+    )
+    for (const error of [unsafeError, new Error('discovery failed', { cause: unsafeError }),
+      new Error('discovery failed', { cause: new Error('fetch failed', { cause: unsafeError }) })]) {
+      expect(await validateError(error)).toEqual({ ok: false, error: message })
+    }
+  })
+
+  test.each(['10.23.45.67', '127.0.0.1', '169.254.169.254', 'fd00::1234', '::1'])(
+    'does not expose the private resolved address %s', async (address) => {
+      const guardedFetch = createOidcFetch({
+        privateOriginAllowlist: new Set(),
+        lookupHost: async () => [{ address, family: address.includes(':') ? 6 : 4 }],
+      })
+      let rejection: unknown
+      try {
+        await guardedFetch(config.issuer, {
+          body: undefined, headers: {}, method: 'GET', redirect: 'manual',
+        })
+      } catch (error) {
+        rejection = error
+      }
+      expect(rejection).toBeInstanceOf(UnsafeOidcUrlError)
+      expect(await validateError(new Error('fetch failed', { cause: rejection }))).toEqual({
+        ok: false,
+        error: messages.private_ip_resolved,
+      })
+    },
+  )
+
+  test.each(['getaddrinfo ENOTFOUND idp.example.com', 'queryA ECONNREFUSED 10.0.0.53'])(
+    'does not expose DNS resolver diagnostics: %s', async (diagnostic) => {
+      const guardedFetch = createOidcFetch({
+        privateOriginAllowlist: new Set(),
+        lookupHost: async () => { throw new Error(diagnostic) },
+      })
+      let rejection: unknown
+      try {
+        await guardedFetch(config.issuer, {
+          body: undefined, headers: {}, method: 'GET', redirect: 'manual',
+        })
+      } catch (error) {
+        rejection = error
+      }
+      expect(rejection).toBeInstanceOf(UnsafeOidcUrlError)
+      expect(await validateError(new Error('fetch failed', { cause: rejection }))).toEqual({
+        ok: false,
+        error: messages.dns_resolution_failed,
+      })
+    },
+  )
+
+  test('preserves the outer message for unrelated errors', async () => {
+    expect(await validateError(new Error('Discovery unavailable', {
+      cause: new Error('Internal diagnostic'),
+    }))).toEqual({ ok: false, error: 'Discovery unavailable' })
+    expect(await validateError('rejected')).toEqual({ ok: false, error: 'Discovery failed' })
+  })
+
+  test('bounds cause traversal and terminates for cycles', async () => {
+    const cyclicError = new Error('Cyclic discovery failure')
+    Object.assign(cyclicError, { cause: cyclicError })
+    expect(await validateError(cyclicError)).toEqual({ ok: false, error: cyclicError.message })
+
+    let nestedError: Error = new UnsafeOidcUrlError('private_ip_resolved', '10.23.45.67')
+    for (let depth = 0; depth < 9; depth += 1) {
+      nestedError = new Error('Discovery wrapper', { cause: nestedError })
+    }
+    expect(await validateError(nestedError)).toEqual({ ok: false, error: messages.private_ip_resolved })
+    expect(await validateError(new Error('Outside traversal bound', { cause: nestedError }))).toEqual({
+      ok: false, error: 'Outside traversal bound',
     })
   })
 })
