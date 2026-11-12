@@ -7,6 +7,13 @@ export interface RateLimitConfig {
   blockDuration?: number
   /** Key prefix for this specific limiter (appended to global prefix) */
   keyPrefix?: string
+  /**
+   * Require the shared (redis) store for this limiter. When set, the limiter never
+   * falls back to per-process memory: if the shared store is not configured or not
+   * ready, `consume()` returns a `degraded` result so the caller can fail closed.
+   * Default: false (in-memory insurance fallback, unchanged behaviour).
+   */
+  requireShared?: boolean
 }
 
 export interface RateLimitResult {

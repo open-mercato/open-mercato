@@ -664,7 +664,10 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
   if (interceptorRejection) {
     return json(interceptorRejection.body, { status: interceptorRejection.status })
   }
-  if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
+  const { translate } = await resolveTranslations()
+  if (err instanceof z.ZodError) {
+    return json({ error: translate('errors.invalid_input', 'Invalid input'), details: err.issues }, { status: 400 })
+  }
   if (isTransientDbError(err)) {
     // Transient DB unavailability (pool exhausted, `max_connections` reached, DB
     // restarting) is retryable — surface a 503 with a Retry-After hint instead of
@@ -676,7 +679,7 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
       requestId,
     })
     return json(
-      { error: 'Service temporarily unavailable', code: 'DATABASE_UNAVAILABLE', requestId },
+      { error: translate('api.errors.databaseUnavailable', 'Service temporarily unavailable'), code: 'DATABASE_UNAVAILABLE', requestId },
       { status: 503, headers: { 'Retry-After': '2', 'x-request-id': requestId } },
     )
   }
@@ -702,7 +705,10 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
     })
     return json(
       {
-        error: 'The record is still referenced by other data, or references a record that does not exist',
+        error: translate(
+          'api.errors.foreignKeyViolation',
+          'The record is still referenced by other data, or references a record that does not exist',
+        ),
         code: 'FOREIGN_KEY_VIOLATION',
         requestId,
       },
@@ -726,8 +732,8 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
     attributes: { requestId, errorName, code, pgCode: pgSqlState ?? undefined },
   })
   const body: Record<string, unknown> = {
-    error: 'Internal server error',
-    message: 'Something went wrong. Please try again later.',
+    error: translate('api.errors.internal', 'Internal server error'),
+    message: translate('api.errors.internalMessage', 'Something went wrong. Please try again later.'),
     requestId,
     code,
   }

@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import {
   PERSON_DETAIL_TABS_COMPONENT_ID,
@@ -56,13 +56,261 @@ describe('PersonDetailTabs', () => {
     registerComponentOverrides([])
   })
 
-  it('renders an Addresses tab', () => {
+  it('keeps six tabs inline and folds Addresses into the More menu', () => {
+    const onTabChange = jest.fn()
     render(
-      <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
+      <PersonDetailTabs activeTab="activities" onTabChange={onTabChange}>
         <div>content</div>
       </PersonDetailTabs>,
     )
-    expect(screen.getByRole('tab', { name: /address/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('tab')).toHaveLength(6)
+    expect(screen.queryByRole('tab', { name: /address/i })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /^More/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /address/i }))
+    expect(onTabChange).toHaveBeenCalledWith('addresses')
+  })
+
+  it('lifts the active overflow tab inline so the selection stays visible', () => {
+    render(
+      <PersonDetailTabs activeTab="addresses" onTabChange={() => {}}>
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.getByRole('tab', { name: /address/i })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getAllByRole('tab')).toHaveLength(7)
+  })
+
+  it.each([
+    { tasksCount: 0, label: 'Tasks' },
+    { tasksCount: 2, label: 'Tasks 2' },
+    { tasksCount: 1000, label: 'Tasks 999+' },
+  ])(
+    'renders the task total $tasksCount using the shared badge',
+    ({ tasksCount, label }) => {
+      render(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}} tasksCount={tasksCount}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument()
+    },
+  )
+
+  it('marks the rail busy only while injected tabs are loading', () => {
+    const { rerender } = render(<PersonDetailTabs activeTab="activities" onTabChange={jest.fn()} isLoadingInjectedTabs>panel</PersonDetailTabs>)
+    expect(screen.getByTestId('detail-tabs-row')).toHaveAttribute('aria-busy', 'true')
+    rerender(<PersonDetailTabs activeTab="activities" onTabChange={jest.fn()} isLoadingInjectedTabs={false}>panel</PersonDetailTabs>)
+    expect(screen.getByTestId('detail-tabs-row')).toHaveAttribute('aria-busy', 'false')
+  })
+
+  it('renders the icon declared on an injected tab placement', () => {
+    render(
+      <PersonDetailTabs
+        activeTab="activities"
+        onTabChange={() => {}}
+        injectedTabs={[{ id: 'pending-work', label: 'Pending work', icon: 'list-checks', priority: 10 }]}
+      >
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.getByRole('tab', { name: 'Pending work' }).querySelector('svg.lucide-list-checks')).not.toBeNull()
+  })
+
+  it('folds a tab that appears after the first measurement instead of staying on the measuring render', () => {
+    const widthSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 100 } as DOMRect)
+    const clientWidth = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get: () => 450 })
+    try {
+      const { rerender } = render(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      const inlineBefore = screen.getAllByRole('tab').length
+      expect(inlineBefore).toBeLessThan(8)
+
+      rerender(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}} injectedTabs={[{ id: 'late', label: 'Late tab', priority: -10 }]}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+
+      expect(screen.getAllByRole('tab')).toHaveLength(inlineBefore)
+      fireEvent.click(screen.getByRole('button', { name: /^More/ }))
+      expect(screen.getByRole('menuitem', { name: 'Late tab' })).toBeInTheDocument()
+    } finally {
+      widthSpy.mockRestore()
+      if (clientWidth) Object.defineProperty(Element.prototype, 'clientWidth', clientWidth)
+    }
+  })
+
+  it('re-measures when selecting a tab changes its width, so the strip folds at the all-fit boundary and unfolds again', () => {
+    const selectedWidth = (element: Element) => (element.textContent?.startsWith('Addresses') ? 140 : 110)
+    const widthSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute('role') !== 'tab') return { width: 0 } as DOMRect
+      return { width: this.getAttribute('aria-selected') === 'true' ? selectedWidth(this) : 100 } as DOMRect
+    })
+    const tabCount = 8
+    const widthWithActivitiesSelected = (tabCount - 1) * 100 + 110
+    const clientWidth = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get: () => widthWithActivitiesSelected + 1 })
+    try {
+      const onTabChange = jest.fn()
+      const { rerender } = render(
+        <PersonDetailTabs activeTab="activities" onTabChange={onTabChange}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(screen.getAllByRole('tab')).toHaveLength(tabCount)
+      expect(screen.queryByRole('button', { name: /^More/ })).toBeNull()
+
+      rerender(
+        <PersonDetailTabs activeTab="addresses" onTabChange={onTabChange}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(screen.getByRole('tab', { name: /address/i })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getAllByRole('tab').length).toBeLessThan(tabCount)
+      fireEvent.click(screen.getByRole('button', { name: /^More/ }))
+      expect(screen.getAllByRole('menuitem').length + screen.getAllByRole('tab').length).toBe(tabCount)
+
+      rerender(
+        <PersonDetailTabs activeTab="activities" onTabChange={onTabChange}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(screen.getAllByRole('tab')).toHaveLength(tabCount)
+      expect(screen.queryByRole('button', { name: /^More/ })).toBeNull()
+    } finally {
+      widthSpy.mockRestore()
+      if (clientWidth) Object.defineProperty(Element.prototype, 'clientWidth', clientWidth)
+    }
+  })
+
+  describe('when the rail narrows without the row resizing', () => {
+    type ObservedCallback = () => void
+    const observed = new Map<Element, ObservedCallback[]>()
+    let listWidth = 450
+    let widthSpy: jest.SpyInstance
+    let clientWidth: PropertyDescriptor | undefined
+    const originalResizeObserver = global.ResizeObserver
+
+    beforeEach(() => {
+      observed.clear()
+      listWidth = 450
+      widthSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 100 } as DOMRect)
+      clientWidth = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
+      Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get: () => listWidth })
+      global.ResizeObserver = class {
+        constructor(private readonly callback: ObservedCallback) {}
+        observe(element: Element) {
+          observed.set(element, [...(observed.get(element) ?? []), this.callback])
+        }
+        unobserve() {}
+        disconnect() {
+          for (const [element, callbacks] of observed) {
+            observed.set(element, callbacks.filter((callback) => callback !== this.callback))
+          }
+        }
+      } as unknown as typeof ResizeObserver
+    })
+
+    afterEach(() => {
+      widthSpy.mockRestore()
+      if (clientWidth) Object.defineProperty(Element.prototype, 'clientWidth', clientWidth)
+      global.ResizeObserver = originalResizeObserver
+    })
+
+    function resizeTabStrip(width: number) {
+      listWidth = width
+      const strip = screen.getByRole('tablist').parentElement?.parentElement as Element
+      act(() => {
+        for (const callback of observed.get(strip) ?? []) callback()
+      })
+    }
+
+    it('folds tabs when a late section action takes room from the strip, and restores them when it goes', () => {
+      const sectionAction = { label: 'Add address', onClick: () => {} }
+      const { rerender } = render(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(screen.getAllByRole('tab')).toHaveLength(3)
+
+      rerender(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}} sectionAction={sectionAction}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      resizeTabStrip(250)
+      expect(screen.getAllByRole('tab')).toHaveLength(1)
+      expect(screen.getByTestId('detail-tabs-more')).toBeInTheDocument()
+
+      rerender(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      resizeTabStrip(450)
+      expect(screen.getAllByRole('tab')).toHaveLength(3)
+    })
+  })
+
+  describe('More menu keyboard', () => {
+    function openMenu() {
+      render(
+        <PersonDetailTabs
+          activeTab="activities"
+          onTabChange={() => {}}
+          injectedTabs={[
+            { id: 'crm.first', label: 'First', priority: -1 },
+            { id: 'crm.second', label: 'Second', priority: -2 },
+          ]}
+        >
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      const trigger = screen.getByTestId('detail-tabs-more')
+      fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+      return { trigger, menu: screen.getByRole('menu'), items: screen.getAllByRole('menuitem') }
+    }
+
+    it('exposes the trigger as an expanded menu button', () => {
+      const { trigger } = openMenu()
+      expect(trigger).toHaveAttribute('aria-haspopup', 'menu')
+      expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    })
+
+    it('opens on ArrowDown with the first item focused and every item out of the tab order', () => {
+      const { items } = openMenu()
+      expect(items.length).toBeGreaterThan(2)
+      expect(items[0]).toHaveFocus()
+      expect(items.every((item) => item.getAttribute('tabindex') === '-1')).toBe(true)
+    })
+
+    it('moves focus with the arrow keys, wraps at both ends, and honours Home and End', () => {
+      const { menu, items } = openMenu()
+      const last = items[items.length - 1]
+      fireEvent.keyDown(menu, { key: 'ArrowDown' })
+      expect(items[1]).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'ArrowUp' })
+      expect(items[0]).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'ArrowUp' })
+      expect(last).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'ArrowDown' })
+      expect(items[0]).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'End' })
+      expect(last).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'Home' })
+      expect(items[0]).toHaveFocus()
+    })
+
+    it('closes on Tab', () => {
+      const { menu } = openMenu()
+      fireEvent.keyDown(menu, { key: 'Tab' })
+      expect(screen.queryByRole('menu')).toBeNull()
+    })
   })
 
   it('hides built-in and injected tabs listed in hiddenTabIds (#4379)', () => {
@@ -80,8 +328,9 @@ describe('PersonDetailTabs', () => {
       </PersonDetailTabs>,
     )
     expect(screen.queryByRole('tab', { name: /emails/i })).toBeNull()
-    expect(screen.queryByRole('tab', { name: 'Custom' })).toBeNull()
-    expect(screen.getByRole('tab', { name: 'Other' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^More/ }))
+    expect(screen.queryByRole('menuitem', { name: 'Custom' })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'Other' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /activities/i })).toBeInTheDocument()
   })
 
@@ -107,8 +356,14 @@ describe('PersonDetailTabs', () => {
   })
 
   describe('injected tab ordering', () => {
+    // Tabs past the inline limit live in the More menu, so the order spans both lists.
     function tabOrder() {
-      return screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())
+      const inline = screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())
+      const more = screen.queryByRole('button', { name: /^More/ })
+      if (!more) return inline
+      fireEvent.click(more)
+      const overflow = screen.queryAllByRole('menuitem').map((item) => item.textContent?.trim())
+      return [...inline, ...overflow]
     }
 
     it('places an injected tab before the built-in tabs when its priority is higher', () => {

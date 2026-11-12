@@ -8,7 +8,7 @@
     "build": "node build.mjs",
     "watch": "node watch.mjs",
     "test": "jest --config jest.config.cjs",
-    "test:pg-integration": "cross-env OM_PG_INTEGRATION=1 jest --config jest.config.cjs --runInBand 'src/modules/(integrations|staff)/.+\\.integration\\.test\\.ts$'",
+    "test:pg-integration": "cross-env OM_PG_INTEGRATION=1 jest --config jest.config.cjs --runInBand 'src/modules/((integrations|staff)/.+\\.integration|workflows/.+\\.pg)\\.test\\.ts$'",
     "test:tz": "cross-env TZ=Pacific/Auckland jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },
@@ -258,7 +258,7 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",
     "resend": "^6.24.0",
-    "sanitize-html": "2.17.5",
+    "sanitize-html": "2.18.1",
     "semver": "^7.8.5",
     "sharp": "^0.35.3",
     "svix": "^1.99.1",

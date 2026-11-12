@@ -222,7 +222,7 @@ describe('AccessLogService.logMany', () => {
       return [{ id: '00000000-0000-4000-8000-000000000001' }]
     })
     fork.getConnection = () => ({ execute })
-    const service = new AccessLogService(em as any)
+    const service = new AccessLogService(em as never)
 
     const emit = jest.fn()
     const dispose = registerLoggerExtension({ emit })

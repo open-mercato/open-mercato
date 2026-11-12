@@ -190,7 +190,7 @@ describe('logCrudAccess', () => {
         await logCrudAccess({ ...base, auth: null, items: makeItems(1) }),
         await logCrudAccess({ ...base, auth, items: [] }),
         await logCrudAccess({ ...base, auth, items: [{ id: '' }] }),
-        await logCrudAccess({ ...base, container: { resolve: () => undefined } as any, auth, items: makeItems(1) }),
+        await logCrudAccess({ ...base, container: { resolve: () => undefined } as never, auth, items: makeItems(1) }),
       ]
 
       for (const result of results) {

@@ -61,19 +61,38 @@ test.describe('TC-APIKEY-LIST-001: tenant-wide key visibility in the API-key lis
     let restrictedRoleId: string | null = null
     let unrestrictedUserId: string | null = null
     let restrictedUserId: string | null = null
+    let creatorRoleId: string | null = null
+    let creatorUserId: string | null = null
 
     try {
       organizationId = await createOrganizationFixture(request, superadminToken, {
         name: `QA TC-APIKEY-LIST-001 ${stamp}`,
         tenantId,
       })
+      creatorRoleId = await createRoleFixture(request, superadminToken, {
+        name: `qa-tc-apikey-list-001-creator-${stamp}`,
+        tenantId,
+      })
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId: creatorRoleId,
+        features: ['api_keys.create'],
+        organizations: [organizationId],
+      })
+      const creatorEmail = `qa-tc-apikey-list-001-creator-${stamp}@example.com`
+      creatorUserId = await createUserFixture(request, superadminToken, {
+        email: creatorEmail,
+        password,
+        organizationId,
+        roles: [creatorRoleId],
+      })
+      const creatorToken = await getAuthToken(request, creatorEmail, password)
       const tenantWideKeyId = await createKey(request, superadminToken, {
         name: `${search} tenant-wide`,
         tenantId,
         organizationId: null,
       })
       keyIds.push(tenantWideKeyId)
-      const organizationKeyId = await createKey(request, superadminToken, {
+      const organizationKeyId = await createKey(request, creatorToken, {
         name: `${search} organization`,
         tenantId,
         organizationId,
@@ -182,6 +201,8 @@ test.describe('TC-APIKEY-LIST-001: tenant-wide key visibility in the API-key lis
       }
       await deleteUserIfExists(request, superadminToken, restrictedUserId)
       await deleteUserIfExists(request, superadminToken, unrestrictedUserId)
+      await deleteUserIfExists(request, superadminToken, creatorUserId)
+      await deleteRoleIfExists(request, superadminToken, creatorRoleId)
       await deleteRoleIfExists(request, superadminToken, restrictedRoleId)
       await deleteRoleIfExists(request, superadminToken, unrestrictedRoleId)
       await deleteOrganizationIfExists(request, superadminToken, organizationId)
