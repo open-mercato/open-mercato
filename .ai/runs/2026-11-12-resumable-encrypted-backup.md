@@ -41,7 +41,7 @@ PR: #9333
 ### Phase 0: approval and feasibility
 
 - [x] 0.1 Obtain explicit Q2 age version/recipient/custody approval, Q3 synthetic-vs-deployment escrow acceptance, ; record evidence without secrets.
-- [ ] 0.2 Provision disposable PostgreSQL and run the 20-GiB snapshot/chunk/age feasibility spike with published resource measurements.
+- [x] 0.2 Provision disposable PostgreSQL and run the 20-GiB snapshot/chunk/age feasibility spike with published resource measurements. — ece9ca7d41; pinned eight-entity/eight-worker 20-GiB stress passed at215.27MiB with complete content equality; final full matrix remains3.2.
 
 ### Phase 1: bootstrap and encrypted backup
 
@@ -87,3 +87,16 @@ Restore now uses1–8 independently connected, identity/run-bound chunk workers 
 Independent review found an earlier native COPY input-pump lifetime bug: PostgreSQL refusal or cancellation returned while the producer kept consuming data. Query/socket cancellation now stops dispatch, aborts drain waits and awaits the owned generator's finally block before rollback/API return. Both actual PostgreSQL negative controls failed before the fix and pass after it. Stable owned stream outputs avoid redundant buffer copies; transform adapters use explicit byte mode/high-water marks. Pinned Node24 Readable.from defaults to one object, so no sixteen-object queue claim is made.
 
 All seven module suites pass with actual PostgreSQL enabled:65 tests in51.1s, including corruption protection, eight-way restore and input cleanup. The earlier complete eight-command gate passed before these final concurrency/resource changes; final current-head full validation is required and pending. Fresh1GiB jobs6/7/8 runs now meet coordinator RSS at~211/227/239MiB with complete ordered SQL digests and actual matching backup/restore concurrency. Full20GiB matrix and final benchmark artifacts remain in progress under the parent run. Keep status in-progress until those and final review/report are complete.
+
+## Frozen engine verification — ece9ca7d41
+
+All seven backup suites passed with actual PostgreSQL:69 tests in49.594s. The exact frozen engine passed all eight configured validation commands, including the full repository test gate (280.04s) and production app build. Earlier uncached production build also passed. The final independent targeted code read found no unresolved blocker/major in the reviewed changes; earlier native/TOC authorship was explicitly disclosed, and the formal final verdict awaits performance evidence.
+
+Quiesced partial keyset resume now verifies every retained file's authenticated SHA/size before opening a new epoch; checks contiguous paths/sequences/cursor links; reuses the prefix only with exact source/schema and continuous postmaster lifetime; re-bases suffix sequences; and proves independent full COUNT = retained rows + remaining snapshot COUNT. Stable physical-origin collision checks remain conservative across old/new lifetime formats. Changed lifetime, unproven visibility or non-keyed entities never silently reuse a prefix.
+
+Actual standalone CLI SIGKILL proof: after two durable chunks, CLI resume retained1,022 rows without rewriting those ciphertext inodes/mtimes;17 contiguous chunks restored all8,192 synthetic rows with equal complete ordered content; JSON runId matched backupId. Reproducible guarded crash.mts uses only its own random databases and exclusive loopback Docker fixture, temporarily quiesces autovacuum and restores it in finally. An unquiesced attempt correctly refused before reuse. No claim is made for power failure/every filesystem boundary.
+
+Actual20-GiB restore resume:705ms overhead including challenge, authenticated metadata, journal binding, pending-only verification and initialization; one committed chunk skipped; full ordered digest matched;180.25MiB peak coordinator RSS. Pinned20-GiB/eight-entity/eight-worker stress after256-KiB burst bounds:215.27MiB coordinator RSS, correct8/8 concurrency in both directions, all ordered content digests matched. Earlier over-budget runs are preserved in the parent benchmark audit. Full jobs1–8 matrix and final matched warm/cold latency evidence remain3.2, so Status remains in-progress.
+
+Verification comment: https://github.com/open-mercato/open-mercato/pull/9333#issuecomment-6825226947
+Source backlink: https://github.com/open-mercato/open-mercato/pull/8910#issuecomment-6825998376
