@@ -50,3 +50,14 @@ Revise the design-only spec so the backup/restore feature is enterprise-only, en
 
 - [x] Post-review fix: encrypted journal, renderer-only pg_restore, standalone bin, exit table — bf75ed63ee
 - [x] Post-review fix: batched pre-data, hash-chain integrity with hash-on-load — 49043c9db9
+
+
+### Phase 3: Core rotation risk acknowledgment (2026-11-12)
+
+- [ ] 3.1 Specify a red fail-closed warning and explicit CLI acknowledgment for Core rotation without Enterprise resumable encrypted backup.
+- [ ] 3.2 Cross-reference the separate Enterprise post-rotation correctness verification design and acceptance coverage.
+- [ ] 3.3 Validate documentation, review the revised design, and publish the outcome.
+
+## Resume scope — 2026-11-12
+
+User direction: keep key rotation available in Core, but refuse mutating rotation without a fresh explicit risk acknowledgment when Enterprise recovery is unavailable. Write a separate Enterprise-only verification spec, consumed by rotation, with fast data correctness/checksum validation. Both PRs remain design-only. Existing completed work and security decisions remain intact.
