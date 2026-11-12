@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { ActivitiesDayStrip } from '../ActivitiesDayStrip'
 import type { InteractionSummary } from '../types'
@@ -77,9 +77,7 @@ describe('ActivitiesDayStrip — aborted refreshes', () => {
     const view = renderWithProviders(
       <ActivitiesDayStrip entityId="person-1" selectedDate={selectedDate} onSelectDate={() => {}} refreshKey={0} />,
     )
-    // The strip signals a loaded event with the indigo day-dot (the old
-    // "1 event · 30m" busy label is gone with the segmented week redesign).
-    await waitFor(() => expect(document.querySelector('.bg-accent-indigo')).not.toBeNull())
+    await screen.findByText(/1 event/)
     return view
   }
 
@@ -100,7 +98,7 @@ describe('ActivitiesDayStrip — aborted refreshes', () => {
     )
     await act(async () => { failReload(createAbortError()) })
 
-    expect(document.querySelector('.bg-accent-indigo')).not.toBeNull()
+    expect(screen.getByText(/1 event/)).toBeInTheDocument()
     expect(loggerWarnMock).not.toHaveBeenCalled()
   })
 
@@ -113,7 +111,7 @@ describe('ActivitiesDayStrip — aborted refreshes', () => {
     )
     await act(async () => { failReload(new Error('[internal] boom')) })
 
-    expect(document.querySelector('.bg-accent-indigo')).toBeNull()
+    expect(screen.queryByText(/1 event/)).toBeNull()
     expect(loggerWarnMock).toHaveBeenCalledTimes(1)
   })
 })
