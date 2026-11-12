@@ -29,15 +29,16 @@ const IDENTITY_KEYS = ['id', 'organizationId', 'status', 'stepId', 'tenantId', '
 const PARK_EVENT_IDS = new Set(['workflows.instance.paused', 'workflows.instance.resumed'])
 
 async function waitForEventBridgeSubscription(page: Page): Promise<void> {
-  const streamRequested = page.waitForRequest((request) => (
-    request.url().includes('/api/events/stream')
-      && request.resourceType() === 'eventsource'
-  ))
   await page.goto('/backend')
   await page.waitForLoadState('domcontentloaded')
-  await streamRequested
-  await page.waitForTimeout(250)
   await installOmEventCollector(page)
+  // The bridge marks readiness in EventSource onopen and the server never
+  // replays: an event emitted before the handshake is silently dropped.
+  await page.waitForFunction(
+    () => (window as unknown as { __omEventBridgeReady?: boolean }).__omEventBridgeReady === true,
+    undefined,
+    { timeout: 30_000 },
+  )
 }
 
 async function parkEventsFor(page: Page, instanceId: string): Promise<CapturedEvent[]> {
