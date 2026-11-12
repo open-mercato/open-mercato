@@ -8,7 +8,7 @@
 2. **Resumable both ways.** Backup and restore work in per-entity chunks recorded in a checkpoint journal. An interrupted run (crash, `SIGINT`, lost connection, full disk fixed by the operator) continues from the last durable chunk instead of starting over.
 3. **Per-entity progress, out and in.** Backup shows one progress bar per entity being read out of the source; restore shows one per entity being written into the target, plus an overall bar, rate and ETA. Machine-readable progress is available for automation.
 
-The scheduled pipeline, object storage, retention, status UI and erasure manifest stay in [enterprise automated backups](2026-07-08-automated-database-backups.md); that pipeline reuses this engine. No OSS code, no OSS command, no HTTP restore route.
+The scheduled pipeline, object storage, retention, status UI and erasure manifest stay in [enterprise automated backups](2026-07-08-automated-database-backups.md); that pipeline reuses this engine. The backup engine and backup commands are Enterprise-only; no HTTP restore route. The separate Core rotation safety guard below adds an explicit acknowledgment without moving rotation out of Core.
 
 Status: design ready for review; security gates (Q2, Q3) block implementation approval. This PR changes specifications only.
 
@@ -16,7 +16,7 @@ Status: design ready for review; security gates (Q2, Q3) block implementation ap
 
 | Question | Chosen default | Rationale / override condition |
 |---|---|---|
-| Q1: Edition and location? | Enterprise only: engine in `packages/enterprise/src/modules/backups/lib/engine/`, commands in that module's `cli.ts`, available only when `OM_ENABLE_ENTERPRISE_MODULES` and `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS` are on. Nothing ships in `packages/cli` or OSS. | Product decision by the PR author (2026-11-06). The OSS manual `pg_dump` docs remain the community path. |
+| Q1: Edition and location? | Enterprise only: engine in `packages/enterprise/src/modules/backups/lib/engine/`, commands in that module's `cli.ts`, available only when `OM_ENABLE_ENTERPRISE_MODULES` and `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS` are on. No backup implementation ships in `packages/cli` or OSS. The Core rotation warning/acknowledgment is a separate safety integration below. | Product decision by the PR author (2026-11-06). The OSS manual `pg_dump` docs remain the community path. |
 | Q2: Archive encryption container? | Encrypted by default. Each chunk and the chunk index is an independent [age v1](https://age-encryption.org/v1) file encrypted to X25519 recipients, produced in-process by the `age-encryption` TypeScript implementation (CLI `age` as fallback). Plaintext only via `--no-encryption` plus confirmation. | Per-chunk files are what make encrypted resume possible — no cipher state spans a crash. Public-key recipients mean the backup host cannot decrypt what it wrote. **⚠ NEEDS HUMAN CONFIRMATION:** security maintainer approves the library (a new production dependency of `@open-mercato/enterprise`), version range, recipient custody and convergence with the automated spec's AES-GCM env key. No home-grown cipher framing. |
 | Q3: Key custody? | Archive identities, application DEKs/key versions and external secrets are three separate custody domains. The CLI never exports DEKs. | Root secret is not a tenant DEK. **⚠ NEEDS HUMAN CONFIRMATION:** security owner approves the escrow inventory and recovery drill. |
 | Q4: Scope / privileges? | Whole database, all tenants, host operator only. No tenant API, no tenant-selective backup or restore. | A whole-database backup is inherently cross-tenant. |
@@ -341,18 +341,18 @@ Performance gate (pinned 4 vCPU / 8 GiB runner, 1 GiB and 20 GiB datasets): Node
 
 This PR changes specifications only. Later implementation adds enterprise CLI commands, a facade and versioned formats (manifest, index, journal, report, progress events) — new contract surfaces under `BACKWARD_COMPATIBILITY.md` (CLI commands, types/signatures). Backup commands remain Enterprise-only. The proposed Core rotation acknowledgment above is a separately disclosed safety change to the existing CLI contract, requiring its compatibility decision and upgrade guidance before implementation. The automated spec's planned `run/list/restore/verify` and this spec's commands share one `cli.ts`; because neither has shipped, its AES-GCM env-key framing, `--force`/live-target restore and single-stream pipeline are reconciled to this engine before implementation rather than deprecated. Readers reject unsupported major schema versions; v1 readers stay when v2 arrives. Rollback of a future release keeps artifacts readable with a standalone build of the engine.
 
-## Final Compliance Report — 2026-11-06 (rev 2)
+## Final Compliance Report — 2026-11-12 (rev 2.3)
 
 | Rule / checklist area | Status / evidence |
 |---|---|
 | Spec placement | Enterprise-only scope moved to `.ai/specs/enterprise/` per `.ai/specs/AGENTS.md`. |
-| Module placement | Enterprise `backups` module, module CLI registry; no `apps/mercato/src` code, no OSS command, no cross-module ORM relations. |
+| Module placement | Enterprise `backups` module and CLI registry; no OSS backup command or cross-module ORM relations. Separate Core rotation preflight stays in Core; no app implementation code ships in this PR. |
 | Tenancy / permissions | Host-operator, all-tenant boundary; no tenant API; restore never over HTTP. |
 | Encryption | Whole-archive encryption by default, plaintext opt-in with confirmation and policy lock; field encryption maps untouched; DEK custody separate. |
 | Atomicity / resume | Chunk-level durability, journal chain hashes, chunk + journal row in one restore transaction, honest consistency labels. |
 | Scale | Bounded streams, chunk caps, connection budgets, jobs 1–8, progress throttling. |
-| Contracts | Versioned schemas; additive enterprise surface; convergence with the automated spec recorded. |
-| Integration coverage | B01–B18 self-contained matrix; QA to confirm harness placement. |
+| Contracts | Versioned schemas and additive Enterprise surfaces; Core mandatory acknowledgment requires the protected-CLI compatibility decision and upgrade guidance before implementation; automated-spec convergence recorded. |
+| Integration coverage | B01–B20 self-contained matrix; QA to confirm harness placement; B19/B20 cover Core refusal and protected rotation integration. |
 | i18n | Progress labels, prompts and errors localized; stable codes for scripts. |
 
 Verdict: **design review only; not approved for implementation** until Q2/Q3 security decisions and harness placement are confirmed.
