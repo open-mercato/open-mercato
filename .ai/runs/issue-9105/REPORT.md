@@ -14,7 +14,7 @@ Result: **2 passed (12.0s)**, Chromium, against native ephemeral application bui
 - Observed UI selectors confirmed through browser exploration: Paste JSON, Paste GeoJSON geometry, Leaflet interactive paths and popup content.
 - Screenshots: create-literal-popup.png, edit-literal-popup.png, statement-literal-popup.png in task artifacts; copied to cockpit Assets as eudr-{create,edit,statement}-popup.png.
 
-The focused config preserves Playwright execution and the module-local spec. It bypasses the repository-wide config's pre-test hang; this is a diagnostic fallback, not proof that the normal repository runner succeeds. The normal integration config itself was not changed.
+The ordinary managed repository runner subsequently passed both scenarios as well: **2 passed (2.2m)**, 3.2s create/edit and 3.4s statement execution. The preceding delay was cold Playwright config/discovery latency. The focused config is retained only to reproduce the diagnostic fallback; the normal integration config was not changed.
 
 ## Validation (runner: local)
 
@@ -31,7 +31,7 @@ The focused config preserves Playwright execution and the module-local spec. It 
 | `TMPDIR=/tmp timeout 45 yarn workspace @open-mercato/shared jest src/lib/bootstrap/__tests__/dynamicLoader.generatedCacheRecovery.test.ts --runInBand` | Passed, 2 tests |
 | `TMPDIR=/tmp TURBO_ENV_MODE=loose timeout 300 yarn test` | Running retry to pass short TMPDIR through Turbo |
 | `TMPDIR=/tmp timeout 300 yarn test:integration:ephemeral TC-EUDR-020` | App initialized/generated/rebuilt; app build passed in 136s, readiness passed; timed out during Playwright startup/discovery before tests |
-| Same managed integration command, warm environment | Pending bounded retry; no test output yet |
+| Same managed integration command, warm environment | Passed, 2 tests (2.2m), 0 skipped/flaky/unexpected |
 | `timeout 60 yarn playwright test --config=.ai/qa/tests/playwright.config.ts TC-EUDR-020 --list` | Timed out without output; longer 120s attempt also timed out |
 | Focused Playwright command above | Passed, 2 tests |
 | `git diff --check` | Passed |
@@ -42,4 +42,4 @@ Initial ephemeral bootstrap before the ordered generate/rebuild failed on missin
 
 Static review: confined to EUDR browser spec and task run artifacts; no runtime contracts changed, no `any`, fixtures scoped via standard authenticated API helpers, no business seed data dependency. Cleanup was strengthened to attempt all records even if one deletion fails.
 
-Merge readiness remains blocked pending ordinary repository runner evidence and a complete green validation gate. No `qa-approved` label is authorized or applied. This test-only change qualifies for `skip-qa`; screenshots show browser evidence, not manual QA approval.
+Ordinary repository browser coverage is verified. Complete unit-gate retry and CI/review results are still pending. No `qa-approved` label is authorized or applied. This test-only change qualifies for `skip-qa`; screenshots show browser evidence, not manual QA approval.
