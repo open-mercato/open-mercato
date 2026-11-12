@@ -6,7 +6,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { beginEntitiesMutationGuard } from './definitions.mutation-guard'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { ModuleConfigService } from '../../configs/lib/module-config-service'
+import { tryResolve } from '../lib/tryResolve'
 
 // Tenant-scoped policy: when true, new custom entities are created with
 // `access_restricted = true` unless the create request explicitly sets the flag.
@@ -18,25 +20,14 @@ export const metadata = {
   PUT: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
 }
 
-async function readPolicy(tenantId: string | null): Promise<boolean> {
-  try {
-    const { resolve } = await createRequestContainer()
-    const moduleConfigService = resolve('moduleConfigService') as ModuleConfigService
-    const value = await moduleConfigService.getValue(CONFIG_MODULE, NEW_ENTITIES_RESTRICTED_KEY, {
-      defaultValue: false,
-      scope: { tenantId },
-    })
-    return value === true
-  } catch {
-    return false
-  }
-}
-
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { resolve } = await createRequestContainer()
-  const moduleConfigService = resolve('moduleConfigService') as ModuleConfigService
+  const container = await createRequestContainer()
+  const moduleConfigService = tryResolve<ModuleConfigService>(container, 'moduleConfigService')
+  if (!moduleConfigService) {
+    return NextResponse.json({ newEntitiesRestrictedByDefault: false, updatedAt: null })
+  }
   const record = await moduleConfigService.getRecord(CONFIG_MODULE, NEW_ENTITIES_RESTRICTED_KEY, {
     tenantId: auth.tenantId ?? null,
   })
@@ -61,8 +52,14 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   }
   const container = await createRequestContainer()
-  const { resolve } = container
-  const moduleConfigService = resolve('moduleConfigService') as ModuleConfigService
+  const moduleConfigService = tryResolve<ModuleConfigService>(container, 'moduleConfigService')
+  if (!moduleConfigService) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json(
+      { error: translate('entities.settings.errors.storageUnavailable', 'Settings storage unavailable') },
+      { status: 503 },
+    )
+  }
 
   const currentRecord = await moduleConfigService.getRecord(
     CONFIG_MODULE,
@@ -126,7 +123,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get custom entity settings',
-      description: 'Returns the tenant-scoped default-restricted policy for new custom entities.',
+      description: 'Returns the tenant-scoped default-restricted policy for new custom entities. Falls back to the default (false, updatedAt null) when the configs module is disabled.',
       responses: [
         { status: 200, description: 'Current settings', schema: settingsResponseSchema },
         { status: 401, description: 'Missing authentication', schema: z.object({ error: z.string() }) },
@@ -141,6 +138,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Missing authentication', schema: z.object({ error: z.string() }) },
         { status: 409, description: 'Optimistic lock conflict', schema: z.object({ code: z.string(), error: z.string() }) },
+        { status: 503, description: 'Settings storage unavailable (configs module disabled)', schema: z.object({ error: z.string() }) },
       ],
     },
   },

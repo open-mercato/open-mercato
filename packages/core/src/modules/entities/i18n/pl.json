@@ -201,6 +201,7 @@
   "entities.settings.errors.conflict": "Ustawienia zostały zmodyfikowane przez innego użytkownika. Proszę przeładować.",
   "entities.settings.errors.loadFailed": "Nie udało się załadować ustawień",
   "entities.settings.errors.saveFailed": "Nie udało się zapisać ustawień",
+  "entities.settings.errors.storageUnavailable": "Magazyn ustawień jest niedostępny",
   "entities.settings.flash.saved": "Ustawienia zostały zapisane",
   "entities.settings.newEntitiesRestrictedByDefault.description": "Domyślnie wymagaj jawnych uprawnień dla poszczególnych encji do rekordów nowo tworzonych niestandardowych encji.",
   "entities.settings.newEntitiesRestrictedByDefault.label": "Domyślnie ograniczaj dostęp do rekordów",
