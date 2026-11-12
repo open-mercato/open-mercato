@@ -163,6 +163,86 @@ try {
     }))
     assert.deepEqual(await labels(parallelOrm.em.fork()), [])
   })
+  await check('60 concurrent mixed transactions isolate writes, commits, rollbacks and deletes across 3 simultaneous backends', async () => {
+    const operations = Array.from({ length: 60 }, (_, index) => ({
+      id: randomUUID(),
+      tenantId: index % 2 === 0 ? tenantA : tenantB,
+      label: `concurrent-${index}-updated`,
+      rollback: index % 3 === 0,
+      remove: index % 4 === 0,
+    }))
+    const firstWaveBackends = new Set<number>()
+    const firstWaveTenants = new Set<string>()
+    let releaseFirstWave: () => void = () => undefined
+    const firstWave = new Promise<void>((resolve) => { releaseFirstWave = resolve })
+    const barrierTimeout = setTimeout(releaseFirstWave, 5_000)
+    let activeTransactions = 0
+    let peakTransactions = 0
+    try {
+      const outcomes = await Promise.allSettled(operations.map(async (operation, index) => {
+        const rollback = new Error('[internal] deliberate concurrent rollback')
+        const transaction = runWithRlsTenant(operation.tenantId, () =>
+          parallelOrm.em.fork({ clear: true, freshEventManager: true }).transactional(async (tx) => {
+            activeTransactions += 1
+            peakTransactions = Math.max(peakTransactions, activeTransactions)
+            try {
+              const [connection] = await tx.execute<Array<{ pid: number; tenant: string }>>(
+                "select pg_backend_pid() as pid, current_setting('app.current_tenant_id') as tenant",
+              )
+              assert.equal(connection.tenant, operation.tenantId)
+              if (index < 3) {
+                firstWaveBackends.add(connection.pid)
+                firstWaveTenants.add(operation.tenantId)
+                if (firstWaveBackends.size === 3) releaseFirstWave()
+                await firstWave
+                assert.equal(firstWaveBackends.size, 3, 'The first wave must hold three distinct database connections simultaneously')
+              }
+              tx.persist(tx.create(probe, { id: operation.id, tenantId: operation.tenantId, label: 'concurrent-created' }))
+              await tx.flush()
+              const updated = await tx.getKysely<ProbeDatabase>().withSchema(schema)
+                .updateTable('records').set({ label: operation.label }).where('id', '=', operation.id)
+                .returningAll().executeTakeFirstOrThrow()
+              assert.equal(updated.tenant_id, operation.tenantId)
+              assert.equal(updated.label, operation.label)
+              const foreignId = operation.tenantId === tenantA ? rowB : rowA
+              assert.deepEqual(await tx.execute(`update ${table} set label = 'cross-tenant' where id = ? returning id`, [foreignId]), [])
+              assert.deepEqual(await tx.execute(`delete from ${table} where id = ? returning id`, [foreignId]), [])
+              const visible = await tx.execute<Array<{ tenant_id: string }>>(`select tenant_id from ${table}`)
+              assert.ok(visible.length > 0)
+              assert.ok(visible.every((row) => row.tenant_id === operation.tenantId))
+              const [afterWrites] = await tx.execute<Array<{ pid: number; tenant: string }>>(
+                "select pg_backend_pid() as pid, current_setting('app.current_tenant_id') as tenant",
+              )
+              assert.deepEqual(afterWrites, connection)
+              if (operation.remove) await tx.nativeDelete(probe, { id: operation.id })
+              if (operation.rollback) throw rollback
+            } finally {
+              activeTransactions -= 1
+            }
+          }),
+        )
+        if (operation.rollback) await assert.rejects(transaction, (error) => error === rollback)
+        else await transaction
+      }))
+      for (const outcome of outcomes) {
+        if (outcome.status === 'rejected') throw outcome.reason
+      }
+      assert.equal(peakTransactions, 3)
+      assert.equal(activeTransactions, 0)
+      assert.deepEqual([...firstWaveTenants].sort(), [tenantA, tenantB].sort())
+      const expected = [
+        { id: rowA, tenant_id: tenantA, label: 'A' },
+        { id: rowB, tenant_id: tenantB, label: 'B' },
+        ...operations.filter((operation) => !operation.rollback && !operation.remove)
+          .map((operation) => ({ id: operation.id, tenant_id: operation.tenantId, label: operation.label })),
+      ].sort((left, right) => left.id.localeCompare(right.id))
+      const actual = await admin.query<{ id: string; tenant_id: string; label: string }>(`select id, tenant_id, label from ${table}`)
+      assert.deepEqual(actual.rows.sort((left, right) => left.id.localeCompare(right.id)), expected)
+      assert.deepEqual(await labels(parallelOrm.em.fork()), [])
+    } finally {
+      clearTimeout(barrierTimeout)
+    }
+  })
   await check('nested tenant switching is rejected', async () => {
     assert.throws(() => runWithRlsTenant(tenantA, () => runWithRlsTenant(tenantB, () => undefined)), /Cannot change RLS tenant/)
   })
