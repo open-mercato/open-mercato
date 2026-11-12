@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
-import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainers'
+import type { StartedTestContainer } from 'testcontainers'
 import { GatewayTransaction } from '../../data/entities'
 import { GET } from '../transactions/route'
 
@@ -26,6 +26,7 @@ describeWithPostgres('payment transactions list paging against PostgreSQL', () =
   let orm: MikroORM<PostgreSqlDriver> | undefined
 
   beforeAll(async () => {
+    const { GenericContainer, Wait } = await import('testcontainers')
     postgres = await new GenericContainer('postgres:16-alpine')
       .withEnvironment({ POSTGRES_DB: 'payments', POSTGRES_USER: 'payments', POSTGRES_PASSWORD: 'payments' })
       .withExposedPorts(5432)
