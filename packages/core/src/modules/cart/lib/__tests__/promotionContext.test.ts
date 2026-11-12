@@ -291,7 +291,107 @@ describe('buildPromotionsEffectsPhase', () => {
       amountGross: -6,
       currencyCode: 'USD',
       label: 'Cart-wide $5 off',
+      // amountGross is 20% more negative than amountNet, so the discount itself
+      // carries 20% tax — this metadata is what lets the sales calculator reduce
+      // the order's taxTotal by the discount's tax portion (issue #8425).
+      metadata: { taxRate: 20 },
     })
+  })
+
+  it('attaches the effective tax rate derived from a CART_DISCOUNT effect\'s own net/gross split so order tax is reduced with the discount (issue #8425)', async () => {
+    const cart = makeCart()
+    const line = makeLine({ id: 'line-1' })
+    const lines = [line]
+
+    // Mirrors the issue repro: a 10% cart discount on a line priced net 48.78 /
+    // gross 60.00 (23% VAT) — amountGross is 23% more negative than amountNet.
+    const evaluate = jest.fn(async () => ({
+      appliedPromotions: [
+        {
+          promotionId: 'promo-8425',
+          promotionName: '10% off',
+          effects: [
+            {
+              type: 'CART_DISCOUNT',
+              appliesTo: 'order',
+              currency: 'EUR',
+              label: { en: '10% off' },
+              amountNet: '-10.0000',
+              amountGross: '-12.3000',
+              basis: 'net',
+            },
+          ],
+        },
+      ],
+    }))
+    const { em } = makeEm()
+    const container = makeContainer({ evaluate })
+    const adjustments: any[] = []
+
+    const phase = buildPromotionsEffectsPhase({
+      em,
+      container,
+      cart,
+      lines,
+      assortmentScope: undefined,
+      tenantScope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+      now: new Date('2026-02-01T00:00:00.000Z'),
+      adjustments,
+      warnings: [],
+      createdGiftLines: [],
+      removedGiftLines: [],
+    })
+    await phase()
+
+    expect(adjustments).toHaveLength(1)
+    expect(adjustments[0].metadata).toEqual({ taxRate: 23 })
+  })
+
+  it('does not attach tax metadata for a fully capped CART_DISCOUNT effect (amountNet 0, division guard, issue #8425)', async () => {
+    const cart = makeCart()
+    const line = makeLine({ id: 'line-1' })
+    const lines = [line]
+
+    const evaluate = jest.fn(async () => ({
+      appliedPromotions: [
+        {
+          promotionId: 'promo-8425b',
+          promotionName: 'Fully capped',
+          effects: [
+            {
+              type: 'CART_DISCOUNT',
+              appliesTo: 'order',
+              currency: 'EUR',
+              label: { en: 'Fully capped' },
+              amountNet: '0.0000',
+              amountGross: '0.0000',
+              basis: 'net',
+            },
+          ],
+        },
+      ],
+    }))
+    const { em } = makeEm()
+    const container = makeContainer({ evaluate })
+    const adjustments: any[] = []
+
+    const phase = buildPromotionsEffectsPhase({
+      em,
+      container,
+      cart,
+      lines,
+      assortmentScope: undefined,
+      tenantScope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+      now: new Date('2026-02-01T00:00:00.000Z'),
+      adjustments,
+      warnings: [],
+      createdGiftLines: [],
+      removedGiftLines: [],
+    })
+    await phase()
+
+    expect(adjustments).toHaveLength(1)
+    expect(adjustments[0].metadata).toBeNull()
   })
 
   it('drops a DELIVERY_DISCOUNT effect entirely — no adjustment, no warning, no line mutation', async () => {
