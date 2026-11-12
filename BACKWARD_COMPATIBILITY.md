@@ -646,7 +646,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
-STABLE: `POST /api/auth/logout` returns 303 (including without cookies); follow Location with GET. Shared redirect defaults remain 307; session revocation, cookies, routes and events are unchanged. No schema migration. [Contract, superseded 2026-10-13 behavior and migration](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility); see UPGRADE_NOTES.md.
+STABLE: logout POST returns 303, even without cookies; follow Location with GET. Other redirects stay 307. No other contract/schema changes. [Supersedes 2026-10-13; migration](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility); see UPGRADE_NOTES.md.
 
 ## #7809 2026-11-06
 
