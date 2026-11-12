@@ -653,4 +653,3 @@ Stop writers; restart replicas. Owner-approved Core unprotected rotation: `--ack
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
-

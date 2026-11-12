@@ -72,7 +72,7 @@ PR: #9334
 
 - [x] 0.1 Resolve source, audit duplicates/code reality, and publish implementation plan/gate report. — 8cdd245377
 - [x] 0.2 Record security/custody/entitlement/CLI decisions, offline-fence enforcement evidence and backup adapter contract. — 63100e7c32
-- [ ] 0.3 Run isolated bounded-scan performance/codec spike.
+- [x] 0.3 Run isolated bounded-scan performance/codec spike. — 994bceafe2 (fresh final resource/performance acceptance remains step 3.1)
 
 ### Phase 1: encrypted verification
 
@@ -103,3 +103,8 @@ Verification underway: independent review found and corrected global-policy omis
 Final safety milestones: 0b5ef6c401 binds the offline admission fence before any scope reads, validates column/schema privileges and worker drain, preserves exact JSON numeric tokens and prototype-named properties, authenticates attempt-specific failure aggregates, and includes real Core CLI/Enterprise DI/MikroORM plus real SIGKILL journal evidence. d3192ddd0f makes the frozen CLI registry authoritative; 619583e34e budgets prefetched wire pages; fb0d766ecb adds authenticated empty-value maintenance support without altering the existing nonempty heuristic. Current source is frozen for the complete validation and performance gate.
 
 Measured resource scope is the standalone coordinator with explicit Node heap flags, actual native recovery and real neutral Core maintenance helpers. The real CLI handler is tested functionally with actual ORM and DI; whole-application bootstrap memory is not claimed by the standalone measurement. Earlier exploratory timing files are preserved with `releaseAcceptance:false`, including a failed cold throughput result before the final prefetch implementation. Neither 20-GiB acceptance nor final release readiness is claimed until measured.
+
+
+Acceptance checkpoint: 994bceafe2 fixes a measured 20-GiB custom query-planner problem by materializing the light primary-key frontier before eligibility or TOAST projection; full ineligible pages still advance/checkpoint. Actual 20-GiB EXPLAIN confirms bounded index reads, and 38 Core/37 native dataset tests pass. The interrupted run resumed against its original encrypted recovery artifact and authenticated baseline, then compared all 327,680 persisted rows successfully. Its measured overhead failure is retained in diagnostic JSON and is not accepted as a fresh performance run. Fresh final 1/20-GiB warm/cold runs remain pending.
+
+179317643a rejects unpaired UTF-16 surrogates before canonical UTF-8 framing; real Core CLI/ORM/Enterprise DI proves refusal before mutation. The final backup operator/sequence prerequisite 917e126886 and main 825240d58b are reconciled without deleting either upgrade entry. Node 24.22.2 immutable installation, the first seven configured commands, the two actual CLI-native cases and the unchanged seven-case compatibility-context guard pass. A later upstream backup integrity milestone requires one final source merge and full eight-command rerun; release readiness and authoritative review remain pending.
