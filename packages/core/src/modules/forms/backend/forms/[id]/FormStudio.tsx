@@ -1588,15 +1588,15 @@ export function FormStudio({ formId }: { formId: string }) {
           {resizeAnnouncement}
         </div>
         <header className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">{form.name}</h1>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-mono">{form.key}</span>
+          <div className="min-w-0">
+            <h1 className="break-words text-xl font-semibold text-foreground">{form.name}</h1>
+            <p className="break-words text-sm text-muted-foreground">
+              <span className="break-all font-mono">{form.key}</span>
               <span className="mx-2">—</span>
               <span>{t('forms.studio.schemaHashLabel')}: <span className="font-mono">{(version?.schemaHash ?? '').slice(0, 12) || '—'}</span></span>
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {form.supportedLocales.length > 1 ? (
               <div className="flex items-center gap-1.5">
                 <Globe className="size-4 text-muted-foreground" aria-hidden="true" />
