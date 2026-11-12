@@ -646,7 +646,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
-STABLE: logout POST returns 303, even without cookies; follow Location with GET. Other redirects stay 307. No other contract/schema changes. [Supersedes 2026-10-13; migration](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility); see UPGRADE_NOTES.md.
+STABLE: logout POST returns 303, even without cookies; follow Location with GET. Shared redirect default stays 307. No other contract/schema changes. [Supersedes 2026-10-13; migration](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility); see UPGRADE_NOTES.md.
 
 ## #7809 2026-11-06
 
