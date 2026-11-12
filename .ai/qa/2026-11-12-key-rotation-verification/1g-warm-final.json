@@ -46,7 +46,8 @@
     "definition": "sum resident RSS of benchmark Node process and all native descendants, excluding PostgreSQL server daemon; sampled with ps"
   },
   "releaseAcceptance": false,
-  "remainingGate": "Cold 1GiB, warm/cold 20GiB and complete validation",
+  "remainingGate": "Historical pre-0eb run retained; current source acceptance is tracked by the 0eb artifacts and final report.",
   "checkpointMs": null,
-  "checkpointTimingNote": "Not separately instrumented in this run; included in matched safe rotation baseline and total wall time, never assumed zero."
+  "checkpointTimingNote": "Not separately instrumented in this run; included in matched safe rotation baseline and total wall time, never assumed zero.",
+  "supersededBy": "0eb-1g-warm.json"
 }
