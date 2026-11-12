@@ -255,6 +255,7 @@ api/
 - **Public** (`/api/login`, `/api/signup`, `/api/password/*`, `/api/magic-link/*`, `/api/email/*`, `/api/invitations/*`) — unauthenticated, rate-limited
 - **Admin** (`/api/admin/*`) — requires staff auth + `customer_accounts.view` / `customer_accounts.manage` features
 - **Portal** (`/api/portal/*`) — requires customer auth (JWT), some endpoints require `isPortalAdmin`
+- **Portal SSE** (`/api/portal/events/stream`) — re-checks the customer session via `getCustomerAuthFromRequest` every `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` and closes after the jittered `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS`, so revoked sessions stop receiving events; never cache auth on a long-lived connection without the same revalidation
 
 ## Events
 
