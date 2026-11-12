@@ -108,12 +108,25 @@ export async function sweepIdleThreads(
       for (const candidate of candidates) {
         const affected = await em.nativeUpdate(
           AssistedSellingThread,
-          { id: candidate.id, tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'open' },
+          {
+            id: candidate.id,
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            status: 'open',
+            // M10 fix (review finding): the SELECTion above checks the cutoff, but this
+            // UPDATE used to re-check only scope/id/status — a message committed between the
+            // two (bumping `lastActivityAt` past the threshold) still matched `status: 'open'`
+            // and got closed anyway. Repeating the cutoff predicate here makes the whole
+            // select-then-update a correct CAS: a row whose activity moved past the threshold
+            // in that gap no longer matches and is left open, exactly like one another tick
+            // already closed.
+            lastActivityAt: { $lte: threshold },
+          },
           { status: 'closed', closedAt: now, updatedAt: now },
         )
         // A message/join/leave landed between the `find` above and this `nativeUpdate` and
-        // bumped `lastActivityAt` (or another tick already closed it) — the row no longer
-        // matches `status = 'open'`. Skipped, never reported as an error.
+        // bumped `lastActivityAt` past the cutoff (or another tick already closed it) — the
+        // row no longer matches. Skipped, never reported as an error.
         if (affected === 0) continue
 
         closedCount += 1

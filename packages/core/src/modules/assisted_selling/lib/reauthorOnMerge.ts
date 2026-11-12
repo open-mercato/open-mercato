@@ -131,6 +131,100 @@ async function supersedeOldProposal(params: {
   }
 }
 
+/**
+ * Review finding M7 (§8.1, §5.1): a login merge used to repoint nothing but live
+ * proposals — the thread's own `buyer_cart_id` (the comment on `AssistedSellingThread.
+ * buyerCartId` already promises this subscriber owns it) stayed pointed at the now-merged-
+ * away source cart forever. Every buyer-facing route resolves the thread by its CURRENT
+ * cart id (§5.1), so the buyer's own `/thread`, `/thread/events` and `/thread/messages`
+ * 404'd the instant they logged in, while staff authoring (and this subscriber's own
+ * proposal candidates query) kept targeting a cart nobody could read from any more.
+ *
+ * §5.1's collision policy applies when the merged-into cart already has its own OPEN
+ * thread (the unique `(tenant_id, buyer_cart_id) WHERE status = 'open'` index would
+ * otherwise be violated by repointing into it): the source thread CLOSES instead of
+ * repointing, never touching `buyer_cart_id`, and the caller supersedes — never
+ * re-authors — its live proposals, since there is no live target basket left for them to
+ * address. Reuses the already-shipped `assisted_selling.thread.closed` event (the idle
+ * sweeper's own emission) with `reason: 'merge_collision'` so the console's existing
+ * thread-closed handling surfaces it on BOTH sides without a new event id.
+ */
+export type MergeThreadMigrationOutcome =
+  | { kind: 'migrated'; thread: AssistedSellingThread }
+  | { kind: 'collision'; sourceThread: AssistedSellingThread; targetThread: AssistedSellingThread }
+  | { kind: 'no_thread' }
+
+async function migrateOrCloseThreadOnMerge(params: {
+  em: EntityManager
+  scope: RetargetScope
+  sourceCartId: string
+  targetCartId: string
+  targetCustomerId: string | null
+  targetCustomerUserId: string | null
+}): Promise<MergeThreadMigrationOutcome> {
+  const { em, scope, sourceCartId, targetCartId, targetCustomerId, targetCustomerUserId } = params
+  const sourceThread = await em.findOne(AssistedSellingThread, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    buyerCartId: sourceCartId,
+    status: 'open',
+    deletedAt: null,
+  })
+  if (!sourceThread) return { kind: 'no_thread' }
+
+  const collidingThread = await em.findOne(AssistedSellingThread, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    buyerCartId: targetCartId,
+    status: 'open',
+    deletedAt: null,
+    id: { $ne: sourceThread.id },
+  })
+
+  if (collidingThread) {
+    const now = new Date()
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          sourceThread.status = 'closed'
+          sourceThread.closedAt = now
+        },
+      ],
+      { transaction: true, label: 'assisted_selling.thread.close_on_merge_collision' },
+    )
+    try {
+      await emitAssistedSellingEvent('assisted_selling.thread.closed', {
+        threadId: sourceThread.id,
+        tenantId: sourceThread.tenantId,
+        organizationId: sourceThread.organizationId,
+        reason: 'merge_collision',
+        absorbedByThreadId: collidingThread.id,
+      })
+    } catch (error) {
+      logger.warn('[assisted_selling:reauthor-on-merge] failed to emit thread.closed on merge collision', {
+        threadId: sourceThread.id,
+        collidingThreadId: collidingThread.id,
+        error: error instanceof Error ? error.message : error,
+      })
+    }
+    return { kind: 'collision', sourceThread, targetThread: collidingThread }
+  }
+
+  await withAtomicFlush(
+    em,
+    [
+      async () => {
+        sourceThread.buyerCartId = targetCartId
+        if (targetCustomerId) sourceThread.customerId = targetCustomerId
+        if (targetCustomerUserId) sourceThread.customerUserId = targetCustomerUserId
+      },
+    ],
+    { transaction: true, label: 'assisted_selling.thread.migrate_on_merge' },
+  )
+  return { kind: 'migrated', thread: sourceThread }
+}
+
 const REAUTHOR_REQUIRED_FEATURES = ['assisted_selling.proposals.author', 'cart.proposals.author']
 
 /**
@@ -349,6 +443,19 @@ export async function handleCartMergedForAssistedSellingReauthor(
 
   try {
     const em = container.resolve<EntityManager>('em').fork()
+
+    // M7 fix: repoint (or, on a §5.1 target-thread collision, close) the buyer's own
+    // conversation BEFORE touching any live proposal — see `migrateOrCloseThreadOnMerge`'s
+    // own header comment.
+    const migrationOutcome = await migrateOrCloseThreadOnMerge({
+      em,
+      scope,
+      sourceCartId,
+      targetCartId,
+      targetCustomerId,
+      targetCustomerUserId,
+    })
+
     const liveProposals = await em.find(AssistedSellingProposal, {
       tenantId,
       organizationId,
@@ -359,6 +466,25 @@ export async function handleCartMergedForAssistedSellingReauthor(
     if (liveProposals.length === 0) return
 
     const commandBus = container.resolve<CommandBus>('commandBus')
+
+    if (migrationOutcome.kind === 'collision') {
+      // §5.1 collision policy: the source thread already closed above, never re-pointed —
+      // there is no live target basket left for these proposals to address, so every one of
+      // them is superseded, never re-authored.
+      for (const proposal of liveProposals) {
+        await supersedeOldProposal({
+          em,
+          container,
+          commandBus,
+          proposal,
+          thread: migrationOutcome.sourceThread,
+          scope,
+          reason: 'assisted_selling.proposal.supersede:merge_collision',
+        })
+      }
+      return
+    }
+
     for (const proposal of liveProposals) {
       await retargetOrSupersedeOneProposal({
         em,

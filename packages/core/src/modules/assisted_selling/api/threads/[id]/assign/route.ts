@@ -8,11 +8,13 @@ import { isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/li
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { assistedSellingThreadAssignRequestSchema } from '../../../../data/validators'
 import { resolveAssistedSellingOrganizationIds } from '../../../../lib/organizationScope'
 import { assignThreadCommand, type AssistedSellingThreadAssignInput, type AssistedSellingThreadAssignResult } from '../../../../commands/threads'
+import { ASSISTED_SELLING_THREAD_RESOURCE_KIND } from '../../../../commands/shared'
 
 const logger = createLogger('assisted_selling').child({ component: 'api' })
 
@@ -45,13 +47,32 @@ export async function POST(req: Request, routeCtx: RouteParams) {
     const organizationIds = await resolveAssistedSellingOrganizationIds({ container, auth, request: req })
 
     const rawBody = await readJsonSafe<Record<string, unknown>>(req, {})
-    const body = assistedSellingThreadAssignRequestSchema.parse(rawBody)
+    let body = assistedSellingThreadAssignRequestSchema.parse(rawBody)
+
+    const organizationId = organizationIds && organizationIds.length === 1 ? organizationIds[0] : (auth.orgId ?? null)
+    // M12 fix (review finding): wire the shared route mutation-guard registry, same as
+    // every other custom write route this Step touches.
+    const guarded = await runRouteMutationGuards({
+      container,
+      req,
+      auth: { userId: auth.sub ?? 'anonymous', tenantId: auth.tenantId, organizationId, userFeatures: [] },
+      input: {
+        resourceKind: ASSISTED_SELLING_THREAD_RESOURCE_KIND,
+        resourceId: params.data.id,
+        operation: 'update',
+        mutationPayload: body,
+      },
+    })
+    if (!guarded.ok) return guarded.response
+    if (guarded.modifiedPayload) {
+      body = assistedSellingThreadAssignRequestSchema.parse({ ...body, ...guarded.modifiedPayload })
+    }
 
     const ctx: CommandRuntimeContext = {
       container,
       auth,
       organizationScope: null,
-      selectedOrganizationId: organizationIds && organizationIds.length === 1 ? organizationIds[0] : (auth.orgId ?? null),
+      selectedOrganizationId: organizationId,
       organizationIds,
       request: req,
     }
@@ -69,6 +90,8 @@ export async function POST(req: Request, routeCtx: RouteParams) {
       assignThreadCommand.id,
       { input: commandInput, ctx },
     )
+
+    await guarded.runAfterSuccess()
 
     return NextResponse.json({ ok: true, result })
   } catch (err) {

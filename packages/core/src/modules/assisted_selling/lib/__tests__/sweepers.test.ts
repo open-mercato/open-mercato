@@ -163,6 +163,31 @@ describe('sweepIdleThreads (§5.10 idle-close sweeper, S7 gap-fill)', () => {
     expect(emitAssistedSellingEvent).not.toHaveBeenCalled()
   })
 
+  // M10 fix (review finding): `find` checks the cutoff, but the OLD `nativeUpdate` only
+  // re-checked scope/id/open-status, not the cutoff again — a message committed in the gap
+  // bumps `lastActivityAt` past the threshold but the stale WHERE clause still matched and
+  // closed the now-active conversation. Fails pre-fix (closedCount 1, thread wrongly
+  // closed); passes post-fix because the repeated `lastActivityAt: { $lte }` predicate no
+  // longer matches the just-bumped row.
+  it('leaves the thread open when fresh activity lands between selection and the update (M10)', async () => {
+    const thread = makeThreadRow({ lastActivityAt: new Date('2026-01-01T00:00:00.000Z') })
+    const { em } = makeFakeEm({ threads: [thread], settings: [makeSettingsRow({ idleCloseDays: 30 })] })
+    const originalNativeUpdate = (em.nativeUpdate as jest.Mock).getMockImplementation()!
+    ;(em.nativeUpdate as jest.Mock).mockImplementation(async (entity: unknown, where: Row, data: Row) => {
+      // A message lands right between the sweep's own `find` (above) and this `nativeUpdate`
+      // — bumps `lastActivityAt` to "now", well inside the idle window.
+      thread.lastActivityAt = now
+      return originalNativeUpdate(entity, where, data)
+    })
+
+    const result = await sweepIdleThreads(em as any, { tenantId: TENANT_ID, organizationId: ORG_ID }, now)
+
+    expect(result.closedCount).toBe(0)
+    expect(thread.status).toBe('open')
+    expect(thread.closedAt).toBeNull()
+    expect(emitAssistedSellingEvent).not.toHaveBeenCalled()
+  })
+
   it('sweeps multiple stores, each against its own idle_close_days', async () => {
     const threadA = makeThreadRow({ id: 'thread-a', storeId: 'store-a', lastActivityAt: new Date('2026-02-20T00:00:00.000Z') })
     const threadB = makeThreadRow({ id: 'thread-b', storeId: 'store-b', lastActivityAt: new Date('2026-02-20T00:00:00.000Z') })

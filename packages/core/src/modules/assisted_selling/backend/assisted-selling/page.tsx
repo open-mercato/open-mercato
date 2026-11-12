@@ -10,7 +10,7 @@ import { FilterBar } from '@open-mercato/ui/backend/FilterBar'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
-import { readApiResultOrThrow, withScopedApiRequestHeaders, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEventCoalesced } from '@open-mercato/ui/backend/injection/useAppEventCoalesced'
@@ -182,7 +182,7 @@ export default function AssistedSellingInboxPage() {
         await runMutation({
           operation: () =>
             withScopedApiRequestHeaders(buildOptimisticLockHeader(row.updatedAt), () =>
-              apiCall(`/api/assisted_selling/threads/${row.id}/assign`, {
+              apiCallOrThrow(`/api/assisted_selling/threads/${row.id}/assign`, {
                 method: 'POST',
                 body: JSON.stringify({}),
               }),

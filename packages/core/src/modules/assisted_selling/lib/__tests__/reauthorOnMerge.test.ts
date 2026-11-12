@@ -20,6 +20,9 @@ const PROPOSAL_CART_ID = 'proposal-cart-retarget-1'
 function matches(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, value]) => {
     if (value === undefined) return true
+    if (value && typeof value === 'object' && !(value instanceof Date) && '$ne' in value) {
+      return (row[key] ?? null) !== ((value as { $ne: unknown }).$ne ?? null)
+    }
     return (row[key] ?? null) === (value ?? null)
   })
 }
@@ -47,6 +50,11 @@ function makeThread(overrides: Row = {}): Row {
     id: THREAD_ID,
     tenantId: TENANT_ID,
     organizationId: ORG_ID,
+    buyerCartId: OLD_TARGET_ID,
+    status: 'open',
+    customerId: null,
+    customerUserId: null,
+    closedAt: null,
     liveProposalCount: 1,
     deletedAt: null,
     ...overrides,
@@ -329,5 +337,104 @@ describe('handleCartMergedForAssistedSellingReauthor — D-R5-14 re-author / sup
     expect(thread.liveProposalCount).toBe(1)
     expect(emitAssistedSellingEvent).not.toHaveBeenCalledWith('assisted_selling.proposal.superseded', expect.anything())
     expect(commandBus.execute).toHaveBeenCalledWith('cart.proposal.reject', expect.anything())
+  })
+})
+
+// M7 (§5.1, §8.1, §10 "an identified basket refuses the token alone with 404"): a login
+// merge used to touch nothing on `AssistedSellingThread` — the buyer's own
+// `/thread`/`/thread/events`/`/thread/messages` resolve the merged-away source cart and
+// 404 forever while staff authoring keeps targeting it too. These cover the thread-side
+// identity transition this handler now owns, with and without a live proposal, and the
+// §5.1 collision policy when the merged-into cart already has its own open thread.
+describe('handleCartMergedForAssistedSellingReauthor — M7 thread migration / collision policy', () => {
+  test('repoints the thread\'s buyerCartId to the merged-into cart when there is no live proposal', async () => {
+    const thread = makeThread({ liveProposalCount: 0 })
+    const { em } = makeFakeEm({ threads: [thread] })
+    const commandBus = makeCommandBus()
+    const container = makeContainer({ em, commandBus, cartService: makeCartService() })
+
+    await handleCartMergedForAssistedSellingReauthor(makeMergedPayload(), { resolve: container.resolve, container })
+
+    expect(thread.buyerCartId).toBe(NEW_TARGET_ID)
+    expect(thread.status).toBe('open')
+  })
+
+  test('repoints the thread\'s buyerCartId AND re-authors its live proposal against the same merged-into cart', async () => {
+    const proposal = makeProposal()
+    const thread = makeThread()
+    const { em } = makeFakeEm({ proposals: [proposal], threads: [thread] })
+    const commandBus = makeCommandBus()
+    const container = makeContainer({ em, commandBus, cartService: makeCartService() })
+    ;(reauthorProposalForMergeRetarget as jest.Mock).mockResolvedValue({ proposalId: 'proposal-2', replayed: false })
+
+    await handleCartMergedForAssistedSellingReauthor(makeMergedPayload(), { resolve: container.resolve, container })
+
+    expect(thread.buyerCartId).toBe(NEW_TARGET_ID)
+    expect(reauthorProposalForMergeRetarget).toHaveBeenCalledTimes(1)
+    const call = (reauthorProposalForMergeRetarget as jest.Mock).mock.calls[0][0]
+    expect(call.targetCartId).toBe(NEW_TARGET_ID)
+  })
+
+  test('adopts the identified buyer onto the thread when the merge payload carries a resolved customer', async () => {
+    const thread = makeThread({ liveProposalCount: 0, customerId: null, customerUserId: null })
+    const { em } = makeFakeEm({ threads: [thread] })
+    const commandBus = makeCommandBus()
+    const container = makeContainer({ em, commandBus, cartService: makeCartService() })
+
+    await handleCartMergedForAssistedSellingReauthor(
+      makeMergedPayload({ customerId: 'customer-1', customerUserId: 'customer-user-1' }),
+      { resolve: container.resolve, container },
+    )
+
+    expect(thread.customerId).toBe('customer-1')
+    expect(thread.customerUserId).toBe('customer-user-1')
+  })
+
+  test('closes the source thread instead of repointing it, and supersedes (never re-authors) its live proposal, when the merged-into cart already holds its own open thread (§5.1 collision)', async () => {
+    const proposal = makeProposal()
+    const sourceThread = makeThread({ liveProposalCount: 1 })
+    const targetThread = makeThread({ id: 'thread-target-1', buyerCartId: NEW_TARGET_ID, liveProposalCount: 0 })
+    const { em } = makeFakeEm({ proposals: [proposal], threads: [sourceThread, targetThread] })
+    const commandBus = makeCommandBus()
+    const container = makeContainer({ em, commandBus, cartService: makeCartService() })
+
+    await handleCartMergedForAssistedSellingReauthor(makeMergedPayload(), { resolve: container.resolve, container })
+
+    // The source thread closes, never repoints — the target already owns an open thread on
+    // that cart and the unique (tenant_id, buyer_cart_id) WHERE status = 'open' index would
+    // otherwise be violated by pointing two open threads at the same basket.
+    expect(sourceThread.status).toBe('closed')
+    expect(sourceThread.closedAt).toBeInstanceOf(Date)
+    expect(sourceThread.buyerCartId).toBe(OLD_TARGET_ID)
+    expect(targetThread.status).toBe('open')
+
+    // Never re-authored — there is no live target basket left for this proposal to address.
+    expect(reauthorProposalForMergeRetarget).not.toHaveBeenCalled()
+    expect(proposal.status).toBe('superseded')
+    expect(sourceThread.liveProposalCount).toBe(0)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'cart.proposal.reject',
+      expect.objectContaining({ input: expect.objectContaining({ proposalCartId: PROPOSAL_CART_ID, rejectedBy: 'author' }) }),
+    )
+
+    // Names the other thread so the console can surface the collision on both sides.
+    expect(emitAssistedSellingEvent).toHaveBeenCalledWith(
+      'assisted_selling.thread.closed',
+      expect.objectContaining({ threadId: sourceThread.id, reason: 'merge_collision', absorbedByThreadId: targetThread.id }),
+    )
+  })
+
+  test('closes the source thread on a target-thread collision even when it has no live proposal', async () => {
+    const sourceThread = makeThread({ liveProposalCount: 0 })
+    const targetThread = makeThread({ id: 'thread-target-1', buyerCartId: NEW_TARGET_ID, liveProposalCount: 0 })
+    const { em } = makeFakeEm({ threads: [sourceThread, targetThread] })
+    const commandBus = makeCommandBus()
+    const container = makeContainer({ em, commandBus, cartService: makeCartService() })
+
+    await handleCartMergedForAssistedSellingReauthor(makeMergedPayload(), { resolve: container.resolve, container })
+
+    expect(sourceThread.status).toBe('closed')
+    expect(sourceThread.buyerCartId).toBe(OLD_TARGET_ID)
+    expect(commandBus.execute).not.toHaveBeenCalled()
   })
 })
