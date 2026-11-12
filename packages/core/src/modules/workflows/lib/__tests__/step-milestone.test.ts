@@ -9,6 +9,9 @@ jest.mock('../../events', () => ({
 }))
 
 const { exitStep } = require('../step-handler') as typeof import('../step-handler')
+const { codeWorkflowUuid } = require('../find-definition') as typeof import('../find-definition')
+const { registerCodeWorkflows, clearCodeWorkflowRegistry } =
+  require('../code-registry') as typeof import('../code-registry')
 
 /**
  * A milestone is a BUSINESS EVENT the workflow announces, never an alias for a
@@ -29,7 +32,7 @@ const INSTANCE = {
 
 type StepDef = { stepId: string; stepType: string; milestone?: string }
 
-function makeEm(steps: StepDef[]) {
+function makeEm(steps: StepDef[] | null, instance: typeof INSTANCE = INSTANCE) {
   const em: Record<string, unknown> = {
     flush: jest.fn(async () => {}),
     // The event logger chains `em.persist(row).flush()`, so persist returns the EM.
@@ -37,8 +40,8 @@ function makeEm(steps: StepDef[]) {
     create: jest.fn((_entity: unknown, data: unknown) => data),
     findOne: jest.fn(async (entity: unknown) => {
       const name = (entity as { name?: string })?.name ?? ''
-      if (name === 'WorkflowInstance') return INSTANCE
-      if (name === 'WorkflowDefinition') return { id: 'definition-1', definition: { steps } }
+      if (name === 'WorkflowInstance') return instance
+      if (name === 'WorkflowDefinition') return steps ? { id: instance.definitionId, definition: { steps } } : null
       return null
     }),
   }
@@ -66,6 +69,7 @@ function milestoneEvents() {
 
 beforeEach(() => {
   emitWorkflowsEvent.mockClear()
+  clearCodeWorkflowRegistry()
 })
 
 describe('the step schema', () => {
@@ -135,5 +139,57 @@ describe('a completing step announces its milestone', () => {
     const instance = stepInstance('join')
     await expect(exitStep(em, instance)).resolves.toBeUndefined()
     expect((instance as unknown as { status: string }).status).toBe('COMPLETED')
+  })
+})
+
+describe('a code-defined workflow with no persisted definition row', () => {
+  const codeInstance = {
+    ...INSTANCE,
+    definitionId: codeWorkflowUuid(INSTANCE.workflowId),
+  }
+
+  function registerClaimsIntake() {
+    registerCodeWorkflows([
+      {
+        workflowId: INSTANCE.workflowId,
+        workflowName: 'Claims intake',
+        version: 1,
+        enabled: true,
+        moduleId: 'claims',
+        definition: {
+          steps: [
+            { stepId: 'start', stepName: 'Start', stepType: 'START' },
+            { stepId: 'assess', stepName: 'Assess', stepType: 'AUTOMATED', milestone: 'analysis_completed' },
+            { stepId: 'end', stepName: 'End', stepType: 'END' },
+          ],
+          transitions: [
+            { transitionId: 'start_to_assess', fromStepId: 'start', toStepId: 'assess', trigger: 'auto' },
+            { transitionId: 'assess_to_end', fromStepId: 'assess', toStepId: 'end', trigger: 'auto' },
+          ],
+        },
+      } as never,
+    ])
+  }
+
+  it('announces the milestone from the code registry definition', async () => {
+    registerClaimsIntake()
+    const em = makeEm(null, codeInstance)
+
+    await exitStep(em, stepInstance('assess'), { findings: 1 })
+
+    const announced = milestoneEvents()
+    expect(announced).toHaveLength(1)
+    expect(announced[0][1]).toMatchObject({
+      instanceId: 'instance-1',
+      workflowId: 'claims.intake',
+      milestoneKey: 'analysis_completed',
+      data: { findings: 1 },
+    })
+  })
+
+  it('stays silent when neither a row nor a matching code definition exists', async () => {
+    const em = makeEm(null, codeInstance)
+    await exitStep(em, stepInstance('assess'))
+    expect(milestoneEvents()).toHaveLength(0)
   })
 })

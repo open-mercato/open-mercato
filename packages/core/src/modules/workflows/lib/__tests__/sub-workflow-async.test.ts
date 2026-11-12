@@ -14,7 +14,7 @@
  *  - fully-synchronous child still completes inline (regression)
  */
 
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { describe, test, expect, jest, beforeEach, afterAll } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 
@@ -41,6 +41,8 @@ import { resumeParentAfterSubWorkflow } from '../activity-worker-handler'
 import { SUB_WORKFLOW_SIGNAL_NAME } from '../activity-executor'
 import type { WorkflowActivityJobResumeSubWorkflowParent } from '../activity-queue-types'
 import type { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
+import { codeWorkflowUuid } from '../find-definition'
+import { registerCodeWorkflows, clearCodeWorkflowRegistry } from '../code-registry'
 
 const tenantId = '00000000-0000-4000-8000-000000000001'
 const organizationId = '00000000-0000-4000-8000-000000000002'
@@ -72,8 +74,8 @@ const parentDefinition: Partial<WorkflowDefinition> = {
       { stepId: 'end', stepName: 'End', stepType: 'END' },
     ],
     transitions: [
-      { fromStepId: 'start', toStepId: parentStepId, trigger: 'auto' },
-      { fromStepId: parentStepId, toStepId: 'end', trigger: 'auto' },
+      { transitionId: 'start_to_child', fromStepId: 'start', toStepId: parentStepId, trigger: 'auto' },
+      { transitionId: 'child_to_end', fromStepId: parentStepId, toStepId: 'end', trigger: 'auto' },
     ],
   } as any,
 }
@@ -283,6 +285,68 @@ describe('resumeParentAfterSubWorkflow', () => {
 
     await expect(resumeParentAfterSubWorkflow(em, container, makeResumeJob())).rejects.toThrow(/not parked yet/)
     expect(sendSignalMock).not.toHaveBeenCalled()
+  })
+
+  describe('code-defined parent with no persisted definition row', () => {
+    const codeParentDefinitionId = codeWorkflowUuid('parent-workflow')
+
+    beforeEach(() => {
+      clearCodeWorkflowRegistry()
+      registerCodeWorkflows([
+        {
+          workflowId: 'parent-workflow',
+          workflowName: 'Parent Workflow',
+          version: 1,
+          enabled: true,
+          moduleId: 'test_module',
+          definition: parentDefinition.definition,
+        } as never,
+      ])
+    })
+
+    afterAll(() => {
+      clearCodeWorkflowRegistry()
+    })
+
+    test('maps the child output through the code-defined SUB_WORKFLOW step on resume', async () => {
+      const em = makeEm(
+        { id: parentInstanceId, definitionId: codeParentDefinitionId, workflowId: 'parent-workflow', currentStepId: parentStepId, status: 'PAUSED', context: {}, tenantId, organizationId },
+        { id: childInstanceId, context: { childResult: 'code-mapped-value' }, tenantId, organizationId },
+        null,
+      )
+
+      await resumeParentAfterSubWorkflow(em, {} as AwilixContainer, makeResumeJob())
+
+      expect(sendSignalMock).toHaveBeenCalledTimes(1)
+      const [, , options] = sendSignalMock.mock.calls[0] as [unknown, unknown, { signalName: string; payload: Record<string, unknown> }]
+      expect(options.signalName).toBe(SUB_WORKFLOW_SIGNAL_NAME)
+      expect(options.payload).toEqual({ parentResult: 'code-mapped-value' })
+    })
+
+    test('a persisted definition row still wins over the code registry', async () => {
+      const persistedOverride: Partial<WorkflowDefinition> = {
+        ...parentDefinition,
+        id: codeParentDefinitionId,
+        definition: {
+          ...parentDefinition.definition!,
+          steps: parentDefinition.definition!.steps.map((step) =>
+            step.stepId === parentStepId
+              ? { ...step, config: { ...step.config, outputMapping: { overriddenResult: 'childResult' } } }
+              : step,
+          ),
+        },
+      }
+      const em = makeEm(
+        { id: parentInstanceId, definitionId: codeParentDefinitionId, workflowId: 'parent-workflow', currentStepId: parentStepId, status: 'PAUSED', context: {}, tenantId, organizationId },
+        { id: childInstanceId, context: { childResult: 'db-mapped-value' }, tenantId, organizationId },
+        persistedOverride,
+      )
+
+      await resumeParentAfterSubWorkflow(em, {} as AwilixContainer, makeResumeJob())
+
+      const [, , options] = sendSignalMock.mock.calls[0] as [unknown, unknown, { payload: Record<string, unknown> }]
+      expect(options.payload).toEqual({ overriddenResult: 'db-mapped-value' })
+    })
   })
 
   describe('with declared child output ports', () => {
