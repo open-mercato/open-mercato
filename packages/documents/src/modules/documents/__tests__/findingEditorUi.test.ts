@@ -21,13 +21,16 @@ import {
   normalizeFindingList,
   normalizeFindingSummary,
   openFindingTotal,
+  locateFindingRange,
   resolveFindingRanges,
   severityDots,
   type DocumentFindingItem,
   type FindingDecorationRange,
 } from '../backend/documents/[id]/findingModel'
 import { normalizeFindingText as anchorNormalizer } from '../lib/findingAnchors'
+import { createFindingQuoteLocator } from '../lib/findingQuoteLocator'
 import { findingTextMatches, normalizeFindingText } from '../lib/findingTextNormalization'
+import { extractPositionedReviewBlocks } from '../lib/reviewBlocks'
 
 const ANCHOR = { version: 2 as const, relativeFrom: 'AQID', relativeTo: 'BAUG' }
 
@@ -44,6 +47,7 @@ function finding(overrides: Partial<DocumentFindingItem> = {}): DocumentFindingI
     explanation: 'Exceeds the standard position.',
     sectionLabel: '2. Obligations',
     quote: 'five years',
+    occurrence: 1,
     suggestedText: 'two years',
     anchor: ANCHOR,
     anchorStatus: 'located',
@@ -61,9 +65,20 @@ const schema = new Schema({
   nodes: {
     doc: { content: 'block+' },
     paragraph: { content: 'text*', group: 'block', toDOM: () => ['p', 0] },
+    heading: { content: 'text*', group: 'block', attrs: { level: { default: 1 } }, toDOM: () => ['h2', 0] },
     text: { group: 'inline' },
   },
 })
+
+function agreementDoc() {
+  return schema.node('doc', null, [
+    schema.node('heading', { level: 2 }, [schema.text('1. Definitions')]),
+    schema.node('paragraph', null, [schema.text('Information is kept secret for five years.')]),
+    schema.node('heading', { level: 2 }, [schema.text('2. Obligations')]),
+    schema.node('paragraph', null, [schema.text('The Recipient keeps it secret for “five”  years.')]),
+    schema.node('paragraph', null, [schema.text('Again secret for five years.')]),
+  ])
+}
 
 function paragraphDoc(text: string) {
   return schema.node('doc', null, [schema.node('paragraph', null, [schema.text(text)])])
@@ -160,7 +175,7 @@ describe('finding range resolution', () => {
       finding({ id: 'early', severity: 'info', quote: 'Recipient', anchor: { ...ANCHOR, relativeFrom: 'early' } }),
       finding({ id: 'decided', status: 'applied', anchor: { ...ANCHOR, relativeFrom: 'decided' } }),
     ]
-    const located = resolveFindingRanges(findings, (anchor) => ranges[anchor.relativeFrom] ?? null, readText)
+    const located = resolveFindingRanges(findings, (item) => (item.anchor ? ranges[item.anchor.relativeFrom] ?? null : null), readText)
     expect(located.ranges).toEqual([
       { id: 'early', severity: 'info', from: 4, to: 13 },
       { id: 'late', severity: 'warning', from: 34, to: 44 },
@@ -242,5 +257,50 @@ describe('finding decorations plugin', () => {
 
   it('drops ranges that collapse after mapping', () => {
     expect(mapFindingDecorationRanges(ranges, (position) => (position < 6 ? 3 : position))).toEqual([ranges[1]])
+  })
+})
+
+describe('finding quote locator without the realtime binding', () => {
+  const doc = agreementDoc()
+  const locate = createFindingQuoteLocator(extractPositionedReviewBlocks(doc))
+  const textOf = (range: { from: number; to: number } | null) => (range ? doc.textBetween(range.from, range.to, ' ', ' ') : null)
+
+  it('finds the occurrence-th match with the shared normalization', () => {
+    expect(textOf(locate({ quote: 'secret for five years', occurrence: 1 }))).toBe('secret for five years')
+    expect(textOf(locate({ quote: 'secret for "five" years', occurrence: 1 }))).toBe('secret for \u201cfive\u201d  years')
+    expect(textOf(locate({ quote: 'secret for five years', occurrence: 2 }))).toBe('secret for five years')
+    const second = locate({ quote: 'secret for five years', occurrence: 2 })
+    const first = locate({ quote: 'secret for five years', occurrence: 1 })
+    expect(second && first && second.from > first.from).toBe(true)
+    expect(locate({ quote: 'secret for five years', occurrence: 3 })).toBeNull()
+    expect(locate({ quote: 'not in the agreement' })).toBeNull()
+  })
+
+  it('searches the named section first and falls back to the whole document', () => {
+    const inSection = locate({ quote: 'secret for five years', sectionLabel: '2. Obligations' })
+    const anywhere = locate({ quote: 'secret for five years' })
+    expect(inSection && anywhere && inSection.from > anywhere.from).toBe(true)
+    expect(textOf(locate({ quote: 'Information is kept', sectionLabel: '2. Obligations' }))).toBe('Information is kept')
+  })
+
+  it('prefers the relative anchor when the binding exists and uses the quote otherwise', () => {
+    const resolveAnchor = jest.fn(() => ({ from: 1, to: 3 }))
+    const locateQuote = jest.fn(() => ({ from: 5, to: 9 }))
+    expect(locateFindingRange(finding(), { resolveAnchor, locateQuote })).toEqual({ from: 1, to: 3 })
+    expect(locateQuote).not.toHaveBeenCalled()
+    expect(locateFindingRange(finding({ sectionLabel: '2. Obligations', occurrence: 2 }), { resolveAnchor: null, locateQuote }))
+      .toEqual({ from: 5, to: 9 })
+    expect(locateQuote).toHaveBeenCalledWith({ quote: 'five years', occurrence: 2, sectionLabel: '2. Obligations' })
+    expect(locateFindingRange(finding({ anchor: null }), { resolveAnchor, locateQuote })).toBeNull()
+  })
+
+  it('resolves findings and decoration ranges from the quote in fallback mode', () => {
+    const result = resolveFindingRanges(
+      [finding({ quote: 'secret for five years', sectionLabel: '2. Obligations' })],
+      (item) => locateFindingRange(item, { resolveAnchor: null, locateQuote: locate }),
+      (range) => doc.textBetween(range.from, range.to, ' ', ' '),
+    )
+    expect(result.resolutions['finding-1']).toMatchObject({ kind: 'located', matches: true })
+    expect(result.ranges).toHaveLength(1)
   })
 })

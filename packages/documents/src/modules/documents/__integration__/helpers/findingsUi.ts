@@ -1,5 +1,6 @@
 import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test'
-import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { apiRequest } from '@open-mercato/core/helpers/integration/api'
+import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createAgreementDocument,
   ingestFindings,
@@ -76,6 +77,21 @@ export async function openDocumentChanges(page: Page, documentId: string): Promi
   const panel = page.getByTestId('documents-findings-panel')
   await expect(panel).toBeVisible()
   return panel
+}
+
+export const SINGLE_USER_FALLBACK_NOTICE = 'Realtime is unavailable — changes are saved in single-user mode.'
+
+export async function isRealtimeConnected(page: Page): Promise<boolean> {
+  const fallbackNotice = page.getByText(SINGLE_USER_FALLBACK_NOTICE)
+  await expect(page.getByText('Live', { exact: true }).or(fallbackNotice).first()).toBeVisible({ timeout: 30_000 })
+  return (await fallbackNotice.count()) === 0
+}
+
+export async function readPersistedContentHtml(request: APIRequestContext, token: string, documentId: string): Promise<string> {
+  const response = await apiRequest(request, 'GET', `/api/documents/${encodeURIComponent(documentId)}/content`, { token })
+  if (response.status() !== 200) return ''
+  const body = await readJsonSafe<{ contentHtml?: string }>(response)
+  return body?.contentHtml ?? ''
 }
 
 export function findingCard(page: Page, title: string): Locator {
