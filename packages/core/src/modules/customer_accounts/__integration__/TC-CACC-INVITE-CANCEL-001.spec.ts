@@ -136,7 +136,8 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
       invitationIds.push(invitation.id)
       await login(page, 'admin')
       await page.goto(`/backend/customers/people-v2/${personId}`)
-      await page.getByRole('button', { name: 'Expand form panel', exact: true }).click()
+      await page.getByRole('main').getByRole('button', { name: 'More', exact: true }).first().click()
+      await page.getByRole('menuitem', { name: 'Portal account', exact: true }).click()
       await expect(page.getByText('Invitation pending', { exact: true })).toBeVisible()
       await page.screenshot({ path: testInfo.outputPath('pending-invitation.png'), fullPage: true })
       await page.getByRole('button', { name: 'Cancel invitation', exact: true }).click()
@@ -214,7 +215,8 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
           { name: 'om_feedback_suppress', value: '1', url: baseUrl },
         ])
         await page.goto(`/backend/customers/people-v2/${personId}`)
-        await page.getByRole('button', { name: 'Expand form panel', exact: true }).click()
+        await page.getByRole('main').getByRole('button', { name: 'More', exact: true }).first().click()
+        await page.getByRole('menuitem', { name: 'Portal account', exact: true }).click()
         await expect(page.getByText('Invitation pending', { exact: true })).toBeVisible()
         const cancel = page.getByRole('button', { name: 'Cancel invitation', exact: true })
         if (grant === 'customer_accounts.view') {
