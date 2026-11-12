@@ -1,6 +1,6 @@
 # Setup encryption compatibility preflight
 
-Status: in-progress
+Status: complete
 Source doc: .ai/specs/2026-07-19-unified-starter-package.md
 
 ## Goal
@@ -90,7 +90,7 @@ Runner: local; no configured Compose app container is running. Existing develope
 
 - [x] 4.1 Merge current main and repair the credential-display fixture without weakening encryption enforcement. — fa78b9014c, 49db4e79f2
 - [x] 4.2 Run configured validation, merged-result scripts and disposable PostgreSQL/standalone verification. — 3455cdf7d6
-- [ ] 4.3 Complete authoritative re-review, publish QA evidence, update PR and release the claim.
+- [x] 4.3 Complete authoritative re-review, publish QA evidence, update PR and release the claim. — 29f4f01d8c
 
 Ephemeral QA found an additional in-scope defect: invoking the helper through a symlink skips both entrypoint branches and returns success without running proof or mutation. Reproduced on macOS /tmp -> /private/tmp and with an explicit symlink regression (old helper exit 0; fixed helper exit 78 for invalid config). Compare real paths in all mirrored helpers; cover rejection in both CLI modes and successful command execution through a linked installed-script directory. Crypto/PG suite now passes 17 tests, no skips.
 
@@ -99,3 +99,5 @@ Initial broad script run exposed host tooling gaps (BSD grep lacks -P, GNU timeo
 Final-head verification (local runner, Node 26.12.1): all eight configured commands passed in order after the symlink fix. Full test: 51/51 tasks; core 2,765 suites / 27,971 tests pass (22 suites / 279 tests retain standard skips). Additional script suite: 1,626 pass / 3 standard skips at four-file concurrency; real crypto/PostgreSQL suite: 17 pass / 0 skips; folded credential-panel suite: 16 pass; standalone setup: 38 pass. Template parity and lesson validation pass. The fresh read-only reviewer found no actionable code findings. QA evidence is published at https://github.com/open-mercato/open-mercato/pull/8913#issuecomment-6822214172. No shared database was used; the Testcontainers fixture was removed.
 
 Limits: no full Docker image build, fresh Verdaccio install or full application startup; host/installed boot-script boundaries and real database/crypto/Vault HTTP fixture behavior were exercised. Independent code/QA approval and final-head CI remain merge gates.
+
+Authoritative re-review: https://github.com/open-mercato/open-mercato/pull/8913#pullrequestreview-5873635106. Technical verdict is clean; submitted as COMMENTED because the authenticated author cannot grant independent approval. QA execution report and manual instructions are on the PR. All implementation/verification work is complete; independent code/QA approval and final-head CI remain external merge gates. Claim release follows publication; this run does not merge or grant qa-approved.
