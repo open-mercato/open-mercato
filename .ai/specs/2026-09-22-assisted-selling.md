@@ -1030,6 +1030,7 @@ Shipping in the same change, per `.ai/qa/AGENTS.md`. Self-contained: fixtures cr
 The buyer half stays API-level because Release 5 has no storefront (S16). The console runs as a staff user holding the authoring features:
 - **Inbox → thread → builder → published proposal:** the inbox lists live threads scoped to the operator's organization and filters by store, status, assignee and "awaiting the buyer"; opening a row shows participants, messages and proposals with loading, empty and error states; the builder adds lines, refuses more than `max_proposal_lines`, submits with `Cmd/Ctrl+Enter`, shows rejected lines, and the published proposal appears in the timeline with each line's buyer price and `price_row_id` provenance labelled as the buyer's
 - Withdraw and re-author from the thread page update the status from the server value
+- **Proposal controls follow the author grants** (`assisted_selling/__integration__/TC-ASSIST-001-thread-proposal-controls.spec.ts`): a viewer (`threads.view` + `cart.proposals.view`) and a role holding `assisted_selling.proposals.author` without `cart.proposals.author` see no New proposal, Withdraw or Re-propose, and their create/withdraw/re-author calls answer `403`; wildcard grants (`assisted_selling.*`, `cart.proposals.*`) show the controls; a full author creates (Escape cancels, `Ctrl+Enter` publishes), withdraws and re-proposes
 - Assign to me, and a concurrent assignment surfaces the conflict bar
 - Settings page offers `mode` `rep` / `off` only and saves with optimistic locking
 - Attribution report lists rows for a converted cart
@@ -1199,6 +1200,7 @@ Rev 1 closed its Open Questions at the gate. The rev 2 review (M1–M6) surfaced
 ### 2026-11-12 (rev 6.1 — withdraw route features, #8268 QA)
 
 - **Withdraw requires both author features (§6.1).** `POST /proposals/:id/withdraw` now declares `assisted_selling.proposals.author` + `cart.proposals.author`, matching re-author. The nested `cart.proposal.reject` already enforced `cart.proposals.author`, so a principal holding only the first feature was offered Withdraw by the thread page and refused every time. The thread page gates Withdraw on both features. No seeded role holds one without the other.
+- **Coverage (§10.5).** `TC-ASSIST-001` asserts the thread page's proposal controls and the matching API refusals per grant set.
 
 ### 2026-10-26 (rev 6 — Release 5 spec revision)
 
