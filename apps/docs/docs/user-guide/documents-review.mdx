@@ -35,6 +35,16 @@ Locating passages needs the live collaboration connection. When the editor runs 
 
 When the last open blocking finding of the latest review is decided, the module emits `documents.review.cleared` with `documentId` and `reviewId`. Reopening a blocking finding and deciding it again emits the event again. A review that arrives with no blocking findings is cleared immediately.
 
+## Asking the review assistant
+
+The **review assistant** is a chat about the open document and its findings. It reads the document, the latest review's findings, the review playbook and its guidance documents, and answers questions such as "why was this flagged?", "what does our playbook say about the term?" or "draft wording that keeps 18 months". It cites the section and the rule code and does not invent rules: domain positions come only from your playbook. It works for any document type and does not need the enterprise agent orchestrator.
+
+- Open it from the **Ask AI** tab (shown as **AI**) next to Changes and Comments, or with the speech-bubble button on a finding card. The finding button opens the chat with that finding as context and a question pre-filled in the composer; you can edit it before sending.
+- The button in the chat header moves the chat between the side rail and a panel docked at the bottom of the editor, so the document stays visible above it. The bottom panel can be collapsed. The conversation, including a half-written message, stays when you switch, and the choice is remembered in your browser. The conversation of each document is also remembered.
+- When you ask it to act, the assistant prepares **Apply**, **Keep as is** (with a note) or **Reopen** and shows an approval card with the finding and the old and new text or status. Nothing changes until you select **Confirm**. Apply can use the suggested text or wording you agreed on in the chat; it follows the same rules as the Apply button (open finding with a suggestion and a located passage, no one changed it in the meantime). After confirmation the passage is replaced in your editor and the Changes list, highlights, summary bar and release indicator refresh. The decision is a normal command, so it shows in the audit log and can be undone like a manual one.
+
+The assistant is available to users who can see the AI assistant (`ai_assistant.view`) and have editor access to the document; it uses the AI provider configured for your tenant (see [AI Assistant](./ai-assistant.mdx)). Its agent id is `documents.review_assistant`, so tenant administrators can switch it to read-only or adjust its prompt in the AI assistant settings.
+
 ## Review playbooks
 
 A playbook holds your organization's positions for one kind of document, for example a mutual NDA. Open **Documents → Review playbooks** (feature `documents.review_playbooks.manage`, granted to administrators).
