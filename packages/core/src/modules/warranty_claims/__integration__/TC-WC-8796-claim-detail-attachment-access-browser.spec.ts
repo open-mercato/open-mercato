@@ -11,7 +11,12 @@ import {
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { deleteAttachmentIfExists, uploadAttachmentFixture } from '@open-mercato/core/helpers/integration/attachmentsFixtures'
 import { cleanupDraftClaimWithLines, createClaimFixture, uniqueLabel } from './helpers'
+
+const ATTACHMENT_ENTITY_ID = 'warranty_claims:warranty_claim'
+const STALE_ATTACHMENT_COUNT = 2
+const CURRENT_ATTACHMENT_COUNT = 1
 
 /**
  * TC-WC-8796: real-browser coverage for the claim-detail attachment-access
@@ -94,6 +99,16 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
   let outsiderRoleId: string | null = null
   let crossOrgReaderRoleId: string | null = null
   const userIds: string[] = []
+
+  // Dedicated fixtures for the stale-response race tests: each carries a
+  // distinct, non-zero, pre-seeded attachment count so a stale response
+  // actually produces an observably wrong number instead of 0-looks-like-0.
+  let staleAttachmentsClaimId: string | null = null
+  let staleAttachmentsClaimNumber: string
+  let currentAttachmentsClaimId: string | null = null
+  let currentAttachmentsClaimNumber: string
+  const staleAttachmentIds: string[] = []
+  const currentAttachmentIds: string[] = []
 
   test.beforeAll(async ({ request }) => {
     adminToken = await getAuthToken(request, 'admin')
@@ -187,6 +202,48 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
     userIds.push(await createUserFixture(request, adminToken, {
       email: crossOrgReader.email, password: crossOrgReader.password, organizationId, roles: [crossOrgReaderRoleId], name: 'WC8796 CrossOrg',
     }))
+
+    const staleClaim = await createClaimFixture(request, adminToken, {
+      claimType: 'warranty',
+      customerName: `QA Browser Stale Race ${stamp}`,
+      reasonCode: 'defective',
+      currencyCode: 'USD',
+      lines: [{ lineNo: 1, productName: `QA Browser Stale Race Part ${stamp}`, qtyClaimed: 1 }],
+    })
+    staleAttachmentsClaimId = staleClaim.id!
+    expect(staleClaim.claimNumber, 'stale-race fixture claim should have a claim number').toBeTruthy()
+    staleAttachmentsClaimNumber = staleClaim.claimNumber!
+    for (let i = 0; i < STALE_ATTACHMENT_COUNT; i += 1) {
+      const uploaded = await uploadAttachmentFixture(request, adminToken, {
+        entityId: ATTACHMENT_ENTITY_ID,
+        recordId: staleAttachmentsClaimId,
+        fileName: `wc-8796-stale-${i}-${stamp}.txt`,
+        mimeType: 'text/plain',
+        buffer: Buffer.from(`stale race attachment ${i} ${stamp}`),
+      })
+      staleAttachmentIds.push(uploaded.id)
+    }
+
+    const currentClaim = await createClaimFixture(request, adminToken, {
+      claimType: 'warranty',
+      customerName: `QA Browser Current Race ${stamp}`,
+      reasonCode: 'defective',
+      currencyCode: 'USD',
+      lines: [{ lineNo: 1, productName: `QA Browser Current Race Part ${stamp}`, qtyClaimed: 1 }],
+    })
+    currentAttachmentsClaimId = currentClaim.id!
+    expect(currentClaim.claimNumber, 'current-race fixture claim should have a claim number').toBeTruthy()
+    currentAttachmentsClaimNumber = currentClaim.claimNumber!
+    for (let i = 0; i < CURRENT_ATTACHMENT_COUNT; i += 1) {
+      const uploaded = await uploadAttachmentFixture(request, adminToken, {
+        entityId: ATTACHMENT_ENTITY_ID,
+        recordId: currentAttachmentsClaimId,
+        fileName: `wc-8796-current-${i}-${stamp}.txt`,
+        mimeType: 'text/plain',
+        buffer: Buffer.from(`current race attachment ${i} ${stamp}`),
+      })
+      currentAttachmentIds.push(uploaded.id)
+    }
   })
 
   test.afterAll(async ({ request }) => {
@@ -199,6 +256,11 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
     await deleteRoleIfExists(request, adminToken, managerRoleId)
     await deleteRoleIfExists(request, adminToken, outsiderRoleId)
     await deleteRoleIfExists(request, adminToken, crossOrgReaderRoleId)
+    for (const attachmentId of [...staleAttachmentIds, ...currentAttachmentIds]) {
+      await deleteAttachmentIfExists(request, adminToken, attachmentId)
+    }
+    await cleanupDraftClaimWithLines(request, adminToken, staleAttachmentsClaimId)
+    await cleanupDraftClaimWithLines(request, adminToken, currentAttachmentsClaimId)
     await deleteOrganizationIfExists(request, adminToken, otherOrgId)
     await cleanupDraftClaimWithLines(request, adminToken, claimId)
     await cleanupDraftClaimWithLines(request, adminToken, claimId2)
@@ -469,66 +531,123 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
     await loginAsScopedUser(page, reader.email, reader.password, tenantId, organizationId)
     await page.goto(`/backend/warranty_claims?search=${encodeURIComponent(stamp)}`)
     const rowFor = (number: string) => page.getByRole('row').filter({ hasText: number })
-    await expect(rowFor(claimNumber)).toBeVisible()
-    await expect(rowFor(claimNumber2)).toBeVisible()
+    await expect(rowFor(staleAttachmentsClaimNumber)).toBeVisible()
+    await expect(rowFor(currentAttachmentsClaimNumber)).toBeVisible()
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const releaseGate: { resolve: (() => void) | null } = { resolve: null }
       let captured = false
+      let staleRequestUrl: string | null = null
       await page.route('**/api/attachments?*', async (route) => {
         if (!captured) {
           captured = true
+          staleRequestUrl = route.request().url()
+          // Fetch the real response NOW and delay only its delivery to the
+          // page via a held route.fulfill() — delaying route.continue()
+          // instead would delay when the request is actually sent, letting
+          // it silently pick up whatever context exists once released.
+          const staleResponse = await route.fetch()
           await new Promise<void>((resolve) => { releaseGate.resolve = resolve })
+          await route.fulfill({ response: staleResponse })
+          return
         }
         await route.continue()
       })
 
-      await rowFor(claimNumber).click()
-      await expect(page.getByText(claimNumber, { exact: true })).toBeVisible()
-      await expect(page.getByRole('tab', { name: /^Attachments/ })).toBeVisible()
+      await rowFor(staleAttachmentsClaimNumber).click()
+      await expect(page.getByText(staleAttachmentsClaimNumber, { exact: true })).toBeVisible()
+      const staleAttachmentsTab = page.getByRole('tab', { name: /^Attachments/ })
+      await expect(staleAttachmentsTab).toBeVisible()
+
+      // Confirm the first claim's attachments request was actually captured
+      // (in flight, gated) before navigating away — otherwise the rest of
+      // this attempt would race ahead of the very request it must keep
+      // pending.
+      await expect.poll(() => captured, {
+        message: `attempt ${attempt + 1}: the stale claim's attachments request should have been captured before navigating away`,
+      }).toBe(true)
+      const staleResponseDelivered = page.waitForResponse((response) => response.url() === staleRequestUrl)
 
       // Navigate away to the second claim WITHOUT releasing the gate yet, so
       // the first claim's attachments fetch is still in flight when its
       // component context has already moved on to the second claim.
       await page.goBack()
-      await expect(rowFor(claimNumber2)).toBeVisible()
-      await rowFor(claimNumber2).click()
-      await expect(page.getByText(claimNumber2, { exact: true })).toBeVisible()
-      const secondAttachmentsTab = page.getByRole('tab', { name: /^Attachments/ })
-      await expect(secondAttachmentsTab).toBeVisible()
-      await expect(secondAttachmentsTab.getByText('0')).toBeVisible()
+      await expect(rowFor(currentAttachmentsClaimNumber)).toBeVisible()
+      await rowFor(currentAttachmentsClaimNumber).click()
+      await expect(page.getByText(currentAttachmentsClaimNumber, { exact: true })).toBeVisible()
+      const currentAttachmentsTab = page.getByRole('tab', { name: /^Attachments/ })
+      await expect(currentAttachmentsTab).toBeVisible()
+      await expect(
+        currentAttachmentsTab.getByText(String(CURRENT_ATTACHMENT_COUNT)),
+        `attempt ${attempt + 1}: the current claim's own attachment count should load`,
+      ).toBeVisible()
 
       releaseGate.resolve?.()
+      // Let the delayed stale response actually reach the page before
+      // asserting the final state — otherwise a still-pending response can
+      // make a broken guard look correct simply because it hasn't arrived yet.
+      await staleResponseDelivered
+      // waitForResponse only confirms the HTTP response headers landed, not
+      // that its JSON body has been parsed and the resulting setState call
+      // has flushed. Since "1" is already rendered before this point (from
+      // the current claim's own load), a toBeVisible() check on "1" would
+      // otherwise succeed instantly without ever observing a stale "2" that
+      // lands a tick later — give that in-flight microtask chain a moment to
+      // settle before asserting the final, stable state.
+      await page.waitForTimeout(500)
+
       await expect(
-        secondAttachmentsTab.getByText('0'),
+        currentAttachmentsTab.getByText(String(CURRENT_ATTACHMENT_COUNT)),
         `attempt ${attempt + 1}: the first claim's stale attachment response must not leak into the second claim's count`,
       ).toBeVisible()
-      await expect(page.getByText(claimNumber, { exact: true })).toHaveCount(0)
+      await expect(
+        currentAttachmentsTab.getByText(String(STALE_ATTACHMENT_COUNT)),
+        `attempt ${attempt + 1}: the stale claim's count must never appear on the current claim`,
+      ).toHaveCount(0)
+      await expect(page.getByText(staleAttachmentsClaimNumber, { exact: true })).toHaveCount(0)
 
       await page.unroute('**/api/attachments?*')
       await page.goBack()
-      await expect(rowFor(claimNumber)).toBeVisible()
+      await expect(rowFor(staleAttachmentsClaimNumber)).toBeVisible()
     }
   })
 
-  test('rejects a stale attachment response after switching the selected organization mid-flight', async ({ page }) => {
+  test('rejects a stale attachment response after switching the selected organization mid-flight', async ({ page, request }) => {
     await loginAsScopedUser(page, crossOrgReader.email, crossOrgReader.password, tenantId, organizationId)
 
     const releaseGate: { resolve: (() => void) | null } = { resolve: null }
     let captured = false
+    let staleRequestUrl: string | null = null
     await page.route('**/api/attachments?*', async (route) => {
       if (!captured) {
         captured = true
+        staleRequestUrl = route.request().url()
+        // Fetch the real response NOW, while the request still carries the
+        // original organization's cookie/context — delaying route.continue()
+        // instead would send the actual network request only once released,
+        // by which point the org has already switched back, so the "stale"
+        // response would silently become fresh. Capture it immediately and
+        // delay only its delivery to the page.
+        const staleResponse = await route.fetch()
         await new Promise<void>((resolve) => { releaseGate.resolve = resolve })
+        await route.fulfill({ response: staleResponse })
+        return
       }
       await route.continue()
     })
 
-    await page.goto(`/backend/warranty_claims/${claimId}`)
-    await expect(page.getByText(claimNumber, { exact: true })).toBeVisible()
+    await page.goto(`/backend/warranty_claims/${staleAttachmentsClaimId}`)
+    await expect(page.getByText(staleAttachmentsClaimNumber, { exact: true })).toBeVisible()
     const attachmentsTab = page.getByRole('tab', { name: /^Attachments/ })
     await expect(attachmentsTab).toBeVisible()
-    await expect(attachmentsTab.getByText('0')).toBeVisible()
+
+    // Confirm the original organization's attachments request was actually
+    // captured (in flight, gated) before switching organizations — otherwise
+    // the switch could race ahead of the very request it must keep pending.
+    await expect.poll(() => captured, {
+      message: 'the attachments request for the original organization should have been captured before switching organizations',
+    }).toBe(true)
+    const staleResponseDelivered = page.waitForResponse((response) => response.url() === staleRequestUrl)
 
     // Switch the selected organization through the real chrome switcher
     // (writes the om_selected_org cookie and bumps the client-side scope
@@ -538,12 +657,58 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
     await page.getByRole('button', { name: otherOrgName, exact: true }).click()
     await expect(page.getByText('Claim not found.')).toBeVisible()
 
-    releaseGate.resolve?.()
+    // Make the gated response stale in content, not just timing: add one
+    // more real attachment to the claim while that response is still
+    // pending, so once it finally lands it carries an outdated count,
+    // distinguishable from the fresh one the claim will show once visible
+    // again.
+    const extraAttachment = await uploadAttachmentFixture(request, adminToken, {
+      entityId: ATTACHMENT_ENTITY_ID,
+      recordId: staleAttachmentsClaimId!,
+      fileName: `wc-8796-stale-extra-${stamp}.txt`,
+      mimeType: 'text/plain',
+      buffer: Buffer.from(`stale race extra attachment ${stamp}`),
+    })
+    staleAttachmentIds.push(extraAttachment.id)
+    const updatedStaleAttachmentCount = STALE_ATTACHMENT_COUNT + 1
+
+    // Switch back to the claim's own organization, in the same mounted page
+    // (no reload). The claim becomes visible again and fetches its
+    // attachment count fresh — unblocked, since the gate only ever caught
+    // the very first matching request.
+    const popover = () => page.getByRole('dialog').or(page.locator('[data-radix-popper-content-wrapper]')).first()
+    await page.getByRole('button', { name: /^Organization:/ }).click()
+    await expect(popover()).toBeVisible()
+    const homeOrgRow = popover()
+      .locator('button:not([disabled]):not([aria-disabled="true"]):not([role="combobox"])')
+      .filter({ hasNotText: otherOrgName })
+      .filter({ hasNotText: /^All organizations$/ })
+    await homeOrgRow.first().click()
+    await expect(page.getByText(staleAttachmentsClaimNumber, { exact: true })).toBeVisible()
     await expect(
-      page.getByText('Claim not found.'),
-      'a stale attachment response from the previously-selected organization must not resurrect the claim view',
+      attachmentsTab.getByText(String(updatedStaleAttachmentCount)),
+      'switching back should load the claim\'s fresh, current attachment count',
     ).toBeVisible()
-    await expect(page.getByText(claimNumber, { exact: true })).toHaveCount(0)
+
+    releaseGate.resolve?.()
+    // Let the delayed stale response actually reach the page before
+    // asserting the final state — otherwise a still-pending response can
+    // make a broken guard look correct simply because it hasn't arrived yet.
+    await staleResponseDelivered
+    // waitForResponse only confirms the HTTP response headers landed, not
+    // that its JSON body has been parsed and the resulting setState call
+    // has flushed. Give that in-flight microtask chain a moment to settle
+    // before asserting the final, stable state.
+    await page.waitForTimeout(500)
+
+    await expect(
+      attachmentsTab.getByText(String(updatedStaleAttachmentCount)),
+      "the organization-switch's stale, now-delivered response must not revert the claim's fresh attachment count",
+    ).toBeVisible()
+    await expect(
+      attachmentsTab.getByText(String(STALE_ATTACHMENT_COUNT)),
+      'the outdated count captured before the extra upload must never resurface',
+    ).toHaveCount(0)
 
     await page.unroute('**/api/attachments?*')
   })

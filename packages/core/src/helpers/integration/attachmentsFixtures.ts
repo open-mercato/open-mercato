@@ -37,6 +37,10 @@ export async function uploadAttachmentFixture(
     partitionCode?: string;
     tags?: string[];
     assignments?: AttachmentAssignment[];
+    // The upload route scopes the new attachment to the caller's selected
+    // organization (cookie), not an organizationId in the payload — pass
+    // this to upload into an organization other than the caller's home org.
+    selectedOrgId?: string;
   },
 ): Promise<{
   id: string;
@@ -62,6 +66,7 @@ export async function uploadAttachmentFixture(
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
+      ...(input.selectedOrgId ? { Cookie: `om_selected_org=${input.selectedOrgId}` } : {}),
     },
     multipart,
   });
@@ -89,13 +94,14 @@ export async function deleteAttachmentIfExists(
   request: APIRequestContext,
   token: string | null,
   attachmentId: string | null,
+  options?: { selectedOrgId?: string },
 ): Promise<void> {
   if (!token || !attachmentId) return;
   await apiRequest(
     request,
     'DELETE',
     `/api/attachments?id=${encodeURIComponent(attachmentId)}`,
-    { token },
+    { token, headers: options?.selectedOrgId ? { Cookie: `om_selected_org=${options.selectedOrgId}` } : undefined },
   ).catch(() => undefined);
 }
 
