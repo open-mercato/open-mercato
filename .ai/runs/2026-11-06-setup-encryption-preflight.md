@@ -1,15 +1,15 @@
 # Setup encryption compatibility preflight
 
-Status: complete
+Status: in-progress
 Source doc: .ai/specs/2026-07-19-unified-starter-package.md
 
 ## Goal
 
-Before setup mutates a reused database, establish read-only compatibility with stored encryption using existing KMS/decryption helpers. Follow-up to #8613, originally forked from 9d3b3b30f. The published original remains intact; the refreshed task branch carries only the follow-up delta onto main after #8613 merged. No base merge or history rewrite was performed; do not modify the original PR branch.
+Before setup mutates a reused database, establish read-only compatibility with stored encryption using existing KMS/decryption helpers. Follow-up to #8613, originally forked from 9d3b3b30f. The published original remains intact; the refreshed task branch carries only the follow-up delta onto main after #8613 merged. The original run did not merge the base or rewrite history; the 2026-11-12 resume merges current main as requested, preserving all published commits and the original PR branch.
 
 ## Scope
 
-Setup mutation boundaries in monorepo, standalone template, and starter. Read-only inventory, authenticated decryption, redacted failure, tests, spec and operator guidance. No key creation/rotation, ciphertext rewrites, dependencies, shared database initialization, base merge, or automation policy changes.
+Setup mutation boundaries in monorepo, standalone template, and starter. Read-only inventory, authenticated decryption, redacted failure, tests, spec and operator guidance. No key creation/rotation, ciphertext rewrites, dependencies, shared database initialization or automation policy changes. The 2026-11-12 resume includes a main merge to reconcile the branch as requested.
 
 ## Implementation Plan
 
@@ -79,3 +79,15 @@ External review/QA at 3587b60ffc identified five actionable findings. Revised pr
 All eight configured commands pass after the fixes: build:packages, generate, build:packages, i18n:check-sync, i18n:check-usage, typecheck, full test (51/51 tasks), build:app. Cached package/app outputs are reused where inputs are unchanged. Script suite: 1,579 pass / 5 standard skips; expanded real PostgreSQL integration: 1 pass / no skips; standalone setup: 37 pass. No known code blockers remain in static re-review. All five independent review findings and the QA S4–S6 regressions are addressed; the optional copy-generation nit is deferred because byte-parity tests retain the established mirror pattern without changing generator contracts. Full settings remain frozen for guarded child execution and are never logged.
 
 The proof now samples at most five server-filtered candidate rows per store/key scope. It is not a full historical decryption audit. Unknown stores/formats, external encrypted files, unselected mixed historical keys, query/time/sample limits and concurrent key/data changes remain stated limits; normal per-record guards are preserved. Existing root keys outrank company defaults; provided configuration uses the established dotenv renderer and unsupported values reject before file creation without exposing secrets. The original setup branch and superseded #8908 history remain intact. Independent re-review/QA and final-head CI remain external merge gates; no merge is performed.
+
+## 2026-11-12 resume
+
+Goal: resolve current-base integration issues and all requested changes, then verify locally using disposable services and publish a PR QA report. Evidence: review 5803963165 identifies the credential-panel fixture missing the encryption-preflight stub; the user explicitly requested conflict reconciliation and ephemeral local QA. The merged-result fixture reproduces 15 passes / 1 EncryptionCompatibilityError failure before the change.
+
+Runner: local; no configured Compose app container is running. Existing developer services remain untouched. Use an independent immutable install, the configured ordered gate, complete script suite, standalone setup regressions, and the committed disposable PostgreSQL test for tenant/Forms/Vault and no-mutation boundaries. This script/backend change has no browser-rendered UI.
+
+### Phase 4: Review feedback and ephemeral QA
+
+- [ ] 4.1 Merge current main and repair the credential-display fixture without weakening encryption enforcement.
+- [ ] 4.2 Run configured validation, merged-result scripts and disposable PostgreSQL/standalone verification.
+- [ ] 4.3 Complete authoritative re-review, publish QA evidence, update PR and release the claim.

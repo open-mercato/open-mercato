@@ -240,6 +240,7 @@ test('database setup keeps the initialization credentials visible when output is
     repoRoot, env: {}, flags: { noInfra: true }, log() {}, logs,
     promptLog: (line) => visible.push(line),
     assertDatabaseWriteAllowedImpl: async () => ({ remote: false }),
+    assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }),
     dbMigrationsMarker: 'db-migrations-test', dbMarker: 'db-initialized-test', migrationsFingerprint: 'fingerprint',
     runStreamingImpl: async (_command, args, options) => {
       if (args[0] === 'initialize') {
