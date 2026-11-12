@@ -5,6 +5,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createDerivedKeyKmsService, HashicorpVaultKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import type { RotationProtectionContext, RotationProtectionService } from '@open-mercato/shared/lib/encryption/rotationProtection'
 import { createBackup, verifyBackup, createPostgresSource, recipientsFromFile, identitiesFromFile } from '../engine'
+import { progressRenderer } from '../engine/progress'
 import { createRotationArtifactCipher } from './age'
 import { createEnterpriseRotationProtection } from './coordinator'
 import { pinRotationProviders } from './keys'
@@ -33,7 +34,14 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
       const { translate } = await resolveTranslations()
       if (!hasCommercialRotationRights(environment)) throw new Error(translate('backups.rotation.entitlementRequired', 'Commercial rotation protection rights and module capabilities must be available.'))
       const controller = new AbortController()
-      const cancel = () => controller.abort()
+      const deadlineSeconds = Number(environment.OM_ROTATION_DEADLINE_SECONDS ?? 21600)
+      if (!Number.isInteger(deadlineSeconds) || deadlineSeconds < 1 || deadlineSeconds > 86400) throw new Error('[internal] ROTATION_DEADLINE_INVALID')
+      const cancel = () => {
+        if (controller.signal.aborted) return
+        controller.abort(new Error('[internal] ROTATION_VERIFICATION_INCOMPLETE'))
+        void context.entityManager.getConnection().close(true).catch(() => undefined)
+      }
+      const deadline = setTimeout(cancel, deadlineSeconds * 1000); deadline.unref()
       process.once('SIGINT', cancel); process.once('SIGTERM', cancel)
       try {
         const recipients = await recipientsFromFile(path(environment, 'OM_ROTATION_RECIPIENTS_FILE'))
@@ -49,7 +57,7 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
         const providers = async (input: RotationProtectionContext) => {
           if (!input.previousKey) throw new Error('[internal] ROTATION_SOURCE_KEY_REQUIRED')
           const connection = input.entityManager.getConnection()
-          const rows: unknown = input.tenantId ? [{ tenant_id: input.tenantId }] : await connection.execute('SELECT tenant_id::text AS tenant_id FROM (SELECT tenant_id FROM encryption_maps WHERE tenant_id IS NOT NULL UNION SELECT tenant_id FROM custom_entities_storage WHERE tenant_id IS NOT NULL) selected ORDER BY tenant_id LIMIT 10001', [])
+          const rows: unknown = input.tenantId ? [{ tenant_id: input.tenantId }] : await input.entityManager.execute('SELECT tenant_id::text AS tenant_id FROM (SELECT tenant_id FROM encryption_maps WHERE tenant_id IS NOT NULL UNION SELECT tenant_id FROM custom_entities_storage WHERE tenant_id IS NOT NULL) selected ORDER BY tenant_id LIMIT 10001', [], { signal: controller.signal, inflightQueryAbortStrategy: 'cancel query' })
           if (!Array.isArray(rows) || rows.length > 10000 || rows.some((entry: unknown) => !entry || typeof entry !== 'object' || typeof (entry as { tenant_id?: unknown }).tenant_id !== 'string')) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
           const tenantIds = rows.map((entry: { tenant_id: string }) => entry.tenant_id)
           const target = explicitProvider === 'vault'
@@ -58,9 +66,11 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
           if (explicitProvider === 'derived' && !environment.TENANT_DATA_ENCRYPTION_FALLBACK_KEY?.trim() && !environment.TENANT_DATA_ENCRYPTION_KEY?.trim()) throw new Error('[internal] ROTATION_EXPLICIT_PROVIDER_REQUIRED')
           const pinned = await pinRotationProviders(tenantIds,
             { identity: 'derived:previous-root', service: createDerivedKeyKmsService(input.previousKey) },
-            { identity: explicitProvider === 'vault' ? `vault:${environment.VAULT_ADDR ?? ''}:${environment.VAULT_KV_PATH ?? 'secret/data'}` : 'derived:configured-root', service: target })
+            { identity: explicitProvider === 'vault' ? `vault:${environment.VAULT_ADDR ?? ''}:${environment.VAULT_KV_PATH ?? 'secret/data'}` : 'derived:configured-root', service: target }, controller.signal)
           return { ...pinned, signal: controller.signal }
         }
+        let runId = 'rotation'
+        const progress = progressRenderer(environment.OM_ROTATION_PROGRESS === 'json' ? 'json' : environment.OM_ROTATION_PROGRESS === 'none' ? 'none' : process.stderr.isTTY ? 'tty' : 'plain')
         let providerBinding: string | undefined
         let baseDataset: Awaited<ReturnType<typeof createPostgresRotationDataset>> | undefined
         const coordinator = createEnterpriseRotationProtection({
@@ -72,14 +82,14 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
           async providers(input) { const pinned = await providers(input); providerBinding = pinned.provider; return pinned },
           async dataset(input, pinned, backupDigest, intents) {
             if (!providerBinding) throw new Error('[internal] ROTATION_EXPLICIT_PROVIDER_REQUIRED')
-            baseDataset ??= await createPostgresRotationDataset({ context: input, providers: pinned, backupDigest, provider: providerBinding, intents })
+            baseDataset ??= await createPostgresRotationDataset({ context: input, providers: pinned, backupDigest, provider: providerBinding, intents, progress, runId })
             const dataset = baseDataset
             return { ...dataset, async binding() { return { ...await dataset.binding(), backupDigest } } }
           },
           recovery: {
             async create(_input, databaseBinding) {
               console.error(translate('backups.rotation.preparingRecovery', 'Preparing encrypted recovery backup before key rotation.'))
-              const backup = await createBackup({ source: createPostgresSource(native), output: path(environment, 'OM_ROTATION_BACKUP_OUTPUT'), workspace: path(environment, 'OM_ROTATION_BACKUP_WORKSPACE'), recipients, requireEncryption: true, quiesced: true, signal: controller.signal })
+              const backup = await createBackup({ source: createPostgresSource(native), output: path(environment, 'OM_ROTATION_BACKUP_OUTPUT'), workspace: path(environment, 'OM_ROTATION_BACKUP_WORKSPACE'), recipients, requireEncryption: true, quiesced: true, signal: controller.signal, progress })
               if (backup.consistency !== 'quiesced' || backup.sourceIdentityDigest !== databaseBinding) throw new Error('[internal] ROTATION_BACKUP_DATABASE_MISMATCH')
               return { artifactPath: backup.artifactPath, digest: backup.manifestSha256, databaseBinding, consistency: 'quiesced', encrypted: true }
             },
@@ -89,7 +99,7 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
             },
           },
           async cipher() { return createRotationArtifactCipher(recipients, identities) },
-          async reportRun(id) { console.error(`${translate('backups.rotation.runPrepared', 'Protected rotation run; retain this identifier for an explicit resume:')} ${id}`) },
+          async reportRun(id) { runId = id; console.error(`${translate('backups.rotation.runPrepared', 'Protected rotation run; retain this identifier for an explicit resume:')} ${id}`) },
           async report(result, recovery) {
             const reportPath = join(path(environment, 'OM_ROTATION_TRUST_ROOT'), `${result.runId}.report.json`)
             await publishRotationReport(reportPath, result, recovery)
@@ -97,12 +107,16 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
             console.log(JSON.stringify({ ...result, recoveryArtifact: recovery.artifactPath }))
           },
         })
-        await coordinator.protect(context, operation)
+        await coordinator.protect(context, async pinned => {
+          console.error(translate('backups.rotation.rotating', 'Rotating encrypted data with protected recovery.'))
+          await operation(pinned)
+          console.error(translate('backups.rotation.verifying', 'Verifying persisted data after key rotation.'))
+        })
       } catch (error) {
         console.error(translate('backups.rotation.failed', 'Protected key rotation did not complete. Keep writers stopped, retain all previous keys and recovery artifacts, and inspect the trusted run record before resuming.'))
         const code = error instanceof Error && /^\[internal\] [A-Z][A-Z0-9_]*(?::[A-Z][A-Z0-9_]*)?$/.test(error.message) ? error.message : '[internal] ROTATION_VERIFICATION_FAILED'
         throw new Error(code)
-      } finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel) }
+      } finally { clearTimeout(deadline); process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel) }
     },
   }
 }

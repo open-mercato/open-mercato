@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
-import { canonicalValue, canonicalRow, keyFingerprint, type VerificationRow } from '../canonical'
+import { canonicalValue, canonicalRow, keyFingerprint, keyedDigest, keyedRowDigest, type VerificationRow } from '../canonical'
 import { RotationArtifactStore } from '../store'
-import { prepareRotationVerification, verifyRotationData, type RotationDataset } from '../verifier'
+import { prepareRotationVerification, verifyRotationData, validatePreparedRotation, type RotationDataset } from '../verifier'
 
 const source = randomBytes(32).toString('base64')
 const target = randomBytes(32).toString('base64')
@@ -139,4 +139,31 @@ test('typed canonical encoding preserves object ordering but distinguishes value
   const runKey = randomBytes(32)
   expect(keyFingerprint(runKey, source)).toBe(keyFingerprint(runKey, source))
   expect(keyFingerprint(runKey, source)).not.toBe(keyFingerprint(runKey, target))
+})
+
+
+test('streamed row HMAC exactly matches framed golden bytes without whole-row buffer copies', () => {
+  const key = randomBytes(32)
+  for (const value of [null, true, false, '日本語', -0, 1.5, ['x', null, { b: 2, a: 'hello' }], { unicode: '😀', binary: 'AA==' }]) {
+    const candidate = row(4); candidate.columns[0]!.value = value
+    expect(keyedRowDigest(key, candidate)).toBe(keyedDigest(key, 'row-v1', canonicalRow(candidate)))
+  }
+})
+
+
+test('a validly re-encrypted but replaced run key refuses before any resumed operation', async () => {
+  const { dataset, store } = fixture(2)
+  const prepared = await prepareRotationVerification(dataset, store)
+  await store.write('run-key', randomBytes(32))
+  const operation = jest.fn()
+  await expect(validatePreparedRotation(prepared, dataset, store).then(operation)).rejects.toThrow('ROTATION_KEY_CHANGED')
+  expect(operation).not.toHaveBeenCalled()
+})
+test('resume authenticates every baseline chunk before further writes', async () => {
+  const { dataset, store } = fixture(1001)
+  const prepared = await prepareRotationVerification(dataset, store)
+  await store.write('chunk-000000000002', Buffer.from('[]'))
+  const operation = jest.fn()
+  await expect(validatePreparedRotation(prepared, dataset, store).then(operation)).rejects.toThrow('ROTATION_ARTIFACT_INVALID')
+  expect(operation).not.toHaveBeenCalled()
 })

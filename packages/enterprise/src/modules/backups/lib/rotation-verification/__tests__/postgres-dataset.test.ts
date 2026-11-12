@@ -1,11 +1,13 @@
 import { Client } from 'pg'
 import { randomBytes, randomUUID } from 'node:crypto'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
 import { mkdtemp, rm, mkdir, writeFile, readdir, readFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createDerivedKeyKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { rotateCustomEntityDocuments } from '@open-mercato/core/modules/entities/lib/rotate-custom-entity-documents'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createConfiguredRotationProtection } from '../runtime'
 import { generateX25519Identity, identityToRecipient } from '../../engine/crypto'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
@@ -37,10 +39,10 @@ native('native PostgreSQL persisted verification', () => {
     await administrator.query(`CREATE DATABASE "${database}"`)
     await administrator.end()
     base.pathname = `/${database}`
-    client = new Client({ connectionString: base.toString() }); await client.connect()
+    client = new Client({ connectionString: base.toString(), statement_timeout: 900000, lock_timeout: 30000 }); await client.connect()
     await client.query(`CREATE TABLE fixture_records(id uuid PRIMARY KEY,tenant_id uuid NOT NULL,organization_id uuid,secret text,exact numeric,other jsonb,deleted_at timestamptz);
       CREATE TABLE encryption_maps(id uuid PRIMARY KEY,entity_id text,tenant_id uuid,organization_id uuid,fields_json jsonb,is_active boolean,deleted_at timestamptz);
-      CREATE TABLE custom_field_defs(id uuid PRIMARY KEY,entity_id text,tenant_id uuid,organization_id uuid,key text,config_json jsonb,is_active boolean DEFAULT true,updated_at timestamptz DEFAULT now(),deleted_at timestamptz);`)
+      CREATE TABLE custom_field_defs(id uuid PRIMARY KEY,entity_id text,tenant_id uuid,organization_id uuid,key text,kind text DEFAULT 'text',config_json jsonb,is_active boolean DEFAULT true,updated_at timestamptz DEFAULT now(),deleted_at timestamptz);`)
     for (let index = 0; index < 19; index++) {
       await client.query('INSERT INTO fixture_records VALUES($1,$2,NULL,$3,$4,$5,$6)', [randomUUID(), tenantId, encryptWithAesGcm(`private-${index}`, source).value, '9007199254740993.1234', JSON.stringify({ unicode: '日本語', nested: [null, true] }), index === 18 ? new Date() : null])
     }
@@ -55,12 +57,26 @@ native('native PostgreSQL persisted verification', () => {
     await administrator.end()
     await rm(directory, { recursive: true, force: true })
   })
+  test('installed ORM cancels an in-flight statement and releases its connection within fifteen seconds', async () => {
+    const orm = await MikroORM.init({ clientUrl: base.toString(), entities: [], discovery: { warnWhenNoEntities: false }, pool: { min: 0, max: 2 } })
+    const controller = new AbortController(); const started = Date.now()
+    const timer = setTimeout(() => controller.abort(), 250)
+    try {
+      await expect(orm.em.fork().execute('SELECT pg_sleep(30)', [], { signal: controller.signal, inflightQueryAbortStrategy: 'cancel query' })).rejects.toThrow()
+      expect(Date.now() - started).toBeLessThan(15000)
+      await expect(orm.em.fork().execute('SELECT 1 AS ready')).resolves.toEqual([{ ready: 1 }])
+    } finally { clearTimeout(timer); await orm.close(true) }
+  }, 20000)
   async function inputContext(connection = client) {
     const maps = (await client.query('SELECT * FROM encryption_maps')).rows.map((row) => ({ id: row.id, entityId: row.entity_id, tenantId: row.tenant_id, organizationId: row.organization_id, fieldsJson: row.fields_json, isActive: row.is_active, deletedAt: row.deleted_at }))
     const entityManager = {
-      find: async () => maps,
+      execute: async (query: string, parameters: unknown[]) => {
+        let parameter = 0
+        return (await connection.query(query.replace(/\?/g, () => `$${++parameter}`), parameters)).rows
+      },
+      find: async (entity: { name: string }) => entity.name === 'EncryptionMap' ? maps : (await connection.query('SELECT id,entity_id AS "entityId",tenant_id AS "tenantId",organization_id AS "organizationId",key,kind,config_json AS "configJson",is_active AS "isActive",updated_at AS "updatedAt",deleted_at AS "deletedAt" FROM custom_field_defs ORDER BY id')).rows,
       getMetadata: () => ({ getAll: () => [{ className: 'FixtureRecord', tableName: 'fixture_records', schema: 'public', primaryKeys: ['id'], properties: { id: { name: 'id', fieldNames: ['id'] }, secret: { name: 'secret', fieldNames: ['secret'] } } }] }),
-      getConnection: () => ({ execute: async (query: string, parameters: unknown[]) => {
+      getConnection: () => ({ close: async () => { await connection.end() }, execute: async (query: string, parameters: unknown[]) => {
         let parameter = 0
         return (await connection.query(query.replace(/\?/g, () => `$${++parameter}`), parameters)).rows
       } }),
@@ -122,6 +138,37 @@ native('native PostgreSQL persisted verification', () => {
     expect(report).toMatchObject({ status: 'passed', comparedRows: '19' })
     expect(trust).not.toContain('rotation.lock')
   }, 60000)
+  async function customFixture(plaintext = false) {
+    await client.query('CREATE TABLE custom_entities_storage(id uuid PRIMARY KEY,entity_type text,tenant_id uuid,organization_id uuid,doc jsonb,updated_at timestamptz NOT NULL)')
+    const id = randomUUID()
+    await client.query('INSERT INTO custom_entities_storage VALUES($1,$2,$3,NULL,$4,$5)', [id, 'test:dynamic', tenantId, JSON.stringify({ secret: plaintext ? 'legacy-plaintext' : encryptWithAesGcm('dynamic-secret', source).value, untouched: { nested: [null, '日本語'] } }), '2026-01-02 03:04:05.123456+00'])
+    await client.query('INSERT INTO custom_field_defs(id,entity_id,tenant_id,key,config_json) VALUES($1,$2,$3,$4,$5)', [randomUUID(), 'test:dynamic', tenantId, 'secret', JSON.stringify({ encrypted: true })])
+  }
+  test('production protection covers custom JSON and exact authenticated timestamp batches through the real Core helper', async () => {
+    await customFixture()
+    const environment = await runtimeEnvironment(); const context = await inputContext()
+    await createConfiguredRotationProtection(environment).protect(context, async (providers) => {
+      if (!providers) throw new Error('Expected pinned protection')
+      await rotate()
+      await rotateCustomEntityDocuments(context.entityManager, { tenantId, organizationId: null, dryRun: false, oldKms: providers.previousKms, encryptionService: new TenantDataEncryptionService(context.entityManager, { kms: providers.kms }), batchSize: providers.batchSize, timestampForBatchWrite: providers.timestampForBatchWrite, timestampForWrite: providers.timestampForWrite })
+    })
+    const row = (await client.query('SELECT doc,updated_at::text FROM custom_entities_storage')).rows[0]
+    expect(decryptWithAesGcm(row.doc.secret, target)).toBe('dynamic-secret')
+    expect(row.doc.untouched).toEqual({ nested: [null, '日本語'] })
+  }, 60000)
+  test('plaintext in a custom field requiring encryption refuses before mutation', async () => {
+    await customFixture(true)
+    const data = await dataset(); const operation = jest.fn()
+    await expect(prepareRotationVerification(data, store()).then(operation)).rejects.toThrow('ROTATION_CUSTOM_PLAINTEXT_UNSUPPORTED')
+    expect(operation).not.toHaveBeenCalled()
+  })
+  test.each(['inactive', 'deleted'])('historical %s encrypted custom definitions reject plaintext before mutation', async history => {
+    await customFixture(true)
+    await client.query(history === 'inactive' ? 'UPDATE custom_field_defs SET is_active=false' : 'UPDATE custom_field_defs SET deleted_at=now()')
+    const data = await dataset(); const operation = jest.fn()
+    await expect(prepareRotationVerification(data, store()).then(operation)).rejects.toThrow('ROTATION_CUSTOM_PLAINTEXT_UNSUPPORTED')
+    expect(operation).not.toHaveBeenCalled()
+  })
   test('compares committed data across three batches including high precision, JSON, NULL and soft deletes', async () => {
     const data = await dataset(); const artifacts = store()
     const prepared = await prepareRotationVerification(data, artifacts)
@@ -143,6 +190,13 @@ native('native PostgreSQL persisted verification', () => {
     await client.query('UPDATE fixture_records SET secret=$1 WHERE id=5', [encryptWithAesGcm('wrong-at-five', target).value])
     await expect(verifyRotationData(prepared, data, artifacts)).rejects.toThrow('ROTATION_DATA_MISMATCH')
   })
+  test('an encryption or lookup rule targeting identity/scope keys refuses before any mutation', async () => {
+    await client.query('UPDATE encryption_maps SET fields_json=$1::jsonb', [JSON.stringify([{ field: 'secret', hashField: 'id' }])])
+    const operation = jest.fn()
+    await expect(dataset().then(operation)).rejects.toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+    expect(operation).not.toHaveBeenCalled()
+    expect(decryptWithAesGcm((await client.query('SELECT secret FROM fixture_records LIMIT 1')).rows[0].secret, source)).not.toBeNull()
+  })
   test('rejects ciphertext left under the previous key', async () => {
     const data = await dataset(); const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)
     await expect(verifyRotationData(prepared, data, artifacts)).rejects.toThrow('ROTATION_DATA_MISMATCH')
@@ -158,6 +212,12 @@ native('native PostgreSQL persisted verification', () => {
     const data = await dataset(); const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)
     await rotate()
     await expect(verifyRotationData(prepared, data, artifacts)).resolves.toMatchObject({ comparedRows: '19' })
+  })
+  test('rejects a schema owner without table privileges before mutation', async () => {
+    const role = `schema_owner_${randomUUID().replaceAll('-', '')}`
+    await client.query(`CREATE ROLE "${role}" LOGIN; ALTER SCHEMA public OWNER TO "${role}"`)
+    try { await expect((await dataset()).assertFence()).rejects.toThrow('DDL_PRIVILEGES_PRESENT') }
+    finally { await client.query(`ALTER SCHEMA public OWNER TO postgres; DROP ROLE "${role}"`) }
   })
   test('rejects a still-authorized independent writer role before mutation', async () => {
     const role = `writer_${randomUUID().replaceAll('-', '')}`

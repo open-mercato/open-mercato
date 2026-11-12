@@ -54,7 +54,7 @@ function fixture(definitions: CustomFieldDef[], batches: Row[][], key: string | 
       expect(query).toContain('limit 8) candidates')
       return []
     }
-    if (query.startsWith('select id from custom_entities_storage')) return [{ id: parameters[0] }]
+    if (query.startsWith('select count(*)::text as verified from custom_entities_storage')) return [{ verified: String(parameters.length / 6) }]
     if (query.startsWith('select ')) return pending.shift() ?? []
     updates.push({ query, parameters, doc: JSON.parse(String(parameters[0])) as Record<string, unknown> })
     return [{ id: parameters[1] }]

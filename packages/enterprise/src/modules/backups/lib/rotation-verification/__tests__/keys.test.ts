@@ -35,3 +35,12 @@ test('does not accept unavailable providers or changed provider identity', async
   target.state.healthy = false
   await expect(pinRotationProviders(['tenant'], source.value, target.value)).rejects.toThrow('KEY_UNAVAILABLE')
 })
+
+
+test('yields for cancellation before reading any provider key', async () => {
+  const source = provider(); const target = provider(); const controller = new AbortController()
+  const read = jest.spyOn(source.value.service, 'getTenantDek')
+  setImmediate(() => controller.abort())
+  await expect(pinRotationProviders(['tenant'], source.value, target.value, controller.signal)).rejects.toThrow('VERIFICATION_INCOMPLETE')
+  expect(read).not.toHaveBeenCalled()
+})

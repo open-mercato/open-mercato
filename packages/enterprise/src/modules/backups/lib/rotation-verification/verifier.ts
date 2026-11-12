@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { canonicalRow, canonicalValue, keyedDigest, keyFingerprint, rowIdentity, sameDigest, type VerificationRow } from './canonical'
+import { canonicalValue, keyedDigest, keyedRowDigest, keyFingerprint, rowIdentity, sameDigest, type VerificationRow } from './canonical'
 import { RotationArtifactStore } from './store'
 
 const headerSchema = z.object({
@@ -12,6 +12,7 @@ const headerSchema = z.object({
 const expectedSchema = z.array(z.object({ identity: z.string().max(8192), digest: z.string().regex(/^[0-9a-f]{64}$/), fields: z.number().int().nonnegative(), metadata: z.string().regex(/^[0-9a-f]{64}$/) }).strict()).max(500)
 export type VerificationBinding = { database: string; scope: string; schema: string; coverage: string; provider: string; backupDigest: string }
 export interface RotationDataset {
+  maintenanceBatchRows?: number
   assertFence(): Promise<void>
   binding(): Promise<VerificationBinding>
   rows(phase: 'before' | 'after', signal?: AbortSignal): AsyncIterable<VerificationRow>
@@ -61,9 +62,7 @@ export async function prepareRotationVerification(dataset: RotationDataset, stor
       const identity = rowIdentity(row)
       if (identity === previousIdentity) throw new Error('[internal] ROTATION_DUPLICATE_IDENTITY')
       previousIdentity = identity
-      const bytes = canonicalRow(row)
-      if (bytes.length > 1024 * 1024) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-      records.push({ identity, digest: keyedDigest(runKey, 'row-v1', bytes), fields: row.columns.length, metadata: keyedDigest(runKey, 'metadata-v1', canonicalValue(row.metadata ?? {})) })
+      records.push({ identity, digest: keyedRowDigest(runKey, row), fields: row.columns.length, metadata: keyedDigest(runKey, 'metadata-v1', canonicalValue(row.metadata ?? {})) })
       count++; fields += row.columns.length
       if (records.length === 500) await flush()
     }
@@ -105,7 +104,7 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
       for (const expected of expectedSchema.parse(JSON.parse(chunkBytes.toString()))) {
         interrupted(signal)
         const next = await iterator.next()
-        if (next.done || rowIdentity(next.value) !== expected.identity || next.value.columns.length !== expected.fields || !sameDigest(expected.digest, keyedDigest(runKey, 'row-v1', canonicalRow(next.value)))) throw new Error('[internal] ROTATION_DATA_MISMATCH')
+        if (next.done || rowIdentity(next.value) !== expected.identity || next.value.columns.length !== expected.fields || !sameDigest(expected.digest, keyedRowDigest(runKey, next.value))) throw new Error('[internal] ROTATION_DATA_MISMATCH')
         const metadata = keyedDigest(runKey, 'metadata-v1', canonicalValue(next.value.metadata ?? {}))
         if (!sameDigest(expected.metadata, metadata)) {
           const intent = next.value.metadataIntent
@@ -130,4 +129,31 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
   } finally {
     try { await iterator?.return?.() } finally { runKey.fill(0) }
   }
+}
+
+export async function validatePreparedRotation(prepared: PreparedRotation, dataset: RotationDataset, store: RotationArtifactStore, signal?: AbortSignal): Promise<Buffer> {
+  interrupted(signal)
+  const bytes = await store.read('header')
+  if (!sameDigest(prepared.trustedHeaderDigest, digest(bytes))) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
+  const header = headerSchema.parse(JSON.parse(bytes.toString()))
+  if (header.runId !== prepared.runId) throw new Error('[internal] ROTATION_BINDING_CHANGED')
+  const runKey = await store.read('run-key')
+  try {
+    if (runKey.length !== 32) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
+    await dataset.assertFence()
+    const binding = await dataset.binding()
+    const keys = await dataset.keys()
+    if (!sameDigest(header.binding, bindingDigest(binding)) || keys.provider !== binding.provider) throw new Error('[internal] ROTATION_BINDING_CHANGED')
+    if (!sameDigest(header.sourceFingerprint, keyFingerprint(runKey, keys.source)) || !sameDigest(header.targetFingerprint, keyFingerprint(runKey, keys.target))) throw new Error('[internal] ROTATION_KEY_CHANGED')
+    const root = createHash('sha256')
+    let rows = 0; let fields = 0
+    for (let chunk = 0; chunk < header.chunks; chunk++) {
+      interrupted(signal)
+      const chunkBytes = await store.read(chunkName(chunk))
+      root.update(keyedDigest(runKey, `chunk-${chunk}`, chunkBytes))
+      for (const expected of expectedSchema.parse(JSON.parse(chunkBytes.toString()))) { rows++; fields += expected.fields }
+    }
+    if (rows !== header.rows || fields !== header.fields || !sameDigest(root.digest('hex'), header.root)) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
+    return runKey
+  } catch (error) { runKey.fill(0); throw error }
 }

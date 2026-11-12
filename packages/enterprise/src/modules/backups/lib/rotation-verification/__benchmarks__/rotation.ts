@@ -9,7 +9,7 @@ import { createDerivedKeyKmsService } from '@open-mercato/shared/lib/encryption/
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { EncryptionMap, CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { rotateCustomEntityDocuments } from '@open-mercato/core/modules/entities/lib/rotate-custom-entity-documents'
-import { readMaintenanceBatches, writeMaintenanceRow } from '@open-mercato/core/modules/entities/lib/rotation-maintenance'
+import { readMaintenanceBatches, writeMaintenanceRow, verifyMaintenanceBatch } from '@open-mercato/core/modules/entities/lib/rotation-maintenance'
 import { createBackup, verifyBackup, createPostgresSource } from '../../engine'
 import { generateX25519Identity, identityToRecipient } from '../../engine/crypto'
 import { createEnterpriseRotationProtection } from '../coordinator'
@@ -30,7 +30,7 @@ async function main() {
   const database = existing?.database ?? `rotation_benchmark_${gib}g_${randomUUID().replaceAll('-', '').slice(0, 12)}`
   if (!/^rotation_benchmark_(1|20)g_[a-f0-9]{12}$/.test(database)) throw new Error('Invalid isolated benchmark database')
   if (!existing) await admin.query(`CREATE DATABASE "${database}" TEMPLATE template0`); await admin.end()
-  const client = new Client({ ...config, database }); await client.connect()
+  const client = new Client({ ...config, database, statement_timeout: 900000, lock_timeout: 30000 }); await client.connect()
   const tenantId = '11111111-1111-4111-8111-111111111111'
   const sourceSecret = existing?.sourceSecret ?? randomBytes(48).toString('base64'); const targetSecret = existing?.targetSecret ?? randomBytes(48).toString('base64')
   const sourceKms = createDerivedKeyKmsService(sourceSecret); const targetKms = createDerivedKeyKmsService(targetSecret)
@@ -76,7 +76,7 @@ async function main() {
   const connection = { execute: async (sql: string, parameters: unknown[]) => {
     let number = 0; const started = performance.now()
     const result = await client.query(sql.replace(/\?/g, () => `$${++number}`), parameters)
-    if (/^SELECT "id" FROM/.test(sql) || /^select id from custom_entities_storage/.test(sql)) earlyReadbackMs += performance.now() - started
+    if (/^SELECT count\(\*\)::text AS verified/.test(sql) || /^select count\(\*\)::text as verified/.test(sql)) earlyReadbackMs += performance.now() - started
     return result.rows
   } }
   const em = {
@@ -89,17 +89,12 @@ async function main() {
   registerEntityIds({ benchmark: { BenchRecord: 'benchmark:record' } })
   const context = { entityManager: em, tenantId, organizationId: null, dryRun: false, previousKey: sourceSecret }
   const pinned = await pinRotationProviders([tenantId], { identity: 'benchmark-source-derived', service: sourceKms }, { identity: 'benchmark-target-derived', service: targetKms })
-  const standalone = await createPostgresRotationDataset({ context, providers: pinned, provider: pinned.provider, backupDigest: '0'.repeat(64) })
-  const standaloneStarted = performance.now(); let scanned = 0
-  for await (const row of standalone.rows('before')) { scanned++; if (!row.columns.length) throw new Error('Unexamined row') }
-  const standaloneMs = performance.now() - standaloneStarted
-  console.log(JSON.stringify({ phase: 'standalone-scanned', gib, rows: scanned, elapsedMs: Math.round(standaloneMs), rssMiB: Math.round(peak / 1024 / 1024) }))
-  if (scanned !== perKindRows * 2) throw new Error('Fixture coverage mismatch')
   const identity = await generateX25519Identity(); const recipients = [await identityToRecipient(identity)]
   await writeFile(`${root}/synthetic-escrow.identity`, identity, { mode: 0o600 })
   const native = { sourceService: 'source', binariesDir: '/usr/lib/postgresql/16/bin', serviceFile: `${root}/service.conf`, passwordFile: `${root}/password` }
   await writeFile(native.serviceFile, `[source]\nhost=127.0.0.1\nport=5432\ndbname=${database}\nuser=postgres\nsslmode=disable\n`, { mode: 0o600 })
   await writeFile(native.passwordFile, `*:*:*:postgres:${process.env.POSTGRES_PASSWORD}\n`, { mode: 0o600 })
+  let intentMs = 0
   let backupMs = 0; let verifyBackupMs = 0; let rotationMs = 0; let baselineMs = 0; let finalMs = 0
   let baseDataset: Awaited<ReturnType<typeof createPostgresRotationDataset>> | undefined
   const protection = createEnterpriseRotationProtection({
@@ -132,21 +127,33 @@ async function main() {
   await protection.protect(context, async (providers) => {
     if (!providers) throw new Error('No pinned providers')
     const start = performance.now()
-    for await (const rows of readMaintenanceBatches(connection, '"public"."bench_records"', ['secret'], ['id'], { tenantId, organizationId: null })) {
+    for await (const rows of readMaintenanceBatches(connection, '"public"."bench_records"', ['secret'], ['id'], { tenantId, organizationId: null }, providers.batchSize)) {
+      const writes: Array<{ row: Record<string, unknown>; updates: Record<string, unknown> }> = []
       for (const row of rows) {
         const plaintext = decryptWithAesGcm(String(row.secret), sourceKey)
         if (plaintext === null) throw new Error('Unreadable baseline')
-        await writeMaintenanceRow(connection, '"public"."bench_records"', ['id'], row, { secret: encryptWithAesGcm(plaintext, targetKey).value }, { tenantId, organizationId: null }, true)
+        const updates = { secret: encryptWithAesGcm(plaintext, targetKey).value }
+        await writeMaintenanceRow(connection, '"public"."bench_records"', ['id'], row, updates, { tenantId, organizationId: null })
+        writes.push({ row, updates })
       }
+      await verifyMaintenanceBatch(connection, '"public"."bench_records"', ['id'], writes, { tenantId, organizationId: null })
     }
-    await rotateCustomEntityDocuments(em, { encryptionService: new TenantDataEncryptionService(em, { kms: providers.kms }), oldKms: providers.previousKms, tenantId, organizationId: null, dryRun: false, timestampForWrite: providers.timestampForWrite })
+    await rotateCustomEntityDocuments(em, { encryptionService: new TenantDataEncryptionService(em, { kms: providers.kms }), oldKms: providers.previousKms, tenantId, organizationId: null, dryRun: false, batchSize: providers.batchSize, timestampForBatchWrite: providers.timestampForBatchWrite ? async (intents) => { const started = performance.now(); try { return await providers.timestampForBatchWrite!(intents) } finally { intentMs += performance.now() - started } } : undefined, timestampForWrite: providers.timestampForWrite })
     rotationMs = performance.now() - start
     console.log(JSON.stringify({ phase: 'rotated', gib, elapsedMs: Math.round(rotationMs), rssMiB: Math.round(peak / 1024 / 1024) }))
   })
   const totalMs = performance.now() - started
-  const baselineCost = backupMs + verifyBackupMs + rotationMs - earlyReadbackMs
+  const coordinatorPeak = peak
+  clearInterval(sampling)
+  const standalone = baseDataset!
+  const standaloneStarted = performance.now(); let scanned = 0
+  for await (const row of standalone.rows('before')) { scanned++; if (!row.columns.length) throw new Error('Unexamined row') }
+  const standaloneMs = performance.now() - standaloneStarted
+  if (scanned !== perKindRows * 2) throw new Error('Fixture coverage mismatch')
+  console.log(JSON.stringify({ phase: 'matched-target-scan', gib, rows: scanned, elapsedMs: Math.round(standaloneMs) }))
+  const baselineCost = backupMs + verifyBackupMs + rotationMs - earlyReadbackMs - intentMs
   const overheadMs = totalMs - baselineCost
-  const result = { root, nodeHeapMiB: Number(process.env.OM_BENCH_HEAP_MIB ?? '128'), gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, finalMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: finalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: peak / 1024 / 1024, coordinatorRssPass: peak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: 'warm source after insert+ANALYZE+matched standalone scan; not a cold-cache claim', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
+  const result = { root, nodeMemoryFlags: process.execArgv, gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, intentMs, finalMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: finalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: coordinatorPeak / 1024 / 1024, coordinatorRssPass: coordinatorPeak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: process.env.OM_BENCH_CACHE_PROTOCOL ?? 'warm source after isolated seed/ANALYZE; reference scan runs after verification without timestamp-intent lookup', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
   await writeFile(`${root}/rotation-${gib}g-report.json`, JSON.stringify(result, null, 2), { mode: 0o600 })
   console.log(JSON.stringify(result)); clearInterval(sampling); await client.end()
 }

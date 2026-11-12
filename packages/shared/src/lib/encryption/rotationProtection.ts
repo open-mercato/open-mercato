@@ -11,8 +11,10 @@ export type RotationTimestampIntent = {
 
 export type RotationKeyProviders = {
   signal?: AbortSignal
+  batchSize?: number
   kms: KmsService
   previousKms: KmsService | null
+  timestampForBatchWrite?: (intents: RotationTimestampIntent[]) => Promise<Date[]>
   timestampForWrite?: (intent: RotationTimestampIntent) => Promise<Date>
 }
 

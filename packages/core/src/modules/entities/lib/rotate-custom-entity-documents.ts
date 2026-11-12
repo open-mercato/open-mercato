@@ -24,6 +24,8 @@ type RotationOptions = {
   organizationId: string | null
   dryRun: boolean
   signal?: AbortSignal
+  batchSize?: number
+  timestampForBatchWrite?: (intents: RotationTimestampIntent[]) => Promise<Date[]>
   timestampForWrite?: (intent: RotationTimestampIntent) => Promise<Date>
 }
 
@@ -69,6 +71,8 @@ export async function rotateCustomEntityDocuments(
   em: EntityManager,
   options: RotationOptions,
 ): Promise<number> {
+  const batchSize = options.batchSize ?? BATCH_SIZE
+  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 500) throw new Error('[internal] Invalid maintenance batch size')
   const definitionScope: FilterQuery<CustomFieldDef>[] = []
   if (options.tenantId) definitionScope.push({ $or: [{ tenantId: options.tenantId }, { tenantId: null }] })
   if (options.organizationId) definitionScope.push({ $or: [{ organizationId: options.organizationId }, { organizationId: null }] })
@@ -77,7 +81,11 @@ export async function rotateCustomEntityDocuments(
   }, { limit: MAX_DEFINITIONS + 1, orderBy: { id: 'asc' } })
   if (availableDefinitions.length > MAX_DEFINITIONS) throw new Error('[internal] Custom definition inventory exceeds supported maintenance bound')
   if (!availableDefinitions.length) return 0
-  const connection = em.getConnection()
+  const connection = {
+    execute: async <T = unknown[]>(sql: string, parameters: unknown[]): Promise<T> => options.signal
+      ? await em.execute(sql, parameters, { signal: options.signal, inflightQueryAbortStrategy: 'cancel query' }) as T
+      : await em.getConnection().execute(sql, parameters) as T,
+  }
   const fieldsByScope = new Map<string, DocumentFieldPolicy>()
   const oldDeks = new Map<string, TenantDek | null>()
   let cursor: string | null = null
@@ -99,16 +107,22 @@ export async function rotateCustomEntityDocuments(
       parameters.push(cursor)
     }
     const oversized = await connection.execute<Array<{ oversized: number }>>(
-      `select 1 as oversized from (select doc from custom_entities_storage where ${predicates.join(' and ')} order by id asc limit ${BATCH_SIZE}) candidates where octet_length(convert_to(doc::text, 'UTF8')) > ? limit 1`,
+      `select 1 as oversized from (select doc from custom_entities_storage where ${predicates.join(' and ')} order by id asc limit ${batchSize}) candidates where octet_length(convert_to(doc::text, 'UTF8')) > ? limit 1`,
       [...parameters, MAINTENANCE_ROW_BYTES],
     )
     if (oversized.length) throw new Error('[internal] Custom document exceeds supported maintenance size')
     const rows = await connection.execute<DocumentRow[]>(
-      `select id, entity_type, tenant_id, organization_id, doc, updated_at::text as updated_at from custom_entities_storage where ${predicates.join(' and ')} order by id asc limit ${BATCH_SIZE}`,
+      `select id, entity_type, tenant_id, organization_id, doc, updated_at::text as updated_at from custom_entities_storage where ${predicates.join(' and ')} order by id asc limit ${batchSize}`,
       parameters,
     )
     if (!rows.length) break
-    for (const row of rows) {
+    const timestamps = !options.dryRun && options.timestampForBatchWrite ? await options.timestampForBatchWrite(rows.map((row) => {
+      if (!row.tenant_id) throw new Error('[internal] Protected custom maintenance requires an owned tenant scope')
+      return { table: 'custom_entities_storage', identity: row.id, tenantId: row.tenant_id, organizationId: row.organization_id, previousTimestamp: row.updated_at ?? null }
+    })) : undefined
+    if (timestamps && (timestamps.length !== rows.length || timestamps.some((value) => !(value instanceof Date) || !Number.isFinite(value.getTime())))) throw new Error('[internal] Invalid maintenance timestamp batch intent')
+    const committedChecks: unknown[][] = []
+    for (const [rowIndex, row] of rows.entries()) {
       options.signal?.throwIfAborted()
       const scopeKey = JSON.stringify([row.entity_type, row.tenant_id, row.organization_id])
       let policy = fieldsByScope.get(scopeKey)
@@ -203,27 +217,28 @@ export async function rotateCustomEntityDocuments(
           ? value.map((entry, index) => mask[index] ? entry : previous[index])
           : value
       }
-      const intendedTimestamp = options.timestampForWrite ? await options.timestampForWrite({
+      const intendedTimestamp = timestamps?.[rowIndex] ?? (options.timestampForWrite ? await options.timestampForWrite({
         table: 'custom_entities_storage', identity: row.id, tenantId, organizationId: row.organization_id,
         previousTimestamp: row.updated_at ?? null,
-      }) : null
+      }) : null)
       if (intendedTimestamp && !Number.isFinite(intendedTimestamp.getTime())) throw new Error('[internal] Invalid maintenance timestamp intent')
       const written = await connection.execute<Array<{ id: string }>>(
         `update custom_entities_storage set doc = ?::jsonb, updated_at = ${intendedTimestamp ? '?' : 'now()'} where id = ? and entity_type = ? and tenant_id is not distinct from ? and organization_id is not distinct from ? and doc = ?::jsonb returning id`,
         [JSON.stringify(nextDoc), ...(intendedTimestamp ? [intendedTimestamp] : []), row.id, row.entity_type, tenantId, row.organization_id, JSON.stringify(row.doc)],
       )
       if (!written.length) throw new Error('[internal] Custom entity document changed during encryption; retry the operation')
-      if (intendedTimestamp) {
-        const committed = await connection.execute<Array<{ id: string }>>(
-          'select id from custom_entities_storage where id = ? and entity_type = ? and tenant_id is not distinct from ? and organization_id is not distinct from ? and doc = ?::jsonb and updated_at = ?',
-          [row.id, row.entity_type, tenantId, row.organization_id, JSON.stringify(nextDoc), intendedTimestamp],
-        )
-        if (committed.length !== 1) throw new Error('[internal] Persisted custom document readback did not match intended values')
-      }
+      if (intendedTimestamp) committedChecks.push([row.id, row.entity_type, tenantId, row.organization_id, JSON.stringify(nextDoc), intendedTimestamp])
       updated += 1
     }
+    if (committedChecks.length) {
+      const committed = await connection.execute<Array<{ verified: string }>>(
+        `select count(*)::text as verified from custom_entities_storage where ${committedChecks.map(() => '(id = ? and entity_type = ? and tenant_id is not distinct from ? and organization_id is not distinct from ? and doc = ?::jsonb and updated_at = ?)').join(' or ')}`,
+        committedChecks.flat(),
+      )
+      if (committed.length !== 1 || committed[0].verified !== String(committedChecks.length)) throw new Error('[internal] Persisted custom document batch did not match intended values')
+    }
     cursor = rows[rows.length - 1]!.id
-    if (rows.length < BATCH_SIZE) break
+    if (rows.length < batchSize) break
   }
   return updated
 }

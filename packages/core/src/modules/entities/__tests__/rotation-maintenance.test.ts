@@ -1,4 +1,4 @@
-import { readMaintenanceBatches, writeMaintenanceRow, MAINTENANCE_BATCH_SIZE } from '../lib/rotation-maintenance'
+import { readMaintenanceBatches, writeMaintenanceRow, verifyMaintenanceBatch, MAINTENANCE_BATCH_SIZE } from '../lib/rotation-maintenance'
 
 const scope = { tenantId: 'tenant-a', organizationId: null }
 describe('bounded scoped maintenance', () => {
@@ -21,6 +21,19 @@ describe('bounded scoped maintenance', () => {
     await expect(writeMaintenanceRow({ execute }, '"records"', ['id'], { id: 1, value: 'before' }, { value: 'after' }, scope, true)).rejects.toThrow('readback')
     expect(execute.mock.calls[1][0]).toContain('SELECT "id" FROM "records"')
     expect(execute.mock.calls[1][1]).toEqual([1, 'tenant-a', null, 'after'])
+  })
+  test('protected callers can select a preflight-proven bounded batch while invalid limits refuse', async () => {
+    const execute = jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 1 }])
+    for await (const _batch of readMaintenanceBatches({ execute }, '"records"', ['value'], ['id'], scope, 45)) {}
+    expect(execute.mock.calls[1][0]).toContain('LIMIT 45')
+    await expect((async () => { for await (const _batch of readMaintenanceBatches({ execute }, '"records"', ['value'], ['id'], scope, 501)) {} })()).rejects.toThrow('batch size')
+  })
+  test('one committed readback checks the complete batch and refuses an omitted row', async () => {
+    const execute = jest.fn().mockResolvedValueOnce([{ verified: '2' }]).mockResolvedValueOnce([{ verified: '1' }])
+    const writes = [{ row: { id: 1 }, updates: { value: 'first' } }, { row: { id: 2 }, updates: { value: 'second' } }]
+    await verifyMaintenanceBatch({ execute }, '"records"', ['id'], writes, scope)
+    expect(execute.mock.calls[0][1]).toEqual(['tenant-a', null, 1, 'first', 2, 'second'])
+    await expect(verifyMaintenanceBatch({ execute }, '"records"', ['id'], writes, scope)).rejects.toThrow('batch')
   })
   test('scoped compare-and-swap includes complete identity and previous values', async () => {
     const execute = jest.fn().mockResolvedValue([{ id: 1 }])

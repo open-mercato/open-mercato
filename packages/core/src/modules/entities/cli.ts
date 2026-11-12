@@ -38,7 +38,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 import type { RotationProtectionService, RotationKeyProviders } from '@open-mercato/shared/lib/encryption/rotationProtection'
 import { protectKeyRotation, UNPROTECTED_ROTATION_ACKNOWLEDGMENT } from './lib/rotation-protection'
-import { readMaintenanceBatches, writeMaintenanceRow, quoteMaintenanceIdentifier } from './lib/rotation-maintenance'
+import { readMaintenanceBatches, writeMaintenanceRow, verifyMaintenanceBatch, quoteMaintenanceIdentifier } from './lib/rotation-maintenance'
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}
@@ -570,7 +570,9 @@ const rotateEncryptionKey: ModuleCli = {
       args[UNPROTECTED_ROTATION_ACKNOWLEDGMENT],
       protection,
       async (providers?: RotationKeyProviders) => {
-    const conn: any = em?.getConnection?.()
+    const conn: any = providers?.signal
+      ? { execute: (sql: string, parameters: unknown[]) => em.execute(sql, parameters, { signal: providers.signal, inflightQueryAbortStrategy: 'cancel query' }) }
+      : em?.getConnection?.()
     if (!conn || typeof conn.execute !== 'function') {
       failCli('Unable to access raw connection; aborting.')
     }
@@ -610,7 +612,9 @@ const rotateEncryptionKey: ModuleCli = {
       encryptionService,
       oldKms,
       timestampForWrite: providers?.timestampForWrite,
+      timestampForBatchWrite: providers?.timestampForBatchWrite,
       signal: providers?.signal,
+      batchSize: providers?.batchSize,
       tenantId: tenantIdArg,
       organizationId: organizationIdArg,
       dryRun,
@@ -690,7 +694,8 @@ const rotateEncryptionKey: ModuleCli = {
         ? `${quoteMaintenanceIdentifier(schema)}.${quoteMaintenanceIdentifier(tableName)}`
         : quoteMaintenanceIdentifier(tableName)
       let updated = 0
-      for await (const batch of readMaintenanceBatches(conn, qualifiedTable, columnList, primaryKeys, scope)) {
+      for await (const batch of readMaintenanceBatches(conn, qualifiedTable, columnList, primaryKeys, scope, providers?.batchSize)) {
+      const committedWrites: Array<{ row: Record<string, unknown>; updates: Record<string, unknown> }> = []
       const dekAvailable = dryRun ? await hasExistingDek(scope.tenantId) : true
       // The scope pins one tenant, so the current DEK is the same for every row here.
       const currentDek = rotate && oldKms ? await encryptionService.getDek(scope.tenantId) : null
@@ -792,10 +797,12 @@ const rotateEncryptionKey: ModuleCli = {
         }
         if (!Object.keys(updates).length) continue
         if (!dryRun) {
-          await writeMaintenanceRow(conn, qualifiedTable, primaryKeys, row, updates, scope, Boolean(providers))
+          await writeMaintenanceRow(conn, qualifiedTable, primaryKeys, row, updates, scope)
+          if (providers) committedWrites.push({ row, updates })
         }
         updated += 1
       }
+      if (providers && committedWrites.length) await verifyMaintenanceBatch(conn, qualifiedTable, primaryKeys, committedWrites, scope)
       }
       return updated
     }

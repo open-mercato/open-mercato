@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
@@ -117,4 +117,53 @@ test('a durable report followed by failed trusted-state publication resumes idem
   const id = records[0]!.slice(0, -5)
   await expect(createEnterpriseRotationProtection({ ...options, resumeId: id }).protect(context, async () => {})).resolves.toBeUndefined()
   expect(JSON.parse(await readFile(join(options.trustRoot, records[0]!), 'utf8')).status).toBe('passed')
+})
+
+
+test('durable timestamp pages use one encryption per batch and preserve intent on repeated batches', async () => {
+  const { options, context, state } = fixture()
+  const cipher = await options.cipher(); const seal = jest.spyOn(cipher, 'seal')
+  options.cipher = async () => cipher
+  await createEnterpriseRotationProtection(options).protect(context, async providers => {
+    const intent = (identity: string) => ({ table: 'custom_entities_storage', identity, tenantId: 'tenant', organizationId: null, previousTimestamp: state.timestamp })
+    const before = seal.mock.calls.length
+    const dates = await providers!.timestampForBatchWrite!([intent('other-a'), intent('other-b')])
+    expect(seal.mock.calls.length - before).toBe(1)
+    expect(dates).toHaveLength(2)
+    const repeated = await providers!.timestampForBatchWrite!([intent('other-a'), intent('other-b')])
+    expect(repeated).toEqual(dates)
+    expect(seal.mock.calls.length - before).toBe(1)
+    await providers!.timestampForBatchWrite!([intent('other-c'), intent('other-d')])
+    expect(seal.mock.calls.length - before).toBe(2)
+    await expect(providers!.timestampForBatchWrite!([{ ...intent('other-a'), previousTimestamp: '2000-01-01 00:00:00+00' }])).rejects.toThrow('METADATA_MISMATCH')
+  }).catch(error => { expect(String(error)).toContain('METADATA_MISMATCH') })
+  const roots = await readdir(options.artifactRoot)
+  const files = (await readdir(join(options.artifactRoot, roots[0]!))).filter(name => name.startsWith('intent-'))
+  expect(files).toHaveLength(6) // two pages, each with two row-address hardlinks
+  const inodes = await Promise.all(files.map(async file => (await stat(join(options.artifactRoot, roots[0]!, file))).ino))
+  expect(new Set(inodes).size).toBe(2)
+  expect(state.reports).toBe(0)
+})
+
+test('a changed run-key artifact refuses resumed mutation before invoking the operation', async () => {
+  const { options, context, state } = fixture(); state.wrongValue = true
+  await expect(createEnterpriseRotationProtection(options).protect(context, async () => {})).rejects.toThrow('DATA_MISMATCH')
+  const records = (await readdir(options.trustRoot)).filter(name => name.endsWith('.json'))
+  const id = records[0]!.slice(0, -5)
+  const roots = await readdir(options.artifactRoot)
+  const runKey = join(options.artifactRoot, roots[0]!, 'run-key.age')
+  await writeFile(runKey, 'invalid ciphertext', { mode: 0o600 })
+  const mutate = jest.fn()
+  await expect(createEnterpriseRotationProtection({ ...options, resumeId: id }).protect(context, mutate)).rejects.toThrow()
+  expect(mutate).not.toHaveBeenCalled()
+})
+
+
+test.each(['nested-trust', 'nested-artifacts'])('refuses physically nested roots even with dot-prefixed descendants: %s', async nesting => {
+  const { options, context } = fixture()
+  if (nesting === 'nested-trust') options.trustRoot = join(options.artifactRoot, '..trust')
+  else options.artifactRoot = join(options.trustRoot, '..artifacts')
+  const mutation = jest.fn()
+  await expect(createEnterpriseRotationProtection(options).protect(context, mutation)).rejects.toThrow('TRUST_ANCHOR_LOCATION')
+  expect(mutation).not.toHaveBeenCalled()
 })

@@ -17,7 +17,9 @@ export async function* readMaintenanceBatches(
   columns: string[],
   primaryKeys: string[],
   scope: MaintenanceScope,
+  batchSize = MAINTENANCE_BATCH_SIZE,
 ): AsyncGenerator<MaintenanceRow[]> {
+  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 500) throw new Error('[internal] Invalid maintenance batch size')
   if (!primaryKeys.length) throw new Error('[internal] Maintenance requires a complete primary key')
   const names = [...new Set([...primaryKeys, ...columns])]
   const projection = names.map(quoteMaintenanceIdentifier).join(', ')
@@ -34,7 +36,7 @@ export async function* readMaintenanceBatches(
   for (;;) {
     const predicate = cursor ? ` AND (${keys.join(', ')}) > (${keys.map(() => '?').join(', ')})` : ''
     const result = await connection.execute(
-      `SELECT ${projection} FROM ${table} WHERE ${scopeSql}${predicate} ORDER BY ${keys.join(', ')} LIMIT ${MAINTENANCE_BATCH_SIZE}`,
+      `SELECT ${projection} FROM ${table} WHERE ${scopeSql}${predicate} ORDER BY ${keys.join(', ')} LIMIT ${batchSize}`,
       [...scopeValues, ...(cursor ?? [])],
     )
     if (!Array.isArray(result)) throw new Error('[internal] Invalid maintenance batch')
@@ -45,7 +47,7 @@ export async function* readMaintenanceBatches(
     if (cursor && next.every((value, index) => value === cursor![index])) throw new Error('[internal] Maintenance cursor did not advance')
     yield rows
     cursor = next
-    if (rows.length < MAINTENANCE_BATCH_SIZE) return
+    if (rows.length < batchSize) return
   }
 }
 
@@ -75,4 +77,26 @@ export async function writeMaintenanceRow(
     )
     if (!Array.isArray(committed) || committed.length !== 1) throw new Error('[internal] Persisted encryption maintenance readback did not match intended values')
   }
+}
+
+export async function verifyMaintenanceBatch(
+  connection: MaintenanceConnection,
+  table: string,
+  primaryKeys: string[],
+  writes: Array<{ row: MaintenanceRow; updates: MaintenanceRow }>,
+  scope: MaintenanceScope,
+): Promise<void> {
+  if (!writes.length) return
+  if (writes.length > 500) throw new Error('[internal] Invalid maintenance readback batch')
+  const parameters: unknown[] = [scope.tenantId, scope.organizationId]
+  const comparisons = writes.map(({ row, updates }) => {
+    const identity = primaryKeys.map((key) => { parameters.push(row[key]); return `${quoteMaintenanceIdentifier(key)} = ?` })
+    const values = Object.entries(updates).map(([key, value]) => { parameters.push(value); return `${quoteMaintenanceIdentifier(key)} IS NOT DISTINCT FROM ?` })
+    return `(${[...identity, ...values].join(' AND ')})`
+  })
+  if (parameters.length > 60000) throw new Error('[internal] Maintenance readback parameter bound exceeded')
+  const result = await connection.execute(
+    `SELECT count(*)::text AS verified FROM ${table} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? AND (${comparisons.join(' OR ')})`, parameters,
+  )
+  if (!Array.isArray(result) || result.length !== 1 || String((result[0] as { verified?: unknown }).verified) !== String(writes.length)) throw new Error('[internal] Persisted encryption maintenance batch did not match intended values')
 }

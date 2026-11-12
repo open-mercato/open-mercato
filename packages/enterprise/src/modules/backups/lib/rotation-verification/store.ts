@@ -1,5 +1,5 @@
 import { constants } from 'node:fs'
-import { chmod, mkdir, open, rename, lstat } from 'node:fs/promises'
+import { chmod, mkdir, open, rename, lstat, link } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
@@ -36,10 +36,22 @@ export class RotationArtifactStore {
     try { await directory.sync() } finally { await directory.close() }
   }
 
+  async fileIdentity(name: string): Promise<string> {
+    const info = await lstat(this.path(name))
+    if (!info.isFile() || info.isSymbolicLink() || info.size > 9 * 1024 * 1024 || (info.mode & 0o077) !== 0 || info.uid !== process.getuid?.()) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
+    return `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`
+  }
+
+  async linkNames(source: string, aliases: string[]): Promise<void> {
+    await this.fileIdentity(source)
+    for (const name of aliases) await link(this.path(source), this.path(name))
+    const directory = await open(this.directory, constants.O_RDONLY)
+    try { await directory.sync() } finally { await directory.close() }
+  }
+
   async read(name: string): Promise<Buffer> {
     const path = this.path(name)
-    const stat = await lstat(path)
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 9 * 1024 * 1024) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
+    await this.fileIdentity(name)
     const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
       const plaintext = Buffer.from(await this.cipher.open(await file.readFile()))

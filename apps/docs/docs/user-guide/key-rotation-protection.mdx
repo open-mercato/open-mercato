@@ -14,6 +14,8 @@ Install the commercially licensed Enterprise package, enable both `OM_ENABLE_ENT
 
 Before starting, stop all application replicas, workers and schedulers. Use a dedicated offline maintenance connection whose database role can read every selected row, including under RLS/FORCE RLS. Other non-superuser roles must have no effective write/ownership privileges on selected tables or encryption control tables; no other client sessions or prepared transactions may remain. Preflight refuses when it cannot prove this fence. The command does not terminate sessions or revoke grants automatically. Database superusers and the host operator remain trusted; do not run independent administrative writes during maintenance.
 
+The maintenance role must have server-provisioned, nonzero `statement_timeout` of at most 15 minutes and `lock_timeout` of at most 30 seconds. Preflight verifies these bounds without changing pooled session settings. The whole run has a six-hour default deadline (`OM_ROTATION_DEADLINE_SECONDS`, maximum 24 hours); cancellation closes the dedicated maintenance connection and aborts owned native children. A statement interrupted after commit is reconciled on explicit resume, not assumed rolled back.
+
 Prepare the following private files and absolute directories on the maintenance host:
 
 | Setting | Purpose |
