@@ -10,13 +10,13 @@ import { isAbsolute, join } from 'node:path'
 import { PassThrough, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { Client, Query, type ClientConfig } from 'pg'
-import type { BackupSource, ByteStream, DatabaseIdentity, Entity, NativeOptions, RestoreTarget, Snapshot, SourceChunk } from './types'
+import type { BackupSource, ByteStream, DatabaseIdentity, Entity, NativeOptions, RestoreTarget, RestoreRun, Snapshot, SourceChunk } from './types'
 
 const identifier = (value: string) => `"${value.replaceAll('"', '""')}"`
 const literal = (value: string) => `'${value.replaceAll("'", "''")}'`
 const relation = (entity: Pick<Entity, 'schema' | 'table'>) => `${identifier(entity.schema)}.${identifier(entity.table)}`
 const failure = (code: string): BackupError => {
-  const invalid = new Set(['BACKUP_SERVICE_NAME', 'BACKUP_SERVICE_FORMAT', 'BACKUP_SERVICE_DUPLICATE', 'BACKUP_SERVICE_INCOMPLETE', 'BACKUP_SERVICE_OPTION_UNSUPPORTED', 'BACKUP_SERVICE_PORT', 'BACKUP_POSTGRES_VERSION_OR_IDENTITY', 'BACKUP_CLIENT_MAJOR_MISMATCH', 'BACKUP_ENTITY_LIMIT', 'BACKUP_RELATION_KIND_UNSUPPORTED', 'BACKUP_NATIVE_METADATA_LIMIT', 'BACKUP_TABLE_COLUMNS_EMPTY'])
+  const invalid = new Set(['BACKUP_SERVICE_NAME', 'BACKUP_SERVICE_FORMAT', 'BACKUP_SERVICE_DUPLICATE', 'BACKUP_SERVICE_INCOMPLETE', 'BACKUP_SERVICE_OPTION_UNSUPPORTED', 'BACKUP_SERVICE_PORT', 'BACKUP_POSTGRES_VERSION_OR_IDENTITY', 'BACKUP_CLIENT_MAJOR_MISMATCH', 'BACKUP_ENTITY_LIMIT', 'BACKUP_RELATION_KIND_UNSUPPORTED', 'BACKUP_NESTED_REGCLASS_UNSUPPORTED', 'BACKUP_LATE_REGCLASS_UNSUPPORTED', 'BACKUP_NATIVE_METADATA_LIMIT', 'BACKUP_TABLE_COLUMNS_EMPTY'])
   const integrity = new Set(['BACKUP_RESTORE_CHUNK_MISMATCH', 'BACKUP_LARGE_OBJECT_HEADER', 'BACKUP_LARGE_OBJECT_OFFSET', 'BACKUP_LARGE_OBJECT_TRUNCATED', 'BACKUP_SOURCE_COVERAGE_MISMATCH'])
   const runtime = new Set(['BACKUP_NATIVE_FAILED', 'BACKUP_NATIVE_INPUT_FAILED', 'BACKUP_COPY_READ_FAILED', 'BACKUP_COPY_WRITE_FAILED', 'BACKUP_CONNECTION_FAILED', 'BACKUP_SNAPSHOT_CLOSED'])
   if (code === 'BACKUP_FOREIGN_KEY_VALIDATION_FAILED') return new BackupError(code, 6)
@@ -152,7 +152,7 @@ async function connectionConfig(options: NativeOptions, service: string): Promis
   if (config.sslkey) await privateFile(config.sslkey)
   return { host: config.host, port: Number(port), database: config.dbname, user: config.user, password,
     ssl, connectionTimeoutMillis: 10000, application_name: 'mercato-backup',
-    options: '-c lock_timeout=30000 -c statement_timeout=21600000 -c timezone=UTC -c standard_conforming_strings=on' }
+    options: '-c lock_timeout=30000 -c statement_timeout=21600000 -c timezone=UTC -c standard_conforming_strings=on -c datestyle=ISO -c intervalstyle=postgres -c extra_float_digits=3 -c search_path=pg_catalog,public' }
 }
 
 async function connect(options: NativeOptions, service: string) {
@@ -316,21 +316,62 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
           AND n.nspname NOT IN ('pg_catalog','information_schema','om_backup_restore')
           AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%'`)).rows[0].count
       if (BigInt(metadataSize)>100000n) throw failure('BACKUP_NATIVE_METADATA_LIMIT')
-      const tables = await control.query<{ schema: string; table: string; rows: string; bytes: string; columns: string[]; keys: string[] }>(`
+      const tables = await control.query<{ schema: string; table: string; rows: string; bytes: string; columns: string[]; keys: string[]; key_types: string[]; text_copy: boolean; regclass_columns: string[]; regclass_arrays: string[]; nested_regclass: boolean }>(`
         SELECT n.nspname AS schema, c.relname AS table, greatest(c.reltuples,0)::bigint::text AS rows,
           pg_relation_size(c.oid)::text AS bytes,
           ARRAY(SELECT a.attname::text FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND a.attgenerated='' ORDER BY a.attnum) AS columns,
-          ARRAY(SELECT a.attname::text FROM pg_index i CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(num,ord)
-            JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=k.num WHERE i.indrelid=c.oid AND i.indisprimary ORDER BY k.ord) AS keys
+          ARRAY(SELECT a.attname::text FROM unnest(cursor_index.indkey) WITH ORDINALITY k(num,ord)
+            JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=k.num WHERE k.ord<=cursor_index.indnkeyatts ORDER BY k.ord) AS keys,
+          ARRAY(SELECT format_type(a.atttypid,a.atttypmod) FROM unnest(cursor_index.indkey) WITH ORDINALITY k(num,ord) JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=k.num WHERE k.ord<=cursor_index.indnkeyatts ORDER BY k.ord) AS key_types,
+          EXISTS (WITH RECURSIVE dependencies(oid) AS (
+            SELECT a.atttypid FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND a.attgenerated=''
+            UNION SELECT next.oid FROM dependencies d JOIN pg_type t ON t.oid=d.oid CROSS JOIN LATERAL (
+              SELECT t.typelem AS oid WHERE t.typelem<>0 UNION SELECT t.typbasetype WHERE t.typbasetype<>0
+              UNION SELECT a.atttypid FROM pg_attribute a WHERE a.attrelid=t.typrelid AND a.attnum>0 AND NOT a.attisdropped
+            ) next
+          ) SELECT 1 FROM dependencies d JOIN pg_type t ON t.oid=d.oid WHERE t.oid>=16384 OR t.typname LIKE 'reg%') AS text_copy,
+          ARRAY(SELECT a.attname::text FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND a.attgenerated='' AND a.atttypid='regclass'::regtype ORDER BY a.attnum) AS regclass_columns,
+          ARRAY(SELECT a.attname::text FROM pg_attribute a JOIN pg_type t ON t.oid=a.atttypid WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND a.attgenerated='' AND t.typelem='regclass'::regtype ORDER BY a.attnum) AS regclass_arrays,
+          EXISTS (WITH RECURSIVE nested(oid) AS (
+            SELECT a.atttypid FROM pg_attribute a JOIN pg_type t ON t.oid=a.atttypid WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND a.attgenerated='' AND a.atttypid<>'regclass'::regtype AND t.typelem<>'regclass'::regtype
+            UNION SELECT next.oid FROM nested d JOIN pg_type t ON t.oid=d.oid CROSS JOIN LATERAL (
+              SELECT t.typelem AS oid WHERE t.typelem<>0 UNION SELECT t.typbasetype WHERE t.typbasetype<>0
+              UNION SELECT a.atttypid FROM pg_attribute a WHERE a.attrelid=t.typrelid AND a.attnum>0 AND NOT a.attisdropped
+            ) next
+          ) SELECT 1 FROM nested WHERE oid='regclass'::regtype) AS nested_regclass
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        LEFT JOIN LATERAL (
+          SELECT i.indkey,i.indnkeyatts FROM pg_index i
+          WHERE i.indrelid=c.oid AND i.indisunique AND i.indisvalid AND i.indisready
+            AND i.indpred IS NULL AND i.indexprs IS NULL
+            AND NOT EXISTS(SELECT 1 FROM unnest(i.indkey) WITH ORDINALITY key(attnum,ordinal)
+              LEFT JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=key.attnum
+              WHERE key.ordinal<=i.indnkeyatts AND (a.attnum IS NULL OR NOT a.attnotnull))
+          ORDER BY i.indisprimary DESC,i.indexrelid LIMIT 1
+        ) cursor_index ON true
         WHERE c.relkind='r' AND n.nspname NOT IN ('pg_catalog','information_schema','om_backup_restore')
           AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%'
         ORDER BY n.nspname,c.relname LIMIT 10001`)
       if (tables.rows.length > 10000) throw failure('BACKUP_ENTITY_LIMIT')
       await control.query('SET LOCAL row_security = off')
       for (const row of tables.rows) await control.query(`SELECT 1 FROM ONLY ${identifier(row.schema)}.${identifier(row.table)} LIMIT 1`)
+      for (const row of tables.rows) {
+        if (row.nested_regclass) throw failure('BACKUP_NESTED_REGCLASS_UNSUPPORTED')
+        for (const [columns, array] of [[row.regclass_columns, false], [row.regclass_arrays, true]] as const) {
+          for (const column of columns) {
+            const value = `r.${identifier(column)}`
+            const references = array ? `unnest(${value})` : `unnest(ARRAY[${value}]::regclass[])`
+            const unavailable = await control.query(`SELECT 1 FROM ONLY ${identifier(row.schema)}.${identifier(row.table)} r
+              CROSS JOIN LATERAL ${references} refs(value)
+              LEFT JOIN pg_class c ON c.oid=refs.value::oid LEFT JOIN pg_namespace n ON n.oid=c.relnamespace
+              WHERE refs.value IS NOT NULL AND (c.oid IS NULL OR c.relkind NOT IN ('r','p','S','v','c') OR n.nspname='om_backup_restore' OR n.nspname LIKE 'pg_temp%') LIMIT 1`)
+            if (unavailable.rowCount) throw failure('BACKUP_LATE_REGCLASS_UNSUPPORTED')
+          }
+        }
+      }
       const entities: Entity[] = tables.rows.map((row, ordinal) => ({ key: `e${String(ordinal + 1).padStart(4, '0')}`, schema: row.schema, table: row.table,
-        columns: row.columns, primaryKeys: row.keys, label: `${row.schema}.${row.table}`, estimatedRows: row.rows, estimatedBytes: row.bytes }))
+        columns: row.columns, primaryKeys: row.keys, ...(row.text_copy ? { copyFormat: 'text' as const } : {}), label: `${row.schema}.${row.table}`, estimatedRows: row.rows, estimatedBytes: row.bytes }))
+      const primaryKeyTypes = new Map(entities.map((entity, ordinal) => [entity.key, tables.rows[ordinal].key_types]))
       const largeObjects = (await control.query<{ oid: string; bytes: string }>(`
         SELECT m.oid::text AS oid, COALESCE(max(l.pageno::bigint * 2048 + octet_length(l.data)),0)::text AS bytes
         FROM pg_largeobject_metadata m LEFT JOIN pg_largeobject l ON l.loid=m.oid GROUP BY m.oid ORDER BY m.oid LIMIT 10001`)).rows
@@ -341,7 +382,7 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
       const foreignKeys = (await control.query<{ schema: string; table: string; name: string; definition: string }>(`
         SELECT n.nspname AS schema,c.relname AS table,k.conname AS name,pg_get_constraintdef(k.oid) AS definition
         FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE k.contype='f' AND n.nspname NOT IN ('pg_catalog','information_schema','om_backup_restore') ORDER BY k.oid`)).rows
+        WHERE k.contype='f' AND k.conparentid=0 AND n.nspname NOT IN ('pg_catalog','information_schema','om_backup_restore') ORDER BY k.oid`)).rows
       const catalog = (await control.query<{ entry: string }>(`SELECT concat_ws(':',n.nspname,c.relname,a.attnum,a.attname,a.atttypid,a.atttypmod,a.attnotnull,a.attgenerated) AS entry
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid
         WHERE c.relkind IN ('r','p','S') AND a.attnum>0 AND NOT a.attisdropped AND n.nspname NOT IN ('pg_catalog','information_schema','om_backup_restore')
@@ -349,7 +390,7 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
       if (catalog.length>100000) throw failure('BACKUP_NATIVE_METADATA_LIMIT')
       const schemaFingerprint = await completeSchemaFingerprint(control)
       const migrationFingerprint = await databaseMigrationFingerprint(control)
-      const catalogDigest = digest(JSON.stringify({ schemaFingerprint, entities: entities.map(({ key, schema, table, columns, primaryKeys, kind, largeObjectOid }) => ({ key, schema, table, columns, primaryKeys, kind, largeObjectOid })), foreignKeys, catalog }))
+      const catalogDigest = digest(JSON.stringify({ schemaFingerprint, entities: entities.map(({ key, schema, table, columns, primaryKeys, kind, largeObjectOid, copyFormat }) => ({ key, schema, table, columns, primaryKeys, kind, largeObjectOid, copyFormat })), foreignKeys, catalog }))
       return {
         identity, evidence: { xmax, xipList: active ? active.split(',') : [] }, catalogDigest, migrationFingerprint, entities, foreignKeys,
         async boundary() {
@@ -391,32 +432,40 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
               await client.query('COMMIT')
               return
             }
-            const keys = entity.primaryKeys ?? []
+            const copyFormat = entity.copyFormat ?? 'binary'
+            const declaredKeys = entity.primaryKeys ?? []
+            const keys = declaredKeys.every((key) => entity.columns.includes(key)) ? declaredKeys : []
             const columnSql = entity.columns.map(identifier).join(',')
             if (!columnSql) throw failure('BACKUP_TABLE_COLUMNS_EMPTY')
             if (request.after && request.after.length !== keys.length) throw failure('BACKUP_SOURCE_CURSOR_BINDING')
-            const initialPredicate = request.after ? ` WHERE (${keys.map(identifier).join(',')}) > (${request.after.map(literal).join(',')})` : ''
+            const types = keys.length ? primaryKeyTypes.get(entity.key) ?? [] : []
+            if (types.length !== keys.length) throw failure('BACKUP_SOURCE_CURSOR_BINDING')
+            const cursor = keys.map((_, index) => `((current_setting('om_backup.cursor')::jsonb->>${index})::${types[index]})`).join(',')
+            const bindCursor = async (values: string[]) => { await client.query("SELECT set_config('om_backup.cursor',$1,true)", [JSON.stringify(values)]) }
+            if (request.after) await bindCursor(request.after)
+            const initialPredicate = request.after ? ` WHERE (${keys.map(identifier).join(',')}) > (${cursor})` : ''
             const expectedRows = BigInt((await client.query<{ count: string }>(`SELECT count(*)::text AS count FROM ONLY ${relation(entity)}${initialPredicate}`)).rows[0].count)
             let copiedRows = 0n
             const sampleSelection = `SELECT ${columnSql} FROM ONLY ${relation(entity)} ${keys.length ? `ORDER BY ${keys.map(identifier).join(',')}` : 'ORDER BY ctid'} LIMIT 128`
             const sampleRows = Number((await client.query<{ count: string }>(`SELECT count(*)::text AS count FROM (${sampleSelection}) sample`)).rows[0].count)
             let sampleBytes = 0
-            if (sampleRows) for await (const bytes of exportCopy(client, `COPY (${sampleSelection}) TO STDOUT (FORMAT binary)`)) sampleBytes += bytes.byteLength
-            const average = sampleRows ? Math.max(1, (sampleBytes - 21) / sampleRows) : 64
+            if (sampleRows) for await (const bytes of exportCopy(client, `COPY (${sampleSelection}) TO STDOUT (FORMAT ${copyFormat})`)) sampleBytes += bytes.byteLength
+            const average = sampleRows ? Math.max(1, (sampleBytes - (copyFormat === 'binary' ? 21 : 0)) / sampleRows) : 64
             const initialBatch = Math.max(1, Math.min(1000000, Math.floor(request.chunkSizeBytes / average)))
             if (keys.length) {
               let after = request.after
               let sequence = 0
               let batch = initialBatch
               for (;;) {
-                const where = after ? `WHERE (${keys.map(identifier).join(',')}) > (${after.map(literal).join(',')})` : ''
+                if (after) await bindCursor(after)
+                const where = after ? `WHERE (${keys.map(identifier).join(',')}) > (${cursor})` : ''
                 const selection = `SELECT ${columnSql} FROM ONLY ${relation(entity)} ${where} ORDER BY ${keys.map(identifier).join(',')} LIMIT ${batch}`
                 const bounds = await client.query<{ count: string; tail: string[] }>(`WITH chosen AS (${selection}) SELECT count(*)::text AS count,
                   (SELECT ARRAY[${keys.map((key) => `${identifier(key)}::text`).join(',')}] FROM chosen ORDER BY ${keys.map((key) => `${identifier(key)} DESC`).join(',')} LIMIT 1) AS tail FROM chosen`)
                 const row = bounds.rows[0]
                 if (!row || row.count === '0') break
                 const from = after; let bytes = 0
-                const stream = (async function* () { for await (const part of exportCopy(client, `COPY (${selection}) TO STDOUT (FORMAT binary)`)) { bytes += part.byteLength; yield part } })()
+                const stream = (async function* () { for await (const part of exportCopy(client, `COPY (${selection}) TO STDOUT (FORMAT ${copyFormat})`)) { bytes += part.byteLength; yield part } })()
                 yield { sequence: sequence++, rows: row.count, keyFrom: from, keyTo: row.tail, stream }
                 copiedRows += BigInt(row.count)
                 after = row.tail
@@ -439,7 +488,7 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
                   if (!bound || bound.count === '0' || !bound.tail) break
                   const select = `SELECT ${columnSql} FROM ONLY ${relation(entity)} WHERE ${predicate} ORDER BY ctid LIMIT ${batch}`
                   let size = 0
-                  const stream = (async function* () { for await (const part of exportCopy(client, `COPY (${select}) TO STDOUT (FORMAT binary)`)) { size += part.byteLength; yield part } })()
+                  const stream = (async function* () { for await (const part of exportCopy(client, `COPY (${select}) TO STDOUT (FORMAT ${copyFormat})`)) { size += part.byteLength; yield part } })()
                   yield { sequence: sequence++, rows: bound.count, stream }
                   copiedRows += BigInt(bound.count)
                   after = bound.tail
@@ -476,8 +525,30 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
   let client: Client | undefined
   let runId: string | undefined
   let lockId: string | undefined
-  let expected: { challenge: string; digest: string; expires: number } | undefined
+  let expected: { challenge: string; digest: string; baseline: string; expires: number } | undefined
   const current = async () => { if (!client) { if (!options.targetService) throw failure('BACKUP_TARGET_SERVICE_REQUIRED'); client = await connect(options, options.targetService) } return client }
+  const acquireLock = async (connection: Client) => {
+    if (lockId) return
+    const locked = (await connection.query<{locked:boolean}>("SELECT pg_try_advisory_lock(hashtextextended('om_backup_restore',0)) AS locked")).rows[0].locked
+    if(!locked)throw failure('BACKUP_TARGET_LOCKED')
+    lockId='om_backup_restore'
+  }
+  const baseline = async (connection: Client):Promise<string> => {
+    const catalog=await completeSchemaFingerprint(connection)
+    if(!(await connection.query("SELECT 1 FROM pg_namespace WHERE nspname='om_backup_restore'")).rowCount)return digest(JSON.stringify({catalog,journal:null}))
+    const run=(await connection.query('SELECT * FROM om_backup_restore.restore_run')).rows
+    const chunks=(await connection.query("SELECT count(*)::text AS count,max(restored_at)::text AS newest FROM om_backup_restore.restore_chunks")).rows[0]
+    const steps=(await connection.query("SELECT status,count(*)::text AS count,max(finished_at)::text AS newest FROM om_backup_restore.restore_steps GROUP BY status ORDER BY status")).rows
+    return digest(JSON.stringify({catalog,run,chunks,steps}))
+  }
+  const validateChallenge=async(connection:Client,run:RestoreRun)=>{
+    const identityDigest=digest(JSON.stringify(await databaseIdentity(connection)))
+    if(!expected||expected.challenge!==run.confirmation||expected.expires<Date.now()||expected.digest!==identityDigest||expected.baseline!==await baseline(connection))throw failure('BACKUP_TARGET_CONFIRMATION')
+  }
+  const validateRun=async(connection:Client,run:RestoreRun)=>{
+    const records=(await connection.query<{run:string;backup:string;digest:string}>('SELECT restore_run_id AS run,backup_id AS backup,manifest_sha256 AS digest FROM om_backup_restore.restore_run')).rows
+    if(records.length!==1||records[0].run!==run.runId||records[0].backup!==run.backupId||records[0].digest!==run.manifestSha256)throw failure('BACKUP_RESTORE_BINDING')
+  }
   const transaction = async (operation: (connection: Client) => Promise<void>) => {
     const connection = await current(); await connection.query('BEGIN')
     try { await operation(connection); await connection.query('COMMIT') }
@@ -485,12 +556,23 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
   }
   const step = async (id: string, kind: string, operation: (connection: Client) => Promise<void>) => {
     await transaction(async (connection) => {
-      if ((await connection.query('SELECT 1 FROM om_backup_restore.restore_steps WHERE step_key=$1', [id])).rowCount) return
+      if ((await connection.query('SELECT 1 FROM om_backup_restore.restore_steps WHERE step_key=$1 AND status=\'done\'', [id])).rowCount) return
       await operation(connection)
-      await connection.query("INSERT INTO om_backup_restore.restore_steps(step_key,kind,status) VALUES($1,$2,'done')", [id, kind])
+      await connection.query("INSERT INTO om_backup_restore.restore_steps(step_key,kind,status) VALUES($1,$2,'done') ON CONFLICT(step_key) DO UPDATE SET kind=EXCLUDED.kind,status='done',detail=NULL,finished_at=now()", [id, kind])
     })
   }
   return {
+    async inspectResume(run) {
+      const connection=await current();await acquireLock(connection);await validateChallenge(connection,run)
+      if(!(await connection.query("SELECT 1 FROM pg_namespace WHERE nspname='om_backup_restore'")).rowCount)return false
+      await validateRun(connection,run);return true
+    },
+    async reportState() {
+      const record=(await (await current()).query<{started:string;resumes:number}>('SELECT started_at::text AS started,resume_count AS resumes FROM om_backup_restore.restore_run WHERE restore_run_id=$1',[runId])).rows[0]
+      if(!record)throw failure('BACKUP_RESTORE_BINDING')
+      return {startedAt:new Date(record.started).toISOString(),resumeCount:record.resumes}
+    },
+    async analyze() { await (await current()).query('ANALYZE') },
     async migrationFingerprint() { return databaseMigrationFingerprint(await current()) },
     async readCanary(entity, check) {
       const keys = entity.primaryKeys ?? []
@@ -510,11 +592,11 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
       if (receipt.restoreRunId !== run.runId || receipt.backupId !== run.backupId || receipt.trustedManifestSha256 !== run.manifestSha256
         || receipt.targetIdentityDigest !== run.targetIdentityDigest || identityDigest !== run.targetIdentityDigest
         || !expected || expected.challenge !== run.confirmation || expected.expires < Date.now() || expected.digest !== identityDigest) throw failure('BACKUP_COMPLETION_RECEIPT_BINDING')
-      const locked = (await connection.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(hashtextextended('om_backup_restore',0)) AS locked")).rows[0].locked
-      if (!locked) throw failure('BACKUP_TARGET_LOCKED')
-      lockId = 'om_backup_restore'
+      await acquireLock(connection)
+      await validateChallenge(connection,run)
       const exists = (await connection.query("SELECT 1 FROM pg_namespace WHERE nspname='om_backup_restore'")).rowCount
       if (exists) {
+        await (await current()).query('ANALYZE')
         await transaction(async (session) => {
           const rows = (await session.query<{ run: string; backup: string; digest: string }>('SELECT restore_run_id AS run,backup_id AS backup,manifest_sha256 AS digest FROM om_backup_restore.restore_run')).rows
           if (rows.length !== 1 || rows[0].run !== run.runId || rows[0].backup !== run.backupId || rows[0].digest !== run.manifestSha256) throw failure('BACKUP_COMPLETION_RECEIPT_BINDING')
@@ -531,30 +613,32 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
       const identity = await databaseIdentity(await current())
       if (identity.clusterIncarnation === binding.sourceIdentity.clusterIncarnation && identity.databaseOid === binding.sourceIdentity.databaseOid) throw failure('BACKUP_TARGET_IS_SOURCE')
       if (identity.serverMajor !== binding.sourceIdentity.serverMajor || identity.encoding !== binding.sourceIdentity.encoding || identity.collation !== binding.sourceIdentity.collation) throw failure('BACKUP_TARGET_INCOMPATIBLE')
-      const challenge = `RESTORE-${digest(JSON.stringify({ binding, identity, timeWindow: Math.floor(Date.now() / 600000) })).slice(0, 20)}`
-      expected = { challenge, digest: digest(JSON.stringify(identity)), expires: Date.now() + 600000 }
+      const currentBaseline=await baseline(await current())
+      const challenge = `RESTORE-${digest(JSON.stringify({ binding, identity, baseline:currentBaseline, timeWindow: Math.floor(Date.now() / 600000) })).slice(0, 20)}`
+      expected = { challenge, digest: digest(JSON.stringify(identity)), baseline:currentBaseline, expires: Date.now() + 600000 }
       return challenge
     },
     async initialize(run) {
       const connection = await current()
       const identity = await databaseIdentity(connection)
       if (!expected || expected.challenge !== run.confirmation || expected.expires < Date.now() || expected.digest !== digest(JSON.stringify(identity))) throw failure('BACKUP_TARGET_CONFIRMATION')
-      const locked = (await connection.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(hashtextextended('om_backup_restore',0)) AS locked")).rows[0].locked
-      if (!locked) throw failure('BACKUP_TARGET_LOCKED')
-      lockId = 'om_backup_restore'
+      await acquireLock(connection)
+      await validateChallenge(connection,run)
       await transaction(async (session) => {
         const exists = (await session.query("SELECT 1 FROM pg_namespace WHERE nspname='om_backup_restore'")).rowCount
         if (exists) {
           const record = (await session.query<{ run: string; backup: string; digest: string }>('SELECT restore_run_id AS run,backup_id AS backup,manifest_sha256 AS digest FROM om_backup_restore.restore_run')).rows
           if (record.length !== 1 || record[0].run !== run.runId || record[0].backup !== run.backupId || record[0].digest !== run.manifestSha256) throw failure('BACKUP_RESTORE_BINDING')
+          await session.query('UPDATE om_backup_restore.restore_run SET resume_count=resume_count+1,heartbeat_at=now() WHERE restore_run_id=$1',[run.runId])
         } else {
           const objects = await session.query("SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%' LIMIT 1")
           const extra = await session.query(`SELECT 1 FROM pg_namespace WHERE nspname NOT IN ('public','pg_catalog','information_schema') AND nspname NOT LIKE 'pg_toast%' AND nspname NOT LIKE 'pg_temp%'
             UNION ALL SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+            UNION ALL SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%'
             UNION ALL SELECT 1 FROM pg_largeobject_metadata LIMIT 1`)
           if (objects.rowCount || extra.rowCount) throw failure('BACKUP_TARGET_NOT_EMPTY')
           await session.query(`CREATE SCHEMA om_backup_restore;
-            CREATE TABLE om_backup_restore.restore_run(restore_run_id text PRIMARY KEY,backup_id text NOT NULL,manifest_sha256 text NOT NULL,target_challenge_digest text NOT NULL,phase text NOT NULL DEFAULT 'initialized',heartbeat_at timestamptz NOT NULL DEFAULT now(),started_at timestamptz NOT NULL DEFAULT now());
+            CREATE TABLE om_backup_restore.restore_run(restore_run_id text PRIMARY KEY,backup_id text NOT NULL,manifest_sha256 text NOT NULL,target_challenge_digest text NOT NULL,phase text NOT NULL DEFAULT 'initialized',resume_count integer NOT NULL DEFAULT 0,heartbeat_at timestamptz NOT NULL DEFAULT now(),started_at timestamptz NOT NULL DEFAULT now());
             CREATE TABLE om_backup_restore.restore_chunks(entity_key text NOT NULL,seq int NOT NULL,sha256 text NOT NULL,rows bigint NOT NULL,restored_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(entity_key,seq));
             CREATE TABLE om_backup_restore.restore_steps(step_key text PRIMARY KEY,kind text NOT NULL,status text NOT NULL,detail text,finished_at timestamptz NOT NULL DEFAULT now())`)
           await session.query('INSERT INTO om_backup_restore.restore_run(restore_run_id,backup_id,manifest_sha256,target_challenge_digest) VALUES($1,$2,$3,$4)', [run.runId, run.backupId, run.manifestSha256, digest(run.confirmation)])
@@ -562,7 +646,11 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
       })
       runId = run.runId
     },
-    async hasStep(stepId) { return Boolean((await (await current()).query('SELECT 1 FROM om_backup_restore.restore_steps WHERE step_key=$1', [stepId])).rowCount) },
+    async hasStep(stepId) {
+      const chunk=/^chunk:(e[0-9]+):([0-9]+)$/.exec(stepId)
+      if(chunk)return Boolean((await (await current()).query('SELECT 1 FROM om_backup_restore.restore_chunks WHERE entity_key=$1 AND seq=$2',[chunk[1],Number(chunk[2])])).rowCount)
+      return Boolean((await (await current()).query("SELECT 1 FROM om_backup_restore.restore_steps WHERE step_key=$1 AND status='done'",[stepId])).rowCount)
+    },
     async schema(section, stream, stepId, workspace) {
       if (!runId) throw failure('BACKUP_RESTORE_NOT_INITIALIZED')
       const scratch = workspace ?? options.workspace
@@ -594,7 +682,7 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
               if (renderedBytes > maximum) throw failure('BACKUP_SCHEMA_RENDER_LIMIT')
               yield bytes
             }
-            yield Buffer.from(`\nINSERT INTO om_backup_restore.restore_steps(step_key,kind,status) VALUES(${literal(id)},${literal(section)},'done');\n`)
+            yield Buffer.from(`\nINSERT INTO om_backup_restore.restore_steps(step_key,kind,status) VALUES(${literal(id)},${literal(section)},'done') ON CONFLICT(step_key) DO UPDATE SET status='done',detail=NULL,finished_at=now();\n`)
           })()
           for await (const ignored of native(options, 'psql', ['--no-psqlrc', '--quiet', '--set=ON_ERROR_STOP=1', '--single-transaction', '--dbname', `service=${options.targetService}`, '--file=-'], script)) { void ignored }
         }
@@ -633,7 +721,7 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
           }
           if (offset === undefined) throw failure('BACKUP_LARGE_OBJECT_HEADER')
         } else {
-          await importCopy(connection, `COPY ${relation(entity)} (${entity.columns.map(identifier).join(',')}) FROM STDIN (FORMAT binary)`, stream)
+          await importCopy(connection, `COPY ${relation(entity)} (${entity.columns.map(identifier).join(',')}) FROM STDIN (FORMAT ${entity.copyFormat ?? 'binary'})`, stream)
         }
         await connection.query('INSERT INTO om_backup_restore.restore_chunks(entity_key,seq,sha256,rows) VALUES($1,$2,$3,$4)', [entity.key, record.sequence, record.sha256, record.rows])
         await connection.query('UPDATE om_backup_restore.restore_run SET heartbeat_at=now(),phase=$1', ['data'])
@@ -648,22 +736,32 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
       })
     },
     async foreignKeys(keys) {
-      const failures: string[] = []
+      const failures: Array<{schema:string;table:string;name:string}> = []
       for (const key of keys) {
+        if (!key.definition.startsWith('FOREIGN KEY ')) throw failure('BACKUP_FOREIGN_KEY_DEFINITION')
         const id = digest(JSON.stringify([key.schema, key.table, key.name]))
-        await step(`fk-create:${id}`, 'fk-create', async (connection) => {
-          if (!key.definition.startsWith('FOREIGN KEY ')) throw failure('BACKUP_FOREIGN_KEY_DEFINITION')
-          await connection.query(`ALTER TABLE ${relation(key)} ADD CONSTRAINT ${identifier(key.name)} ${key.definition.replace(/\s+NOT VALID$/, '')} NOT VALID`)
-        })
-        try { await step(`fk-validate:${id}`, 'fk-validate', async (connection) => { await connection.query(`ALTER TABLE ${relation(key)} VALIDATE CONSTRAINT ${identifier(key.name)}`) }) }
-        catch { failures.push(id) }
+        let phase = 'create'
+        try {
+          await step(`fk-create:${id}`, 'fk-create', async (connection) => {
+            const type = (await connection.query<{relkind:string}>('SELECT relkind FROM pg_class WHERE oid=$1::regclass',[relation(key)])).rows[0]?.relkind
+            const definition=key.definition.replace(/\s+NOT VALID$/, '')
+            await connection.query(`ALTER TABLE ${relation(key)} ADD CONSTRAINT ${identifier(key.name)} ${definition}${type==='p'?'':' NOT VALID'}`)
+          })
+          phase='validate'
+          await step(`fk-validate:${id}`, 'fk-validate', async (connection) => { await connection.query(`ALTER TABLE ${relation(key)} VALIDATE CONSTRAINT ${identifier(key.name)}`) })
+        } catch {
+          failures.push({schema:key.schema,table:key.table,name:key.name})
+          await transaction(async(connection)=> {
+            await connection.query(`INSERT INTO om_backup_restore.restore_steps(step_key,kind,status,detail) VALUES($1,'fk-validate','failed',$2)
+              ON CONFLICT(step_key) DO UPDATE SET status='failed',detail=EXCLUDED.detail,finished_at=now()`,[`fk-validate:${id}`,phase==='create'?'BACKUP_FOREIGN_KEY_CREATE_FAILED':'BACKUP_FOREIGN_KEY_VALIDATION_FAILED'])
+          })
+        }
       }
-      if (failures.length) throw failure('BACKUP_FOREIGN_KEY_VALIDATION_FAILED')
+      if (failures.length) throw Object.assign(failure('BACKUP_FOREIGN_KEY_VALIDATION_FAILED'),{details:{foreignKeyFailures:failures}})
     },
     async finish(reportPath) {
       const info = await stat(reportPath)
       if (!info.isFile() || !info.size) throw failure('BACKUP_REPORT_NOT_DURABLE')
-      await (await current()).query('ANALYZE')
       await transaction(async (connection) => { await connection.query('DROP SCHEMA om_backup_restore CASCADE') })
     },
     async close() {

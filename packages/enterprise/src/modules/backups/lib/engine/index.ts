@@ -12,3 +12,5 @@ export type * from './types'
 
 export { preflightBackup } from './preflight'
 export { getBackupStatus } from './status'
+
+export { createPostgresSchemaInspector } from './schema-inspection'

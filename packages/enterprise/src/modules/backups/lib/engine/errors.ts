@@ -1,5 +1,6 @@
 export class BackupError extends Error {
-  context: { backupId?: string; restoreRunId?: string; partialStateSha256?: string; resumeCommand?: string } = {}
+  details: { foreignKeyFailures?: { schema: string; table: string; name: string }[] } = {}
+  context: { backupId?: string; restoreRunId?: string; partialStateSha256?: string; reportPath?: string; validationFailureCount?: number; failedEntityKeys?: string[]; resumeCommand?: string } = {}
   constructor(public readonly code: string, public readonly exitCode: number, public readonly resumable = false) {
     super(`[internal] ${code}`)
     this.name = 'BackupError'
