@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 export const decimal = z.string().regex(/^\d+$/)
+export const signedDecimal=z.string().max(20).regex(/^-?\d+$/)
 export const digest = z.string().regex(/^[a-f0-9]{64}$/)
 export const identitySchema = z.object({ clusterIncarnation: z.string().min(1), databaseOid: decimal, serverMajor: z.number().int().min(16).max(18), encoding: z.string(), collation: z.string() }).strict()
 export const evidenceSchema = z.object({ xmax: decimal, xipList: z.array(decimal).max(100000) }).strict()
@@ -10,7 +11,7 @@ export const indexSchema = z.object({
   schemaVersion: z.literal(1), backupId: z.string().uuid(), identity: identitySchema,
   migrationFingerprint: digest, entities: z.array(entitySchema).max(100000), chunks: z.array(chunkSchema).max(1000000), catalogDigest: digest,
   evidence: evidenceSchema, epochs: z.number().int().positive(), consistency: z.enum(['single-snapshot', 'quiesced', 'multi-snapshot']),
-  sequences: z.array(z.object({ schema: z.string(), name: z.string(), value: decimal, isCalled: z.boolean(), maxValue: decimal.optional() }).strict()).max(100000),
+  sequences: z.array(z.object({ schema: z.string().min(1).max(1024), name: z.string().min(1).max(1024), value: signedDecimal, isCalled: z.boolean(), maxValue: signedDecimal.optional() }).strict()).max(100000),
   foreignKeys: z.array(z.object({ schema: z.string(), table: z.string(), name: z.string(), definition: z.string() }).strict()).max(1000000),
 }).strict()
 export const manifestSchema = z.object({

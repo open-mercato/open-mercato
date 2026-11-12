@@ -17,7 +17,7 @@ const identifier = (value: string) => `"${value.replaceAll('"', '""')}"`
 const literal = (value: string) => `'${value.replaceAll("'", "''")}'`
 const relation = (entity: Pick<Entity, 'schema' | 'table'>) => `${identifier(entity.schema)}.${identifier(entity.table)}`
 const failure = (code: string): BackupError => {
-  const invalid = new Set(['BACKUP_SERVICE_NAME', 'BACKUP_SERVICE_FORMAT', 'BACKUP_SERVICE_DUPLICATE', 'BACKUP_SERVICE_INCOMPLETE', 'BACKUP_SERVICE_OPTION_UNSUPPORTED', 'BACKUP_SERVICE_PORT', 'BACKUP_POSTGRES_VERSION_OR_IDENTITY', 'BACKUP_CLIENT_MAJOR_MISMATCH', 'BACKUP_ENTITY_LIMIT', 'BACKUP_RELATION_KIND_UNSUPPORTED', 'BACKUP_NESTED_REGCLASS_UNSUPPORTED', 'BACKUP_LATE_REGCLASS_UNSUPPORTED', 'BACKUP_NATIVE_METADATA_LIMIT', 'BACKUP_TABLE_COLUMNS_EMPTY'])
+  const invalid = new Set(['BACKUP_SEQUENCE_COLUMN_UNSUPPORTED','BACKUP_SEQUENCE_STATE_UNSUPPORTED','BACKUP_SERVICE_NAME', 'BACKUP_SERVICE_FORMAT', 'BACKUP_SERVICE_DUPLICATE', 'BACKUP_SERVICE_INCOMPLETE', 'BACKUP_SERVICE_OPTION_UNSUPPORTED', 'BACKUP_SERVICE_PORT', 'BACKUP_POSTGRES_VERSION_OR_IDENTITY', 'BACKUP_CLIENT_MAJOR_MISMATCH', 'BACKUP_ENTITY_LIMIT', 'BACKUP_RELATION_KIND_UNSUPPORTED', 'BACKUP_NESTED_REGCLASS_UNSUPPORTED', 'BACKUP_LATE_REGCLASS_UNSUPPORTED', 'BACKUP_NATIVE_METADATA_LIMIT', 'BACKUP_TABLE_COLUMNS_EMPTY'])
   const integrity = new Set(['BACKUP_RESTORE_CHUNK_MISMATCH', 'BACKUP_LARGE_OBJECT_HEADER', 'BACKUP_LARGE_OBJECT_OFFSET', 'BACKUP_LARGE_OBJECT_TRUNCATED', 'BACKUP_SOURCE_COVERAGE_MISMATCH'])
   const runtime = new Set(['BACKUP_NATIVE_FAILED', 'BACKUP_NATIVE_INPUT_FAILED', 'BACKUP_COPY_READ_FAILED', 'BACKUP_COPY_WRITE_FAILED', 'BACKUP_CONNECTION_FAILED', 'BACKUP_SNAPSHOT_CLOSED'])
   if (code === 'BACKUP_FOREIGN_KEY_VALIDATION_FAILED') return new BackupError(code, 6)
@@ -373,6 +373,11 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
         ORDER BY n.nspname,c.relname LIMIT 10001`)
       if (tables.rows.length > 10000) throw failure('BACKUP_ENTITY_LIMIT')
       await control.query('SET LOCAL row_security = off')
+      if((await control.query(`SELECT 1 FROM pg_sequence s JOIN pg_class c ON c.oid=s.seqrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_depend d ON d.objid=c.oid AND d.classid='pg_class'::regclass AND d.refclassid='pg_class'::regclass AND d.deptype IN ('a','i')
+        JOIN pg_attribute a ON a.attrelid=d.refobjid AND a.attnum=d.refobjsubid
+        WHERE n.nspname NOT IN ('pg_catalog','information_schema','om_backup_restore') AND n.nspname NOT LIKE 'pg_temp%' AND n.nspname NOT LIKE 'pg_toast%'
+          AND (a.atttypid NOT IN (20,21,23) OR s.seqcycle) LIMIT 1`)).rowCount)throw failure('BACKUP_SEQUENCE_COLUMN_UNSUPPORTED')
       for (const row of tables.rows) await control.query(`SELECT 1 FROM ONLY ${identifier(row.schema)}.${identifier(row.table)} LIMIT 1`)
       for (const row of tables.rows) {
         if (row.nested_regclass) throw failure('BACKUP_NESTED_REGCLASS_UNSUPPORTED')
@@ -526,16 +531,18 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
         },
         async sequences() {
           if (!control) throw failure('BACKUP_SNAPSHOT_CLOSED')
-          const list = (await control.query<{ schema: string; name: string; table_schema: string | null; table_name: string | null; column_name: string | null }>(`
-            SELECT n.nspname AS schema,c.relname AS name,tn.nspname AS table_schema,t.relname AS table_name,a.attname AS column_name
-            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_depend d ON d.objid=c.oid AND d.deptype IN ('a','i')
+          const list = (await control.query<{ schema: string; name: string; table_schema: string | null; table_name: string | null; column_name: string | null;column_type:number|null;increment:string;cycle:boolean }>(`
+            SELECT n.nspname AS schema,c.relname AS name,tn.nspname AS table_schema,t.relname AS table_name,a.attname AS column_name,a.atttypid::int AS column_type,s.seqincrement::text AS increment,s.seqcycle AS cycle
+            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_depend d ON d.objid=c.oid AND d.classid='pg_class'::regclass AND d.refclassid='pg_class'::regclass AND d.deptype IN ('a','i')
             LEFT JOIN pg_class t ON t.oid=d.refobjid LEFT JOIN pg_namespace tn ON tn.oid=t.relnamespace
             LEFT JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum=d.refobjsubid
-            WHERE c.relkind='S' AND n.nspname NOT IN ('pg_catalog','information_schema','om_backup_restore') ORDER BY n.nspname,c.relname`)).rows
+            LEFT JOIN pg_sequence s ON s.seqrelid=c.oid
+            WHERE c.relkind='S' AND n.nspname NOT IN ('pg_catalog','information_schema','om_backup_restore') AND n.nspname NOT LIKE 'pg_temp%' AND n.nspname NOT LIKE 'pg_toast%' ORDER BY n.nspname,c.relname`)).rows
           const states = []
           for (const row of list) {
+            if(row.column_name&&(![20,21,23].includes(row.column_type??0)||row.cycle))throw failure('BACKUP_SEQUENCE_COLUMN_UNSUPPORTED')
             const value = (await control.query<{ value: string; called: boolean }>(`SELECT last_value::text AS value,is_called AS called FROM ${identifier(row.schema)}.${identifier(row.name)}`)).rows[0]
-            const maximum = row.table_schema && row.table_name && row.column_name ? (await control.query<{ maximum: string | null }>(`SELECT max(${identifier(row.column_name)})::text AS maximum FROM ${identifier(row.table_schema)}.${identifier(row.table_name)}`)).rows[0].maximum : null
+            const maximum = row.table_schema && row.table_name && row.column_name ? (await control.query<{ maximum: string | null }>(`SELECT ${BigInt(row.increment)>0n?'max':'min'}(${identifier(row.column_name)})::text AS maximum FROM ${identifier(row.table_schema)}.${identifier(row.table_name)}`)).rows[0].maximum : null
             states.push({ schema: row.schema, name: row.name, value: value.value, isCalled: value.called, ...(maximum ? { maxValue: maximum } : {}) })
           }
           return states
@@ -787,10 +794,32 @@ function postgresTarget(options: NativeOptions, bound?: { client: Client; runId:
     },
     async sequences(states) {
       await step('sequences', 'sequences', async (connection) => {
-        for (const state of states) {
-          const value = state.maxValue && BigInt(state.maxValue) > BigInt(state.value) ? state.maxValue : state.value
-          await connection.query('SELECT setval($1::regclass,$2::bigint,$3)', [`${identifier(state.schema)}.${identifier(state.name)}`, value, state.isCalled || Boolean(state.maxValue)])
+        const plans:Array<{name:string;value:string;called:boolean}>=[]
+        for(const state of states){
+          if(!/^-?[0-9]+$/.test(state.value))throw new BackupError('BACKUP_SEQUENCE_STATE_UNSUPPORTED',6)
+          const name=`${identifier(state.schema)}.${identifier(state.name)}`
+          const metadata=(await connection.query<{increment:string;minimum:string;maximum:string;cycle:boolean;allowed:boolean;table_schema:string|null;table_name:string|null;column_name:string|null;column_type:number|null}>(`
+            SELECT s.seqincrement::text AS increment,s.seqmin::text AS minimum,s.seqmax::text AS maximum,s.seqcycle AS cycle,
+              has_sequence_privilege(s.seqrelid,'UPDATE') AS allowed,n.nspname AS table_schema,t.relname AS table_name,a.attname AS column_name,a.atttypid::int AS column_type
+            FROM pg_sequence s LEFT JOIN pg_depend d ON d.objid=s.seqrelid AND d.classid='pg_class'::regclass AND d.refclassid='pg_class'::regclass AND d.deptype IN ('a','i')
+            LEFT JOIN pg_class t ON t.oid=d.refobjid LEFT JOIN pg_namespace n ON n.oid=t.relnamespace
+            LEFT JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum=d.refobjsubid WHERE s.seqrelid=$1::regclass`,[name])).rows[0]
+          if(!metadata||!metadata.increment||BigInt(metadata.increment)===0n||!metadata.allowed)throw new BackupError('BACKUP_SEQUENCE_STATE_UNSUPPORTED',6)
+          let value=BigInt(state.value),called=state.isCalled
+          const increment=BigInt(metadata.increment),increasing=increment>0n
+          if(metadata.column_name&&metadata.table_schema&&metadata.table_name){
+            if(![20,21,23].includes(metadata.column_type??0)||metadata.cycle)throw new BackupError('BACKUP_SEQUENCE_COLUMN_UNSUPPORTED',6)
+            const extreme=(await connection.query<{value:string|null}>(`SELECT ${increasing?'max':'min'}(${identifier(metadata.column_name)})::text AS value FROM ${identifier(metadata.table_schema)}.${identifier(metadata.table_name)}`)).rows[0].value
+            if(extreme!==null){
+              const restored=BigInt(extreme),next=called?value+increment:value
+              if(increasing?next<=restored:next>=restored){const distance=increasing?restored-next:next-restored,step=increasing?increment:-increment;value=next+(distance/step+1n)*increment;called=false}
+            }
+          }
+          if(value<BigInt(metadata.minimum)||value>BigInt(metadata.maximum))throw new BackupError('BACKUP_SEQUENCE_STATE_UNSUPPORTED',6)
+          plans.push({name,value:String(value),called})
         }
+        // setval is not transactional: validate every plan before changing any sequence.
+        for(const plan of plans)await connection.query('SELECT setval($1::regclass,$2::bigint,$3)',[plan.name,plan.value,plan.called])
       })
     },
     async foreignKeys(keys) {

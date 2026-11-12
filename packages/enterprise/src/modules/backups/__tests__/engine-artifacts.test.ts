@@ -284,6 +284,13 @@ describe('encrypted recovery artifacts', () => {
       expect(captured.partialStateSha256).not.toBe(await partialBackupDigest(directory))
     }finally{swapped.mockRestore()}
   })
+  test('the artifact codec preserves signed descending sequence values',async()=>{
+    const fixture=source(),open=fixture.open.bind(fixture)
+    fixture.open=async()=>({...await open(),async sequences(){return [{schema:'public',name:'descending_counter',value:'-11',isCalled:true,maxValue:'-11'}]}})
+    const result=await createBackup({...options(),source:fixture})
+    const artifact=await verifyBackup({artifact:result.artifactPath,trustedManifestSha256:result.manifestSha256,identities:[escrow]})
+    expect(artifact.index.sequences[0]).toMatchObject({value:'-11',maxValue:'-11',isCalled:true})
+  })
   test('a bounded worker connection retry reuses the held snapshot and restarts that entity exactly once', async () => {
     const fixture=source();const open=fixture.open.bind(fixture);let attempts=0
     fixture.open=jest.fn(async()=>{
