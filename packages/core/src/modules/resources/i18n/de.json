@@ -519,6 +519,7 @@
   "resources.resources.unavailability.title.daily": "Tägliche Nichtverfügbarkeit",
   "resources.resources.unavailability.title.once": "Nichtverfügbarkeit",
   "resources.resources.unavailability.title.weekly": "Wöchentliche Nichtverfügbarkeit",
+  "resources.resources.validation.capacityInvalid": "Die Kapazität muss eine ganze Zahl größer als 0 sein.",
   "resources.search.badge.attendee": "Teilnehmer",
   "resources.search.badge.availabilityRuleSet": "Verfügbarkeitsregelwerk",
   "resources.search.badge.resource": "Ressource",
