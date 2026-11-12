@@ -2,7 +2,7 @@
 
 Source doc: .ai/specs/enterprise/2026-11-06-cli-backup-restore.md
 Spec PR: #8910
-Status: in-progress
+Status: complete
 Engine: om-auto-create-pr (steps: 12, --loop: no)
 
 ## Goal and scope
@@ -58,9 +58,9 @@ PR: #9333
 
 ### Phase 3: integration and release verification
 
-- [ ] 3.1 Expose the backup facade for the automated pipeline and protected rotation; coordinate Core acknowledgment/verifier boundary B19/B20 with #9328 implementation without duplicate code ownership.
-- [ ] 3.2 Complete B01–B20, benchmarks, operator documentation, custody guidance and configured full validation commands.
-- [ ] 3.3 Run authoritative om-auto-review-pr --autofix, post verification/outcome comments, publish ready only when every step is complete and gates pass.
+- [x] 3.1 Expose the backup facade for the automated pipeline and protected rotation; coordinate Core acknowledgment/verifier boundary B19/B20 with #9328 implementation without duplicate code ownership.
+- [x] 3.2 Complete B01–B20, benchmarks, operator documentation, custody guidance and configured full validation commands.
+- [x] 3.3 Run authoritative om-auto-review-pr --autofix, post verification/outcome comments, publish ready only when every step is complete and gates pass.
 
 ## Resume
 
@@ -100,3 +100,20 @@ Actual20-GiB restore resume:705ms overhead including challenge, authenticated me
 
 Verification comment: https://github.com/open-mercato/open-mercato/pull/9333#issuecomment-6825226947
 Source backlink: https://github.com/open-mercato/open-mercato/pull/8910#issuecomment-6825998376
+
+
+## Final release verification — source d6c6e3e0bb
+
+All twelve steps are complete. The final source passed96/96 tests across eight backup module suites against real PostgreSQL in61.774s. Every configured command passed in order: build:packages2.53s, generate9.02s, build:packages0.96s, i18n:check-sync0.97s, i18n:check-usage3.06s, typecheck2.01s, full test304.81s, production build:app20.80s. Generated files and diff checks are clean. This final evidence supersedes the earlier in-progress checkpoints without rewriting their history.
+
+All16 actual eight-entity1/20-GiB jobs1–8 worker runs passed full ordered content equality, observed requested concurrency in both directions and coordinator RSS≤256MiB (maximum227.44MiB). Matched warm/cold1/20-GiB latency and production progress CPU pass; final20-GiB cold backup/restore32.248/30.405s, RSS198MiB. Exact artifact hashes, runtime/image provenance, safe aggregate reports and fixture/cache/row-width limits are committed under `.ai/qa/2026-11-12-cli-backup-restore/`. The final cold measurement includes the public summary and multi-entity renderer.
+
+Fresh Enterprise build and actual packed Node24 binary outside the application checkout passed all five locale help checks, single JSON stdout on development/production errors even with caller stdout logging selected, encrypted create128rows, offline schema TOC verification without DB configuration, completed status and no files/.env created in the outside working directory. The actual final built-bin PTY capture shows simultaneous workers/queued summary, three recent completions and final143/143; screenshot evidence is linked from the verification report.
+
+Final sequence safety tests cover signed int8 values, exact non-unit positive/negative progressions, values beyond JS safe integers, captured empty is_called=false, source reset/deletion across snapshots, all-plan validation before nontransactional writes, and lost acknowledgment after a successful setval followed by idempotent replay. Owned cyclic/non-base-integer sequence configurations fail before backup streams. Target unsafe plans remain quarantined with exit6. Restore now checks authenticated expected SHA/count against each committed chunk checkpoint before skipping; a tampered checkpoint is rejected with integrity context, while a valid committed chunk need not be reread from the artifact.
+
+The backup facade is consumed by companion #9334. Parent executed actual Core CLI, real Enterprise DI and MikroORM integration against a separate disposable database; this PR remains scoped to the backup engine and registration contract. The July automated-backup design remains a separate spec; B16's scheduler/S3/retention/chunk-store pipeline is not folded into this manual CLI implementation.
+
+Authoritative final review: https://github.com/open-mercato/open-mercato/pull/9333#pullrequestreview-5878610354 — APPROVED recommendation, no unresolved blocker/major, recorded as COMMENT because the authenticated account is the PR author. Independent review scopes and older native-adapter authorship limitations are disclosed. Required CI and manual QA remain external merge gates; no self-QA approval or merge is claimed. The documented giant-row/performance/custody limitations remain applicable.
+
+Final publication uses the existing verification and source-backlink comments above, completes this plan, publishes the PR ready for manual QA and releases only this run's atomic claim. No production source changed after d6c6e3e0bb; this final commit records verification only.
