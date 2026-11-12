@@ -31,7 +31,10 @@ export async function acquireBackupLock(path: string, runId: string, takeOver?: 
   let heartbeat = Promise.resolve()
   const timer = setInterval(() => { heartbeat = heartbeat.then(refresh).catch((error: unknown) => { refreshError = error }) }, 10000)
   timer.unref()
+  let released = false
   return async () => {
+    if (released) return
+    released = true
     clearInterval(timer)
     await heartbeat
     const owned = await lstat(path).catch(() => null)

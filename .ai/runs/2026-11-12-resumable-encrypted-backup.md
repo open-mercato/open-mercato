@@ -46,7 +46,7 @@ PR: #9333
 ### Phase 1: bootstrap and encrypted backup
 
 - [ ] 1.1 Register the Enterprise backups module/bin and disabled capability flags; sync create-app template and generated registries via native commands.
-- [ ] 1.2 Implement versioned schemas, process/resource adapters, preflight and encryption policy with B01/B03/B12/B13/B15 tests.
+- [x] 1.2 Implement versioned schemas, process/resource adapters, preflight and encryption policy with B01/B03/B12/B13/B15 tests. — e5dcca649d
 - [ ] 1.3 Implement bounded snapshot/chunk pipeline, encrypted journal, sealing and per-entity progress with B01/B10/B18 tests.
 - [ ] 1.4 Implement resume epochs, conservative consistency proof, DDL restarts, sequence reconciliation and lock recovery with B04/B05/B06/B11.
 
@@ -69,3 +69,7 @@ First remaining step: 0.1. Request approval of the concrete package/recipient po
 ## Authorization — resumed 2026-11-12
 
 User explicitly approved all pending proposals: “yes go on, the modules go to enterpirse / commercial i've got the rights to do so”. Q2/Q3 implementation policy is authorized; real deployment custody acceptance remains separate. Harness is repository-native. Production implementation now proceeds without requesting these approvals again.
+
+## Implementation checkpoint — e5dcca649d
+
+Engine/native facade/CLI and14 artifact-security tests landed; independent native6-case PostgreSQL16 suite passed (generated/composite/FK/heap/JSON/LO roundtrip, COPY rollback+retry, binding refusal, staging cap, RLS rejection and LO rollback). Precommit i18n/template parity passed. Full configured validation and source acceptance/performance evidence remain pending; no ready/runtime completion claim. Runner: local; no configured compose app running for this task. Initial generate before builds refused correctly because CLI was not built; ordered full gate now starts with build:packages.

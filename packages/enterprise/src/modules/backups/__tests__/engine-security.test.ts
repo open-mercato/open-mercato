@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { contained, privateDirectory, readBoundedFile } from '../lib/engine/artifacts'
 import { runBackupCli } from '../lib/engine/cli/main'
 import { acquireBackupLock } from '../lib/engine/lock'
+import { generateX25519Identity, identityToRecipient } from '../lib/engine/crypto'
+import type { BackupSource } from '../lib/engine/types'
 import { randomUUID } from 'node:crypto'
 
 describe('recovery security boundary', () => {
@@ -47,6 +49,34 @@ describe('recovery security boundary', () => {
     const output:string[]=[]
     expect(await runBackupCli(['status',root],{stdout:()=>{},stderr:(text)=>output.push(text)})).toBe(3)
     expect(output.join('')).toContain('BACKUP_ENTERPRISE_RIGHTS_REQUIRED')
+  })
+  test('interrupted JSON creation preserves the durable run id and a safe exact CLI resume command', async () => {
+    for(const key of rights) process.env[key]='true'
+    const identity=await generateX25519Identity()
+    const recipientsPath=join(root,'recipients');await writeFile(recipientsPath,await identityToRecipient(identity),{mode:0o600})
+    const controller=new AbortController()
+    const source:BackupSource={async open(){return {
+      identity:{clusterIncarnation:'fixture',databaseOid:'99',serverMajor:16,encoding:'UTF8',collation:'C'},
+      evidence:{xmax:'999',xipList:[]},catalogDigest:'a'.repeat(64),migrationFingerprint:'b'.repeat(64),foreignKeys:[],
+      entities:[{key:'e0001',schema:'public',table:'fixture',columns:['id'],label:'fixture',estimatedRows:'2',estimatedBytes:'20'}],
+      async *schema(){yield Buffer.from('schema')},async *chunks(){
+        yield {sequence:0,rows:'1',stream:(async function*(){yield Buffer.from('first')})()}
+        controller.abort('SIGTERM')
+        yield {sequence:1,rows:'1',stream:(async function*(){yield Buffer.from('second')})()}
+      },async sequences(){return []},async boundary(){return {identity:{clusterIncarnation:'fixture',databaseOid:'99',serverMajor:16,encoding:'UTF8',collation:'C'},evidence:{xmax:'999',xipList:[]}}},async close(){}
+    }},async close(){}}
+    const output:string[]=[]
+    const exit=await runBackupCli(['create','--json','--progress','none','--source-service','fixture','--recipients-file',recipientsPath,'--output',join(root,'out'),'--workspace',join(root,'workspace')],{stdout:(text)=>output.push(text),stderr:()=>{},signal:controller.signal,sourceFactory:()=>source})
+    const result=JSON.parse(output[0])
+    expect(exit).toBe(143);expect(result.status).toBe('interrupted');expect(result.backupId).toMatch(/^[a-f0-9-]{36}$/)
+    expect(result.resumeCommand).toContain("'--source-service' 'fixture'")
+    expect(result.resumeCommand).toContain("'--trusted-partial-sha256'")
+    expect(result.partialStateSha256).toMatch(/^[a-f0-9]{64}$/)
+  })
+  test('invalid options preserve the requested single-object JSON error protocol',async()=>{
+    const output:string[]=[]
+    expect(await runBackupCli(['create','--json','--not-an-option'],{stdout:(text)=>output.push(text),stderr:()=>{}})).toBe(2)
+    expect(output).toHaveLength(1);expect(JSON.parse(output[0]).error.code).toBe('BACKUP_INVALID_INPUT')
   })
   test('app wrapper refuses JSON rather than corrupting the standalone machine protocol',async () => {
     const output:string[]=[]

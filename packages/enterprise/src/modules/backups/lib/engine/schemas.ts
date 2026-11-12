@@ -8,7 +8,7 @@ export const entitySchema = z.object({ kind: z.literal('large-object').optional(
 export const chunkSchema = z.object({ path: z.string().regex(/^(schema\/(pre-data|post-data)|data\/e\d{4,8}\/\d+)\.chunk$/), entityKey: z.string().optional(), sequence: z.number().int().nonnegative(), rows: decimal, plainBytes: decimal, cipherBytes: decimal, sha256: digest, epoch: z.number().int().nonnegative(), keyFrom: z.array(z.string()).optional(), keyTo: z.array(z.string()).optional(), section: z.enum(['pre-data', 'post-data']).optional() }).strict()
 export const indexSchema = z.object({
   schemaVersion: z.literal(1), backupId: z.string().uuid(), identity: identitySchema,
-  entities: z.array(entitySchema).max(100000), chunks: z.array(chunkSchema).max(1000000), catalogDigest: digest,
+  migrationFingerprint: digest, entities: z.array(entitySchema).max(100000), chunks: z.array(chunkSchema).max(1000000), catalogDigest: digest,
   evidence: evidenceSchema, epochs: z.number().int().positive(), consistency: z.enum(['single-snapshot', 'quiesced', 'multi-snapshot']),
   sequences: z.array(z.object({ schema: z.string(), name: z.string(), value: decimal, isCalled: z.boolean(), maxValue: decimal.optional() }).strict()).max(100000),
   foreignKeys: z.array(z.object({ schema: z.string(), table: z.string(), name: z.string(), definition: z.string() }).strict()).max(1000000),
@@ -26,6 +26,8 @@ export const manifestSchema = z.object({
 export const checksSchema = z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('row-count'), entityKey: z.string(), minimum: decimal, maximum: decimal }).strict(),
   z.object({ type: z.literal('artifact-integrity') }).strict(),
+  z.object({ type: z.literal('migration-fingerprint'), expectedSha256: digest.optional() }).strict(),
+  z.object({ type: z.literal('encrypted-canary'), entityKey: z.string(), field: z.string().min(1).max(63), key: z.record(z.string(), z.string().max(4096)).refine((value) => Object.keys(value).length > 0 && Object.keys(value).length <= 8), keyHandle: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/), expectedSha256: digest }).strict(),
 ])).max(100)
 export type Manifest = z.infer<typeof manifestSchema>
 export type BackupIndex = z.infer<typeof indexSchema>

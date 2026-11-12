@@ -9320,6 +9320,7 @@ __metadata:
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/scheduler": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/telemetry": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     "@open-mercato/web-research": "workspace:*"
     "@simplewebauthn/browser": "npm:^13.3.0"

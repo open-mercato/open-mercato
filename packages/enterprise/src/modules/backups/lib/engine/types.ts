@@ -32,6 +32,7 @@ export type Snapshot = {
   identity: DatabaseIdentity
   evidence: SnapshotEvidence
   catalogDigest: string
+  migrationFingerprint: string
   entities: Entity[]
   foreignKeys: ForeignKey[]
   boundary(): Promise<{ identity: DatabaseIdentity; evidence: SnapshotEvidence }>
@@ -43,12 +44,15 @@ export type Snapshot = {
 export type BackupSource = { open(): Promise<Snapshot>; close(): Promise<void> }
 export type RestoreRun = { runId: string; backupId: string; manifestSha256: string; confirmation: string }
 export type RestoreTarget = {
+  migrationFingerprint?(): Promise<string>
+  readCanary?(entity: Entity, check: { field: string; key: Record<string, string> }): Promise<string>
+  completeFromReport?(run: RestoreRun & { reportPath: string; targetIdentityDigest: string }): Promise<boolean>
   countRows(entity: Entity): Promise<string>
   identity(): Promise<DatabaseIdentity>
   challenge(binding: { backupId: string; manifestSha256: string; sourceIdentity: DatabaseIdentity }): Promise<string>
   initialize(run: RestoreRun): Promise<void>
   hasStep(stepId: string): Promise<boolean>
-  schema(section: 'pre-data' | 'post-data', stream: ByteStream, stepId: string): Promise<void>
+  schema(section: 'pre-data' | 'post-data', stream: ByteStream, stepId: string, workspace?: string): Promise<void>
   chunk(entity: Entity, stream: ByteStream, record: { runId: string; sequence: number; sha256: string; rows: string }): Promise<void>
   sequences(states: SequenceState[]): Promise<void>
   foreignKeys(keys: ForeignKey[]): Promise<void>
@@ -56,6 +60,7 @@ export type RestoreTarget = {
   close(): Promise<void>
 }
 export type NativeOptions = {
+  workspace?: string
   maxStagingBytes?: number
   sourceService?: string
   targetService?: string
