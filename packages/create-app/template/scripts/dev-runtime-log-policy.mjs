@@ -189,14 +189,38 @@ export function isStatelessRuntimeNoiseLine(line) {
   return false
 }
 
+// First line of an `err.stack` printed by the pretty transport, e.g.
+// `    Error: Enricher timed out after 2000ms` or `    Error [ERR_X]: ...`.
+// The transport indents the stack, which separates it from an unrelated
+// `Error:` line written at column 0 right after an entry without `err`.
+const INDENTED_ERROR_STACK_HEADER_PATTERN = /^\s+(?:[A-Z][\w$]*)?(?:Error|Exception)(?:\s\[[A-Z0-9_]+\])?:\s/
+
 export function createRuntimeNoiseFilter() {
   const splashMatcher = createSplashPassthroughIgnoreMatcher()
+  // The pretty transport prints an `err` binding as an indented stack below
+  // the entry header. That stack inherits the header's level: below a
+  // DEBUG/INFO/WARN entry it is part of a handled, non-error log and must not
+  // be classified on its own `Error:` text. Callers must pass lines with
+  // their leading whitespace intact.
+  let nonErrorEntryStack = 'none' // 'none' | 'header' | 'stack'
 
   return function shouldIgnoreRuntimeLine(line, options = {}) {
     if (typeof line !== 'string') return true
 
     const normalized = line.trim()
     if (!normalized) return true
+
+    if (nonErrorEntryStack !== 'none') {
+      const continuesStack = nonErrorEntryStack === 'header'
+        ? INDENTED_ERROR_STACK_HEADER_PATTERN.test(line)
+        : isStackFrameLine(normalized)
+      if (continuesStack) {
+        nonErrorEntryStack = 'stack'
+        return true
+      }
+      nonErrorEntryStack = 'none'
+    }
+    if (isStructuredNonErrorLogLine(normalized)) nonErrorEntryStack = 'header'
 
     // Run the splash matcher first so it can track multi-line warning block
     // depth even when the header line would also be caught by the stateless
