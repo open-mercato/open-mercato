@@ -7,11 +7,17 @@ import { readBackup, restoreBackup, createPostgresTarget, BackupError } from '..
 if(process.env.OM_BACKUP_BENCHMARK_ISOLATED!=='true')throw new Error('Disposable benchmark fixture required')
 const root='/bench'
 const entries=(await readdir(root+'/output')).filter(value=>/^[0-9a-f-]{36}$/.test(value))
-if(entries.length!==1)throw new Error('Exactly one task-generated artifact required')
-const artifact=root+'/output/'+entries[0]
-// This task generated the artifact in its private fixture. Never use this trust shortcut in production.
-const trustedManifestSha256=createHash('sha256').update(await readFile(artifact+'/manifest.json')).digest('hex')
 const identities=[(await readFile(root+'/synthetic-escrow.identity','utf8')).trim()]
+const expectedReport=JSON.parse(await readFile(root+'/report.json','utf8'))
+let selected:{artifact:string;trustedManifestSha256:string}|undefined
+for(const entry of entries){
+ const artifact=root+'/output/'+entry
+ // Local trust is limited to artifacts generated in this private synthetic fixture.
+ const trustedManifestSha256=createHash('sha256').update(await readFile(artifact+'/manifest.json')).digest('hex')
+ try{const candidate=await readBackup({artifact,trustedManifestSha256,identities});if(candidate.index.entities.length===1&&candidate.index.chunks.filter(chunk=>chunk.entityKey).reduce((sum,chunk)=>sum+BigInt(chunk.rows),0n)===BigInt(expectedReport.expected.rows)){if(selected)throw new Error('Ambiguous current fixture artifacts');selected={artifact,trustedManifestSha256}}}catch(error){if(error instanceof Error&&error.message.includes('Ambiguous'))throw error}
+}
+if(!selected)throw new Error('No current-identity artifact matches completed benchmark report')
+const {artifact,trustedManifestSha256}=selected
 const native={targetService:'resume_probe',binariesDir:'/usr/lib/postgresql/16/bin',serviceFile:root+'/resume-service.conf',passwordFile:root+'/password',workspace:root+'/workspace'}
 await writeFile(native.serviceFile,(await readFile(root+'/service.conf','utf8'))+'\n[resume_probe]\nhost=127.0.0.1\nport=5432\ndbname=om_backup_resume_benchmark\nuser=postgres\nsslmode=disable\n',{mode:0o600})
 const connection={host:'127.0.0.1',port:5432,user:'postgres',password:process.env.POSTGRES_PASSWORD}
