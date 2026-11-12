@@ -5,7 +5,7 @@ import { getDefaultEncryptionMaps } from '@open-mercato/shared/modules/registry'
 import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
-import { decryptWithAesGcm, hashForLookup, isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
+import { decryptWithAesGcm, hashForLookup, isRotationCiphertextShape } from '@open-mercato/shared/lib/encryption/aes'
 import { isCustomEntityDocumentCiphertext } from '@open-mercato/shared/lib/encryption/customEntityDoc'
 import type { RotationProtectionContext, RotationKeyProviders } from '@open-mercato/shared/lib/encryption/rotationProtection'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -275,7 +275,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
             if (rule.tenantId === null && !rules.some((entry) => entry.active && entry.tenantId === tenantId && entry.column === rule.column && (!rule.hashColumn || entry.hashColumn === rule.hashColumn))) throw new Error('[internal] ROTATION_GLOBAL_FALLBACK_UNSUPPORTED')
             const columnType = table.columns.find((entry) => entry.name === rule.column)!.type
             const envelope = databaseEnvelope(value, columnType)
-            if (!isEncryptedPayloadShape(envelope)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+            if (!isRotationCiphertextShape(envelope)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
             if (!rule.active && !rules.some((entry) => entry.active && entry.column === rule.column)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
             const plaintext = await decode(envelope, tenantId, phase)
             const parsed = logical(parseRotationFieldValue(plaintext, source => new ExactJsonNumber(source)))

@@ -247,6 +247,16 @@ native('native PostgreSQL persisted verification', () => {
       expect(defaults).not.toHaveBeenCalled()
     } finally { defaults.mockRestore() }
   })
+  test('preserves empty and NULL mapped values across rotation and verifies the empty target envelope', async () => {
+    const ids = (await client.query('SELECT id FROM fixture_records ORDER BY id LIMIT 2')).rows.map(row => row.id)
+    await client.query('UPDATE fixture_records SET secret=$1 WHERE id=$2', [encryptWithAesGcm('', source).value, ids[0]])
+    await client.query('UPDATE fixture_records SET secret=NULL WHERE id=$1', [ids[1]])
+    const data = await dataset(); const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)
+    for (const row of (await client.query('SELECT id,secret FROM fixture_records')).rows) if (row.secret !== null) await client.query('UPDATE fixture_records SET secret=$1 WHERE id=$2', [encryptWithAesGcm(decryptWithAesGcm(row.secret, source)!, target).value, row.id])
+    await expect(verifyRotationData(prepared, data, artifacts)).resolves.toMatchObject({ status: 'passed', comparedRows: '19' })
+    expect(decryptWithAesGcm((await client.query('SELECT secret FROM fixture_records WHERE id=$1', [ids[0]])).rows[0].secret, target)).toBe('')
+    expect((await client.query('SELECT secret FROM fixture_records WHERE id=$1', [ids[1]])).rows[0].secret).toBeNull()
+  })
   test('plaintext in a custom field requiring encryption refuses before mutation', async () => {
     await customFixture(true)
     const data = await dataset(); const operation = jest.fn()

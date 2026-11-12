@@ -583,8 +583,8 @@ describe('entities rotate-encryption-key CLI', () => {
     expect(update[1]).toContain(JSON.stringify(`enc:${plaintext}`))
     expect(update[1]).toContain(hashForLookup('{"n":1}'))
   })
-  it.each(['{hello','[Street]foo','1.0'])('protected mapped TEXT %s retains the existing plaintext heuristic',async plaintext=>{
-    const ciphertext=shapeValidCiphertext('old-text')
+  it.each(['{hello','[Street]foo','1.0',''])('protected mapped TEXT %s retains the existing plaintext heuristic',async plaintext=>{
+    const ciphertext=plaintext === '' ? `${Buffer.alloc(12).toString('base64')}::${Buffer.alloc(16).toString('base64')}:v1` : shapeValidCiphertext('old-text')
     find.mockImplementation(async(entity:unknown)=>entity===EncryptionMap?[{id:'text-map',entityId:'audit_logs:access_log',tenantId:'tenant-1',organizationId:'org-1',fieldsJson:[{field:'resourceId'}],deletedAt:null}]:[])
     const kms={isHealthy:()=>true,getTenantDek:async()=>({tenantId:'tenant-1',key:'old-key',fetchedAt:0}),createTenantDek:async()=>null}
     mockProtectionService={protect:async(_context,operation)=>operation({kms,previousKms:kms})}

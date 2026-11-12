@@ -23,6 +23,7 @@ import {
   decryptWithAesGcm,
   decryptWithAesGcmStrict,
   isEncryptedPayloadShape,
+  isRotationCiphertextShape,
   hashForLookup,
   TenantDataEncryptionError,
   TenantDataEncryptionErrorCode,
@@ -573,6 +574,7 @@ const rotateEncryptionKey: ModuleCli = {
       args[UNPROTECTED_ROTATION_ACKNOWLEDGMENT],
       protection,
       async (providers?: RotationKeyProviders) => {
+    const isCiphertext = providers ? isRotationCiphertextShape : isEncryptedPayloadShape
     const conn: any = providers?.signal
       ? { execute: (sql: string, parameters: unknown[]) => em.execute(sql, parameters, { signal: providers.signal, inflightQueryAbortStrategy: 'cancel query' }) }
       : em?.getConnection?.()
@@ -721,7 +723,7 @@ const rotateEncryptionKey: ModuleCli = {
           // correctly encrypted or sealed under a foreign DEK — either way, handing it
           // to encryptEntityPayload would either no-op or throw WRONG_KEY and abort the
           // whole run (#5951); mirror the filter the update path already applies below.
-          if (isEncryptedPayloadShape(rawValue) ? !rotate : rotate) {
+          if (isCiphertext(rawValue) ? !rotate : rotate) {
             continue
           }
           payload[rule.field] = rawValue
@@ -742,7 +744,7 @@ const rotateEncryptionKey: ModuleCli = {
           }
           for (const rule of fields) {
             const value = payload[rule.field]
-            if (typeof value !== 'string' || !isEncryptedPayloadShape(value)) continue
+            if (typeof value !== 'string' || !isCiphertext(value)) continue
             const decrypted = decryptWithOldKey(value, oldDek)
             if (decrypted !== null) {
               payload[rule.field] = providers ? parseRotationFieldValue(decrypted) : parseDecryptedFieldValue(decrypted)
@@ -776,7 +778,7 @@ const rotateEncryptionKey: ModuleCli = {
             if (!col) return false
             const value = row[col]
             if (value === null || value === undefined) return false
-            return rotate ? isEncryptedPayloadShape(value) : !isEncryptedPayloadShape(value)
+            return rotate ? isCiphertext(value) : !isCiphertext(value)
           })
           if (wouldChange) updated += 1
           continue
@@ -795,7 +797,7 @@ const rotateEncryptionKey: ModuleCli = {
           if (!col) continue
           const nextValue = (encrypted as any)[rule.field]
           if (nextValue !== undefined && nextValue !== row[col]) {
-            if (!rotate && isEncryptedPayloadShape(row[col])) continue
+            if (!rotate && isCiphertext(row[col])) continue
             updates[col] = formatValueForColumn(resolved?.prop, nextValue)
           }
           if (rule.hashField) {

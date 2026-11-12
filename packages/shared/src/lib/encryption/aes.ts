@@ -137,6 +137,11 @@ function runAesGcmDecrypt(dek: Buffer, iv: Buffer, ciphertext: Buffer, tag: Buff
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')
 }
 
+/** Maintenance shape includes empty ciphertext; callers must still authenticate with the DEK. */
+export function isRotationCiphertextShape(value: unknown): value is string {
+  return isEncryptedPayloadShape(value) || (typeof value === 'string' && /^[A-Za-z0-9+/]{16}::[A-Za-z0-9+/]{22}==:v1$/.test(value))
+}
+
 export function decryptWithAesGcm(payload: string, dekBase64: string): string | null {
   if (!payload) return null
   const parts = payload.split(':')
