@@ -191,6 +191,38 @@ native('native PostgreSQL persisted verification', () => {
     await client.query('INSERT INTO custom_entities_storage VALUES($1,$2,$3,NULL,$4,$5)', [id, 'test:dynamic', tenantId, JSON.stringify({ secret: plaintext ? 'legacy-plaintext' : encryptWithAesGcm('dynamic-secret', source).value, untouched: { nested: [null, '日本語'] } }), '2026-01-02 03:04:05.123456+00'])
     await client.query('INSERT INTO custom_field_defs(id,entity_id,tenant_id,key,config_json) VALUES($1,$2,$3,$4,$5)', [randomUUID(), 'test:dynamic', tenantId, 'secret', JSON.stringify({ encrypted: true })])
   }
+  test('baseline prefers the source key, while target-only reference never calls source or intent providers', async () => {
+    await customFixture(false)
+    const previous = jest.fn(async () => ({ tenantId, key: source, fetchedAt: 0 }))
+    const next = jest.fn(async () => ({ tenantId, key: target, fetchedAt: 0 }))
+    const load = jest.fn(async () => { throw new Error('mandatory protected intent') })
+    const prefetch = jest.fn(async () => {})
+    const data = await createPostgresRotationDataset({ context: await inputContext(), backupDigest: 'a'.repeat(64), provider: 'pinned', intents: { load, prefetch },
+      providers: {
+        previousKms: { isHealthy: () => true, getTenantDek: previous, createTenantDek: async () => null },
+        kms: { isHealthy: () => true, getTenantDek: next, createTenantDek: async () => null },
+      },
+    })
+    let rows = 0
+    for await (const _row of data.rows('before')) rows++
+    expect(rows).toBe(20); expect(previous).toHaveBeenCalledTimes(20); expect(next).not.toHaveBeenCalled()
+    await rotate()
+    await client.query("UPDATE custom_entities_storage SET doc=jsonb_set(doc,'{secret}',to_jsonb($1::text))", [encryptWithAesGcm('dynamic-secret', target).value])
+    previous.mockClear(); next.mockClear()
+    rows = 0
+    for await (const _row of data.targetRows()) rows++
+    expect(rows).toBe(20); expect(previous).not.toHaveBeenCalled(); expect(next).toHaveBeenCalledTimes(20)
+    expect(load).not.toHaveBeenCalled(); expect(prefetch).not.toHaveBeenCalled()
+    previous.mockClear(); next.mockClear(); rows = 0
+    for await (const _row of data.rows('before')) rows++
+    expect(rows).toBe(20); expect(previous).toHaveBeenCalledTimes(20); expect(next).toHaveBeenCalledTimes(20)
+    await expect((async () => { for await (const _row of data.rows('after')) { /* Full protected path. */ } })()).rejects.toThrow('mandatory protected intent')
+    expect(load).toHaveBeenCalledTimes(1); expect(prefetch).toHaveBeenCalled()
+    await client.query('UPDATE fixture_records SET secret=$1 WHERE id=(SELECT id FROM fixture_records ORDER BY id LIMIT 1)', [encryptWithAesGcm('private-previous-key', source).value])
+    previous.mockClear()
+    await expect((async () => { for await (const _row of data.targetRows()) { /* No source-key fallback. */ } })()).rejects.toThrow('ROTATION_DATA_MISMATCH')
+    expect(previous).not.toHaveBeenCalled()
+  })
   test('custom rotation bounds its PK frontier before definition filtering and advances empty eligible pages', async () => {
     await customFixture(false)
     await client.query('DELETE FROM custom_entities_storage')

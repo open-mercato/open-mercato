@@ -213,6 +213,26 @@ test('coalesces concurrent intent-page reads and retains only bounded current/ne
   })
 })
 
+test('prefetches a late boundary in the bounded identity page but never loads a second future page', async () => {
+  const { options, context, state } = fixture(); const factory = options.dataset
+  let loader: Parameters<typeof factory>[3] | undefined
+  options.dataset = async (...args) => { loader = args[3]; return factory(...args) }
+  const cipher = await options.cipher(); const open = jest.spyOn(cipher, 'open'); options.cipher = async () => cipher
+  await createEnterpriseRotationProtection(options).protect(context, async providers => {
+    const intent = (identity: string) => ({ table: 'custom_entities_storage', identity, tenantId: 'tenant', organizationId: null, previousTimestamp: state.timestamp })
+    const cached = Array.from({ length: 8 }, (_, index) => `cached-${index}`)
+    for (const ids of [['first'], ['second'], cached]) await providers!.timestampForBatchWrite!(ids.map(intent))
+    const identity = (id: string) => JSON.stringify(['public.custom_entities_storage', 'tenant', null, [id]])
+    open.mockClear()
+    await loader!.prefetch!([...cached.map(identity), identity('first'), identity('second')])
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(await loader!.load(identity('first'))).toBeDefined()
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(await loader!.load(identity('second'))).toBeDefined()
+    expect(open).toHaveBeenCalledTimes(2)
+  })
+})
+
 test('failure reports include only authenticated aggregates from the current verification attempt', async () => {
   const { options, context, state } = fixture(); state.wrongValue = true
   const report = jest.fn(async () => {}); options.reportFailure = report

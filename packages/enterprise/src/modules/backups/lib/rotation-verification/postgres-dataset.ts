@@ -28,6 +28,10 @@ type Rule = { tenantId: string | null; organizationId: string | null; column: st
 type Column = { name: string; type: string }
 type Table = { name: string; columns: Column[]; primaryKeys: string[]; rules: Rule[]; custom: boolean }
 type SqlRow = Record<string, string | null>
+type PostgresRotationDataset = RotationDataset & {
+  /** Read-only comparison iterator: target key only, without intent verification. */
+  targetRows(signal?: AbortSignal): AsyncGenerator<VerificationRow>
+}
 const MAX_MAPS = 5000
 const MAX_COLUMNS = 1000
 const MAX_ROWS = 500
@@ -113,7 +117,7 @@ export async function assertPostgresRotationAdmission(context: RotationProtectio
     if (prepared.length || active.length) throw new Error('[internal] ROTATION_WRITERS_ACTIVE')
 }
 
-export async function createPostgresRotationDataset(options: PostgresRotationOptions): Promise<RotationDataset> {
+export async function createPostgresRotationDataset(options: PostgresRotationOptions): Promise<PostgresRotationDataset> {
   const { context, providers } = options
   const connection = context.entityManager.getConnection()
   const query = async <Row extends Record<string, unknown>>(sql: string, parameters: unknown[] = []): Promise<Row[]> => {
@@ -263,17 +267,18 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
     return { database: digest(JSON.stringify(identity[0])), scope: JSON.stringify({ tenantId: context.tenantId, organizationId: context.organizationId, excludedSystemEntities: [...systemEntities].sort((left, right) => left < right ? -1 : left > right ? 1 : 0), emptyMaps: emptyMaps.sort((left, right) => left < right ? -1 : left > right ? 1 : 0) }), schema, coverage: digest(JSON.stringify([CODEC_VERSION, controls, definitions, orderedTables, hashForLookup('rotation-verification-lookup-configuration-v1')])), provider: options.provider, backupDigest: options.backupDigest }
   }
   const decode = async (value: string, tenantId: string, phase: 'before' | 'after'): Promise<string> => {
+    if (phase === 'before') {
+      const old = await providers.previousKms?.getTenantDek(tenantId)
+      const original = old ? decryptWithAesGcm(value, old.key, { requireValidUtf8: true }) : null
+      if (original !== null) return original
+    }
     const key = await providers.kms.getTenantDek(tenantId)
     if (!key) throw new Error('[internal] ROTATION_KEY_CHANGED')
-    let plaintext = decryptWithAesGcm(value, key.key, { requireValidUtf8: true })
-    if (plaintext === null && phase === 'before') {
-      const old = await providers.previousKms?.getTenantDek(tenantId)
-      plaintext = old ? decryptWithAesGcm(value, old.key, { requireValidUtf8: true }) : null
-    }
+    const plaintext = decryptWithAesGcm(value, key.key, { requireValidUtf8: true })
     if (plaintext === null) throw new Error('[internal] ROTATION_DATA_MISMATCH')
     return plaintext
   }
-  async function* rows(phase: 'before' | 'after', signal?: AbortSignal): AsyncGenerator<VerificationRow> {
+  async function* scanRows(phase: 'before' | 'after', signal: AbortSignal | undefined, includeIntents: boolean): AsyncGenerator<VerificationRow> {
     signal?.throwIfAborted()
     await checkedBinding()
     if (phase === 'after') await assertFence()
@@ -321,7 +326,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
         ) guarded_page ORDER BY ${quote(ordinal)}`, [...scopeParameters(), ...(cursor ?? [])])
         if (selected.some(row => row[marker] !== 'ok')) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
         for (const row of selected) delete row[marker]
-        if (phase === 'after' && table.custom && options.intents?.prefetch) await options.intents.prefetch(selected.map(raw => JSON.stringify([table.name, raw.tenant_id, raw.organization_id ?? null, table.primaryKeys.map(key => raw[key])])) )
+        if (includeIntents && phase === 'after' && table.custom && options.intents?.prefetch) await options.intents.prefetch(selected.map(raw => JSON.stringify([table.name, raw.tenant_id, raw.organization_id ?? null, table.primaryKeys.map(key => raw[key])])) )
         return selected
       }
       let pending = fetchBatch(null)
@@ -407,7 +412,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
             row.metadata = { updated_at: canonicalRotationTimestamp(raw.updated_at ?? null) }
             const timestamp = row.columns.find((entry) => entry.name === 'updated_at')
             if (timestamp) timestamp.value = '__rotation_timestamp_v1__'
-            if (phase === 'after') row.metadataIntent = await options.intents?.load(rowIdentity(row))
+            if (includeIntents && phase === 'after') row.metadataIntent = await options.intents?.load(rowIdentity(row))
           }
           yieldedRows++
           if (options.progress) bytesDone += BigInt(Object.values(raw).reduce((bytes, value) => bytes + (value === null ? 0 : Buffer.byteLength(value)), 0))
@@ -427,5 +432,8 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
     return observed
   }
   const parameterRows = Math.min(...orderedTables.map((table) => Math.floor(60000 / (table.primaryKeys.length + new Set(table.rules.flatMap((rule) => [rule.column, ...(rule.hashColumn ? [rule.hashColumn] : [])])).size * 2 + 4))))
-  return { maintenanceBatchRows: Math.min(500, Math.max(1, parameterRows), Math.max(1, Math.floor((8 * 1024 * 1024) / (maximumProjectedBudget * 2)))), assertFence, binding: checkedBinding, keys: keyInventory, rows }
+  return { maintenanceBatchRows: Math.min(500, Math.max(1, parameterRows), Math.max(1, Math.floor((8 * 1024 * 1024) / (maximumProjectedBudget * 2)))), assertFence, binding: checkedBinding, keys: keyInventory,
+    rows: (phase, signal) => scanRows(phase, signal, true),
+    targetRows: signal => scanRows('after', signal, false),
+  }
 }

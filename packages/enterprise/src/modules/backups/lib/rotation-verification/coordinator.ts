@@ -179,7 +179,7 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
           },
           async prefetch(identities) {
             // One future page only; retain at most current + next, never a table of intents.
-            for (const identity of identities.slice(0, 8)) {
+            for (const identity of identities.slice(0, 500)) {
               if (!cachedRecord(identity)) { await this.load(identity); return }
             }
           },

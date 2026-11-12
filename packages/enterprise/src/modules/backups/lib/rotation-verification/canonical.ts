@@ -30,6 +30,17 @@ function frame(type: string, bytes: Buffer): Buffer {
   return Buffer.concat([Buffer.from(type), length, bytes])
 }
 
+// Public protocol prefixes only: never cache keys, messages or dynamic domains.
+// These private buffers are read by HMAC.update and cannot escape to callers.
+const fixedDomainFrames = new Map([
+  'row-v1', 'metadata-v1', 'metadata-intent-v1', 'intent-address-v1',
+  'intent-page-anchor-v1', 'dek-material-v1', 'checkpoint-record-v1',
+  'checkpoint-tail-v1', 'verification-failure-v1',
+].map(domain => [domain, frame('d', Buffer.from(domain))]))
+function domainFrame(domain: string): Buffer {
+  return fixedDomainFrames.get(domain) ?? frame('d', Buffer.from(domain))
+}
+
 function wellFormedText(value: string): string {
   // UTF-8 replacement would otherwise collapse a lone surrogate and U+FFFD.
   if (!value.isWellFormed()) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
@@ -73,7 +84,7 @@ function rowValue(row: VerificationRow): LogicalValue {
 export function canonicalRow(row: VerificationRow): Buffer { return canonicalValue(rowValue(row)) }
 
 export function keyedDigest(key: Buffer, domain: string, input: Buffer | string): string {
-  return createHmac('sha256', key).update(frame('d', Buffer.from(domain))).update(input).digest('hex')
+  return createHmac('sha256', key).update(domainFrame(domain)).update(input).digest('hex')
 }
 
 export function keyFingerprint(runKey: Buffer, dek: string): string {
@@ -124,7 +135,7 @@ export function keyedRowDigestAndSize(key: Buffer, row: VerificationRow): { dige
   if (size > 1024 * 1024) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   const encoded = Buffer.allocUnsafe(size)
   if (writeCanonical(value, encoded, 0) !== size) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-  const hmac = createHmac('sha256', key).update(frame('d', Buffer.from('row-v1')))
+  const hmac = createHmac('sha256', key).update(domainFrame('row-v1'))
   hmac.update(encoded)
   return { digest: hmac.digest('hex'), bytes: size }
 }
