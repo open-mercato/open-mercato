@@ -43,8 +43,19 @@ export class RotationArtifactStore {
   }
 
   async linkNames(source: string, aliases: string[]): Promise<void> {
+    if (aliases.length > 500) throw new Error('[internal] ROTATION_ARTIFACT_LIMIT')
+    const sourcePath = this.path(source)
+    // Validate every bounded address before starting owned filesystem work.
+    const destinations = aliases.map(name => this.path(name))
     await this.fileIdentity(source)
-    for (const name of aliases) await link(this.path(source), this.path(name))
+    for (let offset = 0; offset < destinations.length; offset += 8) {
+      const completed = await Promise.allSettled(destinations.slice(offset, offset + 8).map(async destination => {
+        await link(sourcePath, destination)
+      }))
+      const failed = completed.find(result => result.status === 'rejected')
+      if (failed?.status === 'rejected') throw failed.reason
+    }
+    // All aliases must be durable before a timestamp intent permits SQL writes.
     const directory = await open(this.directory, constants.O_RDONLY)
     try { await directory.sync() } finally { await directory.close() }
   }

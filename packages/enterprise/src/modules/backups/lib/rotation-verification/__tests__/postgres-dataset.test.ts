@@ -1,5 +1,5 @@
 import { Client } from 'pg'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createCipheriv, randomBytes, randomUUID } from 'node:crypto'
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
 import { mkdtemp, rm, mkdir, writeFile, appendFile, readdir, readFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
@@ -320,6 +320,28 @@ native('native PostgreSQL persisted verification', () => {
     expect(decryptWithAesGcm((await client.query('SELECT secret FROM fixture_records WHERE id=$1', [ids[0]])).rows[0].secret, target)).toBe('')
     expect((await client.query('SELECT secret FROM fixture_records WHERE id=$1', [ids[1]])).rows[0].secret).toBeNull()
   })
+  test('non-UTF8 client encoding refuses before protected mutation', async () => {
+    const environment = await runtimeEnvironment(); const context = await inputContext()
+    await client.query("SET client_encoding='LATIN1'")
+    const mutate = jest.fn()
+    await expect(createConfiguredRotationProtection(environment).protect(context, mutate)).rejects.toThrow('ROTATION_ENCODING_UNSUPPORTED')
+    expect(mutate).not.toHaveBeenCalled()
+  })
+  test('projected lookup growth beyond the wire cap refuses before fetching baseline contents', async () => {
+    const names = Array.from({ length: 70 }, (_, index) => `lookup_${index}`)
+    await client.query(`ALTER TABLE fixture_records ADD COLUMN padding text, ${names.map(name => `ADD COLUMN ${name} text`).join(', ')}`)
+    await client.query('UPDATE fixture_records SET padding=repeat(\'p\',1046576) WHERE id=(SELECT id FROM fixture_records LIMIT 1)')
+    // The current row itself fits; only the future lookup transition overflows.
+    await expect(dataset()).resolves.toBeDefined()
+    await client.query('UPDATE encryption_maps SET fields_json=$1', [JSON.stringify(names.map(hashField => ({ field: 'secret', hashField })))])
+    const context = await inputContext()
+    context.entityManager.getMetadata = (() => ({ getAll: () => [{ className: 'FixtureRecord', tableName: 'fixture_records', schema: 'public', primaryKeys: ['id'], properties: {
+      id: { name: 'id', fieldNames: ['id'] }, secret: { name: 'secret', fieldNames: ['secret'] }, ...Object.fromEntries(names.map(name => [name, { name, fieldNames: [name] }])),
+    } }] })) as unknown as EntityManager['getMetadata']
+    const mutate = jest.fn()
+    await expect(createPostgresRotationDataset({ context, providers: { previousKms: createDerivedKeyKmsService(sourceSecret), kms: createDerivedKeyKmsService(targetSecret) }, provider: 'explicit', backupDigest: 'a'.repeat(64) }).then(mutate)).rejects.toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+    expect(mutate).not.toHaveBeenCalled()
+  })
   test('plaintext in a custom field requiring encryption refuses before mutation', async () => {
     await customFixture(true)
     const data = await dataset(); const operation = jest.fn()
@@ -347,9 +369,10 @@ native('native PostgreSQL persisted verification', () => {
   })
   test('native bigint composite-safe pagination covers every row and rejects corruption in formerly skipped id5', async () => {
     await client.query('ALTER TABLE fixture_records DROP CONSTRAINT fixture_records_pkey; ALTER TABLE fixture_records DROP COLUMN id; ALTER TABLE fixture_records ADD COLUMN id bigserial PRIMARY KEY')
+    await client.query("INSERT INTO fixture_records(tenant_id,secret,exact,other) SELECT $1,$2,1,'{}'::jsonb FROM generate_series(1,1182)", [tenantId, encryptWithAesGcm('pagination-extra', source).value])
     const data = await dataset(); const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)
     const header = JSON.parse((await artifacts.read('header')).toString())
-    expect(header.rows).toBe(19)
+    expect(header.rows).toBe(1201)
     await rotate()
     await client.query('UPDATE fixture_records SET secret=$1 WHERE id=5', [encryptWithAesGcm('wrong-at-five', target).value])
     await expect(verifyRotationData(prepared, data, artifacts)).rejects.toThrow('ROTATION_DATA_MISMATCH')
@@ -504,6 +527,71 @@ native('native PostgreSQL persisted verification', () => {
       await expect(dataset(restricted)).rejects.toThrow('ROTATION_RLS_VISIBILITY_UNPROVEN')
     } finally { await restricted.end(); await client.query(`DROP OWNED BY "${role}"; DROP ROLE "${role}"`) }
   })
+  test('every final reader probes fresh wire bounds before fetching trigger-expanded untouched data', async () => {
+    await client.query(`CREATE FUNCTION expand_untouched() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN NEW.other=jsonb_build_object('expanded',repeat('x',2097152)); RETURN NEW; END $$;
+      CREATE TRIGGER expand_untouched BEFORE UPDATE OF secret ON fixture_records
+      FOR EACH ROW WHEN (OLD.secret IS NOT DISTINCT FROM NEW.secret) EXECUTE FUNCTION expand_untouched()`)
+    const queries: string[] = []
+    const traced = new Proxy(client, { get(connection, property) {
+      if (property === 'query') return (sql: string, parameters?: unknown[]) => { queries.push(sql); return connection.query(sql, parameters) }
+      const value = Reflect.get(connection, property, connection)
+      return typeof value === 'function' ? value.bind(connection) : value
+    } })
+    const reader = await dataset(traced)
+    await rotate()
+    let firstRows = 0
+    for await (const _row of reader.rows('after')) firstRows++
+    expect(firstRows).toBe(19)
+    const id = (await client.query('SELECT id FROM fixture_records ORDER BY id LIMIT 1')).rows[0].id
+    await client.query('UPDATE fixture_records SET secret=secret WHERE id=$1', [id])
+    queries.length = 0
+    await expect((async () => { for await (const _row of reader.rows('after')) { /* Never reached. */ } })()).rejects.toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+    expect(queries.some(sql => sql.includes('octet_length'))).toBe(true)
+    expect(queries.some(sql => /AS verification_rows/.test(sql))).toBe(false)
+  })
+  function authenticatedInvalidUtf8(key: string): string {
+    const iv = randomBytes(12)
+    const cipher = createCipheriv('aes-256-gcm', Buffer.from(key, 'base64'), iv)
+    const ciphertext = Buffer.concat([cipher.update(Buffer.from([0x80])), cipher.final()])
+    return [iv.toString('base64'), ciphertext.toString('base64'), cipher.getAuthTag().toString('base64'), 'v1'].join(':')
+  }
+  test.each(['mapped', 'custom'] as const)('protected native %s rejects invalid UTF-8 before Core mutation', async kind => {
+    if (kind === 'custom') await customFixture(false)
+    const bad = authenticatedInvalidUtf8(source)
+    const table = kind === 'mapped' ? 'fixture_records' : 'custom_entities_storage'
+    const id = (await client.query(`SELECT id::text FROM ${table} ORDER BY id LIMIT 1`)).rows[0].id
+    if (kind === 'mapped') await client.query('UPDATE fixture_records SET secret=$1 WHERE id=$2', [bad, id])
+    else await client.query('UPDATE custom_entities_storage SET doc=jsonb_set(doc,\'{secret}\',to_jsonb($1::text)) WHERE id=$2', [bad, id])
+    const original = (await client.query(`SELECT ${kind === 'mapped' ? 'secret' : 'doc'} AS value FROM ${table} WHERE id=$1`, [id])).rows[0].value
+    const environment = await runtimeEnvironment()
+    const mutation = jest.fn(async () => { await rotate() })
+    await expect(createConfiguredRotationProtection(environment).protect(await inputContext(), mutation)).rejects.toThrow('ROTATION_DATA_MISMATCH')
+    expect(mutation).not.toHaveBeenCalled()
+    expect((await client.query(`SELECT ${kind === 'mapped' ? 'secret' : 'doc'} AS value FROM ${table} WHERE id=$1`, [id])).rows[0].value).toEqual(original)
+    expect((await readdir(environment.OM_ROTATION_TRUST_ROOT!)).some(name => name.endsWith('.report.json'))).toBe(false)
+  }, 60000)
+  test.each(['mapped', 'custom'] as const)('protected native %s rejects target-authenticated invalid UTF-8 colliding with a genuine replacement character', async kind => {
+    if (kind === 'custom') await customFixture(false)
+    const table = kind === 'mapped' ? 'fixture_records' : 'custom_entities_storage'
+    const id = (await client.query(`SELECT id::text FROM ${table} ORDER BY id LIMIT 1`)).rows[0].id
+    const original = encryptWithAesGcm('\ufffd', source).raw
+    if (kind === 'mapped') await client.query('UPDATE fixture_records SET secret=$1 WHERE id=$2', [original, id])
+    else await client.query('UPDATE custom_entities_storage SET doc=jsonb_set(doc,\'{secret}\',to_jsonb($1::text)) WHERE id=$2', [original, id])
+    const environment = await runtimeEnvironment()
+    const bad = authenticatedInvalidUtf8(target)
+    // Legacy decoding illustrates the false equality; protected verification must refuse it.
+    expect(decryptWithAesGcm(bad, target)).toBe('\ufffd')
+    await expect(createConfiguredRotationProtection(environment).protect(await inputContext(), async () => {
+      await rotate()
+      if (kind === 'mapped') await client.query('UPDATE fixture_records SET secret=$1 WHERE id=$2', [bad, id])
+      else await client.query('UPDATE custom_entities_storage SET doc=jsonb_set(doc,\'{secret}\',to_jsonb($1::text)) WHERE id=$2', [bad, id])
+    })).rejects.toThrow('ROTATION_DATA_MISMATCH')
+    const files = await readdir(environment.OM_ROTATION_TRUST_ROOT!)
+    expect(files.some(name => name.endsWith('.report.json'))).toBe(false)
+    const failed = JSON.parse(await readFile(join(environment.OM_ROTATION_TRUST_ROOT!, files.find(name => name.includes('.failure.'))!), 'utf8'))
+    expect(failed).toMatchObject({ status: 'failed', errorCode: 'ROTATION_DATA_MISMATCH' })
+  }, 60000)
   async function compositeCodecFixture() {
     await client.query(`DROP TABLE fixture_records;
       CREATE TABLE fixture_records(bucket text NOT NULL, ordinal bigint NOT NULL, tenant_id uuid NOT NULL, organization_id uuid,
@@ -518,6 +606,7 @@ native('native PostgreSQL persisted verification', () => {
         bucket === 'z' && index === 10 ? '2026-03-04 05:06:07.987654+00' : null,
       ])
     }
+    await client.query("ALTER TABLE fixture_records ADD COLUMN padding text NOT NULL DEFAULT repeat('p',204800)")
     await client.query("SET TIME ZONE 'UTC'")
     const context = await inputContext()
     context.entityManager.getMetadata = (() => ({ getAll: () => [{ className: 'FixtureRecord', tableName: 'fixture_records', schema: 'public', primaryKeys: ['bucket', 'ordinal'], properties: {
@@ -554,6 +643,7 @@ native('native PostgreSQL persisted verification', () => {
   test('protected native composite PK and bytea/array/microsecond codecs survive real maintenance batches and final scan', async () => {
     const context = await compositeCodecFixture()
     const expected = (await client.query(codecProjection)).rows
+    const execute = jest.spyOn(context.entityManager, 'execute')
     const environment = await runtimeEnvironment()
     await createConfiguredRotationProtection(environment).protect(context, async providers => { if (!providers) throw new Error('Expected pinned protection'); await rotateCompositeCodec(context, providers) })
     expect((await client.query(codecProjection)).rows).toEqual(expected)
@@ -566,6 +656,7 @@ native('native PostgreSQL persisted verification', () => {
     const report = JSON.parse(await readFile(join(environment.OM_ROTATION_TRUST_ROOT!, names.find(name => name.endsWith('.report.json'))!), 'utf8'))
     expect(report).toMatchObject({ status: 'passed', comparedRows: '22' })
     expect(names).not.toContain('rotation.lock')
+    expect(execute.mock.calls.filter(call => String(call[0]).includes('AS verification_rows WHERE')).length).toBeGreaterThanOrEqual(6)
   }, 60000)
   test.each(['bytea', 'array', 'timestamp', 'missing-row', 'unavailable-key'] as const)('protected native composite late %s corruption refuses a success report', async corruption => {
     const context = await compositeCodecFixture()

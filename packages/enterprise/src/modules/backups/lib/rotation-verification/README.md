@@ -49,7 +49,10 @@ trusted anchors outside the mutable artifact location. Keep escrow identities an
 original application keys independently recoverable. Provision enough storage for
 the complete encrypted archive and native staging. The backup database identity
 must match the ORM source; a matching database name alone is insufficient. Native
-client/server majors must match. Acceptance measurements currently use PostgreSQL 16.
+client/server majors must match. Protected v1 requires UTF8 server and client
+encoding. Authenticated plaintext bytes must also be valid UTF8 before logical
+decoding; valid replacement characters, BOMs, empty strings and non-BMP text remain
+supported. Acceptance measurements currently use PostgreSQL 16.
 
 ## Establish the offline window
 
@@ -109,6 +112,9 @@ The coordinator authenticates the original baseline and journal before further
 writes, reconciles committed batches and performs a complete final comparison.
 Never create a replacement baseline from partially rotated data or edit checkpoints.
 A PostgreSQL restart/replacement changes the incarnation binding and refuses v1 resume.
+The authenticated coverage binding includes the codec version; an older prepared
+run cannot silently resume under changed decoding rules. Retain its keys and backup
+and use the quarantined recovery workflow when the original binding cannot be proven.
 
 A terminal `passed` run is immutable. Attempting to resume it returns
 `ROTATION_ALREADY_COMPLETED`; its trusted state and existing success receipt remain
@@ -136,9 +142,12 @@ lookup/timestamp transitions. System-key stores and independently encrypted inne
 credentials retain their existing owners and are not certified for root-key retirement.
 Unsupported or ambiguous global policies, inheritance/partitions, identity/scope-key
 encryption rules, oversized rows and unbounded inventories refuse before mutation.
-Current bounds include 1 MiB serialized rows, 500 custom definitions per selected
+Current bounds include 1 MiB wire rows, 500 custom definitions per selected
 inventory, 5,000 maps, 1,000 selected organizations, and a 10,000-record/4 MiB binding
 projection. Unsupported data must be resolved explicitly; no success flag bypasses it.
+Known lookup, ciphertext-padding and timestamp growth is budgeted before mutation.
+Every final reader freshly checks actual persisted row sizes before transferring
+contents, so a trigger or generated value cannot bypass the wire allocation cap.
 
 Benchmark artifacts under `.ai/qa/2026-11-12-key-rotation-verification` distinguish
 exploration, interruption/recovery evidence and release acceptance. The measured
