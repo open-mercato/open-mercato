@@ -44,6 +44,6 @@ Admin detail/action routes for customer users follow the organization switcher (
 
 ### Phase 2: Address UI QA failures
 
-- [ ] 2.1 Validate requested roles before any write in admin user PUT
-- [ ] 2.2 Give never-updated customer users a non-null optimistic-lock version
-- [ ] 2.3 Load role options for the edited user's organization
+- [x] 2.1 Validate requested roles before any write in admin user PUT — 0cc7f88179
+- [x] 2.2 Give never-updated customer users a non-null optimistic-lock version — c6b11c3b9e
+- [x] 2.3 Load role options for the edited user's organization — 56c6150182
