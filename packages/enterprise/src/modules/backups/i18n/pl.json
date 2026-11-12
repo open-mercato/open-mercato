@@ -1,0 +1,7 @@
+{
+  "backups.cli.error": "BŁĄD: polecenie odzyskiwania odrzucone lub nieukończone.",
+  "backups.cli.help": "Szyfrowana kopia i izolowane odtwarzanie: preflight, create, status, verify, restore, exercise.",
+  "backups.progress.bytes": "bajtów",
+  "backups.progress.chunks": "fragmentów",
+  "backups.progress.rows": "wierszy"
+}

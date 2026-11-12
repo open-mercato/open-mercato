@@ -1,0 +1,7 @@
+{
+  "backups.cli.error": "ERROR: recuperación rechazada o incompleta.",
+  "backups.cli.help": "Copia cifrada y recuperación aislada: preflight, create, status, verify, restore, exercise.",
+  "backups.progress.bytes": "bytes",
+  "backups.progress.chunks": "bloques",
+  "backups.progress.rows": "filas"
+}

@@ -79,10 +79,13 @@
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
     "@simplewebauthn/types": "^12.0.0",
+    "@types/pg": "8.20.0",
     "@types/qrcode": "^1.5.5",
+    "age-encryption": "0.3.1",
     "ai": "^7.0.4",
     "openid-client": "^6.8.4",
     "otpauth": "9.5.1",
+    "pg": "8.23.0",
     "qrcode": "^1.5.4"
   },
   "peerDependencies": {
@@ -96,6 +99,7 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "jest": "^30.4.2",
@@ -112,5 +116,8 @@
     "type": "git",
     "url": "https://github.com/open-mercato/open-mercato",
     "directory": "packages/enterprise"
+  },
+  "bin": {
+    "mercato-backup": "./bin/mercato-backup.mjs"
   }
 }
