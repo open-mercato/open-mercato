@@ -126,7 +126,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
   if (maps.length > MAX_MAPS) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   const metas = new Map(listEntityMetadata(context.entityManager).map((meta) => [resolveEntityIdFromMetadata(meta), meta]))
   const tables = new Map<string, Table>()
-  const systemEntities = new Set([...(context.systemScopedEntityIds ?? []), ...getDefaultEncryptionMaps(tryGetModules() ?? []).filter((entry) => entry.keyScope === 'system').map((entry) => entry.entityId)])
+  const systemEntities = new Set(context.systemScopedEntityIds ?? getDefaultEncryptionMaps(tryGetModules() ?? []).filter((entry) => entry.keyScope === 'system').map((entry) => entry.entityId))
   const emptyMaps: string[] = []
   for (const map of maps) {
     if (systemEntities.has(map.entityId)) continue

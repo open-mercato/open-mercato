@@ -567,8 +567,9 @@ const rotateEncryptionKey: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     const protection = resolve<RotationProtectionService | undefined>('rotationProtectionService', { allowUnregistered: true })
+    const protectedSystemEntities = protection ? await getSystemScopedEntityIds() : undefined
     return protectKeyRotation(
-      { tenantId: tenantIdArg, organizationId: organizationIdArg, dryRun, entityManager: em, previousKey: oldKey },
+      { tenantId: tenantIdArg, organizationId: organizationIdArg, dryRun, entityManager: em, previousKey: oldKey, ...(protectedSystemEntities ? { systemScopedEntityIds: [...protectedSystemEntities] } : {}) },
       args[UNPROTECTED_ROTATION_ACKNOWLEDGMENT],
       protection,
       async (providers?: RotationKeyProviders) => {
@@ -601,7 +602,7 @@ const rotateEncryptionKey: ModuleCli = {
     if (organizationIdArg) where.organizationId = organizationIdArg
     const allMaps = await em.find(EncryptionMap, where, { limit: 5001, ...(providers ? { refresh: true } : {}), ...(providers?.signal ? { signal: providers.signal, inflightQueryAbortStrategy: 'cancel query' } : {}) })
     if (allMaps.length > 5000) failCli('[internal] Encryption map scope exceeds supported maintenance bound')
-    const systemScopedEntityIds = await getSystemScopedEntityIds()
+    const systemScopedEntityIds = protectedSystemEntities ?? await getSystemScopedEntityIds()
     const maps = allMaps.filter((map: EncryptionMap) => {
       if (!systemScopedEntityIds.has(String(map.entityId))) return true
       console.warn(

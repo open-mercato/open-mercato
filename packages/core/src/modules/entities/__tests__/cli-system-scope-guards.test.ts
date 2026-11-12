@@ -8,6 +8,7 @@ registerEntityIds({
   },
 } as any)
 
+let protectionService: { protect: jest.Mock } | undefined
 const execute = jest.fn(async () => [])
 const find = jest.fn()
 const create = jest.fn((_entity: unknown, data: Record<string, unknown>) => data)
@@ -51,7 +52,7 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
-    resolve: (name: string) => name === 'rotationProtectionService' ? undefined : name === 'tenantEncryptionService' ? { invalidateMap } : ({
+    resolve: (name: string) => name === 'rotationProtectionService' ? protectionService : name === 'tenantEncryptionService' ? { invalidateMap } : ({
       execute,
       getConnection: () => ({ execute }),
       getMetadata: () => ({
@@ -85,6 +86,7 @@ describe('entities CLI system-scope guards', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    protectionService = undefined
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
     logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
@@ -116,6 +118,14 @@ describe('entities CLI system-scope guards', () => {
     expect(logSpy.mock.calls.flat().join('\n')).toContain('No encryption maps found for the selected scope.')
   })
 
+  it('passes the frozen CLI-only system registry to protected verification and reuses it for filtering', async () => {
+    protectionService = { protect: jest.fn(async (_context, operation) => operation({ kms: {}, previousKms: null })) }
+    find.mockImplementation(async (entity: unknown) => entity === EncryptionMap ? [{ entityId: 'onboarding:onboarding_request', tenantId: 'tenant-1', organizationId: null, fieldsJson: [{ field: 'email' }], isActive: true, deletedAt: null }] : [])
+    await loadCommand('rotate-encryption-key').run(['--old-key', 'old-secret', '--allow-unsafe-old-key', '--tenant', 'tenant-1'])
+    expect(protectionService.protect.mock.calls[0]![0].systemScopedEntityIds).toEqual(['onboarding:onboarding_request'])
+    expect(execute).not.toHaveBeenCalled()
+    expect(warnSpy.mock.calls.flat().join('\n')).toContain('Skipping onboarding:onboarding_request: system-scoped entity')
+  })
   it('decrypt-database leaves system-scoped rows untouched', async () => {
     find.mockImplementation(async (entity: unknown) => {
       if (entity === EncryptionMap) {

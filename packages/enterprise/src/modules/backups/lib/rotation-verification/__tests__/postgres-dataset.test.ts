@@ -12,6 +12,7 @@ import { createConfiguredRotationProtection } from '../runtime'
 import { generateX25519Identity, identityToRecipient } from '../../engine/crypto'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
+import * as moduleRegistry from '@open-mercato/shared/modules/registry'
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { canonicalRotationTimestamp, createPostgresRotationDataset } from '../postgres-dataset'
 import { prepareRotationVerification, verifyRotationData } from '../verifier'
@@ -235,6 +236,16 @@ native('native PostgreSQL persisted verification', () => {
     await rotate()
     await client.query(`UPDATE custom_entities_storage SET doc=jsonb_set(jsonb_set(doc,'{secret}',to_jsonb($1::text)),'{__proto__}','"after"'::jsonb)`, [encryptWithAesGcm('dynamic-secret', target).value])
     await expect(verifyRotationData(prepared, data, artifacts)).rejects.toThrow('DATA_MISMATCH')
+  })
+  test('an explicit empty CLI exclusion list is authoritative over an unrelated API registry', async () => {
+    const defaults = jest.spyOn(moduleRegistry, 'getDefaultEncryptionMaps').mockReturnValue([{ entityId: 'test:record', keyScope: 'system', fields: [{ field: 'secret' }] }])
+    try {
+      const context = { ...await inputContext(), systemScopedEntityIds: [] }
+      const data = await createPostgresRotationDataset({ context, providers: { previousKms: createDerivedKeyKmsService(sourceSecret), kms: createDerivedKeyKmsService(targetSecret) }, backupDigest: 'a'.repeat(64), provider: 'explicit' })
+      const artifacts = store(); await prepareRotationVerification(data, artifacts)
+      expect(JSON.parse((await artifacts.read('header')).toString()).rows).toBe(19)
+      expect(defaults).not.toHaveBeenCalled()
+    } finally { defaults.mockRestore() }
   })
   test('plaintext in a custom field requiring encryption refuses before mutation', async () => {
     await customFixture(true)
