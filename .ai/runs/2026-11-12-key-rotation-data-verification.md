@@ -60,7 +60,7 @@ Independent parent-agent review found no blocker in this plan-only diff. Clarifi
 
 ## Risks and current limits
 
-The main false-pass risks are shared codec errors, invisible RLS rows, fallback keys and mutable metadata exceptions; each has a named negative control. Backup runtime, explicit human decisions and compatibility approval are prerequisites, not optional follow-up work. This plan preserves every implementation step pending and grants no waiver.
+The main false-pass risks are shared codec errors, invisible RLS rows, fallback keys and mutable metadata exceptions; each has a named negative control. Backup runtime, explicit human decisions and compatibility approval are prerequisites, not optional follow-up work. Implementation progress is recorded below; remaining acceptance and publication steps stay pending and no gate is waived.
 
 ## Progress
 
@@ -108,3 +108,28 @@ Measured resource scope is the standalone coordinator with explicit Node heap fl
 Acceptance checkpoint: 994bceafe2 fixes a measured 20-GiB custom query-planner problem by materializing the light primary-key frontier before eligibility or TOAST projection; full ineligible pages still advance/checkpoint. Actual 20-GiB EXPLAIN confirms bounded index reads, and 38 Core/37 native dataset tests pass. The interrupted run resumed against its original encrypted recovery artifact and authenticated baseline, then compared all 327,680 persisted rows successfully. Its measured overhead failure is retained in diagnostic JSON and is not accepted as a fresh performance run. Fresh final 1/20-GiB warm/cold runs remain pending.
 
 179317643a rejects unpaired UTF-16 surrogates before canonical UTF-8 framing; real Core CLI/ORM/Enterprise DI proves refusal before mutation. The final backup operator/sequence prerequisite 917e126886 and main 825240d58b are reconciled without deleting either upgrade entry. Node 24.22.2 immutable installation, the first seven configured commands, the two actual CLI-native cases and the unchanged seven-case compatibility-context guard pass. A later upstream backup integrity milestone requires one final source merge and full eight-command rerun; release readiness and authoritative review remain pending.
+
+
+## Current verification checkpoint — runtime 243661d18a
+
+The implementation now includes strict authenticated UTF8 decoding, fixed built-in PostgreSQL type/array support, ISO timestamp and round-trip float projection, and frozen output-format bindings. Actual float and historical timezone-abbreviation collision fixtures refuse before mutation. Fused exact-snapshot page guards withhold all contents on overflow, preserve native composite ordering and exact counts, and keep all guarding time inside the final verification stream. Bounded Core readback CTEs retain separate committed-value checks and all original typed/scope/timestamp predicates.
+
+- Final integrated PostgreSQL dataset suite: **68/68 passed** (55.463 s), including shadow relations/catalogs, malformed codecs, composite and typed late corruption, exact-page sentinels and native bounded-index plans.
+- Real Core CLI/MikroORM/Enterprise DI/native backup integration: **3/3 passed** on runtime243. Separate Core committed-readback native cases: **3/3 passed**; Core regression packet: **46 passed**.
+- Actual process-death matrix remains all36 cases with unchanged15-second child and30-second case bounds. The full workspace attempt overlapped a confirmed1032-second host suspension and timed out; test-only be6aca022b compiles the actual production-backed child once per suite while preserving fresh Node processes and every assertion. Focused36 and detectOpenHandles36 passed; the full configured rerun is still pending.
+- Persistent named PGDATA and artifact volumes now have explicit runner/image provenance.42 Node/PostgreSQL/runtime binaries and libraries match the previous image byte-for-byte. The old stopped container, encrypted artifacts and failed overlay-filesystem measurements remain preserved.
+- Runtime243 1 GiB warm and true-cold runs passed every numeric gate. Warm:14.250 s incremental overhead,4.044 s final/reference2.840 s (70.236%),211.95 MiB coordinator/225.61 MiB sampled process tree. Cold:14.210 s overhead,3.935 s final/reference2.854 s (72.53%),206.78/212.19 MiB. All fused guard time is included, with no separate preflight subtraction. Node24.22.2 uses the disclosed128 MiB oldspace/semi4 flags; the full application bootstrap memory is not inferred.
+- Earlier20 GiB failures remain explicit nonacceptance artifacts, including the fully quiet0eb overhead/throughput failure. Fresh24320 GiB warm source is seeded but no measurement starts until the current configured gate finishes. True-cold20 GiB, near-limit large-row stress and final authoritative review/report remain pending.
+
+No key retirement, fence release, production promotion or merge is authorized by a passing fixture.
+
+
+## Frozen acceptance candidate — cc62df6e86
+
+The profile-driven candidate removes repeated raw-string progress byte scans using the exact fused SQL projection byte count, without changing the wire/page cap or public progress totals. Canonical columns are preordered separately from schema and native-key order. Single-allocation framing and the local public-empty-metadata HMAC reuse preserve prior protocol bytes, key binding and all metadata checks. The source-first baseline still accepts mixed valid keys; the separate read-only target iterator makes the reference comparison target-only without intent/HMAC work. Production final verification remains mandatory and target-key-only.
+
+Actual integrated dataset tests pass70/70 (53.975 s), canonical/verifier43/43 pass, strict TypeScript passes, and real Core CLI/DI/ORM/native protection passes3/3 (7.889 s). All eight configured commands pass on cc62. An unchanged fullgate retry passed the earlier unrelated module-decoupling assertion without any fixture, assertion or production attachment edit; the failed attempt and isolated13/13 proof remain retained.
+
+One consistent Node128 MiB oldspace/semi4 policy is pinned for final acceptance. Fresh1 GiB warm/cold cases pass all numeric gates: warm12.972 s overhead and3.580/2.565 s final/reference (71.63%), coordinator208.39 MiB; cold12.636 s overhead and3.458/2.481 s (71.75%), coordinator209.71 MiB. There is no host-sleep overlap or heavy measured-phase concurrency. Earlier semi8 and other failed cases remain nonacceptance evidence; passing cases are not assembled across policies.
+
+Fresh20 GiB warm/cold, same-bundle near-limit large-row stress, and concluding authoritative review/report remain pending. No20 GiB performance pass is inferred from the small cases.

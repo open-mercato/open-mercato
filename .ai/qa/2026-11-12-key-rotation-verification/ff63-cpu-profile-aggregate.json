@@ -1,0 +1,521 @@
+{
+  "scope": "DIAGNOSTIC V8 main-thread CPU samples only; not performance acceptance. Raw samples stay private, no heap snapshots or variable/key values.",
+  "productionSource": "ff63ba4c16ef87d1a1b3cebb2cc08460ad540a87",
+  "instrumentation": "Separate private bundle starts/stops sampler around baseline/final/reference; aggregate native samples attributed to nearest source caller.",
+  "profiles": {
+    "diagnostic-before": {
+      "attributedModules": [
+        {
+          "owner": "packages/shared/src/lib/encryption/aes.ts",
+          "selfAndNativeMs": 686.85,
+          "percent": 18.98
+        },
+        {
+          "owner": "packages/shared/src/lib/encryption/rotationJson.ts",
+          "selfAndNativeMs": 589.295,
+          "percent": 16.28
+        },
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/canonical.ts",
+          "selfAndNativeMs": 562.326,
+          "percent": 15.54
+        },
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/postgres-dataset.ts",
+          "selfAndNativeMs": 468.85,
+          "percent": 12.95
+        },
+        {
+          "owner": "(garbage collector)",
+          "selfAndNativeMs": 448.043,
+          "percent": 12.38
+        },
+        {
+          "owner": "node_modules/pg/node_modules/pg-protocol/dist/buffer-reader.js",
+          "selfAndNativeMs": 431.798,
+          "percent": 11.93
+        },
+        {
+          "owner": "(idle)",
+          "selfAndNativeMs": 223.549,
+          "percent": 6.18
+        },
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/keys.ts",
+          "selfAndNativeMs": 45.336,
+          "percent": 1.25
+        },
+        {
+          "owner": "node_modules/pg/node_modules/pg-protocol/dist/parser.js",
+          "selfAndNativeMs": 44.203,
+          "percent": 1.22
+        },
+        {
+          "owner": "(native/unattributed)",
+          "selfAndNativeMs": 41.15,
+          "percent": 1.14
+        },
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/verifier.ts",
+          "selfAndNativeMs": 12.484,
+          "percent": 0.34
+        },
+        {
+          "owner": "node_modules/pg/lib/query.js",
+          "selfAndNativeMs": 10.986,
+          "percent": 0.3
+        },
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/store.ts",
+          "selfAndNativeMs": 8.929,
+          "percent": 0.25
+        },
+        {
+          "owner": "node_modules/@noble/ciphers/_poly1305.js",
+          "selfAndNativeMs": 7.396,
+          "percent": 0.2
+        },
+        {
+          "owner": "packages/shared/src/lib/encryption/toggles.ts",
+          "selfAndNativeMs": 6.365,
+          "percent": 0.18
+        }
+      ],
+      "nativeStacks": [
+        {
+          "stack": "(garbage collector) []",
+          "ms": 448.043,
+          "percent": 12.38
+        },
+        {
+          "stack": "(anonymous) [] <- byteLength [node:buffer] <- (anonymous) [packages/enterprise/src/modules/backups/lib/rotation-verification/postgres-dataset.ts]",
+          "ms": 381.547,
+          "percent": 10.54
+        },
+        {
+          "stack": "toString [node:buffer] <- string [node_modules/pg/node_modules/pg-protocol/dist/buffer-reader.js]",
+          "ms": 378.113,
+          "percent": 10.45
+        },
+        {
+          "stack": "(anonymous) [] <- byteLength [node:buffer] <- parseRotationJson [packages/shared/src/lib/encryption/rotationJson.ts]",
+          "ms": 375.951,
+          "percent": 10.39
+        },
+        {
+          "stack": "update [] <- update [node:internal/crypto/hash] <- keyedRowDigestAndSize [packages/enterprise/src/modules/backups/lib/rotation-verification/canonical.ts]",
+          "ms": 320.424,
+          "percent": 8.85
+        },
+        {
+          "stack": "base64Write [] <- createFromString [node:buffer] <- fromStringFast [node:buffer] <- fromString [node:buffer] <- from [node:buffer]",
+          "ms": 305.938,
+          "percent": 8.45
+        },
+        {
+          "stack": "(idle) []",
+          "ms": 223.549,
+          "percent": 6.18
+        },
+        {
+          "stack": "parseRotationJson [packages/shared/src/lib/encryption/rotationJson.ts]",
+          "ms": 210.646,
+          "percent": 5.82
+        },
+        {
+          "stack": "update [] <- update [node:internal/crypto/cipher] <- runAesGcmDecrypt [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 158.125,
+          "percent": 4.37
+        },
+        {
+          "stack": "(anonymous) [] <- byteLength [node:buffer] <- encodedSize [packages/enterprise/src/modules/backups/lib/rotation-verification/canonical.ts]",
+          "ms": 71.883,
+          "percent": 1.99
+        },
+        {
+          "stack": "utf8Slice [] <- toString [node:buffer] <- string [node_modules/pg/node_modules/pg-protocol/dist/buffer-reader.js]",
+          "ms": 52.283,
+          "percent": 1.44
+        },
+        {
+          "stack": "isEncryptedPayloadShape [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 41.07,
+          "percent": 1.13
+        },
+        {
+          "stack": "(anonymous) [] <- utf8Write [node:internal/buffer] <- write [node:buffer] <- writeCanonical [packages/enterprise/src/modules/backups/lib/rotation-verification/canonical.ts]",
+          "ms": 40.844,
+          "percent": 1.13
+        },
+        {
+          "stack": "decryptWithAesGcm [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 37.943,
+          "percent": 1.05
+        },
+        {
+          "stack": "scanRows [packages/enterprise/src/modules/backups/lib/rotation-verification/postgres-dataset.ts]",
+          "ms": 35.297,
+          "percent": 0.98
+        },
+        {
+          "stack": "_copyActual [node:buffer] <- copyImpl [node:buffer] <- copy [node:buffer] <- mergeBuffer [node_modules/pg/node_modules/pg-protocol/dist/parser.js]",
+          "ms": 25.91,
+          "percent": 0.72
+        },
+        {
+          "stack": "concat [node:buffer] <- runAesGcmDecrypt [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 21.453,
+          "percent": 0.59
+        },
+        {
+          "stack": "toString [node:buffer] <- runAesGcmDecrypt [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 20.673,
+          "percent": 0.57
+        }
+      ]
+    },
+    "diagnostic-after": {
+      "attributedModules": [
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/canonical.ts",
+          "selfAndNativeMs": 704.562,
+          "percent": 17.03
+        },
+        {
+          "owner": "packages/shared/src/lib/encryption/aes.ts",
+          "selfAndNativeMs": 697.832,
+          "percent": 16.86
+        },
+        {
+          "owner": "packages/shared/src/lib/encryption/rotationJson.ts",
+          "selfAndNativeMs": 561.692,
+          "percent": 13.57
+        },
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/postgres-dataset.ts",
+          "selfAndNativeMs": 527.289,
+          "percent": 12.74
+        },
+        {
+          "owner": "(garbage collector)",
+          "selfAndNativeMs": 481.443,
+          "percent": 11.64
+        },
+        {
+          "owner": "node_modules/pg/node_modules/pg-protocol/dist/buffer-reader.js",
+          "selfAndNativeMs": 468.097,
+          "percent": 11.31
+        },
+        {
+          "owner": "(idle)",
+          "selfAndNativeMs": 321.745,
+          "percent": 7.78
+        },
+        {
+          "owner": "(native/unattributed)",
+          "selfAndNativeMs": 74.816,
+          "percent": 1.81
+        },
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/keys.ts",
+          "selfAndNativeMs": 49.331,
+          "percent": 1.19
+        },
+        {
+          "owner": "node_modules/pg/node_modules/pg-protocol/dist/parser.js",
+          "selfAndNativeMs": 36.506,
+          "percent": 0.88
+        },
+        {
+          "owner": "node_modules/age-encryption/dist/x25519.js",
+          "selfAndNativeMs": 24.866,
+          "percent": 0.6
+        },
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/coordinator.ts",
+          "selfAndNativeMs": 24.076,
+          "percent": 0.58
+        },
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/verifier.ts",
+          "selfAndNativeMs": 19.132,
+          "percent": 0.46
+        },
+        {
+          "owner": "node_modules/pg/lib/query.js",
+          "selfAndNativeMs": 18.256,
+          "percent": 0.44
+        },
+        {
+          "owner": "node_modules/zod/v4/core/schemas.js",
+          "selfAndNativeMs": 12.888,
+          "percent": 0.31
+        }
+      ],
+      "nativeStacks": [
+        {
+          "stack": "(garbage collector) []",
+          "ms": 481.443,
+          "percent": 11.64
+        },
+        {
+          "stack": "(anonymous) [] <- byteLength [node:buffer] <- (anonymous) [packages/enterprise/src/modules/backups/lib/rotation-verification/postgres-dataset.ts]",
+          "ms": 416.103,
+          "percent": 10.06
+        },
+        {
+          "stack": "toString [node:buffer] <- string [node_modules/pg/node_modules/pg-protocol/dist/buffer-reader.js]",
+          "ms": 410.285,
+          "percent": 9.92
+        },
+        {
+          "stack": "(anonymous) [] <- byteLength [node:buffer] <- parseRotationJson [packages/shared/src/lib/encryption/rotationJson.ts]",
+          "ms": 351.276,
+          "percent": 8.49
+        },
+        {
+          "stack": "(idle) []",
+          "ms": 321.745,
+          "percent": 7.78
+        },
+        {
+          "stack": "base64Write [] <- createFromString [node:buffer] <- fromStringFast [node:buffer] <- fromString [node:buffer] <- from [node:buffer]",
+          "ms": 308.269,
+          "percent": 7.45
+        },
+        {
+          "stack": "update [] <- update [node:internal/crypto/hash] <- keyedRowDigestAndSize [packages/enterprise/src/modules/backups/lib/rotation-verification/canonical.ts]",
+          "ms": 308.215,
+          "percent": 7.45
+        },
+        {
+          "stack": "parseRotationJson [packages/shared/src/lib/encryption/rotationJson.ts]",
+          "ms": 193.57,
+          "percent": 4.68
+        },
+        {
+          "stack": "update [] <- update [node:internal/crypto/cipher] <- runAesGcmDecrypt [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 167.569,
+          "percent": 4.05
+        },
+        {
+          "stack": "(anonymous) [] <- byteLength [node:buffer] <- encodedSize [packages/enterprise/src/modules/backups/lib/rotation-verification/canonical.ts]",
+          "ms": 78.31,
+          "percent": 1.89
+        },
+        {
+          "stack": "utf8Slice [] <- toString [node:buffer] <- string [node_modules/pg/node_modules/pg-protocol/dist/buffer-reader.js]",
+          "ms": 57.812,
+          "percent": 1.4
+        },
+        {
+          "stack": "(anonymous) [] <- utf8Write [node:internal/buffer] <- write [node:buffer] <- writeCanonical [packages/enterprise/src/modules/backups/lib/rotation-verification/canonical.ts]",
+          "ms": 57.471,
+          "percent": 1.39
+        },
+        {
+          "stack": "isEncryptedPayloadShape [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 57.017,
+          "percent": 1.38
+        },
+        {
+          "stack": "scanRows [packages/enterprise/src/modules/backups/lib/rotation-verification/postgres-dataset.ts]",
+          "ms": 39.054,
+          "percent": 0.94
+        },
+        {
+          "stack": "(program) [] <- (root) []",
+          "ms": 30.919,
+          "percent": 0.75
+        },
+        {
+          "stack": "toString [node:buffer] <- runAesGcmDecrypt [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 28.966,
+          "percent": 0.7
+        },
+        {
+          "stack": "(anonymous) [packages/enterprise/src/modules/backups/lib/rotation-verification/postgres-dataset.ts]",
+          "ms": 26.999,
+          "percent": 0.65
+        },
+        {
+          "stack": "concat [node:buffer] <- runAesGcmDecrypt [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 24.174,
+          "percent": 0.58
+        }
+      ]
+    },
+    "diagnostic-reference": {
+      "attributedModules": [
+        {
+          "owner": "packages/shared/src/lib/encryption/aes.ts",
+          "selfAndNativeMs": 633.775,
+          "percent": 23.46
+        },
+        {
+          "owner": "packages/shared/src/lib/encryption/rotationJson.ts",
+          "selfAndNativeMs": 548.6,
+          "percent": 20.31
+        },
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/postgres-dataset.ts",
+          "selfAndNativeMs": 436.825,
+          "percent": 16.17
+        },
+        {
+          "owner": "node_modules/pg/node_modules/pg-protocol/dist/buffer-reader.js",
+          "selfAndNativeMs": 429.464,
+          "percent": 15.9
+        },
+        {
+          "owner": "(garbage collector)",
+          "selfAndNativeMs": 305.938,
+          "percent": 11.32
+        },
+        {
+          "owner": "(idle)",
+          "selfAndNativeMs": 189.879,
+          "percent": 7.03
+        },
+        {
+          "owner": "node_modules/pg/node_modules/pg-protocol/dist/parser.js",
+          "selfAndNativeMs": 51.88,
+          "percent": 1.92
+        },
+        {
+          "owner": "packages/enterprise/src/modules/backups/lib/rotation-verification/keys.ts",
+          "selfAndNativeMs": 34.979,
+          "percent": 1.29
+        },
+        {
+          "owner": "(native/unattributed)",
+          "selfAndNativeMs": 34.575,
+          "percent": 1.28
+        },
+        {
+          "owner": "node_modules/pg/lib/result.js",
+          "selfAndNativeMs": 11.598,
+          "percent": 0.43
+        },
+        {
+          "owner": "node_modules/pg/lib/query.js",
+          "selfAndNativeMs": 8.955,
+          "percent": 0.33
+        },
+        {
+          "owner": "node_modules/pg/lib/client.js",
+          "selfAndNativeMs": 5.164,
+          "percent": 0.19
+        },
+        {
+          "owner": "packages/shared/src/lib/encryption/toggles.ts",
+          "selfAndNativeMs": 4.002,
+          "percent": 0.15
+        },
+        {
+          "owner": "node_modules/pg/node_modules/pg-protocol/dist/serializer.js",
+          "selfAndNativeMs": 2.251,
+          "percent": 0.08
+        },
+        {
+          "owner": "node_modules/pg-types/index.js",
+          "selfAndNativeMs": 1.277,
+          "percent": 0.05
+        }
+      ],
+      "nativeStacks": [
+        {
+          "stack": "toString [node:buffer] <- string [node_modules/pg/node_modules/pg-protocol/dist/buffer-reader.js]",
+          "ms": 375.913,
+          "percent": 13.92
+        },
+        {
+          "stack": "(anonymous) [] <- byteLength [node:buffer] <- (anonymous) [packages/enterprise/src/modules/backups/lib/rotation-verification/postgres-dataset.ts]",
+          "ms": 365.424,
+          "percent": 13.53
+        },
+        {
+          "stack": "(anonymous) [] <- byteLength [node:buffer] <- parseRotationJson [packages/shared/src/lib/encryption/rotationJson.ts]",
+          "ms": 336.184,
+          "percent": 12.44
+        },
+        {
+          "stack": "(garbage collector) []",
+          "ms": 305.938,
+          "percent": 11.32
+        },
+        {
+          "stack": "base64Write [] <- createFromString [node:buffer] <- fromStringFast [node:buffer] <- fromString [node:buffer] <- from [node:buffer]",
+          "ms": 266.899,
+          "percent": 9.88
+        },
+        {
+          "stack": "parseRotationJson [packages/shared/src/lib/encryption/rotationJson.ts]",
+          "ms": 208.475,
+          "percent": 7.72
+        },
+        {
+          "stack": "(idle) []",
+          "ms": 189.879,
+          "percent": 7.03
+        },
+        {
+          "stack": "update [] <- update [node:internal/crypto/cipher] <- runAesGcmDecrypt [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 131.35,
+          "percent": 4.86
+        },
+        {
+          "stack": "isEncryptedPayloadShape [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 52.49,
+          "percent": 1.94
+        },
+        {
+          "stack": "utf8Slice [] <- toString [node:buffer] <- string [node_modules/pg/node_modules/pg-protocol/dist/buffer-reader.js]",
+          "ms": 52.247,
+          "percent": 1.93
+        },
+        {
+          "stack": "scanRows [packages/enterprise/src/modules/backups/lib/rotation-verification/postgres-dataset.ts]",
+          "ms": 38.08,
+          "percent": 1.41
+        },
+        {
+          "stack": "toString [node:buffer] <- runAesGcmDecrypt [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 31.671,
+          "percent": 1.17
+        },
+        {
+          "stack": "concat [node:buffer] <- runAesGcmDecrypt [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 26.902,
+          "percent": 1.0
+        },
+        {
+          "stack": "_copyActual [node:buffer] <- copyImpl [node:buffer] <- copy [node:buffer] <- mergeBuffer [node_modules/pg/node_modules/pg-protocol/dist/parser.js]",
+          "ms": 25.212,
+          "percent": 0.93
+        },
+        {
+          "stack": "CipherBase [] <- createCipherBase [node:internal/crypto/cipher] <- createCipherWithIV [node:internal/crypto/cipher] <- Decipheriv [node:internal/crypto/cipher] <- createDecipheriv [node:crypto]",
+          "ms": 20.06,
+          "percent": 0.74
+        },
+        {
+          "stack": "runMicrotasks [] <- processTicksAndRejections [node:internal/process/task_queues] <- (root) []",
+          "ms": 18.196,
+          "percent": 0.67
+        },
+        {
+          "stack": "decryptWithAesGcm [packages/shared/src/lib/encryption/aes.ts]",
+          "ms": 17.377,
+          "percent": 0.64
+        },
+        {
+          "stack": "post [node:inspector] <- (anonymous) [node:internal/util] <- fn [node:internal/util] <- cpuBegin [packages/enterprise/src/modules/backups/lib/rotation-verification/keys.ts]",
+          "ms": 16.955,
+          "percent": 0.63
+        }
+      ]
+    }
+  },
+  "releaseAcceptance": false
+}
