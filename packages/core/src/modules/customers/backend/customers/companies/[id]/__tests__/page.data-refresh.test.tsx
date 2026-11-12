@@ -89,11 +89,15 @@ jest.mock('@open-mercato/ui/backend/messages', () => ({
 
 jest.mock('../../../../../components/detail/ActivitiesSection', () => ({
   ActivitiesSection: ({ onDataRefresh }: { onDataRefresh?: () => void | Promise<void> }) => {
+    const [draft, setDraft] = React.useState('')
     latestActivitiesRefresh = onDataRefresh
     return (
-      <button type="button" data-testid="activities-refresh" onClick={() => { void onDataRefresh?.() }}>
-        refresh
-      </button>
+      <div>
+        <input aria-label="Activity draft" value={draft} onChange={(event) => setDraft(event.target.value)} />
+        <button type="button" data-testid="activities-refresh" onClick={() => { void onDataRefresh?.() }}>
+          refresh
+        </button>
+      </div>
     )
   },
 }))
@@ -154,6 +158,16 @@ function overview(nextInteractionName: string, id: string = companyId) {
   }
 }
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 describe('CustomerCompanyDetailPage — refresh after activity changes (#7205)', () => {
   beforeEach(() => {
     readApiResultOrThrowMock.mockReset()
@@ -162,24 +176,76 @@ describe('CustomerCompanyDetailPage — refresh after activity changes (#7205)',
     latestActivitiesRefresh = undefined
   })
 
-  it('refetches the overview when the Activities section requests a refresh', async () => {
+  it.each(['success', 'failure'] as const)('preserves the mounted draft during a pending refresh and after %s', async (outcome) => {
+    const refresh = deferred<ReturnType<typeof overview>>()
     readApiResultOrThrowMock
       .mockResolvedValueOnce(overview('Call A'))
-      .mockResolvedValueOnce(overview('Call B'))
+      .mockReturnValueOnce(refresh.promise)
     renderWithProviders(<CompanyDetailPage params={{ id: companyId }} />)
 
     expect(await screen.findByTestId('next-interaction')).toHaveTextContent('Call A')
     fireEvent.click(screen.getByTestId('tab-activities'))
-    fireEvent.click(await screen.findByTestId('activities-refresh'))
+    const draft = await screen.findByRole('textbox', { name: 'Activity draft' })
+    fireEvent.change(draft, { target: { value: 'Unsaved activity notes' } })
+    draft.focus()
+    let pendingRefresh: void | Promise<void>
+    act(() => { pendingRefresh = latestActivitiesRefresh?.() })
 
-    await waitFor(() => {
-      expect(screen.getByTestId('next-interaction')).toHaveTextContent('Call B')
-    })
     expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2)
     expect(readApiResultOrThrowMock.mock.calls[1][0]).toContain(`/api/customers/companies/${companyId}`)
+    expect(screen.getByRole('textbox', { name: 'Activity draft' })).toBe(draft)
+    expect(draft).toHaveValue('Unsaved activity notes')
+    expect(draft).toHaveFocus()
     expect(screen.queryByText('spinner')).not.toBeInTheDocument()
-    // The Activities tab stays mounted, so unsaved inline drafts survive.
-    expect(screen.getByTestId('activities-refresh')).toBeInTheDocument()
+
+    await act(async () => {
+      if (outcome === 'success') refresh.resolve(overview('Call B'))
+      else refresh.reject(Object.assign(new Error('Refresh failed'), { status: 500 }))
+      await pendingRefresh
+    })
+
+    expect(screen.getByTestId('next-interaction')).toHaveTextContent(outcome === 'success' ? 'Call B' : 'Call A')
+    expect(screen.getByRole('textbox', { name: 'Activity draft' })).toBe(draft)
+    expect(draft).toHaveValue('Unsaved activity notes')
+    expect(draft).toHaveFocus()
+    expect(screen.queryByText('spinner')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('error-message')).not.toBeInTheDocument()
+  })
+
+  it.each(['success', 'failure'] as const)('ignores an older overlapping refresh that finishes with %s', async (outcome) => {
+    const older = deferred<ReturnType<typeof overview>>()
+    const newer = deferred<ReturnType<typeof overview>>()
+    readApiResultOrThrowMock
+      .mockResolvedValueOnce(overview('Initial'))
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise)
+    renderWithProviders(<CompanyDetailPage params={{ id: companyId }} />)
+    expect(await screen.findByTestId('next-interaction')).toHaveTextContent('Initial')
+    fireEvent.click(screen.getByTestId('tab-activities'))
+    let olderRefresh: void | Promise<void>
+    let newerRefresh: void | Promise<void>
+    act(() => {
+      olderRefresh = latestActivitiesRefresh?.()
+      newerRefresh = latestActivitiesRefresh?.()
+    })
+    expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(3)
+
+    await act(async () => {
+      newer.resolve(overview('Newest'))
+      await newerRefresh
+    })
+    expect(screen.getByTestId('next-interaction')).toHaveTextContent('Newest')
+
+    await act(async () => {
+      if (outcome === 'success') older.resolve(overview('Stale'))
+      else older.reject(Object.assign(new Error('Stale not found'), { status: 404 }))
+      await olderRefresh
+    })
+    expect(screen.getByTestId('next-interaction')).toHaveTextContent('Newest')
+    expect(screen.queryByTestId('record-not-found')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('error-message')).not.toBeInTheDocument()
+    expect(screen.queryByText('spinner')).not.toBeInTheDocument()
+    expect(reportErrorMock).not.toHaveBeenCalled()
   })
 
   it.each([
