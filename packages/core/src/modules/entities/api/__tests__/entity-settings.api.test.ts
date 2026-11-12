@@ -48,8 +48,16 @@ function putRequest(body: Record<string, unknown>): Request {
 }
 
 describe('/api/entities/entity-settings', () => {
+  const originalOptimisticLockEnv = process.env.OM_OPTIMISTIC_LOCK
+
+  afterAll(() => {
+    if (originalOptimisticLockEnv === undefined) delete process.env.OM_OPTIMISTIC_LOCK
+    else process.env.OM_OPTIMISTIC_LOCK = originalOptimisticLockEnv
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
+    delete process.env.OM_OPTIMISTIC_LOCK
     mockConfigsEnabled = true
     mockGetRecord.mockResolvedValue({ value: true, updatedAt: STORED_UPDATED_AT })
     mockSetValue.mockResolvedValue({ value: false, updatedAt: '2026-02-01T00:00:00.000Z' })
