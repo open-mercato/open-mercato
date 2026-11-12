@@ -446,6 +446,7 @@
   "resources.resources.detail.untitled": "Unnamed resource",
   "resources.resources.errors.resourceTypeDeleted": "This would put the resource on a deleted resource type. Restore the resource type first.",
   "resources.resources.errors.resourceTypeUnavailable": "The selected resource type is no longer available.",
+  "resources.resources.flash.created": "Resource created.",
   "resources.resources.flash.createdAvailability": "Saved. You can now set availability.",
   "resources.resources.form.actions.create": "Create",
   "resources.resources.form.appearance.colorClear": "Clear color",

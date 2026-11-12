@@ -446,6 +446,7 @@
   "resources.resources.detail.untitled": "Recurso sin nombre",
   "resources.resources.errors.resourceTypeDeleted": "Esto asignaría el recurso a un tipo de recurso eliminado. Restaura primero el tipo de recurso.",
   "resources.resources.errors.resourceTypeUnavailable": "El tipo de recurso seleccionado ya no está disponible.",
+  "resources.resources.flash.created": "Recurso creado.",
   "resources.resources.flash.createdAvailability": "Guardado. Ahora puedes establecer la disponibilidad.",
   "resources.resources.form.actions.create": "Crear",
   "resources.resources.form.appearance.colorClear": "Limpiar color",
