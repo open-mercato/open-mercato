@@ -15,7 +15,7 @@ No production database changes, live-secret access, runtime crypto changes, rele
 ## Evidence
 - Issue #7231 and `.ai/specs/2026-11-01-7231-compose-encryption-key.md`: reject published active keys before application startup; preserve strong operator keys.
 - Reviews 5830733366 and 5873333259: selected-key preservation, main conflicts, and named human Emergency Security Exception acknowledgment.
-- CI follow-up 6822179630 and commit `865ae2130306b4d56bf5ab5c17b7a6ef452c5d42`: standalone fixture dependency and compatibility-context budget fixes.
+- CI follow-up on PR #8377 and commit `865ae2130306b4d56bf5ab5c17b7a6ef452c5d42`: standalone fixture dependency and compatibility-context budget fixes.
 - Current operator request: Docker verification, a PR evidence comment, and `qa-approved` after successful QA.
 
 ## Assumptions
