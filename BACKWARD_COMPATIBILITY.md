@@ -556,7 +556,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 
 ## Organization Update Preserves Omitted Hierarchy Fields (2026-10-01)
 
-`directory.organizations.update` treated an omitted `parentId` as `null` and an omitted `childIds` as `[]`, so a partial update — notably `PUT /api/directory/organization-branding`, which sends only logo fields — detached the organization from its parent and orphaned its children. Omitted hierarchy fields are now preserved:
+Partial organization updates preserve omitted hierarchy fields; explicit null/empty values still clear them.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -635,15 +635,25 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
 
+## Compose encryption (2026-11-01, #7231)
 
-## Invitation role authorization (2026-11-04, #2252)
+STABLE: unsafe keys/HTTP Vault rejected; bridges retain exposure. [Migration](UPGRADE_NOTES.md).
+Named human waiver of steps 1–3 required.
 
-STABLE API/service behavior: staff invitation creation rejects restricted,
-missing, deleted, or out-of-scope roles (`400`); acceptance no longer grants roles
-that are not customer-assignable. The old behavior itself allows invite-only staff
-to mint privileged portal accounts, so keeping it as a bridge preserves the
-vulnerability. URLs, payload shapes, signatures, schema and existing assignments
-are unchanged. Emergency-security steps 1–3 waiver is proposed and still requires
-named human maintainer approval on the PR; automated review is insufficient.
-Client/operator migration: [upgrade notes](UPGRADE_NOTES.md#invitation-role-authorization-2252).
-Spec: [migration and backward compatibility](.ai/specs/implemented/SPEC-060-2026-03-04-customer-identity-portal-auth.md#migration--backward-compatibility).
+## Encryption maintenance safety gates (2026-11-02, #6767)
+
+CLI safety confirmations changed; stop writers and restart replicas. [Flags, migration and stable formats](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767).
+
+## Staff Logout Uses Post/Redirect/Get (2026-11-05)
+
+`POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
+
+**Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
+
+## #7809 2026-11-06
+
+STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## #2252 (2026-11-12)
+
+STABLE: restricted invites denied; role arrays ≤100. Bridge retains escalation/DoS. Human waiver pending. [Migration](UPGRADE_NOTES.md#invitation-role-authorization-2252).

@@ -1,5 +1,7 @@
 /** @jest-environment node */
 
+import { hashToken } from '../../../lib/tokenGenerator'
+
 const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
 const mockRollbackInvitation = jest.fn()
@@ -90,6 +92,16 @@ describe('portal customer account user invite route', () => {
     mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
   })
 
+  it('rejects oversized role input before querying or creating invitations', async () => {
+    const { POST } = await import('../users-invite')
+    const response = await POST(makeInviteRequest(Array(101).fill(roleId)))
+
+    expect(response.status).toBe(400)
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+    expect(mockSendCustomerInvitationEmail).not.toHaveBeenCalled()
+  })
+
   it('creates a portal-admin invitation and sends the invitation email', async () => {
     const { POST } = await import('../users-invite')
 
@@ -148,6 +160,7 @@ describe('portal customer account user invite route', () => {
     expect(mockRollbackInvitation).toHaveBeenCalledWith(
       expect.objectContaining({ id: '66666666-6666-4666-8666-666666666666' }),
       null,
+      hashToken('raw-invite-token'),
     )
     consoleErrorSpy.mockRestore()
   })
@@ -174,6 +187,7 @@ describe('portal customer account user invite route', () => {
     expect(mockRollbackInvitation).toHaveBeenCalledWith(
       expect.objectContaining({ id: '66666666-6666-4666-8666-666666666666' }),
       rollbackState,
+      hashToken('raw-invite-token'),
     )
     consoleErrorSpy.mockRestore()
   })

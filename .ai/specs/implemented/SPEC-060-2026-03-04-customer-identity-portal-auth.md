@@ -1191,7 +1191,16 @@ created before this fix. It can therefore accept an older invitation without
 granting its now-restricted role. Staff manage-user role assignment remains the
 separate privileged path.
 
-No route, schema, signature, database structure, startup command or environment
+Role-ID arrays in staff and portal invitations, portal role assignment, and
+staff user create/update requests accept at most 100 entries, counting duplicates,
+to bound per-request role validation work. Oversized requests return `400` before
+role/user queries or writes. Clients must keep the complete intended role set
+within the limit; assignment/update replaces the set, so splitting replacement
+requests does not accumulate grants. Optional and empty role sets on staff
+create/update remain supported. This request validation narrowing is included
+in the proposed emergency security exception.
+
+No route, field name, signature, database structure, startup command or environment
 setting changes. Clients sending unavailable/restricted roles now receive `400`;
 use eligible roles. Operators should review pending invitations for privileged
 roles and use the existing staff manage-user workflow after acceptance where
@@ -1666,6 +1675,14 @@ The following capabilities are explicitly deferred from the current scope. They 
 - **No changes to `customer_accounts` RBAC needed**: Purchase limits are separate from feature-based RBAC. They operate on financial thresholds, not access permissions.
 
 ## Changelog
+
+### 2026-11-12 (#8660 — Invitation review and QA fixes)
+
+- Bounded invitation, portal assignment, and staff create/update role-ID input to 100 entries before database work; added exact-limit schema tests and no-side-effect rejection tests for all five API paths.
+- Retained acceptance role filtering inside the newer atomic invitation transaction when merging the current base.
+- The CRM person invitation widget offers only explicitly customer-assignable roles and wraps long role labels within narrow screens.
+- `TC-CACC-INVITE-UI-001` covers eligible/restricted role choices, API rejection without invitation side effects, and long-label containment at 390px using isolated fixtures.
+
 
 ### 2026-11-04 (#2252 — Invitation role authorization)
 

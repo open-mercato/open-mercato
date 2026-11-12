@@ -2,6 +2,7 @@
 
 import { NextResponse } from 'next/server'
 import { CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { hashToken } from '../../../lib/tokenGenerator'
 
 const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
@@ -108,6 +109,17 @@ describe('admin customer account user invite route', () => {
     })
     mockRollbackInvitation.mockResolvedValue(undefined)
     mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
+  })
+
+  it('rejects oversized role input before querying or creating invitations', async () => {
+    const { POST } = await import('../users-invite')
+    const response = await POST(makeInviteRequest({ roleIds: Array(101).fill(roleId) }))
+
+    expect(response.status).toBe(400)
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+    expect(mockSendCustomerInvitationEmail).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
   })
 
   it('keeps API-key RBAC subject and stores the backing user id as invitedByUserId', async () => {
@@ -250,6 +262,7 @@ describe('admin customer account user invite route', () => {
     expect(mockRollbackInvitation).toHaveBeenCalledWith(
       expect.objectContaining({ id: '66666666-6666-4666-8666-666666666666' }),
       null,
+      hashToken('raw-invite-token'),
     )
     consoleErrorSpy.mockRestore()
   })
@@ -276,6 +289,7 @@ describe('admin customer account user invite route', () => {
     expect(mockRollbackInvitation).toHaveBeenCalledWith(
       expect.objectContaining({ id: '66666666-6666-4666-8666-666666666666' }),
       rollbackState,
+      hashToken('raw-invite-token'),
     )
     consoleErrorSpy.mockRestore()
   })
