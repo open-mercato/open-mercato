@@ -74,10 +74,7 @@ async function resolveCapacityUnit(
   if (!trimmed) {
     throw new CrudHttpError(400, { error: 'Capacity unit is required.' })
   }
-  if (!isDictionariesModuleEnabled()) {
-    throw new CrudHttpError(400, { error: 'Capacity unit dictionary is not configured.' })
-  }
-  const dictionary = await findOneWithDecryption(
+  const dictionary = isDictionariesModuleEnabled() && await findOneWithDecryption(
     em,
     Dictionary,
     {
