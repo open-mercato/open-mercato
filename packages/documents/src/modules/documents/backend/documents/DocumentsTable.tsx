@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Star } from 'lucide-react'
+import { FileUp, Star } from 'lucide-react'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -21,6 +21,8 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DOCUMENTS_ENTITY_IDS } from '../../lib/constants'
+import { MARKDOWN_IMPORT_ACCEPT } from '../../lib/markdownImportValidation'
+import type { MarkdownImportProgress } from './useMarkdownImport'
 import { formatDateTime } from './documentUi'
 import type { DocumentRow } from './documentsListTypes'
 
@@ -46,6 +48,8 @@ type DocumentsTableProps = {
   onPageSizeChange: (pageSize: number) => void
   onRefresh: () => void
   onCreate: () => void
+  onImportMarkdown: (files: File[]) => void
+  markdownImportProgress: MarkdownImportProgress | null
   onNewFromTemplate: () => void
   onShare: (row: DocumentRow) => void
   onMove: (row: DocumentRow) => void
@@ -103,6 +107,7 @@ export function DocumentsTable(props: DocumentsTableProps) {
   // A fragment, not a nested flex box: the DataTable header owns the wrapping
   // row, so on narrow layouts the refresh control and these buttons wrap as
   // one group instead of a lone refresh icon above a second left-aligned row.
+  const markdownInputRef = React.useRef<HTMLInputElement>(null)
   const actions = (
     <>
       <Button
@@ -125,6 +130,37 @@ export function DocumentsTable(props: DocumentsTableProps) {
       </Select>
       {props.canManageTemplates ? <LinkButton asChild variant="gray"><Link href="/backend/documents/templates">{t('documents.templates.actions.manage')}</Link></LinkButton> : null}
       {props.hasTemplates && props.canInstantiateTemplate ? <Button type="button" variant="outline" onClick={props.onNewFromTemplate}>{t('documents.templates.instantiate.title')}</Button> : null}
+      {props.canCreateDocument ? (
+        <>
+          <input
+            ref={markdownInputRef}
+            type="file"
+            accept={MARKDOWN_IMPORT_ACCEPT}
+            multiple
+            hidden
+            data-testid="documents-import-markdown-input"
+            aria-label={t('documents.import.markdown.actionAria')}
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? [])
+              event.target.value = ''
+              if (files.length > 0) props.onImportMarkdown(files)
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            disabled={props.markdownImportProgress !== null}
+            onClick={() => markdownInputRef.current?.click()}
+          >
+            <FileUp />
+            <span aria-live="polite">
+              {props.markdownImportProgress
+                ? t('documents.import.markdown.progress', props.markdownImportProgress)
+                : t('documents.import.markdown.action')}
+            </span>
+          </Button>
+        </>
+      ) : null}
       {props.canCreateDocument ? <Button type="button" onClick={props.onCreate} disabled={props.isCreating}>{t('documents.actions.create')}</Button> : null}
     </>
   )

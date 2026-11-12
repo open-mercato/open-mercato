@@ -14,6 +14,7 @@ import { FolderTree } from './FolderTree'
 import { MoveDocumentDialog } from './MoveDocumentDialog'
 import type { DocumentRow } from './documentsListTypes'
 import { useDocumentsList } from './useDocumentsList'
+import { useMarkdownImport } from './useMarkdownImport'
 
 function NewFromTemplateDialogLoading({ error, retry }: { error?: Error | null; retry?: () => void }) {
   const t = useT()
@@ -60,6 +61,7 @@ export function DocumentsPageClient() {
   const destinationWritable = documents.selectedFolderId === null || selectedFolder?.canEdit === true
   const canCreateDocument = documents.collectionCapabilities.canCreateDocument && destinationWritable
   const canInstantiateTemplate = documents.collectionCapabilities.canInstantiateTemplate && destinationWritable
+  const markdownImport = useMarkdownImport({ folderId: documents.selectedFolderId, enabled: canCreateDocument, onImported: documents.refresh })
 
   return (
     <Page>
@@ -101,6 +103,8 @@ export function DocumentsPageClient() {
               onPageSizeChange={(pageSize) => { documents.setPageSize(pageSize); documents.setPage(1) }}
               onRefresh={documents.refresh}
               onCreate={() => void documents.createDocument()}
+              onImportMarkdown={(files) => void markdownImport.importFiles(files)}
+              markdownImportProgress={markdownImport.progress}
               onNewFromTemplate={() => setTemplateDialogOpen(true)}
               onShare={setShareDocument}
               onMove={setMoveDocument}
