@@ -1,6 +1,6 @@
 # Customer comment update attribution (#8759)
 
-Status: implemented candidate; blocked on security-exception approval and validation.
+Status: implemented candidate; named security exception approved; validation and QA pending.
 
 ## TLDR and Overview
 
@@ -24,7 +24,7 @@ No entity or response changes. PUT retains `{ ok: true }` and `customers.activit
 
 The STABLE command/API author-update behavior is intentionally narrowed. Clients using ordinary users or API keys for reassignment must omit `authorUserId` for body edits and use an explicitly authorized non-key superadmin session for intentional corrections. Existing author data is not rewritten. Operators must review prior attribution against independent records; existing history cannot prove which attribution changes were legitimate.
 
-Keeping the old unauthorized assignment behind an alias, toggle or bridge would retain the vulnerability itself. This qualifies for consideration under the Emergency Security Exception, but **the exception is not approved**. Before merge, a named human maintainer must acknowledge waiving steps 1–3, and the proposed dated entry in `BACKWARD_COMPATIBILITY.md` must record that approval. The entry describes this STABLE surface, argument and migration path and explicitly marks the waiver NOT APPROVED. The UPGRADE_NOTES entry is supplied; neither automated review nor an automerge label replaces human approval.
+Keeping the old unauthorized assignment behind an alias, toggle or bridge would retain the vulnerability itself. Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, acknowledging waiver of deprecation steps 1–3 for PR #8782. The operator answered “Waiver: Approve as Piotr Karwatka” to the explicit waiver question; the approval is recorded in the PR conversation and dated `BACKWARD_COMPATIBILITY.md` ledger. The UPGRADE_NOTES entry supplies client/operator migration. Code review, validation and QA remain required; the waiver grants no merge or QA approval.
 
 ## Implementation and Coverage
 
@@ -34,15 +34,17 @@ Keeping the old unauthorized assignment behind an alias, toggle or bridge would 
 
 ## Risks & Impact Review
 
-- High: retaining the vulnerable path as a compatibility bridge permits continued impersonation; no bridge is proposed, and merge remains blocked pending named approval.
+- High: retaining the vulnerable path as a compatibility bridge permits continued impersonation; no bridge is proposed; the named human security exception covers this narrow change.
 - Medium: accidentally normalizing omitted author to editor corrupts attribution; explicit omission regressions cover ordinary, key and privileged contexts.
 - Medium: privileged cross-scope assignment links unrelated users; changed targets require active same-tenant users before writes.
 - Medium: historical attribution may already be unreliable; no speculative data repair is attempted. Operators review independently.
 
 ## Final Compliance Report
 
-Focused customers-only implementation; no schema migration, dependency, discovery registration or UI changes. Existing mutation lifecycle and undo stay intact. Compatibility waiver remains open; the proposed ledger entry records no approval, so this candidate must not merge. Runtime integration and full-gate results are recorded in the PR, including environment limits.
+Focused customers-only implementation; no schema migration, dependency, discovery registration or UI changes. Existing mutation lifecycle and undo stay intact. Piotr Karwatka approved the narrow compatibility waiver on 2026-11-12; validation and QA gates still apply. Runtime integration and full-gate results are recorded in the PR, including environment limits.
 
 ## Changelog
 
 - 2026-11-05: Documented guarded update semantics, migration, regressions and unresolved human compatibility gate.
+
+- 2026-11-12: Recorded Piotr Karwatka’s explicit waiver of deprecation steps 1–3; validation and QA remain separate gates.

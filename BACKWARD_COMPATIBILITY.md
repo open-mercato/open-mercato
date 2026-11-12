@@ -654,6 +654,6 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
 
-## Comment authors (2026-11-05, #8759) — NOT APPROVED
+## Comment authors (2026-11-12, #8759)
 
-STABLE command/API: unrestricted reassignment enables forgery; bridging retains it. Author corrections require non-key superadmins. [Client/operator migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759). Steps 1–3 waiver pending named human maintainer approval; #8782 blocked.
+STABLE command/API: unrestricted reassignment enables forgery; bridging retains it. Author corrections require non-key superadmins. [Client/operator migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759). Steps 1–3 waived by Piotr Karwatka (@pkarw), explicit operator approval on 2026-11-12 for #8782.
