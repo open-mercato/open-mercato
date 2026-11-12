@@ -688,6 +688,101 @@ describe('createPaymentCommand.execute — allocation orderId/invoiceId are tena
   })
 })
 
+// ---------------------------------------------------------------------------
+// C2 (PR 8268 review fix): a fresh paymentReference re-check runs AFTER the order
+// row is locked, so a second caller that reaches this command for the SAME
+// (order, paymentReference) pair reuses the already-committed payment instead of
+// inserting a duplicate. This is the mechanism that closes the live-completion vs
+// `repair-gateway-payments.worker.ts` race (checkout's own unlocked pre-check in
+// `commands/submit.ts#findRecordedGatewayPayment` cannot see the other caller's
+// in-flight write); a real-Postgres concurrency proof of the lock itself lives in
+// `payments.create.paymentReference-race.integration.test.ts`.
+// ---------------------------------------------------------------------------
+describe('createPaymentCommand.execute — idempotent paymentReference re-check under the order lock (C2)', () => {
+  beforeEach(() => {
+    ;(findOneWithDecryption as jest.Mock).mockClear()
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+    ;(findWithDecryption as jest.Mock).mockClear()
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+  })
+
+  const GATEWAY_REFERENCE = 'gateway-ref-shared-by-live-and-repair'
+  const EXISTING_PAYMENT_ID = 'bbbbbbbb-eeee-4eee-8eee-eeeeeeeeeeee'
+
+  it('reuses the already-recorded payment for the same order+paymentReference instead of creating a duplicate', async () => {
+    const execute = commandRegistry.get('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    const existingPayment = {
+      id: EXISTING_PAYMENT_ID,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+      order: TEST_ORDER_ID,
+      paymentReference: GATEWAY_REFERENCE,
+      amount: '100',
+      currencyCode: 'USD',
+      capturedAmount: '100',
+    }
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        if (filter?.order === TEST_ORDER_ID && filter?.paymentReference === GATEWAY_REFERENCE) {
+          return existingPayment
+        }
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+
+    const result = await execute?.(
+      {
+        orderId: TEST_ORDER_ID,
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+        amount: 100,
+        currencyCode: 'USD',
+        paymentReference: GATEWAY_REFERENCE,
+      },
+      ctx as any,
+    )
+
+    // The repair-worker's "second write" never creates a new SalesPayment row (which
+    // would get `TEST_PAYMENT_ID` from the `em.create` mock below) — it resolves to the
+    // live completion's own, already-committed payment id instead.
+    expect((result as any)?.paymentId).toBe(EXISTING_PAYMENT_ID)
+    expect((result as any)?.paymentId).not.toBe(TEST_PAYMENT_ID)
+  })
+
+  it('still creates a payment when no reference collision exists for this order', async () => {
+    const execute = commandRegistry.get('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+
+    const result = await execute?.(
+      {
+        orderId: TEST_ORDER_ID,
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+        amount: 100,
+        currencyCode: 'USD',
+        paymentReference: GATEWAY_REFERENCE,
+      },
+      ctx as any,
+    )
+
+    expect((result as any)?.paymentId).toBe(TEST_PAYMENT_ID)
+  })
+})
+
 describe('updatePaymentCommand.execute — allocation orderId/invoiceId are tenant-scoped (S-01)', () => {
   beforeEach(() => {
     ;(findOneWithDecryption as jest.Mock).mockClear()

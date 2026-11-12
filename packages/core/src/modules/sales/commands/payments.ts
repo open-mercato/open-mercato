@@ -485,6 +485,33 @@ const createPaymentCommand: CommandHandler<
       if (order.deletedAt) {
         throw notFound('sales.payments.order_not_found')
       }
+      // #8268 review Critical 2: the order row is now locked FOR UPDATE above, so a
+      // fresh re-check for the SAME (order, paymentReference) pair closes the race
+      // between a live gateway completion and `repair-gateway-payments.worker.ts` —
+      // both see "no payment yet" from their own unlocked pre-check
+      // (`checkout/commands/submit.ts#findRecordedGatewayPayment`), but only one of them
+      // can hold this order's lock at a time. The second to arrive observes the first's
+      // already-committed payment here and reuses it instead of inserting a duplicate.
+      if (input.paymentReference) {
+        const existingPayment = await findOneWithDecryption(
+          tx,
+          SalesPayment,
+          { organizationId: input.organizationId, tenantId: input.tenantId, order: order.id, paymentReference: input.paymentReference, deletedAt: null },
+          {},
+          scope,
+        )
+        if (existingPayment) {
+          const orderTotals = await recomputeLockedOrders(tx, lockedOrders)
+          return {
+            payment: existingPayment,
+            order,
+            totals: orderTotals.get(order.id),
+            lockedOrders,
+            orderPaymentMethodIdBefore: order.paymentMethodId ?? null,
+            orderPaymentMethodCodeBefore: order.paymentMethodCode ?? null,
+          }
+        }
+      }
       // Guard the parent order's aggregate version (Gap A): a payment mutation
       // recalculates the order totals, so a stale parent must 409 before we touch it.
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)

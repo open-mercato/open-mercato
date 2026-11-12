@@ -9,7 +9,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { CheckoutLink, CheckoutSession } from '../data/entities'
 import type { CheckoutSessionUpdateInput } from '../data/validators'
-import { lookupCartPeerByToken } from '../lib/cartPeer'
+import { lookupCartPeerById, lookupCartPeerByToken } from '../lib/cartPeer'
 import {
   assertCartMatchesCheckoutScope,
   resolveRequestStoreIdForConsistencyCheck,
@@ -89,6 +89,27 @@ async function findResumableLinkSession(
   if (!existing) return null
   if (existing.status !== 'open' && existing.status !== 'awaiting_approval') return null
   if (existing.expiresAt && existing.expiresAt.getTime() <= Date.now()) return null
+
+  // D-R5-33 buyer-binding check, reused from `lib/currentSessionRoute.ts#resolveCurrentSession`
+  // (C1, PR 8268 review fix): a bare link token alone must never resume a PII-bearing
+  // session that an identified buyer owns. The identity to bind against is the LIVE cart's
+  // `customerUserId` — a guest cart claimed by a buyer logging in after this session was
+  // created (cart's merge `'replace'` strategy) updates the cart but never rewrites this
+  // session's own stale snapshot — falling back to the session's own value only when the
+  // cart peer cannot be read.
+  const identityCustomerUserId = existing.cartId
+    ? (
+        await lookupCartPeerById(em, existing.cartId, {
+          tenantId: existing.tenantId,
+          organizationId: existing.organizationId,
+        })
+      )?.customerUserId ?? existing.customerUserId
+    : existing.customerUserId
+  if (identityCustomerUserId) {
+    const auth = request ? await getCustomerAuthFromRequest(request) : null
+    if (!auth || auth.sub !== identityCustomerUserId) return null
+  }
+
   return { token, session: existing }
 }
 

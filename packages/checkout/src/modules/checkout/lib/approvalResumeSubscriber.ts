@@ -4,6 +4,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CheckoutSession } from '../data/entities'
 import { writeSessionEvent } from './sessionEvents'
 import { emitCheckoutEvent } from '../events'
+import { reportCheckoutError } from './reportCheckoutError'
 
 const logger = createLogger('checkout')
 
@@ -126,7 +127,15 @@ export function createCheckoutApprovalResumeHandler(
         }).catch(() => undefined)
       }
     } catch (err) {
-      logger.warn(`[${subscriberId}] failed to resume checkout session`, { err, cartId, approvalId })
+      // M4 (PR 8268 review fix): this subscriber is `persistent: true` (retried on
+      // failure, per the module's own convention table) — swallowing the error here
+      // instead of rethrowing told the event bus "delivered" while a DB failure left the
+      // session stuck in `awaiting_approval` forever, since nothing else repairs it.
+      // Report for observability, then rethrow so the persistent-subscriber retry/
+      // redelivery mechanism gets another chance.
+      logger.warn(`[${subscriberId}] failed to resume checkout session, will retry on redelivery`, { err, cartId, approvalId })
+      reportCheckoutError(err, 'checkout.approval_resume_failed', { subscriberId, cartId, tenantId, organizationId })
+      throw err
     }
   }
 }

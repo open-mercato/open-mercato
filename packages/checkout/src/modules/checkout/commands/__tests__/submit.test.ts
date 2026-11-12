@@ -1640,6 +1640,65 @@ describe('checkout.session.submit — pay-link slot ownership and unexpected-fai
     expect(slotCalls(h, 'release')).toHaveLength(1)
   })
 
+  // M6 (PR 8268 review fix): the terminal CAS and the link slot release now share ONE
+  // `em.transactional` block (same bundling `compensateByCancellingOrder` already uses
+  // above) — a failure right after the CAS rolls back the CAS too, so the session is left
+  // in its pre-terminal status where a retry can still find and finish it, instead of
+  // being stuck `completed` forever with a stale `activeReservationCount`/`isLocked`.
+  it('a slot-release failure right after the CAS rolls back the whole completion — session stays retryable, not stranded completed', async () => {
+    const h = buildHarness({
+      session: makeSession({ linkId: 'link-1', status: 'awaiting_payment', salesOrderId: 'order-1', salesQuoteId: 'quote-1' }),
+      seededOrders: [{ id: 'order-1', tenant_id: TENANT_ID, organization_id: ORG_ID, deleted_at: null }],
+    })
+    const { confirmOrderAndComplete } = await import('../submit')
+    const em = h.ctx.container.resolve('em') as FakeRow
+    const session = h.seededSessions[0] as never
+    const keys = { stockReservationKey: null, creditReservationKey: null }
+    const scope = { tenantId: TENANT_ID, organizationId: ORG_ID }
+    h.emExecute.mockImplementationOnce(async () => { throw new Error('db connection lost') })
+
+    await expect(
+      confirmOrderAndComplete(h.ctx.container, em as never, session, scope, 'order-1', 'quote-1', keys),
+    ).rejects.toThrow('db connection lost')
+
+    // The release statement was attempted (and threw) but the surrounding transaction
+    // rolled back the CAS alongside it — never left half-completed.
+    expect(h.seededSessions[0].status).toBe('awaiting_payment')
+    expect(slotCalls(h, 'release')).toHaveLength(1)
+
+    // Retry, now that the transient failure has cleared, completes cleanly.
+    const result = await confirmOrderAndComplete(h.ctx.container, em as never, session, scope, 'order-1', 'quote-1', keys)
+
+    expect(result.completedByThisCall).toBe(true)
+    expect(h.seededSessions[0].status).toBe('completed')
+    // The failed attempt plus the successful retry — exactly one of which actually committed.
+    expect(slotCalls(h, 'release')).toHaveLength(2)
+    expect(slotCalls(h, 'release')[1][1]).toEqual([1, 'link-1', ORG_ID, TENANT_ID])
+  })
+
+  it('M6: the same rollback-then-retry guarantee holds for the quote outcome (completeQuoteOutcome)', async () => {
+    const h = buildHarness({
+      session: makeSession({ linkId: 'link-1', status: 'awaiting_payment', salesQuoteId: 'quote-1' }),
+    })
+    const { completeQuoteOutcome } = await import('../submit')
+    const em = h.ctx.container.resolve('em') as FakeRow
+    const session = h.seededSessions[0] as never
+    const scope = { tenantId: TENANT_ID, organizationId: ORG_ID }
+    h.emExecute.mockImplementationOnce(async () => { throw new Error('db connection lost') })
+
+    await expect(
+      completeQuoteOutcome(h.ctx.container, em as never, session, scope, 'quote-1', { stockReservationKey: null }),
+    ).rejects.toThrow('db connection lost')
+
+    expect(h.seededSessions[0].status).toBe('awaiting_payment')
+    expect(slotCalls(h, 'release')).toHaveLength(1)
+
+    await completeQuoteOutcome(h.ctx.container, em as never, session, scope, 'quote-1', { stockReservationKey: null })
+
+    expect(h.seededSessions[0].status).toBe('completed')
+    expect(slotCalls(h, 'release')).toHaveLength(2)
+  })
+
   it('a cancel that loses the CAS to a completed session has no side effects and releases nothing', async () => {
     const { compensateByCancellingOrder } = await import('../submit')
     const h = buildHarness({ session: makeSession({ linkId: 'link-1', status: 'completed', salesOrderId: 'order-1' }) })

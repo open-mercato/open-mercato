@@ -164,4 +164,82 @@ describe('computeDeliveryOptions (C13/D-R5-35)', () => {
 
     await expect(computeDeliveryOptions(container, em, baseSession(), DESTINATION)).rejects.toBeInstanceOf(CrudHttpError)
   })
+
+  // M5 (PR 8268 review fix): a rate/fallback carrying its OWN currency, different from
+  // the session's, must never be offered — `commands/submit.ts` snapshots only the raw
+  // amount against `session.currencyCode`, so a mismatched rate would silently mis-price
+  // the shipping adjustment (e.g. 20 PLN charged as 20 USD).
+  describe('currency mismatch is filtered, never silently mispriced', () => {
+    it('drops a carrier rate quoted in a different currency than the session, falling through to the flat rate', async () => {
+      const calculateRates = jest.fn().mockResolvedValue([
+        { serviceCode: 'standard', serviceName: 'Standard', amount: 20, currencyCode: 'PLN', estimatedDays: 3 },
+      ])
+      mockListShippingAdapters.mockReturnValue([{ providerKey: 'acme' }])
+      mockLookupStoreFlatRateFallback.mockResolvedValue({ amount: 9.99, currencyCode: 'USD' })
+      const container = makeContainer({ shippingCarrierService: { calculateRates } })
+
+      const options = await computeDeliveryOptions(container, em, baseSession({ currencyCode: 'USD' }), DESTINATION)
+
+      // The PLN-denominated carrier option never reaches the caller at all.
+      expect(options.every((option) => option.currencyCode === 'USD')).toBe(true)
+      expect(options).toEqual([expect.objectContaining({ source: 'flat_rate', cost: '9.99', currencyCode: 'USD' })])
+    })
+
+    it('throws 422 delivery_unavailable when every carrier rate is in the wrong currency and there is no flat rate', async () => {
+      const calculateRates = jest.fn().mockResolvedValue([
+        { serviceCode: 'standard', serviceName: 'Standard', amount: 20, currencyCode: 'PLN', estimatedDays: 3 },
+      ])
+      mockListShippingAdapters.mockReturnValue([{ providerKey: 'acme' }])
+      const container = makeContainer({ shippingCarrierService: { calculateRates } })
+
+      await expect(
+        computeDeliveryOptions(container, em, baseSession({ currencyCode: 'USD' }), DESTINATION),
+      ).rejects.toMatchObject({ status: 422, body: expect.objectContaining({ code: 'delivery_unavailable' }) })
+    })
+
+    it('drops a STORE flat-rate fallback configured in a different currency than the session', async () => {
+      mockLookupStoreFlatRateFallback.mockResolvedValue({ amount: 20, currencyCode: 'PLN' })
+      const container = makeContainer({ shippingCarrierService: undefined })
+
+      await expect(
+        computeDeliveryOptions(container, em, baseSession({ channel: 'storefront', storeId: 'store-1', currencyCode: 'USD' }), DESTINATION),
+      ).rejects.toMatchObject({ status: 422, body: expect.objectContaining({ code: 'delivery_unavailable' }) })
+    })
+
+    it('drops a LINK flat-rate fallback configured in a different currency than the session', async () => {
+      mockLookupLinkFlatRateFallback.mockResolvedValue({ amount: 20, currencyCode: 'PLN' })
+      const container = makeContainer({ shippingCarrierService: undefined })
+
+      await expect(
+        computeDeliveryOptions(
+          container,
+          em,
+          baseSession({ channel: 'pay_link', linkId: 'link-1', storeId: null, currencyCode: 'USD' }),
+          DESTINATION,
+        ),
+      ).rejects.toMatchObject({ status: 422, body: expect.objectContaining({ code: 'delivery_unavailable' }) })
+    })
+
+    it('still offers a carrier rate matching the session currency alongside a mismatched one from another adapter', async () => {
+      const wrongCurrencyRates = jest.fn().mockResolvedValue([
+        { serviceCode: 'standard', serviceName: 'Standard', amount: 20, currencyCode: 'PLN', estimatedDays: 3 },
+      ])
+      const matchingCurrencyRates = jest.fn().mockResolvedValue([
+        { serviceCode: 'express', serviceName: 'Express', amount: 15, currencyCode: 'USD', estimatedDays: 1 },
+      ])
+      mockListShippingAdapters.mockReturnValue([{ providerKey: 'bad-fx' }, { providerKey: 'good-fx' }])
+      const container = makeContainer({
+        shippingCarrierService: {
+          calculateRates: (input: { providerKey: string }) =>
+            input.providerKey === 'bad-fx' ? wrongCurrencyRates() : matchingCurrencyRates(),
+        },
+      })
+
+      const options = await computeDeliveryOptions(container, em, baseSession({ currencyCode: 'USD' }), DESTINATION)
+
+      expect(options).toEqual([
+        expect.objectContaining({ deliveryMethodCode: 'good-fx:express', currencyCode: 'USD', cost: '15.00' }),
+      ])
+    })
+  })
 })

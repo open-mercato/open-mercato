@@ -6,6 +6,11 @@ jest.mock('../sessionEvents', () => ({
   writeSessionEvent: jest.fn(async () => undefined),
 }))
 
+const mockReportCheckoutError = jest.fn()
+jest.mock('../reportCheckoutError', () => ({
+  reportCheckoutError: (...args: unknown[]) => mockReportCheckoutError(...args),
+}))
+
 type FakeRow = Record<string, any>
 
 function matchesWhere(row: FakeRow, where: Record<string, unknown>): boolean {
@@ -160,6 +165,64 @@ describe.each([
     )
 
     expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(writeSessionEvent).not.toHaveBeenCalled()
+  })
+
+  // M4 (PR 8268 review fix): a DB failure before the CAS must rethrow — not swallow and
+  // report success — so the persistent subscriber's own retry/redelivery mechanism gets
+  // another chance instead of stranding the session in `awaiting_approval` forever.
+  it('rethrows a lookup failure (instead of swallowing it) so the persistent subscriber retries, then succeeds on redelivery', async () => {
+    const mod = await import(`../../subscribers/${fileName}`)
+    const { ctx, em } = makeCtx()
+    const transientError = new Error('connection terminated unexpectedly')
+    em.find.mockRejectedValueOnce(transientError)
+
+    await expect(
+      mod.default(
+        { subjectType: 'cart', subjectId: 'cart-1', approvalId: 'approval-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+        ctx,
+      ),
+    ).rejects.toBe(transientError)
+
+    expect(mockReportCheckoutError).toHaveBeenCalledWith(
+      transientError,
+      'checkout.approval_resume_failed',
+      expect.objectContaining({ cartId: 'cart-1', tenantId: 'tenant-1', organizationId: 'org-1' }),
+    )
+    // The session was never touched by the failed attempt — still stuck in awaiting_approval.
+    expect(seededSessions[0].status).toBe('awaiting_approval')
+
+    // Redelivery (the queue's retry) with the transient failure cleared now succeeds.
+    await mod.default(
+      { subjectType: 'cart', subjectId: 'cart-1', approvalId: 'approval-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      ctx,
+    )
+
+    if (outcome === 'rejected') {
+      expect(seededSessions[0].status).toBe('failed')
+    } else {
+      expect(seededSessions[0].status).toBe('open')
+    }
+  })
+
+  it('rethrows a CAS-update failure the same way', async () => {
+    const mod = await import(`../../subscribers/${fileName}`)
+    const { ctx, em } = makeCtx()
+    const transientError = new Error('deadlock detected')
+    em.nativeUpdate.mockRejectedValueOnce(transientError)
+
+    await expect(
+      mod.default(
+        { subjectType: 'cart', subjectId: 'cart-1', approvalId: 'approval-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+        ctx,
+      ),
+    ).rejects.toBe(transientError)
+
+    expect(mockReportCheckoutError).toHaveBeenCalledWith(
+      transientError,
+      'checkout.approval_resume_failed',
+      expect.objectContaining({ cartId: 'cart-1' }),
+    )
     expect(writeSessionEvent).not.toHaveBeenCalled()
   })
 })
