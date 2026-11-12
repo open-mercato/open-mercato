@@ -15,8 +15,10 @@ Removing fresh-environment key generation would permit plaintext storage. Preser
 
 ## Progress
 
+PR: #9356
+
 ### Phase 1: Fix and verification
 
-- [ ] 1.1 Reproduce and remove duplicate fallback assignment.
+- [x] 1.1 Reproduce and remove duplicate fallback assignment.
 - [ ] 1.2 Verify encryption preservation and the configured validation gate.
 - [ ] 1.3 Review and publish the standalone fix PR.
