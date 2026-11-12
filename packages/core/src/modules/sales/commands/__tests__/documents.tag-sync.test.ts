@@ -16,6 +16,7 @@ import {
   SalesDocumentTagAssignment,
 } from '../../data/entities'
 import type { DocumentUpdateInput } from '../documents'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -110,6 +111,7 @@ function makeEm(existingTagIds: string[], shape: AssignmentShape = 'entity') {
     getReference: jest.fn((_entityClass: unknown, id: string) => ({ id })),
     flush: jest.fn(async () => {}),
     begin: jest.fn(async () => {}),
+    getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
     commit: jest.fn(async () => {}),
     rollback: jest.fn(async () => {}),
     fork: () => em,
@@ -119,7 +121,10 @@ function makeEm(existingTagIds: string[], shape: AssignmentShape = 'entity') {
 
 function makeCtx(em: unknown) {
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
-  container.register({ em: asValue(em) })
+  container.register({
+    em: asValue(em),
+    dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
+  })
   return {
     container,
     auth: { tenantId: TENANT_ID, orgId: ORG_ID, sub: 'user-1' },

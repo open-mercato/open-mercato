@@ -1,4 +1,8 @@
 {
+  "attachments.access.forbidden": "접근이 거부되었습니다",
+  "attachments.access.notFound": "첨부 파일을 찾을 수 없습니다.",
+  "attachments.access.timeout": "첨부 파일 접근 권한 확인 시간이 초과되었습니다. 다시 시도해 주세요.",
+  "attachments.access.unauthorized": "인증이 필요합니다",
   "attachments.errors.activeContentBlocked": "활성 콘텐츠 업로드는 허용되지 않습니다.",
   "attachments.errors.dangerousExecutable": "실행 파일 형식은 첨부 파일로 허용되지 않습니다.",
   "attachments.errors.maxUploadSize": "첨부 파일이 최대 업로드 크기를 초과합니다.",
@@ -12,6 +16,7 @@
   "attachments.errors.scanRejected": "구성된 보안 스캐너가 첨부 파일을 거부했습니다.",
   "attachments.errors.scanUnavailable": "첨부 파일 검사를 일시적으로 사용할 수 없습니다.",
   "attachments.errors.selectOrganization": "첨부파일을 업로드하기 전에 특정 조직을 선택하세요.",
+  "attachments.errors.storageConfigurationInvalid": "첨부 파일 저장소 구성을 사용할 수 없습니다.",
   "attachments.errors.storageFailed": "첨부 파일을 저장소에 기록하지 못했습니다.",
   "attachments.errors.storagePathExists": "대상 저장 경로가 이미 존재합니다.",
   "attachments.errors.uploadFailed": "첨부 파일 업로드에 실패했습니다.",

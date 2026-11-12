@@ -15,6 +15,7 @@ export {
 export type { SchedulerSafeCommandDefinition } from './modules/scheduler/lib/scheduler-safe-commands.js'
 
 // Parsers and utilities
-export { parseCronExpression, validateCron } from './modules/scheduler/lib/cronParser.js'
+export { parseCronExpression, validateCron, validateCronExpression } from './modules/scheduler/lib/cronParser.js'
+export type { CronValidationResult } from './modules/scheduler/lib/cronParser.js'
 export { parseInterval, validateInterval, intervalToHuman } from './modules/scheduler/lib/intervalParser.js'
 export { calculateNextRun, recalculateNextRun } from './modules/scheduler/lib/nextRunCalculator.js'

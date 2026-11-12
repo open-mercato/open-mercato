@@ -8,6 +8,7 @@ import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
+import { bindEncryptionServiceToRequest } from './lib/request-encryption'
 import { QueryIndexEnvironmentPrivacyHandler } from './privacy'
 import {
   loadQueryIndexRowScope,
@@ -134,7 +135,7 @@ export function register(container: AppContainer) {
       undefined,
       () => {
         try {
-          return container.resolve('tenantEncryptionService') as any
+          return bindEncryptionServiceToRequest(container.resolve('tenantEncryptionService') as any, em)
         } catch {
           return null
         }

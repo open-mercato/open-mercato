@@ -42,6 +42,13 @@ describe('Avatar', () => {
     expect(root.className).toContain('text-primary')
   })
 
+  it('sizes a custom icon against the whole avatar, including large upload placeholders', () => {
+    render(<Avatar label="Acme" size={64} icon={<svg data-testid="company-icon" />} />)
+    const wrapper = screen.getByTestId('company-icon').parentElement
+    expect(wrapper).toHaveAttribute('data-slot', 'avatar-icon')
+    expect(wrapper).toHaveClass('size-full', '[&>svg]:size-1/2')
+  })
+
   it('renders an icon in place of initials when icon is provided', () => {
     const Icon = () => <svg data-testid="bldg" />
     render(<Avatar label="Acme" icon={<Icon />} />)
@@ -60,6 +67,41 @@ describe('Avatar', () => {
     const { container } = render(<Avatar label="Jan" size="lg" />)
     const root = container.firstChild as HTMLElement
     expect(root.className).toContain('size-12')
+  })
+
+  it.each([
+    [20, 'size-5', 'text-xs', 'W'],
+    [24, 'size-6', 'text-xs', 'W'],
+    [32, 'size-8', 'text-sm', 'W'],
+    [40, 'size-10', 'text-base', 'WC'],
+    [48, 'size-12', 'text-lg', 'WC'],
+    [56, 'size-14', 'text-lg', 'WC'],
+    [64, 'size-16', 'text-2xl', 'WC'],
+    [72, 'size-18', 'text-2xl', 'WC'],
+    [80, 'size-20', 'text-2xl', 'WC'],
+  ] as const)('renders the audited %i px text variant', (size, dimensions, typography, initials) => {
+    render(<Avatar label="Wei Chen" size={size} />)
+    const avatar = screen.getByRole('img', { name: 'Wei Chen' })
+    expect(avatar).toHaveClass(dimensions, typography, 'font-medium')
+    expect(avatar.textContent).toBe(initials)
+    if (size === 48 || size === 56) expect(avatar).toHaveClass('leading-6')
+  })
+
+  it.each([
+    ['xs', 'size-5'], ['sm', 'size-7'], ['md', 'size-9'], ['lg', 'size-12'], ['xl', 'size-16'],
+  ] as const)('preserves legacy %s dimensions and two initials', (size, dimensions) => {
+    render(<Avatar label="Wei Chen" size={size} />)
+    expect(screen.getByRole('img', { name: 'Wei Chen' })).toHaveClass(dimensions)
+    expect(screen.getByRole('img', { name: 'Wei Chen' }).textContent).toBe('WC')
+  })
+
+  it('keeps numeric sizes, photo sources, decorations, and refs together', () => {
+    const avatarRef = React.createRef<HTMLDivElement>()
+    const { container } = render(<Avatar ref={avatarRef} label="Wei Chen" size={72} src="/avatar.png" status="online" />)
+    expect(avatarRef.current).toBe(screen.getByRole('img', { name: 'Wei Chen' }))
+    expect(avatarRef.current).toHaveClass('size-18')
+    expect(container.querySelector('img')).toHaveAttribute('src', '/avatar.png')
+    expect(container.querySelector('[data-slot="avatar-status"]')).toHaveClass('size-8')
   })
 
   describe('Phase B.4 — status + ring + badge slots', () => {
@@ -195,6 +237,37 @@ describe('Avatar', () => {
 })
 
 describe('AvatarStack', () => {
+  it('uses the audited photo overlap while giving two-letter initials space', () => {
+    const { container } = render(
+      <>
+        <AvatarStack size={40}>
+          <Avatar label="Wei Chen" size={40} src="/wei.png" />
+          <Avatar label="Laura Perez" size={40} src="/laura.png" />
+        </AvatarStack>
+        <AvatarStack size={40}>
+          <Avatar label="Wei Chen" size={40} />
+          <Avatar label="Laura Perez" size={40} />
+        </AvatarStack>
+      </>,
+    )
+    const stacks = container.querySelectorAll('[data-slot="avatar-stack"]')
+    expect(stacks[0].children[1]).toHaveClass('-ml-3')
+    expect(stacks[1].children[1]).toHaveClass('-ml-1.5')
+  })
+
+  it('limits mixed-size overlap and keeps numeric overflow counts complete', () => {
+    const { container } = render(
+      <AvatarStack size={80} max={2} overflowCount={105}>
+        <Avatar label="Wei Chen" size={20} />
+        <Avatar label="Laura Perez" size={80} />
+      </AvatarStack>,
+    )
+    const items = container.querySelectorAll('[data-slot="avatar-stack-item"]')
+    expect(items[1]).toHaveClass('-ml-1')
+    const overflow = screen.getByRole('img', { name: '+105' })
+    expect(overflow).toHaveTextContent('+105')
+    expect(overflow).toHaveClass('size-20', 'min-w-20', 'w-auto')
+  })
   it('derives the +N overflow from children beyond max', () => {
     render(
       <AvatarStack max={2}>
@@ -226,5 +299,44 @@ describe('AvatarStack', () => {
       </AvatarStack>,
     )
     expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument()
+  })
+
+  it.each([12, 105, 1024])('renders the complete +%i overflow count instead of initials', (count) => {
+    render(
+      <AvatarStack max={1} size="sm" overflowCount={count - 1}>
+        <Avatar label="Wei Chen" size="sm" />
+        <Avatar label="Laura Perez" size="sm" />
+      </AvatarStack>,
+    )
+    expect(screen.getByRole('img', { name: `+${count}` })).toHaveTextContent(`+${count}`)
+    expect(screen.queryByRole('img', { name: 'Laura Perez' })).not.toBeInTheDocument()
+  })
+
+  it('preserves avatar labels, dimensions, decorations, and forwarded refs inside a stack', () => {
+    const avatarRef = React.createRef<HTMLDivElement>()
+    const { container } = render(
+      <AvatarStack size="sm">
+        <Avatar ref={avatarRef} label="Wei Chen" size="sm" status="online" />
+        <Avatar label="Laura Perez" size="lg" variant="monochrome" />
+      </AvatarStack>,
+    )
+    const small = screen.getByRole('img', { name: 'Wei Chen' })
+    const large = screen.getByRole('img', { name: 'Laura Perez' })
+    expect(avatarRef.current).toBe(small)
+    expect(small).toHaveTextContent('WC')
+    expect(small).toHaveClass('size-7')
+    expect(large).toHaveTextContent('LP')
+    expect(large).toHaveClass('size-12')
+    expect(container.querySelector('[data-slot="avatar-status"]')).toHaveAttribute('data-status', 'online')
+  })
+
+  it('shows all omitted items when max is zero', () => {
+    render(
+      <AvatarStack max={0} overflowCount={11}>
+        <Avatar label="Wei Chen" />
+      </AvatarStack>,
+    )
+    expect(screen.getAllByRole('img')).toHaveLength(1)
+    expect(screen.getByRole('img', { name: '+12' })).toHaveTextContent('+12')
   })
 })

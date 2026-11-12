@@ -3,7 +3,12 @@
 // - from: '@open-mercato/core' | '@app' | custom alias/path in future
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
-export type ModuleEntry = { id: string; from?: '@open-mercato/core' | '@app' | string }
+export type ModuleEntry = {
+  id: string
+  from?: '@open-mercato/core' | '@app' | string
+  locator?: string
+  packageName?: string
+}
 
 export const enabledModules: ModuleEntry[] = [
 {{MODULES}}
@@ -13,6 +18,7 @@ const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_E
 const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
 const enterpriseSecurityEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY, false)
 const enterpriseDataErasureEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_DATA_ERASURE, false)
+const enterpriseAgentsEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_AGENTS, false)
 
 if (enterpriseModulesEnabled) {
   enabledModules.push(
@@ -30,6 +36,13 @@ if (enterpriseModulesEnabled && enterpriseSecurityEnabled) {
   enabledModules.push({ id: 'security', from: '@open-mercato/enterprise' })
 }
 
+if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
+  enabledModules.push({ id: 'agent_orchestrator', from: '@open-mercato/enterprise' })
+  // Example app module: shows how to declare an Agent Orchestrator agent from a
+  // brand-new module. Its source ships in every preset; it imports the
+  // orchestrator SDK, so it is only enabled alongside it.
+  enabledModules.push({ id: 'agent_examples', from: '@app' })
+}
 if (enterpriseModulesEnabled && enterpriseDataErasureEnabled) {
   enabledModules.push({ id: 'data_erasure', from: '@open-mercato/enterprise' })
 }

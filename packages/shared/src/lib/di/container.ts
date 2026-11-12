@@ -32,6 +32,7 @@ const APP_DI_REGISTER_WARNING_KEY = '__openMercatoAppDiRegisterWarningEmitted__'
 // exist, so retrying the import per request container only repeats a failed module resolution
 // (and its log line) once per job.
 const APP_DI_MODULE_UNRESOLVABLE_KEY = '__openMercatoAppDiModuleUnresolvable__'
+const ENCRYPTION_ENABLED_KEY = '__openMercatoEncryptionEnabledCache__'
 // Phase 5 — process-scoped bootstrap cache. The cache/event-bus/encryption
 // services bootstrap() creates are inherently process-scoped (they hold
 // state across requests). Caching them on globalThis after the first
@@ -93,6 +94,20 @@ function harvestBootstrapCache(container: AwilixContainer): BootstrapCacheEntry 
   return entry
 }
 
+// Caches the STATIC config toggle only. It deliberately does not consult
+// `tenantEncryptionService.isEnabled()`, which ANDs the toggle with the
+// volatile `kms.isHealthy()` — memoizing that for the process lifetime pinned a
+// transient Vault outage into a permanent "encryption off" verdict, so the
+// subscriber was never registered again until a restart (#5948). KMS health is
+// re-checked by the subscriber on every read/write instead.
+function getCachedEncryptionConfigured(): boolean {
+  const cached = (globalThis as Record<string, unknown>)[ENCRYPTION_ENABLED_KEY]
+  if (typeof cached === 'boolean') return cached
+  const result = isTenantDataEncryptionEnabled()
+  ;(globalThis as Record<string, unknown>)[ENCRYPTION_ENABLED_KEY] = result
+  return result
+}
+
 function getGlobalRegistrars(): DiRegistrar[] | null {
   return (globalThis as any)[GLOBAL_KEY] ?? null
 }
@@ -109,6 +124,7 @@ export function registerDiRegistrars(registrars: DiRegistrar[]) {
   setGlobalRegistrars(registrars)
   // Force re-bootstrap on HMR — module subscribers may have changed.
   ;(globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
+  ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
   // An app that gains a src/di.ts mid-session reloads through here, so the negative
   // resolution result must not outlive the reload.
   ;(globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] = undefined
@@ -134,6 +150,7 @@ export function registerAppDiRegistrar(registrar: AppDiRegistrar | null): void {
 /** Test-only helper to drop process-scoped request-container state. */
 export function resetBootstrapCache(): void {
   (globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
+  ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
   ;(globalThis as Record<string, unknown>)[APP_DI_LOAD_WARNING_KEY] = undefined
   ;(globalThis as Record<string, unknown>)[APP_DI_REGISTER_WARNING_KEY] = undefined
   ;(globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] = undefined
@@ -207,12 +224,21 @@ export async function createRequestContainer(): Promise<AppContainer> {
     // registrations override this default via Awilix replace semantics —
     // see the enterprise `record_locks` module for the canonical override.
     // Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
-    crudMutationGuardService: asFunction((em: EntityManager) =>
+    // `.proxy()` is load-bearing, not stylistic. The container runs in CLASSIC
+    // injection mode, where Awilix resolves dependencies by parsing PARAMETER
+    // NAMES out of the function source. A bundler that renames `em` to `em2` —
+    // Turbopack does, on a scope collision — makes Awilix look up a registration
+    // that does not exist, and `resolveCrudMutationGuardService` swallows the
+    // AwilixResolutionError and returns null, so `bridgeLegacyGuard` silently
+    // drops the guard and every mutation runs with optimistic locking NOT
+    // enforced. Reading `cradle.em` resolves by property name, which survives
+    // mangling. Pinned by `di-injection-mode.test.ts`.
+    crudMutationGuardService: asFunction((cradle: { em: EntityManager }) =>
       createOptimisticLockGuardService({
-        getEm: () => em,
+        getEm: () => cradle.em,
         readers: getAllOptimisticLockReaders(),
       }),
-    ).scoped(),
+    ).scoped().proxy(),
     // Default OSS command-level optimistic-lock guard, awaited by
     // `enforceCommandOptimisticLockWithGuards` for Command-pattern writes.
     // Header/explicit-token compare only (no `resolveExpected`), so it is
@@ -304,19 +330,20 @@ export async function createRequestContainer(): Promise<AppContainer> {
     unregister: (key) => container.register({ [key]: asValue(undefined) }),
   })
   // Ensure tenant encryption subscriber is always registered on the fresh request-scoped EM
-  // Phase 5 — cache `tenantEncryptionService.isEnabled()` for the process
-  // lifetime. The result depends only on config that does not change at
-  // runtime, so reading it once skips a config lookup per request.
+  // Phase 5 — cache the tenant-encryption config toggle for the process
+  // lifetime. That toggle does not change at runtime, so reading it once skips
+  // a config lookup per request; KMS health is NOT part of this decision.
   try {
     const emForEnc = container.resolve('em') as any
     const tenantEncryptionService = container.hasRegistration('tenantEncryptionService')
       ? (container.resolve('tenantEncryptionService') as any)
       : null
-    if (
-      emForEnc
-      && tenantEncryptionService
-      && (isTenantDataEncryptionEnabled() || isTenantDataEncryptionRequired())
-    ) {
+    // The subscriber calls `service.isEnabled()` on every read/write, so a DI
+    // override supplying a service without it would throw per operation. Keep
+    // the shape check that the old health-probe helper performed.
+    const serviceCanReportEnabled = typeof tenantEncryptionService?.isEnabled === 'function'
+    const encryptionRequired = isTenantDataEncryptionRequired()
+    if (emForEnc && serviceCanReportEnabled && (getCachedEncryptionConfigured() || encryptionRequired)) {
       const { registerTenantEncryptionSubscriber } = await import('@open-mercato/shared/lib/encryption/subscriber')
       registerTenantEncryptionSubscriber(emForEnc, tenantEncryptionService)
     }

@@ -37,6 +37,7 @@ import {
   sortDictionaryEntries,
 } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('dictionaries').child({ component: 'entries-api' })
 
@@ -281,6 +282,10 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Invalid input', details: err.issues }, { status: 400 })

@@ -33,7 +33,7 @@ export type PerspectiveSidebarProps = {
   onActivatePerspective: (perspective: PerspectiveDto | RolePerspectiveDto, source: 'personal' | 'role') => void
   onDeletePerspective: (perspectiveId: string) => Promise<void>
   onClearRole: (perspective: RolePerspectiveDto) => Promise<void>
-  onSave: (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean; perspectiveId?: string | null; settings?: PerspectiveSettings }) => Promise<void>
+  onSave: (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean; perspectiveId?: string | null; settings?: PerspectiveSettings; createOnly?: boolean }) => Promise<void>
   canApplyToRoles: boolean
   availableColumns: ColumnChooserField[]
   visibleColumnKeys: string[]
@@ -44,6 +44,10 @@ export type PerspectiveSidebarProps = {
   deletingIds: string[]
   roleClearingIds: string[]
   apiWarning?: string | null
+}
+
+function isDuplicateNameError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'duplicate_name'
 }
 
 const emptyArray: any[] = []
@@ -98,7 +102,10 @@ export function PerspectiveSidebar({
   const [sharedIds, setSharedIds] = React.useState<Set<string>>(new Set())
   const [pendingCloneBaselineIds, setPendingCloneBaselineIds] = React.useState<Set<string> | null>(null)
 
+  const newViewSaveRef = React.useRef(false)
+  const renameSaveRef = React.useRef(false)
   const autosaveRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingAutosaveActionRef = React.useRef<(() => void) | null>(null)
   const isDefaultUserChangeRef = React.useRef(false)
   const isDefaultRef = React.useRef(isDefault)
   isDefaultRef.current = isDefault
@@ -109,41 +116,93 @@ export function PerspectiveSidebar({
   const perspectivesRef = React.useRef(perspectives)
   perspectivesRef.current = perspectives
 
+  const rolePerspectivesRef = React.useRef(rolePerspectives)
+  rolePerspectivesRef.current = rolePerspectives
+
+  const activePerspectiveIdRef = React.useRef(activePerspectiveId)
+  activePerspectiveIdRef.current = activePerspectiveId
+
   const flushAutosave = React.useCallback(() => {
     if (autosaveRef.current) {
       clearTimeout(autosaveRef.current)
       autosaveRef.current = null
     }
+    pendingAutosaveActionRef.current = null
+  }, [])
+
+  // Closing the panel or unmounting inside the debounce window must not drop
+  // a pending autosave save or shared-view warning in silence — that is the
+  // same discarded-edit bug (#5113) the debounce itself was added to fix.
+  // Run whatever is pending immediately instead of just cancelling it.
+  const runPendingAutosave = React.useCallback(() => {
+    if (!autosaveRef.current) return
+    clearTimeout(autosaveRef.current)
+    autosaveRef.current = null
+    const pending = pendingAutosaveActionRef.current
+    pendingAutosaveActionRef.current = null
+    pending?.()
   }, [])
 
   const scheduleAutosave = React.useCallback(() => {
     if (!activePerspectiveId || mode.type === 'new') return
     const activePersonal = perspectivesRef.current.find((p) => p.id === activePerspectiveId)
-    if (!activePersonal) return
+    if (!activePersonal) {
+      // Role perspectives live in their own collection and are shared, so they
+      // are never autosaved into. Say so instead of dropping the edit in
+      // silence — the old early return made a discarded change look saved
+      // (#5113). The timer is reused purely to debounce the hint across a burst
+      // of column toggles.
+      const activeRole = rolePerspectivesRef.current.find((p) => p.id === activePerspectiveId)
+      if (!activeRole) return
+      flushAutosave()
+      const warnedId = activeRole.id
+      const emitWarning = () => {
+        autosaveRef.current = null
+        pendingAutosaveActionRef.current = null
+        // Switching away within the debounce window makes the warning obsolete —
+        // it would name a shared view the user is no longer editing.
+        if (activePerspectiveIdRef.current !== warnedId) return
+        flash(
+          t(
+            'ui.perspectives.autosave.sharedView',
+            'Shared views do not save automatically. Use Clone to keep these changes in your own view.',
+          ),
+          'warning',
+        )
+      }
+      pendingAutosaveActionRef.current = emitWarning
+      autosaveRef.current = setTimeout(emitWarning, 400)
+      return
+    }
     flushAutosave()
     const targetId = activePersonal.id
     const targetName = activePersonal.name
-    autosaveRef.current = setTimeout(async () => {
+    const runSave = () => {
       autosaveRef.current = null
-      try {
-        await onSaveRef.current({
-          name: targetName,
-          isDefault: isDefaultRef.current,
-          applyToRoles: [],
-          setRoleDefault: false,
-          perspectiveId: targetId,
-        })
-        flash(t('ui.perspectives.autosave.success', 'View saved'), 'success')
-      } catch (err: unknown) {
-        if (surfaceRecordConflict(err, t)) return
-        flash(t('ui.perspectives.autosave.error', 'Failed to save view'), 'error')
-      }
-    }, 400)
+      pendingAutosaveActionRef.current = null
+      void (async () => {
+        try {
+          await onSaveRef.current({
+            name: targetName,
+            isDefault: isDefaultRef.current,
+            applyToRoles: [],
+            setRoleDefault: false,
+            perspectiveId: targetId,
+          })
+          flash(t('ui.perspectives.autosave.success', 'View saved'), 'success')
+        } catch (err: unknown) {
+          if (surfaceRecordConflict(err, t)) return
+          flash(t('ui.perspectives.autosave.error', 'Failed to save view'), 'error')
+        }
+      })()
+    }
+    pendingAutosaveActionRef.current = runSave
+    autosaveRef.current = setTimeout(runSave, 400)
   }, [activePerspectiveId, mode.type, flushAutosave, t])
 
   React.useEffect(() => {
-    return () => { flushAutosave() }
-  }, [flushAutosave])
+    return () => { runPendingAutosave() }
+  }, [runPendingAutosave])
 
   const resetMode = () => {
     setMode({ type: 'idle' })
@@ -171,7 +230,7 @@ export function PerspectiveSidebar({
 
   React.useEffect(() => {
     if (!open) {
-      flushAutosave()
+      runPendingAutosave()
       setError(null)
       resetMode()
       setRenamingId(null)
@@ -196,13 +255,21 @@ export function PerspectiveSidebar({
   }, [open, activePerspectiveId])
 
   const handleSaveNew = async () => {
+    if (newViewSaveRef.current) return
+    newViewSaveRef.current = true
     setError(null)
     try {
-      await onSave({ name: name.trim(), isDefault, applyToRoles: [], setRoleDefault: false, perspectiveId: null })
+      await onSave({ name: name.trim(), isDefault, applyToRoles: [], setRoleDefault: false, perspectiveId: null, createOnly: true })
       resetMode()
     } catch (err: unknown) {
       if (surfaceRecordConflict(err, t)) return
+      if (isDuplicateNameError(err)) {
+        setError(t('ui.perspectives.error.nameExists', 'View with this name already exists'))
+        return
+      }
       setError(err instanceof Error ? err.message : 'Failed to save view')
+    } finally {
+      newViewSaveRef.current = false
     }
   }
 
@@ -217,6 +284,7 @@ export function PerspectiveSidebar({
   }, [onReorderColumns, scheduleAutosave])
 
   const handleRename = async (p: PerspectiveDto | RolePerspectiveDto) => {
+    if (renameSaveRef.current) return
     const trimmed = renameValue.trim()
     if (!trimmed) {
       setRenamingId(null)
@@ -229,10 +297,12 @@ export function PerspectiveSidebar({
       flash(t('ui.perspectives.error.nameExists', 'View with this name already exists'), 'error')
       return
     }
+    renameSaveRef.current = true
     setError(null)
     try {
       await onSave({
         name: trimmed,
+        settings: p.settings,
         isDefault: p.isDefault,
         applyToRoles: [],
         setRoleDefault: false,
@@ -242,6 +312,8 @@ export function PerspectiveSidebar({
     } catch (err: unknown) {
       if (surfaceRecordConflict(err, t)) return
       setError(err instanceof Error ? err.message : 'Failed to rename view')
+    } finally {
+      renameSaveRef.current = false
     }
   }
 
@@ -278,13 +350,14 @@ export function PerspectiveSidebar({
           setRoleDefault: false,
           perspectiveId: null,
           settings: clonedSettings,
+          createOnly: true,
         })
         setPendingCloneBaselineIds(baseline)
         return
       } catch (err: unknown) {
         const errMessage = err instanceof Error ? err.message : ''
         const msg = errMessage.toLowerCase()
-        const isDuplicate = msg.includes('duplicate key') || msg.includes('unique constraint')
+        const isDuplicate = isDuplicateNameError(err) || msg.includes('duplicate key') || msg.includes('unique constraint')
         if (!isDuplicate) {
           if (surfaceRecordConflict(err, t)) return
           setError(errMessage || 'Failed to clone view')
@@ -295,6 +368,10 @@ export function PerspectiveSidebar({
       }
     }
     if (surfaceRecordConflict(lastErr, t)) return
+    if (isDuplicateNameError(lastErr)) {
+      setError(t('ui.perspectives.error.nameExists', 'View with this name already exists'))
+      return
+    }
     setError(lastErr instanceof Error ? lastErr.message : 'Failed to clone view')
   }
 
@@ -393,7 +470,10 @@ export function PerspectiveSidebar({
                 {t('ui.perspectives.savedViews.new', 'New')}
               </Button>
               {(perspectives ?? emptyArray).map((p) => {
-                const isActive = activePerspectiveId === p.id
+                // While the new-view form is open the sidebar is creating, not
+                // editing: keeping a chip lit reads as "I am editing the active
+                // view" and hides the mode switch (#5113).
+                const isActive = !isNew && activePerspectiveId === p.id
                 const deleting = deletingIds.includes(p.id)
                 const isShared = sharedIds.has(p.id)
                 return (
@@ -426,7 +506,10 @@ export function PerspectiveSidebar({
                   return !perspectives.some((pp) => pp.name.trim() === rpName)
                 })
                 .map((p) => {
-                const isActive = activePerspectiveId === p.id
+                // While the new-view form is open the sidebar is creating, not
+                // editing: keeping a chip lit reads as "I am editing the active
+                // view" and hides the mode switch (#5113).
+                const isActive = !isNew && activePerspectiveId === p.id
                 const clearing = roleClearingIds.includes(p.roleId)
                 return (
                   <ViewChip

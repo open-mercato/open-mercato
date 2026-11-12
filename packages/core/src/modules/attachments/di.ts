@@ -1,4 +1,5 @@
 import { asClass, asFunction, asValue } from 'awilix'
+import { createAttachmentAccessContext } from './lib/access-runner'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { StorageDriverFactory } from './lib/drivers/driverFactory'
@@ -20,6 +21,7 @@ import type { AttachmentQuarantineStore } from './lib/quarantine'
 import { AttachmentEnvironmentPrivacyHandler } from './privacy'
 
 export function register(container: AppContainer) {
+  const accessContext = () => createAttachmentAccessContext(container)
   container.register({
     attachmentScanner: asClass(UnavailableAttachmentScanner).singleton(),
     attachmentQuarantineStore: asFunction(() => new LocalAttachmentQuarantineStore()).singleton(),
@@ -44,7 +46,7 @@ export function register(container: AppContainer) {
       .scoped()
       .proxy(),
     attachmentTargetAccessService: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
-      new AttachmentTargetAccessService(em),
+      new AttachmentTargetAccessService(em, accessContext),
     )
       .scoped()
       .proxy(),
@@ -89,6 +91,7 @@ export function register(container: AppContainer) {
       cradle.em,
       cradle.storageDriverFactory,
       () => cradle.attachmentScopedUploadService ?? null,
+      accessContext,
     ))
       .scoped()
       .proxy(),

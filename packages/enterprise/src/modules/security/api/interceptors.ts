@@ -2,7 +2,11 @@ import type { ApiInterceptor, InterceptorAfterResult } from '@open-mercato/share
 import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig } from '../lib/security-config'
+import {
+  emitMfaEmergencyBypassActiveWarning,
+  readSecurityModuleConfig,
+  requestMfaEmergencyBypassNotification,
+} from '../lib/security-config'
 import { signPendingMfaToken } from '../lib/mfa-pending-token'
 
 const logger = createLogger('security').child({ component: 'login-mfa-interceptor' })
@@ -93,6 +97,7 @@ export const interceptors: ApiInterceptor[] = [
 
       if (readSecurityModuleConfig().mfa.emergencyBypass) {
         emitMfaEmergencyBypassActiveWarning('login MFA challenge bypassed', { userId: claims.sub })
+        await requestMfaEmergencyBypassNotification({ tenantId: claims.tenantId, organizationId: claims.orgId })
         return {}
       }
 

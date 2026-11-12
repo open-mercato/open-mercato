@@ -20,6 +20,7 @@ import {
   mapOrderLineEntityToSnapshot,
   mapQuoteLineEntityToSnapshot,
   resolveUpsertDiscountFields,
+  resolveUpsertTotalsOrigin,
 } from '../lineSnapshots'
 import type { SalesOrderLine, SalesQuoteLine } from '../../data/entities'
 import { orderLineCreateSchema, quoteLineCreateSchema } from '../../data/validators'
@@ -69,12 +70,64 @@ describe('entity-to-snapshot mappers', () => {
     expect(snapshot.discountAmountBasis).toBeUndefined()
   })
 
+  it.each([
+    ['order', mapOrderLineEntityToSnapshot],
+    ['quote', mapQuoteLineEntityToSnapshot],
+  ])('marks a rebuilt %s line\'s totals as stored-row sourced (issue #5644)', (_kind, map) => {
+    const snapshot = (map as (line: never) => ReturnType<typeof mapOrderLineEntityToSnapshot>)(
+      persistedLine() as never,
+    )
+
+    // Without this the engine reads the row's own previous output as a caller
+    // assertion and warns on every recalculation of a legacy row.
+    expect(snapshot.totalsFromStoredRow).toBe(true)
+  })
+
   it('coerces the numeric-string column shape the database returns', () => {
     const snapshot = mapOrderLineEntityToSnapshot(persistedLine() as unknown as SalesOrderLine)
 
     expect(snapshot.discountAmount).toBe(12.75)
     expect(snapshot.quantity).toBe(3)
     expect(snapshot.unitPriceNet).toBe(85)
+  })
+
+  it.each([
+    ['order', mapOrderLineEntityToSnapshot],
+    ['quote', mapQuoteLineEntityToSnapshot],
+  ])('carries the %s line columns the engine never reads (issue #5911)', (_kind, map) => {
+    // The write paths rebuild every line of the document from this snapshot and
+    // assign the result back onto the row, so a column missing here is written
+    // back as null over the stored value of a line nobody edited.
+    const snapshot = (map as (line: never) => ReturnType<typeof mapOrderLineEntityToSnapshot>)(
+      persistedLine({
+        statusEntryId: 'status-1',
+        catalogSnapshot: { sku: 'HB-1' },
+        promotionSnapshot: { campaign: 'spring' },
+      }) as never,
+    )
+
+    expect(snapshot.statusEntryId).toBe('status-1')
+    expect(snapshot.catalogSnapshot).toEqual({ sku: 'HB-1' })
+    expect(snapshot.promotionSnapshot).toEqual({ campaign: 'spring' })
+  })
+
+  it('clones the carried snapshots so the row cannot be mutated through them', () => {
+    const line = persistedLine({ catalogSnapshot: { sku: 'HB-1' }, promotionSnapshot: { campaign: 'spring' } })
+    const snapshot = mapQuoteLineEntityToSnapshot(line as unknown as SalesQuoteLine)
+
+    ;(snapshot.catalogSnapshot as Record<string, unknown>).sku = 'mutated'
+    ;(snapshot.promotionSnapshot as Record<string, unknown>).campaign = 'mutated'
+
+    expect(line.catalogSnapshot).toEqual({ sku: 'HB-1' })
+    expect(line.promotionSnapshot).toEqual({ campaign: 'spring' })
+  })
+
+  it('maps absent carried columns to null rather than undefined', () => {
+    const snapshot = mapQuoteLineEntityToSnapshot(persistedLine() as unknown as SalesQuoteLine)
+
+    expect(snapshot.statusEntryId).toBeNull()
+    expect(snapshot.catalogSnapshot).toBeNull()
+    expect(snapshot.promotionSnapshot).toBeNull()
   })
 
   it('coerces a non-finite stored value to zero rather than propagating NaN', () => {
@@ -142,6 +195,28 @@ describe('resolveUpsertDiscountFields', () => {
   })
 })
 
+describe('resolveUpsertTotalsOrigin (issue #5644)', () => {
+  it('treats a caller-supplied total as a caller assertion worth reconciling', () => {
+    expect(resolveUpsertTotalsOrigin(150, { totalNetAmount: 242.25 })).toEqual({})
+  })
+
+  it('treats an explicit zero from the caller as a caller assertion, not an absent value', () => {
+    expect(resolveUpsertTotalsOrigin(0, { totalNetAmount: 242.25 })).toEqual({})
+  })
+
+  it('marks a total carried over from the stored row as stored-row sourced', () => {
+    expect(resolveUpsertTotalsOrigin(undefined, { totalNetAmount: 242.25 })).toEqual({
+      totalsFromStoredRow: true,
+    })
+  })
+
+  it('asserts no origin when there is neither a caller value nor a row', () => {
+    // Nothing to reconcile, so claiming a stored origin would be a lie the
+    // engine could later act on.
+    expect(resolveUpsertTotalsOrigin(undefined, null)).toEqual({})
+  })
+})
+
 describe('request schemas (§ 3 invariant, acceptance criterion 9)', () => {
   const baseLine = {
     organizationId: '11111111-1111-4111-8111-111111111111',
@@ -166,6 +241,22 @@ describe('request schemas (§ 3 invariant, acceptance criterion 9)', () => {
     // A caller that tries to assert the mapper-only flag must not be able to
     // make the engine read its per-unit amount as a line total.
     expect('discountAmountFromStoredRow' in parsed).toBe(false)
+  })
+
+  it.each([
+    ['order line', orderLineCreateSchema, { orderId: '33333333-3333-4333-8333-333333333333' }],
+    ['quote line', quoteLineCreateSchema, { quoteId: '44444444-4444-4444-8444-444444444444' }],
+  ])('never lets a %s request opt out of totals reconciliation (issue #5644)', (_label, schema, ref) => {
+    const parsed = (schema as typeof orderLineCreateSchema).parse({
+      ...baseLine,
+      ...ref,
+      totalNetAmount: 150,
+      totalsFromStoredRow: true,
+    })
+
+    // Otherwise a caller could suppress the very warning the reconciliation
+    // exists to raise about its own value.
+    expect('totalsFromStoredRow' in parsed).toBe(false)
   })
 
   it.each([

@@ -67,7 +67,14 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Deployment",
-      items: ["deployment/railway", "deployment/backups"],
+      items: [
+        "deployment/production-readiness",
+        "deployment/readiness-scanner",
+        "deployment/railway",
+        "deployment/backups",
+        "deployment/github-ci",
+        "deployment/agent-orchestration-scaling",
+      ],
     },
     {
       type: "category",
@@ -139,6 +146,8 @@ const sidebars: SidebarsConfig = {
             "user-guide/akeneo-pim",
             "user-guide/checkout",
             "user-guide/stripe-payments",
+            "user-guide/autopay-payments",
+            "user-guide/tpay-payments",
             "user-guide/payment-transactions",
           ],
         },
@@ -247,6 +256,8 @@ const sidebars: SidebarsConfig = {
             "api/directory",
             "api/dashboards",
             "api/customers",
+            "api/cart",
+            "api/promotions",
             "api/integrations-data-sync",
             "api/payment-gateways",
             "api/entities",
@@ -337,8 +348,8 @@ const sidebars: SidebarsConfig = {
         "cli/scheduler",
         {
           type: "category",
-          label: "Official Modules",
-          items: ["cli/module-add", "cli/module-enable", "cli/eject"],
+          label: "Module commands",
+          items: ["cli/module-search", "cli/module-add", "cli/module-enable", "cli/eject"],
         },
       ],
     },
@@ -367,6 +378,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/modules/overview",
             "framework/modules/reference-example-module",
+            "framework/modules/publishing-custom-modules",
             {
               type: "category",
               label: "Core Modules",
@@ -403,6 +415,7 @@ const sidebars: SidebarsConfig = {
             "framework/modules/messages",
             "framework/modules/currencies",
             "framework/modules/integrations-data-sync",
+            "framework/modules/integrations-oauth-grants",
             "framework/modules/sales-providers",
             "framework/modules/payment-gateways",
             "framework/modules/shipping-carriers",
@@ -435,11 +448,13 @@ const sidebars: SidebarsConfig = {
             "framework/ai-assistant/agents",
             "framework/ai-assistant/ui-parts",
             "framework/ai-assistant/attachments",
+            "framework/ai-assistant/web-research",
             "framework/ai-assistant/mutation-approvals",
             "framework/ai-assistant/launcher",
             "framework/ai-assistant/overrides",
             "framework/ai-assistant/settings",
             "framework/ai-assistant/moderation",
+            "framework/ai-assistant/decision-models",
             "framework/ai-assistant/playground",
           ],
         },
@@ -507,6 +522,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/security/audit-evidence",
             "framework/security/rate-limiting",
+            "framework/security/cross-site-login",
           ],
         },
         {
@@ -516,6 +532,9 @@ const sidebars: SidebarsConfig = {
             "framework/runtime/data-engine",
             "framework/runtime/request-lifecycle",
             "framework/runtime/logging",
+            "framework/runtime/dev-runtime-diagnostics",
+            "framework/runtime/error-reporting",
+            "framework/runtime/telemetry",
           ],
         },
         {
@@ -533,6 +552,10 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/workflows/index",
             "framework/workflows/architecture",
+            "framework/workflows/entity-updates",
+            "framework/workflows/task-visibility",
+            "framework/workflows/run-outcomes",
+            "framework/workflows/run-state",
             "framework/workflows/services",
             "framework/workflows/extending",
             "framework/workflows/testing",

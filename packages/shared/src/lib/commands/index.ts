@@ -7,6 +7,13 @@ export * from './redo'
 export * from './audit-redaction'
 export * from './correlation'
 export {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+  ownsTransactionLifetime,
+  type TransactionLifetime,
+  type TransactionOutcome,
+} from './transaction-lifetime'
+export {
   CommandInterceptorError,
   isCommandInterceptorError,
   getCommandInterceptorHttpRejection,

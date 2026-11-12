@@ -2,11 +2,13 @@
 import { POST as sendQuote } from '@open-mercato/core/modules/sales/api/quotes/send/route'
 import { GET as getPublicQuote } from '@open-mercato/core/modules/sales/api/quotes/public/[token]/route'
 import { POST as acceptQuote } from '@open-mercato/core/modules/sales/api/quotes/accept/route'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { createSalesDocumentLockKyselyFixture } from '../../commands/__tests__/salesDocumentLockFixture'
 
 const mockCommandBus = { execute: jest.fn() }
 const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
@@ -20,6 +22,7 @@ const mockEm: Record<string, jest.Mock> = {
   commit: jest.fn().mockResolvedValue(undefined),
   rollback: jest.fn().mockResolvedValue(undefined),
   transactional: jest.fn().mockImplementation(async (callback: (trx: any) => Promise<unknown>) => callback(mockEm)),
+  getKysely: jest.fn(() => createSalesDocumentLockKyselyFixture('quote-lock')),
 }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -416,6 +419,34 @@ describe('accept - tenant isolation (fix: tenantId scoped in lookup + encryption
     expect(body.orderId).toBe('order-sec-1')
   })
 
+  test('accept surfaces the status and body of an interceptor rejection that carries one', async () => {
+    mockCommandBus.execute.mockRejectedValueOnce(
+      new CommandInterceptorError('Missing required fields', {
+        status: 422,
+        body: { error: 'Missing required fields', missingFields: ['vatId'] },
+      }),
+    )
+
+    const res = await acceptQuote(makeAcceptReq())
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Missing required fields',
+      missingFields: ['vatId'],
+    })
+  })
+
+  test('accept keeps the generic 400 when an interceptor rejection carries no status', async () => {
+    mockCommandBus.execute.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const res = await acceptQuote(makeAcceptReq())
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error?: string }
+    expect(body.error).toBeTruthy()
+    expect(body).not.toHaveProperty('missingFields')
+  })
+
   test('same-tenant auth accepts quote (200)', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ tenantId: TENANT_ID })
@@ -772,7 +803,14 @@ describe('quote editing invalidates sent token', () => {
     mockEm.flush.mockResolvedValue(undefined)
 
     const ctx: any = {
-      container: { resolve: (token: string) => (token === 'em' ? mockEm : null) },
+      container: {
+        resolve: (token: string) =>
+          token === 'dataEngine'
+            ? { markOrmEntityChange: jest.fn() }
+            : token === 'em'
+              ? mockEm
+              : null,
+      },
       auth: { sub: 'user-1', tenantId: quote.tenantId, orgId: quote.organizationId },
       organizationScope: null,
       selectedOrganizationId: quote.organizationId,

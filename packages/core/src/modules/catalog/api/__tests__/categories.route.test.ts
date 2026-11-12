@@ -29,6 +29,7 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
 }))
 
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { GET } from '../categories/route'
 
@@ -39,7 +40,39 @@ function request() {
 describe('catalog categories list — organization scoping', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    registerApiInterceptors([])
     mockEm.find.mockResolvedValue([])
+  })
+
+  it('runs an after interceptor at the real categories route mount', async () => {
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-a',
+      features: ['catalog.categories.view'],
+    })
+    ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
+      selectedId: 'org-a',
+      filterIds: ['org-a'],
+      allowedIds: ['org-a'],
+      tenantId: 'tenant-1',
+    })
+    registerApiInterceptors([{
+      moduleId: 'example',
+      interceptors: [{
+        id: 'example.catalog.categories.counts',
+        targetRoute: 'catalog/categories',
+        methods: ['GET'],
+        async after() {
+          return { merge: { mountedByInterceptor: true } }
+        },
+      }],
+    }])
+
+    const response = await GET(request())
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ mountedByInterceptor: true })
   })
 
   it('scopes by tenant only (no org filter) under the "All organizations" scope', async () => {

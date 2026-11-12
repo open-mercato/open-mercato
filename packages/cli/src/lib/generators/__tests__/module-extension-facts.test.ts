@@ -76,6 +76,41 @@ describe('module extension facts', () => {
     expect(hostOrder).toEqual([...hostOrder].sort((left, right) => left.localeCompare(right)))
   })
 
+  it('captures extra mount points from an array-form host source, keeping the first entry as the primary path', () => {
+    write(moduleRoot, 'extension-points.ts', `
+      import { defineModuleExtensionPoints, dataTableExtensionHost, crudFormExtensionHost } from 'x'
+      export const extensionPoints = defineModuleExtensionPoints({
+        moduleId: 'alpha',
+        hosts: {
+          records: dataTableExtensionHost({ tableId: 'alpha.records.list', source: ['Records.tsx', 'Extra.tsx'] }),
+          editor: crudFormExtensionHost({ entityId: 'alpha.record', source: 'Edit.tsx' }),
+        },
+      })
+    `)
+    write(moduleRoot, 'Records.tsx', 'export const tableId = extensionPoints.hosts.records.tableId')
+    write(moduleRoot, 'Extra.tsx', 'export const extra = true')
+    write(moduleRoot, 'Edit.tsx', 'export const entityId = extensionPoints.hosts.editor.entityId')
+
+    const facts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+    })
+
+    const header = facts.hosts.find((host) => host.id === 'data-table:alpha.records.list:header')
+    expect(header?.bound).toBe(true)
+    expect(header?.source).toMatchObject({ kind: 'declaration', symbol: 'extensionPoints.hosts.records' })
+    expect(header?.additionalSources).toEqual(['Extra.tsx'])
+
+    const editorFields = facts.hosts.find((host) => host.id === 'crud-form:alpha.record:fields')
+    expect(editorFields?.bound).toBe(true)
+    expect(editorFields?.additionalSources).toBeUndefined()
+  })
+
   it('extracts outgoing mechanisms with kind-specific contracts and correlates targets', () => {
     write(moduleRoot, 'extension-points.ts', `
       import { defineModuleExtensionPoints, dataTableExtensionHost } from 'x'

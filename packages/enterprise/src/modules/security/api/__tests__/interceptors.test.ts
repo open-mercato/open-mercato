@@ -1,3 +1,6 @@
+const mockEmitSecurityEvent = jest.fn().mockResolvedValue(undefined)
+jest.mock('../../events', () => ({ emitSecurityEvent: mockEmitSecurityEvent }))
+
 const mockLoggerWarn = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
@@ -175,6 +178,9 @@ describe('security auth/login api interceptor', () => {
 
     expect(result).toEqual({})
     expect(createChallenge).not.toHaveBeenCalled()
+    expect(mockEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.emergency_bypass_detected', expect.objectContaining({
+      tenantId: 'tenant-1', organizationId: 'org-1',
+    }), { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(mockLoggerWarn).toHaveBeenCalledWith(
       'MFA emergency bypass is active',
       expect.objectContaining({
@@ -209,6 +215,7 @@ describe('security auth/login api interceptor', () => {
       },
     })
     expect(createChallenge).not.toHaveBeenCalled()
+    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
@@ -263,6 +270,7 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result.replace).toBeDefined()
+    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 })

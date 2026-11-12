@@ -177,7 +177,8 @@ export default function DirectoryTenantsPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('directory.tenants.list.title', 'Tenants')}
+        title={t('directory.tenants.list.title', 'Tenants')}
+        titleHeadingLevel={1}
           actions={canManage ? (
             <Button asChild>
               <Link href="/backend/directory/tenants/create">{t('directory.tenants.list.actions.create', 'Create')}</Link>

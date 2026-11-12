@@ -233,6 +233,7 @@ export {
   checkStatusAndExpiry,
   checkAgentAndFeatures,
   checkToolWhitelist,
+  checkToolFeatures,
   checkAttachmentScope,
   checkRecordVersion,
   PENDING_ACTION_RECHECK_CODES,

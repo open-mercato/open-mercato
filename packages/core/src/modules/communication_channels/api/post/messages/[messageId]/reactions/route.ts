@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   COMMUNICATION_CHANNELS_TOGGLE_OUTBOUND_REACTION_COMMAND_ID,
   type ToggleOutboundReactionInput,
@@ -97,12 +98,15 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     },
   })
 
+  if (result.status === 'not_found' || result.status === 'not_owner') {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json(
+      { error: translate('communication_channels.errors.messageNotFound', 'Message not found') },
+      { status: 404 },
+    )
+  }
   if (result.status === 'no_channel_link') {
     return NextResponse.json({ error: result.reason }, { status: 409 })
-  }
-  if (result.status === 'not_owner') {
-    // Reacting would send from another user's connected account — refuse.
-    return NextResponse.json({ error: result.reason }, { status: 403 })
   }
   if (result.status === 'noop') {
     return NextResponse.json({ error: result.reason }, { status: 409 })
@@ -133,7 +137,7 @@ export const openApi = {
         { status: 201, description: 'Reaction added' },
         { status: 400, description: 'Invalid messageId' },
         { status: 401, description: 'Unauthorized' },
-        { status: 403, description: 'Channel is owned by another user' },
+        { status: 404, description: 'Message not found or not accessible' },
         { status: 409, description: 'Message not channel-linked or duplicate reaction' },
         { status: 422, description: 'Invalid request body' },
       ],

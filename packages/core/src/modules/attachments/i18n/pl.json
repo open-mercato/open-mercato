@@ -1,4 +1,8 @@
 {
+  "attachments.access.forbidden": "Brak dostępu",
+  "attachments.access.notFound": "Nie znaleziono załącznika.",
+  "attachments.access.timeout": "Przekroczono czas sprawdzania dostępu do załącznika. Spróbuj ponownie.",
+  "attachments.access.unauthorized": "Brak autoryzacji",
   "attachments.errors.activeContentBlocked": "Przesyłanie treści aktywnych nie jest dozwolone.",
   "attachments.errors.dangerousExecutable": "Pliki wykonywalne nie są dozwolone jako załączniki.",
   "attachments.errors.maxUploadSize": "Załącznik przekracza maksymalny dopuszczalny rozmiar przesyłania.",
@@ -12,6 +16,7 @@
   "attachments.errors.scanRejected": "Załącznik został odrzucony przez skonfigurowany skaner bezpieczeństwa.",
   "attachments.errors.scanUnavailable": "Skanowanie załączników jest tymczasowo niedostępne.",
   "attachments.errors.selectOrganization": "Wybierz konkretną organizację przed przesłaniem załącznika.",
+  "attachments.errors.storageConfigurationInvalid": "Konfiguracja magazynu załączników jest niedostępna.",
   "attachments.errors.storageFailed": "Nie udało się zapisać pliku załącznika w magazynie.",
   "attachments.errors.storagePathExists": "Docelowa ścieżka przechowywania już istnieje.",
   "attachments.errors.uploadFailed": "Przesyłanie załącznika nie powiodło się.",

@@ -4,10 +4,12 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { SsoConfig, SsoIdentity, SsoRoleGrant, ScimToken } from '../data/entities'
 import { emitSsoEvent } from '../events'
-import { EmailNotVerifiedError } from '../lib/errors'
+import { EmailNotVerifiedError, SsoRolesRevokedError } from '../lib/errors'
 import type { SsoIdentityPayload } from '../lib/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { syncSsoRoleGrants } from '../lib/sso-role-sync'
+import { conflict } from '@open-mercato/shared/lib/crud/errors'
+import { lockUserRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import { isSsoUserDeactivated } from '../lib/deactivation'
 
 const logger = createLogger('sso').child({ component: 'account-linking' })
 
@@ -81,6 +83,8 @@ export class AccountLinkingService {
       return null
     }
 
+    await this.requireActiveUser(user.id, ssoConfigId, tenantId, organizationId)
+
     identity.lastLoginAt = new Date()
     await this.em.flush()
 
@@ -109,6 +113,8 @@ export class AccountLinkingService {
     )
     if (!user) return null
 
+    await this.requireActiveUser(user.id, config.id, tenantId, config.organizationId)
+
     const now = new Date()
     const identity = this.em.create(SsoIdentity, {
       tenantId,
@@ -134,6 +140,18 @@ export class AccountLinkingService {
     }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return { user, identity }
+  }
+
+  private async requireActiveUser(
+    userId: string,
+    ssoConfigId: string,
+    tenantId: string,
+    organizationId: string,
+    em: EntityManager = this.em,
+  ): Promise<void> {
+    if (await isSsoUserDeactivated(em, { userId, ssoConfigId, tenantId: tenantId || null, organizationId })) {
+      throw new Error('[internal] SSO identity is deactivated')
+    }
   }
 
   private async jitProvision(
@@ -194,14 +212,25 @@ export class AccountLinkingService {
     const hasMappings = config.appRoleMappings && Object.keys(config.appRoleMappings).length > 0
     if (!hasMappings) return
 
-    await this.syncMappedRoles(em, user, config, tenantId, idpGroups)
-
-    const hasAnySsoRole = await em.findOne(SsoRoleGrant, {
-      userId: user.id,
-      ssoConfigId: config.id,
-    })
+    const synchronize = async (transactionalEm: EntityManager): Promise<boolean> => {
+      const managedUser = typeof transactionalEm.getReference === 'function'
+        ? transactionalEm.getReference(User, String(user.id))
+        : user
+      await this.syncMappedRoles(transactionalEm, managedUser, config, tenantId, idpGroups)
+      const remainingGrant = await transactionalEm.findOne(SsoRoleGrant, {
+        userId: user.id,
+        ssoConfigId: config.id,
+      })
+      return remainingGrant !== null
+    }
+    const hasAnySsoRole = typeof em.isInTransaction === 'function' && em.isInTransaction()
+      ? await synchronize(em)
+      : await em.transactional(synchronize)
     if (!hasAnySsoRole) {
-      throw new Error('No roles could be resolved from IdP groups — login denied. Configure role mappings or ensure the IdP sends matching group claims.')
+      throw new SsoRolesRevokedError(
+        String(user.id),
+        'No roles could be resolved from IdP groups — login denied. Configure role mappings or ensure the IdP sends matching group claims.',
+      )
     }
   }
 
@@ -216,6 +245,180 @@ export class AccountLinkingService {
     tenantId: string,
     idpGroups?: string[],
   ): Promise<void> {
-    await syncSsoRoleGrants(em, user, config, tenantId, idpGroups)
+    const resolvedTenantId = tenantId || user.tenantId || ''
+    if (!resolvedTenantId) return
+
+    const desiredRoleNames = resolveRoleNamesFromIdpGroups(idpGroups, config.appRoleMappings)
+    let allRoles = await em.find(Role, {
+      tenantId: resolvedTenantId,
+      deletedAt: null,
+    } as FilterQuery<Role>)
+    let desiredRoleIds = resolveActiveRoleIds(allRoles, desiredRoleNames)
+
+    // Query current SSO grants for this user+config
+    let existingGrants = await em.find(SsoRoleGrant, {
+      userId: user.id,
+      ssoConfigId: config.id,
+    })
+    let allUserRoles = await em.find(UserRole, { user: user.id } as FilterQuery<UserRole>)
+    const lockedRoleIds = new Set([
+      ...desiredRoleIds,
+      ...existingGrants.map((grant) => grant.roleId),
+      ...allUserRoles
+        .filter((userRole) => userRole.deletedAt)
+        .map((userRole) => String(userRole.role?.id ?? userRole.role)),
+    ])
+    await lockUserRoleWriterAuthorizationState(em, {
+      userIds: [String(user.id)],
+      roleIds: Array.from(lockedRoleIds),
+    })
+    await this.requireActiveUser(user.id, config.id, resolvedTenantId, config.organizationId, em)
+    allRoles = await em.find(Role, {
+      tenantId: resolvedTenantId,
+      deletedAt: null,
+    } as FilterQuery<Role>, { refresh: true })
+    existingGrants = await em.find(SsoRoleGrant, {
+      userId: user.id,
+      ssoConfigId: config.id,
+    }, { refresh: true })
+    allUserRoles = await em.find(
+      UserRole,
+      { user: user.id } as FilterQuery<UserRole>,
+      { refresh: true },
+    )
+
+    desiredRoleIds = resolveActiveRoleIds(allRoles, desiredRoleNames)
+    const existingGrantedRoleIds = new Set(existingGrants.map((g) => g.roleId))
+
+    // Compute diff
+    const toAdd = [...desiredRoleIds].filter((id) => !existingGrantedRoleIds.has(id))
+    const toRemove = existingGrants.filter((g) => !desiredRoleIds.has(g.roleId))
+    const softDeletedUserRoles = allUserRoles.filter((userRole) => userRole.deletedAt)
+    assertRoleMutationFootprintWasLocked([
+      ...desiredRoleIds,
+      ...toRemove.map((grant) => grant.roleId),
+      ...softDeletedUserRoles.map((userRole) => String(userRole.role?.id ?? userRole.role)),
+    ], lockedRoleIds)
+
+    // Add new roles
+    for (const roleId of toAdd) {
+      const role = allRoles.find((r) => r.id === roleId)
+      if (!role) continue
+      await this.ensureUserRole(em, user, role)
+      const grant = em.create(SsoRoleGrant, {
+        tenantId: resolvedTenantId,
+        organizationId: config.organizationId,
+        userId: user.id,
+        roleId,
+        ssoConfigId: config.id,
+      } as RequiredEntityData<SsoRoleGrant>)
+      em.persist(grant)
+    }
+
+    // Remove stale SSO-sourced roles
+    for (const grant of toRemove) {
+      const userRole = await em.findOne(UserRole, {
+        user: user.id,
+        role: grant.roleId,
+        deletedAt: null,
+      } as FilterQuery<UserRole>)
+      if (userRole) {
+        em.remove(userRole)
+      }
+      em.remove(grant)
+    }
+
+    // Clean up orphaned soft-deleted UserRole rows (ghost rows from previous soft-delete logic)
+    for (const userRole of softDeletedUserRoles) {
+      em.remove(userRole)
+    }
+
+    if (toAdd.length > 0 || toRemove.length > 0 || softDeletedUserRoles.length > 0) {
+      await em.flush()
+    }
   }
+
+  private async ensureUserRole(em: EntityManager, user: User, role: Role): Promise<void> {
+    const existingLink = await em.findOne(UserRole, {
+      user: user.id,
+      role: role.id,
+      deletedAt: null,
+    } as FilterQuery<UserRole>)
+    if (existingLink) return
+
+    const userRole = em.create(UserRole, { user, role, createdAt: new Date() })
+    em.persist(userRole)
+  }
+}
+
+function assertRoleMutationFootprintWasLocked(
+  roleIds: Iterable<string>,
+  lockedRoleIds: ReadonlySet<string>,
+): void {
+  for (const roleId of roleIds) {
+    if (!lockedRoleIds.has(roleId)) {
+      throw conflict('[internal] Authorization state changed while acquiring its lock footprint')
+    }
+  }
+}
+
+function resolveActiveRoleIds(roles: Role[], desiredRoleNames: string[]): Set<string> {
+  const roleByNormalizedName = new Map<string, Role>()
+  for (const role of roles) {
+    const normalized = normalizeToken(role.name)
+    if (normalized) roleByNormalizedName.set(normalized, role)
+  }
+
+  const desiredRoleIds = new Set<string>()
+  for (const roleName of desiredRoleNames) {
+    const role = roleByNormalizedName.get(roleName)
+    if (role) desiredRoleIds.add(role.id)
+  }
+  return desiredRoleIds
+}
+
+function resolveRoleNamesFromIdpGroups(
+  idpGroups?: string[],
+  configMappings?: Record<string, string>,
+): string[] {
+  if (!Array.isArray(idpGroups) || idpGroups.length === 0) return []
+
+  const normalizedGroups = idpGroups
+    .map((group) => normalizeToken(group))
+    .filter((group): group is string => group !== null)
+  if (normalizedGroups.length === 0) return []
+
+  const mergedMappings = loadMergedMappings(configMappings)
+  const roleNames = new Set<string>()
+
+  for (const group of normalizedGroups) {
+    const mapped = mergedMappings.get(group)
+    if (!mapped?.length) continue
+
+    for (const role of mapped) roleNames.add(role)
+  }
+
+  return Array.from(roleNames)
+}
+
+function loadMergedMappings(configMappings?: Record<string, string>): Map<string, string[]> {
+  const mappings = new Map<string, string[]>()
+
+  if (configMappings && Object.keys(configMappings).length > 0) {
+    for (const [group, roleName] of Object.entries(configMappings)) {
+      const normalizedGroup = normalizeToken(group)
+      if (!normalizedGroup) continue
+      const normalizedRole = normalizeToken(roleName)
+      if (!normalizedRole) continue
+      mappings.set(normalizedGroup, [normalizedRole])
+    }
+  }
+
+  return mappings
+}
+
+function normalizeToken(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  return normalized.length > 0 ? normalized : null
 }

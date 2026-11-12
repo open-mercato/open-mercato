@@ -40,6 +40,7 @@ export function TemplatesTable({ rows, page, pageSize, total, totalPages, totalI
   return (
     <DataTable<TemplateRow>
       title={t('documents.templates.list.title')}
+      titleHeadingLevel={1}
       actions={canManageTemplates ? <Button type="button" onClick={() => onEdit(null)}>{t('documents.templates.actions.new')}</Button> : undefined}
       refreshButton={{ label: t('documents.actions.refresh'), onRefresh, isRefreshing: isLoading }}
       columns={columns}

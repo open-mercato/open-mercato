@@ -40,6 +40,7 @@ export default function CreateWebhookPage() {
       <PageBody>
         <CrudForm
           title={t('webhooks.form.title.create')}
+          titleHeadingLevel={1}
           backHref="/backend/webhooks"
           fields={fields}
           groups={groups}
