@@ -213,6 +213,8 @@ export async function completeUserTask(
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       status: { $in: ['PENDING', 'IN_PROGRESS'] },
+      assignedTo: task.assignedTo ?? null,
+      claimedBy: task.claimedBy ?? null,
     },
     {
       status: 'COMPLETED',

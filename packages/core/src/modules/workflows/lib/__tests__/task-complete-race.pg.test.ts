@@ -179,6 +179,31 @@ maybe('completeUserTask double submit against PostgreSQL', () => {
     expect(executeWorkflow).toHaveBeenCalledTimes(1)
   })
 
+  it.each(['assignedTo', 'claimedBy'] as const)('refuses a completion when %s changes after its read', async (field) => {
+    const seeded = await seedPausedTask()
+    const reader = orm.em.fork()
+    const concurrentWriter = orm.em.fork()
+    const staleReader = wrap(reader, {
+      findOne: async (...args: Parameters<EntityManager['findOne']>) => {
+        const found = await reader.findOne(...args)
+        if (args[0] === UserTask && found) {
+          await concurrentWriter.nativeUpdate(UserTask, { id: seeded.taskId }, {
+            [field]: '55555555-5555-4555-8555-555555555555',
+          })
+        }
+        return found
+      },
+    })
+
+    expect(await submit(staleReader, seeded.taskId)).toMatchObject({ code: 'TASK_NOT_FOUND' })
+    const state = await readState(seeded)
+    expect(state.task.status).toBe('PENDING')
+    expect(state.task[field]).toBe('55555555-5555-4555-8555-555555555555')
+    expect(state.events).toBe(0)
+    expect(transitionHandler.executeTransition).not.toHaveBeenCalled()
+    expect(executeWorkflow).not.toHaveBeenCalled()
+  })
+
   it('leaves the task open after a failed completion write and completes it once on retry', async () => {
     const seeded = await seedPausedTask()
     const failing = wrap(orm.em.fork(), {

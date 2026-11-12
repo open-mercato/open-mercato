@@ -40,6 +40,9 @@ function makeContender(storedTask: Row, instance: Row) {
   })
   const nativeUpdate = jest.fn(async (_entity: unknown, where: Row, data: Row) => {
     if (!(where.status as { $in: string[] }).$in.includes(storedTask.status as string)) return 0
+    for (const field of ['assignedTo', 'claimedBy']) {
+      if (Object.prototype.hasOwnProperty.call(where, field) && storedTask[field] !== where[field]) return 0
+    }
     Object.assign(storedTask, data)
     return 1
   })
@@ -103,6 +106,24 @@ beforeEach(() => {
 })
 
 describe('completeUserTask double submit', () => {
+  test.each([
+    { assignedTo: '55555555-5555-4555-8555-555555555555' },
+    { claimedBy: '55555555-5555-4555-8555-555555555555' },
+  ])('refuses completion after ownership changes following the task read (%p)', async (ownership) => {
+    const { storedTask, instance, first } = race({}, 'PAUSED')
+    Object.assign(storedTask, ownership)
+
+    expect(await submit(first.em, true)).toMatchObject({ code: 'TASK_NOT_FOUND' })
+    expect(storedTask.status).toBe('PENDING')
+    expect(storedTask.formData).toBeUndefined()
+    expect(instance.context).toEqual({})
+    expect(first.create).not.toHaveBeenCalled()
+    expect(stepHandler.exitStep).not.toHaveBeenCalled()
+    expect(transitionHandler.executeTransition).not.toHaveBeenCalled()
+    expect(executeWorkflow).not.toHaveBeenCalled()
+    expect(resumeBranch).not.toHaveBeenCalled()
+  })
+
   test('only the first of two submissions that both read the open task completes it', async () => {
     const { storedTask, instance, first, second } = race({ status: 'IN_PROGRESS', claimedBy: USER }, 'PAUSED')
 
