@@ -5,7 +5,9 @@
 //
 // Every record is a pure function of (plan seed, tenant key, org key, index): the dataset does not
 // depend on concurrency or on how many times the script was resumed. Progress is appended to
-// <state-dir>/<plan>/progress/<tenant>-<org>.log, one index per line, so a rerun continues.
+// <state-dir>/<plan>/progress/<tenant>-<org>.log, so a rerun continues. A create whose outcome is
+// unknown (lost response, 5xx, interrupted run) is looked up by its generated domain before it is
+// retried, so retries and resumes never create a record twice (see lib/seeder.mjs).
 //
 // Usage:
 //   BENCH_EMAIL=... BENCH_PASSWORD=... node scripts/bench/dataset.mjs                    # smoke plan
@@ -26,6 +28,7 @@ import { parseArgs } from 'node:util'
 import { connect, queryValue, resolveDatabaseUrl } from './lib/db.mjs'
 import { generateCompany } from './lib/generator.mjs'
 import { login, requireCredentials } from './lib/http.mjs'
+import { parseProgress, seedCompanies } from './lib/seeder.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -141,60 +144,75 @@ async function seedTarget(state, tenant, org, credentials) {
   const target = `${tenant.key}/${org.key}`
   const t = state.tenants[tenant.key]
   const progressPath = path.join(progressDir, `${tenant.key}-${org.key}.log`)
-  const done = new Set(existsSync(progressPath) ? readFileSync(progressPath, 'utf8').split('\n').filter(Boolean).map(Number) : [])
+  const { done, pending } = parseProgress(existsSync(progressPath) ? readFileSync(progressPath, 'utf8') : '')
   const todo = []
-  for (let i = 0; i < org.companies; i++) if (!done.has(i)) todo.push(i)
-  if (!todo.length) {
+  for (let i = 0; i < org.companies; i++) if (!done.has(i) && !pending.has(i)) todo.push(i)
+  if (!todo.length && !pending.size) {
     console.log(`${target}: complete (${org.companies})`)
     return
   }
 
   let token = await login(BASE, ...tenantCredentials(t, credentials))
   const scope = { tenantId: t.tenantId, organizationId: t.orgs[org.key] }
-  let cursor = 0
-  let created = 0
+  let finished = 0
   const startedAt = Date.now()
   const progress = setInterval(() => {
-    console.log(`${target}: ${done.size + created}/${org.companies}  ${(created / ((Date.now() - startedAt) / 1000)).toFixed(1)}/s`)
+    console.log(`${target}: ${done.size + finished}/${org.companies}  ${(finished / ((Date.now() - startedAt) / 1000)).toFixed(1)}/s`)
   }, 30_000)
 
-  async function post(i) {
-    for (let attempt = 1; attempt <= 6; attempt++) {
-      let res
-      try {
-        res = await fetch(`${BASE}/api/customers/companies`, {
+  // Generated domains embed tenant, org and index, so a domain identifies the index of a record.
+  async function findCommitted(candidates) {
+    const byDomain = new Map([...candidates.keys()].map((i) => [generateCompany(plan, tenant.key, org.key, i).domain, i]))
+    // Margin for clock skew between this machine and the database.
+    const since = Math.min(...[...candidates.values()].map((at) => Date.parse(at))) - 60_000
+    const found = new Set()
+    for (let page = 1; page <= 500; page++) {
+      const res = await fetch(`${BASE}/api/customers/companies?sortField=createdAt&sortDir=desc&pageSize=100&page=${page}`, {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json', cookie: `om_selected_org=${scope.organizationId}` },
+      })
+      if (!res.ok) throw new Error(`listing companies failed with HTTP ${res.status}`)
+      const { items = [] } = await res.json()
+      for (const item of items) {
+        const index = byDomain.get(item.domain)
+        if (index !== undefined) found.add(index)
+      }
+      const oldest = items.at(-1)?.created_at
+      if (items.length < 100 || (oldest && Date.parse(oldest) < since)) return found
+    }
+    throw new Error('more than 50,000 companies created since the attempt; cannot reconcile')
+  }
+
+  let result
+  try {
+    result = await seedCompanies({
+      target,
+      indexes: todo,
+      pending,
+      concurrency: CONCURRENCY,
+      send: async (i) => {
+        const res = await fetch(`${BASE}/api/customers/companies`, {
           method: 'POST',
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', origin: BASE },
           body: JSON.stringify({ ...scope, ...generateCompany(plan, tenant.key, org.key, i) }),
         })
-      } catch {
-        // App restart or connection reset: back off and retry the same index.
-        await new Promise((r) => setTimeout(r, 2000 * attempt))
-        continue
-      }
-      if (res.ok) return
-      const text = await res.text()
-      if (res.status === 401) token = await login(BASE, ...tenantCredentials(t, credentials))
-      else if (res.status < 500 && res.status !== 429) throw new Error(`${target}#${i}: HTTP ${res.status} ${text.slice(0, 400)}`)
-      await new Promise((r) => setTimeout(r, 500 * attempt))
-    }
-    throw new Error(`${target}#${i}: gave up after retries`)
-  }
-
-  try {
-    await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
-      while (cursor < todo.length) {
-        const i = todo[cursor++]
-        await post(i)
-        appendFileSync(progressPath, `${i}\n`)
-        created++
-      }
-    }))
+        // Read the body here: a connection that drops mid-body is an unknown outcome too.
+        const text = await res.text()
+        return { status: res.status, text: async () => text }
+      },
+      relogin: async () => { token = await login(BASE, ...tenantCredentials(t, credentials)) },
+      findCommitted,
+      log: {
+        pending: (i, at) => appendFileSync(progressPath, `pending ${i} ${at}\n`),
+        done: (i) => appendFileSync(progressPath, `${i}\n`),
+      },
+      onCreated: () => { finished++ },
+    })
   } finally {
     clearInterval(progress)
   }
   const seconds = (Date.now() - startedAt) / 1000
-  console.log(`${target}: created ${created} in ${seconds.toFixed(0)}s (${(created / seconds).toFixed(1)}/s)`)
+  const recovered = result.recovered ? `; ${result.recovered} found already created after a lost response or an interrupted run` : ''
+  console.log(`${target}: created ${result.created} in ${seconds.toFixed(0)}s (${(result.created / seconds).toFixed(1)}/s)${recovered}`)
 }
 
 const credentials = requireCredentials(values)

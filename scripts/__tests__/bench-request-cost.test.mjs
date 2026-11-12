@@ -9,6 +9,8 @@ import { companyScenarios, generatedEmailPrefixes } from '../bench/lib/scenarios
 import { percentile, renderComparison, summarizeLatencies, summarizeStatements } from '../bench/lib/stats.mjs'
 import { escapeHtml, queriesDelta, renderHtmlReport } from '../bench/lib/html-report.mjs'
 import { resolveDatabaseUrl } from '../bench/lib/db.mjs'
+import { measureScenario, UnexpectedStatusError } from '../bench/lib/runner.mjs'
+import { parseProgress, seedCompanies } from '../bench/lib/seeder.mjs'
 import { requireCredentials } from '../bench/lib/http.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -148,6 +150,145 @@ test('html helpers', () => {
   assert.equal(escapeHtml(`<a href="x">'&'</a>`), '&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;')
   assert.equal(queriesDelta(50, 25), -50)
   assert.equal(queriesDelta(null, 25), null)
+})
+
+// A fake app for measureScenario: `statusAt(i)` is the status of the i-th request (0-based,
+// warmup included); the statement counters only count calls made after the reset.
+function fakeScenario({ statusAt = () => 200, warmup = 2, n = 4 } = {}) {
+  const calls = { requests: 0, resets: 0, reads: 0 }
+  let paths = 0
+  return {
+    calls,
+    options: {
+      scenario: 'R3_lookup',
+      nextPath: () => `/api/customers/companies?id=${paths++}`,
+      request: async () => ({ status: statusAt(calls.requests++), ms: 5, bytes: 100 }),
+      warmup,
+      n,
+      resetStatements: async () => { calls.resets++ },
+      readStatements: async () => {
+        calls.reads++
+        return [{ queryid: '1', calls: 2 * n, total_exec_time: n, query: 'select 1' }]
+      },
+    },
+  }
+}
+
+test('measureScenario summarizes successful requests only after the warmup', async () => {
+  const { calls, options } = fakeScenario()
+  const result = await measureScenario(options)
+  assert.deepEqual(calls, { requests: 6, resets: 1, reads: 1 })
+  assert.deepEqual(result.statuses, { 200: 4 })
+  assert.equal(result.example, '/api/customers/companies?id=2')
+  assert.equal(result.queriesPerRequest, 2)
+  assert.equal(result.avgResponseBytes, 100)
+})
+
+test('measureScenario rejects a failed warmup before resetting the counters', async () => {
+  const { calls, options } = fakeScenario({ statusAt: (i) => (i === 1 ? 401 : 200) })
+  await assert.rejects(measureScenario(options), (error) => {
+    assert.ok(error instanceof UnexpectedStatusError)
+    assert.equal(error.phase, 'warmup')
+    assert.equal(error.status, 401)
+    assert.match(error.message, /R3_lookup: HTTP 401 during warmup on \/api\/customers\/companies\?id=1/)
+    return true
+  })
+  assert.deepEqual(calls, { requests: 2, resets: 0, reads: 0 })
+})
+
+test('measureScenario rejects a failure midway through the measurement', async () => {
+  const { calls, options } = fakeScenario({ statusAt: (i) => (i === 4 ? 500 : 200) })
+  await assert.rejects(measureScenario(options), (error) => error instanceof UnexpectedStatusError && error.phase === 'measurement' && error.status === 500)
+  assert.deepEqual(calls, { requests: 5, resets: 1, reads: 0 }, 'stops at the failure and reads no statements')
+})
+
+test('parseProgress reads done lines and pending attempts without a done line', () => {
+  const { done, pending } = parseProgress('0\npending 1 2026-11-12T10:00:00.000Z\n1\npending 2 2026-11-12T10:00:01.000Z\npending 2 2026-11-12T10:00:05.000Z\n\n')
+  assert.deepEqual([...done], [0, 1])
+  assert.deepEqual([...pending], [[2, '2026-11-12T10:00:05.000Z']])
+  assert.equal(parseProgress('3\n4\n').pending.size, 0, 'logs written before pending lines still load')
+})
+
+// A fake companies API for seedCompanies. `committed` holds the indexes that exist (with every
+// create that reached the database counted, duplicates included).
+function fakeSeeding({ respond = () => 'ok', concurrency = 1 } = {}) {
+  const creates = []
+  const logLines = []
+  let clock = 0
+  const api = {
+    creates,
+    logLines,
+    options: {
+      target: 't1/main',
+      concurrency,
+      now: () => new Date(Date.UTC(2026, 10, 12, 10, 0, clock++)),
+      sleep: async () => {},
+      relogin: async () => { logLines.push('relogin') },
+      send: async (index) => {
+        const outcome = respond(index, creates.filter((i) => i === index).length)
+        if (outcome === 'ok' || outcome === 'lost' || outcome === 'commit-500') creates.push(index)
+        if (outcome === 'lost' || outcome === 'down') throw new TypeError('fetch failed')
+        if (outcome === 'commit-500' || outcome === '500') return { status: 500 }
+        if (typeof outcome === 'number') return { status: outcome, text: async () => 'nope' }
+        return { status: 201 }
+      },
+      findCommitted: async (candidates) => new Set([...candidates.keys()].filter((index) => creates.includes(index))),
+      log: { pending: (index) => logLines.push(`pending ${index}`), done: (index) => logLines.push(`${index}`) },
+    },
+  }
+  return api
+}
+
+const countOf = (list, value) => list.filter((v) => v === value).length
+
+test('seedCompanies does not create a record again after its response was lost', async () => {
+  const api = fakeSeeding({ respond: (index, attempts) => (index === 1 && attempts === 0 ? 'lost' : 'ok') })
+  const result = await seedCompanies({ ...api.options, indexes: [0, 1, 2] })
+  assert.deepEqual(api.creates.toSorted((a, b) => a - b), [0, 1, 2], 'exactly one create per index')
+  assert.deepEqual(result, { created: 2, recovered: 1 })
+  assert.ok(api.logLines.includes('1'))
+})
+
+test('seedCompanies does not duplicate a create that committed before a 5xx', async () => {
+  const api = fakeSeeding({ respond: (index, attempts) => (index === 0 && attempts === 0 ? 'commit-500' : 'ok') })
+  await seedCompanies({ ...api.options, indexes: [0, 1] })
+  assert.equal(countOf(api.creates, 0), 1)
+})
+
+test('seedCompanies retries when the failed create did not commit', async () => {
+  let failures = 0
+  const api = fakeSeeding({ respond: (index) => (index === 0 && failures++ < 2 ? (failures === 1 ? 'down' : '500') : 'ok') })
+  const result = await seedCompanies({ ...api.options, indexes: [0] })
+  assert.equal(countOf(api.creates, 0), 1)
+  assert.deepEqual(result, { created: 1, recovered: 0 })
+  assert.equal(countOf(api.logLines, 'pending 0'), 3, 'one pending line per attempt')
+})
+
+test('seedCompanies reconciles an index interrupted between the create and the progress line', async () => {
+  // Previous run: index 5 was created but the script stopped before writing `5`; index 6 was sent
+  // but never reached the database.
+  const api = fakeSeeding()
+  api.creates.push(5)
+  const pending = parseProgress('4\npending 5 2026-11-12T09:00:00.000Z\npending 6 2026-11-12T09:00:00.000Z\n').pending
+  const result = await seedCompanies({ ...api.options, indexes: [7], pending })
+  assert.equal(countOf(api.creates, 5), 1, 'the committed index is not created again')
+  assert.equal(countOf(api.creates, 6), 1, 'the uncommitted index is created')
+  assert.deepEqual(result, { created: 2, recovered: 1 })
+  assert.deepEqual(api.logLines.filter((line) => !line.startsWith('pending')), ['5', '6', '7'])
+})
+
+test('seedCompanies refuses to guess when it cannot check whether a create committed', async () => {
+  const api = fakeSeeding({ respond: () => 'lost' })
+  const options = { ...api.options, maxAttempts: 2, findCommitted: async () => { throw new Error('app down') } }
+  await assert.rejects(seedCompanies({ ...options, indexes: [0] }), /cannot tell whether indexes 0 were created/)
+  assert.equal(api.creates.length, 1, 'no second create while the outcome is unknown')
+})
+
+test('seedCompanies re-logs in after a 401 and stops on other client errors', async () => {
+  const api = fakeSeeding({ respond: (index, attempts) => (index === 0 && attempts === 0 && !api.logLines.includes('relogin') ? 401 : index === 1 ? 422 : 'ok') })
+  await assert.rejects(seedCompanies({ ...api.options, indexes: [0, 1] }), /t1\/main#1: HTTP 422 nope/)
+  assert.ok(api.logLines.includes('relogin'))
+  assert.equal(countOf(api.creates, 0), 1)
 })
 
 test('resolveDatabaseUrl prefers the explicit value, then the environment', () => {

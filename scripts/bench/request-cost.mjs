@@ -13,7 +13,8 @@
 //
 // Requires pg_stat_statements (see scripts/bench/README.md) and a quiet database: anything else
 // talking to it (workers, a seeder, another browser tab) would be attributed to the requests, so
-// the script waits for an idle window and refuses to measure without one.
+// the script waits for an idle window and refuses to measure without one. Any response other than
+// 2xx, during warmup or measurement, aborts the run with exit code 3 and writes no report.
 //
 // Output: <out-dir>/<label>.json with the scope, per-scenario latency, queries and the statements.
 // Default out-dir: .mercato/bench/request-cost. `--report --html` writes <out-dir>/report.html
@@ -27,7 +28,8 @@ import { mulberry32 } from './lib/generator.mjs'
 import { login, requireCredentials, timedGet } from './lib/http.mjs'
 import { companyScenarios, DEFAULT_SEED, generatedEmailPrefixes, SCENARIO_DESCRIPTIONS } from './lib/scenarios.mjs'
 import { renderHtmlReport } from './lib/html-report.mjs'
-import { renderComparison, summarizeLatencies, summarizeStatements } from './lib/stats.mjs'
+import { measureScenario, UnexpectedStatusError } from './lib/runner.mjs'
+import { renderComparison } from './lib/stats.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -156,28 +158,17 @@ try {
 
   for (const [name, nextPath] of Object.entries(scenarios)) {
     if (ONLY && !ONLY.has(name)) continue
-    for (let i = 0; i < WARMUP; i++) await timedGet(BASE, nextPath(), requestOptions)
-    await resetStatements(db)
-    const latencies = []
-    const statuses = {}
-    let bytes = 0
-    let example = null
-    for (let i = 0; i < N; i++) {
-      const requestPath = nextPath()
-      const r = await timedGet(BASE, requestPath, requestOptions)
-      latencies.push(r.ms)
-      statuses[r.status] = (statuses[r.status] ?? 0) + 1
-      bytes += r.bytes
-      if (i === 0) example = requestPath
-    }
-    const statements = await readStatements(db)
     report.scenarios[name] = {
       description: SCENARIO_DESCRIPTIONS[name],
-      example,
-      statuses,
-      latencyMs: summarizeLatencies(latencies),
-      avgResponseBytes: Math.round(bytes / N),
-      ...summarizeStatements(statements, N),
+      ...await measureScenario({
+        scenario: name,
+        nextPath,
+        request: (requestPath) => timedGet(BASE, requestPath, requestOptions),
+        warmup: WARMUP,
+        n: N,
+        resetStatements: () => resetStatements(db),
+        readStatements: () => readStatements(db),
+      }),
     }
     const s = report.scenarios[name]
     console.log(`${name.padEnd(10)} ${JSON.stringify(statuses)} p50=${s.latencyMs.p50.toFixed(1)}ms p95=${s.latencyMs.p95.toFixed(1)}ms queries/req=${s.queriesPerRequest.toFixed(2)} sql/req=${s.sqlMsPerRequest.toFixed(2)}ms distinct=${s.distinctStatements}`)
@@ -188,6 +179,10 @@ try {
   const file = path.join(outDir, `${values.label}.json`)
   writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`)
   console.log(`\nwritten ${path.relative(ROOT, file)}`)
+} catch (error) {
+  if (!(error instanceof UnexpectedStatusError)) throw error
+  console.error(`${error.message}\nNo report written: only successful responses are measured. Check the credentials, the selected organization and the app logs.`)
+  process.exitCode = 3
 } finally {
   await db.end()
 }

@@ -35,7 +35,9 @@ The scripts follow the pattern of `scripts/profile-dev-rss.mjs`: a labelled JSON
 
 1. `scripts/bench/dataset.mjs`: builds companies from a plan through `POST /api/customers/companies`.
    Records are a pure function of (plan seed, tenant key, org key, index); progress is logged per
-   target, so reruns resume and two builds of a plan are identical. Extra tenants are created with
+   target, so reruns resume and two builds of a plan are identical. A create whose outcome is unknown
+   (lost response, 5xx, interrupted run) is looked up by its generated domain through the list API
+   before it is retried, so neither retries nor resumes create duplicates. Extra tenants are created with
    `mercato auth setup` (CLI overridable with `BENCH_MERCATO_CLI`), extra organizations through the
    directory API.
 2. Two plans: `companies-smoke` (1,000 companies, one organization) and `companies-v1` (20,000
@@ -43,7 +45,8 @@ The scripts follow the pattern of `scripts/profile-dev-rss.mjs`: a labelled JSON
 3. `scripts/bench/request-cost.mjs`: for each scenario it warms up, resets `pg_stat_statements`,
    sends N sequential requests and records per-request queries, SQL time, latency percentiles,
    response size and every statement with its calls per request. It first waits for a quiet
-   database window and refuses to measure without one.
+   database window and refuses to measure without one. Any non-2xx response during warmup or
+   measurement aborts the run (exit code 3) without writing a report.
 4. Scenarios `R1_list`, `R2_filter`, `R3_lookup`, `R4_picker`, `R5_search` on
    `GET /api/customers/companies`, driven by a seeded PRNG so a run is reproducible. Search terms and
    email prefixes come from the generator because the stored values are encrypted.
@@ -71,6 +74,8 @@ scripts/bench/
   request-cost.mjs         scenarios → requests → pg_stat_statements → .mercato/bench/request-cost/<label>.json
   lib/generator.mjs        deterministic company records (fnv1a + mulberry32)
   lib/scenarios.mjs        request paths per scenario
+  lib/seeder.mjs           creates without duplicates: progress log, reconciling unknown outcomes
+  lib/runner.mjs           one measured scenario; rejects non-2xx responses
   lib/stats.mjs            percentiles, per-request summaries, Markdown comparison
   lib/html-report.mjs      self-contained HTML comparison (charts, table, top statements)
   lib/db.mjs               DATABASE_URL resolution (env, then apps/mercato/.env), pg_stat_statements access
@@ -133,3 +138,8 @@ and the CLI commands `auth setup`, `auth set-password`, `entities install`,
 - 2026-11-08: Added `--report --html` (`lib/html-report.mjs`): one self-contained page with the
   per-run comparison, the latency split and the top statements. Rendered from the saved
   `companies-v1` reports and checked in a browser.
+- 2026-11-12: Review fixes. `dataset.mjs` reconciles creates with an unknown outcome by looking up
+  the generated domain before retrying, also for indexes left pending by an interrupted run
+  (`lib/seeder.mjs`). `request-cost.mjs` rejects non-2xx responses in warmup and measurement
+  (`lib/runner.mjs`). Regression tests cover lost responses, committed 5xx, interrupted runs and
+  failed requests in both phases.

@@ -48,7 +48,9 @@ node scripts/bench/dataset.mjs --plan scripts/bench/plans/companies-v1.json # 20
 | `companies-v1` | 20,000 | 5 / 6 | 10,000 | numbers you compare or publish |
 
 Every record is a pure function of the plan seed, tenant key, org key and index. A rerun continues
-where it stopped and two builds of the same plan contain the same data. Extra tenants in `companies-v1`
+where it stopped and two builds of the same plan contain the same data. When a create's outcome is
+unknown (lost response, 5xx, or the script stopped mid-request), the script looks the record up by
+its generated domain before retrying, so retries and reruns never create it twice. Extra tenants in `companies-v1`
 are created with `mercato auth setup`; set `BENCH_MERCATO_CLI` if the CLI is not `yarn mercato`
 from the repo root (for Docker: `BENCH_MERCATO_CLI="node scripts/docker-exec.mjs mercato"`).
 State, including the generated tenant admins' passwords, is kept in `.mercato/bench/` (git-ignored).
@@ -77,7 +79,10 @@ Options: `--n` requests per scenario (200), `--warmup` (50), `--only R3_lookup,R
 
 Each run writes `.mercato/bench/request-cost/<label>.json` with the scope, per-scenario latency
 percentiles, queries and SQL time per request, and every statement with its calls per request. The
-first request of each scenario is recorded as an example path. `--report` prints a Markdown table of
+first request of each scenario is recorded as an example path. Only successful responses are
+measured: any status other than 2xx, during warmup or measurement, stops the run with exit code 3
+and writes no report (an expired token or a server error would otherwise look like a cheaper
+request). `--report` prints a Markdown table of
 all saved runs, with the change in queries per request against the oldest run.
 
 `--report --html` writes the same comparison as one self-contained HTML file (no scripts or external
