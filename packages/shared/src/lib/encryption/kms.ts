@@ -99,6 +99,7 @@ type VaultClientOpts = {
   ttlMs?: number
   requestTimeoutMs?: number
   recoveryCooldownMs?: number
+  redactSensitiveLogs?: boolean
 }
 
 type VaultReadResponse = {
@@ -186,6 +187,7 @@ export class HashicorpVaultKmsService implements KmsService {
   // instance reports healthy again so the next call re-probes Vault.
   private lastTransientFailureAt: number | null = null
   private readonly debugEnabled: boolean
+  private readonly redactSensitiveLogs: boolean
   private static loggedInit = false
 
   constructor(opts: VaultClientOpts = {}) {
@@ -196,6 +198,7 @@ export class HashicorpVaultKmsService implements KmsService {
     this.requestTimeoutMs = resolveTimeoutMs(opts.requestTimeoutMs, resolveVaultRequestTimeoutMs())
     this.recoveryCooldownMs = resolveTimeoutMs(opts.recoveryCooldownMs, resolveVaultRecoveryCooldownMs())
     this.debugEnabled = isEncryptionDebugEnabled()
+    this.redactSensitiveLogs = opts.redactSensitiveLogs === true
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
       this.misconfigured = true
@@ -250,6 +253,10 @@ export class HashicorpVaultKmsService implements KmsService {
     return entry
   }
 
+  private logContext(details: Record<string, unknown>, code: string): Record<string, unknown> {
+    return this.redactSensitiveLogs ? { code } : details
+  }
+
   private async readVault(path: string): Promise<VaultReadResponse | null> {
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
@@ -268,17 +275,17 @@ export class HashicorpVaultKmsService implements KmsService {
         // not-yet-created tenant DEK is the normal read-before-write path.
         if (res.status >= 500) this.markTransientFailure()
         else this.markHealthy()
-        logger.warn('Vault read failed', { path, status: res.status })
+        logger.warn('Vault read failed', this.logContext({ path, status: res.status }, 'VAULT_REQUEST_FAILED'))
         return null
       }
       this.markHealthy()
       if (this.debugEnabled) {
-        logger.info('Vault read ok', { path })
+        logger.info('Vault read ok', this.logContext({ path }, 'VAULT_READ_SUCCEEDED'))
       }
       return (await res.json()) as VaultReadResponse
     } catch (err) {
       this.markTransientFailure()
-      logger.warn('Vault read error', { path, err, timeoutMs: this.requestTimeoutMs })
+      logger.warn('Vault read error', this.logContext({ path, err, timeoutMs: this.requestTimeoutMs }, 'VAULT_REQUEST_ERROR'))
       return null
     }
   }
@@ -310,15 +317,15 @@ export class HashicorpVaultKmsService implements KmsService {
       // not an unhealthy Vault — Vault is reachable, so close the breaker.
       if (typeof opts?.cas === 'number' && res.status === 400) {
         this.markHealthy()
-        logger.warn('Vault write CAS conflict (concurrent DEK create)', { path, status: res.status })
+        logger.warn('Vault write CAS conflict (concurrent DEK create)', this.logContext({ path, status: res.status }, 'VAULT_REQUEST_FAILED'))
         return 'conflict'
       }
       this.markTransientFailure()
-      logger.warn('Vault write failed', { path, status: res.status })
+      logger.warn('Vault write failed', this.logContext({ path, status: res.status }, 'VAULT_REQUEST_FAILED'))
       return 'error'
     } catch (err) {
       this.markTransientFailure()
-      logger.warn('Vault write error', { path, err, timeoutMs: this.requestTimeoutMs })
+      logger.warn('Vault write error', this.logContext({ path, err, timeoutMs: this.requestTimeoutMs }, 'VAULT_REQUEST_ERROR'))
       return 'error'
     }
   }
@@ -341,7 +348,7 @@ export class HashicorpVaultKmsService implements KmsService {
     const res = await this.readVault(path)
     const key = res?.data?.data?.key
     if (!key) {
-      logger.warn('No tenant DEK found in Vault', { tenantId, path })
+      logger.warn('No tenant DEK found in Vault', this.logContext({ tenantId, path }, 'VAULT_DEK_OPERATION'))
       return null
     }
     const dek: TenantDek = { tenantId, key, fetchedAt: this.now() }
@@ -364,7 +371,7 @@ export class HashicorpVaultKmsService implements KmsService {
     const key = generateDek()
     const outcome = await this.writeVault(path, key, { cas: 0 })
     if (outcome === 'ok') {
-      logger.info('Stored tenant DEK in Vault', { tenantId, path })
+      logger.info('Stored tenant DEK in Vault', this.logContext({ tenantId, path }, 'VAULT_DEK_OPERATION'))
       return this.remember({ tenantId, key, fetchedAt: this.now() })
     }
     if (outcome === 'conflict') {
@@ -373,11 +380,11 @@ export class HashicorpVaultKmsService implements KmsService {
       const winner = await this.readVault(path)
       const winnerKey = winner?.data?.data?.key
       if (winnerKey) {
-        logger.info('Adopted concurrently-created tenant DEK', { tenantId, path })
+        logger.info('Adopted concurrently-created tenant DEK', this.logContext({ tenantId, path }, 'VAULT_DEK_OPERATION'))
         return this.remember({ tenantId, key: winnerKey, fetchedAt: this.now() })
       }
     }
-    logger.warn('Failed to store tenant DEK in Vault', { tenantId, path })
+    logger.warn('Failed to store tenant DEK in Vault', this.logContext({ tenantId, path }, 'VAULT_DEK_OPERATION'))
     return null
   }
 

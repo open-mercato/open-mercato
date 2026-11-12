@@ -24,7 +24,7 @@ test.each(['counts', 'backup'])('conflicting %s cannot overwrite a completed rec
 
 test('failure receipts retain a safe action and never persist raw exception content', async () => {
   const id = randomUUID(); const path = join(directory, 'failed.json')
-  await publishRotationFailureReport(path, 'Error: private-value\nsource-key', recovery, id, 'interrupted')
+  await publishRotationFailureReport(path, 'Error: private-value\nsource-key', recovery, id, 'interrupted', { elapsedMs: 42 })
   const report = JSON.parse(await readFile(path, 'utf8'))
-  expect(report).toEqual({ schemaVersion: 1, coordinatorRunId: id, status: 'interrupted', errorCode: 'ROTATION_VERIFICATION_FAILED', recoveryAction: 'keep-writers-stopped-and-retain-keys-and-backup', recoveryArtifact: recovery.artifactPath, recoveryDigest: recovery.digest })
+  expect(report).toEqual({ schemaVersion: 1, coordinatorRunId: id, status: 'interrupted', elapsedMs: 42, errorCode: 'ROTATION_VERIFICATION_FAILED', recoveryAction: 'keep-writers-stopped-and-retain-keys-and-backup', recoveryArtifact: recovery.artifactPath, recoveryDigest: recovery.digest })
 })

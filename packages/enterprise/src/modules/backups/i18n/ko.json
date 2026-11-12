@@ -10,6 +10,7 @@
   "backups.rotation.entitlementRequired": "키 교체 보호에는 상업적 사용 권한과 사용 가능한 모듈이 필요합니다.",
   "backups.rotation.failed": "보호된 키 교체가 완료되지 않았습니다. 쓰기를 중지한 상태로 이전 키와 백업을 보관하고 재개 전에 신뢰할 수 있는 실행 기록을 확인하세요.",
   "backups.rotation.preparingRecovery": "키 교체 전에 암호화된 복구 백업을 준비합니다.",
+  "backups.rotation.reportWritten": "검증 보고서:",
   "backups.rotation.rotating": "보호된 복구를 사용하여 암호화된 데이터를 교체합니다.",
   "backups.rotation.runPrepared": "보호된 키 교체 실행입니다. 명시적으로 재개할 때 사용할 식별자를 보관하세요:",
   "backups.rotation.verificationPassed": "지정한 범위의 저장 데이터 검증을 통과했습니다. 이전 키와 복구 백업을 보관하세요.",

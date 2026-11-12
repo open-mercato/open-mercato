@@ -1,3 +1,4 @@
+import { parseRotationFieldValue } from '@open-mercato/shared/lib/encryption/rotationJson'
 import { getCliModules, getDefaultEncryptionMaps, type Module, type ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
@@ -22,6 +23,7 @@ import {
   decryptWithAesGcm,
   decryptWithAesGcmStrict,
   isEncryptedPayloadShape,
+  hashForLookup,
   TenantDataEncryptionError,
   TenantDataEncryptionErrorCode,
 } from '@open-mercato/shared/lib/encryption/aes'
@@ -706,6 +708,7 @@ const rotateEncryptionKey: ModuleCli = {
       for (const row of batch) {
         providers?.signal?.throwIfAborted()
         const payload: Record<string, unknown> = {}
+        const lookupOverrides = new Map<string, string>()
         for (const rule of fields) {
           const resolved = resolveProperty(meta, rule.field)
           const col = resolved?.columnName
@@ -741,7 +744,11 @@ const rotateEncryptionKey: ModuleCli = {
             if (typeof value !== 'string' || !isEncryptedPayloadShape(value)) continue
             const decrypted = decryptWithOldKey(value, oldDek)
             if (decrypted !== null) {
-              payload[rule.field] = parseDecryptedFieldValue(decrypted)
+              payload[rule.field] = providers ? parseRotationFieldValue(decrypted) : parseDecryptedFieldValue(decrypted)
+              if (providers && rule.hashField) {
+                const lookupValue = parseDecryptedFieldValue(decrypted)
+                lookupOverrides.set(rule.hashField, hashForLookup(typeof lookupValue === 'string' ? lookupValue : JSON.stringify(lookupValue)))
+              }
               continue
             }
             // The old key did not open it. If the current key does, the row was already
@@ -793,7 +800,7 @@ const rotateEncryptionKey: ModuleCli = {
           if (rule.hashField) {
             const resolvedHash = resolveProperty(meta, rule.hashField)
             const hashCol = resolvedHash?.columnName
-            const hashValue = (encrypted as any)[rule.hashField]
+            const hashValue = lookupOverrides.get(rule.hashField) ?? (encrypted as any)[rule.hashField]
             if (hashCol && hashValue !== undefined && hashValue !== row[hashCol]) {
               updates[hashCol] = formatValueForColumn(resolvedHash?.prop, hashValue)
             }

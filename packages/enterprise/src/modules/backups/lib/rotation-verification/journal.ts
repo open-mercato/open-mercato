@@ -22,11 +22,14 @@ export class RotationCheckpointJournal {
   private tail = { sequence: 0, hash: '0'.repeat(64) }
   private cursors = new Map<string, string[]>()
   private pending = Promise.resolve()
-  constructor(private readonly store: RotationArtifactStore, private readonly path: string, private readonly header: string, private readonly key: Buffer) {}
+  private initialized = false
+  constructor(private readonly store: RotationArtifactStore, private readonly path: string, private readonly header: string, private readonly key: Buffer, private readonly signal?: AbortSignal) {}
   private name(sequence: number) { return `journal-${String(sequence).padStart(12, '0')}` }
   private body(sequence: number, previous: string, event: Event) { return { version: 1 as const, header: this.header, sequence, previous, event } }
   async initialize(resume: boolean): Promise<void> {
-    if (!resume) { await this.publishTail(); return }
+    const interrupted = () => { if (this.signal?.aborted) throw new Error('[internal] ROTATION_VERIFICATION_INCOMPLETE') }
+    interrupted()
+    if (!resume) { await this.publishTail(); interrupted(); this.initialized = true; return }
     const file = await open(this.path, constants.O_RDONLY | constants.O_NOFOLLOW)
     let tail: z.infer<typeof tailSchema>
     try {
@@ -35,15 +38,18 @@ export class RotationCheckpointJournal {
       tail = tailSchema.parse(JSON.parse(await file.readFile('utf8')))
     } finally { await file.close() }
     for (let sequence = 0; sequence < tail.sequence; sequence++) {
+      interrupted()
       const record = recordSchema.parse(JSON.parse((await this.store.read(this.name(sequence))).toString()))
+      interrupted()
       const { mac, ...body } = record
       if (record.header !== this.header || record.sequence !== sequence || record.previous !== this.tail.hash || !sameDigest(mac, keyedDigest(this.key, 'checkpoint-record-v1', JSON.stringify(body)))) throw invalid()
       this.apply(record.event)
       this.tail = { sequence: sequence + 1, hash: keyedDigest(this.key, 'checkpoint-tail-v1', JSON.stringify(record)) }
     }
     if (!sameDigest(tail.hash, this.tail.hash)) throw invalid()
+    interrupted(); this.initialized = true
   }
-  cursor(operationId: string): string[] | null { return this.cursors.get(operationId)?.slice() ?? null }
+  cursor(operationId: string): string[] | null { if (!this.initialized) throw invalid(); return this.cursors.get(operationId)?.slice() ?? null }
   private apply(event: Event) {
     if (event.kind === 'batch') {
       if (!this.cursors.has(event.checkpoint.operationId) && this.cursors.size >= 10000) throw invalid()
@@ -52,6 +58,7 @@ export class RotationCheckpointJournal {
   }
   append(event: Event): Promise<void> {
     const operation = this.pending.then(async () => {
+      if (!this.initialized) throw invalid()
       const parsed = eventSchema.parse(event)
       if (this.tail.sequence >= 1000000 || (parsed.kind === 'batch' && !this.cursors.has(parsed.checkpoint.operationId) && this.cursors.size >= 10000)) throw invalid()
       const body = this.body(this.tail.sequence, this.tail.hash, parsed)

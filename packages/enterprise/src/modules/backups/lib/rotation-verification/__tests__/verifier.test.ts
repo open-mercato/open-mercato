@@ -1,11 +1,11 @@
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { canonicalValue, canonicalRow, keyFingerprint, keyedDigest, keyedRowDigest, type VerificationRow } from '../canonical'
 import { RotationArtifactStore } from '../store'
-import { prepareRotationVerification, verifyRotationData, validatePreparedRotation, type RotationDataset } from '../verifier'
+import { prepareRotationVerification, verifyRotationData, readVerificationFailureAggregates, validatePreparedRotation, type RotationDataset } from '../verifier'
 
 const source = randomBytes(32).toString('base64')
 const target = randomBytes(32).toString('base64')
@@ -60,7 +60,7 @@ test.each([0, 500, 1000])('rejects valid-but-wrong logical data at row %s', asyn
   const prepared = await prepareRotationVerification(dataset, store)
   state.corruption = corruption
   await expect(verifyRotationData(prepared, dataset, store)).rejects.toThrow('ROTATION_DATA_MISMATCH')
-  expect(JSON.parse((await store.read('checkpoint')).toString()).status).toBe('failed')
+  expect(JSON.parse((await store.read('checkpoint')).toString()).payload.status).toBe('failed')
 })
 
 test('rejects missing final row rather than accepting a verified prefix', async () => {
@@ -166,4 +166,18 @@ test('resume authenticates every baseline chunk before further writes', async ()
   const operation = jest.fn()
   await expect(validatePreparedRotation(prepared, dataset, store).then(operation)).rejects.toThrow('ROTATION_ARTIFACT_INVALID')
   expect(operation).not.toHaveBeenCalled()
+})
+
+
+test('failed-attempt aggregates are authenticated and cannot replay a previous attempt or forged counts', async () => {
+  const { state, dataset, store } = fixture(10); const prepared = await prepareRotationVerification(dataset, store)
+  state.corruption = 3; const attempt = randomUUID(); const key = await store.read('run-key')
+  try {
+    await expect(verifyRotationData(prepared, dataset, store, undefined, attempt)).rejects.toThrow('DATA_MISMATCH')
+    await expect(readVerificationFailureAggregates(prepared, store, key, attempt)).resolves.toMatchObject({ expectedRows: '10', comparedRows: '3', expectedFields: '20', comparedFields: '6' })
+    await expect(readVerificationFailureAggregates(prepared, store, key, randomUUID())).rejects.toThrow('ARTIFACT_INVALID')
+    const forged = JSON.parse((await store.read('checkpoint')).toString()); forged.payload.comparedRows = '10'
+    await store.write('checkpoint', Buffer.from(JSON.stringify(forged)))
+    await expect(readVerificationFailureAggregates(prepared, store, key, attempt)).rejects.toThrow('ARTIFACT_INVALID')
+  } finally { key.fill(0) }
 })

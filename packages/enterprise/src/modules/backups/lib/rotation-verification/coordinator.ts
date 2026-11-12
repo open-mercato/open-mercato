@@ -10,11 +10,12 @@ import type { PinnedRotationProviders } from './keys'
 import { canonicalRotationTimestamp } from './postgres-dataset'
 import { RotationCheckpointJournal } from './journal'
 import { RotationArtifactStore, type RotationArtifactCipher } from './store'
-import { prepareRotationVerification, validatePreparedRotation, verifyRotationData, type PreparedRotation, type RotationDataset, type VerificationResult } from './verifier'
+import { prepareRotationVerification, validatePreparedRotation, verifyRotationData, readVerificationFailureAggregates, type VerificationFailureAggregates, type PreparedRotation, type RotationDataset, type VerificationResult } from './verifier'
 
 export type RecoveryArtifact = { artifactPath: string; digest: string; databaseBinding: string; consistency: 'quiesced'; encrypted: true }
 export type TimestampRecord = { before: Record<string, LogicalValue>; after: Record<string, LogicalValue>; mac: string }
-export type TimestampLoader = { load(identity: string): Promise<TimestampRecord | undefined> }
+export type TimestampLoader = { load(identity: string): Promise<TimestampRecord | undefined>; prefetch?(identities: string[]): Promise<void> }
+export type RotationFailureDetails = { elapsedMs: number } & Partial<VerificationFailureAggregates>
 export type RotationCoordinatorOptions = {
   artifactRoot: string
   trustRoot: string
@@ -29,7 +30,7 @@ export type RotationCoordinatorOptions = {
   }
   cipher(): Promise<RotationArtifactCipher>
   reportRun?(id: string): Promise<void>
-  reportFailure?(code: string, recovery: RecoveryArtifact | undefined, coordinatorRunId: string, status: 'failed' | 'interrupted'): Promise<void>
+  reportFailure?(code: string, recovery: RecoveryArtifact | undefined, coordinatorRunId: string, status: 'failed' | 'interrupted', details: RotationFailureDetails): Promise<void>
   report(result: VerificationResult, recovery: RecoveryArtifact): Promise<void>
 }
 
@@ -93,6 +94,7 @@ async function acquireLock(path: string, id: string, resume: boolean) {
 export function createEnterpriseRotationProtection(options: RotationCoordinatorOptions): RotationProtectionService {
   return {
     async protect(context, operation) {
+      const startedAt = Date.now()
       if (context.entityManager?.isInTransaction?.() || context.entityManager?.getTransactionContext?.()) throw new Error('[internal] ROTATION_ACTIVE_TRANSACTION_UNSUPPORTED')
       if (context.dryRun) throw new Error('[internal] ROTATION_MUTATING_COORDINATOR_IN_DRY_RUN')
       if (!context.previousKey) throw new Error('[internal] ROTATION_SOURCE_KEY_REQUIRED')
@@ -113,14 +115,28 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
       let state: State | undefined
       let pendingRecovery: RecoveryArtifact | undefined
       let runKey: Buffer | undefined
+      let failureStore: RotationArtifactStore | undefined
+      let verificationAttemptId: string | undefined
+      let verified: VerificationResult | undefined
       let journal: RotationCheckpointJournal | undefined
       try {
-        const store = new RotationArtifactStore(join(artifactRoot, id), await options.cipher())
+        const store = new RotationArtifactStore(join(artifactRoot, id), await options.cipher()); failureStore = store
         await lock.writeFile(JSON.stringify({ pid: process.pid, host: hostname(), id, startedAt: new Date().toISOString() })); await lock.sync()
         await options.reportRun?.(id)
         const providers = await options.providers(context)
         let intentQueue = Promise.resolve()
-        let cachedPage: { file: string; entries: Map<string, TimestampRecord> } | undefined
+        type CachedPage = { file: string; entries: Map<string, TimestampRecord> }
+        const cachedPages = new Map<string, CachedPage>()
+        const pendingPages = new Map<string, Promise<CachedPage>>()
+        const rememberPage = (page: CachedPage) => {
+          cachedPages.delete(page.file); cachedPages.set(page.file, page)
+          if (cachedPages.size > 2) cachedPages.delete(cachedPages.keys().next().value!)
+          return page
+        }
+        const cachedRecord = (identity: string) => {
+          for (const page of cachedPages.values()) { const record = page.entries.get(identity); if (record) return record }
+          return undefined
+        }
         const address = (identity: string) => {
           if (!runKey) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
           return `intent-${keyedDigest(runKey, 'intent-address-v1', identity)}`
@@ -128,14 +144,17 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         const intents: TimestampLoader = {
           async load(identity) {
             if (!runKey) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
-            // The authenticated page is immutable for this run; reuse its bounded entries.
-            const cached = cachedPage?.entries.get(identity)
+            const cached = cachedRecord(identity)
             if (cached) return cached
             const name = address(identity)
             let file: string
             try { file = await store.fileIdentity(name) }
             catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error }
-            if (cachedPage?.file !== file) {
+            let page = cachedPages.get(file)
+            if (!page) {
+              let pending = pendingPages.get(file)
+              if (!pending) {
+                pending = (async () => {
               const bytes = await store.read(name)
               const page = timestampPageSchema.parse(JSON.parse(bytes.toString()))
               const anchor = await open(join(anchors, page.page), constants.O_RDONLY | constants.O_NOFOLLOW)
@@ -148,11 +167,21 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
                 if (entries.has(entry.identity) || !sameDigest(entry.record.mac, keyedDigest(runKey, 'metadata-intent-v1', canonicalValue([entry.identity, entry.record.before, entry.record.after])))) throw new Error('[internal] ROTATION_METADATA_MISMATCH')
                 entries.set(entry.identity, entry.record)
               }
-              cachedPage = { file, entries }
+                  return rememberPage({ file, entries })
+                })()
+                pendingPages.set(file, pending)
+              }
+              try { page = await pending } finally { pendingPages.delete(file) }
             }
-            const record = cachedPage.entries.get(identity)
+            const record = page.entries.get(identity)
             if (!record) throw new Error('[internal] ROTATION_METADATA_MISMATCH')
             return record
+          },
+          async prefetch(identities) {
+            // One future page only; retain at most current + next, never a table of intents.
+            for (const identity of identities.slice(0, 8)) {
+              if (!cachedRecord(identity)) { await this.load(identity); return }
+            }
           },
         }
         const initial = await options.dataset(context, providers, '0'.repeat(64), intents)
@@ -177,7 +206,7 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         const dataset = await options.dataset(context, providers, state.recovery.digest, intents)
         runKey = await validatePreparedRotation(state.prepared, dataset, store, options.signal)
         await dataset.assertFence(); await providers.refresh(); await options.assertEntitlement()
-        journal = new RotationCheckpointJournal(store, join(trustRoot, `${id}-journal.tail`), state.prepared.trustedHeaderDigest, runKey)
+        journal = new RotationCheckpointJournal(store, join(trustRoot, `${id}-journal.tail`), state.prepared.trustedHeaderDigest, runKey, options.signal)
         await journal.initialize(Boolean(options.resumeId) && state.status !== 'prepared')
         providers.resumeCursor = async operationId => journal!.cursor(operationId)
         providers.checkpointBatch = checkpoint => journal!.batch(checkpoint)
@@ -216,7 +245,7 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
             const parent = await open(anchors, constants.O_RDONLY)
             try { await parent.sync() } finally { await parent.close() }
             await store.linkNames(page, entries.map(entry => address(entry.identity)))
-            cachedPage = { file: await store.fileIdentity(page), entries: new Map(entries.map(entry => [entry.identity, entry.record])) }
+            rememberPage({ file: await store.fileIdentity(page), entries: new Map(entries.map(entry => [entry.identity, entry.record])) })
           })
           intentQueue = pending
           await pending
@@ -233,14 +262,19 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         await options.assertEntitlement(); await dataset.assertFence(); await providers.refresh()
         await journal.append({ kind: 'phase', status: 'verifying' })
         state.status = 'verifying'; await publishState(trustPath, state)
-        const result = await verifyRotationData(state.prepared as PreparedRotation, dataset, store, options.signal)
+        verificationAttemptId = randomUUID()
+        const result = await verifyRotationData(state.prepared as PreparedRotation, dataset, store, options.signal, verificationAttemptId)
+        verified = result
         await options.assertEntitlement()
         await options.report({ ...result, coordinatorRunId: id }, state.recovery)
         await journal.append({ kind: 'phase', status: 'passed' })
         state.status = 'passed'; await publishState(trustPath, state)
       } catch (error) {
         const code = error instanceof Error ? error.message.match(/\bROTATION_[A-Z_]+\b/)?.[0] ?? 'ROTATION_FAILED' : 'ROTATION_FAILED'
-        await options.reportFailure?.(code, state?.recovery ?? pendingRecovery, id, options.signal?.aborted ? 'interrupted' : 'failed').catch(() => undefined)
+        const details: RotationFailureDetails = { elapsedMs: Math.max(0, Date.now() - startedAt) }
+        if (verified) { const { expectedRows, comparedRows, expectedFields, comparedFields, expectedBytes, comparedBytes, durationMs } = verified; Object.assign(details, { expectedRows, comparedRows, expectedFields, comparedFields, expectedBytes, comparedBytes, verificationDurationMs: durationMs }) }
+        else if (state && runKey && verificationAttemptId && failureStore) { try { Object.assign(details, await readVerificationFailureAggregates(state.prepared, failureStore, runKey, verificationAttemptId)) } catch { /* Unknown aggregates stay absent. */ } }
+        await options.reportFailure?.(code, state?.recovery ?? pendingRecovery, id, options.signal?.aborted ? 'interrupted' : 'failed', details).catch(() => undefined)
         if (state) {
           state.status = options.signal?.aborted ? 'interrupted' : 'failed'
           await journal?.append({ kind: 'phase', status: state.status, code }).catch(() => undefined)

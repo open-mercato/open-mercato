@@ -10,6 +10,7 @@
   "backups.rotation.entitlementRequired": "La protección de rotación requiere derechos comerciales y módulos disponibles.",
   "backups.rotation.failed": "La rotación protegida no finalizó. Mantenga detenidas las escrituras, conserve las claves y copias anteriores y revise el registro de confianza antes de continuar.",
   "backups.rotation.preparingRecovery": "Preparando la copia cifrada de recuperación antes de rotar las claves.",
+  "backups.rotation.reportWritten": "Informe de verificación:",
   "backups.rotation.rotating": "Rotando datos cifrados con recuperación protegida.",
   "backups.rotation.runPrepared": "Ejecución protegida de rotación; conserve este identificador para reanudarla explícitamente:",
   "backups.rotation.verificationPassed": "La verificación de los datos guardados del ámbito indicado finalizó correctamente. Conserve las claves anteriores y la copia de recuperación.",

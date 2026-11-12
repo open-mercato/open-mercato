@@ -15,6 +15,7 @@ import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { CustomFieldDef } from '../data/entities'
 import type { RotationTimestampIntent, RotationKeyProviders } from '@open-mercato/shared/lib/encryption/rotationProtection'
+import { parseRotationJson } from '@open-mercato/shared/lib/encryption/rotationJson'
 import { MAINTENANCE_ROW_BYTES } from './rotation-maintenance'
 
 type RotationOptions = {
@@ -117,10 +118,14 @@ export async function rotateCustomEntityDocuments(
     )
     if (oversized.length) throw new Error('[internal] Custom document exceeds supported maintenance size')
     const rows = await connection.execute<DocumentRow[]>(
-      `select id, entity_type, tenant_id, organization_id, doc, updated_at::text as updated_at from custom_entities_storage where ${predicates.join(' and ')} order by id asc limit ${batchSize}`,
+      `select id, entity_type, tenant_id, organization_id, doc::text as doc, updated_at::text as updated_at from custom_entities_storage where ${predicates.join(' and ')} order by id asc limit ${batchSize}`,
       parameters,
     )
     if (!rows.length) break
+    for (const row of rows) {
+      if (typeof row.doc === 'string') row.doc = parseRotationJson(row.doc) as Record<string, unknown>
+      if (!row.doc || typeof row.doc !== 'object' || Array.isArray(row.doc)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+    }
     const committedChecks: unknown[][] = []
     const previouslyUpdated = updated
     const preparedWrites: Array<{ row: DocumentRow; nextDoc: Record<string, unknown>; tenantId: string }> = []
@@ -169,7 +174,7 @@ export async function rotateCustomEntityDocuments(
         oldDeks.set(tenantId, await options.oldKms.getTenantDek(tenantId))
       }
       const oldDek = oldDeks.get(tenantId) ?? null
-      const candidates: Record<string, unknown> = {}
+      const candidates: Record<string, unknown> = Object.create(null)
       const arrayMasks = new Map<string, boolean[]>()
       let changed = false
       const prepare = (value: unknown, encryptPlaintext: boolean, requireCiphertextKey: boolean): { value: unknown; selected: boolean } => {

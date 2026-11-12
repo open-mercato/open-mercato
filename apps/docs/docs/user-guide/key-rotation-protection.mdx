@@ -47,3 +47,9 @@ A live run lock refuses concurrent attempts. Stale recovery is restricted to an 
 For rollback, use the Enterprise backup restore/exercise commands against a separately provisioned quarantined target, validate identity/data/canaries with retained keys, and perform a separately approved cutover. Never restore over the live database or re-enable writers merely because an artifact checksum passes.
 
 Protected verification currently refuses inherited and partitioned relations before rotation. These require an explicit complete child-table coverage and privilege implementation.
+
+Before rotation, an operator must provision `CONNECTION LIMIT 0` on the selected source database and use a dedicated superuser maintenance connection. This prevents normal application logins from bypassing the fence through views or security-definer routines. All existing application sessions, scheduled jobs and other writers must be stopped; enabled logical-replication subscriptions are refused. Keep the fence until verification and the operator's release checks finish, then restore the database's original connection limit manually. Rotation never changes or releases admission settings automatically.
+
+Protected resume requires the same PostgreSQL postmaster lifetime. A PostgreSQL restart or replacement refuses the old run; retain the previous keys and recovery artifact for an operator-led recovery decision.
+
+Maintenance preserves JSON numeric tokens exactly, including numbers beyond JavaScript precision, while lookup hashes retain the framework's existing serializer contract. JSON inputs are limited to 1 MiB, nesting depth 64 and 10,000 structural nodes; unsupported documents refuse before rotation mutation.

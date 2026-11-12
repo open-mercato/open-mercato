@@ -1,6 +1,18 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
-export type LogicalValue = null | boolean | string | number | LogicalValue[] | { [key: string]: LogicalValue }
+export class ExactJsonNumber {
+  readonly canonical: string
+  constructor(readonly source: string) {
+    const match = /^(-?)(0|[1-9]\d*)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(source)
+    if (!match || (match[4]?.length ?? 0) > 16) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+    const digits = (match[2] + (match[3] ?? '')).replace(/^0+/, '')
+    const significant = digits.replace(/0+$/, '')
+    const exponent = BigInt(match[4] ?? '0') - BigInt(match[3]?.length ?? 0) + BigInt(digits.length - significant.length)
+    this.canonical = significant ? `${match[1] || '+'}:${significant}:${exponent}` : '0'
+  }
+}
+
+export type LogicalValue = ExactJsonNumber | null | boolean | string | number | LogicalValue[] | { [key: string]: LogicalValue }
 export type VerificationColumn = { name: string; type: string; value: LogicalValue }
 export type VerificationRow = {
   entity: string
@@ -19,6 +31,7 @@ function frame(type: string, bytes: Buffer): Buffer {
 }
 
 export function canonicalValue(value: LogicalValue): Buffer {
+  if (value instanceof ExactJsonNumber) return frame('j', Buffer.from(value.canonical))
   if (value === null) return frame('0', Buffer.alloc(0))
   if (typeof value === 'boolean') return frame('b', Buffer.from(value ? '1' : '0'))
   if (typeof value === 'string') return frame('s', Buffer.from(value))
@@ -69,6 +82,7 @@ export function sameDigest(expected: string, actual: string): boolean {
 }
 
 function encodedSize(value: LogicalValue): number {
+  if (value instanceof ExactJsonNumber) return 5 + Buffer.byteLength(value.canonical)
   if (value === null) return 5
   if (typeof value === 'boolean') return 6
   if (typeof value === 'string') return 5 + Buffer.byteLength(value)
@@ -83,9 +97,10 @@ function encodedSize(value: LogicalValue): number {
 
 function writeCanonical(value: LogicalValue, output: Buffer, offset: number): number {
   const start = offset
-  const type = value === null ? '0' : typeof value === 'boolean' ? 'b' : typeof value === 'string' ? 's' : typeof value === 'number' ? 'n' : Array.isArray(value) ? 'a' : 'o'
+  const type = value instanceof ExactJsonNumber ? 'j' : value === null ? '0' : typeof value === 'boolean' ? 'b' : typeof value === 'string' ? 's' : typeof value === 'number' ? 'n' : Array.isArray(value) ? 'a' : 'o'
   output[offset] = type.charCodeAt(0); offset += 5
-  if (value === null) { /* Empty payload; length is filled below. */ }
+  if (value instanceof ExactJsonNumber) offset += output.write(value.canonical, offset)
+  else if (value === null) { /* Empty payload; length is filled below. */ }
   else if (typeof value === 'boolean') offset += output.write(value ? '1' : '0', offset)
   else if (typeof value === 'string') offset += output.write(value, offset)
   else if (typeof value === 'number') offset += output.write(Object.is(value, -0) ? '-0' : String(value), offset)

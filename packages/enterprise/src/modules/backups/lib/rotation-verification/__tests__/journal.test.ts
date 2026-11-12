@@ -72,3 +72,13 @@ test('rejects an impossible commit before advancing the trusted tail', async () 
   const resumed = f.make(); await resumed.initialize(true)
   expect(resumed.cursor(checkpoint.operationId)).toBeNull()
 })
+
+
+test('interrupted journal replay never exposes a partially replayed cursor', async () => {
+  const f = await fixture(); await f.journal.batch(checkpoint)
+  const controller = new AbortController(); const read = f.store.read.bind(f.store)
+  jest.spyOn(f.store, 'read').mockImplementationOnce(async name => { const value = await read(name); controller.abort(); return value })
+  const resumed = new RotationCheckpointJournal(f.store, f.tail, f.header, f.key, controller.signal)
+  await expect(resumed.initialize(true)).rejects.toThrow('VERIFICATION_INCOMPLETE')
+  expect(() => resumed.cursor(checkpoint.operationId)).toThrow('JOURNAL_INVALID')
+})

@@ -19,6 +19,8 @@ export interface RotationDataset {
   rows(phase: 'before' | 'after', signal?: AbortSignal): AsyncIterable<VerificationRow>
   keys(): Promise<{ source: string; target: string; provider: string }>
 }
+export type VerificationFailureAggregates = Pick<VerificationResult, 'expectedRows' | 'comparedRows' | 'expectedFields' | 'comparedFields' | 'expectedBytes' | 'comparedBytes'> & { verificationDurationMs: number }
+const failureCheckpointSchema = z.object({ attemptId: z.string().uuid(), runId: z.string().uuid(), status: z.enum(['failed', 'interrupted']), expectedRows: z.string().regex(/^\d+$/), comparedRows: z.string().regex(/^\d+$/), expectedFields: z.string().regex(/^\d+$/), comparedFields: z.string().regex(/^\d+$/), expectedBytes: z.string().regex(/^\d+$/), comparedBytes: z.string().regex(/^\d+$/), verificationDurationMs: z.number().nonnegative() }).strict()
 export type PreparedRotation = { runId: string; trustedHeaderDigest: string }
 export type VerificationResult = { schemaVersion: 1; runId: string; status: 'passed'; coordinatorRunId?: string; expectedBytes: string; comparedBytes: string; expectedRows: string; comparedRows: string; expectedFields: string; comparedFields: string; durationMs: number }
 
@@ -80,7 +82,7 @@ export async function prepareRotationVerification(dataset: RotationDataset, stor
   } finally { runKey.fill(0) }
 }
 
-export async function verifyRotationData(prepared: PreparedRotation, dataset: RotationDataset, store: RotationArtifactStore, signal?: AbortSignal): Promise<VerificationResult> {
+export async function verifyRotationData(prepared: PreparedRotation, dataset: RotationDataset, store: RotationArtifactStore, signal?: AbortSignal, attemptId: string = randomUUID()): Promise<VerificationResult> {
   const started = Date.now()
   interrupted(signal)
   const bytes = await store.read('header')
@@ -90,6 +92,7 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
   const runKey = await store.read('run-key')
   if (runKey.length !== 32) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
   let iterator: AsyncIterator<VerificationRow> | undefined
+  let rows = 0; let fields = 0; let comparedBytes = 0n
   try {
     await dataset.assertFence()
     if (!sameDigest(header.binding, bindingDigest(await dataset.binding()))) throw new Error('[internal] ROTATION_BINDING_CHANGED')
@@ -98,9 +101,6 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
     if (!sameDigest(header.targetFingerprint, keyFingerprint(runKey, keys.target)) || !sameDigest(header.sourceFingerprint, keyFingerprint(runKey, keys.source))) throw new Error('[internal] ROTATION_KEY_CHANGED')
     await store.write('checkpoint', Buffer.from(JSON.stringify({ runId: header.runId, status: 'verifying' })))
     iterator = dataset.rows('after', signal)[Symbol.asyncIterator]()
-    let rows = 0
-    let comparedBytes = 0n
-    let fields = 0
     const root = createHash('sha256')
     for (let chunk = 0; chunk < header.chunks; chunk++) {
       interrupted(signal)
@@ -130,7 +130,8 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
     await store.write('checkpoint', Buffer.from(JSON.stringify(result)))
     return result
   } catch (error) {
-    await store.write('checkpoint', Buffer.from(JSON.stringify({ runId: header.runId, status: signal?.aborted ? 'interrupted' : 'failed' })))
+    const payload = failureCheckpointSchema.parse({ attemptId, runId: header.runId, status: signal?.aborted ? 'interrupted' : 'failed', expectedRows: String(header.rows), comparedRows: String(rows), expectedFields: String(header.fields), comparedFields: String(fields), expectedBytes: header.bytes, comparedBytes: String(comparedBytes), verificationDurationMs: Math.max(0, Date.now() - started) })
+    await store.write('checkpoint', Buffer.from(JSON.stringify({ payload, mac: keyedDigest(runKey, 'verification-failure-v1', canonicalValue(payload)) }))).catch(() => undefined)
     throw error
   } finally {
     try { await iterator?.return?.() } finally { runKey.fill(0) }
@@ -162,4 +163,12 @@ export async function validatePreparedRotation(prepared: PreparedRotation, datas
     if (rows !== header.rows || fields !== header.fields || String(totalBytes) !== header.bytes || !sameDigest(root.digest('hex'), header.root)) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
     return runKey
   } catch (error) { runKey.fill(0); throw error }
+}
+
+
+export async function readVerificationFailureAggregates(prepared: PreparedRotation, store: RotationArtifactStore, runKey: Buffer, attemptId: string): Promise<VerificationFailureAggregates> {
+  const record = z.object({ payload: failureCheckpointSchema, mac: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(JSON.parse((await store.read('checkpoint')).toString()))
+  if (record.payload.attemptId !== attemptId || record.payload.runId !== prepared.runId || !sameDigest(record.mac, keyedDigest(runKey, 'verification-failure-v1', canonicalValue(record.payload)))) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
+  const { attemptId: _attempt, runId: _run, status: _status, ...aggregates } = record.payload
+  return aggregates
 }

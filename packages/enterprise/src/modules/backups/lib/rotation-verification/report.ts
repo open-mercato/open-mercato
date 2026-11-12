@@ -4,7 +4,7 @@ import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { VerificationResult } from './verifier'
-import type { RecoveryArtifact } from './coordinator'
+import type { RecoveryArtifact, RotationFailureDetails } from './coordinator'
 
 const reportSchema = z.object({
   schemaVersion: z.literal(1), runId: z.string().uuid(), coordinatorRunId: z.string().uuid().optional(), expectedBytes: z.string().regex(/^\d+$/), comparedBytes: z.string().regex(/^\d+$/), status: z.literal('passed'),
@@ -16,13 +16,15 @@ const reportSchema = z.object({
 const failureSchema = z.object({
   schemaVersion: z.literal(1), coordinatorRunId: z.string().uuid(), status: z.enum(['failed', 'interrupted']),
   errorCode: z.string().regex(/^[A-Z][A-Z0-9_]{0,99}(?::[A-Z][A-Z0-9_]{0,99})?$/),
+  elapsedMs: z.number().nonnegative(), verificationDurationMs: z.number().nonnegative().optional(),
+  expectedRows: z.string().regex(/^\d+$/).optional(), comparedRows: z.string().regex(/^\d+$/).optional(), expectedFields: z.string().regex(/^\d+$/).optional(), comparedFields: z.string().regex(/^\d+$/).optional(), expectedBytes: z.string().regex(/^\d+$/).optional(), comparedBytes: z.string().regex(/^\d+$/).optional(),
   recoveryAction: z.literal('keep-writers-stopped-and-retain-keys-and-backup'),
   recoveryArtifact: z.string().optional(), recoveryDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 }).strict()
 
-export async function publishRotationFailureReport(path: string, code: string, recovery: RecoveryArtifact | undefined, coordinatorRunId: string, status: 'failed' | 'interrupted'): Promise<void> {
+export async function publishRotationFailureReport(path: string, code: string, recovery: RecoveryArtifact | undefined, coordinatorRunId: string, status: 'failed' | 'interrupted', details: RotationFailureDetails): Promise<void> {
   const errorCode = code.replace(/^\[internal\] /, '')
-  const record = failureSchema.parse({ schemaVersion: 1, coordinatorRunId, status,
+  const record = failureSchema.parse({ schemaVersion: 1, coordinatorRunId, status, ...details,
     errorCode: /^[A-Z][A-Z0-9_]{0,99}(?::[A-Z][A-Z0-9_]{0,99})?$/.test(errorCode) ? errorCode : 'ROTATION_VERIFICATION_FAILED',
     recoveryAction: 'keep-writers-stopped-and-retain-keys-and-backup',
     ...(recovery ? { recoveryArtifact: recovery.artifactPath, recoveryDigest: recovery.digest } : {}),

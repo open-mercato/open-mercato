@@ -195,3 +195,30 @@ test('direct protected callers cannot checkpoint writes hidden inside an outer t
   await expect(createEnterpriseRotationProtection(options).protect(context, async () => { state.mutated = true })).rejects.toThrow('ACTIVE_TRANSACTION_UNSUPPORTED')
   expect(state.creates).toBe(0); expect(state.mutated).toBe(false)
 })
+
+test('coalesces concurrent intent-page reads and retains only bounded current/next pages', async () => {
+  const { options, context, state } = fixture(); const factory = options.dataset
+  let loader: Parameters<typeof factory>[3] | undefined
+  options.dataset = async (...args) => { loader = args[3]; return factory(...args) }
+  const cipher = await options.cipher(); const open = jest.spyOn(cipher, 'open'); options.cipher = async () => cipher
+  await createEnterpriseRotationProtection(options).protect(context, async providers => {
+    const intent = (identity: string) => ({ table: 'custom_entities_storage', identity, tenantId: 'tenant', organizationId: null, previousTimestamp: state.timestamp })
+    for (const ids of [['a', 'b'], ['c', 'd'], ['e', 'f']]) await providers!.timestampForBatchWrite!(ids.map(intent))
+    const identity = (id: string) => JSON.stringify(['public.custom_entities_storage', 'tenant', null, [id]])
+    open.mockClear()
+    const records = await Promise.all([loader!.prefetch!([identity('a'), identity('b')]), loader!.load(identity('a')), loader!.load(identity('b'))])
+    expect(records[1]).toBeDefined(); expect(records[2]).toBeDefined()
+    expect(open).toHaveBeenCalledTimes(1)
+    await loader!.load(identity('a')); expect(open).toHaveBeenCalledTimes(1)
+  })
+})
+
+test('failure reports include only authenticated aggregates from the current verification attempt', async () => {
+  const { options, context, state } = fixture(); state.wrongValue = true
+  const report = jest.fn(async () => {}); options.reportFailure = report
+  await expect(createEnterpriseRotationProtection(options).protect(context, async () => {})).rejects.toThrow('DATA_MISMATCH')
+  expect(report.mock.calls[0]![4]).toMatchObject({ elapsedMs: expect.any(Number), verificationDurationMs: expect.any(Number), expectedRows: '1', comparedRows: '0', expectedFields: '1', comparedFields: '0', expectedBytes: expect.any(String), comparedBytes: '0' })
+  const early = fixture(); early.state.fence = false; const earlyReport = jest.fn(async () => {}); early.options.reportFailure = earlyReport
+  await expect(createEnterpriseRotationProtection(early.options).protect(early.context, async () => {})).rejects.toThrow('fence lost')
+  expect(earlyReport.mock.calls[0]![4]).toEqual({ elapsedMs: expect.any(Number) })
+})

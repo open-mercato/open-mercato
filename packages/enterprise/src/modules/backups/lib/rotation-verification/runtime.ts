@@ -10,7 +10,7 @@ import { createRotationArtifactCipher } from './age'
 import { createEnterpriseRotationProtection } from './coordinator'
 import { pinRotationProviders } from './keys'
 import { publishRotationReport, publishRotationFailureReport } from './report'
-import { createPostgresRotationDataset } from './postgres-dataset'
+import { createPostgresRotationDataset, assertPostgresRotationAdmission } from './postgres-dataset'
 
 function required(environment: NodeJS.ProcessEnv, name: string): string {
   const value = environment[name]?.trim()
@@ -56,12 +56,12 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
         }
         const providers = async (input: RotationProtectionContext) => {
           if (!input.previousKey) throw new Error('[internal] ROTATION_SOURCE_KEY_REQUIRED')
-          const connection = input.entityManager.getConnection()
+          await assertPostgresRotationAdmission(input, controller.signal)
           const rows: unknown = input.tenantId ? [{ tenant_id: input.tenantId }] : await input.entityManager.execute('SELECT tenant_id::text AS tenant_id FROM (SELECT tenant_id FROM encryption_maps WHERE tenant_id IS NOT NULL UNION SELECT tenant_id FROM custom_entities_storage WHERE tenant_id IS NOT NULL) selected ORDER BY tenant_id LIMIT 10001', [], { signal: controller.signal, inflightQueryAbortStrategy: 'cancel query' })
           if (!Array.isArray(rows) || rows.length > 10000 || rows.some((entry: unknown) => !entry || typeof entry !== 'object' || typeof (entry as { tenant_id?: unknown }).tenant_id !== 'string')) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
           const tenantIds = rows.map((entry: { tenant_id: string }) => entry.tenant_id)
           const target = explicitProvider === 'vault'
-            ? new HashicorpVaultKmsService({ ttlMs: 0, vaultAddr: required(environment, 'VAULT_ADDR'), vaultToken: required(environment, 'VAULT_TOKEN'), mountPath: environment.VAULT_KV_PATH || 'secret/data' })
+            ? new HashicorpVaultKmsService({ ttlMs: 0, redactSensitiveLogs: true, vaultAddr: required(environment, 'VAULT_ADDR'), vaultToken: required(environment, 'VAULT_TOKEN'), mountPath: environment.VAULT_KV_PATH || 'secret/data' })
             : createDerivedKeyKmsService((environment.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? environment.TENANT_DATA_ENCRYPTION_KEY ?? '').trim().replace(/(?:^['"]|['"]$)/g, ''))
           if (explicitProvider === 'derived' && !environment.TENANT_DATA_ENCRYPTION_FALLBACK_KEY?.trim() && !environment.TENANT_DATA_ENCRYPTION_KEY?.trim()) throw new Error('[internal] ROTATION_EXPLICIT_PROVIDER_REQUIRED')
           const pinned = await pinRotationProviders(tenantIds,
@@ -100,14 +100,14 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
           },
           async cipher() { return createRotationArtifactCipher(recipients, identities) },
           async reportRun(id) { runId = id; console.error(`${translate('backups.rotation.runPrepared', 'Protected rotation run; retain this identifier for an explicit resume:')} ${id}`) },
-          async reportFailure(code, recovery, coordinatorRunId, status) {
-            await publishRotationFailureReport(join(path(environment, 'OM_ROTATION_TRUST_ROOT'), `${coordinatorRunId}.failure.${randomUUID()}.json`), code, recovery, coordinatorRunId, status)
+          async reportFailure(code, recovery, coordinatorRunId, status, details) {
+            await publishRotationFailureReport(join(path(environment, 'OM_ROTATION_TRUST_ROOT'), `${coordinatorRunId}.failure.${randomUUID()}.json`), code, recovery, coordinatorRunId, status, details)
           },
           async report(result, recovery) {
             const reportPath = join(path(environment, 'OM_ROTATION_TRUST_ROOT'), `${result.runId}.report.json`)
             await publishRotationReport(reportPath, result, recovery)
             console.error(translate('backups.rotation.verificationPassed', 'Persisted data verification passed for the declared rotation scope; retain previous keys and the recovery backup.'))
-            console.log(JSON.stringify({ ...result, recoveryArtifact: recovery.artifactPath }))
+            console.error(`${translate('backups.rotation.reportWritten', 'Verification report:')} ${reportPath}`)
           },
         })
         await coordinator.protect(context, async pinned => {

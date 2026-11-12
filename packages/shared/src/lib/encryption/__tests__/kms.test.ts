@@ -10,7 +10,7 @@ jest.mock('../../logger', () => {
     error: jest.fn(),
   }
   logger.child = () => logger
-  return { createLogger: () => logger, __warn: warn }
+  return { createLogger: () => logger, __warn: warn, __info: logger.info }
 })
 
 const loggerModule = jest.requireMock('../../logger') as { __warn: jest.Mock }
@@ -247,4 +247,23 @@ describe('kms self-healing circuit breaker (#2661)', () => {
     expect(service.isHealthy()).toBe(true)
     expect(fetchMock).toHaveBeenCalledTimes(2) // 404 read probe + the write
   })
+})
+
+
+test('protected Vault diagnostics omit tenant paths, request secrets and raw refresh errors', async () => {
+  const tenant = 'private-tenant-path'; const token = 'private-vault-token'; const dek = crypto.randomBytes(32).toString('base64')
+  const logs = jest.requireMock('../../logger') as { __warn: jest.Mock; __info: jest.Mock }
+  logs.__warn.mockClear(); logs.__info.mockClear()
+  const fetch = jest.spyOn(global, 'fetch')
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { data: { key: dek } } }) } as Response)
+    .mockRejectedValue(new Error(`${tenant} ${token} ${dek}`))
+  const service = new HashicorpVaultKmsService({ vaultAddr: 'https://private-vault.invalid', vaultToken: token, redactSensitiveLogs: true, ttlMs: 0 })
+  try {
+    expect(await service.getTenantDek(tenant)).toMatchObject({ key: dek })
+    service.invalidateDek(tenant)
+    expect(await service.getTenantDek(tenant)).toBeNull()
+    const output = JSON.stringify([...logs.__warn.mock.calls, ...logs.__info.mock.calls])
+    expect(output).not.toContain(tenant); expect(output).not.toContain(token); expect(output).not.toContain(dek)
+    expect(output).toContain('VAULT_REQUEST_ERROR')
+  } finally { fetch.mockRestore() }
 })

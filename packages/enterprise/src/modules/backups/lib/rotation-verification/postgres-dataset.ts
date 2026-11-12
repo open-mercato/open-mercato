@@ -6,10 +6,11 @@ import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { decryptWithAesGcm, hashForLookup, isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
-import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { isCustomEntityDocumentCiphertext } from '@open-mercato/shared/lib/encryption/customEntityDoc'
 import type { RotationProtectionContext, RotationKeyProviders } from '@open-mercato/shared/lib/encryption/rotationProtection'
-import { rowIdentity, type LogicalValue, type VerificationRow } from './canonical'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { parseRotationJson, parseRotationFieldValue } from '@open-mercato/shared/lib/encryption/rotationJson'
+import { rowIdentity, ExactJsonNumber, type LogicalValue, type VerificationRow } from './canonical'
 import type { RotationDataset } from './verifier'
 import type { ProgressSink } from '../engine/types'
 
@@ -19,7 +20,7 @@ export type PostgresRotationOptions = {
   providers: RotationKeyProviders
   backupDigest: string
   provider: string
-  intents?: { load(identity: string): Promise<Intent | undefined> }
+  intents?: { load(identity: string): Promise<Intent | undefined>; prefetch?(identities: string[]): Promise<void> }
   progress?: ProgressSink
   runId?: string
 }
@@ -51,6 +52,7 @@ export function canonicalRotationTimestamp(value: string | Date | null): string 
 }
 
 function logical(value: unknown): LogicalValue {
+  if (value instanceof ExactJsonNumber) return value
   if (value === null || typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') return value
   if (Array.isArray(value)) return value.map(logical)
   if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
@@ -74,6 +76,31 @@ function propertyColumn(meta: EntityMetadata, name: string): string {
   return property.fieldNames[0]!
 }
 
+
+export async function assertPostgresRotationAdmission(context: RotationProtectionContext, signal?: AbortSignal): Promise<void> {
+  const connection = context.entityManager.getConnection()
+  const query = async <Row extends Record<string, unknown>>(sql: string, parameters: unknown[] = []): Promise<Row[]> => {
+    const result: unknown = signal
+      ? await context.entityManager.execute(sql, parameters, { signal: signal, inflightQueryAbortStrategy: 'cancel query' })
+      : await connection.execute(sql, parameters)
+    if (!Array.isArray(result)) throw new Error('[internal] ROTATION_DATABASE_INVALID')
+    return result as Row[]
+  }
+    const role = await query<{ visible: boolean; superuser: boolean }>('SELECT rolsuper AS superuser, (rolsuper OR rolbypassrls) AS visible FROM pg_roles WHERE rolname = current_user')
+    if (role[0]?.visible !== true) throw new Error('[internal] ROTATION_RLS_VISIBILITY_UNPROVEN')
+    if (role[0]?.superuser !== true) throw new Error('[internal] ROTATION_SUPERUSER_MAINTENANCE_REQUIRED')
+    const admission = await query<{ connection_limit: string }>("SELECT datconnlimit::text AS connection_limit FROM pg_database WHERE datname=current_database()")
+    if (admission[0]?.connection_limit !== '0') throw new Error('[internal] ROTATION_DATABASE_ADMISSION_FENCE_REQUIRED')
+    const subscriptions = await query("SELECT 1 FROM pg_subscription WHERE subdbid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND subenabled LIMIT 1")
+    if (subscriptions.length) throw new Error('[internal] ROTATION_LOGICAL_SUBSCRIPTIONS_ACTIVE')
+    const limits = await query<{ statement_ms: string; lock_ms: string }>("SELECT (SELECT setting FROM pg_settings WHERE name='statement_timeout') AS statement_ms, (SELECT setting FROM pg_settings WHERE name='lock_timeout') AS lock_ms")
+    const statement = Number(limits[0]?.statement_ms); const lock = Number(limits[0]?.lock_ms)
+    if (!Number.isFinite(statement) || statement <= 0 || statement > 900000 || !Number.isFinite(lock) || lock <= 0 || lock > 30000) throw new Error('[internal] ROTATION_DATABASE_TIMEOUTS_REQUIRED')
+    const prepared = await query('SELECT 1 FROM pg_prepared_xacts WHERE database = current_database() LIMIT 1')
+    const active = await query("SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND ((backend_type = 'client backend' AND (usename = current_user OR state <> 'idle' OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = usename AND rolsuper))) OR backend_type NOT IN ('client backend','autovacuum worker')) LIMIT 1")
+    if (prepared.length || active.length) throw new Error('[internal] ROTATION_WRITERS_ACTIVE')
+}
+
 export async function createPostgresRotationDataset(options: PostgresRotationOptions): Promise<RotationDataset> {
   const { context, providers } = options
   const connection = context.entityManager.getConnection()
@@ -89,6 +116,8 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
     if (BigInt(size[0]?.count ?? '10001') > 10000n || BigInt(size[0]?.bytes ?? '4194305') > 4n * 1024n * 1024n) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
     return query<{ payload: string }>(`${sql} LIMIT 10001`, parameters)
   }
+  const assertAdmission = () => assertPostgresRotationAdmission(context, providers.signal)
+  await assertAdmission()
   const mapSize = await query<{ count: string; bytes: string }>(`SELECT count(*)::text AS count, coalesce(sum(octet_length(row_to_json(m)::text)),0)::text AS bytes FROM encryption_maps m ${context.tenantId ? 'WHERE tenant_id = ? OR tenant_id IS NULL' : ''}`, context.tenantId ? [context.tenantId] : [])
   if (Number(mapSize[0]?.count) > MAX_MAPS || Number(mapSize[0]?.bytes) > 4 * 1024 * 1024) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   const maps = await context.entityManager.find(EncryptionMap, {
@@ -125,6 +154,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
   const scopeSql = `${context.tenantId ? 'tenant_id = ?' : 'tenant_id IS NOT NULL'}${context.organizationId ? ' AND organization_id = ?' : ''}`
   const scopeParameters = () => [...(context.tenantId ? [context.tenantId] : []), ...(context.organizationId ? [context.organizationId] : [])]
   const tableSql = (table: Table) => table.name.split('.').map(quote).join('.')
+  await assertFence()
   let maximumRowBytes = 0
   for (const table of tables.values()) {
     const shape = await query<{ supported: boolean }>("SELECT relkind='r' AND NOT relispartition AND NOT EXISTS(SELECT 1 FROM pg_inherits WHERE inhparent=c.oid OR inhrelid=c.oid) AS supported FROM pg_class c WHERE c.oid=?::regclass", [table.name])
@@ -160,36 +190,31 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
     if (!selectedTenants.length) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
     return { source: createHash('sha256').update(JSON.stringify(source)).digest('base64'), target: createHash('sha256').update(JSON.stringify(target)).digest('base64'), provider: options.provider }
   }
-  const assertFence = async () => {
-    const role = await query<{ visible: boolean }>('SELECT (rolsuper OR rolbypassrls) AS visible FROM pg_roles WHERE rolname = current_user')
-    if (role[0]?.visible !== true) throw new Error('[internal] ROTATION_RLS_VISIBILITY_UNPROVEN')
-    const limits = await query<{ statement_ms: string; lock_ms: string }>("SELECT (SELECT setting FROM pg_settings WHERE name='statement_timeout') AS statement_ms, (SELECT setting FROM pg_settings WHERE name='lock_timeout') AS lock_ms")
-    const statement = Number(limits[0]?.statement_ms); const lock = Number(limits[0]?.lock_ms)
-    if (!Number.isFinite(statement) || statement <= 0 || statement > 900000 || !Number.isFinite(lock) || lock <= 0 || lock > 30000) throw new Error('[internal] ROTATION_DATABASE_TIMEOUTS_REQUIRED')
-    const prepared = await query('SELECT 1 FROM pg_prepared_xacts WHERE database = current_database() LIMIT 1')
-    const active = await query("SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND backend_type = 'client backend' AND (usename = current_user OR state <> 'idle' OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = usename AND rolsuper)) LIMIT 1")
-    if (prepared.length || active.length) throw new Error('[internal] ROTATION_WRITERS_ACTIVE')
-    const schemas = [...new Set([...orderedTables.map(table => table.name.split('.')[0]!), 'public'])]
-    const ddl = await query("SELECT r.rolname FROM pg_roles r WHERE NOT r.rolsuper AND r.rolname <> current_user AND (r.rolcanlogin OR EXISTS (SELECT 1 FROM pg_roles l WHERE l.rolcanlogin AND NOT l.rolsuper AND l.rolname <> current_user AND pg_has_role(l.oid,r.oid,'MEMBER'))) AND (has_database_privilege(r.oid,current_database(),'CREATE') OR pg_has_role(r.oid,(SELECT datdba FROM pg_database WHERE datname=current_database()),'MEMBER') OR EXISTS (SELECT 1 FROM pg_namespace n WHERE n.nspname=ANY(?::text[]) AND (has_schema_privilege(r.oid,n.oid,'CREATE') OR pg_has_role(r.oid,n.nspowner,'MEMBER')))) LIMIT 1", [schemas])
+
+  async function assertFence() {
+    await assertAdmission()
+    const tableNames = [...tables.values()].map(table => table.name)
+    const schemas = [...new Set([...tableNames.map(name => name.split('.')[0]!), 'public'])]
+    const ddl = await query("SELECT r.rolname FROM pg_roles r WHERE NOT r.rolsuper AND r.rolname <> current_user AND (r.rolcanlogin OR EXISTS (SELECT 1 FROM pg_roles l WHERE l.rolcanlogin AND NOT l.rolsuper AND l.rolname <> current_user AND pg_has_role(l.oid,r.oid,'MEMBER'))) AND (has_database_privilege(r.oid,current_database(),'CREATE') OR pg_has_role(r.oid,(SELECT datdba FROM pg_database WHERE datname=current_database()),'MEMBER') OR EXISTS (SELECT 1 FROM pg_namespace n WHERE n.nspname IN (SELECT jsonb_array_elements_text(?::jsonb)) AND (has_schema_privilege(r.oid,n.oid,'CREATE') OR pg_has_role(r.oid,n.nspowner,'MEMBER')))) LIMIT 1", [JSON.stringify(schemas)])
     if (ddl.length) throw new Error('[internal] ROTATION_DDL_PRIVILEGES_PRESENT')
-    for (const name of [...orderedTables.map((table) => table.name), 'public.encryption_maps', 'public.custom_field_defs']) {
+    for (const name of [...tableNames, 'public.encryption_maps', 'public.custom_field_defs']) {
       const present = await query<{ name: string | null }>('SELECT to_regclass(?)::text AS name', [name])
       if (!present[0]?.name) continue
-      const writers = await query("SELECT r.rolname FROM pg_roles r WHERE NOT r.rolsuper AND r.rolname <> current_user AND (r.rolcanlogin OR EXISTS (SELECT 1 FROM pg_roles l WHERE l.rolcanlogin AND l.rolname <> current_user AND pg_has_role(l.oid, r.oid, 'MEMBER'))) AND (has_table_privilege(r.oid, ?::regclass, 'INSERT,UPDATE,DELETE,TRUNCATE') OR pg_has_role(r.oid, (SELECT relowner FROM pg_class WHERE oid = ?::regclass), 'MEMBER')) LIMIT 1", [name, name])
+      const writers = await query("SELECT r.rolname FROM pg_roles r WHERE NOT r.rolsuper AND r.rolname <> current_user AND (r.rolcanlogin OR EXISTS (SELECT 1 FROM pg_roles l WHERE l.rolcanlogin AND l.rolname <> current_user AND pg_has_role(l.oid, r.oid, 'MEMBER'))) AND (has_table_privilege(r.oid, ?::regclass, 'INSERT,UPDATE,DELETE,TRUNCATE') OR has_any_column_privilege(r.oid, ?::regclass, 'INSERT,UPDATE') OR pg_has_role(r.oid, (SELECT relowner FROM pg_class WHERE oid = ?::regclass), 'MEMBER')) LIMIT 1", [name, name, name])
       if (writers.length) throw new Error('[internal] ROTATION_WRITER_PRIVILEGES_PRESENT')
     }
   }
   const binding = async () => {
-    const identity = await query<{ clusterIncarnation: string; databaseOid: string; serverMajor: number; encoding: string; collation: string }>(`SELECT s.system_identifier::text || ':' || c.timeline_id::text || ':' || CASE WHEN pg_is_in_recovery() THEN 'recovery' ELSE 'primary' END AS "clusterIncarnation", d.oid::text AS "databaseOid", (current_setting('server_version_num')::int / 10000)::int AS "serverMajor", pg_encoding_to_char(d.encoding) AS encoding, d.datcollate AS collation FROM pg_control_system() s CROSS JOIN pg_control_checkpoint() c CROSS JOIN pg_database d WHERE d.datname = current_database()`)
+    const identity = await query<{ clusterIncarnation: string; databaseOid: string; serverMajor: number; encoding: string; collation: string }>(`SELECT s.system_identifier::text || ':' || c.timeline_id::text || ':' || CASE WHEN pg_is_in_recovery() THEN 'recovery' ELSE 'primary' END || ':' || (extract(epoch from pg_postmaster_start_time())*1000000)::bigint::text AS "clusterIncarnation", d.oid::text AS "databaseOid", (current_setting('server_version_num')::int / 10000)::int AS "serverMajor", pg_encoding_to_char(d.encoding) AS encoding, d.datcollate AS collation FROM pg_control_system() s CROSS JOIN pg_control_checkpoint() c CROSS JOIN pg_database d WHERE d.datname = current_database()`)
     if (!identity[0]?.clusterIncarnation) throw new Error('[internal] ROTATION_DATABASE_INVALID')
-    const metadata = await boundedBinding("SELECT jsonb_build_array(c.oid::text, n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity, a.attname, a.atttypid::text, a.atttypmod, a.attnotnull, c.relowner::text, c.relacl::text, a.attgenerated, a.attcollation::text, (SELECT string_agg(pg_get_constraintdef(oid), ';' ORDER BY oid) FROM pg_constraint WHERE conrelid=c.oid), (SELECT string_agg(pg_get_indexdef(indexrelid), ';' ORDER BY indexrelid) FROM pg_index WHERE indrelid=c.oid))::text AS payload FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE c.oid = ANY(?::regclass[]) ORDER BY c.oid,a.attnum", [orderedTables.map((table) => table.name)])
+    const metadata = await boundedBinding("SELECT jsonb_build_array(c.oid::text, n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity, a.attname, a.atttypid::text, a.atttypmod, a.attnotnull, c.relowner::text, c.relacl::text, a.attacl::text, a.attgenerated, a.attcollation::text, (SELECT string_agg(pg_get_constraintdef(oid), ';' ORDER BY oid) FROM pg_constraint WHERE conrelid=c.oid), (SELECT string_agg(pg_get_indexdef(indexrelid), ';' ORDER BY indexrelid) FROM pg_index WHERE indrelid=c.oid))::text AS payload FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE c.oid IN (SELECT name::regclass FROM jsonb_array_elements_text(?::jsonb) AS selected(name)) ORDER BY c.oid,a.attnum", [JSON.stringify(orderedTables.map((table) => table.name))])
     const controls = await query<{ payload: string }>(`SELECT row_to_json(m)::text AS payload FROM encryption_maps m ${context.tenantId ? 'WHERE tenant_id = ? OR tenant_id IS NULL' : ''} ORDER BY id LIMIT ${MAX_MAPS + 1}`, context.tenantId ? [context.tenantId] : [])
     const definitionSize = await query<{ count: string; bytes: string }>(`SELECT count(*)::text AS count, coalesce(sum(octet_length(row_to_json(d)::text)),0)::text AS bytes FROM custom_field_defs d WHERE tenant_id IS NULL${context.tenantId ? ' OR tenant_id = ?' : ' OR tenant_id IS NOT NULL'}`, context.tenantId ? [context.tenantId] : [])
     if (Number(definitionSize[0]?.count) > 5000 || Number(definitionSize[0]?.bytes) > 4 * 1024 * 1024) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
     const definitions = await query<{ payload: string }>(`SELECT row_to_json(d)::text AS payload FROM custom_field_defs d WHERE tenant_id IS NULL${context.tenantId ? ' OR tenant_id = ?' : ' OR tenant_id IS NOT NULL'} ORDER BY id LIMIT 5001`, context.tenantId ? [context.tenantId] : [])
     const policies = await boundedBinding('SELECT row_to_json(p)::text AS payload FROM pg_policies p ORDER BY schemaname,tablename,policyname')
     if (policies.length > 10000 || controls.length > MAX_MAPS) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-    const ownership = await boundedBinding("SELECT jsonb_build_array(n.oid::text,n.nspname,n.nspowner::text,n.nspacl::text,d.datdba::text,d.datacl::text)::text AS payload FROM pg_namespace n CROSS JOIN pg_database d WHERE d.datname=current_database() AND n.nspname=ANY(?::text[]) ORDER BY n.nspname", [[...new Set([...orderedTables.map(table => table.name.split('.')[0]!), 'public'])]])
+    const ownership = await boundedBinding("SELECT jsonb_build_array(n.oid::text,n.nspname,n.nspowner::text,n.nspacl::text,d.datdba::text,d.datacl::text,d.datconnlimit,d.datallowconn)::text AS payload FROM pg_namespace n CROSS JOIN pg_database d WHERE d.datname=current_database() AND n.nspname IN (SELECT jsonb_array_elements_text(?::jsonb)) ORDER BY n.nspname", [JSON.stringify([...new Set([...orderedTables.map(table => table.name.split('.')[0]!), 'public'])])])
     const roles = await query<{ payload: string }>("SELECT jsonb_build_array(oid::text,rolname,rolsuper,rolcanlogin,rolbypassrls,rolinherit,rolcreaterole)::text AS payload FROM pg_roles ORDER BY oid LIMIT 10001")
     const memberships = await query<{ payload: string }>("SELECT jsonb_build_array(roleid::text,member::text,admin_option)::text AS payload FROM pg_auth_members ORDER BY roleid,member LIMIT 10001")
     if (roles.length > 10000 || memberships.length > 10000) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
@@ -216,9 +241,11 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
       const progress = (type: 'entity.progress' | 'entity.done') => options.progress?.({ schemaVersion: 1, type, runId: options.runId ?? 'rotation', entity: table.name, phase: phase === 'before' ? 'baseline' : 'verification', rowsDone: String(yieldedRows), rowsTotal: String(expectedRows), rowsTotalExact: true, bytesDone: String(bytesDone), chunksDone, at: new Date().toISOString() })
       progress('entity.progress')
       const primary = table.primaryKeys.map((key) => `verification_rows.${quote(key)}`)
-      const fetchBatch = (cursor: string[] | null) => {
+      const fetchBatch = async (cursor: string[] | null): Promise<SqlRow[]> => {
         const predicate = cursor ? ` AND (${primary.join(', ')}) > (${primary.map(() => '?').join(', ')})` : ''
-        return query<SqlRow>(`SELECT ${table.columns.map((entry) => `${quote(entry.name)}::text AS ${quote(entry.name)}`).join(', ')} FROM ${tableSql(table)} AS verification_rows WHERE ${scopeSql}${predicate} ORDER BY ${primary.join(', ')} LIMIT ${MAX_ROWS}`, [...scopeParameters(), ...(cursor ?? [])])
+        const selected = await query<SqlRow>(`SELECT ${table.columns.map((entry) => `${quote(entry.name)}::text AS ${quote(entry.name)}`).join(', ')} FROM ${tableSql(table)} AS verification_rows WHERE ${scopeSql}${predicate} ORDER BY ${primary.join(', ')} LIMIT ${MAX_ROWS}`, [...scopeParameters(), ...(cursor ?? [])])
+        if (phase === 'after' && table.custom && options.intents?.prefetch) await options.intents.prefetch(selected.map(raw => JSON.stringify([table.name, raw.tenant_id, raw.organization_id ?? null, table.primaryKeys.map(key => raw[key])])) )
+        return selected
       }
       let pending = fetchBatch(null)
       try { for (;;) {
@@ -249,18 +276,19 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
             if (!isEncryptedPayloadShape(envelope)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
             if (!rule.active && !rules.some((entry) => entry.active && entry.column === rule.column)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
             const plaintext = await decode(envelope, tenantId, phase)
-            const parsed = logical(parseDecryptedFieldValue(plaintext))
+            const parsed = logical(parseRotationFieldValue(plaintext, source => new ExactJsonNumber(source)))
             values.set(rule.column, parsed)
             if (rule.hashColumn) {
-              const serialized = typeof parsed === 'string' ? parsed : JSON.stringify(parsed)
+              const lookupValue = parseDecryptedFieldValue(plaintext)
+              const serialized = typeof lookupValue === 'string' ? lookupValue : JSON.stringify(lookupValue)
               const expected = hashForLookup(serialized)
               if (phase === 'after' && raw[rule.hashColumn] !== expected) throw new Error('[internal] ROTATION_DATA_MISMATCH')
               values.set(rule.hashColumn, expected)
             }
           }
           if (table.custom && raw.doc) {
-            const doc = logical(JSON.parse(raw.doc))
-            if (!doc || typeof doc !== 'object' || Array.isArray(doc)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+            const doc = logical(parseRotationJson(raw.doc, source => new ExactJsonNumber(source)))
+            if (!doc || doc instanceof ExactJsonNumber || typeof doc !== 'object' || Array.isArray(doc)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
             const scopeKey = JSON.stringify([raw.entity_type, tenantId, organizationId])
             let policy = definitionCache.get(scopeKey)
             if (!policy) {
@@ -280,7 +308,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
               if (definitionCache.size >= 64) definitionCache.delete(definitionCache.keys().next().value!)
               definitionCache.set(scopeKey, policy)
             }
-            const transformed: Record<string, LogicalValue> = {}
+            const transformed: Record<string, LogicalValue> = Object.create(null)
             for (const [key, value] of Object.entries(doc)) {
               const isEnvelope = (entry: LogicalValue) => typeof entry === 'string' && isCustomEntityDocumentCiphertext(entry)
               const contains = Array.isArray(value) ? value.some(isEnvelope) : isEnvelope(value)

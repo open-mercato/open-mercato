@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import { CustomFieldDef, EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
-import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { decryptWithAesGcm, hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 import type { RotationProtectionService, RotationKeyProviders } from '@open-mercato/shared/lib/encryption/rotationProtection'
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
@@ -566,6 +566,33 @@ describe('entities rotate-encryption-key CLI', () => {
     await cli.find(entry=>entry.command==='rotate-encryption-key')!.run(['--tenant','tenant-1','--org','org-1'])
     expect(execute.mock.calls[1]![1]).toContain('row-000')
     expect(checkpointBatch).toHaveBeenCalledWith(expect.objectContaining({cursor:['row-002'],readRows:1,writtenRows:1}))
+  })
+
+  it.each(['1.0000000000000000001','1.0','1e0'])('protected mapped JSON preserves numeric token %s while retaining legacy lookup normalization',async token=>{
+    const plaintext=`{"n":${token}}`,ciphertext=shapeValidCiphertext('old-json')
+    getAllMetadata.mockReturnValue([{...accessLogMetadata,properties:{...accessLogMetadata.properties,contextHash:{name:'contextHash',fieldNames:['context_hash'],columnTypes:['text'],type:'text'}}}])
+    find.mockImplementation(async(entity:unknown)=>entity===EncryptionMap?[{id:'precision-map',entityId:'audit_logs:access_log',tenantId:'tenant-1',organizationId:'org-1',fieldsJson:[{field:'contextJson',hashField:'contextHash'}],deletedAt:null}]:[])
+    const kms={isHealthy:()=>true,getTenantDek:async()=>({tenantId:'tenant-1',key:'old-key',fetchedAt:0}),createTenantDek:async()=>null}
+    mockProtectionService={protect:async(_context,operation)=>operation({kms,previousKms:kms})}
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([{id:'row-1',context_json:ciphertext,context_hash:'legacy-old'}]).mockResolvedValueOnce([{id:'row-1'}]).mockResolvedValueOnce([{verified:'1'}])
+    ;(decryptWithAesGcm as jest.Mock).mockReturnValueOnce(plaintext)
+    await cli.find(entry=>entry.command==='rotate-encryption-key')!.run(['--allow-unsafe-old-key','--old-key','old-secret','--tenant','tenant-1','--org','org-1'])
+    const payload=encryptEntityPayload.mock.calls[0]![1] as Record<string,unknown>
+    expect(JSON.stringify(payload.contextJson)).toBe(plaintext)
+    const update=execute.mock.calls.find(([sql])=>String(sql).startsWith('UPDATE'))!
+    expect(update[1]).toContain(JSON.stringify(`enc:${plaintext}`))
+    expect(update[1]).toContain(hashForLookup('{"n":1}'))
+  })
+  it.each(['{hello','[Street]foo','1.0'])('protected mapped TEXT %s retains the existing plaintext heuristic',async plaintext=>{
+    const ciphertext=shapeValidCiphertext('old-text')
+    find.mockImplementation(async(entity:unknown)=>entity===EncryptionMap?[{id:'text-map',entityId:'audit_logs:access_log',tenantId:'tenant-1',organizationId:'org-1',fieldsJson:[{field:'resourceId'}],deletedAt:null}]:[])
+    const kms={isHealthy:()=>true,getTenantDek:async()=>({tenantId:'tenant-1',key:'old-key',fetchedAt:0}),createTenantDek:async()=>null}
+    mockProtectionService={protect:async(_context,operation)=>operation({kms,previousKms:kms})}
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([{id:'row-1',resource_id:ciphertext}]).mockResolvedValueOnce([{id:'row-1'}]).mockResolvedValueOnce([{verified:'1'}])
+    ;(decryptWithAesGcm as jest.Mock).mockReturnValueOnce(plaintext)
+    await cli.find(entry=>entry.command==='rotate-encryption-key')!.run(['--allow-unsafe-old-key','--old-key','old-secret','--tenant','tenant-1','--org','org-1'])
+    expect(encryptEntityPayload.mock.calls[0]![1]).toEqual({resourceId:plaintext})
+    expect(execute.mock.calls.find(([sql])=>String(sql).startsWith('UPDATE'))![1]).toContain(`enc:${plaintext}`)
   })
 
 })

@@ -30,7 +30,7 @@ async function main() {
   const admin = new Client({ ...config, database: 'postgres' }); await admin.connect()
   const database = existing?.database ?? `rotation_benchmark_${gib}g_${randomUUID().replaceAll('-', '').slice(0, 12)}`
   if (!/^rotation_benchmark_(1|20)g_[a-f0-9]{12}$/.test(database)) throw new Error('Invalid isolated benchmark database')
-  if (!existing) await admin.query(`CREATE DATABASE "${database}" TEMPLATE template0`); await admin.end()
+  if (!existing) await admin.query(`CREATE DATABASE "${database}" TEMPLATE template0 CONNECTION LIMIT 0`); await admin.end()
   const client = new Client({ ...config, database, statement_timeout: 900000, lock_timeout: 30000 }); await client.connect()
   const tenantId = '11111111-1111-4111-8111-111111111111'
   const sourceSecret = existing?.sourceSecret ?? randomBytes(48).toString('base64'); const targetSecret = existing?.targetSecret ?? randomBytes(48).toString('base64')
@@ -90,7 +90,7 @@ async function main() {
   registerEntityIds({ benchmark: { BenchRecord: 'benchmark:record' } })
   const context = { entityManager: em, tenantId, organizationId: null, dryRun: false, previousKey: sourceSecret }
   const pinned = await pinRotationProviders([tenantId], { identity: 'benchmark-source-derived', service: sourceKms }, { identity: 'benchmark-target-derived', service: targetKms })
-  const identity = await generateX25519Identity(); const recipients = [await identityToRecipient(identity)]
+  const identity = await readFile(`${root}/synthetic-escrow.identity`, 'utf8').catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; return generateX25519Identity() }); const recipients = [await identityToRecipient(identity)]
   await writeFile(`${root}/synthetic-escrow.identity`, identity, { mode: 0o600 })
   const native = { sourceService: 'source', binariesDir: '/usr/lib/postgresql/16/bin', serviceFile: `${root}/service.conf`, passwordFile: `${root}/password` }
   await writeFile(native.serviceFile, `[source]\nhost=127.0.0.1\nport=5432\ndbname=${database}\nuser=postgres\nsslmode=disable\n`, { mode: 0o600 })
@@ -105,7 +105,7 @@ async function main() {
   const protection = createEnterpriseRotationProtection({
     artifactRoot: `${root}/rotation-artifacts`, trustRoot: `${root}/rotation-trust`, assertEntitlement: async () => {}, providers: async () => pinned,
     async dataset(input, providers, backupDigest, intents) {
-      baseDataset ??= await createPostgresRotationDataset({ context: input, providers, provider: pinned.provider, backupDigest, progress, intents: { load: async identity => { const started = performance.now(); try { return await intents.load(identity) } finally { loadIntentMs += performance.now() - started } } } })
+      baseDataset ??= await createPostgresRotationDataset({ context: input, providers, provider: pinned.provider, backupDigest, progress, intents: { prefetch: intents.prefetch?.bind(intents), load: async identity => { const started = performance.now(); try { return await intents.load(identity) } finally { loadIntentMs += performance.now() - started } } } })
       const dataset = baseDataset
       return { ...dataset, async binding() { return { ...await dataset.binding(), backupDigest } }, async *rows(phase, signal) { const started = performance.now(); try { const iterator = dataset.rows(phase, signal)[Symbol.asyncIterator](); for (;;) { const began = performance.now(); const next = await iterator.next(); const elapsed = performance.now() - began; if (phase === 'before') scanBeforeOwnMs += elapsed; else scanAfterOwnMs += elapsed; if (next.done) break; yield next.value } } finally { if (phase === 'before') baselineMs += performance.now() - started; else finalMs += performance.now() - started } } }
     },
@@ -163,8 +163,10 @@ async function main() {
   console.log(JSON.stringify({ phase: 'matched-target-scan', gib, rows: scanned, elapsedMs: Math.round(standaloneMs) }))
   const baselineCost = backupMs + verifyBackupMs + rotationMs - earlyReadbackMs - intentMs
   const overheadMs = totalMs - baselineCost
-  const result = { root, progressRendererCpuMicros: progressCpuMicros, totalCpuMicros, progressRendererCpuPass: progressCpuMicros <= totalCpuMicros * 0.02, nodeMemoryFlags: process.execArgv, gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, intentMs, finalMs, scanAfterOwnMs, scanBeforeOwnMs, loadIntentMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: finalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: coordinatorPeak / 1024 / 1024, coordinatorRssPass: coordinatorPeak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: process.env.OM_BENCH_CACHE_PROTOCOL ?? 'warm source after isolated seed/ANALYZE; reference scan runs after verification without timestamp-intent lookup', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
+  const postgresVersion = (await client.query("SELECT current_setting('server_version') AS version")).rows[0].version
+  const result = { root, nodeVersion: process.version, postgresVersion, progressRendererCpuMicros: progressCpuMicros, totalCpuMicros, progressRendererCpuPass: progressCpuMicros <= totalCpuMicros * 0.02, nodeMemoryFlags: process.execArgv, gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, intentMs, finalMs, scanAfterOwnMs, scanBeforeOwnMs, loadIntentMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: finalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: coordinatorPeak / 1024 / 1024, coordinatorRssPass: coordinatorPeak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: process.env.OM_BENCH_CACHE_PROTOCOL ?? 'warm source after isolated seed/ANALYZE; reference scan runs after verification without timestamp-intent lookup', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
   await writeFile(`${root}/rotation-${gib}g-report.json`, JSON.stringify(result, null, 2), { mode: 0o600 })
   console.log(JSON.stringify(result)); clearInterval(sampling); await client.end()
+  if (!result.overheadPass || !result.finalThroughputPass || !result.coordinatorRssPass || !result.progressRendererCpuPass) process.exitCode = 1
 }
 main().catch((error) => { console.error(error); process.exit(1) })

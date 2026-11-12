@@ -38,7 +38,7 @@ native('native PostgreSQL persisted verification', () => {
     const administrator = new Client({ connectionString: base.toString() })
     await administrator.connect()
     database = `rotation_${randomUUID().replaceAll('-', '')}`
-    await administrator.query(`CREATE DATABASE "${database}"`)
+    await administrator.query(`CREATE DATABASE "${database}" CONNECTION LIMIT 0`)
     await administrator.end()
     base.pathname = `/${database}`
     client = new Client({ connectionString: base.toString(), statement_timeout: 900000, lock_timeout: 30000 }); await client.connect()
@@ -197,6 +197,45 @@ native('native PostgreSQL persisted verification', () => {
       expect(restored).toMatchObject({ status: 'completed', quarantined: true, promotionReady: false })
     } finally { await client.query(`DROP DATABASE "${targetDatabase}" WITH (FORCE)`) }
   }, 90000)
+  test('detects precision loss in a valid re-encrypted JSON numeric value', async () => {
+    const id = (await client.query('SELECT id FROM fixture_records ORDER BY id LIMIT 1')).rows[0].id
+    await client.query('UPDATE fixture_records SET secret=$1 WHERE id=$2', [encryptWithAesGcm('{"n":1.0000000000000000001}', source).value, id])
+    const data = await dataset(); const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)
+    await rotate()
+    await client.query('UPDATE fixture_records SET secret=$1 WHERE id=$2', [encryptWithAesGcm('{"n":1}', target).value, id])
+    await expect(verifyRotationData(prepared, data, artifacts)).rejects.toThrow('DATA_MISMATCH')
+  })
+  test('protected custom rotation preserves untouched high precision JSON numbers', async () => {
+    await customFixture(false)
+    await client.query(`UPDATE custom_entities_storage SET doc=jsonb_set(doc,'{untouched,exact}','1.0000000000000000001'::jsonb)`)
+    const environment = await runtimeEnvironment(); const context = await inputContext()
+    await createConfiguredRotationProtection(environment).protect(context, async providers => {
+      await rotate()
+      await rotateCustomEntityDocuments(context.entityManager, { tenantId, organizationId: null, dryRun: false, oldKms: providers!.previousKms, encryptionService: new TenantDataEncryptionService(context.entityManager, { kms: providers!.kms }), batchSize: providers!.batchSize, timestampForBatchWrite: providers!.timestampForBatchWrite, resumeCursor: providers!.resumeCursor, checkpointBatch: providers!.checkpointBatch })
+    })
+    expect((await client.query("SELECT (doc->'untouched'->'exact')::text AS exact FROM custom_entities_storage")).rows[0].exact).toBe('1.0000000000000000001')
+  }, 60000)
+  test.each(['float', 'json'])('preserves exact encrypted custom %s payloads without domain conversion', async kind => {
+    await customFixture(false)
+    const payload = kind === 'float' ? '1.0000000000000000001' : '{"n":1.0000000000000000001}'
+    await client.query('UPDATE custom_field_defs SET kind=$1', [kind])
+    await client.query("UPDATE custom_entities_storage SET doc=jsonb_set(doc,'{secret}',to_jsonb($1::text))", [encryptWithAesGcm(payload, source).value])
+    const environment = await runtimeEnvironment(); const context = await inputContext()
+    await createConfiguredRotationProtection(environment).protect(context, async providers => {
+      await rotate()
+      await rotateCustomEntityDocuments(context.entityManager, { tenantId, organizationId: null, dryRun: false, oldKms: providers!.previousKms, encryptionService: new TenantDataEncryptionService(context.entityManager, { kms: providers!.kms }), batchSize: providers!.batchSize, timestampForBatchWrite: providers!.timestampForBatchWrite, resumeCursor: providers!.resumeCursor, checkpointBatch: providers!.checkpointBatch })
+    })
+    const ciphertext = (await client.query("SELECT doc->>'secret' AS secret FROM custom_entities_storage")).rows[0].secret
+    expect(decryptWithAesGcm(ciphertext, target)).toBe(payload)
+  }, 60000)
+  test('includes prototype-named custom document properties in the logical checksum', async () => {
+    await customFixture(false)
+    await client.query(`UPDATE custom_entities_storage SET doc=doc || '{"__proto__":"before"}'::jsonb`)
+    const data = await dataset(); const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)
+    await rotate()
+    await client.query(`UPDATE custom_entities_storage SET doc=jsonb_set(jsonb_set(doc,'{secret}',to_jsonb($1::text)),'{__proto__}','"after"'::jsonb)`, [encryptWithAesGcm('dynamic-secret', target).value])
+    await expect(verifyRotationData(prepared, data, artifacts)).rejects.toThrow('DATA_MISMATCH')
+  })
   test('plaintext in a custom field requiring encryption refuses before mutation', async () => {
     await customFixture(true)
     const data = await dataset(); const operation = jest.fn()
@@ -263,8 +302,9 @@ native('native PostgreSQL persisted verification', () => {
       const cached = await em.findOneOrFail(EncryptionMap, { entityId: 'test:record' })
       expect(cached.fieldsJson).toEqual([{ field: 'secret' }])
       await client.query('UPDATE encryption_maps SET fields_json=$1', [JSON.stringify([{ field: 'secret' }, { field: 'secondSecret' }])])
+      await orm.close(true) // retain identity-map objects while releasing the discovery-only session
       const context = await inputContext()
-      context.entityManager.find = em.find.bind(em) as typeof context.entityManager.find
+      context.entityManager.find = (async (...args: Parameters<typeof em.find>) => { const result = await em.find(...args); await orm.close(true); return result }) as typeof context.entityManager.find
       context.entityManager.getMetadata = (() => ({ getAll: () => [{ className: 'FixtureRecord', tableName: 'fixture_records', schema: 'public', primaryKeys: ['id'], properties: { id: { name: 'id', fieldNames: ['id'] }, secret: { name: 'secret', fieldNames: ['secret'] }, secondSecret: { name: 'secondSecret', fieldNames: ['second_secret'] } } }] })) as typeof context.entityManager.getMetadata
       const data = await createPostgresRotationDataset({ context, providers: { previousKms: createDerivedKeyKmsService(sourceSecret), kms: createDerivedKeyKmsService(targetSecret) }, backupDigest: 'a'.repeat(64), provider: 'explicit' })
       await orm.close(true) // return the discovery-only pool before enforcing the single maintenance session
@@ -308,13 +348,63 @@ native('native PostgreSQL persisted verification', () => {
   test('rejects a schema owner without table privileges before mutation', async () => {
     const role = `schema_owner_${randomUUID().replaceAll('-', '')}`
     await client.query(`CREATE ROLE "${role}" LOGIN; ALTER SCHEMA public OWNER TO "${role}"`)
-    try { await expect((await dataset()).assertFence()).rejects.toThrow('DDL_PRIVILEGES_PRESENT') }
+    try { await expect(dataset()).rejects.toThrow('DDL_PRIVILEGES_PRESENT') }
     finally { await client.query(`ALTER SCHEMA public OWNER TO postgres; DROP ROLE "${role}"`) }
+  })
+  test('global runtime admission is enforced before inventory or application configuration queries', async () => {
+    const environment = await runtimeEnvironment(); const context = { ...await inputContext(), tenantId: null }
+    await client.query(`ALTER DATABASE "${database}" CONNECTION LIMIT -1`)
+    const execute = jest.spyOn(context.entityManager, 'execute'); const mutate = jest.fn()
+    await expect(createConfiguredRotationProtection(environment).protect(context, mutate)).rejects.toThrow('ADMISSION_FENCE_REQUIRED')
+    const queries = execute.mock.calls.map(call => String(call[0]))
+    expect(queries[0]).toContain('FROM pg_roles')
+    expect(queries.some(query => /encryption_maps|custom_entities_storage|custom_field_defs/.test(query))).toBe(false)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+  test('refuses an enabled logical-replication subscription before probing or mutating rows', async () => {
+    const name = `rotation_subscription_${randomUUID().replaceAll('-', '')}`
+    await client.query(`CREATE SUBSCRIPTION "${name}" CONNECTION 'host=127.0.0.1 port=9 dbname=isolated_unreachable user=isolated connect_timeout=1' PUBLICATION isolated_publication WITH (connect=false,enabled=false,create_slot=false,slot_name='${name}')`)
+    try { await client.query(`ALTER SUBSCRIPTION "${name}" ENABLE`); await expect(dataset()).rejects.toThrow('LOGICAL_SUBSCRIPTIONS_ACTIVE') }
+    finally { await client.query(`ALTER SUBSCRIPTION "${name}" DISABLE; ALTER SUBSCRIPTION "${name}" SET (slot_name=NONE); DROP SUBSCRIPTION "${name}"`) }
+  })
+  test.each(['view', 'security-definer'])('admission blocks an application user with indirect %s writes', async capability => {
+    const role = `view_writer_${randomUUID().replaceAll('-', '')}`; const password = randomBytes(24).toString('hex')
+    await client.query(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}'; ALTER DATABASE "${database}" CONNECTION LIMIT -1`)
+    if (capability === 'view') await client.query(`CREATE VIEW indirect_writer AS SELECT id,secret FROM fixture_records; GRANT UPDATE(secret),SELECT(id) ON indirect_writer TO "${role}"`)
+    else await client.query(`CREATE FUNCTION indirect_writer() RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $body$ UPDATE public.fixture_records SET secret='indirect-write' WHERE id=(SELECT id FROM public.fixture_records LIMIT 1) $body$; GRANT EXECUTE ON FUNCTION indirect_writer() TO "${role}"`)
+    try {
+      expect((await client.query("SELECT has_table_privilege($1,'fixture_records','UPDATE') AS direct", [role])).rows[0].direct).toBe(false)
+      const url = new URL(base); url.username = role; url.password = password
+      const application = new Client({ connectionString: url.toString() }); await application.connect()
+      try { await application.query(capability === 'view' ? "UPDATE indirect_writer SET secret='indirect-write' WHERE id=(SELECT id FROM indirect_writer LIMIT 1)" : 'SELECT indirect_writer()') } finally { await application.end() }
+      await expect(dataset()).rejects.toThrow('ADMISSION_FENCE_REQUIRED')
+      await client.query(`ALTER DATABASE "${database}" CONNECTION LIMIT 0`)
+      const denied = new Client({ connectionString: url.toString() })
+      await expect(denied.connect()).rejects.toThrow('too many connections')
+      await denied.end()
+    } finally { await client.query(capability === 'view' ? 'DROP VIEW indirect_writer' : 'DROP FUNCTION indirect_writer()'); await client.query(`DROP OWNED BY "${role}"; DROP ROLE "${role}"`) }
+  })
+  test('an idle ordinary connection established before admission closes prevents plan discovery', async () => {
+    const role = `idle_reader_${randomUUID().replaceAll('-', '')}`; const password = randomBytes(24).toString('hex')
+    await client.query(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}'; ALTER DATABASE "${database}" CONNECTION LIMIT -1`)
+    const url = new URL(base); url.username = role; url.password = password
+    const idle = new Client({ connectionString: url.toString() }); await idle.connect()
+    try {
+      await client.query(`ALTER DATABASE "${database}" CONNECTION LIMIT 0`)
+      await expect(dataset()).rejects.toThrow('WRITERS_ACTIVE')
+    } finally { await idle.end(); await client.query(`DROP ROLE "${role}"`) }
+  })
+  test('rejects a column-only independent UPDATE grant before probing or mutating rows', async () => {
+    const role = `column_writer_${randomUUID().replaceAll('-', '')}`
+    await client.query(`CREATE ROLE "${role}" LOGIN; GRANT UPDATE(secret) ON fixture_records TO "${role}"`)
+    const mutate = jest.fn()
+    try { await expect(dataset().then(mutate)).rejects.toThrow('WRITER_PRIVILEGES_PRESENT'); expect(mutate).not.toHaveBeenCalled() }
+    finally { await client.query(`DROP OWNED BY "${role}"; DROP ROLE "${role}"`) }
   })
   test('rejects a still-authorized independent writer role before mutation', async () => {
     const role = `writer_${randomUUID().replaceAll('-', '')}`
     await client.query(`CREATE ROLE "${role}" LOGIN; GRANT UPDATE ON fixture_records TO "${role}"`)
-    try { await expect((await dataset()).assertFence()).rejects.toThrow('ROTATION_WRITER_PRIVILEGES_PRESENT') }
+    try { await expect(dataset()).rejects.toThrow('ROTATION_WRITER_PRIVILEGES_PRESENT') }
     finally { await client.query(`DROP OWNED BY "${role}"; DROP ROLE "${role}"`) }
   })
   test('RLS and FORCE RLS hidden rows cannot certify an identical empty subset', async () => {
@@ -322,10 +412,11 @@ native('native PostgreSQL persisted verification', () => {
     const password = randomBytes(24).toString('hex')
     await client.query(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}'; GRANT SELECT ON ALL TABLES IN SCHEMA public TO "${role}"; ALTER TABLE fixture_records ENABLE ROW LEVEL SECURITY; ALTER TABLE fixture_records FORCE ROW LEVEL SECURITY; CREATE POLICY invisible ON fixture_records USING(false)`)
     const restrictedUrl = new URL(base); restrictedUrl.username = role; restrictedUrl.password = password
+    await client.query(`ALTER DATABASE "${database}" CONNECTION LIMIT -1`)
     const restricted = new Client({ connectionString: restrictedUrl.toString() }); await restricted.connect()
+    await client.query(`ALTER DATABASE "${database}" CONNECTION LIMIT 0`)
     try {
-      const data = await dataset(restricted)
-      await expect(prepareRotationVerification(data, store())).rejects.toThrow('ROTATION_RLS_VISIBILITY_UNPROVEN')
+      await expect(dataset(restricted)).rejects.toThrow('ROTATION_RLS_VISIBILITY_UNPROVEN')
     } finally { await restricted.end(); await client.query(`DROP OWNED BY "${role}"; DROP ROLE "${role}"`) }
   })
 })
