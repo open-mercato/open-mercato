@@ -173,6 +173,8 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
     maximumRowBytes = Math.max(maximumRowBytes, maximum)
 
   }
+  // Budget current + prefetched wire pages and conservative text-decoding headroom.
+  const verificationBatchRows = Math.min(MAX_ROWS, Math.max(1, Math.floor((8 * 1024 * 1024) / ((maximumRowBytes + 4096) * 4))))
   const orderedTables = [...tables.values()].sort((left, right) => left.name < right.name ? -1 : 1)
   const tenants = await query<{ tenant_id: string }>(`SELECT DISTINCT tenant_id::text AS tenant_id FROM (${orderedTables.map((table) => `SELECT tenant_id FROM ${tableSql(table)} WHERE ${scopeSql}`).join(' UNION ALL ')}) selected ORDER BY tenant_id`, orderedTables.flatMap(() => scopeParameters()))
   if (tenants.length > 1000) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
@@ -243,7 +245,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
       const primary = table.primaryKeys.map((key) => `verification_rows.${quote(key)}`)
       const fetchBatch = async (cursor: string[] | null): Promise<SqlRow[]> => {
         const predicate = cursor ? ` AND (${primary.join(', ')}) > (${primary.map(() => '?').join(', ')})` : ''
-        const selected = await query<SqlRow>(`SELECT ${table.columns.map((entry) => `${quote(entry.name)}::text AS ${quote(entry.name)}`).join(', ')} FROM ${tableSql(table)} AS verification_rows WHERE ${scopeSql}${predicate} ORDER BY ${primary.join(', ')} LIMIT ${MAX_ROWS}`, [...scopeParameters(), ...(cursor ?? [])])
+        const selected = await query<SqlRow>(`SELECT ${table.columns.map((entry) => `${quote(entry.name)}::text AS ${quote(entry.name)}`).join(', ')} FROM ${tableSql(table)} AS verification_rows WHERE ${scopeSql}${predicate} ORDER BY ${primary.join(', ')} LIMIT ${verificationBatchRows}`, [...scopeParameters(), ...(cursor ?? [])])
         if (phase === 'after' && table.custom && options.intents?.prefetch) await options.intents.prefetch(selected.map(raw => JSON.stringify([table.name, raw.tenant_id, raw.organization_id ?? null, table.primaryKeys.map(key => raw[key])])) )
         return selected
       }
@@ -254,7 +256,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
         if (!result.length) break
         const cursor = table.primaryKeys.map((key): string => result[result.length - 1]![key]!)
         // One bounded page may be read while the caller authenticates the current page.
-        pending = result.length < MAX_ROWS ? Promise.resolve([]) : fetchBatch(cursor)
+        pending = result.length < verificationBatchRows ? Promise.resolve([]) : fetchBatch(cursor)
         void pending.catch(() => undefined)
         for (const raw of result) {
           const tenantId = raw.tenant_id
@@ -337,7 +339,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
           yield row
         }
         chunksDone++; progress('entity.progress')
-        if (result.length < MAX_ROWS) break
+        if (result.length < verificationBatchRows) break
       } } finally { await pending.catch(() => undefined) }
       if (yieldedRows !== expectedRows) throw new Error('[internal] ROTATION_COVERAGE_INCOMPLETE')
       progress('entity.done')
