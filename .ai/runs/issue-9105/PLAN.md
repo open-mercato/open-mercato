@@ -1,9 +1,9 @@
 # Issue 9105
 
 1. Confirm issue and regression gap, claim issue. Done.
-2. Add self-contained browser spec for create/edit preview and persisted statement map; ordinary/missing names and replacement.
-3. Run browser coverage and configured validation using local runner (no compose app running); record concrete environment blockers.
-4. Commit, open PR when validated, review, publish evidence, release claims.
+2. Add self-contained browser spec for create/edit preview and persisted statement map; ordinary/missing names and replacement. Done, native Playwright 2/2 passed.
+3. Run browser coverage and configured validation using local runner (no compose app running); record concrete environment blockers. Done; workspace unit timeout documented, EUDR 174/174 passed.
+4. Commit, open PR when validated, review, publish evidence, release claims. PR #9340 opened; static review posted, author self-approval refused by GitHub. Claims/process cleanup completed at final handoff.
 
 ## om-root-cause brief
 Summary: Literal popup name handling lacks real-consumer browser regression coverage.
