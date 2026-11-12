@@ -176,9 +176,10 @@ Task events:
 | `wms.pick_task.created` | pick_task_id, pick_wave_id, reservation_id, sales_order_id, quantity | 3 |
 | `wms.pick_task.completed` | pick_task_id, movement_id, quantity | 3 |
 | `wms.pick_task.shorted` | pick_task_id, quantity_picked, quantity_short | 3 |
-| `wms.pack_task.completed` | packing_task_id, sales_order_id, lines | 3 |
-| `wms.pack_task.shipped` | packing_task_id, sales_shipment_id, movement_ids | 3 |
-| `wms.pack_task.label_requested` | packing_task_id, sales_order_id, sales_shipment_id | 3 |
+| `wms.packing.created` | packing_task_id, pick_wave_id, sales_order_id | 3 |
+| `wms.packing.completed` | packing_task_id, sales_order_id, lines | 3 |
+| `wms.packing.shipped` | packing_task_id, sales_shipment_id, movement_ids | 3 |
+| `wms.packing.label_requested` | packing_task_id, sales_order_id, sales_shipment_id | 3 |
 
 Yard events:
 
@@ -213,10 +214,10 @@ Returns events:
 | `sales.order.cancelled` | Sales | Release all active reservations linked to the order | 1 |
 | `procurement.goods_receipt.created` | Procurement | Create ASN or trigger receiving workflow | 2 |
 | `freight.shipment.eta_updated` | Freight | Update yard appointment expected arrival | 4 |
-
-Phase 3 does not add a WMS subscriber. Other modules consume WMS events: `sales` consumes `wms.pack_task.completed` (create or reuse a shipment and link it), and `shipping_carriers` consumes `wms.pack_task.label_requested` (purchase a label, then report printed or failed). Neither event changes on-hand inside WMS.
 | `billing.invoice.created` | Billing | Mark detention charge as invoiced | 4 |
 | `finance.refund.processed` | Finance | Update RMA refund status | 5 |
+
+Phase 3 does not add a WMS subscriber. Other modules consume WMS events: `sales` consumes `wms.packing.completed` (create or reuse a shipment and link it), and `shipping_carriers` consumes `wms.packing.label_requested` (purchase a label, then report printed or failed). Neither event changes on-hand inside WMS.
 
 #### Feature flags for consumed-event integrations
 
@@ -235,7 +236,7 @@ Some source modules or event streams may not exist yet on a given deployment (e.
 |-------------------|--------------|---------|--------|
 | `wms_integration_sales_order_inventory` | `sales.order.confirmed`, `sales.order.cancelled` | `true` | Disable only if reservations must be API-only (e.g. migration window). |
 | `wms_integration_procurement_goods_receipt` | `procurement.goods_receipt.created` | `false` | Enable when Procurement emits this event. |
-| `wms_integration_shipping_shipments` | emission of `wms.pack_task.label_requested` | `true` | Already seeded. Kill switch for label requests. Does not allocate stock and does not decrement on-hand. The never-seeded id `wms_integration_shipping_shipment_lifecycle` is not used. |
+| `wms_integration_shipping_shipments` | emission of `wms.packing.label_requested` | `true` | Already seeded. Kill switch for label requests. Does not allocate stock and does not decrement on-hand. The never-seeded id `wms_integration_shipping_shipment_lifecycle` is not used. |
 | `wms_integration_freight_shipment_eta` | `freight.shipment.eta_updated` | `false` | Enable when Freight module exists and emits ETAs. |
 | `wms_integration_billing_invoice_sink` | `billing.invoice.created` | `false` | Enable when Billing links detention charges to invoices. |
 | `wms_integration_finance_refund_sink` | `finance.refund.processed` | `false` | Enable when Finance confirms refund processing for RMA coordination. |
@@ -466,7 +467,7 @@ Primary backend areas by phase:
 ### Phase 3: Picking + Packing
 1. Add a warehouse pack location, pick waves, and pick tasks released from order reservations.
 2. Confirm and short relocate stock; ship is the only on-hand decrement.
-3. Pack completion emits `wms.pack_task.completed`. Sales creates or links the shipment.
+3. Pack completion emits `wms.packing.completed`. Sales creates or links the shipment.
 4. Label request is a separate command. `shipping_carriers` reports printed or failed without rolling back stock.
 
 ### Phase 4: Yard Management
@@ -589,9 +590,13 @@ None.
 
 ## Changelog
 
+### 2026-11-12 (rev 11)
+- Moved the phase 3 consumer note below the "Events Consumed by WMS" table so billing and finance rows stay in the table.
+- Renamed phase 3 packing events from `wms.pack_task.*` to `wms.packing.*`.
+
 ### 2026-11-11 (rev 10)
 - Phase 3 no longer depends on a `shipping` module. Sales owns shipment records; `shipping_carriers` owns labels.
-- Replaced `shipping.shipment.created` / `dispatched` consumption with `wms.pack_task.completed` (sales subscriber) and `wms.pack_task.label_requested` (carrier subscriber).
+- Replaced `shipping.shipment.created` / `dispatched` consumption with `wms.packing.completed` (sales subscriber) and `wms.packing.label_requested` (carrier subscriber).
 - Pointed `wms_integration_shipping_shipments` at label emission. Dropped the unseeded `wms_integration_shipping_shipment_lifecycle` id.
 - Outbound commands match the phase 3 spec: ship and request-label replace `handoffPackedShipment` and public packing-task create.
 

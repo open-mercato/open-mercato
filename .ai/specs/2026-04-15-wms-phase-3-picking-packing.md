@@ -12,7 +12,7 @@
 **Key Points:**
 
 - Phase 3 is outbound execution for one warehouse: a pick wave groups reserved sales-order demand, pick tasks move that stock onto a single pack location, packing verifies it, and a separate ship command is the only on-hand decrement.
-- Sales owns the shipment document. WMS emits `wms.pack_task.completed` and does not call `sales.shipments.create`. A sales subscriber creates or reuses the shipment and writes the id back.
+- Sales owns the shipment document. WMS emits `wms.packing.completed` and does not call `sales.shipments.create`. A sales subscriber creates or reuses the shipment and writes the id back.
 - Carrier labels are a later command, `request-label`. Failure changes `label_status` only. It does not undo packing or shipping.
 - There is no `shipping` module and no wave strategy enum. Batch, zone, and route optimization are out of this phase.
 
@@ -52,7 +52,7 @@ After phases 1 and 2:
 |----------|--------|
 | When on-hand falls | Only `ship`. Confirm and short relocate stock onto the pack location. |
 | Who opens work | A supervisor releases a wave from active order reservations. A sales shipment does not allocate stock and does not create tasks. |
-| Who creates the sales shipment | The sales module, in a subscriber on `wms.pack_task.completed`. WMS only stores the returned id. |
+| Who creates the sales shipment | The sales module, in a subscriber on `wms.packing.completed`. WMS only stores the returned id. |
 | Short remainder | Picked quantity follows the pick move. Unpicked quantity goes back to `quantity_reserved` on the source bin. No new task is created. |
 | Wave shape | Named group of tasks for selected orders of one warehouse. No `single` / `batch` / `zone` / `wave` strategy. |
 | Labels | `POST .../request-label` after packing. Retryable. Does not roll back pack or ship. |
@@ -88,7 +88,7 @@ ASN receive rejects this location as `target_staging_location_id` with `409 pack
 
 One pick task per still-reserved reservation bucket. Reservations are `source_type = order` and `source_id = sales order id`. Transfer and manual reservations are ignored. Release does not invent quantity for order lines that were never reserved.
 
-One packing task per `(wave, sales order)`, created inside the transaction that makes every pick task for that order terminal (`done`, `short`, or `cancelled`) when the sum of `quantity_picked` is positive. Lines point at those pick tasks. No carton, no JSON snapshot.
+One packing task per `(wave, sales order)`, created inside the transaction that makes every pick task for that order terminal (`done`, `short`, or `cancelled`) when the sum of `quantity_picked` is positive. Lines point at those pick tasks. No carton, no JSON snapshot. Confirm/short undo soft-deletes that task while it is still `open` or `in_progress`, so a mis-confirmed last pick can be corrected before anybody completes packing.
 
 ### Design Decisions
 
@@ -140,12 +140,12 @@ flowchart TD
     wave --> pick
     pick -->|type pick relocates| packLoc
     pick --> pack
-    pack -->|wms.pack_task.completed| salesSub
+    pack -->|wms.packing.completed| salesSub
     salesSub -->|sales.shipments.create| shipment
     salesSub -->|link-shipment| pack
     pack -->|ship type ship| packLoc
     pack --> labelCmd
-    labelCmd -->|wms.pack_task.label_requested| carriers
+    labelCmd -->|wms.packing.label_requested| carriers
     carriers -->|mark printed or failed| pack
 ```
 
@@ -186,12 +186,12 @@ Draft wave create/update/delete stay on the wave CRUD commands. There is no publ
 | `wms.pick_task.completed` | confirm | `pickTaskId`, `movementId`, `quantity`, `tenantId`, `organizationId` |
 | `wms.pick_task.shorted` | short | `pickTaskId`, `quantityPicked`, `quantityShort`, `tenantId`, `organizationId` |
 | `wms.pick_task.cancelled` | cancel | `pickTaskId`, `tenantId`, `organizationId` |
-| `wms.pack_task.created` | order's picks became terminal with picked qty > 0 | `packingTaskId`, `pickWaveId`, `salesOrderId`, `tenantId`, `organizationId` |
-| `wms.pack_task.completed` | complete | `packingTaskId`, `pickWaveId`, `warehouseId`, `salesOrderId`, `packLocationId`, `lines[]`, `tenantId`, `organizationId` |
-| `wms.pack_task.shipped` | ship | `packingTaskId`, `salesShipmentId`, `salesOrderId`, `movementIds`, `tenantId`, `organizationId` |
-| `wms.pack_task.label_requested` | request-label | `packingTaskId`, `salesOrderId`, `salesShipmentId`, `warehouseId`, `tenantId`, `organizationId` |
+| `wms.packing.created` | order's picks became terminal with picked qty > 0 | `packingTaskId`, `pickWaveId`, `salesOrderId`, `tenantId`, `organizationId` |
+| `wms.packing.completed` | complete | `packingTaskId`, `pickWaveId`, `warehouseId`, `salesOrderId`, `packLocationId`, `lines[]`, `tenantId`, `organizationId` |
+| `wms.packing.shipped` | ship | `packingTaskId`, `salesShipmentId`, `salesOrderId`, `movementIds`, `tenantId`, `organizationId` |
+| `wms.packing.label_requested` | request-label | `packingTaskId`, `salesOrderId`, `salesShipmentId`, `warehouseId`, `tenantId`, `organizationId` |
 
-`lines[]` on `wms.pack_task.completed` is `{ packingTaskLineId, pickTaskId, catalogVariantId, lotId, serialNumber, quantity }`. Quantity is the packed string, equal to `quantity_picked`.
+`lines[]` on `wms.packing.completed` is `{ packingTaskLineId, pickTaskId, catalogVariantId, lotId, serialNumber, quantity }`. Quantity is the packed string, equal to `quantity_picked`.
 
 Do not emit `wms.shipment.ready_for_label`, `wms.shipment.handed_off`, or a second `wms.putaway.completed`.
 
@@ -201,12 +201,12 @@ WMS does not subscribe to sales shipment CRUD and does not subscribe to carrier 
 
 | Subscriber owner | Event | Behavior |
 |------------------|-------|----------|
-| `sales` | `wms.pack_task.completed` | Create or reuse one sales shipment. Call `wms.packing-tasks.link-shipment`. |
-| `shipping_carriers` | `wms.pack_task.label_requested` | Purchase a label. Call `mark-label-printed` or `mark-label-failed`. |
+| `sales` | `wms.packing.completed` | Create or reuse one sales shipment. Call `wms.packing-tasks.link-shipment`. |
+| `shipping_carriers` | `wms.packing.label_requested` | Purchase a label. Call `mark-label-printed` or `mark-label-failed`. |
 
 Both subscribers are soft-optional. Each resolves the peer command in `try/catch` and no-ops when the peer module is absent. WMS never imports sales or `shipping_carriers` entities.
 
-The already-seeded toggle `wms_integration_shipping_shipments` (default `true`) gates **emission** of `wms.pack_task.label_requested`. It does not allocate stock. The roadmap id `wms_integration_shipping_shipment_lifecycle` is not introduced. Update the seeded toggle's description to this meaning; no subscriber behavior has shipped under the old description.
+The already-seeded toggle `wms_integration_shipping_shipments` (default `true`) gates **emission** of `wms.packing.label_requested`. It does not allocate stock. The roadmap id `wms_integration_shipping_shipment_lifecycle` is not introduced. Update the seeded toggle's description to this meaning; no subscriber behavior has shipped under the old description.
 
 Sales shipment creation is not behind that toggle.
 
@@ -233,9 +233,9 @@ Each command recomputes the wave status from these rules before commit.
 |---------|------|
 | Release | Allowed only while every created pick task is still `open`. Deallocate those buckets back to reserved and cancel the tasks. |
 | Assign, start | Restore the previous assignee and status. |
-| Confirm, short | Allowed only before a packing task exists for that order. Compensating `pick` movement returns on-hand and allocated quantity to the source bucket. Short undo also re-allocates the remainder that was returned to reserved, and only if that remainder is not already on another `open` or `in_progress` task. |
+| Confirm, short | Allowed when that order has no packing task, or the packing task is still `open` or `in_progress`. Compensating `pick` movement returns on-hand and allocated quantity to the source bucket. The same transaction soft-deletes the packing task and its lines, because the order is no longer terminal. A later confirm that makes the order terminal again creates a new packing task. Short undo also re-allocates the remainder that was returned to reserved, and only if that remainder is not already on another `open` or `in_progress` task. Rejected with `409 pick_undo_blocked` when the packing task is `done` or `shipped`: undo complete first, then undo the pick. |
 | Cancel pick | Allowed only if that bucket is still `reserved` and not on another open task. |
-| Complete packing | Allowed only while status is `done`, `label_status` is not `printed`, and status is not `shipped`. |
+| Complete packing | Allowed only while status is `done`, `label_status` is not `printed`, and status is not `shipped`. Returns the task to `in_progress` and sets every line `quantity_packed` back to 0. Does not delete the task. |
 | Ship | Not undoable. A return is phase 5. |
 | Request-label | Not undoable. Retry is a new request from `failed`. |
 | Link-shipment, mark-label-* | Not undoable. Replay of the same id is success. |
@@ -431,7 +431,7 @@ ACL: `wms.manage_packing`. Status `open` → `in_progress`.
 
 #### `POST /api/wms/packing-tasks/:id/complete`
 
-ACL: `wms.manage_packing`. Status must be `in_progress`. Sets every line `quantity_packed = quantity_picked`. No packed-quantity body. Status `done`. Emits `wms.pack_task.completed`. Does not move stock and does not create a sales shipment.
+ACL: `wms.manage_packing`. Status must be `in_progress`. Sets every line `quantity_packed = quantity_picked`. No packed-quantity body. Status `done`. Emits `wms.packing.completed`. Does not move stock and does not create a sales shipment.
 
 Response: `{ "ok": true, "status": "done" }`.
 
@@ -439,7 +439,7 @@ Response: `{ "ok": true, "status": "done" }`.
 
 ACL: `wms.manage_packing`. Status must be `done`. `sales_shipment_id` required, else `409 shipment_link_missing`. `label_status` is ignored.
 
-For each line, write one `ship` movement and decrement pack-location on-hand and allocated by `quantity_packed`. Reduce the reservation quantity. Fulfill the reservation at zero. Status `shipped`. Emit `wms.pack_task.shipped`. This is the only on-hand reduction in the phase.
+For each line, write one `ship` movement and decrement pack-location on-hand and allocated by `quantity_packed`. Reduce the reservation quantity. Fulfill the reservation at zero. Status `shipped`. Emit `wms.packing.shipped`. This is the only on-hand reduction in the phase.
 
 Response: `{ "ok": true, "status": "shipped", "movementIds": ["uuid"] }`.
 
@@ -449,7 +449,7 @@ ACL: `wms.print_labels`. Status must be `done` or `shipped`, and `sales_shipment
 
 When `wms_integration_shipping_shipments` is off: `409 label_integration_disabled` and `label_status` stays unchanged.
 
-From `none` or `failed`: set `requested`, emit `wms.pack_task.label_requested` once. From `requested` or `printed`: replay, no second event. Response: `{ "ok": true, "labelStatus": "requested" }`.
+From `none` or `failed`: set `requested`, emit `wms.packing.label_requested` once. From `requested` or `printed`: replay, no second event. Response: `{ "ok": true, "labelStatus": "requested" }`.
 
 System commands, no public route:
 
@@ -474,6 +474,7 @@ System commands, no public route:
 | 422 | `confirm_requires_full_quantity` | Confirm payload includes a partial quantity |
 | 422 | `short_quantity_out_of_range` | Short quantity is negative or covers the full task |
 | 409 | `pick_cancel_requires_open` | Cancel after start |
+| 409 | `pick_undo_blocked` | Confirm/short undo after packing is `done` or `shipped` |
 | 409 | `shipment_link_missing` | Ship or label before sales links a shipment |
 | 409 | `shipment_already_linked` | Link command got a different shipment id |
 | 409 | `label_integration_disabled` | Label toggle off |
@@ -487,7 +488,7 @@ Insufficient stock on the source bucket during confirm/short is `409 insufficien
 
 Sales owns shipment records and shipment status dictionaries. WMS does not read or write shipment status. Dictionary values are tenant-defined and are not a WMS contract.
 
-On `wms.pack_task.completed` the sales subscriber:
+On `wms.packing.completed` the sales subscriber:
 
 1. If this `packingTaskId` is already linked, call `link-shipment` with the same id and stop.
 2. Otherwise build `sales.shipments.create` items by splitting each packed variant quantity across that order's product lines for the variant, in stable line id order, up to each line's remaining shippable quantity. Pass the order's current optimistic-lock version.
@@ -514,7 +515,7 @@ Sums are across non-cancelled tasks for that order. The enricher does not change
 
 ### Shipping carriers
 
-`shipping_carriers` owns label purchase and tracking. Its subscriber handles `wms.pack_task.label_requested`, calls the existing carrier create-shipment flow with `orderId = salesOrderId`, then:
+`shipping_carriers` owns label purchase and tracking. Its subscriber handles `wms.packing.label_requested`, calls the existing carrier create-shipment flow with `orderId = salesOrderId`, then:
 
 - success → `wms.packing-tasks.mark-label-printed`
 - failure → `wms.packing-tasks.mark-label-failed`
@@ -603,7 +604,7 @@ Cache: command success invalidates the wave, task, balance, and reservation tags
 
 ### Story 3: Pack, sales link, and ship
 
-1. Packing list/detail, start, and complete. Complete emits `wms.pack_task.completed` and does not move stock.
+1. Packing list/detail, start, and complete. Complete emits `wms.packing.completed` and does not move stock.
 2. Sales subscriber creates or reuses a shipment and calls `link-shipment`.
 3. Ship writes `type = ship` and fulfills the reservation portion. It refuses a missing link.
 
@@ -630,6 +631,8 @@ Cache: command success invalidates the wave, task, balance, and reservation tags
 | WMS-P3-INT-10 | API | Sales order enricher | `_wms.fulfillmentSummary` only, sales columns unchanged |
 | WMS-P3-INT-11 | API | Missing feature | release, confirm, ship, and request-label rejected, no writes |
 | WMS-P3-INT-12 | UI | Pick then pack then ship | status moves, short shows the warning state, ship blocked until the link exists |
+| WMS-P3-INT-13 | API | Undo the confirm that created an `open` packing task | compensating pick movement, packing task and lines soft-deleted, a later confirm creates a new packing task |
+| WMS-P3-INT-14 | API | Undo confirm after packing is `done` | `409 pick_undo_blocked`, balances and packing task unchanged; undo complete, then undo confirm, succeeds |
 
 Fixtures use phase 1 reservations and a staging pack location. Do not reserve staging stock directly. Carrier failure asserts the packing row and the balances, not a rolled-back transaction.
 
@@ -715,11 +718,16 @@ Ready for implementation. Code is not shipped with this revision.
 
 ## Changelog
 
+### 2026-11-12 (rev 6)
+
+- Confirm/short undo stays available while the auto-created packing task is `open` or `in_progress`, and that undo soft-deletes the packing task. After `done`, undo complete first.
+- Renamed packing events from `wms.pack_task.*` to `wms.packing.*`, matching `wms.putaway.*` for `PutawayTask`.
+
 ### 2026-11-11 (rev 5)
 
 - Collapsed outbound into one ledger: release allocates, pick relocates to a warehouse pack location, ship is the only on-hand issue
 - Removed the `shipping` module trigger, wave strategies, carton id, pack JSON snapshot, and public task CRUD
-- Sales subscriber creates or links the shipment from `wms.pack_task.completed`; label request is a separate retryable command
+- Sales subscriber creates or links the shipment from `wms.packing.completed`; label request is a separate retryable command
 - Bound each route to an ACL feature and defined short remainder, idempotency, undo, and delete rules
 
 ### 2026-04-15 (rev 4)
