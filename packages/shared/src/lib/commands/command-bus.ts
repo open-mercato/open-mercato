@@ -1065,7 +1065,6 @@ export class CommandBus {
       payload[field] = result.value
       redacted = redacted || result.redacted
     }
-    }
 
     if (sensitiveInput || redacted) {
       payload.undoToken = undefined

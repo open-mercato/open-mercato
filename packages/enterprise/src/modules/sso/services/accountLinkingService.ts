@@ -1,5 +1,5 @@
 import { EntityManager, type FilterQuery, type RequiredEntityData } from '@mikro-orm/postgresql'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { User, UserRole, Role } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { SsoConfig, SsoIdentity, SsoRoleGrant, ScimToken } from '../data/entities'

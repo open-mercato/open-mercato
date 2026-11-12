@@ -127,7 +127,7 @@ describe('security auth/login api interceptor', () => {
       throw new Error('db unavailable')
     }) as CreateChallengeMock
 
-    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1', orgId: 'org-1' })
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
       { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
@@ -149,7 +149,7 @@ describe('security auth/login api interceptor', () => {
 
     const createChallenge = jest.fn() as CreateChallengeMock
     const hasChallengeMethods = jest.fn(async () => false)
-    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1', orgId: 'org-1' })
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
       { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
@@ -168,7 +168,7 @@ describe('security auth/login api interceptor', () => {
       challengeId: 'challenge-1',
       availableMethods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }],
     })) as CreateChallengeMock
-    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1', orgId: 'org-1' })
 
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
@@ -223,7 +223,7 @@ describe('security auth/login api interceptor', () => {
     if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
 
     process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
-    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1', orgId: 'org-1' })
     const context = {
       userId: '',
       organizationId: '',
@@ -261,7 +261,7 @@ describe('security auth/login api interceptor', () => {
       challengeId: 'challenge-1',
       availableMethods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }],
     })) as CreateChallengeMock
-    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1', orgId: 'org-1' })
 
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },

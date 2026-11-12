@@ -656,6 +656,8 @@ describe('CommandBus', () => {
       __redoUnavailable: 'sensitive-data-redacted',
     })
     expect(JSON.stringify(persisted)).not.toContain('opaque-secret-value')
+  })
+
   // Agent Identity & On-Behalf-Of (Wave 4 P2): when ctx.runAs is set the SAME
   // audit path attributes the write to the agent principal on behalf of the human,
   // sourced 'agent' — not a parallel audit route.

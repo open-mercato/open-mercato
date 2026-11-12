@@ -23,6 +23,8 @@ export const SUPPORT_UPLOAD_ERROR_TRANSLATIONS: Record<ScopedAttachmentUploadErr
   dangerous_executable: ['attachments.errors.dangerousExecutable', 'Executable file types are not allowed as attachments.'],
   max_upload_size: ['attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'],
   active_content: ['attachments.errors.activeContentBlocked', 'Active content uploads are not allowed.'],
+  scan_rejected: ['attachments.errors.scanRejected', 'Attachment was rejected by the configured security scanner.'],
+  scan_unavailable: ['attachments.errors.scanUnavailable', 'Attachment scanning is temporarily unavailable.'],
   partition_unavailable: ['attachments.errors.partitionUnavailable', 'Attachment partition is not available for this scope.'],
   quota_exceeded: ['attachments.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.'],
   quota_target_exists: ['attachments.errors.storagePathExists', 'The target storage path already exists.'],

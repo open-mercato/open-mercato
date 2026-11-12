@@ -435,6 +435,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     // and id WITHOUT a password, and the account needs a reset to sign in again.
     const { password: _plaintextPassword, ...redoInput } = input
     return {
+      sensitiveInput: typeof input.password === 'string' && input.password.length > 0,
       redoInput,
       actionLabel: translate('auth.audit.users.create', 'Create user'),
       resourceKind: 'auth.user',
@@ -966,6 +967,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     }
     const replayable = typeof input.password !== 'string' || input.password.length === 0
     return {
+      sensitiveInput: typeof input.password === 'string' && input.password.length > 0,
       replayable,
       actionLabel: translate('auth.audit.users.update', 'Update user'),
       resourceKind: 'auth.user',

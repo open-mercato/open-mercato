@@ -2377,6 +2377,8 @@ export async function runAiAgentObject<TSchema = unknown>(
     return {
       mode: 'generate',
       object: (toolResult as unknown as { output: TSchema }).output,
+      providerId: resolvedModel.providerId,
+      modelId: resolvedModel.modelId,
       finishReason: (toolResult as { finishReason?: string }).finishReason,
       usage: {
         inputTokens: toolResult.usage?.inputTokens,
@@ -2391,7 +2393,6 @@ export async function runAiAgentObject<TSchema = unknown>(
   }
   const effectiveLoop = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_OBJECT)
 
-  const abortController = new AbortController()
   const enforceOutputSafety = async (value: TSchema): Promise<TSchema> => {
     if (hardenedProfile) {
       await enforceAiContentSafety(input.container, { phase: 'output', content: value })
