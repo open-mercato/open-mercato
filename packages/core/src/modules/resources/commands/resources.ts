@@ -22,6 +22,7 @@ import { resourcesResourceCrudEvents } from '../lib/crud'
 import { lockResourceType } from '../lib/resourceTypeLock'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { RESOURCES_CAPACITY_UNIT_DICTIONARY_KEY } from '../lib/capacityUnits'
+import { isDictionariesModuleEnabled } from '../lib/optionalModules'
 import { E } from '#generated/entities.ids.generated'
 
 const resourceCrudIndexer: CrudIndexerConfig<ResourcesResource> = {
@@ -72,6 +73,9 @@ async function resolveCapacityUnit(
   const trimmed = rawValue.trim()
   if (!trimmed) {
     throw new CrudHttpError(400, { error: 'Capacity unit is required.' })
+  }
+  if (!isDictionariesModuleEnabled()) {
+    throw new CrudHttpError(400, { error: 'Capacity unit dictionary is not configured.' })
   }
   const dictionary = await findOneWithDecryption(
     em,

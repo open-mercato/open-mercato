@@ -1,15 +1,16 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { seedResourcesAddressTypes, seedResourcesCapacityUnits, seedResourcesResourceExamples } from './lib/seeds'
+import { isDictionariesModuleEnabled } from './lib/optionalModules'
 
 export const setup: ModuleSetupConfig = {
   seedDefaults: async (ctx) => {
     const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
-    await seedResourcesAddressTypes(ctx.em, scope)
+    if (isDictionariesModuleEnabled()) await seedResourcesAddressTypes(ctx.em, scope)
   },
 
   seedExamples: async (ctx) => {
     const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
-    await seedResourcesCapacityUnits(ctx.em, scope)
+    if (isDictionariesModuleEnabled()) await seedResourcesCapacityUnits(ctx.em, scope)
     await seedResourcesResourceExamples(ctx.em, scope)
   },
 
