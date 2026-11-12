@@ -200,3 +200,7 @@ Enterprise commercial scope is explicit in title, path and code placement. No pr
 ## Changelog
 
 - 2026-11-12: Initial enterprise-only proposal based on current MikroORM 7.1/Kysely connection management; included isolated PoC and explicit staged production gates.
+
+### Executed prototype evidence
+
+On 2026-11-12 the disposable PostgreSQL 16 proof passed all 11 checks, including the old failure control, max-1 connection reuse/failure recovery and 60 overlapping tenant operations through max-3. It also passed on Node 24. The 12 unit tests and dedicated operator-harness typecheck passed. Scope cohesion review passed; independent code review found no blocker/major, and its harness-typecheck minor was addressed. Full-gate results are maintained on [PR #9353](https://github.com/open-mercato/open-mercato/pull/9353); no production-coverage claim follows from the fixture proof.

@@ -125,7 +125,7 @@ try {
   await check('rollback returns a reusable connection with no context on the next reservation', async () => {
     await assert.rejects(runWithRlsTenant(tenantA, () => fork().transactional(async (tx) => {
       await tx.execute(`insert into ${table} values (?, ?, 'rolled-back')`, [randomUUID(), tenantA])
-      throw new Error('deliberate rollback')
+      throw new Error('[internal] deliberate rollback')
     })), /deliberate rollback/)
     assert.deepEqual(await labels(fork()), [])
     assert.deepEqual(await runWithRlsTenant(tenantA, () => labels(fork())), ['A'])
@@ -139,7 +139,7 @@ try {
     const pool = pools[0]
     const client = await pool.connect()
     const originalQuery = client.query
-    client.query = (() => Promise.reject(new Error('deliberate setup failure'))) as PoolClient['query']
+    client.query = (() => Promise.reject(new Error('[internal] deliberate setup failure'))) as PoolClient['query']
     client.release()
     await assert.rejects(pool.connect(), /deliberate setup failure/)
     client.query = originalQuery

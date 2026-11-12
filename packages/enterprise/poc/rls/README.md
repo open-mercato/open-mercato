@@ -22,3 +22,9 @@ The proof creates a random restricted login role and schema, verifies the runtim
 The live checks cover ORM reads/flush, raw SQL, Kysely, transaction commit/rollback, one-client A→B→absent reuse, rejected writes, setup-failure recovery with max=1, 60 concurrent operations over max=3, and the old `SET LOCAL` autocommit failure. Ordinary CI runs the unit suite; this live proof is an explicit operator command and is **not automatically run by existing GitHub CI**.
 
 This prototype requires direct PostgreSQL or session-compatible pooling. It does not support transaction-pooling proxies, escaped transaction/client reuse between tenant scopes, global maintenance, or application-wide entry-point coverage. Keep all existing tenant, organization, authorization and encryption checks. Do not install it in a production app; the [enterprise specification](../../../../.ai/specs/enterprise/2026-11-12-row-level-security.md) defines the remaining activation gates.
+
+## Observed proof, 2026-11-12
+
+Against a dedicated PostgreSQL 16 container, all **11 live checks passed**, including 60 overlapping tenant operations over a pool of 3 and recovery from setup failure over a pool of 1. The negative control confirmed that transaction-local state set outside an explicit transaction does not protect a later autocommit query. The proof passed on Node 24 as well as the host runtime.
+
+The 12 ordinary unit tests and dedicated harness no-emit typecheck also passed. Independent review found no blocking source issue. Full repository and GitHub CI results are tracked on [PR #9353](https://github.com/open-mercato/open-mercato/pull/9353); these proof results alone do not imply full-CI success or production readiness.
