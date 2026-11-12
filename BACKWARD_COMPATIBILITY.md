@@ -648,3 +648,11 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## User-task completion field allowlist (2026-11-12, #9142)
+
+The STABLE completion routes POST /api/workflows/tasks/:id/complete and POST /api/workflows/portal/tasks/:id/complete, and the taskHandler.completeUserTask DI behavior, now reject submitted form fields absent from the task schema and engine-reserved context keys. Request envelopes, URLs, response shapes, events and database schema are unchanged; custom clients that used formData as an arbitrary context patch receive HTTP 400 (FORM_VALIDATION_FAILED in the handler).
+
+This is a proposed emergency security exception: continuing to accept arbitrary context writes in a compatibility bridge would let an assignee redirect subsequent privileged workflow activities. The restriction uses the existing schema shapes and context merge path; no replacement architecture or opt-in bypass is introduced. A named human maintainer must acknowledge the waiver before merge; automated review cannot supply that approval.
+
+Clients send only declared fields and use the separate decisionId for authored decisions. Operators inventory custom completion clients and pending tasks, ensure legitimate editable fields are declared in each task schema, and audit suspicious prior runs. No startup changes, environment settings, migration or automatic historical repair are required. See [migration instructions](UPGRADE_NOTES.md#workflow-task-completion-fields-9142) and [specification](.ai/specs/2026-11-12-issue-9142-task-completion-context-keys.md#migration--backward-compatibility).

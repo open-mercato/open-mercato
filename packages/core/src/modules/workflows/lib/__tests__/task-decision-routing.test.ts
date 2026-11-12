@@ -38,6 +38,7 @@ jest.mock('../transition-handler', () => ({
 }))
 
 jest.mock('../workflow-executor', () => ({
+  findReservedContextKeys: jest.requireActual<typeof import('../workflow-executor')>('../workflow-executor').findReservedContextKeys,
   executeWorkflow: jest.fn(),
 }))
 
@@ -179,7 +180,7 @@ function makeTask(overrides: Row = {}): Row {
     assignedToRoles: ['approver'],
     claimedBy: null,
     branchInstanceId: null,
-    formSchema: null,
+    formSchema: { properties: { note: { type: 'string' } } },
     formData: null,
     ...overrides,
   }
@@ -407,5 +408,30 @@ describe('completeUserTask without a decision', () => {
       'fulfil',
       expect.anything(),
     )
+  })
+})
+
+
+describe('issue 9142 rejects context injection before main or branch completion', () => {
+  beforeEach(() => jest.clearAllMocks())
+  test.each([null, 'parallel-branch'])('leaves the context and task untouched for branch %s', async (branchInstanceId) => {
+    const { em, task, instance, events } = makeEm(makeTask({ branchInstanceId }))
+    const context = instance.context
+    const before = { ...task }
+
+    await expect(completeUserTask(em, container, {
+      taskId: TASK_ID,
+      formData: { note: 'ok', orderId: 'other-order' },
+      userId: USER,
+      scope,
+    })).rejects.toMatchObject({ code: 'FORM_VALIDATION_FAILED' })
+
+    expect(task).toEqual(before)
+    expect(instance.context).toBe(context)
+    expect(instance.context).toEqual({ orderId: 'order-1' })
+    expect(events).toHaveLength(0)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(transitionHandler.executeTransition).not.toHaveBeenCalled()
+    expect(executeWorkflow).not.toHaveBeenCalled()
   })
 })

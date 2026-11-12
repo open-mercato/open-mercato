@@ -1740,6 +1740,7 @@
   "workflows.tasks.detail.validation.requiredField": "Pflichtfeld fehlt: {{field}}",
   "workflows.tasks.detail.workflowInstance": "Workflow-Instanz",
   "workflows.tasks.dueDate": "Fälligkeitsdatum",
+  "workflows.tasks.errors.invalidFormData": "Die Eingabe enthält Felder, die diese Aufgabe nicht erlaubt.",
   "workflows.tasks.fields.assignment": "Zuweisung",
   "workflows.tasks.fields.createdAt": "Erstellt am",
   "workflows.tasks.fields.dueDate": "Fälligkeitsdatum",

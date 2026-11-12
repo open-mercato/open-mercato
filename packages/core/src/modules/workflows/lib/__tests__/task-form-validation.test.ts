@@ -4,8 +4,7 @@
  * `validateFormData` used to check required-key presence only for the
  * JSON-Schema shape, so a task authored in the Studio — which writes
  * `{ fields: [...] }` with a per-field `required` flag — validated nothing at
- * all. These pin both shapes, and the legacy no-schema path that must stay
- * exactly as permissive as it always was.
+ * all. These pin both shapes and restrict completion writes to declared fields.
  */
 
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
@@ -103,7 +102,7 @@ describe('validateFormData — the Studio `{ fields: [...] }` shape', () => {
   })
 })
 
-describe('regression: a task with no schema validates nothing', () => {
+describe('empty submissions remain supported without required fields', () => {
   beforeEach(() => jest.clearAllMocks())
 
   test('completes with an empty payload exactly as before', async () => {
@@ -112,7 +111,7 @@ describe('regression: a task with no schema validates nothing', () => {
     await expect(complete(em, {})).rejects.toMatchObject({ code: 'INSTANCE_NOT_FOUND' })
   })
 
-  test('a schema with no required fields validates nothing', async () => {
+  test('a schema with no required fields accepts an empty submission', async () => {
     const { em } = makeEm({ properties: { amount: { type: 'number' } } })
 
     await expect(complete(em, {})).rejects.toMatchObject({ code: 'INSTANCE_NOT_FOUND' })
@@ -124,5 +123,70 @@ describe('UserTaskError shape', () => {
     const { em } = makeEm({ properties: { amount: {} }, required: ['amount'] })
 
     await expect(complete(em, {})).rejects.toBeInstanceOf(UserTaskError)
+  })
+})
+
+
+describe('issue 9142 completion field allowlist', () => {
+  const schemas = [
+    { properties: { note: { type: 'string' }, amount: { type: 'number' } } },
+    { fields: [{ name: 'note', type: 'text' }, { name: 'amount', type: 'number' }] },
+  ]
+
+  test.each(schemas)('rejects undeclared context keys for schema %j before any flush', async (formSchema) => {
+    const { em, task } = makeEm(formSchema)
+    const before = { ...task }
+
+    await expect(complete(em, { note: 'ok', id: 'another-order', approved: true }))
+      .rejects.toMatchObject({ code: 'FORM_VALIDATION_FAILED' })
+
+    expect(task).toEqual(before)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.findOne).toHaveBeenCalledTimes(1)
+  })
+
+  test.each([null, {}, { fields: [] }, { properties: {} }])(
+    'rejects nonempty submissions when no fields are declared: %j', async (formSchema) => {
+      const { em, task } = makeEm(formSchema)
+      await expect(complete(em, { approved: true }))
+        .rejects.toMatchObject({ code: 'FORM_VALIDATION_FAILED' })
+      expect(task.status).toBe('PENDING')
+      expect(em.flush).not.toHaveBeenCalled()
+    },
+  )
+
+  test.each(['__result', '__park', '__error', '__decision', '__custom', '__proto__', '_pendingAsyncActivities'])(
+    'rejects reserved key %s even when declared', async (field) => {
+      const formData = { [field]: 'forged' }
+      for (const formSchema of [
+        { properties: { [field]: { type: 'string' } } },
+        { fields: [{ name: field, type: 'text' }] },
+      ]) {
+        const { em } = makeEm(formSchema)
+        await expect(complete(em, formData)).rejects.toMatchObject({ code: 'FORM_VALIDATION_FAILED' })
+        expect(em.flush).not.toHaveBeenCalled()
+      }
+    },
+  )
+
+  test('an inherited property name is not an authored field', async () => {
+    const { em } = makeEm({ properties: { note: {} } })
+    await expect(complete(em, { toString: 'forged' }))
+      .rejects.toMatchObject({ code: 'FORM_VALIDATION_FAILED' })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  test.each(schemas)('preserves falsy values and optional fields for %j', async (formSchema) => {
+    const { em } = makeEm(formSchema)
+    await expect(complete(em, { note: '', amount: 0 }))
+      .rejects.toMatchObject({ code: 'INSTANCE_NOT_FOUND' })
+  })
+
+  test('preserves authored nested values without introducing type validation', async () => {
+    const { em } = makeEm({ properties: { address: { type: 'object' }, approved: { type: 'boolean' } } })
+    await expect(complete(em, { address: { city: 'Warsaw', unit: null }, approved: false }))
+      .rejects.toMatchObject({ code: 'INSTANCE_NOT_FOUND' })
   })
 })

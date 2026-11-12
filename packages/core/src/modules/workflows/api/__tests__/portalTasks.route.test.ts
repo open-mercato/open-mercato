@@ -16,11 +16,12 @@
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import { NextRequest } from 'next/server'
 import { UserTask } from '../../data/entities'
+import type { TaskHandlerService } from '../../lib/task-handler'
 
 const getCustomerAuthFromRequest = jest.fn<(req: Request) => Promise<unknown>>()
 const requireCustomerFeature = jest.fn<(...args: unknown[]) => Promise<void>>()
 const findWithDecryption = jest.fn<(...args: unknown[]) => Promise<unknown[]>>()
-const completeUserTask = jest.fn<(...args: unknown[]) => Promise<void>>()
+const completeUserTask = jest.fn<TaskHandlerService['completeUserTask']>()
 const loadAcl = jest.fn<(...args: unknown[]) => Promise<{ isPortalAdmin: boolean; features: string[] }>>()
 const getAuthFromRequest = jest.fn<(req: Request) => Promise<unknown>>()
 
@@ -414,4 +415,22 @@ describe('cross-principal isolation', () => {
 
     expect(getAuthFromRequest).not.toHaveBeenCalled()
   })
+})
+
+
+describe('issue 9142 portal route with real completion validation', () => {
+  test.each(['id', 'approved', '__result', '__decision', '_pendingAsyncActivities'])(
+    'refuses injected %s without changing the task', async (field) => {
+      taskRow = makeTask({ formSchema: { properties: { note: { type: 'string' } } } })
+      const before = { ...taskRow }
+      const handler = await import('../../lib/task-handler')
+      completeUserTask.mockImplementation(handler.completeUserTask)
+      const flush = jest.fn()
+      Object.assign(mockEm, { flush })
+
+      expect((await runComplete({ formData: { note: 'ok', [field]: 'injected' } })).status).toBe(400)
+      expect(taskRow).toEqual(before)
+      expect(flush).not.toHaveBeenCalled()
+    },
+  )
 })
