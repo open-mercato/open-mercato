@@ -56,6 +56,7 @@ export async function writeMaintenanceRow(
   row: MaintenanceRow,
   updates: MaintenanceRow,
   scope: MaintenanceScope,
+  verifyPersisted = false,
 ): Promise<void> {
   const columns = Object.keys(updates)
   if (!columns.length) return
@@ -67,4 +68,11 @@ export async function writeMaintenanceRow(
     [...Object.values(updates), ...primaryKeys.map((key) => row[key]), scope.tenantId, scope.organizationId, ...columns.map((column) => row[column])],
   )
   if (!Array.isArray(result) || result.length !== 1) throw new Error('[internal] A row changed concurrently during encryption maintenance; stop writers before retrying')
+  if (verifyPersisted) {
+    const committed = await connection.execute(
+      `SELECT ${primaryKeys.map(quoteMaintenanceIdentifier).join(', ')} FROM ${table} WHERE ${identity} AND tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? AND ${unchanged}`,
+      [...primaryKeys.map((key) => row[key]), scope.tenantId, scope.organizationId, ...Object.values(updates)],
+    )
+    if (!Array.isArray(committed) || committed.length !== 1) throw new Error('[internal] Persisted encryption maintenance readback did not match intended values')
+  }
 }

@@ -3,5 +3,10 @@
   "backups.cli.help": "Szyfrowana kopia i izolowane odtwarzanie: preflight, create, status, verify, restore, exercise.",
   "backups.progress.bytes": "bajtów",
   "backups.progress.chunks": "fragmentów",
-  "backups.progress.rows": "wierszy"
+  "backups.progress.rows": "wierszy",
+  "backups.rotation.entitlementRequired": "Ochrona rotacji wymaga uprawnień komercyjnych i dostępnych modułów.",
+  "backups.rotation.failed": "Chroniona rotacja kluczy nie została zakończona. Wstrzymaj zapis, zachowaj poprzednie klucze i kopie oraz sprawdź zaufany zapis operacji przed wznowieniem.",
+  "backups.rotation.preparingRecovery": "Przygotowywanie zaszyfrowanej kopii odzyskiwania przed rotacją kluczy.",
+  "backups.rotation.runPrepared": "Identyfikator chronionej rotacji; zachowaj go do jawnego wznowienia:",
+  "backups.rotation.verificationPassed": "Weryfikacja zapisanych danych w zadanym zakresie zakończona powodzeniem. Zachowaj poprzednie klucze i kopię odzyskiwania."
 }

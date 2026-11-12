@@ -3,7 +3,7 @@
 Source doc: .ai/specs/enterprise/2026-11-12-key-rotation-data-verification.md
 Source PR: #9328
 Backup prerequisite: #8910 (merged design; runtime is not implemented)
-Status: in-progress — Phase 0 decisions required before production implementation
+Status: in-progress — implementation and integrated verification underway
 Engine: om-auto-create-pr (steps: 11, --loop: no)
 
 ## Goal
@@ -14,7 +14,7 @@ Implement complete, bounded Enterprise data-equivalence verification after rotat
 
 This branch owns Core rotation safety preflight/neutral bounded maintenance adapters and Enterprise `backups/lib/rotation-verification/`. A separate implementation branch owns the backup engine and bootstrap-free CLI from #8910. Coordinate the additive adapter contract before code; do not duplicate the engine or import Enterprise from Core. No online coordination, generic checksum tool, automatic key destruction or live restore.
 
-## Phase-0 verification — observed 2026-11-12
+## Initial Phase-0 verification — before operator authorization, 2026-11-12
 
 - #9328 is an open design PR at 9b8c3cb584be39703ccafd1be7af6d32fe4dc3a8. Its comments explicitly retain security/dependency/custody and compatibility implementation gates; no recorded approval was found.
 - #8910 merged as 25333cebaa, but its design and conversation retain Q2/Q3 human-confirmation gates. A spec merge is not dependency approval or proof of key custody.
@@ -71,14 +71,14 @@ PR: #9334
 ### Phase 0: prerequisites and feasibility
 
 - [x] 0.1 Resolve source, audit duplicates/code reality, and publish implementation plan/gate report. — 8cdd245377
-- [ ] 0.2 Record security/custody/entitlement/CLI decisions, offline-fence enforcement evidence and backup adapter contract.
+- [x] 0.2 Record security/custody/entitlement/CLI decisions, offline-fence enforcement evidence and backup adapter contract. — 63100e7c32
 - [ ] 0.3 Run isolated bounded-scan performance/codec spike.
 
 ### Phase 1: encrypted verification
 
-- [ ] 1.1 Typed framing, concrete-key pinning and golden negative controls.
-- [ ] 1.2 Encrypted baseline/journal and authenticated metadata/lookup expectations.
-- [ ] 1.3 Independent bounded persisted scanner and complete scope comparison.
+- [x] 1.1 Typed framing, concrete-key pinning and golden negative controls. — 9d7a7183de
+- [x] 1.2 Encrypted baseline/journal and authenticated metadata/lookup expectations. — 63100e7c32
+- [x] 1.3 Independent bounded persisted scanner and complete scope comparison. — 63100e7c32
 
 ### Phase 2: rotation integration
 
@@ -90,3 +90,12 @@ PR: #9334
 
 - [ ] 3.1 Full acceptance matrix, resources and quarantined restore drill.
 - [ ] 3.2 Full configured gate, authoritative review/autofix and evidence report.
+
+
+## Authorized continuation — 2026-11-12
+
+The operator instructed: “yes go on, the modules go to enterprise / commercial i've got the rights to do so”. The driving agent recorded authorization for the proposed package-rights attestation/capability boundary, pinned age dependency and isolated custody-drill design, and immediate mandatory Core CLI acknowledgment through the specific dated compatibility amendment. This does not waive QA/CI, attest production key custody, authorize key retirement, or authorize a merge. Existing offline fencing and native harness requirements are implemented/tested autonomously.
+
+Implementation milestones: 9d7a7183de typed/encrypted verification engine and tests; 63100e7c32 neutral Core guard/bounded adapters plus PostgreSQL dataset and coordinator; 46160d7873 merges #9333's recovery-engine prerequisite without copying its source/spec. #9333 must merge before this implementation to remove the inherited diff. New implementation uses actual pg_dump/COPY, age encryption and native persisted scans; source #9328 remains separate and is not committed here.
+
+Verification underway: independent review found and corrected global-policy omission, numeric-PK text-alias pagination, quadratic custom-document size probes, provider-provenance and durable-report retry concerns. Native disposable PostgreSQL tests now include full production protection roundtrip, valid-but-wrong ciphertext, target-key-only failure, complete numeric-PK coverage, global policy coverage/refusal, writer grants, RLS/FORCE RLS and microsecond timestamp preservation. Runtime performance is being measured on real encrypted scalar/custom data at 1/20GiB; no unmeasured target is marked passed. Full configured gate and final authoritative review remain pending.

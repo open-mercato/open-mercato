@@ -19,6 +19,7 @@ type Row = {
   tenant_id: string | null
   organization_id: string | null
   doc: Record<string, unknown>
+  updated_at?: string
 }
 
 function definition(key: string, kind = 'text', overrides: Partial<CustomFieldDef> = {}): CustomFieldDef {
@@ -49,6 +50,11 @@ function fixture(definitions: CustomFieldDef[], batches: Row[][], key: string | 
   const pending = batches.slice()
   const updates: Array<{ query: string; parameters: unknown[]; doc: Record<string, unknown> }> = []
   const execute = jest.fn(async (query: string, parameters: unknown[]) => {
+    if (query.startsWith('select 1 as oversized')) {
+      expect(query).toContain('limit 8) candidates')
+      return []
+    }
+    if (query.startsWith('select id from custom_entities_storage')) return [{ id: parameters[0] }]
     if (query.startsWith('select ')) return pending.shift() ?? []
     updates.push({ query, parameters, doc: JSON.parse(String(parameters[0])) as Record<string, unknown> })
     return [{ id: parameters[1] }]
@@ -215,7 +221,7 @@ describe('custom entity document encryption rotation', () => {
     expect(setup.updates[0]!.doc['cf:code']).toBe(forgedEnvelope)
     expect(decryptWithAesGcm(String(setup.updates[0]!.doc['cf:secret']), currentKey)).toBe('protected')
     expect(setup.execute.mock.calls[0]![0]).toContain('tenant_id = ? and organization_id = ?')
-    expect(setup.execute.mock.calls[0]![1]).toEqual([entityId, tenantId, organizationId])
+    expect(setup.execute.mock.calls.find(([query]) => query.startsWith('select id'))![1]).toEqual([tenantId, organizationId])
   })
 
   test.each([
@@ -400,17 +406,55 @@ describe('custom entity document encryption rotation', () => {
   })
 
   test('keyset pages through all selected documents', async () => {
-    const firstPage = Array.from({ length: 100 }, (_, index) => row({}, { id: `row-${String(index).padStart(3, '0')}` }))
-    const setup = fixture([definition('code')], [firstPage, [row({ 'cf:code': 'legacy' }, { id: 'row-100' })]])
+    const firstPage = Array.from({ length: 8 }, (_, index) => row({}, { id: `row-${String(index).padStart(3, '0')}` }))
+    const setup = fixture([definition('code')], [firstPage, [row({ 'cf:code': 'legacy' }, { id: 'row-008' })]])
     await expect(rotateCustomEntityDocuments(setup.em, setup.options)).resolves.toBe(1)
-    expect(setup.execute.mock.calls[1]![0]).toContain('id > ? order by id asc limit 100')
-    expect(setup.execute.mock.calls[1]![1]).toEqual([entityId, tenantId, organizationId, 'row-099'])
+    const selections = setup.execute.mock.calls.filter(([query]) => query.startsWith('select id'))
+    expect(selections[1]![0]).toContain('id > ? order by id asc limit 8')
+    expect(selections[1]![1]).toEqual([tenantId, organizationId, 'row-007'])
   })
 
   test('refuses to overwrite a document changed during rotation', async () => {
     const setup = fixture([definition('code')], [[row({ 'cf:code': 'legacy' })]])
+    setup.execute.mockImplementationOnce(async () => [])
     setup.execute.mockImplementationOnce(async () => [row({ 'cf:code': 'legacy' })])
     setup.execute.mockImplementationOnce(async () => [])
     await expect(rotateCustomEntityDocuments(setup.em, setup.options)).rejects.toThrow('document changed during encryption')
   })
+  test('persists the exact protected timestamp after the durable intent callback', async () => {
+    const original = '2026-11-12 10:11:12.123456+00'
+    const timestamp = new Date('2026-11-12T11:22:33.444Z')
+    const setup = fixture([definition('code')], [[row({ 'cf:code': 'legacy' }, { updated_at: original })]])
+    const intent = jest.fn(async () => {
+      expect(setup.updates).toHaveLength(0)
+      return timestamp
+    })
+    setup.options.timestampForWrite = intent
+    await expect(rotateCustomEntityDocuments(setup.em, setup.options)).resolves.toBe(1)
+    expect(intent).toHaveBeenCalledWith({ table: 'custom_entities_storage', identity: 'row-001', tenantId, organizationId, previousTimestamp: original })
+    expect(setup.updates[0]!.query).toContain('updated_at = ?')
+    expect(setup.updates[0]!.parameters[1]).toBe(timestamp)
+  })
+
+  test('timestamp-intent failure prevents mutation', async () => {
+    const setup = fixture([definition('code')], [[row({ 'cf:code': 'legacy' })]])
+    setup.options.timestampForWrite = async () => { throw new Error('intent not durable') }
+    await expect(rotateCustomEntityDocuments(setup.em, setup.options)).rejects.toThrow('intent not durable')
+    expect(setup.updates).toHaveLength(0)
+  })
+
+  test('unsupported definition inventory refuses before document contents are fetched', async () => {
+    const setup = fixture(Array.from({ length: 501 }, (_, n) => definition(`field_${n}`)), [])
+    await expect(rotateCustomEntityDocuments(setup.em, setup.options)).rejects.toThrow('inventory exceeds')
+    expect(setup.getConnection).not.toHaveBeenCalled()
+  })
+
+  test('oversized document preflight prevents fetching and mutating its contents', async () => {
+    const setup = fixture([definition('code')], [])
+    setup.execute.mockResolvedValueOnce([{ oversized: 1 }] as never)
+    await expect(rotateCustomEntityDocuments(setup.em, setup.options)).rejects.toThrow('supported maintenance size')
+    expect(setup.execute).toHaveBeenCalledTimes(1)
+    expect(setup.updates).toHaveLength(0)
+  })
+
 })

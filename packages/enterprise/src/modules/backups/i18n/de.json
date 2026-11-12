@@ -3,5 +3,10 @@
   "backups.cli.help": "Verschlüsselte Sicherung und isolierte Wiederherstellung: preflight, create, status, verify, restore, exercise.",
   "backups.progress.bytes": "Bytes",
   "backups.progress.chunks": "Blöcke",
-  "backups.progress.rows": "Zeilen"
+  "backups.progress.rows": "Zeilen",
+  "backups.rotation.entitlementRequired": "Kommerzielle Rechte und verfügbare Module sind für den Rotationsschutz erforderlich.",
+  "backups.rotation.failed": "Die geschützte Schlüsselrotation wurde nicht abgeschlossen. Schreibzugriffe gestoppt lassen, vorherige Schlüssel und Sicherungen behalten und vor dem Fortsetzen den vertrauenswürdigen Laufdatensatz prüfen.",
+  "backups.rotation.preparingRecovery": "Verschlüsselte Wiederherstellungssicherung vor der Schlüsselrotation wird vorbereitet.",
+  "backups.rotation.runPrepared": "Geschützter Rotationslauf; Kennung für eine ausdrückliche Fortsetzung aufbewahren:",
+  "backups.rotation.verificationPassed": "Die gespeicherten Daten wurden im angegebenen Umfang erfolgreich geprüft. Vorherige Schlüssel und Wiederherstellungssicherung aufbewahren."
 }

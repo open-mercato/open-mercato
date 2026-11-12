@@ -3,5 +3,10 @@
   "backups.cli.help": "Copia cifrada y recuperación aislada: preflight, create, status, verify, restore, exercise.",
   "backups.progress.bytes": "bytes",
   "backups.progress.chunks": "bloques",
-  "backups.progress.rows": "filas"
+  "backups.progress.rows": "filas",
+  "backups.rotation.entitlementRequired": "La protección de rotación requiere derechos comerciales y módulos disponibles.",
+  "backups.rotation.failed": "La rotación protegida no finalizó. Mantenga detenidas las escrituras, conserve las claves y copias anteriores y revise el registro de confianza antes de continuar.",
+  "backups.rotation.preparingRecovery": "Preparando la copia cifrada de recuperación antes de rotar las claves.",
+  "backups.rotation.runPrepared": "Ejecución protegida de rotación; conserve este identificador para reanudarla explícitamente:",
+  "backups.rotation.verificationPassed": "La verificación de los datos guardados del ámbito indicado finalizó correctamente. Conserve las claves anteriores y la copia de recuperación."
 }

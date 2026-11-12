@@ -3,5 +3,10 @@
   "backups.cli.help": "Encrypted backup and isolated recovery: preflight, create, status, verify, restore, exercise.",
   "backups.progress.bytes": "bytes",
   "backups.progress.chunks": "chunks",
-  "backups.progress.rows": "rows"
+  "backups.progress.rows": "rows",
+  "backups.rotation.entitlementRequired": "Commercial rotation protection rights and module capabilities must be available.",
+  "backups.rotation.failed": "Protected key rotation did not complete. Keep writers stopped, retain all previous keys and recovery artifacts, and inspect the trusted run record before resuming.",
+  "backups.rotation.preparingRecovery": "Preparing encrypted recovery backup before key rotation.",
+  "backups.rotation.runPrepared": "Protected rotation run; retain this identifier for an explicit resume:",
+  "backups.rotation.verificationPassed": "Persisted data verification passed for the declared rotation scope; retain previous keys and the recovery backup."
 }

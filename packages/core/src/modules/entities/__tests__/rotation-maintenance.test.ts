@@ -16,6 +16,12 @@ describe('bounded scoped maintenance', () => {
     await expect((async () => { for await (const _rows of readMaintenanceBatches({ execute }, '"records"', ['value'], ['id'], scope)) {} })()).rejects.toThrow('byte limit')
     expect(execute).toHaveBeenCalledTimes(1)
   })
+  test('protected writes read committed values back and reject persistence-side changes', async () => {
+    const execute = jest.fn().mockResolvedValueOnce([{ id: 1 }]).mockResolvedValueOnce([])
+    await expect(writeMaintenanceRow({ execute }, '"records"', ['id'], { id: 1, value: 'before' }, { value: 'after' }, scope, true)).rejects.toThrow('readback')
+    expect(execute.mock.calls[1][0]).toContain('SELECT "id" FROM "records"')
+    expect(execute.mock.calls[1][1]).toEqual([1, 'tenant-a', null, 'after'])
+  })
   test('scoped compare-and-swap includes complete identity and previous values', async () => {
     const execute = jest.fn().mockResolvedValue([{ id: 1 }])
     await writeMaintenanceRow({ execute }, '"records"', ['shard', 'id'], { shard: 's', id: 1, value: 'before' }, { value: 'after' }, scope)

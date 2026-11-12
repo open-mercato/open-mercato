@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import type { EntityMetadata } from '@mikro-orm/core'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
+import { getDefaultEncryptionMaps } from '@open-mercato/shared/modules/registry'
+import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { decryptWithAesGcm, hashForLookup, isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
@@ -18,7 +20,7 @@ export type PostgresRotationOptions = {
   provider: string
   intents?: { load(identity: string): Promise<Intent | undefined> }
 }
-type Rule = { tenantId: string; organizationId: string | null; column: string; hashColumn: string | null; active: boolean }
+type Rule = { tenantId: string | null; organizationId: string | null; column: string; hashColumn: string | null; active: boolean }
 type Column = { name: string; type: string }
 type Table = { name: string; columns: Column[]; primaryKeys: string[]; rules: Rule[]; custom: boolean }
 type SqlRow = Record<string, string | null>
@@ -77,16 +79,19 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
     if (!Array.isArray(result)) throw new Error('[internal] ROTATION_DATABASE_INVALID')
     return result as Row[]
   }
-  const mapSize = await query<{ count: string; bytes: string }>(`SELECT count(*)::text AS count, coalesce(sum(octet_length(row_to_json(m)::text)),0)::text AS bytes FROM encryption_maps m ${context.tenantId ? 'WHERE tenant_id = ?' : ''}`, context.tenantId ? [context.tenantId] : [])
+  const mapSize = await query<{ count: string; bytes: string }>(`SELECT count(*)::text AS count, coalesce(sum(octet_length(row_to_json(m)::text)),0)::text AS bytes FROM encryption_maps m ${context.tenantId ? 'WHERE tenant_id = ? OR tenant_id IS NULL' : ''}`, context.tenantId ? [context.tenantId] : [])
   if (Number(mapSize[0]?.count) > MAX_MAPS || Number(mapSize[0]?.bytes) > 4 * 1024 * 1024) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   const maps = await context.entityManager.find(EncryptionMap, {
-    ...(context.tenantId ? { tenantId: context.tenantId } : {}),
+    ...(context.tenantId ? { $or: [{ tenantId: context.tenantId }, { tenantId: null }] } : {}),
   }, { limit: MAX_MAPS + 1, orderBy: { id: 'asc' } })
   if (maps.length > MAX_MAPS) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   const metas = new Map(listEntityMetadata(context.entityManager).map((meta) => [resolveEntityIdFromMetadata(meta), meta]))
   const tables = new Map<string, Table>()
+  const systemEntities = new Set([...(context.systemScopedEntityIds ?? []), ...getDefaultEncryptionMaps(tryGetModules() ?? []).filter((entry) => entry.keyScope === 'system').map((entry) => entry.entityId)])
+  const emptyMaps: string[] = []
   for (const map of maps) {
-    if (!map.tenantId || !map.fieldsJson?.length) continue
+    if (systemEntities.has(map.entityId)) continue
+    if (!map.fieldsJson?.length) { emptyMaps.push(map.entityId); continue }
     if (context.organizationId && map.organizationId && map.organizationId !== context.organizationId) continue
     const meta = metas.get(map.entityId)
     if (!meta?.tableName || !meta.primaryKeys.length) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
@@ -97,11 +102,15 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
       tables.set(name, table)
     }
     for (const field of map.fieldsJson) {
-      table.rules.push({ tenantId: map.tenantId, organizationId: map.organizationId ?? null, column: propertyColumn(meta, field.field), hashColumn: field.hashField ? propertyColumn(meta, field.hashField) : null, active: map.isActive && !map.deletedAt })
+      table.rules.push({ tenantId: map.tenantId ?? null, organizationId: map.organizationId ?? null, column: propertyColumn(meta, field.field), hashColumn: field.hashField ? propertyColumn(meta, field.hashField) : null, active: map.isActive && !map.deletedAt })
     }
   }
   const custom = await query<{ present: string | null }>('SELECT to_regclass(?)::text AS present', ['public.custom_entities_storage'])
-  if (custom[0]?.present) tables.set('public.custom_entities_storage', { name: 'public.custom_entities_storage', columns: [], primaryKeys: ['id'], rules: [], custom: true })
+  if (custom[0]?.present) {
+    const existing = tables.get('public.custom_entities_storage')
+    if (existing) existing.custom = true
+    else tables.set('public.custom_entities_storage', { name: 'public.custom_entities_storage', columns: [], primaryKeys: ['id'], rules: [], custom: true })
+  }
   if (!tables.size || tables.size > 1000) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   const scopeSql = `${context.tenantId ? 'tenant_id = ?' : 'tenant_id IS NOT NULL'}${context.organizationId ? ' AND organization_id = ?' : ''}`
   const scopeParameters = () => [...(context.tenantId ? [context.tenantId] : []), ...(context.organizationId ? [context.organizationId] : [])]
@@ -120,7 +129,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
   const tenants = await query<{ tenant_id: string }>(`SELECT DISTINCT tenant_id::text AS tenant_id FROM (${orderedTables.map((table) => `SELECT tenant_id FROM ${tableSql(table)} WHERE ${scopeSql}`).join(' UNION ALL ')}) selected ORDER BY tenant_id`, orderedTables.flatMap(() => scopeParameters()))
   if (tenants.length > 1000) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   const selectedTenants = tenants.map((entry) => entry.tenant_id)
-  const definitionCache = new Map<string, Set<string>>()
+  const definitionCache = new Map<string, { known: Set<string>; required: Set<string> }>()
   const keyInventory = async () => {
     const source: string[][] = []
     const target: string[][] = []
@@ -150,14 +159,14 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
     const identity = await query<{ clusterIncarnation: string; databaseOid: string; serverMajor: number; encoding: string; collation: string }>(`SELECT s.system_identifier::text || ':' || c.timeline_id::text || ':' || CASE WHEN pg_is_in_recovery() THEN 'recovery' ELSE 'primary' END AS "clusterIncarnation", d.oid::text AS "databaseOid", (current_setting('server_version_num')::int / 10000)::int AS "serverMajor", pg_encoding_to_char(d.encoding) AS encoding, d.datcollate AS collation FROM pg_control_system() s CROSS JOIN pg_control_checkpoint() c CROSS JOIN pg_database d WHERE d.datname = current_database()`)
     if (!identity[0]?.clusterIncarnation) throw new Error('[internal] ROTATION_DATABASE_INVALID')
     const metadata = await query<{ payload: string }>("SELECT jsonb_build_array(c.oid::text, n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity, a.attname, a.atttypid::text, a.atttypmod, a.attnotnull, c.relowner::text, c.relacl::text, a.attgenerated, a.attcollation::text, (SELECT string_agg(pg_get_constraintdef(oid), ';' ORDER BY oid) FROM pg_constraint WHERE conrelid=c.oid), (SELECT string_agg(pg_get_indexdef(indexrelid), ';' ORDER BY indexrelid) FROM pg_index WHERE indrelid=c.oid))::text AS payload FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE c.oid = ANY(?::regclass[]) ORDER BY c.oid,a.attnum", [orderedTables.map((table) => table.name)])
-    const controls = await query<{ payload: string }>(`SELECT row_to_json(m)::text AS payload FROM encryption_maps m ${context.tenantId ? 'WHERE tenant_id = ?' : ''} ORDER BY id LIMIT ${MAX_MAPS + 1}`, context.tenantId ? [context.tenantId] : [])
+    const controls = await query<{ payload: string }>(`SELECT row_to_json(m)::text AS payload FROM encryption_maps m ${context.tenantId ? 'WHERE tenant_id = ? OR tenant_id IS NULL' : ''} ORDER BY id LIMIT ${MAX_MAPS + 1}`, context.tenantId ? [context.tenantId] : [])
     const definitionSize = await query<{ count: string; bytes: string }>(`SELECT count(*)::text AS count, coalesce(sum(octet_length(row_to_json(d)::text)),0)::text AS bytes FROM custom_field_defs d WHERE tenant_id IS NULL${context.tenantId ? ' OR tenant_id = ?' : ' OR tenant_id IS NOT NULL'}`, context.tenantId ? [context.tenantId] : [])
     if (Number(definitionSize[0]?.count) > 5000 || Number(definitionSize[0]?.bytes) > 4 * 1024 * 1024) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
     const definitions = await query<{ payload: string }>(`SELECT row_to_json(d)::text AS payload FROM custom_field_defs d WHERE tenant_id IS NULL${context.tenantId ? ' OR tenant_id = ?' : ' OR tenant_id IS NOT NULL'} ORDER BY id LIMIT 5001`, context.tenantId ? [context.tenantId] : [])
     const policies = await query<{ payload: string }>('SELECT row_to_json(p)::text AS payload FROM pg_policies p ORDER BY schemaname,tablename,policyname LIMIT 10001')
     if (policies.length > 10000 || controls.length > MAX_MAPS) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
     const schema = digest(JSON.stringify([metadata, policies]))
-    return { database: digest(JSON.stringify(identity[0])), scope: JSON.stringify([context.tenantId, context.organizationId]), schema, coverage: digest(JSON.stringify([controls, definitions, orderedTables])), provider: options.provider, backupDigest: options.backupDigest }
+    return { database: digest(JSON.stringify(identity[0])), scope: JSON.stringify({ tenantId: context.tenantId, organizationId: context.organizationId, excludedSystemEntities: [...systemEntities].sort(), emptyMaps: emptyMaps.sort() }), schema, coverage: digest(JSON.stringify([controls, definitions, orderedTables])), provider: options.provider, backupDigest: options.backupDigest }
   }
   const decode = async (value: string, tenantId: string, phase: 'before' | 'after'): Promise<string> => {
     const key = await providers.kms.getTenantDek(tenantId)
@@ -172,12 +181,16 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
   }
   async function* rows(phase: 'before' | 'after', signal?: AbortSignal): AsyncGenerator<VerificationRow> {
     for (const table of orderedTables) {
+      const expectedCount = await query<{ count: string }>(`SELECT count(*)::text AS count FROM ${tableSql(table)} WHERE ${scopeSql}`, scopeParameters())
+      const expectedRows = BigInt(expectedCount[0]?.count ?? '-1')
+      if (expectedRows < 0n || expectedRows > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+      let yieldedRows = 0n
       let cursor: string[] | null = null
-      const primary = table.primaryKeys.map(quote)
+      const primary = table.primaryKeys.map((key) => `verification_rows.${quote(key)}`)
       for (;;) {
         signal?.throwIfAborted()
         const predicate: string = cursor ? ` AND (${primary.join(', ')}) > (${primary.map(() => '?').join(', ')})` : ''
-        const result: SqlRow[] = await query<SqlRow>(`SELECT ${table.columns.map((entry) => `${quote(entry.name)}::text AS ${quote(entry.name)}`).join(', ')} FROM ${tableSql(table)} WHERE ${scopeSql}${predicate} ORDER BY ${primary.join(', ')} LIMIT ${MAX_ROWS}`, [...scopeParameters(), ...(cursor ?? [])])
+        const result: SqlRow[] = await query<SqlRow>(`SELECT ${table.columns.map((entry) => `${quote(entry.name)}::text AS ${quote(entry.name)}`).join(', ')} FROM ${tableSql(table)} AS verification_rows WHERE ${scopeSql}${predicate} ORDER BY ${primary.join(', ')} LIMIT ${MAX_ROWS}`, [...scopeParameters(), ...(cursor ?? [])])
         if (!result.length) break
         for (const raw of result) {
           const tenantId = raw.tenant_id
@@ -189,10 +202,11 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
             return value
           })
           const values = new Map<string, LogicalValue>(table.columns.map((entry) => [entry.name, raw[entry.name] ?? null]))
-          const rules = table.rules.filter((rule) => rule.tenantId === tenantId && (rule.organizationId === null || rule.organizationId === organizationId))
+          const rules = table.rules.filter((rule) => (rule.tenantId === null || rule.tenantId === tenantId) && (rule.organizationId === null || rule.organizationId === organizationId))
           for (const rule of rules) {
             const value = raw[rule.column]
             if (value == null) continue
+            if (rule.tenantId === null && !rules.some((entry) => entry.active && entry.tenantId === tenantId && entry.column === rule.column && (!rule.hashColumn || entry.hashColumn === rule.hashColumn))) throw new Error('[internal] ROTATION_GLOBAL_FALLBACK_UNSUPPORTED')
             const columnType = table.columns.find((entry) => entry.name === rule.column)!.type
             const envelope = databaseEnvelope(value, columnType)
             if (!isEncryptedPayloadShape(envelope)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
@@ -212,21 +226,34 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
             const doc = logical(JSON.parse(raw.doc))
             if (!doc || typeof doc !== 'object' || Array.isArray(doc)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
             const scopeKey = JSON.stringify([raw.entity_type, tenantId, organizationId])
-            let known = definitionCache.get(scopeKey)
-            if (!known) {
-              const definitions = await query<{ key: string }>('SELECT key FROM custom_field_defs WHERE entity_id = ? AND (tenant_id = ? OR tenant_id IS NULL) AND (organization_id = ? OR organization_id IS NULL) ORDER BY id LIMIT 501', [raw.entity_type, tenantId, organizationId])
+            let policy = definitionCache.get(scopeKey)
+            if (!policy) {
+              const definitions = await query<{ key: string; required: boolean; tenant_id: string | null; organization_id: string | null; is_active: boolean; deleted_at: string | null; updated_at: string }>("SELECT key, coalesce(config_json->>'encrypted' = 'true',false) AS required, tenant_id::text, organization_id::text, is_active, deleted_at::text, updated_at::text FROM custom_field_defs WHERE entity_id = ? AND (tenant_id = ? OR tenant_id IS NULL) AND (organization_id = ? OR organization_id IS NULL) ORDER BY id LIMIT 501", [raw.entity_type, tenantId, organizationId])
               if (definitions.length > 500) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-              known = new Set(definitions.map((entry) => entry.key))
+              const winning = new Map<string, typeof definitions[number]>()
+              const score = (entry: typeof definitions[number]) => (entry.tenant_id ? 2 : 0) + (entry.organization_id ? 1 : 0)
+              for (const definition of definitions) {
+                if (!definition.is_active || definition.deleted_at) continue
+                const previous = winning.get(definition.key)
+                if (!previous || score(definition) > score(previous) || (score(definition) === score(previous) && definition.updated_at >= previous.updated_at)) winning.set(definition.key, definition)
+              }
+              policy = { known: new Set(definitions.map((entry) => entry.key)), required: new Set([...winning.values()].filter((entry) => entry.required).map((entry) => entry.key)) }
               if (definitionCache.size >= 64) definitionCache.delete(definitionCache.keys().next().value!)
-              definitionCache.set(scopeKey, known)
+              definitionCache.set(scopeKey, policy)
             }
             const transformed: Record<string, LogicalValue> = {}
             for (const [key, value] of Object.entries(doc)) {
               const isEnvelope = (entry: LogicalValue) => typeof entry === 'string' && isCustomEntityDocumentCiphertext(entry)
               const contains = Array.isArray(value) ? value.some(isEnvelope) : isEnvelope(value)
-              if (!contains) { transformed[key] = value; continue }
-              if (!known.has(key.replace(/^cf[:_]/, ''))) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-              const decrypt = async (entry: LogicalValue): Promise<LogicalValue> => isEnvelope(entry) ? decode(entry as string, tenantId, phase) : entry
+              if (!contains) {
+                if (value !== null && policy.required.has(key.replace(/^cf[:_]/, ''))) throw new Error('[internal] ROTATION_CUSTOM_PLAINTEXT_UNSUPPORTED')
+                transformed[key] = value; continue
+              }
+              if (!policy.known.has(key.replace(/^cf[:_]/, ''))) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+              const decrypt = async (entry: LogicalValue): Promise<LogicalValue> => {
+                if (entry !== null && policy.required.has(key.replace(/^cf[:_]/, '')) && !isEnvelope(entry)) throw new Error('[internal] ROTATION_CUSTOM_PLAINTEXT_UNSUPPORTED')
+                return isEnvelope(entry) ? decode(entry as string, tenantId, phase) : entry
+              }
               transformed[key] = Array.isArray(value) ? await Promise.all(value.map(decrypt)) : await decrypt(value)
             }
             values.set('doc', transformed)
@@ -238,12 +265,20 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
             if (timestamp) timestamp.value = '__rotation_timestamp_v1__'
             if (phase === 'after') row.metadataIntent = await options.intents?.load(rowIdentity(row))
           }
+          yieldedRows++
           yield row
         }
         cursor = table.primaryKeys.map((key: string): string => result[result.length - 1]![key]!)
         if (result.length < MAX_ROWS) break
       }
+      if (yieldedRows !== expectedRows) throw new Error('[internal] ROTATION_COVERAGE_INCOMPLETE')
     }
   }
-  return { assertFence, binding, keys: keyInventory, rows }
+  const frozen = await binding()
+  const checkedBinding = async () => {
+    const observed = await binding()
+    if (JSON.stringify(observed) !== JSON.stringify(frozen)) throw new Error('[internal] ROTATION_BINDING_CHANGED')
+    return observed
+  }
+  return { assertFence, binding: checkedBinding, keys: keyInventory, rows }
 }

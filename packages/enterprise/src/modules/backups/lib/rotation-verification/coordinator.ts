@@ -27,6 +27,7 @@ export type RotationCoordinatorOptions = {
     verify(artifact: RecoveryArtifact, context: RotationProtectionContext): Promise<void>
   }
   cipher(): Promise<RotationArtifactCipher>
+  reportRun?(id: string): Promise<void>
   report(result: VerificationResult, recovery: RecoveryArtifact): Promise<void>
 }
 
@@ -110,6 +111,7 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
       try {
         const store = new RotationArtifactStore(join(artifactRoot, id), await options.cipher())
         await lock.writeFile(JSON.stringify({ pid: process.pid, host: hostname(), id, startedAt: new Date().toISOString() })); await lock.sync()
+        await options.reportRun?.(id)
         const providers = await options.providers(context)
         let intentQueue = Promise.resolve()
         const intents: TimestampLoader = {

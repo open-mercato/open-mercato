@@ -1,0 +1,45 @@
+---
+title: Protected key rotation
+---
+
+# Protected key rotation
+
+`mercato entities rotate-encryption-key` keeps its Core implementation. A mutating invocation without an available Enterprise protection service now prints a red **ERROR** and refuses before provisioning a key or rewriting data. Rerun with `--acknowledge-unprotected-key-rotation` only after accepting the risk of interruption or incorrect data. Every invocation and retry needs this exact option; `--yes`, `--force`, environment variables and an earlier acknowledgment do not substitute for it. `--dry-run` remains read-only and does not need acknowledgment.
+
+Core acknowledgment neither creates an Enterprise backup nor verifies rotation correctness. Keep a tested independent backup and every previous key. For an explicitly unprotected Core invocation, disable the optional backup module for that invocation and pass the acknowledgment; a failed protected run never silently downgrades.
+
+## Enterprise prerequisites
+
+Install the commercially licensed Enterprise package, enable both `OM_ENABLE_ENTERPRISE_MODULES=true` and `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=true`, and set `OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED=true` only when you have rights to use the installed version. The attestation is an operator declaration, not a license server or cryptographic entitlement proof; module flags alone only enable modules.
+
+Before starting, stop all application replicas, workers and schedulers. Use a dedicated offline maintenance connection whose database role can read every selected row, including under RLS/FORCE RLS. Other non-superuser roles must have no effective write/ownership privileges on selected tables or encryption control tables; no other client sessions or prepared transactions may remain. Preflight refuses when it cannot prove this fence. The command does not terminate sessions or revoke grants automatically. Database superusers and the host operator remain trusted; do not run independent administrative writes during maintenance.
+
+Prepare the following private files and absolute directories on the maintenance host:
+
+| Setting | Purpose |
+|---|---|
+| `PGSERVICEFILE`, `PGPASSFILE` | Explicit libpq services and credentials for the source; owner-only password file, no passwords in argv. |
+| `OM_ROTATION_BACKUP_SOURCE_SERVICE` | Source service name. Its real cluster/database identity must match the app EntityManager's database. |
+| `OM_BACKUP_BINARIES_DIR` | Matching supported PostgreSQL client binaries directory. |
+| `OM_ROTATION_RECIPIENTS_FILE` | Reviewed age X25519 recipients, including recovery custody. |
+| `OM_ROTATION_IDENTITIES_FILE` | Independently retained identities that can decrypt the backup and verification artifacts. |
+| `OM_ROTATION_BACKUP_OUTPUT`, `OM_ROTATION_BACKUP_WORKSPACE` | Private backup artifact and resumable-work directories. |
+| `OM_ROTATION_ARTIFACT_ROOT` | Private encrypted expected-data artifacts directory. |
+| `OM_ROTATION_TRUST_ROOT` | Separate physical owner-only directory for trusted run roots, timestamp-intent anchors and operator reports. It must not be inside the artifact directory or vice versa. |
+| `OM_ROTATION_KMS_PROVIDER` | Explicit `derived` or `vault` target provider; protected rotation never uses the fallback-capable provider factory. |
+
+For a derived target, retain the selected `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` or `TENANT_DATA_ENCRYPTION_KEY` in approved custody. For Vault, explicitly configure `VAULT_ADDR`, `VAULT_TOKEN` and `VAULT_KV_PATH`; its pinned DEKs must already exist. Supply the previous derived root using `TENANT_DATA_ENCRYPTION_OLD_KEY`, never a command-line key. Neither backup nor verification exports application DEKs. A source/target pair with identical concrete key material refuses as a no-op. Unsupported historical ownership/codec/global-fallback scopes refuse before mutation; system-key records and independent inner secret envelopes are outside tenant rotation and must be handled by their owners before any root-key retirement.
+
+## Execution and verification
+
+The protected flow verifies offline fencing and key/provider identity, creates and verifies a quiesced whole-database encrypted backup, seals a complete logical baseline, performs bounded rotation and checks committed values back. An independent final scan then compares every declared row/value and exact coverage with the frozen baseline, using only pinned target keys for final decryption. Ciphertext equality, row counts alone and sampling never produce a passing result.
+
+Progress identifies the protected run. On success, the owner-only trusted directory contains a versioned aggregate report with exact compared/expected counts and the recovery reference; output says only that the declared scope passed. Keep the backup and previous keys. Passing does not authorize deleting keys needed by historical backups, system records or other applications.
+
+## Interruption and failure
+
+Keep all writers stopped. Retain the encrypted artifacts, trusted directory, previous/current keys and recipient identities. A failed or interrupted scan is never a verified completion. After fixing the cause, set `OM_ROTATION_RESUME_ID` to the exact coordinator run identifier shown by the original command and rerun the same protected rotation inputs. Resume re-verifies the original backup and trust bindings and repeats the entire final persisted-data scan; it never creates a replacement expectation from already rotated values.
+
+A live run lock refuses concurrent attempts. Stale recovery is restricted to an explicit resume for the same observed run on the same host after its recorded process is dead; do not delete locks or trusted files to bypass it. Any changed schema, scope, provider/key, missing timestamp intent or conflicting report refuses rather than presenting success. If a prior success report was durably published before interruption, an equivalent repeat report is accepted; conflicting counts or recovery digest are rejected.
+
+For rollback, use the Enterprise backup restore/exercise commands against a separately provisioned quarantined target, validate identity/data/canaries with retained keys, and perform a separately approved cutover. Never restore over the live database or re-enable writers merely because an artifact checksum passes.

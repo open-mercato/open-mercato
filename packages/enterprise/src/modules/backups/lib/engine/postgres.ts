@@ -27,7 +27,7 @@ type Wire = {
 class ExportQuery extends Query<Record<string, unknown>> {
   readonly output = new PassThrough(limits)
   handleCopyData(message: { chunk: Buffer }, connection: Wire) {
-    if (!this.output.write(message.chunk)) {
+    if (!this.output.write(Buffer.from(message.chunk))) {
       connection.stream.pause()
       this.output.once('drain', () => connection.stream.resume())
     }

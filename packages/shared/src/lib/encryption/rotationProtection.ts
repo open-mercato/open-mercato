@@ -10,6 +10,7 @@ export type RotationTimestampIntent = {
 }
 
 export type RotationKeyProviders = {
+  signal?: AbortSignal
   kms: KmsService
   previousKms: KmsService | null
   timestampForWrite?: (intent: RotationTimestampIntent) => Promise<Date>
@@ -21,6 +22,7 @@ export type RotationProtectionContext = {
   dryRun: boolean
   entityManager: EntityManager
   previousKey: string | null
+  systemScopedEntityIds?: readonly string[]
 }
 
 export interface RotationProtectionService {

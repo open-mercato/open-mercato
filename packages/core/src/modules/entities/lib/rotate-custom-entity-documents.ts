@@ -23,6 +23,7 @@ type RotationOptions = {
   tenantId: string | null
   organizationId: string | null
   dryRun: boolean
+  signal?: AbortSignal
   timestampForWrite?: (intent: RotationTimestampIntent) => Promise<Date>
 }
 
@@ -82,6 +83,7 @@ export async function rotateCustomEntityDocuments(
   let cursor: string | null = null
   let updated = 0
   for (;;) {
+    options.signal?.throwIfAborted()
     const predicates = ['EXISTS (SELECT 1 FROM custom_field_defs d WHERE d.entity_id = custom_entities_storage.entity_type AND (d.tenant_id IS NULL OR d.tenant_id = custom_entities_storage.tenant_id) AND (d.organization_id IS NULL OR d.organization_id = custom_entities_storage.organization_id))']
     const parameters: unknown[] = []
     if (options.tenantId) {
@@ -97,7 +99,7 @@ export async function rotateCustomEntityDocuments(
       parameters.push(cursor)
     }
     const oversized = await connection.execute<Array<{ oversized: number }>>(
-      `select 1 as oversized from custom_entities_storage where ${predicates.join(' and ')} and octet_length(convert_to(doc::text, 'UTF8')) > ? limit 1`,
+      `select 1 as oversized from (select doc from custom_entities_storage where ${predicates.join(' and ')} order by id asc limit ${BATCH_SIZE}) candidates where octet_length(convert_to(doc::text, 'UTF8')) > ? limit 1`,
       [...parameters, MAINTENANCE_ROW_BYTES],
     )
     if (oversized.length) throw new Error('[internal] Custom document exceeds supported maintenance size')
@@ -107,6 +109,7 @@ export async function rotateCustomEntityDocuments(
     )
     if (!rows.length) break
     for (const row of rows) {
+      options.signal?.throwIfAborted()
       const scopeKey = JSON.stringify([row.entity_type, row.tenant_id, row.organization_id])
       let policy = fieldsByScope.get(scopeKey)
       if (!policy) {
@@ -210,6 +213,13 @@ export async function rotateCustomEntityDocuments(
         [JSON.stringify(nextDoc), ...(intendedTimestamp ? [intendedTimestamp] : []), row.id, row.entity_type, tenantId, row.organization_id, JSON.stringify(row.doc)],
       )
       if (!written.length) throw new Error('[internal] Custom entity document changed during encryption; retry the operation')
+      if (intendedTimestamp) {
+        const committed = await connection.execute<Array<{ id: string }>>(
+          'select id from custom_entities_storage where id = ? and entity_type = ? and tenant_id is not distinct from ? and organization_id is not distinct from ? and doc = ?::jsonb and updated_at = ?',
+          [row.id, row.entity_type, tenantId, row.organization_id, JSON.stringify(nextDoc), intendedTimestamp],
+        )
+        if (committed.length !== 1) throw new Error('[internal] Persisted custom document readback did not match intended values')
+      }
       updated += 1
     }
     cursor = rows[rows.length - 1]!.id

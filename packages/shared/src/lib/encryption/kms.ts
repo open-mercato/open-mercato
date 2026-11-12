@@ -443,7 +443,16 @@ export function resolveEncryptionMode(kms: Pick<KmsService, 'isHealthy'>): Tenan
 export function createDerivedKeyKmsService(secret: string): KmsService {
   const normalized = normalizeEnv(secret)
   if (!normalized) throw new Error('[internal] ROTATION_KEY_UNAVAILABLE')
-  return new DerivedKmsService(normalized)
+  const provider = new DerivedKmsService(normalized)
+  const keys = new Map<string, TenantDek>()
+  const get = async (tenantId: string): Promise<TenantDek | null> => {
+    if (keys.has(tenantId)) return { ...keys.get(tenantId)! }
+    if (keys.size >= 10000) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+    const key = await provider.getTenantDek(tenantId)
+    if (key) keys.set(tenantId, key)
+    return key ? { ...key } : null
+  }
+  return { isHealthy: () => provider.isHealthy(), getTenantDek: get, createTenantDek: get, invalidateDek() {} }
 }
 
 export function createKmsService(): KmsService {

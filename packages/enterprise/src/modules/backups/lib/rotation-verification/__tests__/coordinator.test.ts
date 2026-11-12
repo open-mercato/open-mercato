@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { publishRotationReport } from '../report'
 import { createEnterpriseRotationProtection, type RotationCoordinatorOptions } from '../coordinator'
 import type { VerificationRow } from '../canonical'
 import { canonicalRotationTimestamp } from '../postgres-dataset'
@@ -100,4 +101,20 @@ test('a failed verification resumes the original baseline and backup instead of 
   await createEnterpriseRotationProtection({ ...options, resumeId: saved.id }).protect(context, async () => undefined)
   expect(state.creates).toBe(1); expect(state.reports).toBe(1)
   expect(JSON.parse(await readFile(join(options.trustRoot, file), 'utf8')).prepared).toEqual(saved.prepared)
+})
+
+
+test('a durable report followed by failed trusted-state publication resumes idempotently', async () => {
+  const { options, context } = fixture()
+  let failedOnce = false
+  options.report = async (result, recovery) => {
+    await publishRotationReport(join(options.trustRoot, `${result.runId}.report.json`), result, recovery)
+    if (!failedOnce) { failedOnce = true; throw new Error('injected failure after durable receipt') }
+  }
+  await expect(createEnterpriseRotationProtection(options).protect(context, async () => {})).rejects.toThrow('durable receipt')
+  const records = (await readdir(options.trustRoot)).filter((name) => name.endsWith('.json') && !name.endsWith('.report.json'))
+  expect(records).toHaveLength(1)
+  const id = records[0]!.slice(0, -5)
+  await expect(createEnterpriseRotationProtection({ ...options, resumeId: id }).protect(context, async () => {})).resolves.toBeUndefined()
+  expect(JSON.parse(await readFile(join(options.trustRoot, records[0]!), 'utf8')).status).toBe('passed')
 })

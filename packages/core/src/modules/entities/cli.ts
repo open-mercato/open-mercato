@@ -610,6 +610,7 @@ const rotateEncryptionKey: ModuleCli = {
       encryptionService,
       oldKms,
       timestampForWrite: providers?.timestampForWrite,
+      signal: providers?.signal,
       tenantId: tenantIdArg,
       organizationId: organizationIdArg,
       dryRun,
@@ -694,6 +695,7 @@ const rotateEncryptionKey: ModuleCli = {
       // The scope pins one tenant, so the current DEK is the same for every row here.
       const currentDek = rotate && oldKms ? await encryptionService.getDek(scope.tenantId) : null
       for (const row of batch) {
+        providers?.signal?.throwIfAborted()
         const payload: Record<string, unknown> = {}
         for (const rule of fields) {
           const resolved = resolveProperty(meta, rule.field)
@@ -790,7 +792,7 @@ const rotateEncryptionKey: ModuleCli = {
         }
         if (!Object.keys(updates).length) continue
         if (!dryRun) {
-          await writeMaintenanceRow(conn, qualifiedTable, primaryKeys, row, updates, scope)
+          await writeMaintenanceRow(conn, qualifiedTable, primaryKeys, row, updates, scope, Boolean(providers))
         }
         updated += 1
       }
