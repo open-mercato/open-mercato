@@ -59,7 +59,7 @@ async function addLine(page: Page, taxRateName: string, name: string) {
   await page.getByRole('option').filter({ hasText: taxRateName }).click()
   await dialog.getByPlaceholder('Optional line name', { exact: true }).fill(name)
   await dialog.getByRole('textbox', { name: '0.00', exact: true }).fill('50')
-  await dialog.getByRole('textbox', { name: '1', exact: true }).fill('2')
+  await dialog.getByRole('textbox', { name: 'Quantity', exact: true }).fill('2')
   await dialog.getByRole('button', { name: 'Add item', exact: true }).click()
   await expect(dialog).toBeHidden()
 }
@@ -83,8 +83,8 @@ async function addAdjustment(page: Page, input: {
   await page.getByRole('option').filter({ hasText: input.taxRateName }).click()
   await dialog.getByPlaceholder('e.g. Shipping fee', { exact: true }).fill(input.label)
   await dialog.getByRole('button', { name: 'Fixed amount', exact: true }).click()
-  await dialog.getByRole('textbox', { name: '0.00', exact: true }).nth(1).fill(String(input.net))
-  await dialog.getByRole('textbox', { name: '0.00', exact: true }).nth(2).fill(String(input.gross))
+  await dialog.getByRole('textbox', { name: 'Net amount *', exact: true }).fill(String(input.net))
+  await dialog.getByRole('textbox', { name: 'Gross amount', exact: true }).fill(String(input.gross))
   await dialog.getByRole('button', { name: 'Add adjustment', exact: true }).click()
   await expect(dialog).toBeHidden()
 }

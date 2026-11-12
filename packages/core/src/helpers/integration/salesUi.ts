@@ -1043,11 +1043,11 @@ export async function addCustomLine(page: Page, options: AddLineOptions): Promis
   await expect(customLineButton).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
   await customLineButton.click();
 
-  const nameInput = dialog.getByRole('textbox', { name: /Optional line name/i });
+  const nameInput = dialog.locator('[data-crud-field-id="name"] input').first();
   await expect(nameInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
   await nameInput.fill(options.name);
   await dialog.getByRole('textbox', { name: '0.00' }).fill(String(options.unitPriceGross));
-  await dialog.getByRole('textbox', { name: '1' }).fill(String(options.quantity));
+  await dialog.getByRole('textbox', { name: 'Quantity', exact: true }).fill(String(options.quantity));
 
   if (options.taxClassName) {
     const taxClassTrigger = dialog.locator('[data-crud-field-id="taxRateId"] [role="combobox"]').first();
@@ -1097,7 +1097,7 @@ export async function updateLineQuantity(page: Page, lineName: string, quantity:
 
   const dialog = page.getByRole('dialog', { name: /Edit line/i });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('textbox', { name: '1' }).fill(String(quantity));
+  await dialog.getByRole('textbox', { name: 'Quantity', exact: true }).fill(String(quantity));
   await dialog.getByRole('button', { name: /Save changes/i }).click();
 
   await expect(page.getByRole('row', { name: new RegExp(`${escapeRegExp(lineName)}.*\\b${quantity}\\b`, 'i') })).toBeVisible();

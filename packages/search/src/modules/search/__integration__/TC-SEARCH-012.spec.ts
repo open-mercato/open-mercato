@@ -26,7 +26,7 @@ test.describe('TC-SEARCH-012: global search results escape the sticky header sta
 
     // Open the collapsed top-bar search (icon button) and focus its input.
     await page.locator('header').getByRole('button', { name: 'Open global search' }).click()
-    const input = page.locator('input[aria-controls="topbar-search-results"]')
+    const input = page.locator('header').getByRole('combobox', { name: 'Search', exact: true })
     await expect(input).toBeVisible()
 
     // A 2-char query (below the 3-char minimum) opens the panel in its hint state

@@ -35,7 +35,7 @@ test.describe('TC-CRM-CRUDFORM-HOST-001: Canonical CRM create hosts', () => {
           await expect(quickAdd).toBeEnabled()
           await quickAdd.click()
           await expect(page.getByRole('dialog', { name: 'Quick deal', exact: true })).toBeVisible()
-          await page.getByRole('dialog').getByRole('textbox', { name: 'e.g. Q3 Expansion — Lighting Package', exact: true }).fill(name)
+          await page.getByRole('dialog').getByRole('textbox', { name: /^Deal title/ }).fill(name)
         } else {
           await page.goto(`/backend/customers/${kind}/create`, { waitUntil: 'domcontentloaded' })
           await expect(page.getByRole('combobox', { name: 'Priority', exact: true })).toBeVisible()

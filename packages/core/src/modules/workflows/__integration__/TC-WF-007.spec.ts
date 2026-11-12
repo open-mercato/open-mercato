@@ -226,7 +226,7 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       await expect(dialog.getByRole('spinbutton', { name: 'Duration amount' })).toHaveValue('5')
       await expect(dialog.getByRole('combobox', { name: 'Duration unit' })).toContainText('Minutes')
       await expect(dialog.getByText('Wait Until', { exact: true })).toBeVisible()
-      await expect(dialog.getByRole('button', { name: 'Pick date and time' })).toBeVisible()
+      await expect(dialog.getByRole('button', { name: 'Wait Until', exact: true })).toHaveText('Pick date and time')
     } finally {
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)
     }

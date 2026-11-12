@@ -60,6 +60,15 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
       </span>
     ) : null
 
+    const titleLabel = (
+      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
+        <span className="min-w-0 break-words">{title}</span>
+        {fieldCountLabel}
+        {errorBadge}
+      </span>
+    )
+
     const dragHandle = showDragHandle ? (
       <span
         className="inline-flex shrink-0 items-center"
@@ -111,6 +120,9 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
                 // instead of stacking a second hover layer over the trigger
                 // button.
                 'flex-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-transparent dark:hover:bg-transparent',
+                // A long title wraps inside the row instead of pushing the page
+                // wider than a 320 px viewport.
+                'h-auto min-h-9 min-w-0 whitespace-normal text-left',
                 chevronPosition === 'left' ? 'justify-start gap-2' : 'justify-between',
               )}
               aria-expanded={expanded}
@@ -119,21 +131,11 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
               {chevronPosition === 'left' ? (
                 <>
                   {chevronIcon}
-                  <span className="flex items-center gap-2">
-                    {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
-                    <span>{title}</span>
-                    {fieldCountLabel}
-                    {errorBadge}
-                  </span>
+                  {titleLabel}
                 </>
               ) : (
                 <>
-                  <span className="flex items-center gap-2">
-                    {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
-                    <span>{title}</span>
-                    {fieldCountLabel}
-                    {errorBadge}
-                  </span>
+                  {titleLabel}
                   {chevronIcon}
                 </>
               )}

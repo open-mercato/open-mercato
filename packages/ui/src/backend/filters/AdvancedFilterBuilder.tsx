@@ -441,7 +441,7 @@ function SortableRow({
             type="button"
             {...dragHandleProps}
             data-testid="filter-drag-handle"
-            className="mt-1 text-muted-foreground/60 hover:text-muted-foreground cursor-grab outline-none focus-visible:shadow-focus rounded-sm"
+            className="mt-1 text-muted-foreground hover:text-foreground cursor-grab outline-none focus-visible:shadow-focus rounded-sm"
             aria-label={t('ui.advancedFilter.dragHandle', 'Drag to reorder')}
           >
             <GripVertical className="size-4" />
@@ -490,7 +490,7 @@ function RuleRow({
           type="button"
           {...dragHandleProps}
           data-testid="filter-drag-handle"
-          className="mt-1 text-muted-foreground/60 hover:text-muted-foreground cursor-grab outline-none focus-visible:shadow-focus rounded-sm"
+          className="mt-1 text-muted-foreground hover:text-foreground cursor-grab outline-none focus-visible:shadow-focus rounded-sm"
           aria-label={t('ui.advancedFilter.dragHandle', 'Drag to reorder')}
         >
           <GripVertical className="size-4" />
