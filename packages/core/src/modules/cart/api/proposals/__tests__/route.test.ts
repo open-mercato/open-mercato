@@ -1,5 +1,7 @@
 /** @jest-environment node */
 
+import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const TARGET_CART_ID = '44444444-4444-4444-8444-444444444444'
@@ -48,6 +50,12 @@ const mockResolveForBuyer = jest.fn(async () => ({
 
 const mockCommandBusExecute = jest.fn(async () => ({
   result: { proposalCartId: 'proposal-1', lines: [], totals: {}, rejectedLines: [] },
+}))
+
+let guards: MutationGuard[] = []
+
+jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
+  getAllMutationGuardInstances: jest.fn(() => guards),
 }))
 
 const fakeEm: FakeCartRow = {}
@@ -142,5 +150,80 @@ describe('POST /api/cart/proposals — storefront-channel routeContext resolutio
     expect(response.status).toBe(200)
     const [, options] = mockCommandBusExecute.mock.calls[0]
     expect((options as { input: { routeContext?: unknown } }).input.routeContext).toBeUndefined()
+  })
+})
+
+// M12 fix (inherited review finding): this route dispatched `cart.proposal.create` without
+// going through the route mutation-guard registry at all — unlike `api/proposals/[id]/
+// accept/route.ts` and `api/proposals/[id]/reject/route.ts`, which already wire the shared
+// `runRouteMutationGuards` wrapper for their own writes.
+describe('POST /api/cart/proposals — mutation guard registry (review finding M12)', () => {
+  beforeEach(() => {
+    mockCommandBusExecute.mockClear()
+    mockResolveForBuyer.mockClear()
+    storeContextServiceRegistered = true
+    seededTarget = makeTargetCartRow()
+    guards = []
+  })
+
+  it('refuses with the guard\'s own status/body and never dispatches cart.proposal.create when a guard denies', async () => {
+    const denyingGuard: MutationGuard = {
+      id: 'test.deny-proposal-author',
+      targetEntity: 'cart.cart',
+      operations: ['create'],
+      async validate() {
+        return { ok: false, status: 422, body: { error: 'blocked by test guard', code: 'test_guard_blocked' } }
+      },
+    }
+    guards = [denyingGuard]
+
+    const request = new Request('https://example.com/api/cart/proposals', { method: 'POST' })
+    const response = await POST(request)
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({ error: 'blocked by test guard', code: 'test_guard_blocked' })
+    expect(mockCommandBusExecute).not.toHaveBeenCalled()
+  })
+
+  it('merges a transforming guard\'s modifiedPayload into the dispatched command input and still runs afterSuccess', async () => {
+    const afterSuccess = jest.fn(async () => undefined)
+    const transformingGuard: MutationGuard = {
+      id: 'test.transform-proposal-ttl',
+      targetEntity: 'cart.cart',
+      operations: ['create'],
+      async validate() {
+        return { ok: true, modifiedPayload: { ttlSeconds: 3600 }, shouldRunAfterSuccess: true }
+      },
+      afterSuccess,
+    }
+    guards = [transformingGuard]
+
+    const request = new Request('https://example.com/api/cart/proposals', { method: 'POST' })
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    expect(mockCommandBusExecute).toHaveBeenCalledTimes(1)
+    const [, options] = mockCommandBusExecute.mock.calls[0]
+    expect((options as { input: { ttlSeconds?: unknown } }).input.ttlSeconds).toBe(3600)
+    expect(afterSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes the caller\'s own userId (not "anonymous") to the guard registry for an authenticated author', async () => {
+    const seenUserIds: Array<string> = []
+    const recordingGuard: MutationGuard = {
+      id: 'test.record-user-id',
+      targetEntity: 'cart.cart',
+      operations: ['create'],
+      async validate(input) {
+        seenUserIds.push(input.userId)
+        return { ok: true }
+      },
+    }
+    guards = [recordingGuard]
+
+    const request = new Request('https://example.com/api/cart/proposals', { method: 'POST' })
+    await POST(request)
+
+    expect(seenUserIds).toEqual([mockAuth.sub])
   })
 })

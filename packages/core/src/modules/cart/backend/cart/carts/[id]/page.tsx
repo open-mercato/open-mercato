@@ -11,10 +11,12 @@ import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-merc
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { ArrowLeft } from 'lucide-react'
 
 const CART_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
@@ -94,6 +96,7 @@ export default function CartAdminDetailPage({ params }: { params?: { id?: string
   const t = useT()
   const router = useRouter()
   const cartId = params?.id ?? ''
+  const { payload: backendChromePayload } = useBackendChrome()
 
   const [data, setData] = React.useState<CartAdminDetailResponse | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -223,7 +226,13 @@ export default function CartAdminDetailPage({ params }: { params?: { id?: string
   }
 
   const { cart, approval, mergeLogEntries, warnings } = data
-  const canReprice = cart.status === 'active' || cart.status === 'abandoned'
+  // N5 fix (inherited review finding): the endpoint requires `cart.carts.manage`
+  // (`api/carts/[id]/reprice/route.ts`) and always 403s a view-only `cart.carts.view`
+  // holder — gate the button the same wildcard-aware way (`hasFeature` resolves a `cart.*`
+  // grant too, since `grantedFeatures` is already expanded to concrete ids by
+  // `rbacService.getEffectiveFeatures`). Server authorization is unchanged; this is UX only.
+  const canManageReprice = hasFeature(backendChromePayload?.grantedFeatures, 'cart.carts.manage')
+  const canReprice = canManageReprice && (cart.status === 'active' || cart.status === 'abandoned')
 
   return (
     <Page>

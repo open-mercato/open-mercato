@@ -30,9 +30,8 @@ import { cartVisibilityKey, evaluateCartVisibility, isVisible } from '../lib/vis
 import type { CartVisibilityLineRef } from '../lib/visibility'
 import type { CartPromotionWarning } from '../lib/promotionContext'
 import { emitCartEvent } from '../events'
-import { isAcceptanceTokenFresh, signAcceptanceToken, verifyAcceptanceToken } from '../lib/acceptanceToken'
-import { buildProposalAcceptancePreview } from '../lib/proposalPreview'
-import type { ProposalAcceptancePreview } from '../lib/proposalPreview'
+import { isAcceptanceTokenFresh, verifyAcceptanceToken } from '../lib/acceptanceToken'
+import { buildFreshAcceptanceChallenge } from '../lib/acceptanceChallenge'
 import { mergeCartCommand } from './merge'
 import type { CartMergeInput, CartMergeResult } from './merge'
 import {
@@ -781,24 +780,6 @@ export type CartProposalAcceptResult = {
   acceptedLineCount: number
 }
 
-async function buildFreshAcceptanceChallenge(
-  em: EntityManager,
-  container: { resolve: <T = unknown>(name: string) => T },
-  scope: ProposalScope,
-  target: Cart,
-  proposal: Cart,
-  assortmentScope: ResolvedCartRouteContext['assortmentScope'] | undefined,
-): Promise<{ acceptancePreview: ProposalAcceptancePreview; acceptanceToken: string }> {
-  const acceptancePreview = await buildProposalAcceptancePreview({ em, container, scope, target, proposal, assortmentScope })
-  const acceptanceToken = signAcceptanceToken({
-    proposalCartId: proposal.id,
-    targetCartId: target.id,
-    proposalUpdatedAt: proposal.updatedAt.toISOString(),
-    targetUpdatedAt: target.updatedAt.toISOString(),
-  })
-  return { acceptancePreview, acceptanceToken }
-}
-
 const acceptProposalCommand: CommandHandler<CartProposalAcceptInput, CartProposalAcceptResult> = {
   id: 'cart.proposal.accept',
   // Acceptance delegates to `cart.merge`, which already carries its own `isUndoable: true`
@@ -843,6 +824,12 @@ const acceptProposalCommand: CommandHandler<CartProposalAcceptInput, CartProposa
     const author = await resolveProposalAuthor(em, scope, proposal.id)
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    // M8 fix: the freshness check above ran against an UNLOCKED snapshot — another tab can
+    // still change the target or the proposal in the gap between this check and `cart.merge`
+    // actually acquiring its per-cart advisory locks. Carry the exact versions this check
+    // just verified so `executeProposalAcceptance` (`commands/merge.ts`) can re-check them
+    // under the SAME locks it already takes, and refuse with a fresh challenge instead of
+    // merging against a target/proposal the caller never actually saw.
     const mergeInput = {
       targetCartId: target.id,
       tenantId: scope.tenantId,
@@ -850,6 +837,8 @@ const acceptProposalCommand: CommandHandler<CartProposalAcceptInput, CartProposa
       proposalCartId: proposal.id,
       lines: input.lines,
       routeContext: input.routeContext,
+      expectedProposalUpdatedAt: payload.proposalUpdatedAt,
+      expectedTargetUpdatedAt: payload.targetUpdatedAt,
     } as CartMergeInput
     const { result: mergeResult } = await commandBus.execute<CartMergeInput, CartMergeResult>(mergeCartCommand.id, {
       input: mergeInput,
