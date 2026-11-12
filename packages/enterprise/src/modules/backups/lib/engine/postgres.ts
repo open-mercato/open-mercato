@@ -707,10 +707,10 @@ function postgresTarget(options: NativeOptions, bound?: { client: Client; runId:
       runId = run.runId
       activeRun = run
     },
-    async hasStep(stepId) {
+    async hasStep(stepId,expected) {
       const lookup=lookupQueue.then(async()=>{
         const chunk=/^chunk:(e[0-9]+):([0-9]+)$/.exec(stepId)
-        if(chunk)return Boolean((await (await current()).query('SELECT 1 FROM om_backup_restore.restore_chunks WHERE entity_key=$1 AND seq=$2',[chunk[1],Number(chunk[2])])).rowCount)
+        if(chunk){const record=(await (await current()).query<{sha256:string;rows:string}>('SELECT sha256,rows::text AS rows FROM om_backup_restore.restore_chunks WHERE entity_key=$1 AND seq=$2',[chunk[1],Number(chunk[2])])).rows[0];if(record&&expected&&(record.sha256!==expected.sha256||record.rows!==expected.rows))throw failure('BACKUP_RESTORE_CHUNK_MISMATCH');return Boolean(record)}
         return Boolean((await (await current()).query("SELECT 1 FROM om_backup_restore.restore_steps WHERE step_key=$1 AND status='done'",[stepId])).rowCount)
       })
       lookupQueue=lookup.then(()=>undefined,()=>undefined)

@@ -67,7 +67,7 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
     const bound=await options.target.inspectResume?.(run)
     if(bound){
       const pending=[]
-      for(const chunk of index.chunks){const step=chunk.section?`schema:${chunk.section}:${chunk.sequence}`:`chunk:${chunk.entityKey}:${chunk.sequence}`;if(!await options.target.hasStep(step))pending.push(chunk)}
+      for(const chunk of index.chunks){const step=chunk.section?`schema:${chunk.section}:${chunk.sequence}`:`chunk:${chunk.entityKey}:${chunk.sequence}`;if(!await options.target.hasStep(step,chunk.entityKey?{sha256:chunk.sha256,rows:chunk.rows}:undefined))pending.push(chunk)}
       await verifyBackupChunks(options,loaded,pending)
     }else await verifyBackup(options)
     phase('pending-artifact-verification')
@@ -95,7 +95,7 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
     for(const chunk of entityChunks.get(entity.key)??[]){
       if(failed)return
       checkAbort(options.signal)
-      const applied=await options.target.hasStep(`chunk:${entity.key}:${chunk.sequence}`)
+      const applied=await options.target.hasStep(`chunk:${entity.key}:${chunk.sequence}`,{sha256:chunk.sha256,rows:chunk.rows})
       if(!applied)await writer.chunk(entity,verifiedChunk(options,manifest,chunk),{runId,sequence:chunk.sequence,sha256:chunk.sha256,rows:chunk.rows})
       const total=totals.get(entity.key)!
       const current=progress.get(entity.key)??{rows:0n,bytes:0n,chunks:0,resumedChunks:0,newRows:0n}
@@ -151,5 +151,5 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
   }
 }
 export async function restoreBackup(options:RestoreBackupOptions):Promise<RestoreResult>{
-  try{return await restoreBackupInternal(options)}finally{await options.target.close().catch(()=>undefined)}
+  try{if(options.resume)z.string().uuid().parse(options.resume);return await restoreBackupInternal(options)}catch(error){if(options.resume&&error instanceof BackupError&&error.exitCode===4)error.context={...error.context,restoreRunId:options.resume,resumeCommand:options.resumeCommand?.(options.resume)??error.context.resumeCommand??`mercato-backup restore --resume ${options.resume} --artifact ${shellQuote(options.artifact)} --trusted-manifest-sha256 ${options.trustedManifestSha256} --confirm-target '<fresh-challenge>' --target-service '<same-service>' --workspace ${shellQuote(options.workspace)}`};throw error}finally{await options.target.close().catch(()=>undefined)}
 }
