@@ -30,11 +30,17 @@ function frame(type: string, bytes: Buffer): Buffer {
   return Buffer.concat([Buffer.from(type), length, bytes])
 }
 
+function wellFormedText(value: string): string {
+  // UTF-8 replacement would otherwise collapse a lone surrogate and U+FFFD.
+  if (!value.isWellFormed()) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+  return value
+}
+
 export function canonicalValue(value: LogicalValue): Buffer {
   if (value instanceof ExactJsonNumber) return frame('j', Buffer.from(value.canonical))
   if (value === null) return frame('0', Buffer.alloc(0))
   if (typeof value === 'boolean') return frame('b', Buffer.from(value ? '1' : '0'))
-  if (typeof value === 'string') return frame('s', Buffer.from(value))
+  if (typeof value === 'string') return frame('s', Buffer.from(wellFormedText(value)))
   if (typeof value === 'number') {
     if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) {
       throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
@@ -85,7 +91,7 @@ function encodedSize(value: LogicalValue): number {
   if (value instanceof ExactJsonNumber) return 5 + Buffer.byteLength(value.canonical)
   if (value === null) return 5
   if (typeof value === 'boolean') return 6
-  if (typeof value === 'string') return 5 + Buffer.byteLength(value)
+  if (typeof value === 'string') return 5 + Buffer.byteLength(wellFormedText(value))
   if (typeof value === 'number') {
     if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
     return 5 + Buffer.byteLength(Object.is(value, -0) ? '-0' : String(value))

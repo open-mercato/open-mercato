@@ -160,4 +160,27 @@ native('real Core CLI handler with Enterprise DI and native PostgreSQL', () => {
     }, null, 2), { mode: 0o600 })
     log.mockRestore(); error.mockRestore()
   }, 60000)
+
+  test('escaped unpaired Unicode in encrypted JSON refuses before any Core mutation', async () => {
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const source = (await createDerivedKeyKmsService(sourceSecret).getTenantDek(tenantId))!.key
+    const em = orm.em.fork()
+    const recordId = randomUUID()
+    const original = encryptWithAesGcm(JSON.stringify({ text: String.fromCharCode(0xd800) }), source).value
+    await em.execute('INSERT INTO cli_fixture_records VALUES(?,?,?,?,NULL,?::jsonb)', [recordId, tenantId, organizationId, original, '{}'])
+    em.persist(em.create(EncryptionMap, { id: randomUUID(), createdAt: new Date(), updatedAt: new Date(), entityId: 'test:cli_record', tenantId, organizationId, fieldsJson: [{ field: 'secret' }], isActive: true }))
+    await em.flush()
+    Object.assign(process.env, await runtimeEnvironment(), { TENANT_DATA_ENCRYPTION: 'yes', TENANT_DATA_ENCRYPTION_OLD_KEY: sourceSecret, TENANT_DATA_ENCRYPTION_KEY: targetSecret, OM_ROTATION_PROGRESS: 'none' })
+    delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+    mockContainer = createContainer()
+    mockContainer.register({ em: asValue(em) }); register(mockContainer)
+    const cli = require('@open-mercato/core/modules/entities/cli').default as Array<{ command: string; run(args: string[]): Promise<void> }>
+    await expect(cli.find(command => command.command === 'rotate-encryption-key')!.run(['--tenant', tenantId, '--org', organizationId])).rejects.toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+    expect((await em.execute('SELECT secret FROM cli_fixture_records WHERE id=?', [recordId]))[0].secret).toBe(original)
+    const files = await readdir(process.env.OM_ROTATION_TRUST_ROOT!)
+    expect(files.filter(name => name.endsWith('.report.json'))).toEqual([])
+    expect(files.some(name => /[.]failure[.].+[.]json$/.test(name))).toBe(true)
+  }, 60000)
+
 })

@@ -22,3 +22,17 @@ test('exact JSON numbers normalize notation without colliding with objects or ro
   expect(canonicalValue(new ExactJsonNumber('9007199254740993'))).not.toEqual(canonicalValue(new ExactJsonNumber('9007199254740992')))
   expect(canonicalValue(new ExactJsonNumber('1'))).not.toEqual(canonicalValue({ source: '1', canonical: '+:1:0' }))
 })
+
+
+test('ill-formed UTF-16 cannot collide with a valid replacement character in UTF-8 frames', () => {
+  const high = String.fromCharCode(0xd800), low = String.fromCharCode(0xdc00)
+  const replacement = String.fromCharCode(0xfffd)
+  expect(high).not.toBe(replacement)
+  expect(Buffer.from(high).equals(Buffer.from(replacement))).toBe(true)
+  for (const value of [high, low, { text: high }, { [low]: 'value' }, [high]]) {
+    expect(() => canonicalValue(value)).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+    expect(() => keyedRowDigest(key, row(value))).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+  }
+  expect(keyedRowDigest(key, row(replacement))).toHaveLength(64)
+  expect(keyedRowDigest(key, row(String.fromCodePoint(0x1f600)))).toHaveLength(64)
+})
