@@ -4,6 +4,7 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError, isUniqueViolation, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { randomUUID } from 'node:crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   AssistedSellingMessage,
@@ -389,11 +390,18 @@ const leaveThreadCommand: CommandHandler<AssistedSellingThreadLeaveInput, Assist
 
     const now = new Date()
     participant.leftAt = now
+    // N4 fix (review finding): leaving only used to touch the participant row, never
+    // `thread.updatedAt` — `/thread/events` compares `updatedAt` against the client's last
+    // seen value and answers `304` when it hasn't moved, so a buyer polling with a stale
+    // ETag missed the rep's departure until some unrelated write happened to bump it. Bump
+    // the thread's own polling cursor atomically, in the same transaction, on every leave.
+    thread.updatedAt = now
     await withAtomicFlush(
       em,
       [
         async () => {
           em.persist(participant)
+          em.persist(thread)
         },
       ],
       { transaction: true, label: 'assisted_selling.thread.leave' },
@@ -450,12 +458,29 @@ const assignThreadCommand: CommandHandler<AssistedSellingThreadAssignInput, Assi
       await requireAssistedSellingStaffAssignee(ctx, input.tenantId, input.actorId, thread.organizationId)
     }
     const now = new Date()
-    thread.assignedActorId = assignedActorId
-    thread.updatedAt = now
 
     await withAtomicFlush(
       em,
       [
+        async () => {
+          // M11 fix (review finding): the pre-transaction check above compares an UNLOCKED
+          // snapshot — two reps loading the same version can both pass it before either
+          // writes, then both flush by primary key with no re-check (`updatedAt` is not an
+          // ORM `@Version` column), so the second silently clobbers the first. Re-locking and
+          // re-checking the version here, under the row lock, serializes genuinely concurrent
+          // assigns: the loser's freshly locked read observes the WINNER's already-committed
+          // `updatedAt` and 409s instead of overwriting it. Same pattern `warranty_claims`'
+          // own update command uses (`requireScopedClaim(..., { lockMode: PESSIMISTIC_WRITE,
+          // refresh: true })` followed by a second optimistic-lock check).
+          await em.findOne(
+            AssistedSellingThread,
+            { id: thread.id, tenantId: thread.tenantId, organizationId: thread.organizationId, deletedAt: null },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+          )
+          await enforceAssistedSellingOptimisticLock(ctx, thread, ASSISTED_SELLING_THREAD_RESOURCE_KIND, input.updatedAt ?? null)
+          thread.assignedActorId = assignedActorId
+          thread.updatedAt = now
+        },
         async () => {
           em.persist(thread)
         },

@@ -292,6 +292,27 @@ describe('assisted_selling.thread.leave', () => {
     expect(result.left).toBe(false)
     expect(emitMock).not.toHaveBeenCalled()
   })
+
+  // N4 fix (review finding): leaving only used to update the participant row, never
+  // `thread.updatedAt` — the buyer's own `/thread/events` compares `updatedAt` against the
+  // client's last-seen value and answers `304` on no change, so a buyer polling with the
+  // prior ETag missed the rep's departure until an unrelated write happened to bump it.
+  test('bumps thread.updatedAt atomically on leave, so a poll with the prior ETag observes the departure', async () => {
+    const thread = makeThreadRow()
+    const { em } = makeFakeEm({ threads: [thread], users: [{ id: REP_USER_ID, name: 'Rep One', email: 'rep@example.com' }] })
+    const rbac = makeRbac(['assisted_selling.threads.participate'])
+    const ctx = makeCtx({ em, rbac, organizationIds: [ORG_ID] })
+    await joinThreadCommand.execute({ tenantId: TENANT_ID, organizationIds: [ORG_ID], threadId: THREAD_ID }, ctx)
+    // Pin the "prior ETag" to a fixed, clearly-stale value right before leaving, so the
+    // assertion below isolates LEAVE's own bump rather than relying on real-clock resolution
+    // between two `new Date()` calls made in quick succession.
+    const staleUpdatedAt = new Date('2020-01-01T00:00:00.000Z')
+    thread.updatedAt = staleUpdatedAt
+
+    await leaveThreadCommand.execute({ tenantId: TENANT_ID, organizationIds: [ORG_ID], threadId: THREAD_ID }, ctx)
+
+    expect(thread.updatedAt.getTime()).toBeGreaterThan(staleUpdatedAt.getTime())
+  })
 })
 
 describe('assisted_selling.thread.assign', () => {

@@ -447,12 +447,14 @@ describe('assisted_selling.proposal.withdraw', () => {
     ).resolves.toMatchObject({ status: 'withdrawn' })
   })
 
-  // #8268 review Major 3: the nested `cart.proposal.reject` call is itself a per-proposal
-  // CAS — a losing caller reports `alreadyResolved: true`. Withdraw used to discard that
-  // result entirely and always write `withdrawn` + decrement, so a double withdrawal (or a
-  // withdrawal racing a winning accept) could double-decrement, or clobber an accepted
-  // proposal's local row back to `withdrawn`.
-  test('a losing double withdrawal (alreadyResolved, still abandoned) refuses with 409 and does not double-decrement', async () => {
+  // #8268 review Major 9: the nested `cart.proposal.reject` call is itself a per-proposal
+  // CAS, and `status: 'abandoned'` IS this exact command's own terminal outcome — so an
+  // `alreadyResolved: true` + `abandoned` result is resumable, not a permanent refusal. A
+  // crash between the cart-level commit and the local CAS below used to leave the local
+  // proposal stuck `published` forever (every retry re-hit `alreadyResolved`, and nothing
+  // else ever author-rejects an already-abandoned cart). The retry now completes the local
+  // transition itself.
+  test('resumes a crash-interrupted withdrawal: the nested reject already committed (alreadyResolved, abandoned), so the retry completes the local transition instead of refusing forever', async () => {
     const proposal = makePublishedProposal()
     const thread = makeOpenThread({ liveProposalCount: 1 })
     const { em } = makeFakeEm({ proposals: [proposal], threads: [thread] })
@@ -462,17 +464,50 @@ describe('assisted_selling.proposal.withdraw', () => {
     })
     const ctx = makeCtx({ em, rbac, commandBus, organizationIds: [ORG_ID] })
 
-    const err = await withdrawProposalCommand
-      .execute({ tenantId: TENANT_ID, organizationIds: [ORG_ID], proposalId: 'proposal-1' }, ctx)
-      .catch((e) => e)
+    const result = await withdrawProposalCommand.execute(
+      { tenantId: TENANT_ID, organizationIds: [ORG_ID], proposalId: 'proposal-1' },
+      ctx,
+    )
 
-    expect(isCrudHttpError(err)).toBe(true)
-    expect(err.status).toBe(409)
-    expect(err.body.code).toBe('proposal_already_resolved')
-    // Never decremented, and the local row was never touched — the winner of the race
-    // already owns both.
-    expect(thread.liveProposalCount).toBe(1)
-    expect(proposal.status).toBe('published')
+    expect(result.status).toBe('withdrawn')
+    expect(proposal.status).toBe('withdrawn')
+    expect(thread.liveProposalCount).toBe(0)
+  })
+
+  // The other half of the same fix: when a GENUINELY concurrent winner already completed
+  // BOTH the cart-level reject and this command's own local transition (not just a crash of
+  // this same call), the local CAS below claims zero rows. That must be treated as an
+  // idempotent success — the outcome the loser asked for already happened — never a second
+  // decrement and never a thrown 409.
+  test('treats a genuinely concurrent winner that already finished the SAME transition as an idempotent success, without double-decrementing', async () => {
+    const proposal = makePublishedProposal({ status: 'withdrawn', resolvedAt: new Date() })
+    const thread = makeOpenThread({ liveProposalCount: 0 })
+    const { em } = makeFakeEm({ proposals: [proposal], threads: [thread] })
+    // The top-of-command "already non-published" guard reads this snapshot BEFORE the
+    // nested reject call — force it back to `published` just for that one read, mirroring a
+    // winner that committed its own local CAS in the gap between this caller's snapshot read
+    // and its own nested reject call.
+    const originalFindOne = em.findOne
+    let callCount = 0
+    em.findOne = jest.fn(async (...args: any[]) => {
+      callCount += 1
+      if (callCount === 1) return { ...proposal, status: 'published' }
+      return originalFindOne(...args)
+    })
+    const rbac = makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author'])
+    const commandBus = makeCommandBus({
+      rejectResult: { proposalCartId: PROPOSAL_CART_ID, status: 'abandoned', alreadyResolved: true },
+    })
+    const ctx = makeCtx({ em, rbac, commandBus, organizationIds: [ORG_ID] })
+
+    const result = await withdrawProposalCommand.execute(
+      { tenantId: TENANT_ID, organizationIds: [ORG_ID], proposalId: 'proposal-1' },
+      ctx,
+    )
+
+    expect(result.status).toBe('withdrawn')
+    // The winner already decremented — this loser must not decrement again.
+    expect(thread.liveProposalCount).toBe(0)
   })
 
   test('a withdrawal that loses to a winning accept (alreadyResolved, status merged) refuses and leaves the local row for the accepted subscriber to finalize', async () => {

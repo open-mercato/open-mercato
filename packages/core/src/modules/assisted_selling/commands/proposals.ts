@@ -573,10 +573,18 @@ const withdrawProposalCommand: CommandHandler<AssistedSellingProposalWithdrawInp
     // this command clobbered the local row to `withdrawn` over an order that actually
     // received the proposal — leaving `cart-proposal-accepted.ts`'s own terminal-state
     // subscriber to find the row already non-`published` and silently skip finalizing it
-    // (`lib/terminalStateSubscriber.ts`'s own idempotency guard). Never proceed past a
-    // `alreadyResolved: true` result; matches `reauthorProposalCommand`'s own convention for
-    // the identical nested-reject call just below in this file.
-    if (rejectResult.alreadyResolved) {
+    // (`lib/terminalStateSubscriber.ts`'s own idempotency guard).
+    //
+    // #8268 review Major 9: `alreadyResolved: true` used to refuse unconditionally — but
+    // `status: 'abandoned'` IS this exact command's own terminal outcome. A crash between
+    // the cart-level commit above and the local CAS below left the local row stuck
+    // `published` forever: every retry re-hits `alreadyResolved`, and nothing else ever
+    // author-rejects an already-abandoned cart (the terminal subscriber skips author
+    // rejections, expiry only selects active carts, reauthor refuses an abandoned target).
+    // Only a DIFFERENT already-resolved outcome (an accepted/merged cart) still refuses —
+    // that one really is a conflict the accepted-proposal subscriber owns finalizing, not
+    // this command.
+    if (rejectResult.alreadyResolved && rejectResult.status !== 'abandoned') {
       throw new CrudHttpError(409, {
         error: '[internal] proposal_already_resolved',
         code: 'proposal_already_resolved',
@@ -587,7 +595,11 @@ const withdrawProposalCommand: CommandHandler<AssistedSellingProposalWithdrawInp
     const now = new Date()
     // CAS the local transition too (defense in depth, same pattern as the sibling
     // `withdrawRejectedOldProposal` helper below) — only the caller that actually flips
-    // `published -> withdrawn` owns the decrement.
+    // `published -> withdrawn` owns the decrement. Attempted unconditionally now, including
+    // on the resumed-crash path above: a genuinely concurrent winner (another withdrawal, or
+    // this same call's own earlier, interrupted attempt) has either already committed this
+    // exact transition — in which case this CAS claims zero rows and the branch below treats
+    // it as an idempotent replay — or not yet, in which case this call completes it.
     let claimed = 0
     await withAtomicFlush(
       em,
@@ -616,6 +628,27 @@ const withdrawProposalCommand: CommandHandler<AssistedSellingProposalWithdrawInp
       ],
       { transaction: true, label: 'assisted_selling.proposal.withdraw' },
     )
+
+    if (claimed === 0) {
+      // Lost the local CAS too — someone else already finished this exact transition (a
+      // genuinely concurrent withdrawal, or this call's own earlier crash-interrupted
+      // attempt, resumed by a parallel retry). Idempotent success only when it finished the
+      // SAME way (`withdrawn`); any other resolved status is a real conflict.
+      const current = await em.findOne(AssistedSellingProposal, {
+        id: proposal.id,
+        tenantId: proposal.tenantId,
+        organizationId: proposal.organizationId,
+      })
+      const currentStatus = current?.status ?? proposal.status
+      if (currentStatus !== 'withdrawn') {
+        throw new CrudHttpError(409, {
+          error: '[internal] proposal_already_resolved',
+          code: 'proposal_already_resolved',
+          status: currentStatus,
+        })
+      }
+      return { proposalId: proposal.id, status: currentStatus }
+    }
 
     await emitAssistedSellingEvent('assisted_selling.proposal.withdrawn', {
       threadId: proposal.threadId,

@@ -16,6 +16,7 @@ import {
 import { applyLiveProposalCountDelta } from '../lib/liveProposalCount'
 import { handleCartMergedForAssistedSellingReauthor } from '../lib/reauthorOnMerge'
 import { reauthorProposalCommand, reauthorProposalForMergeRetarget } from '../commands/proposals'
+import { assignThreadCommand } from '../commands/threads'
 import {
   CART_PROPOSAL_CREATE_COMMAND_ID,
   CART_PROPOSAL_REJECT_COMMAND_ID,
@@ -468,5 +469,102 @@ describeWithPostgres('assisted_selling live_proposal_count / supersede races on 
         expect(await readThreadCount(thread.id)).toBe(0)
       }, CASE_TIMEOUT_MS)
     })
+  })
+
+  // M11 (PR #8268 review): `assignThreadCommand`'s optimistic-lock check used to compare an
+  // UNLOCKED in-memory snapshot of `updated_at` — two reps loading the same version could
+  // both pass that check before either write landed, then both flush by primary key with no
+  // re-check, last write wins silently. A fake/mocked EntityManager cannot exercise this (no
+  // real row lock to contend on), so this runs two GENUINELY overlapping connections against
+  // real Postgres — fired together via `Promise.all`, never sequential awaits — and asserts
+  // exactly one succeeds.
+  describe('assignThreadCommand optimistic-lock race (review finding M11)', () => {
+    it('lets exactly one of two genuinely overlapping assigns against the same stale updatedAt succeed, the other 409s', async () => {
+      const tenantId = randomUUID()
+      const organizationId = randomUUID()
+      const thread = await seedThread(0)
+      // `seedThread` above is scoped to the OUTER describe's own tenant/org randomness per
+      // call — reseed explicit values here so both commands' `organizationIds` filters match.
+      await rootEm().nativeUpdate(AssistedSellingThread, { id: thread.id }, { tenantId, organizationId })
+      const staleUpdatedAt = (await rootEm().findOne(AssistedSellingThread, { id: thread.id }))!.updatedAt.toISOString()
+
+      const rbacService = { userHasAllFeatures: async () => true }
+      // Real Postgres round-trips over a local testcontainer are sub-millisecond, so firing
+      // both commands via `Promise.all` alone tends to let the FIRST one race all the way to
+      // its own commit before the SECOND even issues its first query — which would only ever
+      // exercise the pre-existing UNLOCKED pre-check (the OLD, already-sequential-safe path),
+      // never the NEW locked re-check this fix adds. To force the two reads to genuinely land
+      // before either write, caller ONE's entry into its own transaction (`em.begin()`) is
+      // delayed just long enough for caller TWO's own unlocked pre-check to complete first —
+      // both then race for the SAME row's lock for real.
+      const delayedEm = (): CommandRuntimeContext['container'] => {
+        const forkedEm = orm!.em.fork()
+        const originalBegin = forkedEm.begin.bind(forkedEm)
+        forkedEm.begin = (async (...args: unknown[]) => {
+          await new Promise((resolve) => setTimeout(resolve, 150))
+          return (originalBegin as (...a: unknown[]) => Promise<unknown>)(...args)
+        }) as typeof forkedEm.begin
+        const delayingEmFactory = { fork: () => forkedEm }
+        return {
+          resolve: <T = unknown>(name: string): T => {
+            if (name === 'em') return delayingEmFactory as unknown as T
+            if (name === 'rbacService') return rbacService as unknown as T
+            throw new Error(`[test] no fake registered for "${name}"`)
+          },
+        } as unknown as CommandRuntimeContext['container']
+      }
+      const plainEm = (): CommandRuntimeContext['container'] => ({
+        resolve: <T = unknown>(name: string): T => {
+          if (name === 'em') return orm!.em as unknown as T
+          if (name === 'rbacService') return rbacService as unknown as T
+          throw new Error(`[test] no fake registered for "${name}"`)
+        },
+      }) as unknown as CommandRuntimeContext['container']
+
+      const repOneId = randomUUID()
+      const repTwoId = randomUUID()
+      const ctxOne: CommandRuntimeContext = {
+        container: delayedEm(),
+        auth: { sub: repOneId, tenantId, orgId: organizationId } as CommandRuntimeContext['auth'],
+        organizationScope: null,
+        selectedOrganizationId: organizationId,
+        organizationIds: [organizationId],
+      } as CommandRuntimeContext
+      const ctxTwo: CommandRuntimeContext = {
+        container: plainEm(),
+        auth: { sub: repTwoId, tenantId, orgId: organizationId } as CommandRuntimeContext['auth'],
+        organizationScope: null,
+        selectedOrganizationId: organizationId,
+        organizationIds: [organizationId],
+      } as CommandRuntimeContext
+
+      // Fired together — not sequentially awaited — so both commands' own pre-transaction
+      // reads race for real against the same stale version.
+      const [firstOutcome, secondOutcome] = await Promise.all([
+        assignThreadCommand
+          .execute({ tenantId, organizationIds: [organizationId], threadId: thread.id, updatedAt: staleUpdatedAt }, ctxOne)
+          .then((result) => ({ ok: true as const, result }))
+          .catch((error) => ({ ok: false as const, error })),
+        assignThreadCommand
+          .execute({ tenantId, organizationIds: [organizationId], threadId: thread.id, updatedAt: staleUpdatedAt }, ctxTwo)
+          .then((result) => ({ ok: true as const, result }))
+          .catch((error) => ({ ok: false as const, error })),
+      ])
+
+      const outcomes = [firstOutcome, secondOutcome]
+      const winners = outcomes.filter((outcome) => outcome.ok)
+      const losers = outcomes.filter((outcome) => !outcome.ok)
+      // Never both (the last-write-wins bug this fix closes), never neither.
+      expect(winners).toHaveLength(1)
+      expect(losers).toHaveLength(1)
+      const loserError = (losers[0] as { ok: false; error: unknown }).error
+      expect(isCrudHttpError(loserError)).toBe(true)
+      expect((loserError as { status: number }).status).toBe(409)
+
+      const winnerAssignedActorId = (winners[0] as { ok: true; result: { assignedActorId: string } }).result.assignedActorId
+      expect([repOneId, repTwoId]).toContain(winnerAssignedActorId)
+      const finalThread = await rootEm().findOne(AssistedSellingThread, { id: thread.id })
+      expect(finalThread?.assignedActorId).toBe(winnerAssignedActorId)
+    }, CASE_TIMEOUT_MS)
   })
 })
