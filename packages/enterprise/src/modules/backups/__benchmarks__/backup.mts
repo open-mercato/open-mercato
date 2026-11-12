@@ -16,6 +16,8 @@ import {
   identityToRecipient,
 } from "../lib/engine/crypto";
 import { atomicStream } from "../lib/engine/artifacts";
+import { progressRenderer } from "../lib/engine/progress";
+import type { ProgressEvent } from "../lib/engine/types";
 if (process.env.OM_BACKUP_BENCHMARK_ISOLATED !== "true")
   throw new Error(
     "Run only in the documented disposable Docker fixture with OM_BACKUP_BENCHMARK_ISOLATED=true",
@@ -34,6 +36,17 @@ if (![1, 20].includes(gib))
 const rows = gib * 16384;
 const reuse = process.argv.includes("--reuse-source");
 const cold = process.argv.includes("--cache-cold");
+const rendererCpu = { backup: 0, verify: 0, restore: 0 };
+let renderedBytes = 0;
+function progress(phase: keyof typeof rendererCpu) {
+  const render = progressRenderer('plain', { write(text) { renderedBytes += Buffer.byteLength(String(text)); return true; } });
+  return (event: ProgressEvent) => {
+    const start = process.cpuUsage();
+    render(event);
+    const elapsed = process.cpuUsage(start);
+    rendererCpu[phase] += (elapsed.user + elapsed.system) / 1000;
+  };
+}
 let peak = process.memoryUsage().rss;
 const sample = setInterval(() => {
   peak = Math.max(peak, process.memoryUsage().rss);
@@ -179,6 +192,7 @@ async function main() {
   let started = performance.now();
   const backup = await createBackup({
     source: createPostgresSource(native),
+    progress: progress("backup"),
     output: root + "/output",
     workspace: root + "/workspace",
     recipients,
@@ -197,6 +211,7 @@ async function main() {
   );
   started = performance.now();
   const verified = await verifyBackup({
+    progress: progress("verify"),
     artifact: backup.artifactPath,
     trustedManifestSha256: backup.manifestSha256,
     identities: [identity],
@@ -212,6 +227,7 @@ async function main() {
   });
   started = performance.now();
   await restoreBackup({
+    progress: progress("restore"),
     target,
     artifact: backup.artifactPath,
     trustedManifestSha256: backup.manifestSha256,
@@ -282,6 +298,7 @@ async function main() {
     rssBudgetPass: peak <= 256 * 1024 * 1024,
     backupLatencyPass: backupMs <= baselineBackupMs * 1.3 + 30000,
     restoreLatencyPass: restoreMs <= baselineRestoreMs * 1.3 + 30000,
+    progress: { mode: 'plain', sink: 'byte-counting; terminal device I/O excluded', renderedBytes, cpuMs: rendererCpu, backupCpuPercent: rendererCpu.backup / backupMs * 100, restoreCpuPercent: rendererCpu.restore / restoreMs * 100, cpuBudgetPass: rendererCpu.backup / backupMs <= 0.02 && rendererCpu.restore / restoreMs <= 0.02 },
     runner: "Docker4vCPU8GiB/PostgreSQL16/Node24",
     cacheProtocol: cold
       ? "PostgreSQL stopped; task-volume clean-file cache eviction; fresh PostgreSQL shared buffers"

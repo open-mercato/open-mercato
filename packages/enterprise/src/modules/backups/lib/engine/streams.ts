@@ -27,11 +27,11 @@ export async function* nodeStream(source: ReadableStream<Uint8Array>): ByteStrea
   } finally { await reader.cancel().catch(() => undefined); reader.releaseLock() }
 }
 export async function* transform(source: ByteStream, transformer: Transform): ByteStream {
-  const input = Readable.from(source)
+  const input = Readable.from(source, { objectMode: false, highWaterMark: 256 * 1024 })
   const completion = pipeline(input, transformer)
   void completion.catch(() => undefined)
   try {
-    for await (const chunk of transformer) yield Buffer.from(chunk as Uint8Array)
+    for await (const chunk of transformer) yield chunk as Uint8Array
     await completion
   } finally {
     input.destroy()

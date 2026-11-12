@@ -51,20 +51,37 @@ class ExportQuery extends Query<Record<string, unknown>> {
 
 class ImportQuery extends Query<Record<string, unknown>> {
   inputFailure?: BackupError
+  private stopped=false
+  private readonly abort=new AbortController()
+  private pump?:Promise<void>
   constructor(sql: string, private readonly input: ByteStream) { super(sql) }
+  cancel(){this.stopped=true;this.abort.abort()}
+  async stop(){this.cancel();await this.pump}
   handleCopyInResponse(connection: Wire) {
-    void (async () => {
-      try {
-        for await (const bytes of this.input) {
-          for (let offset = 0; offset < bytes.byteLength; offset += 65536) {
-            connection.sendCopyFromChunk(Buffer.from(bytes.subarray(offset, offset + 65536)))
-            if (connection.stream.writableLength >= limits.highWaterMark) await once(connection.stream, 'drain')
+    if(this.stopped)return
+    const iterator=this.input[Symbol.asyncIterator]()
+    const closed=()=>this.cancel()
+    connection.stream.once('close',closed)
+    this.pump=(async()=>{
+      try{
+        while(!this.stopped){
+          const item=await iterator.next()
+          if(item.done||this.stopped)break
+          const bytes=item.value
+          for(let offset=0;offset<bytes.byteLength&&!this.stopped;offset+=65536){
+            connection.sendCopyFromChunk(Buffer.from(bytes.subarray(offset,offset+65536)))
+            if(connection.stream.writableLength>=limits.highWaterMark)await once(connection.stream,'drain',{signal:this.abort.signal})
           }
         }
-        connection.endCopyFrom()
-      } catch (error) {
-        if (error instanceof BackupError) this.inputFailure = error
-        connection.sendCopyFail('Backup stream failed integrity or resource checks')
+        if(!this.stopped)connection.endCopyFrom()
+      }catch(error){
+        if(!this.stopped){
+          if(error instanceof BackupError)this.inputFailure=error
+          try{connection.sendCopyFail('Backup stream failed integrity or resource checks')}catch{this.cancel()}
+        }
+      }finally{
+        connection.stream.removeListener('close',closed)
+        try{await iterator.return?.()}catch{ /* The original COPY/input failure remains authoritative. */ }
       }
     })()
   }
@@ -75,7 +92,7 @@ async function* exportCopy(client: Client, sql: string): ByteStream {
   query.on('error', () => { query.resumeSocket(); query.output.destroy(failure('BACKUP_COPY_READ_FAILED')) })
   query.on('end', () => { query.resumeSocket(); query.output.end() })
   client.query(query)
-  try { for await (const bytes of query.output) yield Buffer.from(bytes as Uint8Array) }
+  try { for await (const bytes of query.output) yield bytes as Uint8Array }
   finally { query.resumeSocket(); if (!query.output.readableEnded) await client.end() }
 }
 
@@ -83,10 +100,10 @@ async function importCopy(client: Client, sql: string, input: ByteStream) {
   const query = new ImportQuery(sql, input)
   const done = new Promise<void>((resolve, reject) => {
     query.on('end', () => resolve())
-    query.on('error', () => reject(query.inputFailure ?? failure('BACKUP_COPY_WRITE_FAILED')))
+    query.on('error', () => {query.cancel();reject(query.inputFailure ?? failure('BACKUP_COPY_WRITE_FAILED'))})
   })
   client.query(query)
-  await done
+  try{await done}finally{await query.stop()}
 }
 
 async function privateFile(path: string) {
