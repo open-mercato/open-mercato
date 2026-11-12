@@ -325,7 +325,7 @@ export async function setupInitialTenant(
       const employeeEmail = employeeOverride ?? `employee@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
       const envAdminPwd = readEnvValue('OM_INIT_ADMIN_PASSWORD')
       const envEmployeePwd = readEnvValue('OM_INIT_EMPLOYEE_PASSWORD')
-      const isProduction = process.env.NODE_ENV === 'production'
+      const isProduction = (process.env.NODE_ENV ?? '').trim().toLowerCase() === 'production'
       const allowDemo = options.allowDemoDerivedPasswords === true
       if (isProduction && !allowDemo) {
         const missing: string[] = []

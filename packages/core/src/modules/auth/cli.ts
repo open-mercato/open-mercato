@@ -460,7 +460,8 @@ const setupApp: ModuleCli = {
     const requestedSkipPasswordPolicy = typeof skipPasswordPolicyRaw === 'boolean'
       ? skipPasswordPolicyRaw
       : parseBooleanToken(typeof skipPasswordPolicyRaw === 'string' ? skipPasswordPolicyRaw : null) ?? false
-    const skipPasswordPolicy = requestedSkipPasswordPolicy && process.env.NODE_ENV !== 'production'
+    const isProduction = (process.env.NODE_ENV ?? '').trim().toLowerCase() === 'production'
+    const skipPasswordPolicy = requestedSkipPasswordPolicy && !isProduction
     const withExamplesRaw = args['with-examples'] ?? args.withExamples
     const withExamples = typeof withExamplesRaw === 'boolean'
       ? withExamplesRaw

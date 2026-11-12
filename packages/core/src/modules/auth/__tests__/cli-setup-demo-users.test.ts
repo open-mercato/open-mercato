@@ -215,10 +215,13 @@ describe('mercato auth setup --include-demo-users', () => {
     expect(employeeRow?.passwordHash).not.toBe('secret')
   })
 
-  it.each(['skip-password-policy', 'skipPasswordPolicy', 'allow-weak-password', 'allowWeakPassword'])(
-    'rejects a weak production primary password even with --%s',
-    async (flag) => {
-      process.env.NODE_ENV = 'production'
+  it.each(['production', 'PRODUCTION', ' production '].flatMap((nodeEnvironment) =>
+    ['skip-password-policy', 'skipPasswordPolicy', 'allow-weak-password', 'allowWeakPassword']
+      .map((flag) => [nodeEnvironment, flag] as const),
+  ))(
+    'rejects a weak primary password with NODE_ENV=%s and --%s',
+    async (nodeEnvironment, flag) => {
+      process.env.NODE_ENV = nodeEnvironment
       await setupCommand.run([
         '--orgName', 'Acme', '--email', 'root@acme.com', '--password', 'secret', `--${flag}`,
       ])
@@ -250,10 +253,10 @@ describe('mercato auth setup --include-demo-users', () => {
     },
   )
 
-  it('generates derived production passwords satisfying a stricter configured policy', async () => {
+  it.each(['production', 'PRODUCTION', ' production '])('generates policy-compliant derived passwords with NODE_ENV=%s', async (nodeEnvironment) => {
     const { buildPasswordSchema } = await import('@open-mercato/shared/lib/auth/passwordPolicy')
     const { setupInitialTenant } = await import('@open-mercato/core/modules/auth/lib/setup-app')
-    process.env.NODE_ENV = 'production'
+    process.env.NODE_ENV = nodeEnvironment
     process.env.OM_PASSWORD_MIN_LENGTH = '24'
     const em = createTransactionalEntityManagerDouble({ findOne, findOneOrFail, create, find, persist, flush })
     const result = await setupInitialTenant(em, {
