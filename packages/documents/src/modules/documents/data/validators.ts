@@ -253,11 +253,11 @@ export const findingItemSchema = z.object({
   severity: documentFindingSeveritySchema,
   title: z.string().trim().min(1).max(200),
   explanation: z.string().trim().min(1).max(4000),
-  ruleCode: z.string().max(64).optional(),
-  sectionLabel: z.string().max(256).optional(),
+  ruleCode: z.string().max(64).nullish(),
+  sectionLabel: z.string().max(256).nullish(),
   quote: z.string().trim().min(1).max(2000),
-  occurrence: z.number().int().min(1).max(50).default(1),
-  suggestedText: z.string().max(4000).optional(),
+  occurrence: z.number().int().min(1).max(50).nullable().default(1).transform((value) => value ?? 1),
+  suggestedText: z.string().max(4000).nullish(),
 }).strict()
 
 export const findingIngestSchema = z.object({
