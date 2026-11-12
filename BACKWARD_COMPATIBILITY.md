@@ -635,15 +635,18 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
 
+## Compose encryption (2026-11-01, #7231)
+
+STABLE: unsafe keys/HTTP Vault rejected; bridges retain exposure. [Migration](UPGRADE_NOTES.md).
+Named human waiver of steps 1–3 required.
+
 ## Encryption maintenance safety gates (2026-11-02, #6767)
 
 CLI safety confirmations changed; stop writers and restart replicas. [Flags, migration and stable formats](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767).
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
-`POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
-
-**Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
+STABLE: `POST /api/auth/logout` returns 303 (including without cookies); follow Location with GET. Shared redirect defaults remain 307; session revocation, cookies, routes and events are unchanged. No schema migration. [Contract, superseded 2026-10-13 behavior and migration](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility); see UPGRADE_NOTES.md.
 
 ## #7809 2026-11-06
 
@@ -651,18 +654,4 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 
 ## File-agent attachment read authorization (2026-11-10, #9117)
 
-STABLE service/runtime behavior: nonempty file-agent attachment inputs now
-require the execution principal's `attachments.view` and existing owner read
-policy. `stageAttachments` adds optional `userId`; nonempty calls without a
-principal fail closed. Direct and workflow agent runs can no longer stage files
-that tenant/org scoping alone previously allowed. Empty envelopes are unchanged.
-
-The proposed emergency exception is narrow: preserving the old authorization
-branch behind a bridge, flag, or opt-in would continue disclosing protected
-attachment bytes and OCR to unauthorized principals. No such bridge is retained.
-Client/operator migration and previously disclosed data limitations are in
-[UPGRADE_NOTES.md](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117)
-and the [specification](.ai/specs/enterprise/agent-orchestrator/next/2026-06-26-agent-attachments-and-artifacts.md#migration--backward-compatibility).
-**Waiver pending:** a named human maintainer must explicitly acknowledge the
-steps 1–3 security exception on PR #9127 before merge; no automated approval is
-asserted by this entry.
+STABLE: nonempty inputs require `userId`, `attachments.view` and owner access; empty inputs unchanged. Bridges retain disclosure. [Migration, data limits and spec](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117). Steps 1–3 waiver awaits named human-maintainer acknowledgment on #9127.

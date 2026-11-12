@@ -298,8 +298,9 @@ resolving storage, reading bytes, writing sandbox inputs, exposing cached OCR, o
 running OCR. Missing identity, permission, attachment, partition, or required
 owner resolver fails closed. An empty envelope requires no attachment principal
 or permission. The runner supplies `ctx.userId`; workflow invocation already
-resolves the workflow execution principal into that field. Audit-only `runAs`
-and on-behalf-of attribution do not replace it.
+resolves the workflow execution principal into that field: a configured execution
+grant, otherwise `instance.metadata.initiatedBy`, then `definition.createdBy`.
+Audit-only `runAs` and on-behalf-of attribution do not replace it.
 
 This tightens STABLE service/runtime acceptance behavior: previously accepted
 unauthorized inputs now fail the run before prompting. `stageAttachments.userId`
