@@ -75,7 +75,7 @@ it('rejects malformed policy and malformed protected owner without dropping them
 })
 
 it('retains unrelated owners in a protected shared partition', async () => {
-  expect(await evaluate({ attachment: { ...attachment, entityId: 'sync_excel:upload' }, partition: { ...partition, accessResolverRequirements: [requirement] } })).toEqual({ ok: true, protected: false })
+  expect(await evaluate({ attachment: { ...attachment, entityId: 'sync_excel:upload' }, partition: { ...partition, accessResolverRequirements: [requirement] } })).toEqual({ ok: true, protected: true })
 })
 
 it('denies a protected service without a policy context', async () => {
@@ -153,9 +153,9 @@ describe('private byte capability (#8760)', () => {
     expect(await evaluate({ action, auth: { ...auth, features: ['*'] } })).toMatchObject({ ok: false, status: 403 })
   })
 
-  it.each(['attachments.view', 'attachments.*', '*'])('accepts %s using the consolidated feature policy', async (feature) => {
+  it.each(['attachments.view', 'attachments.*', '*'])('accepts %s and marks feature-gated bytes as protected', async (feature) => {
     rbac.getEffectiveFeatures.mockResolvedValue([feature])
-    expect(await evaluate()).toEqual({ ok: true, protected: false })
+    expect(await evaluate()).toEqual({ ok: true, protected: true })
   })
 
   it('requires the read feature for global private bytes', async () => {

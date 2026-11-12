@@ -187,5 +187,5 @@ export async function evaluateAttachmentAccess(input: {
       return deny(error instanceof AccessTimeout ? 504 : 403, error instanceof AccessTimeout ? 'resolver_timeout' : 'resolver_failed', resolver.id)
     }
   }
-  return { ok: true, protected: hasOwnerPolicy }
+  return { ok: true, protected: hasOwnerPolicy || requiresReadFeature }
 }

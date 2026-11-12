@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+import sharp from 'sharp'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { GET as getFile } from '../file/[id]/route'
 import { GET as getImage } from '../image/[id]/[[...slug]]/route'
@@ -18,11 +19,11 @@ jest.mock('@open-mercato/core/modules/attachments/lib/drivers', () => ({ Storage
 
 const mockRead = jest.fn(async () => ({ buffer: Buffer.from('original image bytes') }))
 const mockResolveDriver = jest.fn(async () => ({ read: mockRead }))
-const mockReadThumbnail = jest.fn(async () => Buffer.from('cached image bytes'))
+const mockReadThumbnail = jest.fn(async (): Promise<Buffer | null> => Buffer.from('cached image bytes'))
 jest.mock('@open-mercato/core/modules/attachments/lib/thumbnailCache', () => ({
   buildThumbnailCacheKey: () => 'thumbnail',
   readThumbnailCache: (...args: unknown[]) => mockReadThumbnail(...args),
-  writeThumbnailCache: jest.fn(),
+  writeThumbnailCache: jest.fn(async () => undefined),
 }))
 
 const mockAuth = { sub: 'reader', tenantId: 'tenant', orgId: 'org', roles: [] }
@@ -88,6 +89,7 @@ describe.each(paths)('private attachment %s bytes (#8760)', (path) => {
     mockRbac.getEffectiveFeatures.mockResolvedValue([grant])
     const response = await readBytes(path)
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
     expect(await response.text()).toBe(path === 'image' ? 'cached image bytes' : 'original image bytes')
   })
 
@@ -120,4 +122,17 @@ describe.each(paths)('private attachment %s bytes (#8760)', (path) => {
     expect(response.headers.get('cache-control')).toMatch(/^public,/)
     expect(mockRbac.loadAcl).not.toHaveBeenCalled()
   })
+})
+
+it('prevents browser reuse of a newly generated private image', async () => {
+  const source = await sharp({
+    create: { width: 2, height: 2, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
+  }).png().toBuffer()
+  mockReadThumbnail.mockResolvedValueOnce(null)
+  mockRead.mockResolvedValueOnce({ buffer: source })
+  const response = await readBytes('image')
+  expect(response.status).toBe(200)
+  expect(response.headers.get('cache-control')).toBe('private, no-store')
+  expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0)
+  expect(mockRead).toHaveBeenCalledTimes(1)
 })

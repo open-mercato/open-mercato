@@ -1,5 +1,15 @@
 # Issue #8760 validation and review
 
+## 2026-11-12 autofix follow-up
+
+Merged current main, preserving both compatibility/upgrade-note additions. The previous CI script failure was lesson-catalog drift; `node --test scripts/__tests__/check-lessons.test.mjs` now passes all 5 tests after that merge.
+
+The inherited security finding is fixed: successful reads protected only by the private read feature now report `protected: true`, activating the existing `private, no-store` headers on both byte routes. Public and opt-out service behavior stays covered. Focused regressions first failed 13 assertions against the old runner; the final attachment run passes **47 suites / 533 tests**. It covers original/download, fresh renders, warm thumbnails, exact/wildcard grants and existing scope/owner denials. TC-ATT-028 also asserts no-store for freshly generated and cached thumbnails and authorized original/download responses.
+
+Validation source: local fallback for the revised, unpublished head (no GitHub checks yet). Runner: local; no compose app container was running. Dependencies installed with `yarn install --immutable`; optional native `cpu-features` emitted a build warning. Package build, generation and template parity pass. The first core typecheck was blocked by missing generated registries in the fresh worktree; the retry passes after generation. This does not claim a complete current-head CI pass.
+
+Earlier TC-ATT-028 HTTP scenarios passed in [CI](https://github.com/open-mercato/open-mercato/actions/runs/42019295881/job/127264268502); that evidence predates the new header assertions. Current-head CI, named human security-waiver acknowledgment, independent re-review and protected manual QA remain merge gates. The sections below preserve the original authoring evidence.
+
 ## Scope
 
 Private attachment HTTP bytes only: original/inline, forced download, derived image and warm thumbnail reads. The shared runner option is additive; existing service callers and public partitions preserve their contracts. No schema, dependency, UI, upload or mutation-policy changes.
