@@ -1,5 +1,54 @@
 # Upgrade Notes
 
+## Production Compose tenant encryption key (#7231)
+
+**Operators:** the production Docker starter, root compatibility copy and create-app
+Compose template no longer provide a tenant encryption key; copied env examples are
+blank too. Before initialization/serving, a shared preflight requires a unique key of
+at least 32 UTF-8 bytes or configured HashiCorp Vault (`VAULT_ADDR` + `VAULT_TOKEN`).
+It rejects the published key even if explicitly supplied. The effective lookup secret
+must also be unique and at least 32 bytes: Vault-only installations require a dedicated
+`LOOKUP_HASH_PEPPER`, and a weak explicit pepper cannot override a strong derived key.
+Remote Vault requires HTTPS; HTTP is allowed only for exact `localhost`, `127.0.0.1`
+and `[::1]` hosts, even when a fallback key is supplied. Existing strong preferred
+and legacy keys retain their precedence; supported Vault configuration, its mount and
+timeouts, and `LOOKUP_HASH_PEPPER` now reach all app/sidecar consumers consistently.
+The check also applies when the encryption toggle is off; do not disable encryption
+to bypass it. Generate new random material only for an installation without existing
+encrypted data. Never regenerate keys on restart. Keys made only of a few repeated
+characters, and other secrets published in this repository, are rejected as well.
+
+**Local development:** when `yarn setup`, `yarn dev`, `yarn dev:ephemeral`, the
+standalone `setup`/`dev` scripts or the `mercato` CLI create a missing `.env` from
+`.env.example`, they now write a unique random `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`
+into it only when neither the example nor process environment supplies a preferred
+or legacy encryption key (`yarn setup` reuses the compose `.env` key), alongside the secrets the
+starter already generated. An existing `.env` is never modified; one still carrying
+the old published key keeps it until migrated.
+
+**Existing data:** retain the old root/DEKs and lookup pepper securely. Replacing a
+root alone makes tenant and system ciphertext unreadable; replacing the effective
+pepper breaks old keyed lookups/login. Stop all writers and rehearse backup/restore
+and the complete migration before cutover. The existing entity rotation command
+supports previous derived roots through `TENANT_DATA_ENCRYPTION_OLD_KEY`, but does
+not cover every system record, keyed hash, Vault DEK or inner credential envelope.
+Affected installations need an audited owner-assisted migration for those cases;
+keep them in maintenance until verified. Do not print secrets or pass old keys as
+CLI arguments. Historical database copies sealed with the published key remain
+suspect after rotation.
+
+**Downstream app/module authors:** adopt the updated Compose environment and
+preflight dependency together, keep every replica/sidecar consistent, and account
+for custom ciphertext and hash fields in the operator's inventory. Existing weak/missing peppers require the documented hash inventory/backfill, and
+remote HTTP Vault must move to trusted HTTPS while retaining its existing DEKs. No
+runtime API, crypto format, KMS interface or schema changes are required. Do not bypass the
+preflight when starting servers. A missing/unsafe configuration now prevents startup.
+
+[Migration and rollback runbook](starters/docker/encryption-migration.md) ·
+[Specification](.ai/specs/2026-11-01-7231-compose-encryption-key.md).
+This narrow security removal requires a named human maintainer's emergency
+compatibility waiver before merge; automated review cannot grant it.
+
 ## Communication channel concurrent writes (#8712)
 
 Gmail history sync and push register/unregister now re-read channel state under a
@@ -5367,3 +5416,17 @@ This does not rotate existing credentials. If a deployment previously initialize
 `mercato entities rotate-encryption-key` now stops before mutation when Enterprise resumable encrypted recovery and correctness verification are unavailable. Operators must retain a tested independent backup and all prior keys, then rerun with `--acknowledge-unprotected-key-rotation` if accepting unprotected rotation. Automation must provide that exact flag on every mutating invocation; `--yes`, `--force`, environment toggles and saved preferences do not substitute. `--dry-run` remains read-only and needs no acknowledgment. The warning remains visible after acknowledgment. Licensed deployments can instead configure the protection service, which blocks success if recovery or verification fails and never silently falls back. No keys are automatically retired; existing scopes, old-key handling and CAS protections remain required.
 
 **Authorization (2026-11-12):** The owner approved this immediate CLI safety amendment for specs #8910/#9328 and confirmed Enterprise/commercial implementation rights. It applies specifically to the rotation acknowledgment and protection gate; it grants no blanket Emergency Security Exception waiver. See [.ai/specs/enterprise/2026-11-12-key-rotation-data-verification.md](.ai/specs/enterprise/2026-11-12-key-rotation-data-verification.md).
+
+## Setup verifies encryption before database reuse (#8913)
+
+Setup migrations, initialization, reinstall and development recovery migrations now inspect existing database ciphertext with the configured tenant KMS and Forms key adapter before writes. Correct PostgreSQL credentials alone no longer permit reuse. Both monorepo and refreshed standalone setup scripts include this guard, including container initialization, migrations and role-ACL synchronization.
+
+Keep the original `TENANT_DATA_ENCRYPTION` configuration, fallback/application key, historical Vault tenant keys and Forms master key. The starter preserves existing key/KMS configuration. Only a fresh, unconfigured environment with neither env file receives a unique new fallback key, shared by root and app configuration. Restore the original configuration; do not regenerate keys, rotate them, or use reinstall to bypass a rejection. No key or ciphertext migration is performed by the preflight.
+
+Empty/new databases and migration-bookkeeping-only databases proceed normally. Populated plaintext-only databases need read-only resolution of existing tenant keys when encryption is enabled; they are reported as having no ciphertext proof. Unavailable KMS, missing keys, unknown scopes/formats, denied reads, RLS/foreign tables, unsupported binary stores, or proof exceeding 100,000 sampled candidate rows / 64 MiB / 60 seconds or 32 nesting levels block reuse. Custom Forms DI adapters and custom system encryption stores require administrator review; app bootstrap is deliberately not invoked. Use a separate empty database when the existing environment cannot be verified. Stop concurrent application writers during setup; a preflight snapshot cannot prevent external key rotation or subsequent concurrent writes. External encrypted files/object stores are outside the database proof.
+
+Existing standalone applications must refresh `scripts/dev.mjs` and add `scripts/dev-encryption-preflight.mjs` together with the matching installed helper packages. No production dependency or database migration is required.
+
+Container compatibility refusals exit with status `78` and are fatal even before role-ACL synchronization. Custom `SYNC_ROLE_ACLS_COMMAND` implementations should reserve status `78` for fatal configuration failures; other nonzero ACL-sync statuses retain the existing warning behavior.
+
+The compatibility proof authenticates at most five candidate rows per store/key scope using server-side filtering; total plaintext table size is not a transfer limit. Known Documents CRDT binary columns are excluded. This is not a full historical ciphertext audit: unreadable values outside a sample may remain, and normal per-record runtime guards still apply. Optional dev auto-migrations warn and skip writes on a compatibility refusal; explicit setup/container initialization and migrations remain blocking.
