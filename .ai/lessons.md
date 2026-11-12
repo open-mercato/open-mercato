@@ -236,7 +236,7 @@ This catalog indexes 185 focused lessons. Route the task first, then read only r
 
 ### framework-context
 
-- [Check pending compatibility disclosures as a union](lessons/check-pending-compatibility-disclosures-as-a-union.md) — area:framework-context,spec-pr,testing; module:create_app,attachments; topic:backward-compatibility,instruction-budget,testing
+- [Check pending compatibility disclosures as a union](lessons/check-pending-compatibility-disclosures-as-a-union.md) — area:framework-context,spec-pr,testing; module:create_app,attachments,staff; topic:backward-compatibility,instruction-budget,testing
 - [Docker entrypoints must verify required binaries, not just non-empty node_modules](lessons/docker-entrypoints-must-verify-required-binaries-not.md) — area:framework-context,module-data,architecture; module:cli,create_app; topic:build-output,command-pattern,package-runtime
 - [Standalone agent context must follow the installed package, not the checkout layout](lessons/standalone-agent-context-must-follow-the-installed.md) — area:framework-context,architecture; module:checkout,create_app; topic:generated-files,database-migrations,package-runtime
 - [Standalone source-mirror discovery must remap source extensions to runtime files](lessons/standalone-source-mirror-discovery-must-remap-source.md) — area:framework-context,architecture,umes; module:create_app,cli; topic:access-control,build-output,generated-files
