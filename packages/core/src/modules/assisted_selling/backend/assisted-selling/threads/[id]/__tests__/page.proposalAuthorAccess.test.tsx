@@ -128,6 +128,18 @@ describe('AssistedSellingThreadPage proposal-author gating (#8268)', () => {
     expect(screen.queryByRole('button', { name: 'Withdraw' })).not.toBeInTheDocument()
   })
 
+  test('a role with assisted_selling.proposals.author but not cart.proposals.author is offered no Withdraw', async () => {
+    grantedFeatures = ['assisted_selling.proposals.author']
+
+    renderWithProviders(<AssistedSellingThreadPage params={{ id: 'thread-1' }} />)
+
+    await waitFor(() => expect(screen.getByText('Selling conversation')).toBeInTheDocument())
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith('/api/auth/feature-check', expect.anything()))
+
+    expect(screen.queryByRole('button', { name: 'New proposal' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Withdraw' })).not.toBeInTheDocument()
+  })
+
   test('an authorized author sees the author controls', async () => {
     grantedFeatures = ['assisted_selling.proposals.author', 'cart.proposals.author']
 

@@ -11,9 +11,10 @@ type FeatureCheckResponse = {
 /**
  * The thread page's own route guard only requires `assisted_selling.threads.view` and
  * `cart.proposals.view` — enough to see the conversation, not enough to author/withdraw a
- * proposal. The create/withdraw/re-propose endpoints additionally require
- * `assisted_selling.proposals.author` (create/re-author also `cart.proposals.author`), so a
- * viewer without those grants must not be offered controls whose handlers always 403.
+ * proposal. The create/withdraw/re-propose endpoints additionally require both
+ * `assisted_selling.proposals.author` and `cart.proposals.author` (withdraw rejects the proposal
+ * cart through `cart.proposal.reject`, which enforces `cart.proposals.author`), so a viewer
+ * without both grants must not be offered controls whose handlers always 403.
  */
 export function useProposalAuthorAccess() {
   const [granted, setGranted] = React.useState<string[]>([])
@@ -51,13 +52,14 @@ export function useProposalAuthorAccess() {
 
   const canAuthor = hasFeature(granted, 'assisted_selling.proposals.author')
   const canCartAuthor = hasFeature(granted, 'cart.proposals.author')
+  const canManageProposals = canAuthor && canCartAuthor
 
   return {
     isLoading,
     granted,
     canAuthor,
     canCartAuthor,
-    canCreateOrRepropose: canAuthor && canCartAuthor,
-    canWithdraw: canAuthor,
+    canCreateOrRepropose: canManageProposals,
+    canWithdraw: canManageProposals,
   }
 }

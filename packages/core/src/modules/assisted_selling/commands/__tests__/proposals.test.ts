@@ -366,7 +366,7 @@ describe('assisted_selling.proposal.withdraw', () => {
   test('withdraws a published proposal and invokes cart.proposal.reject', async () => {
     const proposal = makePublishedProposal()
     const { em } = makeFakeEm({ proposals: [proposal] })
-    const rbac = makeRbac(['assisted_selling.proposals.author'])
+    const rbac = makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author'])
     const commandBus = makeCommandBus()
     const ctx = makeCtx({ em, rbac, commandBus, organizationIds: [ORG_ID] })
 
@@ -380,10 +380,24 @@ describe('assisted_selling.proposal.withdraw', () => {
     expect(commandBus.rejectCalls[0]).toMatchObject({ proposalCartId: PROPOSAL_CART_ID, rejectedBy: 'author' })
   })
 
+  test('refuses withdraw with 403 before touching the proposal when cart.proposals.author is missing (#8268 QA S04)', async () => {
+    const proposal = makePublishedProposal()
+    const { em } = makeFakeEm({ proposals: [proposal] })
+    const rbac = makeRbac(['assisted_selling.proposals.author'])
+    const commandBus = makeCommandBus()
+    const ctx = makeCtx({ em, rbac, commandBus, organizationIds: [ORG_ID] })
+
+    await expect(
+      withdrawProposalCommand.execute({ tenantId: TENANT_ID, organizationIds: [ORG_ID], proposalId: 'proposal-1' }, ctx),
+    ).rejects.toMatchObject({ status: 403 })
+    expect(commandBus.rejectCalls).toHaveLength(0)
+    expect(proposal.status).toBe('published')
+  })
+
   test('refuses to withdraw a non-published proposal with 409 proposal_not_live', async () => {
     const proposal = makePublishedProposal({ status: 'accepted' })
     const { em } = makeFakeEm({ proposals: [proposal] })
-    const rbac = makeRbac(['assisted_selling.proposals.author'])
+    const rbac = makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author'])
     const commandBus = makeCommandBus()
     const ctx = makeCtx({ em, rbac, commandBus, organizationIds: [ORG_ID] })
 
@@ -399,7 +413,7 @@ describe('assisted_selling.proposal.withdraw', () => {
   test('404s a proposal outside the caller\'s organizationIds (S9)', async () => {
     const proposal = makePublishedProposal()
     const { em } = makeFakeEm({ proposals: [proposal] })
-    const rbac = makeRbac(['assisted_selling.proposals.author'])
+    const rbac = makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author'])
     const commandBus = makeCommandBus()
     const ctx = makeCtx({ em, rbac, commandBus, organizationIds: [OTHER_ORG_ID] })
 
@@ -412,7 +426,7 @@ describe('assisted_selling.proposal.withdraw', () => {
     const proposal = makePublishedProposal()
     const thread = makeOpenThread({ liveProposalCount: 1 })
     const { em } = makeFakeEm({ proposals: [proposal], threads: [thread] })
-    const rbac = makeRbac(['assisted_selling.proposals.author'])
+    const rbac = makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author'])
     const commandBus = makeCommandBus()
     const ctx = makeCtx({ em, rbac, commandBus, organizationIds: [ORG_ID] })
 
@@ -424,7 +438,7 @@ describe('assisted_selling.proposal.withdraw', () => {
   test('never decrements below zero, and no-ops gracefully when the thread row is not seeded', async () => {
     const proposal = makePublishedProposal()
     const { em } = makeFakeEm({ proposals: [proposal] })
-    const rbac = makeRbac(['assisted_selling.proposals.author'])
+    const rbac = makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author'])
     const commandBus = makeCommandBus()
     const ctx = makeCtx({ em, rbac, commandBus, organizationIds: [ORG_ID] })
 
@@ -442,7 +456,7 @@ describe('assisted_selling.proposal.withdraw', () => {
     const proposal = makePublishedProposal()
     const thread = makeOpenThread({ liveProposalCount: 1 })
     const { em } = makeFakeEm({ proposals: [proposal], threads: [thread] })
-    const rbac = makeRbac(['assisted_selling.proposals.author'])
+    const rbac = makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author'])
     const commandBus = makeCommandBus({
       rejectResult: { proposalCartId: PROPOSAL_CART_ID, status: 'abandoned', alreadyResolved: true },
     })
@@ -465,7 +479,7 @@ describe('assisted_selling.proposal.withdraw', () => {
     const proposal = makePublishedProposal()
     const thread = makeOpenThread({ liveProposalCount: 1 })
     const { em } = makeFakeEm({ proposals: [proposal], threads: [thread] })
-    const rbac = makeRbac(['assisted_selling.proposals.author'])
+    const rbac = makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author'])
     const commandBus = makeCommandBus({
       rejectResult: { proposalCartId: PROPOSAL_CART_ID, status: 'merged', alreadyResolved: true },
     })

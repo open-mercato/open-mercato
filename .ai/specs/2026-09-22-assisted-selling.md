@@ -530,7 +530,7 @@ Paths below are relative to `/api/assisted_selling`.
 | POST | `/threads/:id/assign` | `assisted_selling.threads.participate` | Sets `assigned_actor_id`. Optimistic-locked on the thread's `updated_at`: two reps claiming the same conversation get one success and one `409`, never a silent last-write-wins |
 | POST | `/threads/:id/messages` | `assisted_selling.messages.post` | `body_format: 'text'` only (S24) |
 | POST | `/threads/:id/proposals` | `assisted_selling.proposals.author` + `cart.proposals.author` | Authors a proposal; wraps `cart.proposal.create` (§6.3) |
-| POST | `/proposals/:id/withdraw` | `assisted_selling.proposals.author` | Withdraws before acceptance. **Also rejects the proposal cart** — §6.4 |
+| POST | `/proposals/:id/withdraw` | `assisted_selling.proposals.author` + `cart.proposals.author` | Withdraws before acceptance. **Also rejects the proposal cart** — §6.4; `cart.proposal.reject` enforces `cart.proposals.author`, so the route declares it too |
 | POST | `/proposals/:id/reauthor` | `assisted_selling.proposals.author` + `cart.proposals.author` | New proposal from an expired, rejected, withdrawn or superseded one's lines, freshly priced (§6.4) |
 | GET | `/attributions` | `assisted_selling.attributions.view` | Commission report read; filter by actor, period, store, outcome (order or quote); `pageSize` ≤ 100 |
 | GET | `/settings/:storeId` | `assisted_selling.settings.manage` | Returns the store's settings with defaults when no row exists; `404` for a store outside the caller's organizations |
@@ -1195,6 +1195,10 @@ Rev 1 closed its Open Questions at the gate. The rev 2 review (M1–M6) surfaced
 ---
 
 ## 13) Changelog
+
+### 2026-11-12 (rev 6.1 — withdraw route features, #8268 QA)
+
+- **Withdraw requires both author features (§6.1).** `POST /proposals/:id/withdraw` now declares `assisted_selling.proposals.author` + `cart.proposals.author`, matching re-author. The nested `cart.proposal.reject` already enforced `cart.proposals.author`, so a principal holding only the first feature was offered Withdraw by the thread page and refused every time. The thread page gates Withdraw on both features. No seeded role holds one without the other.
 
 ### 2026-10-26 (rev 6 — Release 5 spec revision)
 

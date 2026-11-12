@@ -20,10 +20,11 @@ import {
 const logger = createLogger('assisted_selling').child({ component: 'api' })
 
 // Step 4.4 (§6.4). `POST /proposals/:id/withdraw` — withdraws a published proposal. Also
-// rejects the proposal cart, through `cart.proposal.reject`, in the same command.
+// rejects the proposal cart, through `cart.proposal.reject`, in the same command — which is
+// why `cart.proposals.author` is required alongside `assisted_selling.proposals.author`.
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['assisted_selling.proposals.author'] },
+  POST: { requireAuth: true, requireFeatures: ['assisted_selling.proposals.author', 'cart.proposals.author'] },
 }
 
 const paramsSchema = z.object({ id: z.string().uuid() })
@@ -95,7 +96,7 @@ export const openApi: OpenApiRouteDoc = {
       responses: [{ status: 200, description: 'The withdrawn proposal' }],
       errors: [
         { status: 401, description: 'Unauthorized' },
-        { status: 403, description: 'Missing assisted_selling.proposals.author' },
+        { status: 403, description: 'Missing assisted_selling.proposals.author or cart.proposals.author' },
         { status: 404, description: 'Proposal not found or outside the caller\'s organizations' },
         { status: 409, description: 'proposal_not_live, or an optimistic-lock conflict' },
       ],

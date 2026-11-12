@@ -545,7 +545,7 @@ const withdrawProposalCommand: CommandHandler<AssistedSellingProposalWithdrawInp
   isUndoable: false,
   async execute(input, ctx: CommandRuntimeContext) {
     ensureTenantScope(ctx, input.tenantId)
-    await requireAssistedSellingFeatures(ctx, ['assisted_selling.proposals.author'])
+    await requireAssistedSellingFeatures(ctx, ['assisted_selling.proposals.author', 'cart.proposals.author'])
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const proposal = await resolveProposalForCaller(em, { tenantId: input.tenantId, organizationIds: input.organizationIds }, input.proposalId)
