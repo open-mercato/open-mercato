@@ -82,14 +82,18 @@ function encodedSize(value: LogicalValue): number {
 }
 
 function writeCanonical(value: LogicalValue, output: Buffer, offset: number): number {
+  const start = offset
   const type = value === null ? '0' : typeof value === 'boolean' ? 'b' : typeof value === 'string' ? 's' : typeof value === 'number' ? 'n' : Array.isArray(value) ? 'a' : 'o'
-  output[offset] = type.charCodeAt(0); output.writeUInt32BE(encodedSize(value) - 5, offset + 1); offset += 5
-  if (value === null) return offset
-  if (typeof value === 'boolean') return offset + output.write(value ? '1' : '0', offset)
-  if (typeof value === 'string') return offset + output.write(value, offset)
-  if (typeof value === 'number') return offset + output.write(Object.is(value, -0) ? '-0' : String(value), offset)
-  if (Array.isArray(value)) { for (const entry of value) offset = writeCanonical(entry, output, offset); return offset }
-  for (const key of Object.keys(value).sort()) { offset = writeCanonical(key, output, offset); offset = writeCanonical(value[key], output, offset) }
+  output[offset] = type.charCodeAt(0); offset += 5
+  if (value === null) { /* Empty payload; length is filled below. */ }
+  else if (typeof value === 'boolean') offset += output.write(value ? '1' : '0', offset)
+  else if (typeof value === 'string') offset += output.write(value, offset)
+  else if (typeof value === 'number') offset += output.write(Object.is(value, -0) ? '-0' : String(value), offset)
+  else if (Array.isArray(value)) { for (const entry of value) offset = writeCanonical(entry, output, offset) }
+  else { for (const key of Object.keys(value).sort()) { offset = writeCanonical(key, output, offset); offset = writeCanonical(value[key], output, offset) } }
+  // Backfill the payload length after writing it once; recursively measuring every
+  // ancestor would rescan large UTF-8 values once for each nesting level.
+  output.writeUInt32BE(offset - start - 5, start + 1)
   return offset
 }
 

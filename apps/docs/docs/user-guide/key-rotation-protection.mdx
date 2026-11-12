@@ -45,3 +45,5 @@ Keep all writers stopped. Retain the encrypted artifacts, trusted directory, pre
 A live run lock refuses concurrent attempts. Stale recovery is restricted to an explicit resume for the same observed run on the same host after its recorded process is dead; do not delete locks or trusted files to bypass it. Any changed schema, scope, provider/key, missing timestamp intent or conflicting report refuses rather than presenting success. If a prior success report was durably published before interruption, an equivalent repeat report is accepted; conflicting counts or recovery digest are rejected.
 
 For rollback, use the Enterprise backup restore/exercise commands against a separately provisioned quarantined target, validate identity/data/canaries with retained keys, and perform a separately approved cutover. Never restore over the live database or re-enable writers merely because an artifact checksum passes.
+
+Protected verification currently refuses inherited and partitioned relations before rotation. These require an explicit complete child-table coverage and privilege implementation.

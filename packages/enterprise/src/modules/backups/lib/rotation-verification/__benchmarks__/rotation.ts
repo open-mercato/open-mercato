@@ -94,15 +94,16 @@ async function main() {
   const native = { sourceService: 'source', binariesDir: '/usr/lib/postgresql/16/bin', serviceFile: `${root}/service.conf`, passwordFile: `${root}/password` }
   await writeFile(native.serviceFile, `[source]\nhost=127.0.0.1\nport=5432\ndbname=${database}\nuser=postgres\nsslmode=disable\n`, { mode: 0o600 })
   await writeFile(native.passwordFile, `*:*:*:postgres:${process.env.POSTGRES_PASSWORD}\n`, { mode: 0o600 })
+  let scanAfterOwnMs = 0; let scanBeforeOwnMs = 0; let loadIntentMs = 0
   let intentMs = 0
   let backupMs = 0; let verifyBackupMs = 0; let rotationMs = 0; let baselineMs = 0; let finalMs = 0
   let baseDataset: Awaited<ReturnType<typeof createPostgresRotationDataset>> | undefined
   const protection = createEnterpriseRotationProtection({
     artifactRoot: `${root}/rotation-artifacts`, trustRoot: `${root}/rotation-trust`, assertEntitlement: async () => {}, providers: async () => pinned,
     async dataset(input, providers, backupDigest, intents) {
-      baseDataset ??= await createPostgresRotationDataset({ context: input, providers, provider: pinned.provider, backupDigest, intents })
+      baseDataset ??= await createPostgresRotationDataset({ context: input, providers, provider: pinned.provider, backupDigest, intents: { load: async identity => { const started = performance.now(); try { return await intents.load(identity) } finally { loadIntentMs += performance.now() - started } } } })
       const dataset = baseDataset
-      return { ...dataset, async binding() { return { ...await dataset.binding(), backupDigest } }, async *rows(phase, signal) { const started = performance.now(); try { yield* dataset.rows(phase, signal) } finally { if (phase === 'before') baselineMs += performance.now() - started; else finalMs += performance.now() - started } } }
+      return { ...dataset, async binding() { return { ...await dataset.binding(), backupDigest } }, async *rows(phase, signal) { const started = performance.now(); try { const iterator = dataset.rows(phase, signal)[Symbol.asyncIterator](); for (;;) { const began = performance.now(); const next = await iterator.next(); const elapsed = performance.now() - began; if (phase === 'before') scanBeforeOwnMs += elapsed; else scanAfterOwnMs += elapsed; if (next.done) break; yield next.value } } finally { if (phase === 'before') baselineMs += performance.now() - started; else finalMs += performance.now() - started } } }
     },
     recovery: {
       async create(_input, databaseBinding) {
@@ -153,7 +154,7 @@ async function main() {
   console.log(JSON.stringify({ phase: 'matched-target-scan', gib, rows: scanned, elapsedMs: Math.round(standaloneMs) }))
   const baselineCost = backupMs + verifyBackupMs + rotationMs - earlyReadbackMs - intentMs
   const overheadMs = totalMs - baselineCost
-  const result = { root, nodeMemoryFlags: process.execArgv, gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, intentMs, finalMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: finalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: coordinatorPeak / 1024 / 1024, coordinatorRssPass: coordinatorPeak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: process.env.OM_BENCH_CACHE_PROTOCOL ?? 'warm source after isolated seed/ANALYZE; reference scan runs after verification without timestamp-intent lookup', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
+  const result = { root, nodeMemoryFlags: process.execArgv, gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, intentMs, finalMs, scanAfterOwnMs, scanBeforeOwnMs, loadIntentMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: finalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: coordinatorPeak / 1024 / 1024, coordinatorRssPass: coordinatorPeak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: process.env.OM_BENCH_CACHE_PROTOCOL ?? 'warm source after isolated seed/ANALYZE; reference scan runs after verification without timestamp-intent lookup', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
   await writeFile(`${root}/rotation-${gib}g-report.json`, JSON.stringify(result, null, 2), { mode: 0o600 })
   console.log(JSON.stringify(result)); clearInterval(sampling); await client.end()
 }

@@ -170,7 +170,7 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         }
         const dataset = await options.dataset(context, providers, state.recovery.digest, intents)
         runKey = await validatePreparedRotation(state.prepared, dataset, store, options.signal)
-        await dataset.assertFence(); await providers.refresh()
+        await dataset.assertFence(); await providers.refresh(); await options.assertEntitlement()
         state.status = 'rotating'; await publishState(trustPath, state)
         const identityFor = (intent: RotationTimestampIntent) => {
           const entity = intent.table.includes('.') ? intent.table : `public.${intent.table}`
@@ -222,6 +222,7 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         await options.assertEntitlement(); await dataset.assertFence(); await providers.refresh()
         state.status = 'verifying'; await publishState(trustPath, state)
         const result = await verifyRotationData(state.prepared as PreparedRotation, dataset, store, options.signal)
+        await options.assertEntitlement()
         await options.report(result, state.recovery)
         state.status = 'passed'; await publishState(trustPath, state)
       } catch (error) {

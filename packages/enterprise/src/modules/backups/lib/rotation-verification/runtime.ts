@@ -113,7 +113,9 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
           console.error(translate('backups.rotation.verifying', 'Verifying persisted data after key rotation.'))
         })
       } catch (error) {
-        console.error(translate('backups.rotation.failed', 'Protected key rotation did not complete. Keep writers stopped, retain all previous keys and recovery artifacts, and inspect the trusted run record before resuming.'))
+        const errorPrefix = process.stderr.isTTY && environment.NO_COLOR === undefined && environment.TERM !== 'dumb' ? '\u001b[31mERROR: ' : 'ERROR: '
+        const errorSuffix = errorPrefix.startsWith('\u001b') ? '\u001b[0m' : ''
+        console.error(errorPrefix + translate('backups.rotation.failed', 'Protected key rotation did not complete. Keep writers stopped, retain all previous keys and recovery artifacts, and inspect the trusted run record before resuming.') + errorSuffix)
         const code = error instanceof Error && /^\[internal\] [A-Z][A-Z0-9_]*(?::[A-Z][A-Z0-9_]*)?$/.test(error.message) ? error.message : '[internal] ROTATION_VERIFICATION_FAILED'
         throw new Error(code)
       } finally { clearTimeout(deadline); process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel) }

@@ -597,7 +597,7 @@ const rotateEncryptionKey: ModuleCli = {
     const where: any = { deletedAt: null }
     if (tenantIdArg) where.tenantId = tenantIdArg
     if (organizationIdArg) where.organizationId = organizationIdArg
-    const allMaps = await em.find(EncryptionMap, where, { limit: 5001 })
+    const allMaps = await em.find(EncryptionMap, where, { limit: 5001, ...(providers ? { refresh: true } : {}), ...(providers?.signal ? { signal: providers.signal, inflightQueryAbortStrategy: 'cancel query' } : {}) })
     if (allMaps.length > 5000) failCli('[internal] Encryption map scope exceeds supported maintenance bound')
     const systemScopedEntityIds = await getSystemScopedEntityIds()
     const maps = allMaps.filter((map: EncryptionMap) => {

@@ -11,6 +11,7 @@ import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption
 import { createConfiguredRotationProtection } from '../runtime'
 import { generateX25519Identity, identityToRecipient } from '../../engine/crypto'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { canonicalRotationTimestamp, createPostgresRotationDataset } from '../postgres-dataset'
 import { prepareRotationVerification, verifyRotationData } from '../verifier'
@@ -212,6 +213,45 @@ native('native PostgreSQL persisted verification', () => {
     const data = await dataset(); const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)
     await rotate()
     await expect(verifyRotationData(prepared, data, artifacts)).resolves.toMatchObject({ comparedRows: '19' })
+  })
+  test('refreshes a cached map before deriving encrypted-field coverage', async () => {
+    await client.query('ALTER TABLE encryption_maps ADD COLUMN created_at timestamptz DEFAULT now(), ADD COLUMN updated_at timestamptz DEFAULT now(); ALTER TABLE fixture_records ADD COLUMN second_secret text')
+    await client.query('UPDATE fixture_records SET second_secret=$1', [encryptWithAesGcm('second-private', source).value])
+    const orm = await MikroORM.init({ clientUrl: base.toString(), entities: [EncryptionMap], pool: { min: 0, max: 2 } })
+    const em = orm.em.fork()
+    try {
+      const cached = await em.findOneOrFail(EncryptionMap, { entityId: 'test:record' })
+      expect(cached.fieldsJson).toEqual([{ field: 'secret' }])
+      await client.query('UPDATE encryption_maps SET fields_json=$1', [JSON.stringify([{ field: 'secret' }, { field: 'secondSecret' }])])
+      const context = await inputContext()
+      context.entityManager.find = em.find.bind(em) as typeof context.entityManager.find
+      context.entityManager.getMetadata = (() => ({ getAll: () => [{ className: 'FixtureRecord', tableName: 'fixture_records', schema: 'public', primaryKeys: ['id'], properties: { id: { name: 'id', fieldNames: ['id'] }, secret: { name: 'secret', fieldNames: ['secret'] }, secondSecret: { name: 'secondSecret', fieldNames: ['second_secret'] } } }] })) as typeof context.entityManager.getMetadata
+      const data = await createPostgresRotationDataset({ context, providers: { previousKms: createDerivedKeyKmsService(sourceSecret), kms: createDerivedKeyKmsService(targetSecret) }, backupDigest: 'a'.repeat(64), provider: 'explicit' })
+      await orm.close(true) // return the discovery-only pool before enforcing the single maintenance session
+      const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)
+      expect(cached.fieldsJson).toHaveLength(2)
+      await rotate() // deliberately leave the newly mapped second field under the source key
+      await expect(verifyRotationData(prepared, data, artifacts)).rejects.toThrow('DATA_MISMATCH')
+    } finally { await orm.close(true) }
+  })
+  test('refuses an oversized policy binding before loading policy payloads or mutating', async () => {
+    await client.query(`CREATE POLICY oversized_binding ON fixture_records USING (secret='${'a'.repeat(4 * 1024 * 1024 + 4096)}')`)
+    const mutate = jest.fn()
+    await expect(dataset().then(mutate)).rejects.toThrow('COVERAGE_UNSUPPORTED')
+    expect(mutate).not.toHaveBeenCalled()
+  })
+  test('refuses inherited rows with unprojected child columns before mutation', async () => {
+    await client.query('CREATE TABLE child_records(child_secret text) INHERITS(fixture_records)')
+    const mutate = jest.fn()
+    await expect(dataset().then(mutate)).rejects.toThrow('RELATION_UNSUPPORTED')
+    expect(mutate).not.toHaveBeenCalled()
+  })
+  test('refuses partitioned mappings with a child-only writer before mutation', async () => {
+    const role = `partition_writer_${randomUUID().replaceAll('-', '')}`
+    await client.query('DROP TABLE fixture_records; CREATE TABLE fixture_records(id uuid,tenant_id uuid NOT NULL,organization_id uuid,secret text,exact numeric,other jsonb,deleted_at timestamptz,PRIMARY KEY(id)) PARTITION BY HASH(id); CREATE TABLE fixture_partition PARTITION OF fixture_records FOR VALUES WITH (MODULUS 1,REMAINDER 0)')
+    await client.query(`CREATE ROLE "${role}" LOGIN; GRANT UPDATE ON fixture_partition TO "${role}"`)
+    try { await expect(dataset()).rejects.toThrow('RELATION_UNSUPPORTED') }
+    finally { await client.query(`DROP OWNED BY "${role}"; DROP ROLE "${role}"`) }
   })
   test('rejects a schema owner without table privileges before mutation', async () => {
     const role = `schema_owner_${randomUUID().replaceAll('-', '')}`

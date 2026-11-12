@@ -78,7 +78,7 @@ export async function rotateCustomEntityDocuments(
   if (options.organizationId) definitionScope.push({ $or: [{ organizationId: options.organizationId }, { organizationId: null }] })
   const availableDefinitions = await em.find(CustomFieldDef, {
     ...(definitionScope.length ? { $and: definitionScope } : {}),
-  }, { limit: MAX_DEFINITIONS + 1, orderBy: { id: 'asc' } })
+  }, { limit: MAX_DEFINITIONS + 1, orderBy: { id: 'asc' }, refresh: true, ...(options.signal ? { signal: options.signal, inflightQueryAbortStrategy: 'cancel query' as const } : {}) })
   if (availableDefinitions.length > MAX_DEFINITIONS) throw new Error('[internal] Custom definition inventory exceeds supported maintenance bound')
   if (!availableDefinitions.length) return 0
   const connection = {
@@ -134,7 +134,7 @@ export async function rotateCustomEntityDocuments(
         const visibleDefinitions = await em.find(CustomFieldDef, {
           entityId: row.entity_type,
           $and: definitionScope,
-        }, { limit: MAX_DEFINITIONS + 1, orderBy: { id: 'asc' } })
+        }, { limit: MAX_DEFINITIONS + 1, orderBy: { id: 'asc' }, refresh: true, ...(options.signal ? { signal: options.signal, inflightQueryAbortStrategy: 'cancel query' as const } : {}) })
         if (visibleDefinitions.length > MAX_DEFINITIONS) throw new Error('[internal] Custom definition scope exceeds supported maintenance bound')
         const scopedDefinitions = selectHistoricalDefinitions(visibleDefinitions.filter((definition) => definition.isActive && !definition.deletedAt))
         const keys = new Set(visibleDefinitions.map((definition) => definition.key))

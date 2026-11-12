@@ -167,3 +167,23 @@ test.each(['nested-trust', 'nested-artifacts'])('refuses physically nested roots
   await expect(createEnterpriseRotationProtection(options).protect(context, mutation)).rejects.toThrow('TRUST_ANCHOR_LOCATION')
   expect(mutation).not.toHaveBeenCalled()
 })
+
+
+test('rights lost during recovery refuse before the first mutation', async () => {
+  const { options, context, state } = fixture()
+  options.recovery.verify = async () => { state.entitlement = false }
+  const mutate = jest.fn()
+  await expect(createEnterpriseRotationProtection(options).protect(context, mutate)).rejects.toThrow('entitlement')
+  expect(mutate).not.toHaveBeenCalled()
+})
+
+
+test('rights lost during the final persisted scan cannot publish success', async () => {
+  const { options, context, state } = fixture(); const factory = options.dataset
+  options.dataset = async (...args) => {
+    const data = await factory(...args)
+    return { ...data, async *rows(phase, signal) { yield* data.rows(phase, signal); if (phase === 'after') state.entitlement = false } }
+  }
+  await expect(createEnterpriseRotationProtection(options).protect(context, async () => {})).rejects.toThrow('entitlement')
+  expect(state.reports).toBe(0)
+})
