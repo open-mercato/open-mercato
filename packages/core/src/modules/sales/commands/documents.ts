@@ -8710,6 +8710,7 @@ const orderLineBulkUpsertCommand: CommandHandler<
         calculation,
         sourceLines: sourceInputs,
         existingLines,
+        omnibusService: resolveOmnibusService(ctx),
       });
       applyOrderTotals(order, calculation.totals, calculation.lines.length);
       return { result: { orderId: order.id, lineIds }, calculation };

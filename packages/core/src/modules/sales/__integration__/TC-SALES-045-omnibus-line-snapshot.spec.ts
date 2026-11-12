@@ -163,10 +163,17 @@ test.describe('TC-SALES-045: Omnibus snapshot on order lines', () => {
       });
       expect(upserted.status(), `line upsert should be 201 (${await upserted.text()})`).toBe(201);
 
+      const bulkUpserted = await apiRequest(request, 'POST', '/api/sales/order-lines/batch', {
+        token,
+        data: { orderId, lines: [pricedLine(`QA OMNI bulk ${stamp}`)] },
+      });
+      expect(bulkUpserted.status(), `bulk line create should be 200 (${await bulkUpserted.text()})`).toBe(200);
+
       const captured = await readOrderLines(request, token, orderId);
       const createdLine = captured.find((line) => line.name === `QA OMNI created ${stamp}`);
       const upsertedLine = captured.find((line) => line.name === `QA OMNI upserted ${stamp}`);
-      for (const line of [createdLine, upsertedLine]) {
+      const bulkLine = captured.find((line) => line.name === `QA OMNI bulk ${stamp}`);
+      for (const line of [createdLine, upsertedLine, bulkLine]) {
         expect(line, 'line should be listed').toBeTruthy();
         expect(referenceGross(line)).toBe(95);
         expect(line?.omnibus_applicability_reason).toBe('announced_promotion');
