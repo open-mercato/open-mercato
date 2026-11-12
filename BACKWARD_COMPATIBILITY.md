@@ -640,9 +640,9 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 STABLE: unsafe keys/HTTP Vault rejected; bridges retain exposure. [Migration](UPGRADE_NOTES.md).
 Named human waiver of steps 1–3 required.
 
-## Encryption maintenance safety gates (2026-11-02, #6767)
+## Encryption maintenance (2026-11-02 #6767; 2026-11-12)
 
-CLI safety confirmations changed; stop writers and restart replicas. [Flags, migration and stable formats](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767).
+Stop writers; restart replicas. Owner-approved Core unprotected rotation: `--acknowledge-unprotected-key-rotation`. [Flags, migration, stable formats](UPGRADE_NOTES.md).
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
@@ -654,6 +654,3 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
 
-## 2026-11-12
-
-Owner-approved: `--acknowledge-unprotected-key-rotation` per unprotected Core rotation. [Upgrade](UPGRADE_NOTES.md#explicit-acknowledgment-for-unprotected-key-rotation).
