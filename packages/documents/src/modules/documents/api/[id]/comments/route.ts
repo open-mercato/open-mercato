@@ -26,6 +26,7 @@ import {
   resolveDocumentsCommandBus,
 } from '../../_commands'
 import {
+  assertDocumentId,
   assertDocumentNotArchived,
   handleDocumentsRouteError,
   readBody,
@@ -243,6 +244,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   try {
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
+    assertDocumentId(documentId)
     const tier = await assertTier(ctx.em, documentId, ctx.auth, 'viewer')
     const userId = resolveActorUserId(ctx.auth)
     const url = new URL(request.url)
