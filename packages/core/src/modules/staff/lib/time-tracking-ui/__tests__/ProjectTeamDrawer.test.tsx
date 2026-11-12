@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ProjectTeamDrawer } from '../ProjectTeamDrawer'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -18,8 +18,6 @@ function interpolate(template: string, params?: Record<string, string | number>)
   ))
 }
 
-// The real `useT()` returns the memoized translator from context; keep the mock
-// stable too so effects depending on `t` do not re-run on every render.
 const mockTranslate = (
   key: string,
   fallbackOrParams?: string | Record<string, string | number>,
@@ -29,8 +27,10 @@ const mockTranslate = (
   return interpolate(key, fallbackOrParams)
 }
 
+let mockTranslator = mockTranslate
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => mockTranslate,
+  useT: () => mockTranslator,
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
@@ -146,6 +146,7 @@ function renderDrawer(overrides: Partial<React.ComponentProps<typeof ProjectTeam
 describe('ProjectTeamDrawer', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockTranslator = mockTranslate
     mockConfirm.mockResolvedValue(true)
     mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
     installApiRoutes()
@@ -205,6 +206,40 @@ describe('ProjectTeamDrawer', () => {
     fireEvent.click(annaCheckbox)
     await waitFor(() => { expect(mockConfirm).toHaveBeenCalled() })
     expect(annaCheckbox).toBeChecked()
+  })
+
+  it('preserves and saves a pending assignment when the translator changes', async () => {
+    const onOpenChange = jest.fn()
+    const onSaved = jest.fn()
+    const view = renderDrawer({ onOpenChange, onSaved })
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Assign Tomasz Iwan/ }))
+    expect(await screen.findByText('1 change to save')).toBeInTheDocument()
+
+    mockTranslator = (...args: Parameters<typeof mockTranslate>) => mockTranslate(...args)
+    await act(async () => {
+      view.rerender(
+        <ProjectTeamDrawer
+          projectId={PROJECT_ID}
+          projectName="Nordvik — migracja B2B"
+          open
+          onOpenChange={onOpenChange}
+          onSaved={onSaved}
+        />,
+      )
+    })
+
+    expect(screen.getByRole('checkbox', { name: /Assign Tomasz Iwan/ })).toBeChecked()
+    expect(screen.getByText('1 change to save')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => {
+      expect(mockCreateCrud).toHaveBeenCalledWith(
+        `staff/timesheets/time-projects/${PROJECT_ID}/employees`,
+        expect.objectContaining({ staffMemberId: 'tomasz', timeProjectId: PROJECT_ID }),
+        expect.anything(),
+      )
+    })
+    await waitFor(() => { expect(onSaved).toHaveBeenCalled() })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it('saves additions and removals through the guarded mutation', async () => {

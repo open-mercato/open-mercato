@@ -1,6 +1,8 @@
-import { assertPublicUrl } from '@open-mercato/web-research'
+import { assertPublicUrl, type LookupFn } from '@open-mercato/web-research'
+import { startEgressProxy, type EgressConnect, type EgressProxy } from './egressProxy'
 import {
   DEFAULT_USER_AGENT,
+  RESOLVER_LOCKDOWN_ARGS,
   isSandboxDisabled,
   resolveLaunchArgs,
   importChromium,
@@ -8,6 +10,7 @@ import {
   launchChromium,
   type InstallRunner,
   type BrowserHandle,
+  type BrowserType,
   type ContextHandle,
   type PageHandle,
 } from './playwright'
@@ -27,13 +30,24 @@ export const LEASE_IDLE_TIMEOUT_MS = 5 * 60_000
 export type SidecarState = {
   browser: BrowserHandle | null
   leases: Map<string, Lease>
+  /** @deprecated Subresource filtering is always on; this field is ignored. */
   filterSubresources: boolean
   warn: (message: string) => void
   /** Injectable so a lease-expiry test does not have to wait five minutes. */
   now: () => number
   /** Injectable so tests never shell out to `npx playwright install`. */
   installRunner?: InstallRunner
+  /** Injectable DNS for the URL checks and the egress proxy, so tests never resolve real names. */
+  lookup?: LookupFn
+  /** Injectable dial for the egress proxy, so tests can stand in for public hosts. */
+  connect?: EgressConnect
+  /** Injectable so tests never import Playwright. */
+  loadBrowserType?: () => Promise<BrowserType>
+  egressProxy?: EgressProxy | null
+  launching?: Promise<BrowserHandle> | null
 }
+
+const FILTER_SUBRESOURCES_ENV = 'OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES'
 
 export const DEFAULT_GOTO_TIMEOUT_MS = 30_000
 const MAX_GOTO_TIMEOUT_MS = 120_000
@@ -42,16 +56,19 @@ export function createState(overrides: Partial<SidecarState> = {}): SidecarState
   return {
     browser: null,
     leases: new Map(),
-    filterSubresources: process.env.OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES === '1',
+    filterSubresources: true,
     warn: (message) => process.stderr.write(`om-web-research-sidecar: ${message}\n`),
     now: () => Date.now(),
     ...overrides,
   }
 }
 
-async function ensureBrowser(state: SidecarState): Promise<BrowserHandle> {
-  if (state.browser) return state.browser
-  const chromium = await importChromium()
+function lookupOption(state: SidecarState): { lookup?: LookupFn } {
+  return state.lookup ? { lookup: state.lookup } : {}
+}
+
+async function launchBrowser(state: SidecarState): Promise<BrowserHandle> {
+  const browserType = await (state.loadBrowserType ?? importChromium)()
   if (isSandboxDisabled()) {
     // Said once per browser, not once per render, but said: this process renders
     // pages chosen by a search engine or a model with the one mitigation
@@ -60,12 +77,45 @@ async function ensureBrowser(state: SidecarState): Promise<BrowserHandle> {
       'SECURITY: Chromium sandbox is disabled by OM_WEB_RESEARCH_BROWSER_NO_SANDBOX=1 — a renderer compromise reaches this host',
     )
   }
-  state.browser = await launchChromium(
-    chromium,
-    { headless: true, args: resolveLaunchArgs() },
-    { onProgress: state.warn, ...(state.installRunner ? { install: state.installRunner } : {}) },
-  )
-  return state.browser
+  if (process.env[FILTER_SUBRESOURCES_ENV] !== undefined) {
+    state.warn(`subresource filtering is now always on; ${FILTER_SUBRESOURCES_ENV} is ignored`)
+  }
+  const proxy = await startEgressProxy({
+    ...lookupOption(state),
+    ...(state.connect ? { connect: state.connect } : {}),
+  })
+  let browser: BrowserHandle
+  try {
+    browser = await launchChromium(
+      browserType,
+      {
+        headless: true,
+        args: [...resolveLaunchArgs(), ...RESOLVER_LOCKDOWN_ARGS],
+        proxy: { server: proxy.url, bypass: '<-loopback>' },
+      },
+      { onProgress: state.warn, ...(state.installRunner ? { install: state.installRunner } : {}) },
+    )
+  } catch (error) {
+    await proxy.close()
+    throw error
+  }
+  state.egressProxy = proxy
+  state.browser = browser
+  return browser
+}
+
+/**
+ * Single-flight: two leases opening at once share one launch, so neither a
+ * browser nor its egress proxy is orphaned outside `teardown`.
+ */
+async function ensureBrowser(state: SidecarState): Promise<BrowserHandle> {
+  if (state.browser) return state.browser
+  if (!state.launching) {
+    state.launching = launchBrowser(state).finally(() => {
+      state.launching = null
+    })
+  }
+  return state.launching
 }
 
 /**
@@ -81,8 +131,8 @@ async function openLease(state: SidecarState, leaseId: string, userAgent: string
     return existing
   }
   const browser = await ensureBrowser(state)
-  const context = await browser.newContext({ userAgent, locale: 'en-US' })
-  await installNavigationGuard(context, { filterSubresources: state.filterSubresources, warn: state.warn })
+  const context = await browser.newContext({ userAgent, locale: 'en-US', serviceWorkers: 'block' })
+  await installNavigationGuard(context, { warn: state.warn, ...lookupOption(state) })
   const page = (await context.newPage()) as unknown as PageHandle
   const lease: Lease = { context, page, touchedAt: state.now() }
   state.leases.set(leaseId, lease)
@@ -111,9 +161,12 @@ async function closeLease(state: SidecarState, leaseId: string): Promise<void> {
 }
 
 export async function teardown(state: SidecarState): Promise<void> {
+  if (state.launching) await state.launching.catch(() => null)
   for (const leaseId of [...state.leases.keys()]) await closeLease(state, leaseId)
   const browser = state.browser
+  const proxy = state.egressProxy
   state.browser = null
+  state.egressProxy = null
   if (browser) {
     try {
       await browser.close()
@@ -121,6 +174,7 @@ export async function teardown(state: SidecarState): Promise<void> {
       // Best effort; the parent escalates to SIGKILL if we hang.
     }
   }
+  if (proxy) await proxy.close()
 }
 
 function stringParam(request: SidecarRequest, key: string): string {
@@ -142,7 +196,7 @@ async function dispatchInner(state: SidecarState, request: SidecarRequest): Prom
       // Re-checked here, in a distinct process from the caller, and BEFORE
       // Playwright is imported — a blocked URL never launches a browser.
       try {
-        await assertPublicUrl(url, 'browser render', { failClosed: true })
+        await assertPublicUrl(url, 'browser render', { failClosed: true, ...lookupOption(state) })
       } catch (error) {
         return {
           id: request.id,
@@ -168,8 +222,18 @@ async function dispatchInner(state: SidecarState, request: SidecarRequest): Prom
           error: { message: error instanceof Error ? error.message : String(error), kind: 'navigation' },
         }
       }
+      const finalUrl = lease.page.url()
+      try {
+        await assertPublicUrl(finalUrl, 'browser final URL', { failClosed: true, ...lookupOption(state) })
+      } catch (error) {
+        return {
+          id: request.id,
+          ok: false,
+          error: { message: error instanceof Error ? error.message : String(error), kind: 'navigation' },
+        }
+      }
       const html = await lease.page.content()
-      return { id: request.id, ok: true, result: { url: lease.page.url(), html } }
+      return { id: request.id, ok: true, result: { url: finalUrl, html } }
     }
 
     case 'release':

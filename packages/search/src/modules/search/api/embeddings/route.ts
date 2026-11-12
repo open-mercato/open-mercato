@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -13,6 +14,8 @@ import {
   getEffectiveDimension,
 } from '../../lib/embedding-config'
 import type { EmbeddingConfigSource } from '../../lib/embedding-config'
+import { localizeProviderAvailability } from '../../lib/provider-diagnostics'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { checkAllProviders } from '../../lib/provider-probe'
 import type { EmbeddingProviderProbe, ProviderAvailabilityEntry } from '../../lib/provider-probe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -22,7 +25,7 @@ import {
   assertSafeOllamaBaseUrl,
   UnsafeOllamaBaseUrlError,
 } from '../../../../vector/lib/ollama-url-safety'
-import { searchDebug, searchDebugWarn, searchError } from '../../../../lib/debug'
+import { reportSearchError, searchError } from '../../../../lib/debug'
 import { embeddingsOpenApi } from '../openapi'
 
 const embeddingConfigSchema = z.object({
@@ -83,11 +86,12 @@ function resolveProbe(container: { resolve: <T = unknown>(name: string) => T }):
 
 async function resolveProviderAvailability(
   container: { resolve: <T = unknown>(name: string) => T },
+  t: TranslateFn,
 ): Promise<ProviderAvailabilityEntry[]> {
   const probe = resolveProbe(container)
   if (!probe) return []
   try {
-    return await checkAllProviders(probe)
+    return (await checkAllProviders(probe)).map((entry) => localizeProviderAvailability(entry, t))
   } catch {
     return []
   }
@@ -124,6 +128,7 @@ async function getVectorDocumentCount(
 }
 
 export async function GET(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) return await unauthorized()
 
@@ -143,7 +148,7 @@ export async function GET(req: Request) {
       scope: { tenantId: auth.tenantId },
     })
     const configuredProviders = getConfiguredProviders()
-    const providerAvailability = await resolveProviderAvailability(container)
+    const providerAvailability = await resolveProviderAvailability(container, t)
     const indexedDimension = await getIndexedDimension(container)
 
     const effectiveDimension = embeddingConfig
@@ -209,24 +214,21 @@ export async function POST(req: Request) {
       return await configUnavailable()
     }
 
-    if (parsed.data.autoIndexingEnabled !== undefined) {
-      if (envDisablesAutoIndexing()) {
-        return NextResponse.json(
-          {
-            error: t(
-              'search.api.errors.autoIndexingDisabled',
-              'Auto-indexing is disabled via OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING (legacy alias: DISABLE_VECTOR_SEARCH_AUTOINDEXING).',
-            ),
-          },
-          { status: 409 },
-        )
-      }
-      await service.setValue('vector', SEARCH_AUTO_INDEX_CONFIG_KEY, parsed.data.autoIndexingEnabled, { tenantId: auth.tenantId })
+    if (parsed.data.autoIndexingEnabled !== undefined && envDisablesAutoIndexing()) {
+      return NextResponse.json(
+        {
+          error: t(
+            'search.api.errors.autoIndexingDisabled',
+            'Auto-indexing is disabled via OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING (legacy alias: DISABLE_VECTOR_SEARCH_AUTOINDEXING).',
+          ),
+        },
+        { status: 409 },
+      )
     }
 
     let embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null, scope: { tenantId: auth.tenantId } })
     let reindexRequired = false
-    let indexedDimension = await getIndexedDimension(container)
+    const indexedDimension = await getIndexedDimension(container)
 
     if (parsed.data.embeddingConfig) {
       const newConfig = parsed.data.embeddingConfig
@@ -278,13 +280,14 @@ export async function POST(req: Request) {
             : undefined,
         )
         if (!availability.available) {
+          const localized = localizeProviderAvailability(availability, t)
           return NextResponse.json(
             {
               error: t(
                 'search.api.errors.providerUnavailable',
-                `Provider ${providerInfo.name} is not available: ${availability.reason ?? 'unreachable'}`,
+                'The selected provider is not available.',
               ),
-              reason: availability.reason ?? null,
+              reason: localized.reason ?? null,
             },
             { status: 409 },
           )
@@ -300,51 +303,48 @@ export async function POST(req: Request) {
         indexedDimension
       )
 
-      if (change.requiresReindex) {
-        const newDimension = getEffectiveDimension(change.newConfig)
-        searchDebug('search.embeddings.update', 'config change detected, recreating table', {
-          requiresReindex: change.requiresReindex,
-          reason: change.reason,
-          oldDimension: indexedDimension,
-          newDimension,
-        })
-        try {
-          const drivers = container.resolve<VectorDriver[]>('vectorDrivers')
-          const pgvectorDriver = drivers.find((d) => d.id === 'pgvector')
-          if (pgvectorDriver?.recreateWithDimension) {
-            await pgvectorDriver.recreateWithDimension(newDimension)
-            // Query the actual dimension from the database to confirm
-            if (pgvectorDriver.getTableDimension) {
-              indexedDimension = await pgvectorDriver.getTableDimension()
-            } else {
-              indexedDimension = newDimension
-            }
-            searchDebug('search.embeddings.update', 'table recreated successfully', { indexedDimension })
-          } else {
-            searchDebugWarn('search.embeddings.update', 'pgvector driver does not have recreateWithDimension method')
-          }
-        } catch (error) {
-          searchError('search.embeddings.update', 'failed to recreate table', {
-            error: error instanceof Error ? error.message : error,
-          })
-          return NextResponse.json(
-            { error: t('search.api.errors.recreateFailed', 'Failed to recreate vector table with new dimension.') },
-            { status: 500 },
-          )
-        }
+      const newDimension = getEffectiveDimension(change.newConfig)
+      if (indexedDimension === null || !Number.isInteger(indexedDimension) || indexedDimension <= 0) {
+        return NextResponse.json(
+          { error: t('search.api.errors.indexUnavailable', 'Search index is unavailable.') },
+          { status: 503 },
+        )
+      }
+      if (newDimension !== indexedDimension) {
+        return NextResponse.json(
+          { error: t('search.api.errors.dimensionMismatch', 'The embedding dimension must match the shared vector index. Contact your instance administrator to change the index dimension.') },
+          { status: 409 },
+        )
       }
 
-      await saveEmbeddingConfig(container, change.newConfig, { scope: { tenantId: auth.tenantId } })
       embeddingConfig = change.newConfig
+      reindexRequired = change.requiresReindex
+    }
 
+    if (parsed.data.embeddingConfig || parsed.data.autoIndexingEnabled !== undefined) {
+      const em = container.resolve<EntityManager>('em')
+      try {
+        await em.transactional(async () => {
+          if (parsed.data.embeddingConfig && embeddingConfig) {
+            await saveEmbeddingConfig(container, embeddingConfig, { scope: { tenantId: auth.tenantId } })
+          }
+          if (parsed.data.autoIndexingEnabled !== undefined) {
+            await service.setValue('vector', SEARCH_AUTO_INDEX_CONFIG_KEY, parsed.data.autoIndexingEnabled, { tenantId: auth.tenantId })
+          }
+        })
+      } catch (error) {
+        await service.invalidate('vector', undefined, { tenantId: auth.tenantId })
+        throw error
+      }
+    }
+
+    if (parsed.data.embeddingConfig && embeddingConfig) {
       try {
         const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
         embeddingService.updateConfig(embeddingConfig)
       } catch {
         // Embedding service may not be available in all contexts
       }
-
-      reindexRequired = change.requiresReindex
     }
 
     const lockedByEnv = envDisablesAutoIndexing()
@@ -375,13 +375,14 @@ export async function POST(req: Request) {
         embeddingConfig,
         embeddingConfigSource,
         configuredProviders: getConfiguredProviders(),
-        providerAvailability: await resolveProviderAvailability(container),
+        providerAvailability: await resolveProviderAvailability(container, t),
         indexedDimension,
         reindexRequired,
         documentCount: updatedDocumentCount,
       },
     })
   } catch (error) {
+    reportSearchError('search.embeddings.update', error, 'search.embedding_settings_update_failed')
     searchError('search.embeddings.update', 'failed', {
       error: error instanceof Error ? error.message : error,
     })

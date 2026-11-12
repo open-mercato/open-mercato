@@ -9,7 +9,7 @@
  * - Event logging
  */
 
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import * as stepHandler from '../step-handler'
@@ -32,6 +32,26 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
   const childDefinitionId = '00000000-0000-4000-8000-000000000005'
   const childInstanceId = '00000000-0000-4000-8000-000000000006'
   const stepInstanceId = '00000000-0000-4000-8000-000000000007'
+
+  afterEach(() => {
+    delete (Object.prototype as Record<string, unknown>).workflowPolluted
+  })
+
+  test('output mapping ignores prototype-bearing paths without polluting the process', () => {
+    const outputMapping = JSON.parse(
+      '{"safe":"status","__proto__.workflowPolluted":"status","alias":"__proto__","alias.workflowPolluted":"status"}',
+    ) as Record<string, string>
+
+    const mapped = stepHandler.mapSubWorkflowOutput({ status: 'approved' }, outputMapping)
+
+    expect(mapped).toEqual({
+      outputData: {
+        safe: 'approved',
+        alias: { workflowPolluted: 'approved' },
+      },
+    })
+    expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+  })
 
   // Parent workflow definition with SUB_WORKFLOW step
   const parentDefinition: Partial<WorkflowDefinition> = {
@@ -335,6 +355,66 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
   // ============================================================================
 
   describe('Data Mapping', () => {
+    test('contains legacy unsafe targets through the executeStep boundary while reading own special fields', async () => {
+      const legacyParentDefinition = {
+        ...parentDefinition,
+        definition: {
+          ...parentDefinition.definition,
+          steps: [
+            ...parentDefinition.definition!.steps.slice(0, 1),
+            {
+              stepId: 'invoke-child',
+              stepName: 'Invoke Child Workflow',
+              stepType: 'SUB_WORKFLOW',
+              config: {
+                subWorkflowId: 'child-workflow',
+                inputMapping: JSON.parse(
+                  '{"safeInput":"payload.constructor.value","__proto__.workflowPolluted":"orderId"}',
+                ),
+                outputMapping: JSON.parse(
+                  '{"safeOutput":"result.prototype.value","constructor.prototype.workflowPolluted":"status"}',
+                ),
+              },
+            },
+            ...parentDefinition.definition!.steps.slice(2),
+          ],
+        },
+      }
+      const legacyParentInstance = {
+        ...parentInstance,
+        context: JSON.parse('{"orderId":"12345","payload":{"constructor":{"value":"ctor"}}}'),
+      }
+      const childContext = JSON.parse(
+        '{"status":"SUCCESS","result":{"prototype":{"value":"proto"}}}',
+      )
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: childContext,
+        events: [],
+        executionTime: 100,
+      })
+      mockEm.findOne.mockResolvedValue(legacyParentDefinition as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        legacyParentInstance as WorkflowInstance,
+        'invoke-child',
+        { workflowContext: legacyParentInstance.context },
+        mockContainer,
+      )
+
+      expect(startWorkflowSpy.mock.calls[0][1].initialContext).toEqual({ safeInput: 'ctor' })
+      expect(result.outputData).toEqual({ safeOutput: 'proto' })
+      expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
     test('should map input data using dot notation', async () => {
       const nestedParentDef = {
         ...parentDefinition,

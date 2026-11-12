@@ -117,7 +117,9 @@
   "messages.errors.conversationHasNoChannelThread": "Ta konwersacja nie ma wątku kanału, do którego można dostarczyć wiadomość",
   "messages.errors.deleteFailed": "Nie udało się usunąć wiadomości.",
   "messages.errors.forwardPreviewFailed": "Nie udało się załadować podglądu przekazywanej wiadomości.",
+  "messages.errors.invalidComposePayload": "Nieprawidłowe dane wiadomości",
   "messages.errors.invalidContext": "Brakuje kontekstu wiadomości.",
+  "messages.errors.invalidListQuery": "Nieprawidłowe parametry żądania",
   "messages.errors.loadAttachmentOptionsFailed": "Nie udało się załadować załączników.",
   "messages.errors.loadAttachmentsFailed": "Nie udało się załadować załączników.",
   "messages.errors.loadDetailFailed": "Nie udało się załadować szczegółów wiadomości.",
@@ -213,6 +215,10 @@
   "messages.placeholders.sourceEntityType": "np. sales.order",
   "messages.placeholders.subject": "Wpisz temat...",
   "messages.priority": "Priorytet",
+  "messages.priority.high": "Wysoki",
+  "messages.priority.low": "Niski",
+  "messages.priority.normal": "Normalny",
+  "messages.priority.urgent": "Pilny",
   "messages.reply": "Odpowiedz",
   "messages.replyAll": "Odpowiedz wszystkim",
   "messages.replyAllHint": "Uwzględnij wszystkich pierwotnych odbiorców.",
@@ -264,10 +270,11 @@
   "messages.types.default": "Wiadomość",
   "messages.types.defaultWithObjects": "Wiadomość z obiektem",
   "messages.types.system": "Powiadomienie systemowe",
+  "messages.unknownDate": "Data nieznana",
   "messages.visibility": "Widoczność",
   "messages.visibilityInternal": "Wewnętrzna",
   "messages.visibilityInternalHint": "Wiadomości wewnętrzne są wysyłane do wybranych użytkowników systemu.",
   "messages.visibilityPublic": "Publiczna",
   "messages.visibilityPublicHint": "Wiadomości publiczne są wysyłane wyłącznie na zewnętrzny e-mail.",
-  "notifications.categories.messages": "Wiadomo\u015bci"
+  "notifications.categories.messages": "Wiadomości"
 }
