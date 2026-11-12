@@ -16,6 +16,7 @@ const mockEmNativeUpdate = jest.fn()
 const mockEmNativeDelete = jest.fn()
 const mockInvalidateUserCache = jest.fn()
 const mockSoftDelete = jest.fn()
+const mockUpdateProfile = jest.fn()
 const mockRevokeAllUserSessions = jest.fn()
 const mockEmit = jest.fn(async () => undefined)
 
@@ -34,7 +35,7 @@ const mockContainer = {
     if (token === 'rbacService') return mockRbac
     if (token === 'em') return mockEm
     if (token === 'customerRbacService') return { invalidateUserCache: mockInvalidateUserCache }
-    if (token === 'customerUserService') return { softDelete: mockSoftDelete }
+    if (token === 'customerUserService') return { softDelete: mockSoftDelete, updateProfile: mockUpdateProfile }
     if (token === 'customerSessionService') return { revokeAllUserSessions: mockRevokeAllUserSessions }
     return null
   }),
@@ -274,6 +275,22 @@ describe('admin PUT /api/customer_accounts/admin/users/[id] — scoped role + co
     expect(body.error).toContain(roleId)
     const roleLinkDeletes = mockEmNativeDelete.mock.calls.filter((call) => call[0] === CustomerUserRole)
     expect(roleLinkDeletes).toHaveLength(0)
+  })
+
+  it('leaves the profile and native fields untouched when a requested role is rejected', async () => {
+    mockEmFindOne.mockResolvedValue(targetUser)
+    mockEmFind.mockResolvedValue([])
+
+    const res = await PUT(
+      buildRequest({ displayName: 'Renamed', isActive: false, roleIds: [roleId] }),
+      { params: { id: userId } },
+    )
+
+    expect(res.status).toBe(400)
+    expect(mockUpdateProfile).not.toHaveBeenCalled()
+    expect(mockEmNativeUpdate).not.toHaveBeenCalled()
+    expect(mockEmNativeDelete).not.toHaveBeenCalled()
+    expect(mockEmFlush).not.toHaveBeenCalled()
   })
 
   it('rejects with 400 when customerEntityId is not an owned company in the caller scope', async () => {

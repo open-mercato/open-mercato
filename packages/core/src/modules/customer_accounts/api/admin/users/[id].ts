@@ -168,6 +168,33 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     }
   }
 
+  // Resolve requested roles before any write, so a rejected role leaves the record untouched.
+  // Roles are org-scoped (#2693): only the target user's organization roles are accepted.
+  let validRoles: CustomerRole[] | null = null
+  if (parsed.data.roleIds !== undefined) {
+    const requestedRoleIds = parsed.data.roleIds
+    const foundRoles = requestedRoleIds.length > 0
+      ? await findWithDecryption(
+          em,
+          CustomerRole,
+          {
+            id: { $in: requestedRoleIds } as any,
+            tenantId: user.tenantId,
+            organizationId: user.organizationId,
+            deletedAt: null,
+          } as any,
+          undefined,
+          userScope,
+        )
+      : []
+    if (foundRoles.length !== requestedRoleIds.length) {
+      const foundIds = new Set(foundRoles.map((role) => role.id))
+      const missingId = requestedRoleIds.find((roleId) => !foundIds.has(roleId))
+      return NextResponse.json({ ok: false, error: `Role ${missingId} not found` }, { status: 400 })
+    }
+    validRoles = foundRoles
+  }
+
   // `display_name` is encrypted at rest, and `nativeUpdate` skips the flush hooks the
   // tenant-encryption subscriber relies on, so persisting it below would write plaintext PII
   // into a ciphertext column (#3837). Route it through the service, which writes it via the
@@ -194,32 +221,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     organizationId: user.organizationId,
   }, updates)
 
-  let rolesChanged = false
-  if (parsed.data.roleIds !== undefined) {
-    const requestedRoleIds = parsed.data.roleIds
-    // Scope role resolution to the target user's organization — CustomerRole is
-    // org-scoped, so a tenant-only filter would let an admin link roles from
-    // another org in the same tenant (#2693).
-    const validRoles = requestedRoleIds.length > 0
-      ? await findWithDecryption(
-          em,
-          CustomerRole,
-          {
-            id: { $in: requestedRoleIds } as any,
-            tenantId: user.tenantId,
-            organizationId: user.organizationId,
-            deletedAt: null,
-          } as any,
-          undefined,
-          userScope,
-        )
-      : []
-    if (validRoles.length !== requestedRoleIds.length) {
-      const foundIds = new Set(validRoles.map((role) => role.id))
-      const missingId = requestedRoleIds.find((roleId) => !foundIds.has(roleId))
-      return NextResponse.json({ ok: false, error: `Role ${missingId} not found` }, { status: 400 })
-    }
-
+  if (validRoles) {
     await em.nativeDelete(CustomerUserRole, { user: user.id } as Record<string, unknown>)
 
     for (const role of validRoles) {
@@ -231,10 +233,9 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       em.persist(userRole)
     }
     await em.flush()
-    rolesChanged = true
   }
 
-  if (rolesChanged) {
+  if (validRoles) {
     const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
     await customerRbacService.invalidateUserCache(user.id)
   }
