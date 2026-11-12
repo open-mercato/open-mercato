@@ -21,14 +21,17 @@ import {
 } from '@open-mercato/core/modules/cart/__integration__/helpers';
 
 /**
- * TC-ASSIST-001 — the staff thread page offers proposal controls only to principals whose
- * grants the endpoints behind them accept (#8268 re-review finding 2, QA S03/S04/S06).
+ * TC-ASSIST-001 — the staff thread page offers write controls only to principals whose grants
+ * the endpoints behind them accept (#8268 re-review finding 2, QA S03/S04/S06/E03), and every
+ * control writes once however often it is clicked (#8268 QA S05c/S06c/E02/E03, #8417).
  *
  * The page itself only requires `assisted_selling.threads.view` + `cart.proposals.view`.
  * Creating, withdrawing and re-proposing additionally require `assisted_selling.proposals.author`
- * and `cart.proposals.author` (withdraw rejects the proposal cart through `cart.proposal.reject`).
- * A viewer and a role holding only the first author feature must see none of those controls and
- * be refused by the API; a full author drives the whole create → withdraw → re-propose path.
+ * and `cart.proposals.author` (withdraw rejects the proposal cart through `cart.proposal.reject`);
+ * join/leave/assign require `assisted_selling.threads.participate`; the composer requires
+ * `assisted_selling.messages.post`. A viewer and a role holding only the first author feature
+ * must see none of the controls they cannot use and be refused by the API; a full author drives
+ * the whole create → withdraw → re-propose path.
  *
  * Fixtures are created per run through the API (store in `rep` mode, priced product, guest
  * carts, one role + user per grant set). Users, roles, the product and the store are removed in
@@ -49,6 +52,9 @@ const FIXTURE_PASSWORD = 'Valid1!Pass';
 
 type StaffActor = { roleId: string; userId: string; email: string; token: string };
 type ThreadProposal = { id: string; status: string };
+type ThreadParticipant = { actorType: string; actorId: string | null; leftAt: string | null };
+type ThreadMessage = { body: string };
+type ThreadDetail = { participants: ThreadParticipant[]; messages: ThreadMessage[]; proposals: ThreadProposal[] };
 
 function idempotencyKey(): string {
   return `qa-assist-${randomUUID()}`;
@@ -102,11 +108,43 @@ async function authorProposal(
   return expectId(body?.proposalId, 'proposal author should return a proposalId');
 }
 
-async function readThreadProposals(request: APIRequestContext, adminToken: string, threadId: string): Promise<ThreadProposal[]> {
+async function readThreadDetail(request: APIRequestContext, adminToken: string, threadId: string): Promise<ThreadDetail> {
   const response = await apiRequest(request, 'GET', `/api/assisted_selling/threads/${threadId}`, { token: adminToken });
   expect(response.status(), `thread detail should be 200 (${await response.text()})`).toBe(200);
-  const body = await readJsonSafe<{ proposals?: ThreadProposal[] }>(response);
-  return Array.isArray(body?.proposals) ? body.proposals : [];
+  const body = await readJsonSafe<Partial<ThreadDetail>>(response);
+  return {
+    participants: Array.isArray(body?.participants) ? body.participants : [],
+    messages: Array.isArray(body?.messages) ? body.messages : [],
+    proposals: Array.isArray(body?.proposals) ? body.proposals : [],
+  };
+}
+
+async function readThreadProposals(request: APIRequestContext, adminToken: string, threadId: string): Promise<ThreadProposal[]> {
+  return (await readThreadDetail(request, adminToken, threadId)).proposals;
+}
+
+function repParticipationsOf(detail: ThreadDetail, userId: string): ThreadParticipant[] {
+  return detail.participants.filter((participant) => participant.actorType === 'rep' && participant.actorId === userId);
+}
+
+function trackAssistedSellingWrites(page: Page): string[] {
+  const writes: string[] = [];
+  page.on('request', (outgoing) => {
+    if (outgoing.method() !== 'POST') return;
+    const { pathname } = new URL(outgoing.url());
+    if (pathname.startsWith('/api/assisted_selling/')) writes.push(pathname);
+  });
+  return writes;
+}
+
+async function expectThreadWritesRefused(request: APIRequestContext, token: string, threadId: string): Promise<void> {
+  const join = await apiRequest(request, 'POST', `/api/assisted_selling/threads/${threadId}/join`, { token, data: {} });
+  expect(join.status(), 'thread join should be refused').toBe(403);
+  const message = await apiRequest(request, 'POST', `/api/assisted_selling/threads/${threadId}/messages`, {
+    token,
+    data: { body: 'should not be posted' },
+  });
+  expect(message.status(), 'message post should be refused').toBe(403);
 }
 
 async function expectAuthorCallsRefused(
@@ -209,7 +247,7 @@ test.describe('TC-ASSIST-001: thread page proposal controls follow the author gr
     await cleanupCartStorefrontFixture(request, adminToken, store);
   });
 
-  test('a thread viewer sees no author controls and every author call is refused', async ({ page, request }) => {
+  test('a thread viewer sees no write controls and every write call is refused', async ({ page, request }) => {
     await signInStaff(page, viewer!.email);
     await openThreadPage(page, sharedThreadId);
 
@@ -217,7 +255,13 @@ test.describe('TC-ASSIST-001: thread page proposal controls follow the author gr
     await expect(page.getByRole('button', { name: 'New proposal', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Withdraw', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Re-propose', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Join', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Leave', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Assign to me', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'Write a message...' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
 
+    await expectThreadWritesRefused(request, viewer!.token, sharedThreadId);
     await expectAuthorCallsRefused(request, viewer!.token, {
       threadId: sharedThreadId,
       proposalId: sharedProposalId,
@@ -253,6 +297,8 @@ test.describe('TC-ASSIST-001: thread page proposal controls follow the author gr
     await expect(page.getByText('Awaiting the buyer').first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'New proposal', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Withdraw', exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Join', exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Write a message...' })).toBeVisible();
   });
 
   test('a full author creates, withdraws and re-proposes from the thread page', async ({ page, request }) => {
@@ -262,6 +308,13 @@ test.describe('TC-ASSIST-001: thread page proposal controls follow the author gr
 
     const newProposal = page.getByRole('button', { name: 'New proposal', exact: true });
     await expect(newProposal).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Join', exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Write a message...' })).toHaveCount(0);
+    const refusedMessage = await apiRequest(request, 'POST', `/api/assisted_selling/threads/${threadId}/messages`, {
+      token: fullAuthor!.token,
+      data: { body: 'should not be posted' },
+    });
+    expect(refusedMessage.status(), 'message post without assisted_selling.messages.post should be refused').toBe(403);
 
     await newProposal.click();
     const dialog = page.getByRole('dialog');
@@ -299,5 +352,55 @@ test.describe('TC-ASSIST-001: thread page proposal controls follow the author gr
     await expect(page.getByText('New proposal authored.').first()).toBeVisible({ timeout: 30_000 });
     const reproposed = await readThreadProposals(request, adminToken!, threadId);
     expect(reproposed.map((proposal) => proposal.status).sort()).toEqual(['published', 'withdrawn']);
+    await expect(page.getByRole('button', { name: 'Re-propose', exact: true })).toHaveCount(0);
+  });
+
+  test('double clicks on Join, Withdraw, Re-propose and Send each write once', async ({ page, request }) => {
+    const threadId = await openThread(request, adminToken!, store!.hostname);
+    await authorProposal(request, wildcardAuthor!.token, threadId, product!.productId);
+    const writes = trackAssistedSellingWrites(page);
+    await signInStaff(page, wildcardAuthor!.email);
+    await openThreadPage(page, threadId);
+
+    await page.getByRole('button', { name: 'Join', exact: true }).dblclick();
+    await expect(page.getByText('You joined this conversation.').first()).toBeVisible({ timeout: 30_000 });
+    expect(writes.filter((path) => path.endsWith(`/threads/${threadId}/join`))).toHaveLength(1);
+    await expect(page.getByText('Failed to join this conversation.')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Withdraw', exact: true }).dblclick();
+    await expect(page.getByText('Proposal withdrawn.').first()).toBeVisible({ timeout: 30_000 });
+    expect(writes.filter((path) => path.endsWith('/withdraw'))).toHaveLength(1);
+    await expect(page.getByText('Failed to withdraw this proposal.')).toHaveCount(0);
+    expect((await readThreadProposals(request, adminToken!, threadId)).map((proposal) => proposal.status)).toEqual(['withdrawn']);
+
+    await page.getByRole('button', { name: 'Re-propose', exact: true }).dblclick();
+    await expect(page.getByText('New proposal authored.').first()).toBeVisible({ timeout: 30_000 });
+    expect(writes.filter((path) => path.endsWith('/reauthor'))).toHaveLength(1);
+    await expect(page.getByText('Failed to re-propose.')).toHaveCount(0);
+    const afterRepropose = await readThreadProposals(request, adminToken!, threadId);
+    expect(afterRepropose.map((proposal) => proposal.status).sort()).toEqual(['published', 'withdrawn']);
+    await expect(page.getByRole('button', { name: 'Re-propose', exact: true })).toHaveCount(0);
+
+    const messageBody = `QA double send ${randomUUID()}`;
+    await page.getByRole('textbox', { name: 'Write a message...' }).fill(messageBody);
+    await page.getByRole('button', { name: 'Send', exact: true }).dblclick();
+    await expect(page.getByText('Message sent.').first()).toBeVisible({ timeout: 30_000 });
+    expect(writes.filter((path) => path.endsWith(`/threads/${threadId}/messages`))).toHaveLength(1);
+
+    const detail = await readThreadDetail(request, adminToken!, threadId);
+    expect(detail.messages.filter((message) => message.body === messageBody)).toHaveLength(1);
+    expect(repParticipationsOf(detail, wildcardAuthor!.userId)).toHaveLength(1);
+  });
+
+  test('two concurrent first joins by the same rep both succeed with one participant row', async ({ request }) => {
+    const threadId = await openThread(request, adminToken!, store!.hostname);
+    const joinOnce = () =>
+      apiRequest(request, 'POST', `/api/assisted_selling/threads/${threadId}/join`, { token: fullAuthor!.token, data: {} });
+
+    const responses = await Promise.all([joinOnce(), joinOnce()]);
+
+    expect(responses.map((response) => response.status())).toEqual([200, 200]);
+    const detail = await readThreadDetail(request, adminToken!, threadId);
+    expect(repParticipationsOf(detail, fullAuthor!.userId)).toHaveLength(1);
   });
 });

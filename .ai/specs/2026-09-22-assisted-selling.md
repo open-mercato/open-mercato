@@ -525,7 +525,7 @@ Paths below are relative to `/api/assisted_selling`.
 | GET | `/threads` | `assisted_selling.threads.view` | Console inbox; filter by store, status, `assigned_actor_id`, `live_proposal_count > 0`. **Not** by participant name — §5.2. Restricted to the caller's `organizationIds` (S9); `pageSize` ≤ 100 |
 | GET | `/threads/:id` | `assisted_selling.threads.view` **+ `cart.proposals.view`** | Thread with participants, messages and proposals; `404` outside the caller's organizations |
 | POST | `/threads` | `assisted_selling.threads.participate` + `cart.carts.view` | **Staff opens a conversation about a basket**, by cart id. Subject to the live `mode`. The cart is read through `cart`'s organization-scoped admin detail read (S9, below) |
-| POST | `/threads/:id/join` | `assisted_selling.threads.participate` | Adds a `rep` participant. **Visible to the buyer immediately** (§8.3) |
+| POST | `/threads/:id/join` | `assisted_selling.threads.participate` | Adds a `rep` participant. **Visible to the buyer immediately** (§8.3). Idempotent: a repeated or concurrent join by the same rep answers `200` with `alreadyJoined: true` and one participant row |
 | POST | `/threads/:id/leave` | `assisted_selling.threads.participate` | |
 | POST | `/threads/:id/assign` | `assisted_selling.threads.participate` | Sets `assigned_actor_id`. Optimistic-locked on the thread's `updated_at`: two reps claiming the same conversation get one success and one `409`, never a silent last-write-wins |
 | POST | `/threads/:id/messages` | `assisted_selling.messages.post` | `body_format: 'text'` only (S24) |
@@ -751,6 +751,7 @@ Admin-facing namespace only. There is deliberately **no** `portal.*` feature: th
 | `409` | `cart_not_active` | Staff `POST /threads` on a cart that is not an `active` basket (`cart`'s code, passed through) |
 | `409` | `proposal_not_live` | Withdraw of a proposal that is not `published` |
 | `409` | `proposal_already_accepted` | Re-author of an `accepted` proposal (D-R5-25) |
+| `409` | `proposal_already_superseded` | Re-author of a proposal that already has a successor, or whose successor link a concurrent re-author won |
 | `409` | `idempotency_key_mismatch` | Authoring or re-author key replayed with a different body (S23) |
 | `409` | optimistic-lock conflict (platform body) | `assign`, `withdraw`, `PUT /settings/:storeId` |
 | `422` | `proposal_empty` | Passed through from `cart.proposal.create` (cart §15a): every authoring line rejected by the visibility check (S13) |
@@ -1030,7 +1031,7 @@ Shipping in the same change, per `.ai/qa/AGENTS.md`. Self-contained: fixtures cr
 The buyer half stays API-level because Release 5 has no storefront (S16). The console runs as a staff user holding the authoring features:
 - **Inbox → thread → builder → published proposal:** the inbox lists live threads scoped to the operator's organization and filters by store, status, assignee and "awaiting the buyer"; opening a row shows participants, messages and proposals with loading, empty and error states; the builder adds lines, refuses more than `max_proposal_lines`, submits with `Cmd/Ctrl+Enter`, shows rejected lines, and the published proposal appears in the timeline with each line's buyer price and `price_row_id` provenance labelled as the buyer's
 - Withdraw and re-author from the thread page update the status from the server value
-- **Proposal controls follow the author grants** (`assisted_selling/__integration__/TC-ASSIST-001-thread-proposal-controls.spec.ts`): a viewer (`threads.view` + `cart.proposals.view`) and a role holding `assisted_selling.proposals.author` without `cart.proposals.author` see no New proposal, Withdraw or Re-propose, and their create/withdraw/re-author calls answer `403`; wildcard grants (`assisted_selling.*`, `cart.proposals.*`) show the controls; a full author creates (Escape cancels, `Ctrl+Enter` publishes), withdraws and re-proposes
+- **Proposal controls follow the author grants** (`assisted_selling/__integration__/TC-ASSIST-001-thread-proposal-controls.spec.ts`): a viewer (`threads.view` + `cart.proposals.view`) and a role holding `assisted_selling.proposals.author` without `cart.proposals.author` see no New proposal, Withdraw or Re-propose, and their create/withdraw/re-author calls answer `403`; wildcard grants (`assisted_selling.*`, `cart.proposals.*`) show the controls; a full author creates (Escape cancels, `Ctrl+Enter` publishes), withdraws and re-proposes. Join/Leave/Assign appear only with `threads.participate` and the composer only with `messages.post`, and the matching calls answer `403` otherwise; a double click on Join, Withdraw, Re-propose or Send writes once; two concurrent first joins both answer `200` with one participant row
 - Assign to me, and a concurrent assignment surfaces the conflict bar
 - Settings page offers `mode` `rep` / `off` only and saves with optimistic locking
 - Attribution report lists rows for a converted cart
@@ -1196,6 +1197,12 @@ Rev 1 closed its Open Questions at the gate. The rev 2 review (M1–M6) surfaced
 ---
 
 ## 13) Changelog
+
+### 2026-11-12 (rev 6.2 — thread-page writes, #8268 QA)
+
+- **Concurrent joins (§6.1).** A first join that loses the participant unique-index race answers `200` with `alreadyJoined: true` and the winning participant, never `500`.
+- **Console writes (§7).** Each thread-page action writes once however often it is clicked, and Re-propose reuses one `idempotencyKey` per proposal, the builder's own "reused on retry" rule. Join/Leave/Assign are offered only with `threads.participate` and the composer only with `messages.post`, the features their routes require. Re-propose is not offered on a proposal that already has a successor, which the route refuses with `409 proposal_already_superseded` (now listed in §6.10). The builder reads a quantity in the author's locale (`1,5` under `pl`) and the composer is capped at the 2000-character message limit.
+- **Coverage (§10.5).** `TC-ASSIST-001` adds the gating, double-click and concurrent-join cases.
 
 ### 2026-11-12 (rev 6.1 — withdraw route features, #8268 QA)
 

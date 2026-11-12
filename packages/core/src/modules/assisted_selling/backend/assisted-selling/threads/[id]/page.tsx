@@ -17,8 +17,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ASSISTED_SELLING_MESSAGE_BODY_MAX_LENGTH } from '@open-mercato/core/modules/assisted_selling/data/validators'
 import { ProposalBuilderDialog } from './ProposalBuilderDialog'
-import { useProposalAuthorAccess } from './useProposalAuthorAccess'
+import { useThreadActionAccess } from './useThreadActionAccess'
 
 const THREAD_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
   open: 'info',
@@ -32,6 +33,16 @@ const PROPOSAL_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
   withdrawn: 'neutral',
   expired: 'neutral',
   superseded: 'neutral',
+}
+
+const REPROPOSABLE_PROPOSAL_STATUSES = ['expired', 'rejected', 'withdrawn', 'superseded']
+
+function isStateConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 409
+}
+
+function createIdempotencyKey(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 type ParticipantRow = {
@@ -109,7 +120,10 @@ export default function AssistedSellingThreadPage({ params }: { params?: { id?: 
   const [reloadToken, setReloadToken] = React.useState(0)
   const [composerBody, setComposerBody] = React.useState('')
   const [builderOpen, setBuilderOpen] = React.useState(false)
-  const { canCreateOrRepropose, canWithdraw } = useProposalAuthorAccess()
+  const [isMutating, setIsMutating] = React.useState(false)
+  const mutationInFlightRef = React.useRef(false)
+  const reproposeKeysRef = React.useRef(new Map<string, string>())
+  const { canParticipate, canPostMessages, canCreateOrRepropose, canWithdraw } = useThreadActionAccess()
 
   const labels = React.useMemo(
     () => ({
@@ -209,79 +223,115 @@ export default function AssistedSellingThreadPage({ params }: { params?: { id?: 
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
 
-  const handleJoin = React.useCallback(async () => {
+  const runExclusive = React.useCallback(async (action: () => Promise<void>) => {
+    if (mutationInFlightRef.current) return
+    mutationInFlightRef.current = true
+    setIsMutating(true)
     try {
-      await runMutation({
-        operation: () => apiCall(`/api/assisted_selling/threads/${threadId}/join`, { method: 'POST', body: JSON.stringify({}) }),
-        context: { formId: mutationContextId, resourceKind: 'assisted_selling.thread', resourceId: threadId, retryLastMutation },
-        mutationPayload: {},
-      })
-      flash(labels.flash.joined, 'success')
-      setReloadToken((token) => token + 1)
-    } catch (err) {
-      if (surfaceRecordConflict(err, t)) return
-      flash(labels.errors.join, 'error')
+      await action()
+    } finally {
+      mutationInFlightRef.current = false
+      setIsMutating(false)
     }
-  }, [labels.errors.join, labels.flash.joined, mutationContextId, retryLastMutation, runMutation, t, threadId])
+  }, [])
 
-  const handleLeave = React.useCallback(async () => {
-    try {
-      await runMutation({
-        operation: () => apiCall(`/api/assisted_selling/threads/${threadId}/leave`, { method: 'POST', body: JSON.stringify({}) }),
-        context: { formId: mutationContextId, resourceKind: 'assisted_selling.thread', resourceId: threadId, retryLastMutation },
-        mutationPayload: {},
-      })
-      flash(labels.flash.left, 'success')
-      setReloadToken((token) => token + 1)
-    } catch (err) {
-      if (surfaceRecordConflict(err, t)) return
-      flash(labels.errors.leave, 'error')
-    }
-  }, [labels.errors.leave, labels.flash.left, mutationContextId, retryLastMutation, runMutation, t, threadId])
+  const runThreadAction = React.useCallback(
+    (options: {
+      resourceKind: string
+      resourceId: string
+      operation: () => Promise<unknown>
+      successMessage: string
+      errorMessage: string
+      onSuccess?: () => void
+    }) =>
+      runExclusive(async () => {
+        try {
+          await runMutation({
+            operation: options.operation,
+            context: { formId: mutationContextId, resourceKind: options.resourceKind, resourceId: options.resourceId, retryLastMutation },
+            mutationPayload: {},
+          })
+          options.onSuccess?.()
+          flash(options.successMessage, 'success')
+          await loadThread()
+        } catch (err) {
+          if (!surfaceRecordConflict(err, t)) flash(options.errorMessage, 'error')
+          if (isStateConflict(err)) await loadThread()
+        }
+      }),
+    [loadThread, mutationContextId, retryLastMutation, runExclusive, runMutation, t],
+  )
 
-  const handleAssignToMe = React.useCallback(async () => {
-    try {
-      await runMutation({
+  const handleJoin = React.useCallback(
+    () =>
+      runThreadAction({
+        resourceKind: 'assisted_selling.thread',
+        resourceId: threadId,
+        operation: () =>
+          readApiResultOrThrow(
+            `/api/assisted_selling/threads/${threadId}/join`,
+            { method: 'POST', body: JSON.stringify({}) },
+            { errorMessage: labels.errors.join },
+          ),
+        successMessage: labels.flash.joined,
+        errorMessage: labels.errors.join,
+      }),
+    [labels.errors.join, labels.flash.joined, runThreadAction, threadId],
+  )
+
+  const handleLeave = React.useCallback(
+    () =>
+      runThreadAction({
+        resourceKind: 'assisted_selling.thread',
+        resourceId: threadId,
+        operation: () =>
+          readApiResultOrThrow(
+            `/api/assisted_selling/threads/${threadId}/leave`,
+            { method: 'POST', body: JSON.stringify({}) },
+            { errorMessage: labels.errors.leave },
+          ),
+        successMessage: labels.flash.left,
+        errorMessage: labels.errors.leave,
+      }),
+    [labels.errors.leave, labels.flash.left, runThreadAction, threadId],
+  )
+
+  const handleAssignToMe = React.useCallback(
+    () =>
+      runThreadAction({
+        resourceKind: 'assisted_selling.thread',
+        resourceId: threadId,
         operation: () =>
           withScopedApiRequestHeaders(buildOptimisticLockHeader(data?.thread.updatedAt), () =>
-            apiCall(`/api/assisted_selling/threads/${threadId}/assign`, { method: 'POST', body: JSON.stringify({}) }),
+            readApiResultOrThrow(
+              `/api/assisted_selling/threads/${threadId}/assign`,
+              { method: 'POST', body: JSON.stringify({}) },
+              { errorMessage: labels.errors.assign },
+            ),
           ),
-        context: { formId: mutationContextId, resourceKind: 'assisted_selling.thread', resourceId: threadId, retryLastMutation },
-        mutationPayload: {},
-      })
-      flash(labels.flash.assigned, 'success')
-      setReloadToken((token) => token + 1)
-    } catch (err) {
-      if (surfaceRecordConflict(err, t)) {
-        setReloadToken((token) => token + 1)
-        return
-      }
-      flash(labels.errors.assign, 'error')
-    }
-  }, [data?.thread.updatedAt, labels.errors.assign, labels.flash.assigned, mutationContextId, retryLastMutation, runMutation, t, threadId])
+        successMessage: labels.flash.assigned,
+        errorMessage: labels.errors.assign,
+      }),
+    [data?.thread.updatedAt, labels.errors.assign, labels.flash.assigned, runThreadAction, threadId],
+  )
 
   const handleSendMessage = React.useCallback(async () => {
     const body = composerBody.trim()
     if (!body) return
-    try {
-      await runMutation({
-        operation: () =>
-          readApiResultOrThrow(
-            `/api/assisted_selling/threads/${threadId}/messages`,
-            { method: 'POST', body: JSON.stringify({ body }) },
-            { errorMessage: labels.errors.send },
-          ),
-        context: { formId: mutationContextId, resourceKind: 'assisted_selling.message', resourceId: threadId, retryLastMutation },
-        mutationPayload: {},
-      })
-      setComposerBody('')
-      flash(labels.flash.sent, 'success')
-      setReloadToken((token) => token + 1)
-    } catch (err) {
-      if (surfaceRecordConflict(err, t)) return
-      flash(labels.errors.send, 'error')
-    }
-  }, [composerBody, labels.errors.send, labels.flash.sent, mutationContextId, retryLastMutation, runMutation, t, threadId])
+    await runThreadAction({
+      resourceKind: 'assisted_selling.message',
+      resourceId: threadId,
+      operation: () =>
+        readApiResultOrThrow(
+          `/api/assisted_selling/threads/${threadId}/messages`,
+          { method: 'POST', body: JSON.stringify({ body }) },
+          { errorMessage: labels.errors.send },
+        ),
+      successMessage: labels.flash.sent,
+      errorMessage: labels.errors.send,
+      onSuccess: () => setComposerBody((current) => (current.trim() === body ? '' : current)),
+    })
+  }, [composerBody, labels.errors.send, labels.flash.sent, runThreadAction, threadId])
 
   const handleComposerKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -294,52 +344,41 @@ export default function AssistedSellingThreadPage({ params }: { params?: { id?: 
   )
 
   const handleWithdraw = React.useCallback(
-    async (proposal: ProposalRow) => {
-      try {
-        await runMutation({
-          operation: () =>
-            readApiResultOrThrow(
-              `/api/assisted_selling/proposals/${proposal.id}/withdraw`,
-              { method: 'POST', body: JSON.stringify({}) },
-              { errorMessage: labels.errors.withdraw },
-            ),
-          context: { formId: mutationContextId, resourceKind: 'assisted_selling.proposal', resourceId: proposal.id, retryLastMutation },
-          mutationPayload: {},
-        })
-        flash(labels.flash.withdrawn, 'success')
-        setReloadToken((token) => token + 1)
-      } catch (err) {
-        if (surfaceRecordConflict(err, t)) {
-          setReloadToken((token) => token + 1)
-          return
-        }
-        flash(labels.errors.withdraw, 'error')
-      }
-    },
-    [labels.errors.withdraw, labels.flash.withdrawn, mutationContextId, retryLastMutation, runMutation, t],
+    (proposal: ProposalRow) =>
+      runThreadAction({
+        resourceKind: 'assisted_selling.proposal',
+        resourceId: proposal.id,
+        operation: () =>
+          readApiResultOrThrow(
+            `/api/assisted_selling/proposals/${proposal.id}/withdraw`,
+            { method: 'POST', body: JSON.stringify({}) },
+            { errorMessage: labels.errors.withdraw },
+          ),
+        successMessage: labels.flash.withdrawn,
+        errorMessage: labels.errors.withdraw,
+      }),
+    [labels.errors.withdraw, labels.flash.withdrawn, runThreadAction],
   )
 
   const handleRepropose = React.useCallback(
-    async (proposal: ProposalRow) => {
-      try {
-        await runMutation({
-          operation: () =>
-            readApiResultOrThrow(
-              `/api/assisted_selling/proposals/${proposal.id}/reauthor`,
-              { method: 'POST', body: JSON.stringify({ idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}` }) },
-              { errorMessage: labels.errors.repropose },
-            ),
-          context: { formId: mutationContextId, resourceKind: 'assisted_selling.proposal', resourceId: proposal.id, retryLastMutation },
-          mutationPayload: {},
-        })
-        flash(labels.flash.reproposed, 'success')
-        setReloadToken((token) => token + 1)
-      } catch (err) {
-        if (surfaceRecordConflict(err, t)) return
-        flash(labels.errors.repropose, 'error')
-      }
+    (proposal: ProposalRow) => {
+      const keys = reproposeKeysRef.current
+      const idempotencyKey = keys.get(proposal.id) ?? createIdempotencyKey()
+      keys.set(proposal.id, idempotencyKey)
+      return runThreadAction({
+        resourceKind: 'assisted_selling.proposal',
+        resourceId: proposal.id,
+        operation: () =>
+          readApiResultOrThrow(
+            `/api/assisted_selling/proposals/${proposal.id}/reauthor`,
+            { method: 'POST', body: JSON.stringify({ idempotencyKey }) },
+            { errorMessage: labels.errors.repropose },
+          ),
+        successMessage: labels.flash.reproposed,
+        errorMessage: labels.errors.repropose,
+      })
     },
-    [labels.errors.repropose, labels.flash.reproposed, mutationContextId, retryLastMutation, runMutation, t],
+    [labels.errors.repropose, labels.flash.reproposed, runThreadAction],
   )
 
   if (isLoading && !data) {
@@ -385,15 +424,19 @@ export default function AssistedSellingThreadPage({ params }: { params?: { id?: 
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => void handleJoin()}>
-              {labels.join}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => void handleLeave()}>
-              {labels.leave}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => void handleAssignToMe()}>
-              {labels.assignToMe}
-            </Button>
+            {canParticipate ? (
+              <>
+                <Button type="button" variant="outline" disabled={isMutating} onClick={() => void handleJoin()}>
+                  {labels.join}
+                </Button>
+                <Button type="button" variant="outline" disabled={isMutating} onClick={() => void handleLeave()}>
+                  {labels.leave}
+                </Button>
+                <Button type="button" variant="outline" disabled={isMutating} onClick={() => void handleAssignToMe()}>
+                  {labels.assignToMe}
+                </Button>
+              </>
+            ) : null}
             {canCreateOrRepropose ? (
               <Button type="button" onClick={() => setBuilderOpen(true)}>
                 {labels.newProposal}
@@ -437,12 +480,26 @@ export default function AssistedSellingThreadPage({ params }: { params?: { id?: 
                         </StatusBadge>
                         <div className="flex gap-2">
                           {proposal.status === 'published' && canWithdraw ? (
-                            <Button type="button" size="sm" variant="outline" onClick={() => void handleWithdraw(proposal)}>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={isMutating}
+                              onClick={() => void handleWithdraw(proposal)}
+                            >
                               {labels.withdraw}
                             </Button>
                           ) : null}
-                          {['expired', 'rejected', 'withdrawn', 'superseded'].includes(proposal.status) && canCreateOrRepropose ? (
-                            <Button type="button" size="sm" variant="outline" onClick={() => void handleRepropose(proposal)}>
+                          {REPROPOSABLE_PROPOSAL_STATUSES.includes(proposal.status) &&
+                          !proposal.supersededByProposalId &&
+                          canCreateOrRepropose ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={isMutating}
+                              onClick={() => void handleRepropose(proposal)}
+                            >
                               {labels.repropose}
                             </Button>
                           ) : null}
@@ -481,21 +538,25 @@ export default function AssistedSellingThreadPage({ params }: { params?: { id?: 
           </div>
         </div>
 
-        <div className="rounded-md border border-border p-3">
-          <Textarea
-            value={composerBody}
-            onChange={(event) => setComposerBody(event.target.value)}
-            onKeyDown={handleComposerKeyDown}
-            placeholder={labels.composerPlaceholder}
-            rows={3}
-            aria-label={labels.composerPlaceholder}
-          />
-          <div className="mt-2 flex justify-end">
-            <Button type="button" onClick={() => void handleSendMessage()} disabled={!composerBody.trim()}>
-              {labels.send}
-            </Button>
+        {canPostMessages ? (
+          <div className="rounded-md border border-border p-3">
+            <Textarea
+              value={composerBody}
+              onChange={(event) => setComposerBody(event.target.value)}
+              onKeyDown={handleComposerKeyDown}
+              placeholder={labels.composerPlaceholder}
+              rows={3}
+              maxLength={ASSISTED_SELLING_MESSAGE_BODY_MAX_LENGTH}
+              showCount
+              aria-label={labels.composerPlaceholder}
+            />
+            <div className="mt-2 flex justify-end">
+              <Button type="button" onClick={() => void handleSendMessage()} disabled={!composerBody.trim() || isMutating}>
+                {labels.send}
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : null}
       </PageBody>
 
       <ProposalBuilderDialog

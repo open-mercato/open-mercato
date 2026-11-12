@@ -10,7 +10,7 @@ import AssistedSellingThreadPage from '../page'
  * #8268 Medium/INHERITED finding: a thread viewer with only `assisted_selling.threads.view` +
  * `cart.proposals.view` (the route guard) was offered "New proposal"/"Withdraw"/"Re-propose",
  * whose handlers 403 without `assisted_selling.proposals.author` (+ `cart.proposals.author` for
- * create/re-author). Proves the client-side gate added in `useProposalAuthorAccess` hides those
+ * create/re-author). Proves the client-side gate added in `useThreadActionAccess` hides those
  * controls for an unauthorized viewer and shows them for an authorized author.
  */
 

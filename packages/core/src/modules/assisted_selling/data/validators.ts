@@ -132,11 +132,13 @@ export const assistedSellingThreadAssignRequestSchema = z
   .strict()
 export type AssistedSellingThreadAssignRequest = z.infer<typeof assistedSellingThreadAssignRequestSchema>
 
+export const ASSISTED_SELLING_MESSAGE_BODY_MAX_LENGTH = 2000
+
 /** `POST /threads/:id/messages` (§6.1). `body_format: 'text'` only (S24) — the staff-side
  * counterpart of `assistedSellingBuyerMessagePostRequestSchema`. */
 export const assistedSellingMessagePostRequestSchema = z
   .object({
-    body: z.string().trim().min(1).max(2000),
+    body: z.string().trim().min(1).max(ASSISTED_SELLING_MESSAGE_BODY_MAX_LENGTH),
     bodyFormat: z.literal('text').optional(),
   })
   .strict()
@@ -156,7 +158,7 @@ export type AssistedSellingBuyerThreadOpenRequest = z.infer<typeof assistedSelli
  * other value is a `400`, never silently coerced. */
 export const assistedSellingBuyerMessagePostRequestSchema = z
   .object({
-    body: z.string().trim().min(1).max(2000),
+    body: z.string().trim().min(1).max(ASSISTED_SELLING_MESSAGE_BODY_MAX_LENGTH),
     bodyFormat: z.literal('text').optional(),
   })
   .strict()
