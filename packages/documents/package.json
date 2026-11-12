@@ -114,7 +114,8 @@
     "@mikro-orm/postgresql": "^7.0.14",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-is": ">=18.0.0"
   },
   "devDependencies": {
     "@open-mercato/core": "workspace:*",
@@ -125,12 +126,13 @@
     "@types/react-dom": "^19.2.5",
     "cross-env": "^10.1.0",
     "esbuild": "^0.28.2",
-    "glob": "^14.0.3",
+    "glob": "^14.0.4",
     "jest": "^30.4.2",
     "pdfjs-dist": "^6.0.227",
     "pg": "8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-is": "^19.2.8",
     "testcontainers": "^12.0.3",
     "ts-jest": "^29.4.11",
     "tsx": "^4.23.12",

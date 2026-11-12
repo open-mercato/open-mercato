@@ -2,22 +2,12 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import {
-  SquareCheckBig,
-  Mail,
-  Briefcase,
-  Building2,
-  Check,
-  History,
-  Paperclip,
-  Plus,
-  MapPin,
-} from 'lucide-react'
+import { SquareCheckBig, Mail, Briefcase, Building2, Check, History, Paperclip, MapPin } from 'lucide-react'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { resolveInjectedIcon } from '@open-mercato/ui/backend/injection/resolveInjectedIcon'
+import { DetailTabRail } from './DetailTabRail'
 
 export const PERSON_DETAIL_TAB_IDS = ['activities', 'emails', 'deals', 'companies', 'addresses', 'tasks', 'changelog', 'files'] as const
 
@@ -45,7 +35,7 @@ export const PERSON_DETAIL_TABS_COMPONENT_ID = 'section:customers.people.detailT
 export type PersonDetailTabsProps = {
   activeTab: PersonTabId
   onTabChange: (tab: PersonTabId) => void
-  injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  injectedTabs?: Array<{ id: string; label: string; icon?: string; priority?: number }>
   isLoadingInjectedTabs?: boolean
   hiddenTabIds?: string[]
   activitiesCount?: number
@@ -115,28 +105,28 @@ function DefaultPersonDetailTabs({
         count: formatTabCount(companiesCount),
       },
       {
-        id: 'addresses',
-        label: t('customers.people.detail.tabs.addresses', 'Addresses'),
-        icon: <MapPin className="size-4" />,
-        count: formatTabCount(addressesCount),
-      },
-      {
         id: 'tasks',
         label: t('customers.people.detail.tabs.tasks', 'Tasks'),
         icon: <Check className="size-4" />,
         count: formatTabCount(tasksCount),
       },
       {
-        id: 'changelog',
-        label: t('customers.people.detail.tabs.changelog', 'Change log'),
-        icon: <History className="size-4" />,
-        count: 'NEW',
-      },
-      {
         id: 'files',
         label: t('customers.people.detail.tabs.files', 'Files'),
         icon: <Paperclip className="size-4" />,
         count: formatTabCount(filesCount),
+      },
+      {
+        id: 'addresses',
+        label: t('customers.people.detail.tabs.addresses', 'Addresses'),
+        icon: <MapPin className="size-4" />,
+        count: formatTabCount(addressesCount),
+      },
+      {
+        id: 'changelog',
+        label: t('customers.people.detail.tabs.changelog', 'Change log'),
+        icon: <History className="size-4" />,
+        count: 'NEW',
       },
     ],
     [t, activitiesCount, dealsCount, companiesCount, addressesCount, tasksCount, filesCount],
@@ -149,6 +139,7 @@ function DefaultPersonDetailTabs({
       ...injectedTabs.filter((tab, index) => !builtInTabs.some((native) => native.id === tab.id) && injectedTabs.findIndex((candidate) => candidate.id === tab.id) === index).map((tab) => ({
         id: tab.id as PersonTabId,
         label: tab.label,
+        icon: resolveInjectedIcon(tab.icon),
         priority: tab.priority,
       })),
     ]
@@ -163,45 +154,17 @@ function DefaultPersonDetailTabs({
   }, [activeTab, allTabs, isLoadingInjectedTabs, onTabChange])
 
   return (
-    <div>
-      {/* Tab navigation — full width above both zones */}
-      <div className="flex items-end justify-between gap-2 border-b">
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) => onTabChange(value as PersonTabId)}
-          variant="underline"
-          className="min-w-0 flex-1"
-        >
-          <TabsList
-            aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}
-            className="-mb-px w-full overflow-x-auto border-b-0 px-1"
-          >
-            {allTabs.map((tab) => (
-              <TabsTrigger key={tab.id} value={tab.id} leading={tab.icon} count={tab.count}>
-                {tab.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-        {sectionAction ? (
-          <Button
-            type="button"
-            size="sm"
-            onClick={sectionAction.onClick}
-            disabled={sectionAction.disabled}
-            className="mb-1.5 mr-1 shrink-0"
-          >
-            <Plus className="mr-1.5 h-4 w-4" />
-            {sectionAction.label}
-          </Button>
-        ) : null}
-      </div>
-
-      {/* Two-column content below tabs */}
-      <div className="pt-6">
-        {children}
-      </div>
-    </div>
+    <DetailTabRail
+      busy={isLoadingInjectedTabs}
+      tabs={allTabs}
+      activeTab={activeTab}
+      onTabChange={(tab) => onTabChange(tab as PersonTabId)}
+      listLabel={t('customers.people.detail.tabs.label', 'Person detail sections')}
+      moreLabel={t('customers.people.detail.tabs.more', 'More')}
+      sectionAction={sectionAction}
+    >
+      {children}
+    </DetailTabRail>
   )
 }
 
