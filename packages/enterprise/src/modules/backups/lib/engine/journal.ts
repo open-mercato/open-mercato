@@ -11,9 +11,15 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 export class Journal {
   private previous = '0'.repeat(64)
   private sequence = 0
+  private pending: Promise<void> = Promise.resolve()
   constructor(private readonly path: string, private readonly recipient: string, private readonly identity: string) {}
-  async append(value: unknown): Promise<void> {
-    const plaintext = Buffer.from(JSON.stringify(value))
+  append(value: unknown): Promise<void> {
+    const operation = this.pending.then(() => this.appendRecord(value))
+    this.pending = operation
+    return operation
+  }
+  private async appendRecord(value: unknown): Promise<void> {
+    const plaintext = Buffer.from(JSON.stringify({ sequence: this.sequence, previous: this.previous, value }))
     if (plaintext.length > 8 * 1024 * 1024) throw new BackupError('BACKUP_JOURNAL_RECORD_LIMIT', 3)
     const payload = (await encryptBytes(plaintext, [this.recipient])).toString('base64')
     const content = { sequence: this.sequence, previous: this.previous, payload }
@@ -28,30 +34,42 @@ export class Journal {
     const file = await open(this.path, constants.O_RDONLY | constants.O_NOFOLLOW)
     let count = 0
     const size = (await file.stat()).size
-    const tail = Buffer.alloc(1)
-    if (size) await file.read(tail, 0, 1, size - 1)
-    const terminated = !size || tail[0] === 10
     let validBytes = 0
-    try {
-      for await (const line of file.readLines()) {
-        if (!terminated && validBytes + Buffer.byteLength(line) === size) {
-          const writer = await open(this.path, constants.O_WRONLY | constants.O_NOFOLLOW)
-          try { await writer.truncate(validBytes); await writer.sync() } finally { await writer.close() }
-          break
+    async function* lines(): AsyncIterable<string> {
+      let pending = ''
+      for await (const block of file.createReadStream({ autoClose: false, highWaterMark: 65536 })) {
+        pending += block.toString('utf8')
+        let newline: number
+        while ((newline = pending.indexOf('\n')) >= 0) {
+          if (newline > 16 * 1024 * 1024) throw new BackupError('BACKUP_JOURNAL_LIMIT', 4)
+          const line = pending.slice(0, newline)
+          pending = pending.slice(newline + 1)
+          yield line
         }
+        if (pending.length > 16 * 1024 * 1024) throw new BackupError('BACKUP_JOURNAL_LIMIT', 4)
+      }
+    }
+    try {
+      for await (const line of lines()) {
         if (line.length > 16 * 1024 * 1024) throw new BackupError('BACKUP_JOURNAL_LIMIT', 4)
         let parsed: z.infer<typeof recordSchema>
         try { parsed = recordSchema.parse(JSON.parse(line)) }
         catch { throw new BackupError('BACKUP_JOURNAL_INTEGRITY', 4) }
         const { hash: expected, ...content } = parsed
         if (content.sequence !== this.sequence || content.previous !== this.previous || hash(JSON.stringify(content)) !== expected) throw new BackupError('BACKUP_JOURNAL_INTEGRITY', 4)
-        const value: unknown = JSON.parse((await decryptBytes(Buffer.from(content.payload, 'base64'), [this.identity], 8 * 1024 * 1024)).toString())
+        const bound = z.object({ sequence: z.number().int(), previous: z.string(), value: z.unknown() }).strict().parse(JSON.parse((await decryptBytes(Buffer.from(content.payload, 'base64'), [this.identity], 8 * 1024 * 1024)).toString()))
+        if (bound.sequence !== content.sequence || bound.previous !== content.previous) throw new BackupError('BACKUP_JOURNAL_AUTHENTICATED_POSITION', 4)
+        const value = bound.value
         count++
         if (count > 1000000) throw new BackupError('BACKUP_JOURNAL_LIMIT', 4)
         this.previous = expected
         this.sequence++
         validBytes += Buffer.byteLength(line) + 1
         yield value
+      }
+      if (validBytes < size) {
+        const writer = await open(this.path, constants.O_WRONLY | constants.O_NOFOLLOW)
+        try { await writer.truncate(validBytes); await writer.sync() } finally { await writer.close() }
       }
     } finally { await file.close().catch(() => undefined) }
   }

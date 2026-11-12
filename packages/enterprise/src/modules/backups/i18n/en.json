@@ -1,6 +1,8 @@
 {
   "backups.cli.error": "ERROR: recovery command refused or incomplete.",
   "backups.cli.help": "Encrypted backup and isolated recovery: preflight, create, status, verify, restore, exercise.",
+  "backups.cli.unencrypted": "UNENCRYPTED: this backup contains readable data from every tenant.",
+  "backups.cli.unencryptedPrompt": "Type UNENCRYPTED to confirm readable backup: ",
   "backups.progress.bytes": "bytes",
   "backups.progress.chunks": "chunks",
   "backups.progress.rows": "rows"

@@ -1,7 +1,10 @@
 /** @jest-environment node */
+import { createGzip, createGunzip } from 'node:zlib'
+import { encryptStream, decryptStream, generateX25519Identity, identityToRecipient } from '../lib/engine/crypto'
+import { transform } from '../lib/engine/streams'
 import { randomUUID, createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Client, type ClientConfig } from 'pg'
 import { createPostgresSource, createPostgresTarget, parsePassword, parseService } from '../lib/engine/postgres'
@@ -56,7 +59,7 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
     for (const name of ['pg_dump', 'pg_restore', 'psql']) {
       await writeFile(join(bin, name), `#!/bin/sh\nexec '${docker}' exec -i -e PGSERVICEFILE='${containerFile}' -e PGPASSFILE='${passwordFile}' '${container}' ${name} "$@"\n`, { mode: 0o700 })
     }
-    options = { sourceService: 'source', targetService: 'target', serviceFile, passwordFile, binariesDir: bin }
+    options = { workspace: directory, sourceService: 'source', targetService: 'target', serviceFile, passwordFile, binariesDir: bin }
     await sourceDb.query(`CREATE SCHEMA app;
       CREATE TABLE app.parents(a int,b text,body jsonb,secret bytea,label text GENERATED ALWAYS AS (body->>'label') STORED,PRIMARY KEY(a,b));
       CREATE TABLE app.children(id serial PRIMARY KEY,a int,b text,FOREIGN KEY(a,b) REFERENCES app.parents(a,b));
@@ -148,6 +151,7 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
       const confirmation = await target.challenge({ backupId: 'fixture', manifestSha256: 'a'.repeat(64), sourceIdentity: snapshot.identity })
       await target.initialize({ runId: 'run', backupId: 'fixture', manifestSha256: 'a'.repeat(64), confirmation })
       await expect(target.schema('pre-data', data(Buffer.alloc(17)), 'pre-data')).rejects.toThrow('BACKUP_SCHEMA_STAGING_LIMIT')
+      expect((await readdir(directory)).some((name) => name.startsWith('om-backup-schema-'))).toBe(false)
       expect((await targetDb.query("SELECT to_regclass('app.parents') AS present")).rows[0].present).toBeNull()
     } finally { await source.close(); await target.close() }
   }, 60000)
@@ -187,5 +191,172 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
       expect((await targetDb.query('SELECT count(*) FROM om_backup_restore.restore_chunks')).rows[0].count).toBe('0')
     } finally { await source.close(); await target.close() }
   }, 60000)
+
+  test('a durable bound terminal receipt safely completes before and after journal deletion', async () => {
+    const source = createPostgresSource(options); const target = createPostgresTarget(options)
+    let resumed: ReturnType<typeof createPostgresTarget> | undefined
+    try {
+      const snapshot = await source.open(); await initialize(snapshot, target)
+      const identity = await target.identity()
+      const targetIdentityDigest = digest(Buffer.from(JSON.stringify(identity)))
+      const reportPath = join(directory, 'completion.json')
+      await writeFile(reportPath, JSON.stringify({ schemaVersion: 1, backupId: 'fixture', restoreRunId: 'run', trustedManifestSha256: 'a'.repeat(64), targetIdentityDigest, status: 'completed', quarantined: true }), { mode: 0o600 })
+      await target.close()
+      for (let attempt = 0; attempt < 2; attempt++) {
+        resumed = createPostgresTarget(options)
+        const confirmation = await resumed.challenge({ backupId: 'fixture', manifestSha256: 'a'.repeat(64), sourceIdentity: snapshot.identity })
+        await expect(resumed.completeFromReport!({ runId: 'run', backupId: 'fixture', manifestSha256: 'a'.repeat(64), reportPath, targetIdentityDigest, confirmation })).resolves.toBe(true)
+        expect((await targetDb.query("SELECT to_regnamespace('om_backup_restore') AS journal")).rows[0].journal).toBeNull()
+        expect((await targetDb.query("SELECT to_regclass('app.parents') AS restored")).rows[0].restored).toBe('app.parents')
+        await resumed.close()
+      }
+    } finally { await source.close(); await target.close(); await resumed?.close() }
+  }, 60000)
+
+  test('10000 binary COPY rows survive a slow gzip/age consumer without reused parser buffers', async () => {
+    await sourceDb.query("CREATE TABLE app.bulk(id int PRIMARY KEY,body text); INSERT INTO app.bulk SELECT n,repeat('x',256)||n::text FROM generate_series(1,10000) n")
+    const source = createPostgresSource(options); const target = createPostgresTarget(options)
+    try {
+      const snapshot = await source.open(); await initialize(snapshot, target)
+      const identity = await generateX25519Identity(); const recipient = await identityToRecipient(identity)
+      const entity = snapshot.entities.find((entry) => entry.table === 'bulk')!
+      for await (const chunk of snapshot.chunks(entity, { chunkSizeBytes: 8 * 1024 * 1024 })) {
+        const encoded = await encryptStream(transform(chunk.stream, createGzip()), [recipient])
+        const slow = (async function* () { for await (const part of encoded) { await new Promise<void>((resolve) => setImmediate(resolve)); yield part } })()
+        const encrypted = await collect(slow)
+        const decoded = transform(await decryptStream(data(encrypted), [identity]), createGunzip())
+        await target.chunk(entity, decoded, { runId: 'run', sequence: chunk.sequence, sha256: digest(encrypted), rows: chunk.rows })
+      }
+      const sql = "SELECT count(*)::text AS rows,count(DISTINCT id)::text AS unique_rows,md5(string_agg(id::text||body,'|' ORDER BY id)) AS digest FROM app.bulk"
+      expect((await targetDb.query(sql)).rows).toEqual((await sourceDb.query(sql)).rows)
+    } finally { await source.close(); await target.close() }
+  }, 60000)
+
+  test('enum labels, defaults and CHECK definitions change the complete resume schema fingerprint', async () => {
+    await sourceDb.query("CREATE TYPE app.state AS ENUM ('first'); CREATE TABLE app.states(id int PRIMARY KEY,state app.state DEFAULT 'first',CHECK(id>0))")
+    const baseline = createPostgresSource(options)
+    let original: string
+    try { original = (await baseline.open()).catalogDigest } finally { await baseline.close() }
+    await sourceDb.query("ALTER TYPE app.state ADD VALUE 'second'")
+    await sourceDb.query("ALTER TABLE app.states ALTER COLUMN state SET DEFAULT 'second'")
+    const changed = createPostgresSource(options)
+    try { expect((await changed.open()).catalogDigest).not.toBe(original!) } finally { await changed.close() }
+  }, 60000)
+
+  test('unsupported materialized data cannot be silently omitted from a whole-database backup', async () => {
+    await sourceDb.query('CREATE MATERIALIZED VIEW app.materialized AS SELECT 42 AS value')
+    const source = createPostgresSource(options)
+    try { await expect(source.open()).rejects.toThrow('BACKUP_RELATION_KIND_UNSUPPORTED') }
+    finally { await source.close() }
+  }, 60000)
+
+  test('migration history fingerprint and exact composite-key canary reads survive persisted restore', async () => {
+    await sourceDb.query("CREATE TABLE public.mikro_orm_migrations(id serial PRIMARY KEY,name text NOT NULL,executed_at timestamptz NOT NULL); INSERT INTO public.mikro_orm_migrations(name,executed_at) VALUES('fixture_migration','2026-11-12T12:34:56.123456Z')")
+
+    const source = createPostgresSource(options); const target = createPostgresTarget(options)
+    try {
+      const snapshot = await source.open(); await initialize(snapshot, target)
+      for (const entity of snapshot.entities) for await (const chunk of snapshot.chunks(entity, { chunkSizeBytes: 65536 })) {
+        const contents = await collect(chunk.stream)
+        await target.chunk(entity, data(contents), { runId: 'run', sequence: chunk.sequence, sha256: digest(contents), rows: chunk.rows })
+      }
+      expect(await target.migrationFingerprint!()).toBe(snapshot.migrationFingerprint)
+      const entity = snapshot.entities.find((entry) => entry.table === 'parents')!
+      await expect(target.readCanary!(entity, { field: 'b', key: { a: '1', b: 'Ω' } })).resolves.toBe('Ω')
+      await expect(target.readCanary!(entity, { field: 'b', key: { a: '1' } })).rejects.toThrow('BACKUP_CANARY_SCOPE')
+      await expect(target.readCanary!(entity, { field: 'b', key: { a: '1', b: 'other-scope' } })).rejects.toThrow('BACKUP_CANARY_NOT_FOUND_OR_INVALID')
+      await targetDb.query("UPDATE public.mikro_orm_migrations SET name='changed-history'")
+      expect(await target.migrationFingerprint!()).not.toBe(snapshot.migrationFingerprint)
+    } finally { await source.close(); await target.close() }
+  }, 60000)
+
+  test('TOASTed rows size initial PK and heap chunks by real binary width, not heap pointers', async () => {
+    await sourceDb.query(`CREATE TABLE app.toast_pk(id int PRIMARY KEY,body text); ALTER TABLE app.toast_pk ALTER COLUMN body SET STORAGE EXTERNAL;
+      CREATE TABLE app.toast_heap(id int,body text); ALTER TABLE app.toast_heap ALTER COLUMN body SET STORAGE EXTERNAL;
+      INSERT INTO app.toast_pk SELECT n,repeat('x',65536) FROM generate_series(1,256) n;
+      INSERT INTO app.toast_heap SELECT * FROM app.toast_pk; ANALYZE app.toast_pk; ANALYZE app.toast_heap`)
+    const source = createPostgresSource(options)
+    try {
+      const snapshot = await source.open()
+      for (const name of ['toast_pk', 'toast_heap']) {
+        const entity = snapshot.entities.find((entry) => entry.table === name)!
+        let chunks = 0; let rows = 0n
+        for await (const chunk of snapshot.chunks(entity, { chunkSizeBytes: 1024 * 1024 })) {
+          const bytes = await collect(chunk.stream)
+          expect(bytes.byteLength).toBeLessThanOrEqual(2 * 1024 * 1024)
+          chunks++; rows += BigInt(chunk.rows)
+        }
+        expect(chunks).toBeGreaterThan(8)
+        expect(rows).toBe(256n)
+      }
+    } finally { await source.close() }
+  }, 60000)
+
+  test('metadata cardinality preflight refuses huge schemas before materializing all columns', async () => {
+    await sourceDb.query(`DO $$ DECLARE fields text; n int; BEGIN
+      SELECT string_agg(format('col_%s int',g),',') INTO fields FROM generate_series(1,1000) g;
+      FOR n IN 1..101 LOOP EXECUTE format('CREATE TABLE app.metadata_cap_%s(%s)',n,fields); END LOOP;
+    END $$`)
+    const source = createPostgresSource(options)
+    try { await expect(source.open()).rejects.toThrow('BACKUP_NATIVE_METADATA_LIMIT') }
+    finally { await source.close() }
+  }, 60000)
+
+  test('an independent snapshot row-count disagreement refuses completion', async () => {
+    const source = createPostgresSource(options)
+    let spy: jest.SpyInstance | undefined
+    try {
+      const snapshot = await source.open()
+      const entity = snapshot.entities.find((entry) => entry.table === 'parents')!
+      const original = Client.prototype.query
+      spy = jest.spyOn(Client.prototype,'query').mockImplementation(function(this: Client,...args: unknown[]): never {
+        if (typeof args[0] === 'string' && args[0].startsWith('SELECT count(*)::text AS count FROM ONLY')) return Promise.resolve({ rows: [{ count: '999' }] }) as never
+        return Reflect.apply(original,this,args) as never
+      })
+      await expect((async () => { for await (const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536})) await collect(chunk.stream) })()).rejects.toThrow('BACKUP_SOURCE_COVERAGE_MISMATCH')
+    } finally { spy?.mockRestore(); await source.close() }
+  }, 60000)
+
+  test('multiple64MiB COPY chunks with a slow consumer cannot leave the next query socket paused', async () => {
+    await sourceDb.query(`CREATE TABLE app.slow_chunks(id int PRIMARY KEY,body text); ALTER TABLE app.slow_chunks ALTER COLUMN body SET STORAGE EXTERNAL;
+      INSERT INTO app.slow_chunks SELECT n,repeat('z',65536) FROM generate_series(1,2304) n; ANALYZE app.slow_chunks`)
+    const abort = new AbortController()
+    const timeout = setTimeout(() => abort.abort('acceptance timeout'),30000)
+    const source = createPostgresSource({ ...options,signal: abort.signal })
+    try {
+      const snapshot = await source.open()
+      const entity = snapshot.entities.find((entry) => entry.table === 'slow_chunks')!
+      let chunks=0;let rows=0n;let size=0
+      for await (const chunk of snapshot.chunks(entity,{chunkSizeBytes:64*1024*1024})) {
+        for await (const bytes of chunk.stream) { size+=bytes.byteLength; await new Promise<void>((resolve)=>setTimeout(resolve,1)) }
+        chunks++;rows+=BigInt(chunk.rows)
+      }
+      expect(rows).toBe(2304n)
+      expect(chunks).toBeGreaterThanOrEqual(3)
+      expect(size).toBeGreaterThan(128*1024*1024)
+      expect(abort.signal.aborted).toBe(false)
+    } finally { clearTimeout(timeout);await source.close() }
+  },60000)
+
+  test('user enum arrays preserve values when restored type OIDs differ from source history', async () => {
+    await sourceDb.query(`DO $$ BEGIN FOR n IN 1..20 LOOP EXECUTE format('CREATE TYPE app.discarded_%s AS ENUM (%L)',n,'discarded'); EXECUTE format('DROP TYPE app.discarded_%s',n); END LOOP; END $$;
+      CREATE TYPE app.history_state AS ENUM ('on','off'); CREATE TABLE app.enum_arrays(id int PRIMARY KEY,states app.history_state[]);
+      INSERT INTO app.enum_arrays VALUES(1,ARRAY['on','off',NULL]::app.history_state[]),(2,ARRAY[]::app.history_state[])`)
+    const source=createPostgresSource(options);const target=createPostgresTarget(options)
+    try {
+      const snapshot=await source.open();await initialize(snapshot,target)
+      const sourceOid=(await sourceDb.query("SELECT 'app.history_state'::regtype::oid AS oid")).rows[0].oid
+      const targetOid=(await targetDb.query("SELECT 'app.history_state'::regtype::oid AS oid")).rows[0].oid
+      expect(sourceOid).not.toBe(targetOid)
+      const entity=snapshot.entities.find((entry)=>entry.table==='enum_arrays')!
+      for await(const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536})) {
+        const contents=await collect(chunk.stream)
+        await target.chunk(entity,data(contents),{runId:'run',sequence:chunk.sequence,sha256:digest(contents),rows:chunk.rows})
+      }
+      const sql='SELECT id,states::text AS states FROM app.enum_arrays ORDER BY id'
+      expect((await targetDb.query(sql)).rows).toEqual((await sourceDb.query(sql)).rows)
+    } finally {await source.close();await target.close()}
+  },60000)
+
 
 })

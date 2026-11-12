@@ -1,0 +1,65 @@
+---
+title: Enterprise encrypted backup and recovery
+---
+
+The commercial `backups` module provides `mercato-backup`, a standalone PostgreSQL recovery command that works without application bootstrap. `mercato backups` is the application convenience wrapper; use the standalone command for JSON output or recovery when the original application is unavailable.
+
+## Provision the operator environment
+
+Use the commercially licensed Enterprise package, Node 24 or later, and matching PostgreSQL 16, 17 or 18 client/server majors. Enable `OM_ENABLE_ENTERPRISE_MODULES` and `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS`. An operator with the required commercial rights must also set `OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED=true`; these settings are capability/rights attestations, not a license purchase or a runtime license-key validator.
+
+Set `OM_BACKUP_BINARIES_DIR` to an operator-controlled directory containing `pg_dump`, `pg_restore` and `psql`. Configure named libpq services in a private `PGSERVICEFILE` and credentials in a private `PGPASSFILE` (both owner-only, mode 0600). There is no `DATABASE_URL` fallback and passwords never belong in command arguments. Remote connections require verified TLS; plaintext connections are limited to loopback or local sockets.
+
+Provision private output/workspace directories with mode 0700. The workspace stores sensitive run identities and temporary recovery files. Keep it on an appropriately sized protected volume. Stop application replicas, workers, schedulers, integrations and other writers before a protected rotation/recovery drill. A quiesced backup conservatively examines the whole cluster transaction horizon: unrelated writers can cause refusal.
+
+For an application wrapper, enable the module before running the normal generation/build workflow. `mercato backups labels --output /srv/recovery/private/labels.json` exports metadata labels without opening a database. The standalone create command accepts that file through `--labels-file` and otherwise uses table names.
+
+## Create and verify
+
+Put one to ten age X25519 public recipients in a recipients file. Include an independently controlled offline escrow recipient. Private identities and application DEKs belong in separate custody domains; an archive identity cannot decrypt tenant field ciphertext.
+
+```sh
+mercato-backup preflight --source-service source
+mercato-backup create --source-service source --output /srv/recovery/output --workspace /srv/recovery/private --recipients-file /srv/recovery/private/recipients --quiesced --json
+```
+
+Retain the returned `backupId`, artifact path and `manifestSha256` through an independent trusted channel. A readable file or a successful decrypt does not authenticate the artifact's producer; age recipients are public. Verification requires the independently trusted manifest digest:
+
+```sh
+mercato-backup verify --artifact /srv/recovery/output/BACKUP_ID --trusted-manifest-sha256 TRUSTED_DIGEST --identity-file /srv/recovery/private/escrow.identity --json
+```
+
+Backup chunks, schema and index are encrypted independently of application field-encryption maps. The database values are copied as stored ciphertext, so historic application keys must remain retrievable. File names do not include entity names. Whole-database coverage does not include attachments/object-store files, Vault state, Redis, WAL or cluster-global roles. Unsupported external/foreign relation kinds refuse rather than imply complete coverage.
+
+`--no-encryption` deliberately removes archive confidentiality. It requires typed `UNENCRYPTED` confirmation on an interactive terminal or `--confirm-unencrypted` for unattended use and displays an explicit warning. Set `OM_BACKUP_REQUIRE_ENCRYPTION=true` to forbid that option; invalid policy values fail closed.
+
+## Resume safely
+
+Interrupted commands report a non-zero status, the durable run identifier and a resume command. Reuse the same source, private workspace, output, recipients and chunk settings. A resume against another database/cluster refuses. Interrupted entities are restarted within the retained snapshot when possible or in a new epoch after process loss; completed entities are reused. DDL changes restart the affected artifact plan. Consistency labels never upgrade after a multi-snapshot boundary.
+
+```sh
+mercato-backup status /srv/recovery/output/.BACKUP_ID.partial --workspace /srv/recovery/private --json
+```
+
+The original protected workspace identity is sufficient for same-host resume. Before moving partial state to a new host, obtain `partialStateSha256` from status while the original trusted workspace identity is available and transport it independently. Artifact-only cross-host resume additionally requires `--trusted-partial-sha256` plus an escrow identity. This binds the run-key envelope, preparation and encrypted checkpoint bytes; public-recipient encryption alone does not authenticate a checkpoint. Preserve newly recovered workspace identities privately for later retries. If the original trusted identity and an independent partial-state digest are both lost, start a fresh backup.
+
+Do not bypass live locks. Explicit `--take-over-lock RUN_ID` is an operator decision that can disrupt a live run. Automatic takeover is limited to stale local locks whose process is no longer alive.
+
+## Isolated recovery
+
+Provision an empty target from `template0`, with the matching PostgreSQL major, encoding/collation and required extensions. Keep it isolated from production queues, object stores, SMTP, callbacks and workers at the network/credential layer. No automatic promotion or production overwrite is provided.
+
+```sh
+mercato-backup preflight --target-service scratch --artifact /srv/recovery/output/BACKUP_ID --trusted-manifest-sha256 TRUSTED_DIGEST --identity-file /srv/recovery/private/escrow.identity --workspace /srv/recovery/private --json
+mercato-backup restore --target-service scratch --confirm-target FRESH_CHALLENGE --artifact /srv/recovery/output/BACKUP_ID --trusted-manifest-sha256 TRUSTED_DIGEST --identity-file /srv/recovery/private/escrow.identity --workspace /srv/recovery/private --max-staging-bytes 1073741824 --json
+```
+
+The challenge binds the target and artifact and expires; obtain a fresh challenge on resume. Default `full` verification authenticates every artifact chunk before any target write; data is authenticated and hashed again while each load transaction runs. `--verify-mode streaming` saves the initial full pass but may discover a damaged later chunk after earlier chunks are loaded; the target stays quarantined. Chunk data and its journal marker commit together, so retry does not double-apply committed chunks. Reports are durable before journal cleanup, and a bound terminal receipt makes cleanup retryable.
+
+An `exercise` adds declarative checks from an owner-only JSON checks file: `artifact-integrity`, `row-count`, `migration-fingerprint` and `encrypted-canary`. Checks are bounded, not SQL/shell execution. Encrypted-canary checks name an entity key, a whitelisted field, exact primary-key values, a custody handle and the expected SHA-256 of a synthetic canary. Supply the historic test DEKs through a separate owner-only `--canary-keys-file` mapping custody handles to base64 keys; do not put key bytes in arguments, artifacts or reports. The implementation uses the platform's authenticated decryption helper. Never substitute synthetic test custody for a deployment's real escrow acceptance.
+
+## Rotation and retirement
+
+Protected Enterprise rotation requires both a verified quiesced recovery artifact and the separate full data-correctness verifier. Core rotation remains available only through its explicit per-invocation unprotected-risk acknowledgment when Enterprise protection is unavailable. A failed protected operation never silently downgrades.
+
+Retain old keys, backup recipients and pre-rotation artifacts until every consumer and historical recovery requirement has been independently inventoried and tested. Successful backup creation, restore, or scoped verification does not authorize deleting keys. Investigate failed or incomplete runs with writers stopped; perform any recovery cutover as a separate operator decision.

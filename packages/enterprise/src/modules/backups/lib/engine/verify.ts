@@ -44,12 +44,11 @@ export async function readBackup(options: VerifyBackupOptions): Promise<Verified
   try { return await readBackupInternal(options) }
   catch (error) { if (error instanceof BackupError) throw error; throw new BackupError('BACKUP_ARTIFACT_INTEGRITY_FAILED', 4) }
 }
-export async function* verifiedChunk(options: VerifyBackupOptions, manifest: Manifest, chunk: Chunk): ByteStream {
+export async function* authenticatedChunk(options: VerifyBackupOptions, manifest: Manifest, chunk: Chunk): ByteStream {
   const path = await contained(options.artifact, chunk.path)
   await privateFile(path)
   const hash = createHash('sha256')
   let cipherBytes = 0n
-  let plainBytes = 0n
   async function* input() {
     for await (const block of createReadStream(path, { highWaterMark: 1024 * 1024 })) {
       checkAbort(options.signal)
@@ -61,12 +60,22 @@ export async function* verifiedChunk(options: VerifyBackupOptions, manifest: Man
   }
   try {
     const decoded = manifest.encryption.mode === 'age-v1' ? await decryptStream(input(), options.identities ?? []) : input()
-    for await (const block of transform(decoded, createGunzip())) {
+    yield* decoded
+    if (cipherBytes !== BigInt(chunk.cipherBytes) || !equalDigest(hash.digest('hex'), chunk.sha256)) throw new BackupError('BACKUP_CHUNK_INTEGRITY_FAILED', 4)
+  } catch (error) {
+    if (error instanceof BackupError) throw error
+    throw new BackupError('BACKUP_CHUNK_AUTHENTICATION_FAILED', 4)
+  }
+}
+export async function* verifiedChunk(options: VerifyBackupOptions, manifest: Manifest, chunk: Chunk): ByteStream {
+  let plainBytes = 0n
+  try {
+    for await (const block of transform(authenticatedChunk(options, manifest, chunk), createGunzip())) {
       plainBytes += BigInt(block.byteLength)
       if (plainBytes > BigInt(chunk.plainBytes)) throw new BackupError('BACKUP_CHUNK_INTEGRITY_FAILED', 4)
       yield block
     }
-    if (cipherBytes !== BigInt(chunk.cipherBytes) || plainBytes !== BigInt(chunk.plainBytes) || !equalDigest(hash.digest('hex'), chunk.sha256)) throw new BackupError('BACKUP_CHUNK_INTEGRITY_FAILED', 4)
+    if (plainBytes !== BigInt(chunk.plainBytes)) throw new BackupError('BACKUP_CHUNK_INTEGRITY_FAILED', 4)
   } catch (error) {
     if (error instanceof BackupError) throw error
     throw new BackupError('BACKUP_CHUNK_AUTHENTICATION_FAILED', 4)
@@ -75,6 +84,6 @@ export async function* verifiedChunk(options: VerifyBackupOptions, manifest: Man
 export async function verifyBackup(options: VerifyBackupOptions): Promise<VerifiedBackup> {
   const artifact = await readBackup(options)
   if (options.metadataOnly) return artifact
-  for (const chunk of artifact.index.chunks) for await (const block of verifiedChunk(options, artifact.manifest, chunk)) { checkAbort(options.signal); void block }
+  for (const chunk of artifact.index.chunks) for await (const block of chunk.section ? verifiedChunk(options, artifact.manifest, chunk) : authenticatedChunk(options, artifact.manifest, chunk)) { checkAbort(options.signal); void block }
   return artifact
 }

@@ -1,6 +1,8 @@
 {
   "backups.cli.error": "ERROR: 복구 명령이 거부되었거나 완료되지 않았습니다.",
   "backups.cli.help": "암호화 백업 및 격리 복구: preflight, create, status, verify, restore, exercise.",
+  "backups.cli.unencrypted": "UNENCRYPTED: 이 백업에는 모든 테넌트의 읽을 수 있는 데이터가 포함됩니다.",
+  "backups.cli.unencryptedPrompt": "읽을 수 있는 백업을 확인하려면 UNENCRYPTED를 입력하세요: ",
   "backups.progress.bytes": "바이트",
   "backups.progress.chunks": "청크",
   "backups.progress.rows": "행"

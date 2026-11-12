@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto'
+import { z } from 'zod'
+import { privateDirectory, readBoundedFile } from './artifacts'
+import { BackupError } from './errors'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createWriteStream } from 'node:fs'
 import { chmod, lstat, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { PassThrough, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -13,7 +15,15 @@ import type { BackupSource, ByteStream, DatabaseIdentity, Entity, NativeOptions,
 const identifier = (value: string) => `"${value.replaceAll('"', '""')}"`
 const literal = (value: string) => `'${value.replaceAll("'", "''")}'`
 const relation = (entity: Pick<Entity, 'schema' | 'table'>) => `${identifier(entity.schema)}.${identifier(entity.table)}`
-const failure = (code: string) => new Error(`[internal] ${code}`)
+const failure = (code: string): BackupError => {
+  const invalid = new Set(['BACKUP_SERVICE_NAME', 'BACKUP_SERVICE_FORMAT', 'BACKUP_SERVICE_DUPLICATE', 'BACKUP_SERVICE_INCOMPLETE', 'BACKUP_SERVICE_OPTION_UNSUPPORTED', 'BACKUP_SERVICE_PORT', 'BACKUP_POSTGRES_VERSION_OR_IDENTITY', 'BACKUP_CLIENT_MAJOR_MISMATCH', 'BACKUP_ENTITY_LIMIT', 'BACKUP_RELATION_KIND_UNSUPPORTED', 'BACKUP_NATIVE_METADATA_LIMIT', 'BACKUP_TABLE_COLUMNS_EMPTY'])
+  const integrity = new Set(['BACKUP_RESTORE_CHUNK_MISMATCH', 'BACKUP_LARGE_OBJECT_HEADER', 'BACKUP_LARGE_OBJECT_OFFSET', 'BACKUP_LARGE_OBJECT_TRUNCATED', 'BACKUP_SOURCE_COVERAGE_MISMATCH'])
+  const runtime = new Set(['BACKUP_NATIVE_FAILED', 'BACKUP_NATIVE_INPUT_FAILED', 'BACKUP_COPY_READ_FAILED', 'BACKUP_COPY_WRITE_FAILED', 'BACKUP_CONNECTION_FAILED', 'BACKUP_SNAPSHOT_CLOSED'])
+  if (code === 'BACKUP_FOREIGN_KEY_VALIDATION_FAILED') return new BackupError(code, 6)
+  if (integrity.has(code)) return new BackupError(code, 4)
+  if (runtime.has(code)) return new BackupError(code, 5, true)
+  return new BackupError(code, invalid.has(code) ? 2 : 3)
+}
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
 const limits = { highWaterMark: 1024 * 1024 }
 
@@ -26,15 +36,21 @@ type Wire = {
 
 class ExportQuery extends Query<Record<string, unknown>> {
   readonly output = new PassThrough(limits)
+  private paused = false
+  private wire?: Wire
+  resumeSocket() { this.paused = false; this.wire?.stream.resume() }
   handleCopyData(message: { chunk: Buffer }, connection: Wire) {
-    if (!this.output.write(message.chunk)) {
+    this.wire = connection
+    if (!this.output.write(Buffer.from(message.chunk)) && !this.paused) {
+      this.paused = true
       connection.stream.pause()
-      this.output.once('drain', () => connection.stream.resume())
+      this.output.once('drain', () => { this.paused = false; connection.stream.resume() })
     }
   }
 }
 
 class ImportQuery extends Query<Record<string, unknown>> {
+  inputFailure?: BackupError
   constructor(sql: string, private readonly input: ByteStream) { super(sql) }
   handleCopyInResponse(connection: Wire) {
     void (async () => {
@@ -46,25 +62,28 @@ class ImportQuery extends Query<Record<string, unknown>> {
           }
         }
         connection.endCopyFrom()
-      } catch { connection.sendCopyFail('Backup stream failed integrity or resource checks') }
+      } catch (error) {
+        if (error instanceof BackupError) this.inputFailure = error
+        connection.sendCopyFail('Backup stream failed integrity or resource checks')
+      }
     })()
   }
 }
 
 async function* exportCopy(client: Client, sql: string): ByteStream {
   const query = new ExportQuery(sql)
-  query.on('error', () => query.output.destroy(failure('BACKUP_COPY_READ_FAILED')))
-  query.on('end', () => query.output.end())
+  query.on('error', () => { query.resumeSocket(); query.output.destroy(failure('BACKUP_COPY_READ_FAILED')) })
+  query.on('end', () => { query.resumeSocket(); query.output.end() })
   client.query(query)
   try { for await (const bytes of query.output) yield Buffer.from(bytes as Uint8Array) }
-  finally { if (!query.output.readableEnded) await client.end() }
+  finally { query.resumeSocket(); if (!query.output.readableEnded) await client.end() }
 }
 
 async function importCopy(client: Client, sql: string, input: ByteStream) {
   const query = new ImportQuery(sql, input)
   const done = new Promise<void>((resolve, reject) => {
     query.on('end', () => resolve())
-    query.on('error', () => reject(failure('BACKUP_COPY_WRITE_FAILED')))
+    query.on('error', () => reject(query.inputFailure ?? failure('BACKUP_COPY_WRITE_FAILED')))
   })
   client.query(query)
   await done
@@ -133,7 +152,7 @@ async function connectionConfig(options: NativeOptions, service: string): Promis
   if (config.sslkey) await privateFile(config.sslkey)
   return { host: config.host, port: Number(port), database: config.dbname, user: config.user, password,
     ssl, connectionTimeoutMillis: 10000, application_name: 'mercato-backup',
-    options: '-c lock_timeout=30000 -c statement_timeout=21600000' }
+    options: '-c lock_timeout=30000 -c statement_timeout=21600000 -c timezone=UTC -c standard_conforming_strings=on' }
 }
 
 async function connect(options: NativeOptions, service: string) {
@@ -210,6 +229,66 @@ async function verifyTools(options: NativeOptions, major: number) {
   }
 }
 
+async function databaseMigrationFingerprint(client: Client): Promise<string> {
+  const exists = (await client.query<{ present: string | null }>("SELECT to_regclass('public.mikro_orm_migrations')::text AS present")).rows[0].present
+  if (!exists) return digest('[]')
+  const hash = createHash('sha256'); hash.update('[')
+  let count = 0; let size = 0; let invalid: BackupError | undefined
+  const query = new Query<{ row: string | null }>(`SELECT CASE WHEN octet_length(to_jsonb(m)::text)<=65536 THEN to_jsonb(m)::text ELSE NULL END AS row FROM public.mikro_orm_migrations m ORDER BY to_jsonb(m)::text`)
+  const done = new Promise<string>((resolve, reject) => {
+    query.on('row', (entry: { row: string | null }) => {
+      if (invalid) return
+      count++; size += entry.row?.length ?? 0
+      if (entry.row === null || count > 100000 || size > 64 * 1024 * 1024) { invalid = failure('BACKUP_NATIVE_METADATA_LIMIT'); return }
+      if (count > 1) hash.update(',')
+      hash.update(entry.row)
+    })
+    query.on('error', () => reject(failure('BACKUP_MIGRATION_FINGERPRINT_FAILED')))
+    query.on('end', () => { if (invalid) reject(invalid); else { hash.update(']'); resolve(hash.digest('hex')) } })
+  })
+  client.query(query)
+  return done
+}
+
+async function completeSchemaFingerprint(client: Client): Promise<string> {
+  const sql = `WITH namespaces AS (
+    SELECT oid FROM pg_namespace WHERE nspname NOT IN ('pg_catalog','information_schema','om_backup_restore')
+      AND nspname NOT LIKE 'pg_toast%' AND nspname NOT LIKE 'pg_temp%'
+  ), metadata(kind,key,definition) AS (
+    SELECT 'default',adrelid::text||':'||adnum,pg_get_expr(adbin,adrelid) FROM pg_attrdef d JOIN pg_class c ON c.oid=d.adrelid WHERE c.relnamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'constraint',c.oid::text,pg_get_constraintdef(c.oid)||':'||c.convalidated::text FROM pg_constraint c WHERE c.connamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'index',i.indexrelid::text,pg_get_indexdef(i.indexrelid) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid WHERE c.relnamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'trigger',t.oid::text,pg_get_triggerdef(t.oid)||':'||t.tgenabled::text FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid WHERE NOT t.tgisinternal AND c.relnamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'function',p.oid::text,pg_get_functiondef(p.oid) FROM pg_proc p WHERE p.prokind <> 'a' AND p.pronamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'aggregate',p.oid::text,to_jsonb(a)::text FROM pg_aggregate a JOIN pg_proc p ON p.oid=a.aggfnoid WHERE p.pronamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'type',t.oid::text,to_jsonb(t)::text FROM pg_type t WHERE t.typnamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'enum',e.enumtypid::text||':'||e.enumsortorder::text,e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typnamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'range',r.rngtypid::text,to_jsonb(r)::text FROM pg_range r JOIN pg_type t ON t.oid=r.rngtypid WHERE t.typnamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'extension',e.oid::text,to_jsonb(e)::text FROM pg_extension e
+    UNION ALL SELECT 'collation',c.oid::text,to_jsonb(c)::text FROM pg_collation c WHERE c.collnamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'view',c.oid::text,pg_get_viewdef(c.oid) FROM pg_class c WHERE c.relkind IN ('v','m') AND c.relnamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'relation',c.oid::text,jsonb_build_array(c.relkind,c.relpersistence,c.relreplident,c.relrowsecurity,c.relforcerowsecurity,c.reloptions,pg_get_expr(c.relpartbound,c.oid),CASE WHEN c.relkind='p' THEN pg_get_partkeydef(c.oid) ELSE NULL END)::text FROM pg_class c WHERE c.relnamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'inheritance',i.inhrelid::text||':'||i.inhseqno::text,i.inhparent::text FROM pg_inherits i JOIN pg_class c ON c.oid=i.inhrelid WHERE c.relnamespace IN (SELECT oid FROM namespaces)
+    UNION ALL SELECT 'policy',p.oid::text,jsonb_build_array(p.polname,p.polcmd,p.polpermissive,p.polroles,pg_get_expr(p.polqual,p.polrelid),pg_get_expr(p.polwithcheck,p.polrelid))::text FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid WHERE c.relnamespace IN (SELECT oid FROM namespaces)
+  ) SELECT kind,key,CASE WHEN octet_length(definition)<=1048576 THEN definition ELSE NULL END AS definition FROM metadata ORDER BY kind,key`
+  const hash = createHash('sha256')
+  let count = 0; let size = 0; let invalid: BackupError | undefined
+  const query = new Query<{ kind: string; key: string; definition: string | null }>(sql)
+  const done = new Promise<string>((resolve, reject) => {
+    query.on('row', (row: { kind: string; key: string; definition: string | null }) => {
+      if (invalid) return
+      const frame = JSON.stringify([row.kind, row.key, row.definition])
+      count++; size += Buffer.byteLength(frame)
+      if (row.definition === null || count > 100000 || size > 64 * 1024 * 1024) { invalid = failure('BACKUP_NATIVE_METADATA_LIMIT'); return }
+      hash.update(String(Buffer.byteLength(frame)) + ':'); hash.update(frame)
+    })
+    query.on('error', () => reject(failure('BACKUP_SCHEMA_FINGERPRINT_FAILED')))
+    query.on('end', () => invalid ? reject(invalid) : resolve(hash.digest('hex')))
+  })
+  client.query(query)
+  return done
+}
+
 export function createPostgresSource(options: NativeOptions): BackupSource {
   let control: Client | undefined
   const workers = new Set<Client>()
@@ -227,6 +306,16 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
       const snapshotRow = (await control.query<{ snapshot: string; evidence: string }>('SELECT pg_export_snapshot() AS snapshot, pg_current_snapshot()::text AS evidence')).rows[0]
       if (!/^[0-9A-Fa-f-]+$/.test(snapshotRow.snapshot)) throw failure('BACKUP_SNAPSHOT_INVALID')
       const [, xmax, active] = snapshotRow.evidence.split(':')
+      const unsupported = await control.query(`SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relkind IN ('f','m') AND n.nspname NOT IN ('pg_catalog','information_schema','om_backup_restore')
+          AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%' LIMIT 1`)
+      if (unsupported.rowCount) throw failure('BACKUP_RELATION_KIND_UNSUPPORTED')
+      const metadataSize = (await control.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_attribute a
+        JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relkind IN ('r','p','S') AND a.attnum>0 AND NOT a.attisdropped
+          AND n.nspname NOT IN ('pg_catalog','information_schema','om_backup_restore')
+          AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%'`)).rows[0].count
+      if (BigInt(metadataSize)>100000n) throw failure('BACKUP_NATIVE_METADATA_LIMIT')
       const tables = await control.query<{ schema: string; table: string; rows: string; bytes: string; columns: string[]; keys: string[] }>(`
         SELECT n.nspname AS schema, c.relname AS table, greatest(c.reltuples,0)::bigint::text AS rows,
           pg_relation_size(c.oid)::text AS bytes,
@@ -256,10 +345,13 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
       const catalog = (await control.query<{ entry: string }>(`SELECT concat_ws(':',n.nspname,c.relname,a.attnum,a.attname,a.atttypid,a.atttypmod,a.attnotnull,a.attgenerated) AS entry
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid
         WHERE c.relkind IN ('r','p','S') AND a.attnum>0 AND NOT a.attisdropped AND n.nspname NOT IN ('pg_catalog','information_schema','om_backup_restore')
-        ORDER BY n.nspname,c.relname,a.attnum`)).rows
-      const catalogDigest = digest(JSON.stringify({ entities: entities.map(({ key, schema, table, columns, primaryKeys, kind, largeObjectOid }) => ({ key, schema, table, columns, primaryKeys, kind, largeObjectOid })), foreignKeys, catalog }))
+        ORDER BY n.nspname,c.relname,a.attnum LIMIT 100001`)).rows
+      if (catalog.length>100000) throw failure('BACKUP_NATIVE_METADATA_LIMIT')
+      const schemaFingerprint = await completeSchemaFingerprint(control)
+      const migrationFingerprint = await databaseMigrationFingerprint(control)
+      const catalogDigest = digest(JSON.stringify({ schemaFingerprint, entities: entities.map(({ key, schema, table, columns, primaryKeys, kind, largeObjectOid }) => ({ key, schema, table, columns, primaryKeys, kind, largeObjectOid })), foreignKeys, catalog }))
       return {
-        identity, evidence: { xmax, xipList: active ? active.split(',') : [] }, catalogDigest, entities, foreignKeys,
+        identity, evidence: { xmax, xipList: active ? active.split(',') : [] }, catalogDigest, migrationFingerprint, entities, foreignKeys,
         async boundary() {
           const fresh = await connect(options, service)
           try {
@@ -302,11 +394,20 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
             const keys = entity.primaryKeys ?? []
             const columnSql = entity.columns.map(identifier).join(',')
             if (!columnSql) throw failure('BACKUP_TABLE_COLUMNS_EMPTY')
+            if (request.after && request.after.length !== keys.length) throw failure('BACKUP_SOURCE_CURSOR_BINDING')
+            const initialPredicate = request.after ? ` WHERE (${keys.map(identifier).join(',')}) > (${request.after.map(literal).join(',')})` : ''
+            const expectedRows = BigInt((await client.query<{ count: string }>(`SELECT count(*)::text AS count FROM ONLY ${relation(entity)}${initialPredicate}`)).rows[0].count)
+            let copiedRows = 0n
+            const sampleSelection = `SELECT ${columnSql} FROM ONLY ${relation(entity)} ${keys.length ? `ORDER BY ${keys.map(identifier).join(',')}` : 'ORDER BY ctid'} LIMIT 128`
+            const sampleRows = Number((await client.query<{ count: string }>(`SELECT count(*)::text AS count FROM (${sampleSelection}) sample`)).rows[0].count)
+            let sampleBytes = 0
+            if (sampleRows) for await (const bytes of exportCopy(client, `COPY (${sampleSelection}) TO STDOUT (FORMAT binary)`)) sampleBytes += bytes.byteLength
+            const average = sampleRows ? Math.max(1, (sampleBytes - 21) / sampleRows) : 64
+            const initialBatch = Math.max(1, Math.min(1000000, Math.floor(request.chunkSizeBytes / average)))
             if (keys.length) {
               let after = request.after
               let sequence = 0
-              const average = Number(entity.estimatedBytes) / Math.max(1, Number(entity.estimatedRows))
-              let batch = Math.max(1, Math.min(1000000, Math.floor(request.chunkSizeBytes / Math.max(average, 64))))
+              let batch = initialBatch
               for (;;) {
                 const where = after ? `WHERE (${keys.map(identifier).join(',')}) > (${after.map(literal).join(',')})` : ''
                 const selection = `SELECT ${columnSql} FROM ONLY ${relation(entity)} ${where} ORDER BY ${keys.map(identifier).join(',')} LIMIT ${batch}`
@@ -317,6 +418,7 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
                 const from = after; let bytes = 0
                 const stream = (async function* () { for await (const part of exportCopy(client, `COPY (${selection}) TO STDOUT (FORMAT binary)`)) { bytes += part.byteLength; yield part } })()
                 yield { sequence: sequence++, rows: row.count, keyFrom: from, keyTo: row.tail, stream }
+                copiedRows += BigInt(row.count)
                 after = row.tail
                 if (bytes) batch = Math.max(1, Math.min(1000000, Math.floor(batch * request.chunkSizeBytes / bytes)))
               }
@@ -325,13 +427,27 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
               const blocks = Number((await client.query<{ blocks: string }>(`SELECT ceil(pg_relation_size(${literal(relation(entity))}::regclass)::numeric/current_setting('block_size')::int)::text AS blocks`)).rows[0].blocks)
               const blockSize = Number((await client.query<{ size: string }>("SELECT current_setting('block_size') AS size")).rows[0].size)
               const pages = Math.max(1, Math.floor(request.chunkSizeBytes / blockSize))
-              for (let start = 0, sequence = 0; start < blocks; start += pages, sequence++) {
+              let sequence = 0
+              let batch = initialBatch
+              for (let start = 0; start < blocks; start += pages) {
                 const end = Math.min(blocks, start + pages)
-                const select = `SELECT ${columnSql} FROM ONLY ${relation(entity)} WHERE ctid >= ${literal(`(${start},0)`)}::tid AND ctid < ${literal(`(${end},0)`)}::tid`
-                const count = (await client.query<{ count: string }>(`SELECT count(*)::text AS count FROM (${select}) chosen`)).rows[0].count
-                yield { sequence, rows: count, stream: exportCopy(client, `COPY (${select}) TO STDOUT (FORMAT binary)`) }
+                let after: string | undefined
+                for (;;) {
+                  const predicate = `ctid >= ${literal(`(${start},0)`)}::tid AND ctid < ${literal(`(${end},0)`)}::tid${after ? ` AND ctid > ${literal(after)}::tid` : ''}`
+                  const positionSelection = `SELECT ctid AS position FROM ONLY ${relation(entity)} WHERE ${predicate} ORDER BY ctid LIMIT ${batch}`
+                  const bound = (await client.query<{ count: string; tail: string | null }>(`WITH chosen AS (${positionSelection}) SELECT count(*)::text AS count,(SELECT position::text FROM chosen ORDER BY chosen.position DESC LIMIT 1) AS tail FROM chosen`)).rows[0]
+                  if (!bound || bound.count === '0' || !bound.tail) break
+                  const select = `SELECT ${columnSql} FROM ONLY ${relation(entity)} WHERE ${predicate} ORDER BY ctid LIMIT ${batch}`
+                  let size = 0
+                  const stream = (async function* () { for await (const part of exportCopy(client, `COPY (${select}) TO STDOUT (FORMAT binary)`)) { size += part.byteLength; yield part } })()
+                  yield { sequence: sequence++, rows: bound.count, stream }
+                  copiedRows += BigInt(bound.count)
+                  after = bound.tail
+                  if (size) batch = Math.max(1, Math.min(1000000, Math.floor(Number(bound.count) * request.chunkSizeBytes / size)))
+                }
               }
             }
+            if (copiedRows !== expectedRows) throw failure('BACKUP_SOURCE_COVERAGE_MISMATCH')
             await client.query('COMMIT')
           } finally { workers.delete(client); await client.end() }
         },
@@ -375,6 +491,38 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
     })
   }
   return {
+    async migrationFingerprint() { return databaseMigrationFingerprint(await current()) },
+    async readCanary(entity, check) {
+      const keys = entity.primaryKeys ?? []
+      if (entity.kind === 'large-object' || !entity.columns.includes(check.field) || !keys.length || keys.length > 64
+        || Object.keys(check.key).length !== keys.length || keys.some((key) => !Object.hasOwn(check.key, key) || typeof check.key[key] !== 'string')) throw failure('BACKUP_CANARY_SCOPE')
+      const where = keys.map((key, index) => `${identifier(key)}=$${index + 1}`).join(' AND ')
+      const result = await (await current()).query<{ envelope: unknown }>(`SELECT ${identifier(check.field)} AS envelope FROM ONLY ${relation(entity)} WHERE ${where} LIMIT 2`, keys.map((key) => check.key[key]))
+      if (result.rows.length !== 1 || typeof result.rows[0].envelope !== 'string') throw failure('BACKUP_CANARY_NOT_FOUND_OR_INVALID')
+      return result.rows[0].envelope
+    },
+    async completeFromReport(run) {
+      const receipt = z.object({ schemaVersion: z.literal(1), backupId: z.string(), restoreRunId: z.string(),
+        trustedManifestSha256: z.string(), targetIdentityDigest: z.string(), status: z.literal('completed'), quarantined: z.literal(true),
+      }).parse(JSON.parse((await readBoundedFile(run.reportPath, 1024 * 1024)).toString()))
+      const connection = await current()
+      const identityDigest = digest(JSON.stringify(await databaseIdentity(connection)))
+      if (receipt.restoreRunId !== run.runId || receipt.backupId !== run.backupId || receipt.trustedManifestSha256 !== run.manifestSha256
+        || receipt.targetIdentityDigest !== run.targetIdentityDigest || identityDigest !== run.targetIdentityDigest
+        || !expected || expected.challenge !== run.confirmation || expected.expires < Date.now() || expected.digest !== identityDigest) throw failure('BACKUP_COMPLETION_RECEIPT_BINDING')
+      const locked = (await connection.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(hashtextextended('om_backup_restore',0)) AS locked")).rows[0].locked
+      if (!locked) throw failure('BACKUP_TARGET_LOCKED')
+      lockId = 'om_backup_restore'
+      const exists = (await connection.query("SELECT 1 FROM pg_namespace WHERE nspname='om_backup_restore'")).rowCount
+      if (exists) {
+        await transaction(async (session) => {
+          const rows = (await session.query<{ run: string; backup: string; digest: string }>('SELECT restore_run_id AS run,backup_id AS backup,manifest_sha256 AS digest FROM om_backup_restore.restore_run')).rows
+          if (rows.length !== 1 || rows[0].run !== run.runId || rows[0].backup !== run.backupId || rows[0].digest !== run.manifestSha256) throw failure('BACKUP_COMPLETION_RECEIPT_BINDING')
+          await session.query('DROP SCHEMA om_backup_restore CASCADE')
+        })
+      }
+      return true
+    },
     async countRows(entity) { return entity.kind === 'large-object'
       ? (await (await current()).query<{ count: string }>('SELECT count(*)::text AS count FROM pg_largeobject_metadata WHERE oid=$1::oid', [entity.largeObjectOid])).rows[0].count
       : (await (await current()).query<{ count: string }>(`SELECT count(*)::text AS count FROM ONLY ${relation(entity)}`)).rows[0].count },
@@ -415,9 +563,12 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
       runId = run.runId
     },
     async hasStep(stepId) { return Boolean((await (await current()).query('SELECT 1 FROM om_backup_restore.restore_steps WHERE step_key=$1', [stepId])).rowCount) },
-    async schema(section, stream, stepId) {
+    async schema(section, stream, stepId, workspace) {
       if (!runId) throw failure('BACKUP_RESTORE_NOT_INITIALIZED')
-      const directory = await mkdtemp(join(tmpdir(), 'om-backup-schema-')); await chmod(directory, 0o700)
+      const scratch = workspace ?? options.workspace
+      if (!scratch) throw failure('BACKUP_WORKSPACE_REQUIRED')
+      await privateDirectory(scratch)
+      const directory = await mkdtemp(join(scratch, 'om-backup-schema-')); await chmod(directory, 0o700)
       try {
         const archive = join(directory, 'schema.dump')
         const maximum = options.maxStagingBytes ?? 1024 * 1024 * 1024
