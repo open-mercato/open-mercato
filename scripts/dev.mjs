@@ -25,6 +25,11 @@ import {
   stripAnsi,
 } from './dev-splash-helpers.mjs'
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
+<<<<<<< HEAD
+=======
+import { createEnvFileFromExample } from './dev-env-file.mjs'
+import { readAppEnvFileValues, resolveAppPortPreflight } from './dev-port-preflight.mjs'
+>>>>>>> 91a6b83bd (fix(docker): require production tenant encryption configuration (#7231) (#8377))
 import {
   ensureDevInotifyLimits,
   resolveDevBundlerDecision,
@@ -917,7 +922,7 @@ function recordManagedRuntimeExit(exitCode, signal) {
 
 function ensureStandaloneEnvFile() {
   if (!fs.existsSync('.env') && fs.existsSync('.env.example')) {
-    fs.copyFileSync('.env.example', '.env')
+    createEnvFileFromExample('.env.example', '.env')
     const message = '[setup] Copied .env.example to .env'
     console.log(message)
     updateSplashState({

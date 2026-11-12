@@ -491,6 +491,15 @@ test('ensureEnvFiles writes the documented dev credentials and threads them into
   )
 })
 
+test('ensureEnvFiles gives the app .env the same generated tenant encryption key as the compose .env', () => {
+  const repo = makeFakeAppRepo()
+  fs.appendFileSync(path.join(repo, 'apps', 'mercato', '.env.example'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=\n')
+  ensureEnvFiles(repo, { log: () => {}, warn: () => {} })
+  const rootKey = readEnvValue(path.join(repo, '.env'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
+  assert.ok(rootKey && Buffer.byteLength(rootKey) >= 32)
+  assert.equal(readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY'), rootKey)
+})
+
 test('ensureEnvFiles never overwrites credentials already present in .env', () => {
   const repo = makeFakeAppRepo()
   fs.writeFileSync(path.join(repo, '.env'), 'POSTGRES_PASSWORD=custom-pass\nOM_INIT_SUPERADMIN_PASSWORD=custom-admin\n')
