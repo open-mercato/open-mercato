@@ -226,14 +226,22 @@ maybe('customerPurchaseApprovalService under real concurrency (G6)', () => {
     const buyerActor: ApprovalActor = { actorType: 'customer_user', actorId: buyerActorId, customerEntityId: COMPANY_ID }
     const merchantActor: ApprovalActor = { actorType: 'staff_user', actorId: randomUUID() }
 
-    await Promise.all([
+    const [buyerOutcome, merchantOutcome] = await Promise.allSettled([
       serviceFor(buyerEm, 'both').decideApproval({ scope: SCOPE, approvalId, decision: 'rejected', actor: buyerActor }),
       serviceFor(merchantEm, 'both').decideApproval({ scope: SCOPE, approvalId, decision: 'approved', actor: merchantActor }),
     ])
 
+    // When the reject commits first the request is already terminal, so the approve that
+    // follows is refused with `approval_not_pending`; when the approve commits first it only
+    // fills its own slot and the reject still lands. The reject can never be the refused one.
+    expect(buyerOutcome.status).toBe('fulfilled')
+    if (merchantOutcome.status === 'rejected') {
+      expect((merchantOutcome.reason as { code?: string }).code).toBe('approval_not_pending')
+    }
     const em = orm.em.fork()
     const final = await em.findOne(CustomerPurchaseApproval, { id: approvalId })
     expect(final?.status).toBe('rejected')
+    expect(final?.buyerDecision).toBe('rejected')
   })
 
   test('decide versus expire at the boundary: an already-past-due pending row always expires, never decides, even racing a real concurrent decide attempt', async () => {
