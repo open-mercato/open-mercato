@@ -1,3 +1,6 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { assertActorCanModifySuperAdminUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -36,6 +39,15 @@ registerCommand({
       throw new CrudHttpError(400, { error: 'Invalid payload', issues: parsed.error.issues })
     }
 
+    await assertActorCanModifySuperAdminUserTarget({
+      em: ctx.container.resolve<EntityManager>('em'),
+      rbacService: ctx.container.resolve<RbacService>('rbacService'),
+      requireBoundRbac: true,
+      actorUserId: ctx.auth.sub,
+      tenantId: ctx.auth.tenantId ?? null,
+      organizationId: ctx.auth.orgId ?? null,
+      targetUserId: parsed.data.userId,
+    })
     const mfaAdminService = ctx.container.resolve<MfaAdminService>('mfaAdminService')
     const isSuperAdmin = await resolveIsSuperAdmin({ auth: ctx.auth, container: ctx.container })
     const scope: MfaAdminAuthScope = {
