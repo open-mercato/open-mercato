@@ -69,20 +69,13 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
     if (fs.existsSync(appEnvExample)) {
       let content = fs.readFileSync(appEnvExample, 'utf8')
       content = replaceEnvLine(content, 'JWT_SECRET', jwtSecret)
-      if (encryptionConfigured && configuredValue('TENANT_DATA_ENCRYPTION_FALLBACK_KEY') === undefined) {
+      if (configuredValue('TENANT_DATA_ENCRYPTION_FALLBACK_KEY') === undefined) {
         content = replaceEnvLine(content, 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY', '')
       }
       const suppliedSettings = Object.fromEntries(encryptionSettings.map(key => [key, configuredValue(key)]).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]))
       content = renderEncryptionValues(content, suppliedSettings)
       content = replaceEnvLine(content, 'AUTH_SECRET', secretHex(32))
       content = replaceEnvLine(content, 'LOOKUP_HASH_PEPPER', secretHex(16))
-      // .env.example ships no tenant encryption key (#7231); reuse the compose
-      // key so the host app and containers encrypt with the same root secret.
-      content = replaceEnvLine(
-        content,
-        'TENANT_DATA_ENCRYPTION_FALLBACK_KEY',
-        readEnvValue(rootEnv, 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY')?.trim() || secretHex(32),
-      )
       // 127.0.0.1, never `localhost`: on modern Windows localhost resolves
       // to ::1 first while the published container ports listen on IPv4.
       content = replaceEnvLine(
