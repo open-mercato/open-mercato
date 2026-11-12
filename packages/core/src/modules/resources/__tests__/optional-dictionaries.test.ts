@@ -4,7 +4,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
-import { ResourcesResource, ResourcesResourceType } from '../data/entities'
+import { ResourcesResource, ResourcesResourceTag, ResourcesResourceType } from '../data/entities'
 
 const findOneWithDecryptionMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
@@ -37,6 +37,10 @@ type FakeEm = {
   touchedDictionaries: number
   created: unknown[]
   em: EntityManager
+}
+
+function queriedDictionaries(): boolean {
+  return findOneWithDecryptionMock.mock.calls.some(([, entity]) => DICTIONARY_ENTITIES.has(entity))
 }
 
 function createFakeEm(dictionariesRegistered: boolean): FakeEm {
@@ -115,15 +119,18 @@ describe('resources without the dictionaries and planner modules', () => {
     expect(fake.touchedDictionaries).toBe(0)
     expect(fake.created).toContain(ResourcesResourceType)
     expect(fake.created).toContain(ResourcesResource)
+    expect(fake.created).toContain(ResourcesResourceTag)
   })
 
   it('keeps seeding dictionaries when the module is enabled', async () => {
     registerRegistry(true)
     const fake = createFakeEm(true)
     await setup.seedDefaults!(setupContext(fake.em))
-    await setup.seedExamples!(setupContext(fake.em))
     expect(fake.created).toContain(Dictionary)
     expect(fake.created).toContain(DictionaryEntry)
+    const createdBeforeExamples = fake.created.length
+    await setup.seedExamples!(setupContext(fake.em))
+    expect(fake.created.slice(createdBeforeExamples)).toContain(Dictionary)
   })
 
   it('rejects a capacity unit on create with the existing 400 when dictionaries is disabled', async () => {
@@ -144,7 +151,7 @@ describe('resources without the dictionaries and planner modules', () => {
       status: 400,
       body: { error: 'Capacity unit dictionary is not configured.' },
     })
-    expect(findOneWithDecryptionMock).not.toHaveBeenCalledWith(expect.anything(), Dictionary, expect.anything(), undefined, expect.anything())
+    expect(queriedDictionaries()).toBe(false)
   })
 
   it('rejects a capacity unit on update with the existing 400 when dictionaries is disabled', async () => {
@@ -164,5 +171,6 @@ describe('resources without the dictionaries and planner modules', () => {
       status: 400,
       body: { error: 'Capacity unit dictionary is not configured.' },
     })
+    expect(queriedDictionaries()).toBe(false)
   })
 })
