@@ -54,8 +54,8 @@ Revise the design-only spec so the backup/restore feature is enterprise-only, en
 
 ### Phase 3: Core rotation risk acknowledgment (2026-11-12)
 
-- [ ] 3.1 Specify a red fail-closed warning and explicit CLI acknowledgment for Core rotation without Enterprise resumable encrypted backup.
-- [ ] 3.2 Cross-reference the separate Enterprise post-rotation correctness verification design and acceptance coverage.
+- [x] 3.1 Specify a red fail-closed warning and explicit CLI acknowledgment for Core rotation without Enterprise resumable encrypted backup. — c28d4f5489
+- [x] 3.2 Cross-reference the separate Enterprise post-rotation correctness verification design and acceptance coverage. — c28d4f5489
 - [ ] 3.3 Validate documentation, review the revised design, and publish the outcome.
 
 ## Resume scope — 2026-11-12
