@@ -42,7 +42,7 @@ async function createRecord(
   return expectId(body?.id, `POST ${path} should return its fixture id`)
 }
 
-test('TC-TT-028: report history hides money across close, unlock and export', async ({ request, page }) => {
+test('TC-TT-028: report history hides money across close, unlock and export', async ({ request, page }, testInfo) => {
   const adminToken = await getAuthToken(request, 'admin')
   const superadminToken = await getAuthToken(request, 'superadmin')
   const { tenantId, organizationId } = getTokenContext(adminToken)
@@ -192,9 +192,11 @@ test('TC-TT-028: report history hides money across close, unlock and export', as
     await region.focus()
     await page.keyboard.press('ArrowRight')
     await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+    await testInfo.attach('report-mobile', { body: await page.screenshot(), contentType: 'image/png' })
     await page.setViewportSize({ width: 1440, height: 900 })
     await expect(region).toBeVisible()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await testInfo.attach('report-desktop', { body: await page.screenshot(), contentType: 'image/png' })
 
   } finally {
     for (const viewerContext of viewerContexts) await viewerContext.dispose()
