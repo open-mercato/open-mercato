@@ -35,7 +35,17 @@ For any code change, run the ordered `.ai/agentic.config.json` validation gate a
 
 CI may expose a new failure despite main's successful baseline. Never substitute baseline evidence for the PR's own run. Late commits invalidate prior head evidence; verify the final pushed head. No user is present for this scheduled run, so use existing behavior and reversible defaults.
 
+## Evidence
+
+- Independent audit task `0d0467f3-997f-45fb-bf9f-800ee9e05db5` found no actionable defect on the stated main SHA. Baseline CI passed 24 jobs, including all 15 integration shards; the dependency audit was intentionally skipped for a documentation-only commit. [Snapshot and standalone tests](https://github.com/open-mercato/open-mercato/actions/runs/43147388697) passed 2/2 and [CodeQL](https://github.com/open-mercato/open-mercato/actions/runs/43147388631) passed 3/3.
+- Runner: local. Parent independently inspected the read-only audit report and ran all 43 focused full-suite, concurrency, coverage and bootstrap regression tests successfully. Whitespace checks passed. The documentation-only local gate exception applies; no Markdown lint command is configured. Broad application validation runs in this PR's full CI.
+- [Independent final review](https://github.com/open-mercato/open-mercato/pull/9320#issuecomment-6817419356), task `9aa19466-03b0-444e-acd3-fdcf4a327dce`, approved the entire diff at `d6f12084da83a9a6e918b72fb83a9607aed19098` with zero findings. The reviewer verified that every configured validation command's CI step passed. GitHub rejected native self-approval by the shared App; the attributed independent review does not replace a distinct-account approval requirement. No child branch was merged.
+- Effective main ruleset requires `scope`, `guard`, `prepare`, `lint`, `ds-lint`, `test`, `audit-scope`, and `documents-multi-instance`. This run additionally gates handoff on all applicable reported checks, including every integration shard and coverage merge.
+- Follow-up commits only record completion evidence and checklist state; the parent checks their diff against the reviewed document. Ready promotion remains gated on all applicable checks passing at the final pushed head.
+
 ## Progress
+
+PR: #9320
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
