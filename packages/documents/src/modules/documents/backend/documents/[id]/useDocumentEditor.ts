@@ -4,6 +4,7 @@ import { useContentSecurityPolicyNonce } from '@open-mercato/ui/theme/ContentSec
 import * as React from 'react'
 import type { Editor } from '@tiptap/core'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
+import type { Transaction } from '@tiptap/pm/state'
 import { useEditor } from '@tiptap/react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -60,6 +61,18 @@ export function countDocumentWordsAndCharacters(doc: ProseMirrorNode): EditorWor
 function documentCounts(editor: Editor | null): EditorWordCount {
   if (!editor) return { words: 0, characters: 0 }
   return countDocumentWordsAndCharacters(editor.state.doc)
+}
+
+/**
+ * Tiptap also emits `update` from `setEditable()` with an empty transaction.
+ * Only a real document change may reach content persistence, otherwise merely
+ * opening a document in single-user mode re-saves (and re-materialises) it.
+ */
+export function isDocumentChangingUpdate(
+  transaction: Pick<Transaction, 'docChanged'>,
+  appendedTransactions: ReadonlyArray<Pick<Transaction, 'docChanged'>> = [],
+): boolean {
+  return transaction.docChanged || appendedTransactions.some((appended) => appended.docChanged)
 }
 
 export function useDocumentEditor(input: UseDocumentEditorInput) {
@@ -142,9 +155,10 @@ export function useDocumentEditor(input: UseDocumentEditorInput) {
       editorRef.current = null
       input.onEditorReady?.(null)
     },
-    onUpdate: ({ editor: updated }) => {
+    onUpdate: ({ editor: updated, transaction, appendedTransactions }) => {
       editorRef.current = updated
       scheduleCounts(updated)
+      if (!isDocumentChangingUpdate(transaction, appendedTransactions)) return
       input.onUpdate?.(updated)
     },
   }, [input.documentId, input.editorMode, extensions])

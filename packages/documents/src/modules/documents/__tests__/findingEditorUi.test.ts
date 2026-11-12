@@ -292,7 +292,24 @@ describe('finding quote locator without the realtime binding', () => {
     expect(locateFindingRange(finding({ sectionLabel: '2. Obligations', occurrence: 2 }), { resolveAnchor: null, locateQuote }))
       .toEqual({ from: 5, to: 9 })
     expect(locateQuote).toHaveBeenCalledWith({ quote: 'five years', occurrence: 2, sectionLabel: '2. Obligations' })
-    expect(locateFindingRange(finding({ anchor: null }), { resolveAnchor, locateQuote })).toBeNull()
+    expect(locateFindingRange(finding({ anchor: null }), { resolveAnchor, locateQuote })).toEqual({ from: 5, to: 9 })
+  })
+
+  it('falls back to the quote when the relative anchor no longer resolves to the reviewed text', () => {
+    const locateQuote = jest.fn(() => ({ from: 5, to: 15 }))
+    const readText = (range: { from: number; to: number }) => (range.from === 5 ? 'five years' : 'six years')
+    expect(locateFindingRange(finding(), { resolveAnchor: () => null, locateQuote }, readText)).toEqual({ from: 5, to: 15 })
+    expect(locateFindingRange(finding(), { resolveAnchor: () => ({ from: 3, to: 3 }), locateQuote }, readText)).toEqual({ from: 5, to: 15 })
+    expect(locateFindingRange(finding(), { resolveAnchor: () => ({ from: 30, to: 39 }), locateQuote }, readText)).toEqual({ from: 5, to: 15 })
+    expect(locateFindingRange(finding(), { resolveAnchor: () => ({ from: 5, to: 15 }), locateQuote: () => null }, readText)).toEqual({ from: 5, to: 15 })
+  })
+
+  it('keeps the anchored range so an edited passage still reads as changed', () => {
+    const readText = () => 'six years'
+    const range = locateFindingRange(finding(), { resolveAnchor: () => ({ from: 30, to: 39 }), locateQuote: () => null }, readText)
+    expect(range).toEqual({ from: 30, to: 39 })
+    const result = resolveFindingRanges([finding()], () => range, readText)
+    expect(result.resolutions['finding-1']).toMatchObject({ kind: 'located', matches: false })
   })
 
   it('resolves findings and decoration ranges from the quote in fallback mode', () => {

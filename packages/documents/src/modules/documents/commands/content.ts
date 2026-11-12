@@ -20,6 +20,7 @@ import {
   mutateDocumentContentState,
 } from '../lib/contentService'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
+import { reanchorOpenFindings } from '../lib/findingReanchoring'
 import {
   assertDocumentContentResourceLimits,
 } from '../lib/resourceLimits'
@@ -243,6 +244,7 @@ const replaceDocumentContentCommand: CommandHandler<
             now: new Date(writeUpdatedAt),
           },
         )
+        await reanchorOpenFindings(em, input.documentId, scope, replacement.yjsState)
       },
       async () => {
         if (!content) throw new Error('[internal] document content replacement produced no row')

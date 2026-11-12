@@ -12,6 +12,7 @@ import { Document, DocumentContent, DocumentVersion } from '../data/entities'
 import { resolveWatcherRecipients } from '../lib/watchers'
 import { documentVersionLabelSchema } from '../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
+import { reanchorOpenFindings } from '../lib/findingReanchoring'
 import {
   advanceDocumentCollaborationGeneration,
   mutateDocumentContentState,
@@ -434,6 +435,7 @@ const restoreVersionCommand: CommandHandler<RestoreVersionCommandInput, RestoreV
             now: new Date(input.restoreContentUpdatedAt),
           },
         )
+        await reanchorOpenFindings(em, input.documentId, scope, target.yjsState)
       },
       async () => {
         if (!currentContent) throw new Error('[internal] restored content was not loaded')

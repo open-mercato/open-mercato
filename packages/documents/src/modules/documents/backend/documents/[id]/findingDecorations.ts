@@ -154,10 +154,11 @@ export function resolveFindingsInEditor(
       return quoteLocator(request)
     },
   }
+  const readText = (range: FindingRange) => readRangeText(editor, range)
   return resolveFindingRanges(
     findings,
-    (finding) => locateFindingRange(finding, locators),
-    (range) => readRangeText(editor, range),
+    (finding) => locateFindingRange(finding, locators, readText),
+    readText,
   )
 }
 

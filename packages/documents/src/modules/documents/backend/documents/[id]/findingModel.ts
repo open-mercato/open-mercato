@@ -153,13 +153,24 @@ export type FindingRangeLocators = {
   locateQuote: (request: { quote: string; occurrence: number; sectionLabel: string | null }) => FindingRange | null
 }
 
-export function locateFindingRange(finding: DocumentFindingItem, locators: FindingRangeLocators): FindingRange | null {
-  if (locators.resolveAnchor) return finding.anchor ? locators.resolveAnchor(finding.anchor) : null
-  return locators.locateQuote({
+function usableRange(range: FindingRange | null): FindingRange | null {
+  return range && range.from < range.to ? range : null
+}
+
+export function locateFindingRange(
+  finding: DocumentFindingItem,
+  locators: FindingRangeLocators,
+  readText?: (range: FindingRange) => string,
+): FindingRange | null {
+  const locateByQuote = () => locators.locateQuote({
     quote: finding.quote,
     occurrence: finding.occurrence,
     sectionLabel: finding.sectionLabel,
   })
+  if (!locators.resolveAnchor) return locateByQuote()
+  const anchored = finding.anchor ? usableRange(locators.resolveAnchor(finding.anchor)) : null
+  if (anchored && (!readText || findingTextMatches(readText(anchored), finding.quote))) return anchored
+  return usableRange(locateByQuote()) ?? anchored
 }
 
 export function resolveFindingRanges(

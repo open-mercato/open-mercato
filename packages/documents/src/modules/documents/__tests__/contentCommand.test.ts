@@ -6,6 +6,7 @@ const mockLockDocumentAggregateRoot = jest.fn()
 const mockLoadLockedDocumentContent = jest.fn()
 const mockAssertDocumentCommandCanEdit = jest.fn()
 const mockMaterializeReplacement = jest.fn()
+const mockReanchorOpenFindings = jest.fn()
 
 jest.mock('../commands/aggregate', () => ({
   lockDocumentAggregateRoot: (...args: unknown[]) => mockLockDocumentAggregateRoot(...args),
@@ -22,6 +23,10 @@ jest.mock('../commands/shared', () => {
 
 jest.mock('../lib/collabMaterializer', () => ({
   materializeDocumentContentReplacement: (...args: unknown[]) => mockMaterializeReplacement(...args),
+}))
+
+jest.mock('../lib/findingReanchoring', () => ({
+  reanchorOpenFindings: (...args: unknown[]) => mockReanchorOpenFindings(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -165,6 +170,10 @@ describe('documents content replace command', () => {
       order.push('lock-content')
       return content
     })
+    mockReanchorOpenFindings.mockImplementation(async () => {
+      order.push('reanchor-findings')
+      return { checked: 0, changed: 0, located: 0, unlocated: 0 }
+    })
     mockMaterializeReplacement.mockImplementation((state: Buffer, html: string) => {
       order.push('canonicalize')
       expect(Buffer.from(state)).toEqual(Buffer.from([1, 2, 3]))
@@ -218,6 +227,14 @@ describe('documents content replace command', () => {
     expect(order.indexOf('lock-content')).toBeLessThan(order.indexOf('canonicalize'))
     expect(order.indexOf('flush-1')).toBeLessThan(order.indexOf('pin-version'))
     expect(order.at(-1)).toBe('commit')
+    expect(order.indexOf('canonicalize')).toBeLessThan(order.indexOf('reanchor-findings'))
+    expect(order.indexOf('reanchor-findings')).toBeLessThan(order.indexOf('commit'))
+    expect(mockReanchorOpenFindings).toHaveBeenCalledWith(
+      em,
+      DOCUMENT_ID,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      Buffer.from([9, 8, 7]),
+    )
     expect(mockLoadLockedDocumentContent).toHaveBeenCalledWith(
       em,
       DOCUMENT_ID,
