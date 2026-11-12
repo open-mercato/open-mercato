@@ -18,7 +18,7 @@ import {
   WorkflowEvent,
   StepInstance,
 } from '../data/entities'
-import { executeWorkflow } from './workflow-executor'
+import { executeWorkflow, findReservedContextKeys } from './workflow-executor'
 import { findDefinitionForInstance } from './find-definition'
 import {
   findTaskDecision,
@@ -26,7 +26,8 @@ import {
   withRecordedDecision,
 } from './task-decisions'
 import { loadTaskDecisionContext } from './task-decision-context'
-import { readRequiredFormFields } from './task-form-schema'
+import { normalizeTaskFormSchema, readRequiredFormFields } from './task-form-schema'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isRunClosedToUserTasks } from './instance-status'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
@@ -142,6 +143,20 @@ export async function completeUserTask(
       'Task is assigned to another user',
       'TASK_ASSIGNED_TO_ANOTHER_USER',
       { taskId, assignedTo: claimant }
+    )
+  }
+
+  const declaredFields = normalizeTaskFormSchema(task.formSchema)?.properties ?? {}
+  const reservedFields = findReservedContextKeys(formData)
+  const invalidFields = Object.keys(formData).filter((field) =>
+    field.startsWith('__') || reservedFields.includes(field) || !Object.hasOwn(declaredFields, field)
+  )
+  if (invalidFields.length > 0) {
+    const { translate } = await resolveTranslations()
+    throw new UserTaskError(
+      translate('workflows.tasks.errors.invalidFormData'),
+      'FORM_VALIDATION_FAILED',
+      { taskId, invalidFields }
     )
   }
 

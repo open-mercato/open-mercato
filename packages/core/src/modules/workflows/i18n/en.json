@@ -1670,6 +1670,7 @@
   "workflows.steps.types.USER_TASK": "User Task",
   "workflows.steps.types.WAIT_FOR_SIGNAL": "Wait for Signal",
   "workflows.steps.types.WAIT_FOR_TIMER": "Wait for Timer",
+  "workflows.tasks.errors.invalidFormData": "The submission contains fields that this task does not allow.",
   "workflows.tasks.actions.claim": "Claim Task",
   "workflows.tasks.actions.complete": "Complete Task",
   "workflows.tasks.actions.reassign": "Reassign",

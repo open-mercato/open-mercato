@@ -1670,6 +1670,7 @@
   "workflows.steps.types.USER_TASK": "Zadanie Użytkownika",
   "workflows.steps.types.WAIT_FOR_SIGNAL": "Czekaj na Sygnał",
   "workflows.steps.types.WAIT_FOR_TIMER": "Czekaj na Timer",
+  "workflows.tasks.errors.invalidFormData": "Przesłane dane zawierają pola niedozwolone w tym zadaniu.",
   "workflows.tasks.actions.claim": "Przejmij Zadanie",
   "workflows.tasks.actions.complete": "Zakończ Zadanie",
   "workflows.tasks.actions.reassign": "Przypisz ponownie",

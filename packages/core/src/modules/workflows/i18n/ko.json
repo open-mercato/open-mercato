@@ -1670,6 +1670,7 @@
   "workflows.steps.types.USER_TASK": "사용자 작업",
   "workflows.steps.types.WAIT_FOR_SIGNAL": "신호 대기",
   "workflows.steps.types.WAIT_FOR_TIMER": "타이머 대기",
+  "workflows.tasks.errors.invalidFormData": "제출한 데이터에 이 작업에서 허용하지 않는 필드가 포함되어 있습니다.",
   "workflows.tasks.actions.claim": "작업 가져오기",
   "workflows.tasks.actions.complete": "작업 완료",
   "workflows.tasks.actions.reassign": "Reassign",

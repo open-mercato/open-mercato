@@ -1670,6 +1670,7 @@
   "workflows.steps.types.USER_TASK": "Benutzeraufgabe",
   "workflows.steps.types.WAIT_FOR_SIGNAL": "Auf Signal warten",
   "workflows.steps.types.WAIT_FOR_TIMER": "Auf Timer warten",
+  "workflows.tasks.errors.invalidFormData": "Die Eingabe enthält Felder, die diese Aufgabe nicht erlaubt.",
   "workflows.tasks.actions.claim": "Aufgabe übernehmen",
   "workflows.tasks.actions.complete": "Aufgabe abschließen",
   "workflows.tasks.actions.reassign": "Neu zuweisen",

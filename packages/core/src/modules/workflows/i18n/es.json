@@ -1670,6 +1670,7 @@
   "workflows.steps.types.USER_TASK": "Tarea de usuario",
   "workflows.steps.types.WAIT_FOR_SIGNAL": "Esperar senal",
   "workflows.steps.types.WAIT_FOR_TIMER": "Esperar temporizador",
+  "workflows.tasks.errors.invalidFormData": "El envío contiene campos que esta tarea no permite.",
   "workflows.tasks.actions.claim": "Reclamar tarea",
   "workflows.tasks.actions.complete": "Completar tarea",
   "workflows.tasks.actions.reassign": "Reasignar",
