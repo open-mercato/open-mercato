@@ -36,6 +36,8 @@ describe('Date locale settings page permissions and errors', () => {
     renderWithProviders(<DateLocaleSettingsPage />)
     await screen.findByText('You can view these settings but not change them.')
     expect(screen.queryByRole('button', { name: /Save settings/ })).not.toBeInTheDocument()
+    expect(screen.getByTestId('date-locale-preview').closest('[aria-disabled="true"]')).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Date & time' })).toBeVisible()
   })
 
   it('keeps the save action available to managers', async () => {

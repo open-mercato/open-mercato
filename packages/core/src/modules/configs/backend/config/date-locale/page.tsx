@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { FormHeader } from '@open-mercato/ui/backend/forms/FormHeader'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -277,6 +278,7 @@ export default function DateLocaleSettingsPage() {
   )
 
   const handleSubmit = React.useCallback(async (values: DateLocaleFormValues) => {
+    if (!canManage) return
     try {
       await updateCrud(API_PATH, buildDateLocalePayload(values), {
         errorMessage: t('configs.dateLocale.errors.save', 'Failed to save date and time settings.'),
@@ -290,7 +292,7 @@ export default function DateLocaleSettingsPage() {
     flash(t('configs.dateLocale.flash.saved', 'Date and time settings saved.'), 'success')
     await load()
     router.refresh()
-  }, [load, router, t])
+  }, [canManage, load, router, t])
 
   return (
     <Page>
@@ -301,6 +303,7 @@ export default function DateLocaleSettingsPage() {
           <LoadingMessage label={t('configs.dateLocale.loading', 'Loading date and time settings…')} />
         ) : (
           <div className="space-y-4">
+            {!canManage ? <FormHeader title={t('configs.dateLocale.title', 'Date & time')} /> : null}
             {canManage ? null : (
               <Alert status="information">
                 <AlertDescription>
@@ -317,7 +320,7 @@ export default function DateLocaleSettingsPage() {
               optimisticLockUpdatedAt={data.updatedAt}
               submitLabel={t('configs.dateLocale.save', 'Save settings')}
               onSubmit={handleSubmit}
-              readOnly={!canManage}
+              embedded={!canManage}
               hideFooterActions={!canManage}
             />
           </div>
