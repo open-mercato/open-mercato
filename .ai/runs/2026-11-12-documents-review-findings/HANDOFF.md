@@ -65,3 +65,10 @@
 - Duplicate codes answer 409, caps answer 422; error bodies carry `code` = the i18n key and a translated `error`.
 - Admin menu entry sits in the Documents nav group next to Templates (the module has no separate settings section).
 - `setup.ts` unchanged: admin already holds `documents.*`; employees do not get the manage feature by default.
+
+## Phase 2 follow-up — locating without the realtime binding
+- `2109e6e69a` fix: without a Yjs binding, the editor locates findings by normalized quote + occurrence + sectionLabel-first via the shared pure `lib/findingQuoteLocator.ts` (extracted from `lib/findingAnchors.ts`) over `lib/reviewBlocks.ts` (pure split of `lib/reviewContent.ts`, which re-exports it). The relative anchor is preferred when the binding exists. Spec "Locating passages" bullet + Changelog updated.
+- `32f0206e3c` tests: locator unit tests; TC-DOC-FIND-008 asserts second-browser sync only when realtime is connected, otherwise checks persisted content via `GET /content` (annotation `skipped-assertion`).
+- `73068ab312` TC-DOC-FIND-009: in fallback the changed passage cannot be found, so no Locate button is expected (annotated).
+- Validation: typecheck pass; jest 170 suites / 1204 tests passed (1 suite / 5 tests skipped); eslint clean on touched files.
+- `OM_OPTIMISTIC_LOCK=all yarn mercato test:integration TC-DOC-FIND` (one attempt, before 73068ab312): 9 passed, 1 failed (TC-DOC-FIND-009 Locate-button assertion, fixed afterwards, not re-run). Realtime sidecar was not up, so the UI specs ran in single-user fallback.

@@ -18,7 +18,8 @@ Goal: implement structured, text-anchored review findings in the Documents modul
 | 1.5 | Phase 1 integration tests (written; run blocked by env, see HANDOFF) | done | 3ec9c8063e |
 | 2.1 | Changes tab, cards, findings hook | done | 18c423fc40 |
 | 2.2 | Decorations, apply/keep/reopen UI, outline dots, i18n (server tweak 374dfff616) | done | 18c423fc40 |
-| 2.3 | Phase 2 integration tests (written; run blocked by env, see HANDOFF) + DS guardian | done | a839f2534b |
+| 2.3 | Phase 2 integration tests + DS guardian | done | a839f2534b |
+| 2.4 | Fallback locating without realtime binding (fix 2109e6e69a, tests 32f0206e3c, 73068ab312) | done | 2109e6e69a |
 | 3.1 | Playbook/rule/reference entities, commands, CRUD routes, ACL (+ ingest rule resolution, server side) | done | e67509452c |
 | 3.2 | Playbook admin pages, review header playbook line, i18n (ingest resolution landed in 3.1) | done | 3b86637c0a |
 | 3.3 | Phase 3 integration tests (written; run blocked by env, see HANDOFF) | done | 041dc9c3d2 |
