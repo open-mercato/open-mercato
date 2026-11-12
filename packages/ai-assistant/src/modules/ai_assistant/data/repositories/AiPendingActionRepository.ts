@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   findOneWithDecryption,
@@ -44,6 +45,7 @@ export interface AiPendingActionCreateInput {
 }
 
 export interface AiPendingActionSetStatusExtra {
+  expectedStatus?: AiPendingActionStatus
   resolvedByUserId?: string | null
   executionResult?: AiPendingActionExecutionResult | null
   failedRecords?: AiPendingActionFailedRecord[] | null
@@ -188,7 +190,7 @@ export class AiPendingActionRepository {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
       } as any,
-      {},
+      { refresh: true },
       {
         tenantId: ctx.tenantId ?? null,
         organizationId: ctx.organizationId ?? null,
@@ -238,6 +240,7 @@ export class AiPendingActionRepository {
       throw new Error('AiPendingActionRepository.setStatus requires id')
     }
     return this.em.transactional(async (tx) => {
+<<<<<<< HEAD
       const existing = await findOneWithDecryption<AiPendingAction>(
         tx as unknown as EntityManager,
         AiPendingAction,
@@ -252,8 +255,30 @@ export class AiPendingActionRepository {
           organizationId: ctx.organizationId ?? null,
         },
       )
+=======
+      const existing = owner
+        ? await findOneWithDecryption<AiPendingAction>(
+            tx as unknown as EntityManager,
+            AiPendingAction,
+            {
+              id,
+              tenantId: ctx.tenantId,
+              organizationId: ctx.organizationId ?? null,
+              ...owner,
+            } as any,
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            {
+              tenantId: ctx.tenantId ?? null,
+              organizationId: ctx.organizationId ?? null,
+            },
+          )
+        : null
+>>>>>>> 1e7910800 (fix(ai-assistant): execute each approved action once under concurrent confirmation (#8740))
       if (!existing) {
         throw new Error(`AiPendingAction not found: ${id}`)
+      }
+      if (extra?.expectedStatus && existing.status !== extra.expectedStatus) {
+        throw new AiPendingActionStateError(existing.status, nextStatus)
       }
       if (existing.status === nextStatus) {
         return existing
