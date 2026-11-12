@@ -1,13 +1,13 @@
 /**
- * Read-only AI tools for the Documents review flow.
+ * AI tools for the Documents review flow.
  *
  * Plain tool objects discovered by the ai-assistant generator; the module does
  * not depend on `@open-mercato/ai-assistant` at runtime. Every call resolves
  * tenant, organization and user from the tool context and checks the caller's
  * own document tier, so a reviewer agent can only read what its principal can
- * open in the editor. Neither tool accepts attachment ids.
+ * open in the editor. Neither tool accepts attachment ids. The review
+ * assistant's finding tools live in `lib/reviewAssistantTools.ts`.
  */
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -15,39 +15,25 @@ import {
   DocumentReviewPlaybookReference,
   DocumentReviewRule,
 } from './data/entities'
-import { loadDocumentContent } from './lib/contentService'
-import { hasTier, loadScopedDocument, resolveLoadedDocumentUserAccess } from './lib/permissions'
 import {
   DOCUMENTS_MAX_ACTIVE_RULES_PER_PLAYBOOK,
   DOCUMENTS_MAX_REFERENCES_PER_PLAYBOOK,
   DOCUMENTS_REVIEW_TOOL_MAX_DOCUMENT_CHARS,
   DOCUMENTS_REVIEW_TOOL_MAX_GUIDANCE_CHARS,
 } from './lib/resourceLimits'
-import { extractReviewBlocksFromYjsState, type ReviewBlock } from './lib/reviewContent'
+import type { ReviewBlock } from './lib/reviewContent'
+import { reviewAssistantTools } from './lib/reviewAssistantTools'
+import {
+  loadDocumentWithTier,
+  loadReviewBlocks,
+  requireToolScope,
+  resolveToolEntityManager,
+  type DocumentsAiToolDefinition,
+  type DocumentsToolContext,
+  type ToolScope,
+} from './lib/reviewToolSupport'
 
-export type DocumentsToolContext = {
-  tenantId: string | null
-  organizationId: string | null
-  userId: string | null
-  container: {
-    resolve: <T = unknown>(name: string) => T
-  }
-  userFeatures: string[]
-  isSuperAdmin: boolean
-}
-
-export type DocumentsAiToolDefinition<TInput = unknown, TOutput = unknown> = {
-  name: string
-  displayName?: string
-  description: string
-  inputSchema: z.ZodType<TInput>
-  requiredFeatures: string[]
-  tags?: string[]
-  isMutation: false
-  handler(input: TInput, ctx: DocumentsToolContext): Promise<TOutput>
-}
-
-type ToolScope = { tenantId: string; organizationId: string; userId: string }
+export type { DocumentsAiToolDefinition, DocumentsToolContext } from './lib/reviewToolSupport'
 
 export type DocumentForReview = {
   documentId: string
@@ -81,29 +67,6 @@ export const getReviewPlaybookInputSchema = z.object({
   code: z.string().trim().min(1).max(64),
 }).strict()
 
-function requireToolScope(ctx: DocumentsToolContext): ToolScope {
-  if (!ctx.tenantId || !ctx.organizationId || !ctx.userId) {
-    throw new Error('[internal] Documents review tools require tenant, organization and user context')
-  }
-  return { tenantId: ctx.tenantId, organizationId: ctx.organizationId, userId: ctx.userId }
-}
-
-function resolveEntityManager(ctx: DocumentsToolContext): EntityManager {
-  return ctx.container.resolve<EntityManager>('em')
-}
-
-async function loadReviewBlocks(
-  em: EntityManager,
-  documentId: string,
-  scope: { tenantId: string; organizationId: string },
-): Promise<ReviewBlock[]> {
-  const content = await loadDocumentContent(em, documentId, scope)
-  const blocks = extractReviewBlocksFromYjsState(content?.yjsState ?? null)
-  if (blocks.length > 0) return blocks
-  const text = (content?.contentText ?? '').replace(/\s+/g, ' ').trim()
-  return text ? [{ index: 0, kind: 'paragraph', sectionLabel: '', text }] : []
-}
-
 export function capReviewBlocks(
   blocks: ReviewBlock[],
   maxChars: number,
@@ -129,15 +92,12 @@ export function capText(text: string, maxChars: number): { text: string; truncat
 }
 
 async function loadViewableDocument(
-  em: EntityManager,
+  em: Parameters<typeof loadDocumentWithTier>[0],
   ctx: DocumentsToolContext,
   scope: ToolScope,
   documentId: string,
 ) {
-  const document = await loadScopedDocument(em, documentId, scope)
-  if (!document) return null
-  const tier = await resolveLoadedDocumentUserAccess(em, document, scope, scope.userId, ctx.container)
-  return hasTier(tier, 'viewer') ? document : null
+  return loadDocumentWithTier(em, ctx, scope, documentId, 'viewer')
 }
 
 export async function getDocumentForReview(
@@ -146,7 +106,7 @@ export async function getDocumentForReview(
 ): Promise<DocumentForReview> {
   const scope = requireToolScope(ctx)
   const { documentId } = getDocumentForReviewInputSchema.parse(input)
-  const em = resolveEntityManager(ctx)
+  const em = resolveToolEntityManager(ctx)
   const document = await loadViewableDocument(em, ctx, scope, documentId)
   if (!document) throw new Error('[internal] Document not found')
   const { blocks, truncated } = capReviewBlocks(
@@ -168,7 +128,7 @@ export async function getReviewPlaybook(
 ): Promise<ReviewPlaybookForAgent> {
   const scope = requireToolScope(ctx)
   const { code } = getReviewPlaybookInputSchema.parse(input)
-  const em = resolveEntityManager(ctx)
+  const em = resolveToolEntityManager(ctx)
   const playbook = await findOneWithDecryption(
     em,
     DocumentReviewPlaybook,
@@ -257,6 +217,7 @@ const getReviewPlaybookTool: DocumentsAiToolDefinition<
 export const aiTools: DocumentsAiToolDefinition[] = [
   getDocumentForReviewTool as DocumentsAiToolDefinition,
   getReviewPlaybookTool as DocumentsAiToolDefinition,
+  ...reviewAssistantTools,
 ]
 
 export default aiTools

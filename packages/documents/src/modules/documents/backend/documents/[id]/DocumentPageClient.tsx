@@ -21,6 +21,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useAiAssistantAvailable } from '@open-mercato/ui/ai/useAiAssistantAvailable'
 import { ShareDialog } from '../components/ShareDialog'
 import { normalizeDocumentContent, normalizeDocumentDetail, type DocumentContent, type DocumentDetail } from '../documentUi'
 import { CommentsRail } from './CommentsRail'
@@ -33,6 +34,7 @@ import { VersionHistoryPanel } from './VersionHistoryPanel'
 import { DocumentReviewRail } from './FindingsPanel'
 import type { FindingSummary } from './findingModel'
 import { ReleaseGate } from './ReleaseGate'
+import { ReviewAssistantDock, ReviewAssistantProvider } from './ReviewAssistant'
 import { isReviewMode, releaseGateState, reviewWorkspaceStyle } from './reviewModeModel'
 import { useWideViewport } from './useWideViewport'
 import { extensionPoints } from '../../../extension-points'
@@ -111,6 +113,7 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
     setReleaseFocusRequestId((current) => (current ?? 0) + 1)
   }, [])
   const wideViewport = useWideViewport()
+  const aiAssistantAvailable = useAiAssistantAvailable()
   const loadedDocument = state.status === 'ready' ? state.document : null
   const headerInjectionContext = React.useMemo<DocumentHeaderInjectionContext | null>(
     () => (loadedDocument ? { documentId: loadedDocument.id, document: loadedDocument, summary: reviewSummary } : null),
@@ -384,162 +387,166 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
       canShare={capabilities.canShare}
     />
   )
+  const reviewAssistantEnabled = aiAssistantAvailable && canReviewFindings
   return (
-    <Page style={reviewWorkspace ? reviewWorkspaceStyle() : undefined} data-layout={reviewWorkspace ? 'review-workspace' : 'default'}>
-      <PageHeader title={t('documents.nav.document')} actions={(
-        <>
-          {releaseGate ? <ReleaseGate state={releaseGate} onActivate={focusReleaseBlockers} /> : null}
-          <LinkButton asChild variant="gray"><Link href="/backend/documents">{t('documents.actions.backToList')}</Link></LinkButton>
-          <SimpleTooltip content={t(document.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')} size="sm">
-            <IconButton
-              type="button"
-              variant="outline"
-              size="lg"
-              onClick={() => void runPersonalToggle('favorite', !document.isFavorite)}
-              aria-pressed={document.isFavorite}
-              aria-label={t(document.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')}
-            >
-              <Star />
-            </IconButton>
-          </SimpleTooltip>
-          <SimpleTooltip content={t(document.isWatching ? 'documents.actions.unwatch' : 'documents.actions.watch')} size="sm">
-            <IconButton
-              type="button"
-              variant="outline"
-              size="lg"
-              onClick={() => void runPersonalToggle('watch', !document.isWatching)}
-              aria-pressed={document.isWatching}
-              aria-label={t(document.isWatching ? 'documents.actions.unwatch' : 'documents.actions.watch')}
-            >
-              <Bell />
-            </IconButton>
-          </SimpleTooltip>
-          <Button type="button" variant={showVersions ? 'secondary' : 'outline'} onClick={toggleVersions} aria-pressed={showVersions}>
-            <History />{t('documents.actions.versions')}
-          </Button>
-          <ExportMenu documentId={document.id} editor={editor} />
-          {capabilities.canDuplicate ? (
-            <Button type="button" variant="outline" disabled={isDuplicating} onClick={() => void handleDuplicate()}>
-              <Copy />{t('documents.actions.duplicate')}
+    <ReviewAssistantProvider documentId={document.id} editor={editor} enabled={reviewAssistantEnabled}>
+      <Page style={reviewWorkspace ? reviewWorkspaceStyle() : undefined} data-layout={reviewWorkspace ? 'review-workspace' : 'default'}>
+        <PageHeader title={t('documents.nav.document')} actions={(
+          <>
+            {releaseGate ? <ReleaseGate state={releaseGate} onActivate={focusReleaseBlockers} /> : null}
+            <LinkButton asChild variant="gray"><Link href="/backend/documents">{t('documents.actions.backToList')}</Link></LinkButton>
+            <SimpleTooltip content={t(document.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')} size="sm">
+              <IconButton
+                type="button"
+                variant="outline"
+                size="lg"
+                onClick={() => void runPersonalToggle('favorite', !document.isFavorite)}
+                aria-pressed={document.isFavorite}
+                aria-label={t(document.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')}
+              >
+                <Star />
+              </IconButton>
+            </SimpleTooltip>
+            <SimpleTooltip content={t(document.isWatching ? 'documents.actions.unwatch' : 'documents.actions.watch')} size="sm">
+              <IconButton
+                type="button"
+                variant="outline"
+                size="lg"
+                onClick={() => void runPersonalToggle('watch', !document.isWatching)}
+                aria-pressed={document.isWatching}
+                aria-label={t(document.isWatching ? 'documents.actions.unwatch' : 'documents.actions.watch')}
+              >
+                <Bell />
+              </IconButton>
+            </SimpleTooltip>
+            <Button type="button" variant={showVersions ? 'secondary' : 'outline'} onClick={toggleVersions} aria-pressed={showVersions}>
+              <History />{t('documents.actions.versions')}
             </Button>
-          ) : null}
-          {capabilities.canArchive ? (
-            <Button type="button" variant="outline" onClick={() => void handleArchiveToggle()}>
-              {document.archivedAt ? <ArchiveRestore /> : <Archive />}
-              {t(document.archivedAt ? 'documents.actions.unarchive' : 'documents.actions.archive')}
-            </Button>
-          ) : null}
-          {capabilities.canShare ? <Button type="button" variant="outline" onClick={() => setShareOpen(true)}>{t('documents.actions.share')}</Button> : null}
-          {capabilities.canDelete ? <Button type="button" variant="destructive" onClick={() => void handleDelete()}><Trash2 />{t('documents.actions.delete')}</Button> : null}
-        </>
-      )} />
-      <PageBody>
-        {document.archivedAt ? (
-          <div
-            role="status"
-            className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-warning-border bg-status-warning-bg px-4 py-3 text-sm text-status-warning-text"
-          >
-            <span>{t('documents.archive.banner')}</span>
-            {capabilities.canArchive ? (
-              <Button type="button" variant="outline" onClick={() => void handleArchiveToggle()}>
-                <ArchiveRestore />{t('documents.actions.unarchive')}
+            <ExportMenu documentId={document.id} editor={editor} />
+            {capabilities.canDuplicate ? (
+              <Button type="button" variant="outline" disabled={isDuplicating} onClick={() => void handleDuplicate()}>
+                <Copy />{t('documents.actions.duplicate')}
               </Button>
             ) : null}
+            {capabilities.canArchive ? (
+              <Button type="button" variant="outline" onClick={() => void handleArchiveToggle()}>
+                {document.archivedAt ? <ArchiveRestore /> : <Archive />}
+                {t(document.archivedAt ? 'documents.actions.unarchive' : 'documents.actions.archive')}
+              </Button>
+            ) : null}
+            {capabilities.canShare ? <Button type="button" variant="outline" onClick={() => setShareOpen(true)}>{t('documents.actions.share')}</Button> : null}
+            {capabilities.canDelete ? <Button type="button" variant="destructive" onClick={() => void handleDelete()}><Trash2 />{t('documents.actions.delete')}</Button> : null}
+          </>
+        )} />
+        <PageBody>
+          {document.archivedAt ? (
+            <div
+              role="status"
+              className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-warning-border bg-status-warning-bg px-4 py-3 text-sm text-status-warning-text"
+            >
+              <span>{t('documents.archive.banner')}</span>
+              {capabilities.canArchive ? (
+                <Button type="button" variant="outline" onClick={() => void handleArchiveToggle()}>
+                  <ArchiveRestore />{t('documents.actions.unarchive')}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {headerInjectionContext ? (
+            <InjectionSpot
+              spotId={extensionPoints.hosts.documentHeader.spotId}
+              context={headerInjectionContext}
+              data={document}
+            />
+          ) : null}
+          <div className="flex flex-col gap-4 xl:flex-row">
+            <div className="min-w-0 flex-1">
+              <DocumentEditorErrorBoundary
+                resetKey={`${document.id}:${editorEpoch}`}
+                onRetry={retryEditorIsland}
+                fallback={(retry) => (
+                  <ErrorMessage
+                    label={t('documents.editor.error.load')}
+                    action={<Button type="button" variant="outline" onClick={retry}>{t('documents.actions.retry')}</Button>}
+                  />
+                )}
+              >
+                <DocumentEditorIsland
+                  key={`${document.id}:${editorEpoch}`}
+                  documentId={document.id}
+                  title={document.title}
+                  initialContentHtml={content.contentHtml}
+                  contentUpdatedAt={content.updatedAt}
+                  documentUpdatedAt={document.updatedAt}
+                  readOnly={!capabilities.canEdit}
+                  onEditorReady={setEditor}
+                  onSaveReady={registerContentSave}
+                  onContentConflict={handleContentConflict}
+                  onComment={capabilities.canComment ? requestCommentAt : undefined}
+                  reviewSummary={activeReviewSummary}
+                  reviewWorkspace={reviewWorkspace}
+                  onTitleChange={(title, updatedAt) => setState((current) => current.status === 'ready' ? {
+                    ...current,
+                    document: { ...current.document, title, updatedAt },
+                  } : current)}
+                />
+              </DocumentEditorErrorBoundary>
+              <ReviewAssistantDock />
+            </div>
+            <aside className="space-y-4 xl:sticky xl:top-[calc(var(--topbar-height,0px)+1rem)] xl:max-h-[calc(100dvh-var(--topbar-height,0px)-2rem)] xl:w-80 xl:shrink-0 xl:self-start xl:overflow-y-auto">
+              {reviewMode ? null : documentNavigator}
+              {reviewMode ? null : relatedRecords}
+              {canReviewFindings ? (
+                <DocumentReviewRail
+                  documentId={document.id}
+                  editor={editor}
+                  canDecide={capabilities.canEdit}
+                  commentFocusRequestId={commentFocusRequest?.requestId ?? null}
+                  onNote={capabilities.canComment ? requestCommentAt : undefined}
+                  onSummaryChange={setReviewSummary}
+                  releaseFocusRequestId={releaseFocusRequestId}
+                  comments={commentsRail}
+                />
+              ) : commentsRail}
+              {reviewMode ? (
+                <div className="rounded-lg border border-border bg-card p-3" data-testid="documents-review-secondary-panels">
+                  <CollapsibleSection title={t('documents.review.layout.secondaryPanels')} defaultCollapsed>
+                    <div className="space-y-4">
+                      {documentNavigator}
+                      {relatedRecords}
+                    </div>
+                  </CollapsibleSection>
+                </div>
+              ) : null}
+              {showVersions ? (
+                <div
+                  ref={versionsPanelRef}
+                  tabIndex={-1}
+                  className="scroll-mt-4 rounded-md focus-visible:outline-none focus-visible:shadow-focus"
+                >
+                  <VersionHistoryPanel
+                    documentId={document.id}
+                    canRestore={capabilities.canEdit}
+                    contentUpdatedAt={content.updatedAt}
+                    onRestored={reloadEditor}
+                    onBeforeSnapshot={saveBeforeSnapshot}
+                  />
+                </div>
+              ) : null}
+            </aside>
           </div>
-        ) : null}
-        {headerInjectionContext ? (
-          <InjectionSpot
-            spotId={extensionPoints.hosts.documentHeader.spotId}
-            context={headerInjectionContext}
-            data={document}
+        </PageBody>
+        {capabilities.canShare ? (
+          <ShareDialog
+            documentId={document.id}
+            open={shareOpen}
+            onOpenChange={setShareOpen}
+            canManage={capabilities.canShare}
           />
         ) : null}
-        <div className="flex flex-col gap-4 xl:flex-row">
-          <div className="min-w-0 flex-1">
-            <DocumentEditorErrorBoundary
-              resetKey={`${document.id}:${editorEpoch}`}
-              onRetry={retryEditorIsland}
-              fallback={(retry) => (
-                <ErrorMessage
-                  label={t('documents.editor.error.load')}
-                  action={<Button type="button" variant="outline" onClick={retry}>{t('documents.actions.retry')}</Button>}
-                />
-              )}
-            >
-              <DocumentEditorIsland
-                key={`${document.id}:${editorEpoch}`}
-                documentId={document.id}
-                title={document.title}
-                initialContentHtml={content.contentHtml}
-                contentUpdatedAt={content.updatedAt}
-                documentUpdatedAt={document.updatedAt}
-                readOnly={!capabilities.canEdit}
-                onEditorReady={setEditor}
-                onSaveReady={registerContentSave}
-                onContentConflict={handleContentConflict}
-                onComment={capabilities.canComment ? requestCommentAt : undefined}
-                reviewSummary={activeReviewSummary}
-                reviewWorkspace={reviewWorkspace}
-                onTitleChange={(title, updatedAt) => setState((current) => current.status === 'ready' ? {
-                  ...current,
-                  document: { ...current.document, title, updatedAt },
-                } : current)}
-              />
-            </DocumentEditorErrorBoundary>
-          </div>
-          <aside className="space-y-4 xl:sticky xl:top-[calc(var(--topbar-height,0px)+1rem)] xl:max-h-[calc(100dvh-var(--topbar-height,0px)-2rem)] xl:w-80 xl:shrink-0 xl:self-start xl:overflow-y-auto">
-            {reviewMode ? null : documentNavigator}
-            {reviewMode ? null : relatedRecords}
-            {canReviewFindings ? (
-              <DocumentReviewRail
-                documentId={document.id}
-                editor={editor}
-                canDecide={capabilities.canEdit}
-                commentFocusRequestId={commentFocusRequest?.requestId ?? null}
-                onNote={capabilities.canComment ? requestCommentAt : undefined}
-                onSummaryChange={setReviewSummary}
-                releaseFocusRequestId={releaseFocusRequestId}
-                comments={commentsRail}
-              />
-            ) : commentsRail}
-            {reviewMode ? (
-              <div className="rounded-lg border border-border bg-card p-3" data-testid="documents-review-secondary-panels">
-                <CollapsibleSection title={t('documents.review.layout.secondaryPanels')} defaultCollapsed>
-                  <div className="space-y-4">
-                    {documentNavigator}
-                    {relatedRecords}
-                  </div>
-                </CollapsibleSection>
-              </div>
-            ) : null}
-            {showVersions ? (
-              <div
-                ref={versionsPanelRef}
-                tabIndex={-1}
-                className="scroll-mt-4 rounded-md focus-visible:outline-none focus-visible:shadow-focus"
-              >
-                <VersionHistoryPanel
-                  documentId={document.id}
-                  canRestore={capabilities.canEdit}
-                  contentUpdatedAt={content.updatedAt}
-                  onRestored={reloadEditor}
-                  onBeforeSnapshot={saveBeforeSnapshot}
-                />
-              </div>
-            ) : null}
-          </aside>
-        </div>
-      </PageBody>
-      {capabilities.canShare ? (
-        <ShareDialog
-          documentId={document.id}
-          open={shareOpen}
-          onOpenChange={setShareOpen}
-          canManage={capabilities.canShare}
-        />
-      ) : null}
-      {ConfirmDialogElement}
-    </Page>
+        {ConfirmDialogElement}
+      </Page>
+    </ReviewAssistantProvider>
   )
 }
 

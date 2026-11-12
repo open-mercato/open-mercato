@@ -153,11 +153,14 @@ beforeEach(() => {
 
 describe('documents review AI tools', () => {
   it('registers two read-only tools gated on documents.view without attachment inputs', () => {
-    expect(aiTools.map((tool) => tool.name)).toEqual([
+    const reviewTools = aiTools.filter((tool) => (
+      tool.name === 'documents.get_document_for_review' || tool.name === 'documents.get_review_playbook'
+    ))
+    expect(reviewTools.map((tool) => tool.name)).toEqual([
       'documents.get_document_for_review',
       'documents.get_review_playbook',
     ])
-    for (const tool of aiTools) {
+    for (const tool of reviewTools) {
       expect(tool.isMutation).toBe(false)
       expect(tool.requiredFeatures).toEqual(['documents.view'])
       expect(tool.inputSchema.safeParse({ attachmentId: DOCUMENT_ID }).success).toBe(false)

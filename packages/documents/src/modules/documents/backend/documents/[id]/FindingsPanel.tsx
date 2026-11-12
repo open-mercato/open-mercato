@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import type { Editor } from '@tiptap/core'
 import { ListChecks, Lock, MessageSquare, UserRound } from 'lucide-react'
+import { AiIcon } from '@open-mercato/ui/ai/AiIcon'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -33,12 +34,14 @@ import {
   type FindingSummary,
 } from './findingModel'
 import { firstOpenFindingId, isFindingCardExpanded, isReviewMode } from './reviewModeModel'
+import { ReviewAssistantSlot, useReviewAssistant } from './ReviewAssistant'
 import { useDocumentFindings, type DocumentFindingsModel } from './useDocumentFindings'
 
-type RailTab = 'changes' | 'comments'
+type RailTab = 'changes' | 'comments' | 'assistant'
 type FindingGroupKey = FindingSeverity | 'decided'
 
 const FINDING_NOTE_MAX_LENGTH = 2000
+const RAIL_ASSISTANT_HEIGHT = '60vh'
 
 const GROUP_TITLE_KEYS: Record<FindingGroupKey, string> = {
   blocking: 'documents.findings.groups.blocking',
@@ -102,12 +105,16 @@ export function DocumentReviewRail({
   releaseFocusRequestId = null,
 }: DocumentReviewRailProps) {
   const t = useT()
+  const assistant = useReviewAssistant()
+  const assistantInRail = Boolean(assistant?.enabled && assistant.placement === 'rail')
   const [tab, setTab] = React.useState<RailTab>('comments')
   const [changesVisited, setChangesVisited] = React.useState(false)
+  const [assistantVisited, setAssistantVisited] = React.useState(false)
   const userChoseTab = React.useRef(false)
   const showTab = React.useCallback((next: RailTab) => {
     setTab(next)
     if (next === 'changes') setChangesVisited(true)
+    if (next === 'assistant') setAssistantVisited(true)
   }, [])
   const selectTab = React.useCallback((next: RailTab) => {
     userChoseTab.current = true
@@ -156,6 +163,29 @@ export function DocumentReviewRail({
     selectTab('comments')
   }, [commentFocusRequestId, selectTab])
 
+  const registerFindingsReload = assistant?.registerFindingsReload
+  const { reload: reloadFindings } = findings
+  React.useEffect(() => {
+    if (!registerFindingsReload) return
+    registerFindingsReload(reloadFindings)
+    return () => registerFindingsReload(null)
+  }, [registerFindingsReload, reloadFindings])
+
+  const assistantOpenRequestId = assistant?.openRequestId ?? 0
+  React.useEffect(() => {
+    if (assistantOpenRequestId === 0 || !assistantInRail) return
+    selectTab('assistant')
+  }, [assistantInRail, assistantOpenRequestId, selectTab])
+
+  React.useEffect(() => {
+    if (!assistantInRail && tab === 'assistant') showTab('changes')
+  }, [assistantInRail, showTab, tab])
+
+  const askAssistant = assistant?.enabled ? assistant.ask : null
+  const handleAskAi = React.useCallback((finding: DocumentFindingItem) => {
+    askAssistant?.(finding)
+  }, [askAssistant])
+
   const handleNote = React.useCallback((finding: DocumentFindingItem) => {
     if (!onNote || !finding.anchor) return
     onNote(finding.anchor)
@@ -166,7 +196,7 @@ export function DocumentReviewRail({
     <div data-testid="documents-review-rail">
       <Tabs
         value={tab}
-        onValueChange={(value) => selectTab(value === 'changes' ? 'changes' : 'comments')}
+        onValueChange={(value) => selectTab(value === 'changes' || value === 'assistant' ? value : 'comments')}
         variant={reviewMode ? 'pill' : 'underline'}
       >
         <TabsList aria-label={t('documents.findings.rail.label')} className="w-full">
@@ -180,6 +210,12 @@ export function DocumentReviewRail({
           <TabsTrigger value="comments" leading={<MessageSquare className="size-4" />}>
             {t('documents.comments.title')}
           </TabsTrigger>
+          {assistantInRail ? (
+            <TabsTrigger value="assistant" leading={<AiIcon className="size-4" />}>
+              <span className="sr-only">{t('documents.reviewAssistant.tab')}</span>
+              <span aria-hidden>{t('documents.reviewAssistant.tabShort')}</span>
+            </TabsTrigger>
+          ) : null}
         </TabsList>
         <RailTabPanel value="changes">
           {changesVisited ? (
@@ -188,10 +224,20 @@ export function DocumentReviewRail({
               canDecide={canDecide}
               editorEditable={Boolean(editor) && canDecide}
               onNote={onNote ? handleNote : undefined}
+              onAskAi={askAssistant ? handleAskAi : undefined}
             />
           ) : null}
         </RailTabPanel>
         <RailTabPanel value="comments">{comments}</RailTabPanel>
+        {assistantInRail ? (
+          <RailTabPanel value="assistant">
+            {assistantVisited ? (
+              <div className="min-h-80" style={{ height: RAIL_ASSISTANT_HEIGHT }}>
+                <ReviewAssistantSlot className="h-full" />
+              </div>
+            ) : null}
+          </RailTabPanel>
+        ) : null}
       </Tabs>
     </div>
   )
@@ -202,6 +248,7 @@ type FindingsPanelProps = {
   canDecide: boolean
   editorEditable: boolean
   onNote?: (finding: DocumentFindingItem) => void
+  onAskAi?: (finding: DocumentFindingItem) => void
 }
 
 function ReviewProvenance({ model }: { model: DocumentFindingsModel }) {
@@ -228,7 +275,7 @@ function ReviewProvenance({ model }: { model: DocumentFindingsModel }) {
   )
 }
 
-export function FindingsPanel({ model, canDecide, editorEditable, onNote }: FindingsPanelProps) {
+export function FindingsPanel({ model, canDecide, editorEditable, onNote, onAskAi }: FindingsPanelProps) {
   const t = useT()
   const groups = React.useMemo(() => groupFindings(model.findings), [model.findings])
   const [collapsed, setCollapsed] = React.useState<Record<FindingGroupKey, boolean>>({
@@ -314,6 +361,7 @@ export function FindingsPanel({ model, canDecide, editorEditable, onNote }: Find
           onReopen={(target) => { void model.reopenFinding(target) }}
           onRevert={() => { void model.revertFinding() }}
           onNote={onNote}
+          onAskAi={onAskAi}
         />
       ))}
     </div>

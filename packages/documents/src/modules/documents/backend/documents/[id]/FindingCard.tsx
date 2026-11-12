@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Check, ChevronDown, Info, LocateFixed, MessageSquarePlus, OctagonAlert, RotateCcw, TriangleAlert, Undo2 } from 'lucide-react'
+import { Check, ChevronDown, Info, LocateFixed, MessageSquare, MessageSquarePlus, OctagonAlert, RotateCcw, TriangleAlert, Undo2 } from 'lucide-react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -53,6 +53,7 @@ export type FindingCardProps = {
   onReopen: (finding: DocumentFindingItem) => void
   onRevert: () => void
   onNote?: (finding: DocumentFindingItem) => void
+  onAskAi?: (finding: DocumentFindingItem) => void
 }
 
 function locationMessageKey(finding: DocumentFindingItem, resolution: FindingResolution | undefined): string | null {
@@ -85,6 +86,7 @@ export function FindingCard({
   onReopen,
   onRevert,
   onNote,
+  onAskAi,
 }: FindingCardProps) {
   const t = useT()
   const SeverityIcon = SEVERITY_ICON[finding.severity]
@@ -136,6 +138,23 @@ export function FindingCard({
             <p className="truncate font-mono text-xs text-muted-foreground">{meta.join(' · ')}</p>
           ) : null}
         </div>
+        {onAskAi ? (
+          <SimpleTooltip content={t('documents.reviewAssistant.askAi')} size="sm">
+            <IconButton
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label={t('documents.reviewAssistant.askAiAbout', { title: finding.title })}
+              data-testid="documents-finding-ask-ai"
+              onClick={(event) => {
+                event.stopPropagation()
+                onAskAi(finding)
+              }}
+            >
+              <MessageSquare />
+            </IconButton>
+          </SimpleTooltip>
+        ) : null}
         {located ? (
           <SimpleTooltip content={t('documents.findings.actions.locate')} size="sm">
             <IconButton
