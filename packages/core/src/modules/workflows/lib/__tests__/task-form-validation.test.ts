@@ -4,8 +4,7 @@
  * `validateFormData` used to check required-key presence only for the
  * JSON-Schema shape, so a task authored in the Studio — which writes
  * `{ fields: [...] }` with a per-field `required` flag — validated nothing at
- * all. These pin both shapes, and the legacy no-schema path that must stay
- * exactly as permissive as it always was.
+ * all. These pin both shapes and restrict completion writes to declared fields.
  */
 
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
@@ -103,7 +102,7 @@ describe('validateFormData — the Studio `{ fields: [...] }` shape', () => {
   })
 })
 
-describe('regression: a task with no schema validates nothing', () => {
+describe('empty submissions remain supported without required fields', () => {
   beforeEach(() => jest.clearAllMocks())
 
   test('completes with an empty payload exactly as before', async () => {
@@ -112,7 +111,7 @@ describe('regression: a task with no schema validates nothing', () => {
     await expect(complete(em, {})).rejects.toMatchObject({ code: 'INSTANCE_NOT_FOUND' })
   })
 
-  test('a schema with no required fields validates nothing', async () => {
+  test('a schema with no required fields accepts an empty submission', async () => {
     const { em } = makeEm({ properties: { amount: { type: 'number' } } })
 
     await expect(complete(em, {})).rejects.toMatchObject({ code: 'INSTANCE_NOT_FOUND' })

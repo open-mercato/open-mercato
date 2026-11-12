@@ -1,6 +1,6 @@
 # Issue 9142: constrain user-task completion context writes
 
-Status: in progress; compatibility approval and validation pending.
+Status: implemented on the fix branch; human compatibility approval pending.
 
 ## Problem and scope
 
@@ -32,7 +32,11 @@ This intentionally stops accepting arbitrary completion payload keys on `POST /a
 
 Clients must send only authored form fields and use `decisionId` for a decision. Operators must inventory custom task widgets/integrations and pending tasks, declare intended editable context keys in the task form schema, and remove engine-reserved field names. No migration or retrospective context repair is performed; audit suspicious existing runs separately.
 
-Retaining permissive completion behind a compatibility bridge would retain the exploit. The repository's emergency security exception requires a named maintainer's human waiver approval, client/operator instructions in `UPGRADE_NOTES.md`, and a dated `BACKWARD_COMPATIBILITY.md` entry. Those shared files are outside this task's authorized scope. This spec records the exact unresolved publication/merge gate; automated review cannot waive it.
+Retaining permissive completion behind a compatibility bridge would retain the exploit. Client/operator instructions ship in `UPGRADE_NOTES.md` and a dated entry ships in `BACKWARD_COMPATIBILITY.md`. The repository's emergency security exception still requires a named maintainer's human waiver approval before merge; automated review cannot waive it. The draft PR records this gate.
+
+## Validation
+
+Runner: local. Targeted staff/portal/handler regressions pass (5 suites, 112 tests). The full workflows selection passes (308 suites, 3,947 tests, plus 2 suites/8 tests skipped by existing metadata). Package builds, module generation, monorepo typecheck and the production app build pass. Translation synchronization passes after ordering the added keys. The PR records full-gate and live integration results separately.
 
 ## Changelog
 
