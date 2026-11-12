@@ -15,22 +15,30 @@ const service=parseService(await readFile(join(fixture,'service.conf'),'utf8'),'
 if(service.host!=='127.0.0.1')throw new Error('Only the loopback disposable fixture is supported')
 const password=parsePassword(await readFile(join(fixture,'password'),'utf8'),{host:service.host,port:service.port,user:service.user,dbname:service.dbname})!
 const config={host:service.host,port:Number(service.port),user:service.user,password,ssl:false}
+if(process.env.OM_BACKUP_CRASH_EXCLUSIVE!=='true')throw new Error('Exclusive ownership of the disposable cluster is required')
+const docker=execFileSync('which',['docker'],{encoding:'utf8'}).trim()
+const ports=JSON.parse(execFileSync(docker,['inspect','--format','{{json .NetworkSettings.Ports}}',container],{encoding:'utf8'})) as Record<string,{HostIp:string;HostPort:string}[]>
+if(!ports['5432/tcp']?.some(port=>port.HostIp==='127.0.0.1'&&port.HostPort===service.port))throw new Error('Fixture service must match the named container loopback port')
 const admin=new Client({...config,database:service.dbname});await admin.connect()
 const suffix=randomUUID().replaceAll('-',''),sourceName='crash_source_'+suffix,targetName='crash_target_'+suffix
 const directory=await mkdtemp(join(fixture,'cli-process-crash-')),bin=join(directory,'bin'),output=join(directory,'output'),workspace=join(directory,'workspace')
 const identity=await generateX25519Identity(),recipient=await identityToRecipient(identity)
 let child:ReturnType<typeof spawn>|undefined
+const priorAutovacuum=(await admin.query('SHOW autovacuum')).rows[0].autovacuum as string
+let changedAutovacuum=false
 try{
+ if(priorAutovacuum!=='off'){await admin.query("ALTER SYSTEM SET autovacuum='off'");changedAutovacuum=true;await admin.query('SELECT pg_reload_conf()')}
+ const quietDeadline=Date.now()+15000
+ for(;;){const state=(await admin.query("SELECT current_setting('autovacuum') AS setting,(SELECT count(*)::int FROM pg_stat_activity WHERE backend_type='autovacuum worker') AS workers")).rows[0];if(state.setting==='off'&&state.workers===0)break;if(Date.now()>quietDeadline)throw new Error('Fixture autovacuum did not quiesce');await new Promise(resolve=>setTimeout(resolve,25))}
  await admin.query(`CREATE DATABASE "${sourceName}" TEMPLATE template0`);await admin.query(`CREATE DATABASE "${targetName}" TEMPLATE template0`)
  const source=new Client({...config,database:sourceName});await source.connect()
- await source.query("CREATE TABLE fixture(id int PRIMARY KEY,payload text);ALTER TABLE fixture ALTER COLUMN payload SET STORAGE EXTERNAL;INSERT INTO fixture SELECT g,repeat(md5(g::text),512) FROM generate_series(1,8192) g")
+ await source.query("CREATE TABLE fixture(id int PRIMARY KEY,payload text) WITH(autovacuum_enabled=false);ALTER TABLE fixture ALTER COLUMN payload SET STORAGE EXTERNAL;INSERT INTO fixture SELECT g,repeat(md5(g::text),512) FROM generate_series(1,8192) g")
  const digestSql="SELECT count(*)::text AS rows,md5(string_agg(md5(id::text||':'||payload),'' ORDER BY id)) AS content FROM fixture"
  const expected=(await source.query(digestSql)).rows[0];await source.end()
  await mkdir(bin,{mode:0o700});await mkdir(output,{mode:0o700});await mkdir(workspace,{mode:0o700})
  const services=(port:string)=>`[source]\nhost=127.0.0.1\nport=${port}\ndbname=${sourceName}\nuser=${service.user}\nsslmode=disable\n[target]\nhost=127.0.0.1\nport=${port}\ndbname=${targetName}\nuser=${service.user}\nsslmode=disable\n`
  const serviceFile=join(directory,'service.conf'),containerFile=join(directory,'container.conf'),recipientsFile=join(directory,'recipients')
  await writeFile(serviceFile,services(service.port),{mode:0o600});await writeFile(containerFile,services('5432'),{mode:0o600});await writeFile(recipientsFile,recipient,{mode:0o600})
- const docker=execFileSync('which',['docker'],{encoding:'utf8'}).trim()
  for(const name of ['pg_dump','pg_restore','psql'])await writeFile(join(bin,name),`#!/bin/sh\nexec '${docker}' exec -i -e PGSERVICEFILE='${containerFile}' -e PGPASSFILE='${fixture}/password' '${container}' ${name} "$@"\n`,{mode:0o700})
  const args=[cliEntry,'create','--source-service','source','--binaries-dir',bin,'--recipients-file',recipientsFile,'--output',output,'--workspace',workspace,'--chunk-size-bytes','8388608','--jobs','1','--quiesced','--progress','none','--json']
  const env={...process.env,PGSERVICEFILE:serviceFile,PGPASSFILE:join(fixture,'password'),OM_ENABLE_ENTERPRISE_MODULES:'true',OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:'true',OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED:'true'}
@@ -62,4 +70,4 @@ try{
  if(JSON.stringify(actual)!==JSON.stringify(expected))throw new Error('Full restored content mismatch')
  const report={actualSignal:killed.signal,prefixChunksRetained:prefix.length,retainedRows:prefix.reduce((sum,chunk)=>sum+Number(chunk.rows),0),totalChunks:data.length,fullContentDigestEqual:true,retainedCiphertextInodesAndMtimesUnchanged:true,consistency:metadata.index.consistency,cliRunIdMatchesBackupId:true,rows:actual.rows}
  console.log(JSON.stringify(report))
-}finally{if(child?.exitCode===null)child.kill('SIGKILL');await admin.query(`DROP DATABASE IF EXISTS "${sourceName}" WITH (FORCE)`);await admin.query(`DROP DATABASE IF EXISTS "${targetName}" WITH (FORCE)`);await admin.end();await rm(directory,{recursive:true,force:true})}
+}finally{if(child?.exitCode===null)child.kill('SIGKILL');await admin.query(`DROP DATABASE IF EXISTS "${sourceName}" WITH (FORCE)`);await admin.query(`DROP DATABASE IF EXISTS "${targetName}" WITH (FORCE)`);if(changedAutovacuum){await admin.query("ALTER SYSTEM SET autovacuum='on'");await admin.query('SELECT pg_reload_conf()')}await admin.end();await rm(directory,{recursive:true,force:true})}
