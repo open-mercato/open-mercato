@@ -183,10 +183,25 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
     const restored=await restoreBackup({...shared,target,confirmation:fresh,resume})
     const report=JSON.parse(await readFile(restored.reportPath,'utf8'))
     expect(report).toMatchObject({status:'completed',resumeCount:1,promotionReady:false,keyRecovery:{status:'not-tested'}})
+    expect(report.resumeTimestamps).toHaveLength(1)
+    expect(report.foreignKeys.results).toEqual(expect.arrayContaining([expect.objectContaining({status:'passed',constraintKey:'f1'})]))
     expect(report.entities.some((entry:{resumedChunks:number})=>entry.resumedChunks>0)).toBe(true)
     expect((await targetDb.query('SELECT * FROM app.parents ORDER BY a,b')).rows).toEqual((await sourceDb.query('SELECT * FROM app.parents ORDER BY a,b')).rows)
     expect((await targetDb.query("SELECT count(*)::text AS count FROM pg_namespace WHERE nspname='om_backup_restore'")).rows[0].count).toBe('0')
   },30000)
+
+  test('cancellation during active COPY closes snapshot and worker connections within fifteen seconds',async()=>{
+    await sourceDb.query("CREATE TABLE app.cancel_rows(id int PRIMARY KEY,body text); INSERT INTO app.cancel_rows SELECT g,repeat('x',65536) FROM generate_series(1,1000) g")
+    const controller=new AbortController(),nativeSource=createPostgresSource({...options,signal:controller.signal})
+    const open=nativeSource.open.bind(nativeSource)
+    nativeSource.open=async()=>{const snapshot=await open();const chunks=snapshot.chunks.bind(snapshot);snapshot.chunks=async function*(entity,settings){for await(const chunk of chunks(entity,settings)){const stream=chunk.stream;yield {...chunk,stream:(async function*(){for await(const block of stream){if(entity.table==='cancel_rows')controller.abort('SIGINT');yield block}})()}}};return snapshot}
+    const key=await generateX25519Identity(),started=performance.now()
+    await expect(createBackup({source:nativeSource,signal:controller.signal,output:join(directory,'cancel-out'),workspace:join(directory,'cancel-workspace'),recipients:[await identityToRecipient(key)],reserveBytes:0n,jobs:1})).rejects.toThrow()
+    expect(controller.signal.aborted).toBe(true)
+    expect(performance.now()-started).toBeLessThan(15000)
+    const connections=(await admin.query<{count:string}>("SELECT count(*)::text AS count FROM pg_stat_activity WHERE datname=$1 AND pid<>$2",[sourceName,sourceDb.processID])).rows[0].count
+    expect(connections).toBe('0')
+  },20000)
 
   test('schema staging stops at its explicit byte budget before invoking restore SQL', async () => {
     const source = createPostgresSource(options); const target = createPostgresTarget({ ...options, maxStagingBytes: 16 })

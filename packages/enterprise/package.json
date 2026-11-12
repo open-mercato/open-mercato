@@ -80,7 +80,7 @@
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
     "@simplewebauthn/types": "^12.0.0",
-    "@types/pg": "8.20.0",
+    "@types/pg": "^8.23.1",
     "@types/qrcode": "^1.5.5",
     "age-encryption": "0.3.1",
     "ai": "^7.0.4",
@@ -100,7 +100,6 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "jest": "^30.4.2",

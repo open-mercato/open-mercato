@@ -52,7 +52,7 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
   if(await lstat(reportPath).catch(()=>null)){
     if(!options.resume||!options.target.completeFromReport)throw new BackupError('BACKUP_REPORT_ALREADY_EXISTS',3)
     const receiptSchema=z.object({schemaVersion:z.literal(1),backupId:z.string(),restoreRunId:z.string(),reportPath:z.string(),status:z.literal('completed'),quarantined:z.literal(true),trustedManifestSha256:z.string(),targetIdentityDigest:z.string(),completedAt:z.string()}).passthrough()
-    const receipt=receiptSchema.parse(JSON.parse((await readBoundedFile(reportPath,1024*1024)).toString()))
+    const receipt=receiptSchema.parse(JSON.parse((await readBoundedFile(reportPath,64*1024*1024)).toString()))
     if(receipt.backupId!==manifest.backupId||receipt.restoreRunId!==runId||receipt.trustedManifestSha256!==options.trustedManifestSha256||receipt.targetIdentityDigest!==targetIdentityDigest||receipt.reportPath!==reportPath)throw new BackupError('BACKUP_RECEIPT_BINDING_MISMATCH',3)
     if(!await options.target.completeFromReport({...run,reportPath,targetIdentityDigest}))throw new BackupError('BACKUP_RECEIPT_INCOMPLETE',3)
     return result
@@ -105,7 +105,7 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
     await options.target.analyze?.();phase('analyze')
     const state=await options.target.reportState?.()
     const entities=index.entities.map((entity)=>({entityKey:entity.key,expectedRows:String(totals.get(entity.key)?.rows??0n),loadedRows:String(progress.get(entity.key)?.rows??0n),rowsLoadedThisAttempt:String(progress.get(entity.key)?.newRows??0n),resumedChunks:progress.get(entity.key)?.resumedChunks??0,plainBytes:String(progress.get(entity.key)?.bytes??0n)}))
-    const report={schemaVersion:1,...result,trustedManifestSha256:options.trustedManifestSha256,targetIdentityDigest,consistency:manifest.consistency,startedAt:state?.startedAt??attemptStartedAt,attemptStartedAt,completedAt:new Date().toISOString(),resumeCount:state?.resumeCount??(options.resume?null:0),entities,phaseDurationsMs,phaseDurationsScope:'current-attempt',foreignKeys:{status:'passed',checked:index.foreignKeys.length},keyRecovery:evidence?.keyRecovery??{status:'not-tested'},checks:evidence?.checks??[],externalAssets:{status:'not-tested'},migrationFingerprint:index.migrationFingerprint}
+    const report={schemaVersion:1,...result,trustedManifestSha256:options.trustedManifestSha256,targetIdentityDigest,consistency:manifest.consistency,startedAt:state?.startedAt??attemptStartedAt,attemptStartedAt,completedAt:new Date().toISOString(),resumeCount:state?.resumeCount??(options.resume?null:0),resumeTimestamps:state?.resumeTimestamps??[],entities,phaseDurationsMs,phaseDurationsScope:'current-attempt',foreignKeys:{status:'passed',checked:index.foreignKeys.length,results:index.foreignKeys.map((key,position)=>({constraintKey:`f${position+1}`,entityKey:index.entities.find((entity)=>entity.schema===key.schema&&entity.table===key.table)?.key,status:'passed'}))},keyRecovery:evidence?.keyRecovery??{status:'not-tested'},checks:evidence?.checks??[],externalAssets:{status:'not-tested'},migrationFingerprint:index.migrationFingerprint}
     await atomicStream(reportPath,bytes(Buffer.from(JSON.stringify(report))))
     await options.target.finish(reportPath)
     const rows=String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n))

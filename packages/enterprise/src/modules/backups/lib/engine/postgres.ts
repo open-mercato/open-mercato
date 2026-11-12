@@ -568,9 +568,9 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
       await validateRun(connection,run);return true
     },
     async reportState() {
-      const record=(await (await current()).query<{started:string;resumes:number}>('SELECT started_at::text AS started,resume_count AS resumes FROM om_backup_restore.restore_run WHERE restore_run_id=$1',[runId])).rows[0]
+      const record=(await (await current()).query<{started:string;resumes:number;timestamps:string[]}>('SELECT started_at::text AS started,resume_count AS resumes,to_json(resume_timestamps) AS timestamps FROM om_backup_restore.restore_run WHERE restore_run_id=$1',[runId])).rows[0]
       if(!record)throw failure('BACKUP_RESTORE_BINDING')
-      return {startedAt:new Date(record.started).toISOString(),resumeCount:record.resumes}
+      return {startedAt:new Date(record.started).toISOString(),resumeCount:record.resumes,resumeTimestamps:record.timestamps.map((at)=>new Date(at).toISOString())}
     },
     async analyze() { await (await current()).query('ANALYZE') },
     async migrationFingerprint() { return databaseMigrationFingerprint(await current()) },
@@ -586,7 +586,7 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
     async completeFromReport(run) {
       const receipt = z.object({ schemaVersion: z.literal(1), backupId: z.string(), restoreRunId: z.string(),
         trustedManifestSha256: z.string(), targetIdentityDigest: z.string(), status: z.literal('completed'), quarantined: z.literal(true),
-      }).parse(JSON.parse((await readBoundedFile(run.reportPath, 1024 * 1024)).toString()))
+      }).parse(JSON.parse((await readBoundedFile(run.reportPath, 64 * 1024 * 1024)).toString()))
       const connection = await current()
       const identityDigest = digest(JSON.stringify(await databaseIdentity(connection)))
       if (receipt.restoreRunId !== run.runId || receipt.backupId !== run.backupId || receipt.trustedManifestSha256 !== run.manifestSha256
@@ -629,7 +629,7 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
         if (exists) {
           const record = (await session.query<{ run: string; backup: string; digest: string }>('SELECT restore_run_id AS run,backup_id AS backup,manifest_sha256 AS digest FROM om_backup_restore.restore_run')).rows
           if (record.length !== 1 || record[0].run !== run.runId || record[0].backup !== run.backupId || record[0].digest !== run.manifestSha256) throw failure('BACKUP_RESTORE_BINDING')
-          await session.query('UPDATE om_backup_restore.restore_run SET resume_count=resume_count+1,heartbeat_at=now() WHERE restore_run_id=$1',[run.runId])
+          await session.query('UPDATE om_backup_restore.restore_run SET resume_count=resume_count+1,resume_timestamps=array_append(resume_timestamps,now()),heartbeat_at=now() WHERE restore_run_id=$1',[run.runId])
         } else {
           const objects = await session.query("SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%' LIMIT 1")
           const extra = await session.query(`SELECT 1 FROM pg_namespace WHERE nspname NOT IN ('public','pg_catalog','information_schema') AND nspname NOT LIKE 'pg_toast%' AND nspname NOT LIKE 'pg_temp%'
@@ -638,7 +638,7 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
             UNION ALL SELECT 1 FROM pg_largeobject_metadata LIMIT 1`)
           if (objects.rowCount || extra.rowCount) throw failure('BACKUP_TARGET_NOT_EMPTY')
           await session.query(`CREATE SCHEMA om_backup_restore;
-            CREATE TABLE om_backup_restore.restore_run(restore_run_id text PRIMARY KEY,backup_id text NOT NULL,manifest_sha256 text NOT NULL,target_challenge_digest text NOT NULL,phase text NOT NULL DEFAULT 'initialized',resume_count integer NOT NULL DEFAULT 0,heartbeat_at timestamptz NOT NULL DEFAULT now(),started_at timestamptz NOT NULL DEFAULT now());
+            CREATE TABLE om_backup_restore.restore_run(restore_run_id text PRIMARY KEY,backup_id text NOT NULL,manifest_sha256 text NOT NULL,target_challenge_digest text NOT NULL,phase text NOT NULL DEFAULT 'initialized',resume_count integer NOT NULL DEFAULT 0,resume_timestamps timestamptz[] NOT NULL DEFAULT '{}',heartbeat_at timestamptz NOT NULL DEFAULT now(),started_at timestamptz NOT NULL DEFAULT now());
             CREATE TABLE om_backup_restore.restore_chunks(entity_key text NOT NULL,seq int NOT NULL,sha256 text NOT NULL,rows bigint NOT NULL,restored_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(entity_key,seq));
             CREATE TABLE om_backup_restore.restore_steps(step_key text PRIMARY KEY,kind text NOT NULL,status text NOT NULL,detail text,finished_at timestamptz NOT NULL DEFAULT now())`)
           await session.query('INSERT INTO om_backup_restore.restore_run(restore_run_id,backup_id,manifest_sha256,target_challenge_digest) VALUES($1,$2,$3,$4)', [run.runId, run.backupId, run.manifestSha256, digest(run.confirmation)])
