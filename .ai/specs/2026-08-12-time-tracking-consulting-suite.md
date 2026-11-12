@@ -541,6 +541,8 @@ Each phase is one PR, independently shippable, with its integration tests in the
 4. Unlock: modal requiring a reason, sent-to-client warning, report history timeline, destructive-outline styling.
 5. Exports: PDF (mirrors the sheet), CSV/XLSX (adds raw date / person / description columns for accounting).
 
+Report-sheet history uses the same `staff.timesheets.rates.view` decision as the sheet totals. Without it, metadata is restricted to typed nonfinancial counts, rounding settings and export details; monetary, unknown and nested values are omitted. Authorized history is unchanged. Regression coverage includes the sheet route unit tests and TC-TT-028. Closed-report entry tables scroll inside their card in a focusable, named region.
+
 Export money visibility is gated by `staff.timesheets.rates.view`, independently of the report's `showRates` presentation setting. A caller without that permission receives time and work details without rate or amount columns or invoice totals. Before dispatching to any EP-35 serializer, including contributed formats, the route recursively replaces group and line rates with `null` and amounts with `0`, row rates and amounts with `null`, and the grand amount with `0`. These are redaction sentinels preserving the existing input types; serializers must not present them as actual monetary values. `ReportExportInput.canSeeMoney` carries the permission decision. Authorized viewers can still set `showRates: false` while retaining amounts.
 
 Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts` exercises the real request-context money check and export handler with built-in PDF/CSV/XLSX serializers, a contributed serializer, nested group lines, authorized hidden-rate output, and tenant/organization/report scope. `lib/timesheets-reports/__tests__/reportExport.test.ts` also checks rendering without permission, including callers supplying raw monetary input. The route suite substitutes the report data loader and database; it does not replace live database integration coverage.
@@ -720,6 +722,7 @@ Every question the requirements left open — each one traced to the mockup note
 
 | Date | Change |
 |---|---|
+| 2026-11-12 | Replacement for #8595: reimplement report-table containment and typed nonfinancial history projection on current main. |
 | 2026-11-03 | #6990 / #8379: document additive whole-filter entry totals, rates redaction, structural project-access filter composition, footer/shared chip props, and self-contained live API boundary regressions in TC-STAFF-048. |
 | 2026-11-02 | #8448: bind access-request writes, authorization, deduplication and manager notification to validated request-selected scope; reject rejected/missing scope. Bootstrap integration waits for switcher completion, requiring a project reload only for fresh-cookie hydration, while preserving scope/confidentiality/acknowledgement assertions. |
 | 2026-10-29 | #6821: bind fresh-session access acknowledgement to optional server-resolved request-scope headers; preserve matching hydration and reject first differing tenant/organization cookies, deferred writes and late completions. |
