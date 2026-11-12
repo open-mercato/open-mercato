@@ -4,7 +4,7 @@
 2. [x] Root cause: create buildPricePayload and edit buildUpdatePayload bypass shared parseLocaleNumber. Normalize only typed net/gross before createCrud/updateCrud; reject malformed/negative amounts through localized createCrudFormError. Preserve API validators, record normalization, version header and delete behavior.
 3. [x] Implement common form-only amount helper, both call sites, translated errors, unit and self-contained browser regressions.
 4. [x] Run targeted tests and configured gate, report environment limits.
-5. [ ] Commit, publish PR, review and UI evidence; release claims.
+5. [x] Commit and publish PR #9339; post static review and explicit UI/gate blockers, release claims. Parent must obtain independent review and financial QA.
 
 — PREVIOUS STEP (om-root-cause) said —
 Summary: Flat price-rule forms reject comma-decimal monetary input.
