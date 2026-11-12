@@ -272,6 +272,7 @@
   "catalog.prices.form.editTitle": "Preisregel bearbeiten",
   "catalog.prices.form.errors.delete": "Preisregel konnte nicht gelöscht werden",
   "catalog.prices.form.errors.idRequired": "Die Kennung der Preisregel ist erforderlich.",
+  "catalog.prices.form.errors.invalidAmount": "Geben Sie einen gültigen, nicht negativen Preis an.",
   "catalog.prices.form.errors.load": "Preisregel konnte nicht geladen werden",
   "catalog.prices.form.errors.notFound": "Preisregel nicht gefunden",
   "catalog.prices.form.errors.productOrVariantRequired": "Wählen Sie ein Produkt oder eine Variante.",

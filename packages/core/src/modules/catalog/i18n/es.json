@@ -272,6 +272,7 @@
   "catalog.prices.form.editTitle": "Editar regla de precio",
   "catalog.prices.form.errors.delete": "No se pudo eliminar la regla de precio",
   "catalog.prices.form.errors.idRequired": "Se requiere el identificador de la regla de precio.",
+  "catalog.prices.form.errors.invalidAmount": "Introduzca un precio válido y no negativo.",
   "catalog.prices.form.errors.load": "No se pudo cargar la regla de precio",
   "catalog.prices.form.errors.notFound": "Regla de precio no encontrada",
   "catalog.prices.form.errors.productOrVariantRequired": "Elija un producto o una variante.",
