@@ -25,6 +25,10 @@ let seededLinks: FakeRow[] = []
 let seededTemplateLines: FakeRow[] = []
 let seededSessions: FakeRow[] = []
 let seededEvents: FakeRow[] = []
+// The LIVE cart peer row `lookupCartPeerById` resolves for the resumable-session buyer-
+// binding check (C1) — `undefined` means "cart peer unreadable", falling back to the
+// session's own stale `customerUserId` snapshot, same as the real helper.
+let linkCartPeerRow: FakeRow | undefined
 
 import { CheckoutLink, CheckoutLinkCartTemplate, CheckoutSession, CheckoutSessionEvent } from '../../data/entities'
 
@@ -153,6 +157,19 @@ function makeFakeEm() {
       return matched.length
     }),
     execute: jest.fn(async (sql: string, params: unknown[] = []) => fakeCheckoutLinksExecute(sql, params)),
+    getKysely: jest.fn(() => ({
+      selectFrom: () => ({
+        select: () => ({
+          where: () => ({
+            where: () => ({
+              where: () => ({
+                executeTakeFirst: async () => linkCartPeerRow,
+              }),
+            }),
+          }),
+        }),
+      }),
+    })),
   }
   return em
 }
@@ -201,6 +218,7 @@ beforeEach(() => {
   seededTemplateLines = [makeTemplateLineFixture()]
   seededSessions = []
   seededEvents = []
+  linkCartPeerRow = undefined
 })
 
 describe('checkout.session.create { source: "link" } — B.2/D-R5-19', () => {
@@ -387,6 +405,74 @@ describe('checkout.session.create { source: "link" } — B.2/D-R5-19', () => {
     expect(second.session.id).toBe(first.session.id)
     expect(seededLinks[0].activeReservationCount).toBe(0)
     expect(bus.calls.filter((call) => call.id === 'cart.create')).toHaveLength(1)
+  })
+
+  describe('C1 (PR 8268 review fix): buyer binding on link-session resume', () => {
+    it('refuses to resume an identified session when no customer auth is presented — seeds a fresh session instead of leaking PII', async () => {
+      seededLinks = [makeLinkFixture({ maxCompletions: 10, completionCount: 0, activeReservationCount: 0 })]
+      const em = makeFakeEm()
+      const bus = makeFakeCommandBus({ cartCreateResult: { cartId: 'cart-abc' } })
+      const ctx = makeCtx(em, { commandBus: bus })
+
+      const first = await createSessionCommand.execute({ source: 'link', slug: 'donate' }, ctx)
+      // The cart is identified LIVE (session's own snapshot stays whatever `seedCartFromCheckoutLink`
+      // returned) — the buyer-binding check must read this, not the session's stale value.
+      linkCartPeerRow = { id: 'cart-abc', tenant_id: TENANT_ID, organization_id: ORG_ID, customer_user_id: 'customer-user-1' }
+      mockGetCustomerAuthFromRequest.mockResolvedValue(null)
+
+      const reloadRequest = new Request('https://merchant.example/pay/donate', {
+        headers: { 'X-Checkout-Session-Token': first.token },
+      })
+      const second = await createSessionCommand.execute({ source: 'link', slug: 'donate', request: reloadRequest }, ctx)
+
+      expect(second.session.id).not.toBe(first.session.id)
+      expect(second.token).not.toBe(first.token)
+      expect(bus.calls.filter((call) => call.id === 'cart.create')).toHaveLength(2)
+    })
+
+    it('refuses to resume an identified session when the presented customer auth belongs to a different buyer', async () => {
+      seededLinks = [makeLinkFixture({ maxCompletions: 10, completionCount: 0, activeReservationCount: 0 })]
+      const em = makeFakeEm()
+      const bus = makeFakeCommandBus({ cartCreateResult: { cartId: 'cart-abc' } })
+      const ctx = makeCtx(em, { commandBus: bus })
+
+      const first = await createSessionCommand.execute({ source: 'link', slug: 'donate' }, ctx)
+      linkCartPeerRow = { id: 'cart-abc', tenant_id: TENANT_ID, organization_id: ORG_ID, customer_user_id: 'customer-user-1' }
+      mockGetCustomerAuthFromRequest.mockResolvedValue({ sub: 'customer-user-attacker', tenantId: TENANT_ID, orgId: ORG_ID })
+
+      const reloadRequest = new Request('https://merchant.example/pay/donate', {
+        headers: { 'X-Checkout-Session-Token': first.token },
+      })
+      const second = await createSessionCommand.execute({ source: 'link', slug: 'donate', request: reloadRequest }, ctx)
+
+      expect(second.session.id).not.toBe(first.session.id)
+      expect(bus.calls.filter((call) => call.id === 'cart.create')).toHaveLength(2)
+    })
+
+    it('allows resume once the matching customer auth is presented for a cart identified AFTER session creation (guest-to-identified drift)', async () => {
+      seededLinks = [makeLinkFixture({ maxCompletions: 10, completionCount: 0, activeReservationCount: 0 })]
+      const em = makeFakeEm()
+      const bus = makeFakeCommandBus({ cartCreateResult: { cartId: 'cart-abc' } })
+      const ctx = makeCtx(em, { commandBus: bus })
+
+      // Created as a guest — no auth presented, session's own `customerUserId` snapshot is null.
+      const first = await createSessionCommand.execute({ source: 'link', slug: 'donate' }, ctx)
+      expect(first.session.customerUserId).toBeNull()
+
+      // The buyer logs in and the LIVE cart gets claimed (cart's own merge `'replace'` strategy) —
+      // the session row itself is never rewritten, so only a LIVE cart-peer read can see this.
+      linkCartPeerRow = { id: 'cart-abc', tenant_id: TENANT_ID, organization_id: ORG_ID, customer_user_id: 'customer-user-1' }
+      mockGetCustomerAuthFromRequest.mockResolvedValue({ sub: 'customer-user-1', tenantId: TENANT_ID, orgId: ORG_ID })
+
+      const reloadRequest = new Request('https://merchant.example/pay/donate', {
+        headers: { 'X-Checkout-Session-Token': first.token },
+      })
+      const second = await createSessionCommand.execute({ source: 'link', slug: 'donate', request: reloadRequest }, ctx)
+
+      expect(second.session.id).toBe(first.session.id)
+      expect(second.token).toBe(first.token)
+      expect(bus.calls.filter((call) => call.id === 'cart.create')).toHaveLength(1)
+    })
   })
 
   it('an abandoned anonymous session cannot monopolize a maxCompletions:1 link — another visitor can still start a session', async () => {

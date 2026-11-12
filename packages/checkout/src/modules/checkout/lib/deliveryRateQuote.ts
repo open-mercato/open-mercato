@@ -164,6 +164,22 @@ export async function computeDeliveryOptions(
           tenantId: session.tenantId,
         })
         for (const rate of rates) {
+          // M5 (PR 8268 review fix): a carrier may quote in its own currency, not the
+          // session's — `commands/submit.ts` later applies `option.cost` as a RAW number
+          // in `session.currencyCode` (it snapshots the amount, never the currency), so an
+          // option in any other currency would silently mis-price the shipping adjustment
+          // (e.g. 20 PLN charged as 20 USD). Drop it here, same as a carrier error above:
+          // it falls through to another carrier or the flat-rate fallback below.
+          if (rate.currencyCode !== session.currencyCode) {
+            logger.warn('[internal] shipping carrier rate currency does not match the session currency, dropping it', {
+              providerKey: adapter.providerKey,
+              serviceCode: rate.serviceCode,
+              rateCurrencyCode: rate.currencyCode,
+              sessionCurrencyCode: session.currencyCode,
+              sessionId: session.id,
+            })
+            continue
+          }
           carrierOptions.push({
             deliveryMethodCode: `${adapter.providerKey}:${rate.serviceCode}`,
             providerKey: adapter.providerKey,
@@ -190,7 +206,16 @@ export async function computeDeliveryOptions(
   if (carrierOptions.length > 0) return carrierOptions
 
   const fallback = await resolveFlatRateFallback(em, session)
-  if (fallback) return [toFlatRateOption(fallback)]
+  // Same currency guard as the carrier rates above — a storefront/link flat-rate fallback
+  // configured in a different currency than the session must never be offered either.
+  if (fallback && fallback.currencyCode === session.currencyCode) return [toFlatRateOption(fallback)]
+  if (fallback) {
+    logger.warn('[internal] flat-rate fallback currency does not match the session currency, dropping it', {
+      fallbackCurrencyCode: fallback.currencyCode,
+      sessionCurrencyCode: session.currencyCode,
+      sessionId: session.id,
+    })
+  }
 
   throw new CrudHttpError(422, {
     error: '[internal] no delivery rate is available for this address',

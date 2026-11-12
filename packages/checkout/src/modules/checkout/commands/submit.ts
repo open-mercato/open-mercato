@@ -1529,11 +1529,24 @@ export async function confirmOrderAndComplete(
     })
   }
 
-  const completed = await em.nativeUpdate(
-    CheckoutSession,
-    { id: session.id, ...scope, status: { $in: SLOT_HOLDING_SESSION_STATUSES } },
-    { status: 'completed', outcomeKind: 'order', completedAt: new Date(), updatedAt: new Date() },
-  )
+  // M6 (PR 8268 review fix): same reasoning as `compensateByCancellingOrder`'s own
+  // transactional CAS+release above — bundling the terminal CAS with the link slot
+  // release in ONE transaction means a crash between them can never happen: either both
+  // commit together, or neither does and the session is left in its PRE-terminal status,
+  // where replay/recovery can still find and retry it (a terminal session is otherwise
+  // never revisited, so a crash after an UNBUNDLED CAS would strand
+  // `activeReservationCount`/`isLocked`/`completionCount` wrong forever).
+  const completed = await em.transactional(async (tx) => {
+    const affected = await tx.nativeUpdate(
+      CheckoutSession,
+      { id: session.id, ...scope, status: { $in: SLOT_HOLDING_SESSION_STATUSES } },
+      { status: 'completed', outcomeKind: 'order', completedAt: new Date(), updatedAt: new Date() },
+    )
+    if (affected > 0 && session.linkId) {
+      await releaseCheckoutLinkSlot(tx, scope, session.linkId, { completed: true })
+    }
+    return affected
+  })
   if (completed === 0) {
     return {
       completedByThisCall: false,
@@ -1547,10 +1560,6 @@ export async function confirmOrderAndComplete(
   }
   session.status = 'completed'
   session.outcomeKind = 'order'
-
-  if (session.linkId) {
-    await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: true })
-  }
 
   if (gatewayPayment) {
     await recordGatewayPayment(container, em, session, scope, orderId, gatewayPayment)
@@ -1636,11 +1645,20 @@ export async function completeQuoteOutcome(
     })
   }
 
-  const completed = await em.nativeUpdate(
-    CheckoutSession,
-    { id: session.id, ...scope, status: { $in: SLOT_HOLDING_SESSION_STATUSES } },
-    { status: 'completed', outcomeKind: 'quote', completedAt: new Date(), updatedAt: new Date() },
-  )
+  // M6 (PR 8268 review fix): see `confirmOrderAndComplete`'s identical fix above — bundle
+  // the terminal CAS with the link slot release in ONE transaction so a crash between them
+  // can never leave `activeReservationCount`/`isLocked`/`completionCount` stuck.
+  const completed = await em.transactional(async (tx) => {
+    const affected = await tx.nativeUpdate(
+      CheckoutSession,
+      { id: session.id, ...scope, status: { $in: SLOT_HOLDING_SESSION_STATUSES } },
+      { status: 'completed', outcomeKind: 'quote', completedAt: new Date(), updatedAt: new Date() },
+    )
+    if (affected > 0 && session.linkId) {
+      await releaseCheckoutLinkSlot(tx, scope, session.linkId, { completed: true })
+    }
+    return affected
+  })
   if (completed === 0) {
     return {
       session,
@@ -1653,10 +1671,6 @@ export async function completeQuoteOutcome(
   }
   session.status = 'completed'
   session.outcomeKind = 'quote'
-
-  if (session.linkId) {
-    await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: true })
-  }
 
   await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'quote_completed', actor: 'system', payload: { quoteId, outcome: 'completed' } })
   await emitCheckoutEvent('checkout.session.completed', {
