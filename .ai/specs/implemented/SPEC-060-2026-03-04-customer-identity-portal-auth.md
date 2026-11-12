@@ -1198,7 +1198,7 @@ role/user queries or writes. Clients must keep the complete intended role set
 within the limit; assignment/update replaces the set, so splitting replacement
 requests does not accumulate grants. Optional and empty role sets on staff
 create/update remain supported. This request validation narrowing is included
-in the proposed emergency security exception.
+in the acknowledged emergency security exception.
 
 No route, field name, signature, database structure, startup command or environment
 setting changes. Clients sending unavailable/restricted roles now receive `400`;
@@ -1207,9 +1207,10 @@ roles and use the existing staff manage-user workflow after acceptance where
 such a grant is intended. Existing assigned roles are not rewritten.
 
 The old invitation behavior itself permits the escalation described in #2252;
-retaining it behind a bridge would keep the vulnerability reachable. The PR must
-carry `security` and a named human maintainer acknowledgment of the emergency
-security exception before merge; automated review cannot supply that approval.
+retaining it behind a bridge would keep the vulnerability reachable. Maintainer
+@pkarw [acknowledged the steps 1–3 emergency security waiver](https://github.com/open-mercato/open-mercato/pull/8660#issuecomment-6828930986)
+on 2026-11-12, including the 100-entry role-ID limit. The PR retains `security`;
+this records an explicit human decision, not automated review approval.
 Unit regressions cover invalid/scoped/deleted/restricted roles, duplicates and
 acceptance filtering. `TC-CACC-INVITE-AUTH-001` covers invite-only and no-permission
 staff, wrong-org role/company rejection, zero invitation side effects, and legacy

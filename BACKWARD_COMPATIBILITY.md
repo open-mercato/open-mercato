@@ -656,4 +656,4 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 
 ## #2252 (2026-11-12)
 
-STABLE: restricted invites denied; role arrays ≤100. Bridge retains escalation/DoS. Human waiver pending. [Migration](UPGRADE_NOTES.md#invitation-role-authorization-2252).
+STABLE: restricted invites denied; role arrays ≤100. Bridge retains escalation/DoS. @pkarw waived steps 1–3. [Migration](UPGRADE_NOTES.md#invitation-role-authorization-2252).

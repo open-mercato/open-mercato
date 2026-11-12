@@ -10,14 +10,14 @@ Operators should review pending privileged invitations and use the existing
 staff manage-user role assignment after acceptance when a privileged grant is
 intended. Existing user-role assignments are unchanged. No database migration,
 startup or environment change is required. The old invitation behavior itself
-allowed escalation, so the PR requires named human maintainer acknowledgment of
-the emergency security compatibility exception before merge.
+allowed escalation. Maintainer @pkarw [acknowledged the emergency security
+compatibility waiver of steps 1–3](https://github.com/open-mercato/open-mercato/pull/8660#issuecomment-6828930986) on 2026-11-12.
 Role-ID arrays in staff/portal invitations, portal role assignment, and staff
 user create/update requests now accept at most 100 entries, including duplicates.
 Larger arrays return `400` before role/user queries or writes. Send the complete
 intended role set within this limit; assignment/update replaces the set, so do
 not split a replacement across requests. This resource bound is included in the
-same proposed security compatibility exception.
+same acknowledged security compatibility exception.
 
 ## Production Compose tenant encryption key (#7231)
 
