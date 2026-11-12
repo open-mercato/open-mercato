@@ -509,7 +509,7 @@
   "example.umes.queryExtensions.subscribers.run": "Run subscriber collection probe",
   "example.umes.queryExtensions.subscribers.title": "N.2 Sync Query Event Subscribers",
   "example.umes.queryExtensions.title": "UMES Phase N — Query Engine Extensibility",
-  "example.widgets.catalogSeoReport.docs": "Ten widget jest wstrzykiwany do tabeli produktów za pomocą systemu wstrzykiwania.",
+  "example.widgets.catalogSeoReport.docs": "Ten widżet jest dodawany do tabeli produktów za pomocą systemu wstrzykiwania widżetów.",
   "example.widgets.catalogSeoReport.edit": "Edytuj",
   "example.widgets.catalogSeoReport.error": "Nie udało się załadować raportu SEO.",
   "example.widgets.catalogSeoReport.example": "Przykład",
