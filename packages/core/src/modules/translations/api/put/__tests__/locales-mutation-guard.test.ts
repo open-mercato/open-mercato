@@ -5,6 +5,7 @@ const userId = '33333333-3333-4333-8333-333333333333'
 const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const setValueMock = jest.fn()
+const translateMock = jest.fn((key: string, fallback?: string) => fallback ?? key)
 
 const container = {
   resolve: jest.fn((name: string) => {
@@ -35,7 +36,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({
     locale: 'en',
     t: (key: string, fallback?: string) => fallback ?? key,
-    translate: (key: string, fallback?: string) => fallback ?? key,
+    translate: (key: string, fallback?: string) => translateMock(key, fallback),
   })),
 }))
 
@@ -107,6 +108,7 @@ describe('translations locales route mutation guard', () => {
 
     expect(response.status).toBe(503)
     await expect(response.json()).resolves.toEqual({ error: 'Settings storage unavailable' })
+    expect(translateMock).toHaveBeenCalledWith('translations.locales.errors.storageUnavailable', expect.any(String))
     expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
     expect(setValueMock).not.toHaveBeenCalled()
     expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
