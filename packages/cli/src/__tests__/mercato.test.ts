@@ -1442,6 +1442,64 @@ describe('server dev managed process exits', () => {
     consoleLogSpy.mockRestore()
   })
 
+  it('spawns the Next.js dev child with NODE_ENV=development while workers keep the production runtime env (#6948)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+
+    const mockChildProcess = buildMockChildProcessModule((args) =>
+      args.slice(1).join(' ') === 'queue worker --all' ? { code: 0 } : undefined,
+    )
+    jest.doMock('child_process', () => mockChildProcess)
+
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([eventsWorkerFixture as Module])
+
+    // Drives the dev supervisor to completion via the same unexpected-worker-exit
+    // path as the previous test; the assertions below only care about the env
+    // each spawn call received, not the resulting exit code.
+    await mercato.run(['node', 'mercato', 'server', 'dev'])
+
+    const spawnCalls = mockChildProcess.spawn.mock.calls as Array<
+      [string, string[], { env?: NodeJS.ProcessEnv }]
+    >
+    const nextDevCall = spawnCalls.find(
+      ([, args]) => pathIncludes(args[0] ?? '', 'next/dist/bin/next') && args.includes('dev'),
+    )
+    const workerCall = spawnCalls.find(([, args]) => args.slice(1).join(' ') === 'queue worker --all')
+
+    // The dev child must see NODE_ENV=development so Next.js computes
+    // allowedDevOrigins and serves /_next assets to 127.0.0.1 — the regression
+    // in issue #6948. Worker/scheduler children intentionally keep the shared
+    // production runtime env unchanged.
+    expect(nextDevCall?.[2].env?.NODE_ENV).toBe('development')
+    expect(workerCall?.[2].env?.NODE_ENV).toBe('production')
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
   it('retries the Next.js dev server once when it exits before reporting ready', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
