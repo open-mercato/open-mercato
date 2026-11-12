@@ -54,6 +54,18 @@ encoding. Authenticated plaintext bytes must also be valid UTF8 before logical
 decoding; valid replacement characters, BOMs, empty strings and non-BMP text remain
 supported. Acceptance measurements currently use PostgreSQL 16.
 
+Text projection requires ISO `DateStyle` and `extra_float_digits >= 1` so
+timestamps and floating-point values retain their exact distinctions. The
+verification binding includes `DateStyle`, `TimeZone`, `IntervalStyle`,
+`extra_float_digits`, `bytea_output` and `array_nulls`; changing any of these
+requires restoring the original configuration before resuming. Supported column
+types are the built-in boolean, bytea, smallint/integer/bigint, text/varchar/char,
+oid, real/double precision, numeric, uuid, json/jsonb, date, time, timetz,
+timestamp, timestamptz and interval types, including their built-in arrays.
+Domains, enums, composite types and extension/user-defined output functions
+refuse before mutation. Earlier codec bindings cannot resume under this stronger
+projection proof.
+
 ## Establish the offline window
 
 An authorized DBA must record the existing connection limit, role configuration and

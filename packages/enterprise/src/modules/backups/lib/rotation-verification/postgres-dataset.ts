@@ -33,7 +33,11 @@ type SqlRow = Record<string, string | null>
 const MAX_MAPS = 5000
 const MAX_COLUMNS = 1000
 const MAX_ROWS = 500
-const CODEC_VERSION = 'typed-canonical-strict-utf8-v2'
+const CODEC_VERSION = 'typed-canonical-injective-postgres-v3'
+// Fixed PostgreSQL built-in OIDs: arbitrary type output functions, domains,
+// enums, composites and extension types are outside this codec's proof.
+const SUPPORTED_SCALAR_OIDS = [16, 17, 20, 21, 23, 25, 26, 114, 700, 701, 1042, 1043, 1082, 1083, 1114, 1184, 1186, 1266, 1700, 2950, 3802]
+const OUTPUT_SETTINGS_SQL = "SELECT current_setting('DateStyle') AS date_style,current_setting('TimeZone') AS time_zone,current_setting('IntervalStyle') AS interval_style,current_setting('extra_float_digits') AS extra_float_digits,current_setting('bytea_output') AS bytea_output,current_setting('array_nulls') AS array_nulls"
 const MAX_ROW_BYTES = 1024 * 1024
 const quote = (value: string) => `"${value.replace(/"/g, '""')}"`
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
@@ -92,6 +96,8 @@ export async function assertPostgresRotationAdmission(context: RotationProtectio
     const catalog = await query<{ first: boolean; utf8: boolean }>("SELECT (pg_catalog.current_schemas(true))[1] OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.name AS first, (pg_catalog.current_setting('server_encoding') OPERATOR(pg_catalog.=) 'UTF8'::pg_catalog.text) AND (pg_catalog.current_setting('client_encoding') OPERATOR(pg_catalog.=) 'UTF8'::pg_catalog.text) AS utf8")
     if (catalog[0]?.first !== true) throw new Error('[internal] ROTATION_CATALOG_RESOLUTION_UNSUPPORTED')
     if (catalog[0]?.utf8 !== true) throw new Error('[internal] ROTATION_ENCODING_UNSUPPORTED')
+    const formats = await query<{ date_style: string; extra_float_digits: string }>(OUTPUT_SETTINGS_SQL)
+    if (!formats[0]?.date_style.startsWith('ISO,') || Number(formats[0]?.extra_float_digits) < 1 || !Number.isFinite(Number(formats[0]?.extra_float_digits))) throw new Error('[internal] ROTATION_OUTPUT_FORMAT_UNSUPPORTED')
     const role = await query<{ visible: boolean; superuser: boolean }>('SELECT rolsuper AS superuser, (rolsuper OR rolbypassrls) AS visible FROM pg_roles WHERE rolname = current_user')
     if (role[0]?.visible !== true) throw new Error('[internal] ROTATION_RLS_VISIBILITY_UNPROVEN')
     if (role[0]?.superuser !== true) throw new Error('[internal] ROTATION_SUPERUSER_MAINTENANCE_REQUIRED')
@@ -180,6 +186,9 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
   for (const table of tables.values()) {
     const shape = await query<{ supported: boolean }>("SELECT relkind='r' AND NOT relispartition AND NOT EXISTS(SELECT 1 FROM pg_inherits WHERE inhparent=c.oid OR inhrelid=c.oid) AS supported FROM pg_class c WHERE c.oid=?::regclass", [table.name])
     if (shape[0]?.supported !== true) throw new Error('[internal] ROTATION_RELATION_UNSUPPORTED')
+    // Admit OIDs before format_type, which can itself call custom typmod output.
+    const unsupported = await query(`SELECT 1 FROM pg_attribute a JOIN pg_type t ON t.oid=a.atttypid WHERE a.attrelid=?::regclass AND a.attnum>0 AND NOT a.attisdropped AND NOT (t.typnamespace='pg_catalog'::regnamespace AND t.typtype='b' AND (t.oid IN (${SUPPORTED_SCALAR_OIDS.join(',')}) OR (t.typcategory='A' AND t.typelem IN (${SUPPORTED_SCALAR_OIDS.join(',')}) AND EXISTS(SELECT 1 FROM pg_type element WHERE element.oid=t.typelem AND element.typarray=t.oid AND element.typnamespace='pg_catalog'::regnamespace AND element.typtype='b')))) LIMIT 1`, [table.name])
+    if (unsupported.length) throw new Error('[internal] ROTATION_TYPE_UNSUPPORTED')
     table.columns = await query<Column>('SELECT attname AS name, format_type(atttypid, atttypmod) AS type FROM pg_attribute WHERE attrelid = ?::regclass AND attnum > 0 AND NOT attisdropped ORDER BY attnum', [table.name])
     if (table.columns.length > MAX_COLUMNS || !table.columns.some((entry) => entry.name === 'tenant_id') || !table.columns.some((entry) => entry.name === 'organization_id')) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
     const primary = await query<{ name: string }>('SELECT a.attname AS name FROM pg_index i JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(attnum, position) ON true JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum WHERE i.indrelid = ?::regclass AND i.indisprimary ORDER BY k.position', [table.name])
@@ -243,6 +252,8 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
     }
   }
   const binding = async () => {
+    await assertAdmission()
+    const outputSettings = await query(OUTPUT_SETTINGS_SQL)
     const identity = await query<{ clusterIncarnation: string; databaseOid: string; serverMajor: number; encoding: string; collation: string }>(`SELECT s.system_identifier::text || ':' || c.timeline_id::text || ':' || CASE WHEN pg_is_in_recovery() THEN 'recovery' ELSE 'primary' END || ':' || (extract(epoch from pg_postmaster_start_time())*1000000)::bigint::text AS "clusterIncarnation", d.oid::text AS "databaseOid", (current_setting('server_version_num')::int / 10000)::int AS "serverMajor", pg_encoding_to_char(d.encoding) AS encoding, d.datcollate AS collation FROM pg_control_system() s CROSS JOIN pg_control_checkpoint() c CROSS JOIN pg_database d WHERE d.datname = current_database()`)
     if (!identity[0]?.clusterIncarnation) throw new Error('[internal] ROTATION_DATABASE_INVALID')
     const metadata = await boundedBinding("SELECT jsonb_build_array(c.oid::text, n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity, a.attname, a.atttypid::text, a.atttypmod, a.attnotnull, c.relowner::text, c.relacl::text, a.attacl::text, a.attgenerated, a.attcollation::text, (SELECT string_agg(pg_get_constraintdef(oid), ';' ORDER BY oid) FROM pg_constraint WHERE conrelid=c.oid), (SELECT string_agg(pg_get_indexdef(indexrelid), ';' ORDER BY indexrelid) FROM pg_index WHERE indrelid=c.oid))::text AS payload FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped WHERE c.oid IN (SELECT name::regclass FROM jsonb_array_elements_text(?::jsonb) AS selected(name)) ORDER BY c.oid,a.attnum", [JSON.stringify(orderedTables.map((table) => table.name))])
@@ -256,7 +267,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
     const roles = await query<{ payload: string }>("SELECT jsonb_build_array(oid::text,rolname,rolsuper,rolcanlogin,rolbypassrls,rolinherit,rolcreaterole)::text AS payload FROM pg_roles ORDER BY oid LIMIT 10001")
     const memberships = await query<{ payload: string }>("SELECT jsonb_build_array(roleid::text,member::text,admin_option)::text AS payload FROM pg_auth_members ORDER BY roleid,member LIMIT 10001")
     if (roles.length > 10000 || memberships.length > 10000) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-    const schema = digest(JSON.stringify([metadata, policies, ownership, roles, memberships]))
+    const schema = digest(JSON.stringify([metadata, policies, ownership, roles, memberships, outputSettings]))
     return { database: digest(JSON.stringify(identity[0])), scope: JSON.stringify({ tenantId: context.tenantId, organizationId: context.organizationId, excludedSystemEntities: [...systemEntities].sort((left, right) => left < right ? -1 : left > right ? 1 : 0), emptyMaps: emptyMaps.sort((left, right) => left < right ? -1 : left > right ? 1 : 0) }), schema, coverage: digest(JSON.stringify([CODEC_VERSION, controls, definitions, orderedTables, hashForLookup('rotation-verification-lookup-configuration-v1')])), provider: options.provider, backupDigest: options.backupDigest }
   }
   const decode = async (value: string, tenantId: string, phase: 'before' | 'after'): Promise<string> => {
@@ -272,6 +283,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
   }
   async function* rows(phase: 'before' | 'after', signal?: AbortSignal): AsyncGenerator<VerificationRow> {
     signal?.throwIfAborted()
+    await checkedBinding()
     if (phase === 'after') {
       const started = performance.now()
       try { await refreshFinalWireBudget() }

@@ -101,6 +101,47 @@ native('native PostgreSQL persisted verification', () => {
     seal: async (bytes) => Buffer.from(encryptWithAesGcm(Buffer.from(bytes).toString('base64'), encryption).raw),
     open: async (bytes) => Buffer.from(decryptWithAesGcm(Buffer.from(bytes).toString(), encryption)!, 'base64'),
   })
+  test('refuses lossy float output before the protected mutation callback', async () => {
+    await client.query('SET extra_float_digits=0')
+    const collision = (await client.query("SELECT (1.000000000000001::float8)::text AS first,(1.000000000000002::float8)::text AS second, float8send(1.000000000000001::float8) <> float8send(1.000000000000002::float8) AS distinct_bits")).rows[0]
+    expect(collision).toMatchObject({ first: '1', second: '1', distinct_bits: true })
+    const operation = jest.fn()
+    await expect(dataset().then(async data => { await prepareRotationVerification(data, store()); await operation() })).rejects.toThrow('ROTATION_OUTPUT_FORMAT_UNSUPPORTED')
+    expect(operation).not.toHaveBeenCalled()
+  })
+  test('refuses non-ISO timestamps with a demonstrated repeated timezone abbreviation', async () => {
+    await client.query("SET DateStyle='Postgres, MDY'; SET TimeZone='Europe/Moscow'")
+    const collision = (await client.query("SELECT ('2014-10-25 21:30+00'::timestamptz)::text AS first,('2014-10-25 22:30+00'::timestamptz)::text AS second,timestamptz_send('2014-10-25 21:30+00'::timestamptz) <> timestamptz_send('2014-10-25 22:30+00'::timestamptz) AS distinct_bits")).rows[0]
+    expect(collision.first).toBe(collision.second)
+    expect(collision.distinct_bits).toBe(true)
+    await expect(dataset()).rejects.toThrow('ROTATION_OUTPUT_FORMAT_UNSUPPORTED')
+  })
+  test('precise built-in float and float-array projection detects formerly colliding values', async () => {
+    await client.query('SET extra_float_digits=1; ALTER TABLE fixture_records ADD COLUMN precise float8 DEFAULT 1.000000000000001, ADD COLUMN floats float8[] DEFAULT ARRAY[1.000000000000001::float8,NULL]')
+    const data = await dataset(); const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)
+    await rotate()
+    await expect(verifyRotationData(prepared, data, artifacts)).resolves.toMatchObject({ status: 'passed', comparedRows: '19' })
+    await client.query('UPDATE fixture_records SET precise=1.000000000000002,floats=ARRAY[1.000000000000002::float8,NULL] WHERE id=(SELECT id FROM fixture_records ORDER BY id DESC LIMIT 1)')
+    await expect(verifyRotationData(prepared, data, artifacts)).rejects.toThrow('ROTATION_DATA_MISMATCH')
+  })
+  test.each([
+    ['TimeZone', 'Europe/Moscow'], ['IntervalStyle', 'iso_8601'], ['bytea_output', 'escape'], ['array_nulls', 'off'], ['extra_float_digits', '2'], ['DateStyle', 'ISO, DMY'],
+  ])('binds the %s text-output configuration before any direct reader', async (setting, value) => {
+    const data = await dataset()
+    await client.query('SELECT set_config($1,$2,false)', [setting, value])
+    await expect(data.rows('before')[Symbol.asyncIterator]().next()).rejects.toThrow('ROTATION_BINDING_CHANGED')
+  })
+  test.each([
+    ['CREATE DOMAIN custom_codec AS text', 'custom_codec'],
+    ["CREATE TYPE custom_codec AS ENUM ('safe','other')", 'custom_codec'],
+    ["CREATE TYPE custom_codec AS ENUM ('safe','other')", 'custom_codec[]'],
+  ])('refuses unproved user type output functions before baseline reads: %s', async (definition, type) => {
+    await client.query(definition)
+    await client.query(`ALTER TABLE fixture_records ADD COLUMN unsupported ${type}`)
+    const operation = jest.fn()
+    await expect(dataset().then(async data => { await prepareRotationVerification(data, store()); await operation() })).rejects.toThrow('ROTATION_TYPE_UNSUPPORTED')
+    expect(operation).not.toHaveBeenCalled()
+  })
   async function rotate() {
     for (const row of (await client.query('SELECT id,secret FROM fixture_records ORDER BY id')).rows) {
       await client.query('UPDATE fixture_records SET secret=$1 WHERE id=$2', [encryptWithAesGcm(decryptWithAesGcm(row.secret, source)!, target).value, row.id])
@@ -465,7 +506,8 @@ native('native PostgreSQL persisted verification', () => {
     await expect(createConfiguredRotationProtection(environment).protect(context, mutate)).rejects.toThrow('ADMISSION_FENCE_REQUIRED')
     const queries = execute.mock.calls.map(call => String(call[0]))
     expect(queries[0]).toContain('pg_catalog.current_schemas(true)')
-    expect(queries[1]).toContain('FROM pg_roles')
+    expect(queries[1]).toContain("current_setting('extra_float_digits')")
+    expect(queries[2]).toContain('FROM pg_roles')
     expect(queries.some(query => /\b(?:FROM|JOIN)\s+(?:public\.)?(?:encryption_maps|custom_entities_storage|custom_field_defs)\b/i.test(query))).toBe(false)
     expect(mutate).not.toHaveBeenCalled()
   })
