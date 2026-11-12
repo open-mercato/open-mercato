@@ -242,7 +242,7 @@ test('supplied root, ambient and company key/KMS settings survive missing app en
     { env: { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ambient-fallback-fixture' }, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'ambient-fallback-fixture'] },
     { env: {}, extraDefaults: { TENANT_DATA_ENCRYPTION_KEY: 'company-fixture-key' }, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'company-fixture-key'] },
     { root: 'VAULT_ADDR=https://root-vault.fixture\nVAULT_TOKEN=root-token-fixture\n', env: {}, extraDefaults: {}, expected: ['VAULT_ADDR', 'https://root-vault.fixture'] },
-    { env: { VAULT_ADDR: 'https://ambient-vault.fixture', VAULT_TOKEN: 'ambient-token-fixture' }, extraDefaults: {}, expected: ['VAULT_ADDR', 'https://ambient-vault.fixture'] },
+    { env: { VAULT_ADDR: 'https://ambient-vault.fixture', VAULT_TOKEN: 'ambient-fixture-token' }, extraDefaults: {}, expected: ['VAULT_ADDR', 'https://ambient-vault.fixture'] },
     { env: { VAULT_ADDR: '' }, extraDefaults: { VAULT_ADDR: 'https://vault.fixture', VAULT_TOKEN: 'fixture-token', POSTGRES_PASSWORD: 'private-fixture-password' }, expected: ['VAULT_ADDR', 'https://vault.fixture'] },
   ]
   for (const configuration of cases) {
@@ -256,11 +256,17 @@ test('supplied root, ambient and company key/KMS settings survive missing app en
       assert.ok(!logs.join(' ').includes('fixture-token'))
       assert.ok(!logs.join(' ').includes('private-fixture-password'))
       assert.ok(!logs.join(' ').includes(configuration.expected[1]))
+      const rootSettings = parseEnv(fs.readFileSync(path.join(dir, '.env'), 'utf8'))
       const appSettings = parseEnv(fs.readFileSync(path.join(app, '.env'), 'utf8'))
       assert.equal(appSettings[configuration.expected[0]], configuration.expected[1])
       const expectedFallback = configuration.expected[0] === 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY' ? configuration.expected[1] : ''
       assert.equal(appSettings.TENANT_DATA_ENCRYPTION_FALLBACK_KEY, expectedFallback)
-      if (!expectedFallback) assert.ok(!fs.readFileSync(path.join(dir, '.env'), 'utf8').includes('TENANT_DATA_ENCRYPTION_FALLBACK_KEY='))
+      const expectedRootFallback = parseEnv(configuration.root ?? '').TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? configuration.extraDefaults.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+      assert.equal(rootSettings.TENANT_DATA_ENCRYPTION_FALLBACK_KEY, expectedRootFallback)
+      if (configuration.root || configuration.extraDefaults[configuration.expected[0]]) {
+        assert.equal(rootSettings[configuration.expected[0]], configuration.expected[1])
+      }
+      if (configuration.env.VAULT_TOKEN) assert.equal(appSettings.VAULT_TOKEN, configuration.env.VAULT_TOKEN)
       const result = await assertEncryptionCompatible({ projectDir: app, env: {}, runProbe: async (_project, settings) => {
         assert.equal(settings[configuration.expected[0]], configuration.expected[1])
         assert.equal(settings.TENANT_DATA_ENCRYPTION_FALLBACK_KEY, expectedFallback)
