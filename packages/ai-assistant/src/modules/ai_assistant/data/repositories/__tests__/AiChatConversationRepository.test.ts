@@ -529,8 +529,7 @@ describe('AiChatConversationRepository', () => {
         { conversationId: 'c', createdAt: at, lastMessageAt: at },
       ])
 
-      const seen = await walk(repo, 1)
-      expect([...seen].sort()).toEqual(['a', 'b', 'c'])
+      expect(await walk(repo, 1)).toEqual(['c', 'b', 'a'])
     })
 
     it('pages through conversations without messages before the ones with messages', async () => {

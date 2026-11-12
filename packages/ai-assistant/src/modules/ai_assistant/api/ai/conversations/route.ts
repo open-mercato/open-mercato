@@ -28,7 +28,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'List AI chat conversations visible to the caller.',
       description:
         'Returns `{ items, nextCursor }` for the authenticated caller, ordered by `lastMessageAt` ' +
-        'descending. View-only callers receive only their own conversations. Callers with ' +
+        'descending (conversations without messages first), then `createdAt` and `id`. View-only callers receive only their own conversations. Callers with ' +
         '`ai_assistant.conversations.manage` may list conversations across users in the same ' +
         'tenant/organization. The ' +
         '`agent` and `status` filters are optional; `cursor` is the opaque `nextCursor` returned by a ' +
