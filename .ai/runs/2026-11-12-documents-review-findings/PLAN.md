@@ -26,4 +26,4 @@ Goal: implement structured, text-anchored review findings in the Documents modul
 | 4.1 | AI tools, agent contract, workflows.ts registration, peer dep | done | f7dc18c3b4 |
 | 4.2 | UPDATE_ENTITY array interpolation spike (array preserved, no findingsJson) + docs page | done | 460e110d85 |
 | 4.3 | Phase 4 integration test (TC-DOC-AGENT-001, passed locally) | done | 78d912d3c8 |
-| 5.1 | Full validation gate, draft PR | todo | |
+| 5.1 | Full validation gate, draft PR | done | |
