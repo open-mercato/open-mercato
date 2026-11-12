@@ -3,6 +3,9 @@
  */
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import enDict from '../../../i18n/en.json'
+import plDict from '../../../i18n/pl.json'
+
 import { ActivityCard } from '../ActivityCard'
 import type { InteractionSummary } from '../types'
 
@@ -126,4 +129,33 @@ describe('ActivityCard', () => {
 
     expect(onOpen).toHaveBeenCalledWith(activity)
   })
+
+  it.each([
+    { locale: 'en', dict: enDict as Record<string, string>, label: 'Canceled' },
+    { locale: 'pl', dict: plDict as Record<string, string>, label: 'Anulowana' },
+  ])('labels a canceled activity and strikes its title through ($locale)', ({ locale, dict, label }) => {
+    renderWithProviders(<ActivityCard activity={createActivity({ status: 'canceled' })} />, { locale, dict })
+
+    expect(screen.getByText(label)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Discovery call (32 min)' })).toHaveClass('line-through')
+  })
+
+  it.each(['planned', 'done', 'completed'])('does not show the canceled label for status %s', (status) => {
+    renderWithProviders(<ActivityCard activity={createActivity({ status })} />)
+
+    expect(screen.queryByText('Canceled')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Discovery call (32 min)' })).not.toHaveClass('line-through')
+  })
+})
+
+it.each([
+  { locale: 'en', dict: enDict, label: 'Unknown date' },
+  { locale: 'pl', dict: plDict, label: 'Nieznana data' },
+])('ActivityCard preserves unknown dates ($locale)', ({ locale, dict, label }) => {
+  const activity = createActivity({ occurredAt: null, scheduledAt: null, createdAt: '2035-01-01T12:34:00.000Z' })
+  renderWithProviders(<ActivityCard activity={activity} />, { locale, dict })
+  expect(screen.getByText(label)).toBeInTheDocument()
+  expect(screen.queryByText('2035')).not.toBeInTheDocument()
+  expect(screen.queryByText(/12:34/)).not.toBeInTheDocument()
+
 })

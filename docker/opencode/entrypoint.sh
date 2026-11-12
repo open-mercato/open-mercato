@@ -20,6 +20,34 @@ json_escape() {
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-/home/opencode/.config/opencode}"
 CONFIG_FILE="${CONFIG_DIR}/opencode.jsonc"
 
+# Corporate TLS trust for PULLED images: locally built images bake certs from
+# docker/opencode/certs into the system store, but the published Docker Hub
+# image cannot. The starter mounts that same dir read-only (OM_EXTRA_CA_DIR,
+# default /run/om-certs); assemble system bundle + extras and export it for
+# curl (SSL_CERT_FILE — must include the system bundle, it REPLACES the
+# default) and the opencode runtime (NODE_EXTRA_CA_CERTS). This runs as a
+# non-root user, so mutating the system store is not an option here. No-op
+# when the mount is absent or empty.
+OM_EXTRA_CA_DIR="${OM_EXTRA_CA_DIR:-/run/om-certs}"
+if [ -d "$OM_EXTRA_CA_DIR" ]; then
+  om_ca_bundle="/tmp/om-ca-bundle.pem"
+  om_ca_found=0
+  for om_cert in "$OM_EXTRA_CA_DIR"/*.crt "$OM_EXTRA_CA_DIR"/*.pem; do
+    [ -f "$om_cert" ] || continue
+    if [ "$om_ca_found" -eq 0 ]; then
+      cat /etc/ssl/certs/ca-certificates.crt > "$om_ca_bundle" 2>/dev/null || : > "$om_ca_bundle"
+      om_ca_found=1
+    fi
+    cat "$om_cert" >> "$om_ca_bundle"
+    echo "" >> "$om_ca_bundle"
+  done
+  if [ "$om_ca_found" -eq 1 ]; then
+    export SSL_CERT_FILE="$om_ca_bundle"
+    export NODE_EXTRA_CA_CERTS="$om_ca_bundle"
+    echo "[OpenCode] Corporate CA bundle assembled from ${OM_EXTRA_CA_DIR} (SSL_CERT_FILE + NODE_EXTRA_CA_CERTS)."
+  fi
+fi
+
 # Default values — OM_AI_* wins, OPENCODE_* is the BC fallback, defaults
 # target OpenAI + gpt-5-mini.
 PROVIDER="${OM_AI_PROVIDER:-${OPENCODE_PROVIDER:-openai}}"
@@ -146,7 +174,20 @@ case "$PROVIDER" in
     fi
     PROVIDER_CONFIG="\"openrouter\": { \"models\": { \"$MODEL_ID\": {} }$OPENROUTER_OPTIONS }"
     ;;
-  azure | deepinfra | groq | together | fireworks | litellm | ollama | lm-studio)
+  azure)
+    # Azure's /openai/v1 surface is OpenAI-compatible, but reasoning-family
+    # deployments (gpt-5*, o*) reject `max_tokens` (wanting
+    # `max_completion_tokens`) and `temperature`. Only the dedicated
+    # @ai-sdk/openai provider performs that parameter mapping — it detects
+    # reasoning models from the model id prefix, so deployments should be
+    # named after their model family (e.g. "gpt-5-something").
+    AZURE_OPTIONS="\"apiKey\": \"$(json_escape "$PROVIDER_KEY")\""
+    if [ -n "$PROVIDER_BASE_URL" ]; then
+      AZURE_OPTIONS="$AZURE_OPTIONS, \"baseURL\": \"$(json_escape "$PROVIDER_BASE_URL")\""
+    fi
+    PROVIDER_CONFIG="\"azure\": { \"npm\": \"@ai-sdk/openai\", \"options\": { $AZURE_OPTIONS }, \"models\": { \"$MODEL_ID\": {} } }"
+    ;;
+  deepinfra | groq | together | fireworks | litellm | ollama | lm-studio)
     # Treat as an OpenAI-compatible endpoint (@ai-sdk/openai-compatible). The
     # key/baseURL are passed explicitly so OpenCode does not need a built-in
     # provider definition for the id.
@@ -168,6 +209,16 @@ if [ -n "$MCP_API_KEY" ]; then
   MCP_HEADERS="{\"x-api-key\": \"$(json_escape "$MCP_API_KEY")\"}"
 fi
 
+# File plane (#12): when OM_OPENCODE_FILES_ENABLED is on, expose the built-in
+# read/write/edit tools so a file-agent's frontmatter can allow them (each agent's
+# frontmatter still scopes writes to the shared sandbox root via permission globs,
+# and non-file agents keep "*": false so these stay disabled for them). Default
+# off => identical historical deny, so existing agents are unaffected (BC).
+case "$(printf '%s' "${OM_OPENCODE_FILES_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on|enabled) FILE_TOOL="true" ;;
+  *) FILE_TOOL="false" ;;
+esac
+
 # Generate config file
 cat > "$CONFIG_FILE" << EOF
 {
@@ -178,10 +229,10 @@ cat > "$CONFIG_FILE" << EOF
   "model": "$CONFIG_MODEL",
   "instructions": ["AGENTS.md"],
   "tools": {
-    "write": false,
+    "write": $FILE_TOOL,
     "bash": false,
-    "edit": false,
-    "read": false,
+    "edit": $FILE_TOOL,
+    "read": $FILE_TOOL,
     "glob": false,
     "grep": false,
     "todoread": false,

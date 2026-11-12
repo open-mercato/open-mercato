@@ -1,10 +1,29 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { SalesSettings } from '../data/entities'
 import { salesSettingsUpsertSchema, type SalesSettingsUpsertInput } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
+
+async function ensureNumberEditPermission(
+  ctx: CommandRuntimeContext,
+  scope: { tenantId: string; organizationId: string }
+) {
+  const rbac = ctx.container.resolve('rbacService') as RbacService | null
+  const auth = ctx.auth
+  if (!rbac || !auth?.sub) return
+  const ok = await rbac.userHasAllFeatures(auth.sub, ['sales.documents.number.edit'], scope)
+  if (!ok) {
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(403, {
+      error: translate('sales.documents.errors.number_edit_forbidden', 'Document number cannot be edited.'),
+    })
+  }
+}
 
 export async function loadSalesSettings(
   em: EntityManager,
@@ -33,6 +52,16 @@ const saveSalesSettingsCommand: CommandHandler<
     const input = salesSettingsUpsertSchema.parse(rawInput)
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
+
+    const generator = ctx.container.resolve('salesDocumentNumberGenerator') as SalesDocumentNumberGenerator
+    const current = await generator.peekSequences(input)
+    const orderNextNumber =
+      input.orderNextNumber && input.orderNextNumber !== current.order ? input.orderNextNumber : undefined
+    const quoteNextNumber =
+      input.quoteNextNumber && input.quoteNextNumber !== current.quote ? input.quoteNextNumber : undefined
+    if (orderNextNumber || quoteNextNumber) {
+      await ensureNumberEditPermission(ctx, { tenantId: input.tenantId, organizationId: input.organizationId })
+    }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let settings = await loadSalesSettings(em, {
@@ -67,12 +96,11 @@ const saveSalesSettingsCommand: CommandHandler<
 
     await em.flush()
 
-    const generator = ctx.container.resolve('salesDocumentNumberGenerator') as SalesDocumentNumberGenerator
-    if (input.orderNextNumber) {
-      await generator.setNextSequence('order', input, input.orderNextNumber)
+    if (orderNextNumber) {
+      await generator.setNextSequence('order', input, orderNextNumber)
     }
-    if (input.quoteNextNumber) {
-      await generator.setNextSequence('quote', input, input.quoteNextNumber)
+    if (quoteNextNumber) {
+      await generator.setNextSequence('quote', input, quoteNextNumber)
     }
     const sequences = await generator.peekSequences(input)
 

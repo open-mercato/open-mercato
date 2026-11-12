@@ -70,7 +70,7 @@ export async function GET(req: Request) {
   const moduleInfo = new Map<string, { id: string; title: string }>()
   for (const m of modules) {
     if (m.id) {
-      moduleInfo.set(m.id, { id: m.id, title: (m.info as any)?.title || m.id })
+      moduleInfo.set(m.id, { id: m.id, title: m.info?.title || m.info?.name || m.id })
     }
   }
 

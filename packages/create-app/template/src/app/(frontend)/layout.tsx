@@ -16,8 +16,18 @@ type LayoutProps = {
 
 const PUBLIC_SUFFIXES = ['/portal/login', '/portal/signup', '/portal/invite', '/portal/reset-password', '/portal/verify']
 
+const PORTAL_ROOT_PATTERN = /^\/[^/]+\/portal\/?$/
+
+// The portal root is public so a visitor with no session — or a session bound to
+// another organization — still gets the landing page and its org resolved by
+// slug. It must not demote a session that DOES match the URL org: that rendered
+// the logged-out shell around authenticated content (#5678).
+function isPortalRootRoute(pathname: string): boolean {
+  return PORTAL_ROOT_PATTERN.test(pathname)
+}
+
 function isPublicPortalRoute(pathname: string): boolean {
-  if (/^\/[^/]+\/portal\/?$/.test(pathname)) return true
+  if (isPortalRootRoute(pathname)) return true
   return PUBLIC_SUFFIXES.some((s) => pathname.endsWith(s))
 }
 
@@ -55,6 +65,7 @@ export default async function FrontendLayout({ children }: LayoutProps) {
 
   const orgSlug = portalMatch[1]
   const isPublic = isPublicPortalRoute(pathname)
+  const isPortalRoot = isPortalRootRoute(pathname)
 
   const customerAuth = await getCustomerAuthFromCookies()
 
@@ -146,16 +157,22 @@ export default async function FrontendLayout({ children }: LayoutProps) {
     )
   }
 
+  // The chrome and the session travel together. PortalShell lets a context user
+  // upgrade a stale `authenticated` prop, so handing the session to the provider
+  // on a route that renders the public chrome would put the authenticated shell
+  // on the login and signup pages.
+  const authenticatedChrome = customerAuthMatchesUrlOrg && (!isPublic || isPortalRoot)
+
   return (
     <PortalLayoutShell
       orgSlug={orgSlug}
       organizationName={orgName}
       tenantId={tenantId}
       organizationId={organizationId}
-      authenticated={!isPublic && customerAuthMatchesUrlOrg}
-      userName={userName}
-      userEmail={userEmail}
-      customerAuth={customerAuthMatchesUrlOrg ? customerAuth : null}
+      authenticated={authenticatedChrome}
+      userName={authenticatedChrome ? userName : null}
+      userEmail={authenticatedChrome ? userEmail : null}
+      customerAuth={authenticatedChrome ? customerAuth : null}
     >
       {children}
     </PortalLayoutShell>

@@ -10,6 +10,8 @@ This app supports modular features delivered as either:
 - App-level overrides under `apps/mercato/src/modules/*` (take precedence)
 - External npm packages that export the same interface
 
+In a standalone app, local modules live under `src/modules/` and are registered in `src/modules.ts`. To scaffold one, publish it as an npm package and dedicated GitHub repository, or link repository development back into the same app, see [Publishing Custom Modules](./publishing-custom-modules).
+
 ## Conventions
 - Modules: plural snake_case folder and `id` (special cases: `auth`).
 - JS/TS: camelCase for variables and fields.
@@ -249,11 +251,11 @@ This ensures that:
 - Generators (`yarn generate`) and migrations (`yarn db:*`) only include enabled modules.
 - Migrations are written under `packages/<pkg>/src/modules/<module>/migrations` for package modules, or `apps/mercato/src/modules/<module>/migrations` for app-local modules.
 
-## Official Modules
+## Find modules {#official-modules}
 
-Beyond core and app-level modules, the community publishes reusable modules to the **[Official Modules repository](https://github.com/open-mercato/official-modules)**. These are reviewed, installable in one command, and ejectable for full local ownership. If you've built a module that others could use, this is the recommended way to share it without modifying the core platform.
+Beyond core and app-level modules, the core team, partners, and the community publish reusable modules as npm packages. **[Open Mercato Modules](https://modules.openmercato.com)** lists them with what each one adds, its license, and the Open Mercato versions it installs on. They install in one command and can be ejected for full local ownership. Search it before you build a feature, and list your own module there to share it without modifying the core platform.
 
-See [Official Modules](./official-modules) for installation, ejection, and contribution details.
+See [Modules catalog](./official-modules) for installation, ejection, and listing details.
 
 ## Learning from a Real Module
 

@@ -170,6 +170,7 @@ function SudoConfigCrudPageInner({
           title={mode === 'edit'
             ? t('security.admin.sudo.form.title.edit', 'Edit sudo rule')
             : t('security.admin.sudo.form.title.create', 'Create sudo rule')}
+          titleHeadingLevel={1}
           backHref="/backend/security/sudo"
           fields={fields}
           groups={groups}

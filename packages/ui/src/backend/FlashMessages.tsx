@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, type AlertStatus } from '../primitives/alert'
 
 export type FlashKind = 'success' | 'error' | 'warning' | 'info'
@@ -35,12 +36,87 @@ function isSameOriginFlashNavigation(): boolean {
   }
 }
 
+// A page that flashes from a mount effect (e.g. reading an OAuth callback's
+// result params) can run before any `<FlashMessages />` host has attached its
+// listener: on a full page load hydration is split across Suspense boundaries,
+// so the page's effects may commit ahead of the hosts' and the event would be
+// dropped. Keep the latest undelivered message briefly and let the hosts that
+// start listening in the same commit show it, so the primary-host election
+// stays in sync.
+const PENDING_FLASH_MAX_AGE_MS = 5000
+let listeningFlashHostCount = 0
+let pendingFlash: { message: string; type: FlashKind; queuedAt: number } | null = null
+
+function readPendingFlash(): { message: string; type: FlashKind } | null {
+  const pending = pendingFlash
+  if (!pending) return null
+  if (Date.now() - pending.queuedAt > PENDING_FLASH_MAX_AGE_MS) {
+    pendingFlash = null
+    return null
+  }
+  setTimeout(() => {
+    if (pendingFlash === pending) pendingFlash = null
+  }, 0)
+  return pending
+}
+
 // Programmatic API to show a flash message without navigation.
 // Consumers can import { flash } and call flash('text', 'error').
 export function flash(message: string, type: FlashKind = 'info') {
   if (typeof window === 'undefined') return
+  if (listeningFlashHostCount === 0) {
+    pendingFlash = { message, type, queuedAt: Date.now() }
+  }
   const evt = new CustomEvent('flash', { detail: { message, type } })
   window.dispatchEvent(evt)
+}
+
+// Two hosts mount `<FlashMessages />` over the same page: `FrontendLayout`
+// wraps the entire app (backend routes included, via `AppProviders`) and
+// `AppShell` mounts its own copy inside `<main>`. Both listen to the same
+// `flash` event, so every backend toast rendered twice — two stacked fixed
+// overlays, each with its own dismiss button, so dismissing one left the other
+// behind. Both mount points are public surfaces third-party apps rely on, so
+// instead of deleting one, only the first host to mount renders; the others
+// keep their state in sync and take over if it unmounts.
+const mountedFlashHostIds: symbol[] = []
+const flashHostListeners = new Set<() => void>()
+
+function notifyFlashHostListeners() {
+  for (const listener of flashHostListeners) listener()
+}
+
+function subscribeFlashHosts(listener: () => void): () => void {
+  flashHostListeners.add(listener)
+  return () => {
+    flashHostListeners.delete(listener)
+  }
+}
+
+function getPrimaryFlashHostId(): symbol | null {
+  return mountedFlashHostIds[0] ?? null
+}
+
+function getServerFlashHostId(): symbol | null {
+  return null
+}
+
+function useIsPrimaryFlashHost(): boolean {
+  const hostIdRef = React.useRef<symbol | null>(null)
+  if (hostIdRef.current === null) hostIdRef.current = Symbol('om-flash-host')
+  const hostId = hostIdRef.current
+
+  React.useEffect(() => {
+    mountedFlashHostIds.push(hostId)
+    notifyFlashHostListeners()
+    return () => {
+      const index = mountedFlashHostIds.indexOf(hostId)
+      if (index >= 0) mountedFlashHostIds.splice(index, 1)
+      notifyFlashHostListeners()
+    }
+  }, [hostId])
+
+  return React.useSyncExternalStore(subscribeFlashHosts, getPrimaryFlashHostId, getServerFlashHostId) === hostId
 }
 
 type HistoryMethod = History['pushState']
@@ -116,8 +192,10 @@ function useLocationKey() {
 }
 
 function FlashMessagesInner() {
+  const translate = useOptionalT()
   const [msg, setMsg] = React.useState<string | null>(null)
   const [kind, setKind] = React.useState<FlashKind>('info')
+  const isPrimaryHost = useIsPrimaryFlashHost()
   const locationKey = useLocationKey()
   const dismissTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -144,9 +222,16 @@ function FlashMessagesInner() {
     }
   }, [clearDismissTimer])
 
-  // Read flash from URL on any navigation change (client-side too)
+  // Read flash from URL on any navigation change (client-side too).
+  // Only the primary host may consume it: every mounted host would otherwise
+  // race to strip the params first, and a non-primary "winner" stores the
+  // message in state that never renders (its render is gated on
+  // isPrimaryHost below), silently swallowing the toast. Leaving the params
+  // in the URL for a non-primary host means the eventually-primary host's
+  // own effect re-runs and consumes them once isPrimaryHost flips true.
   React.useEffect(() => {
     if (typeof window === 'undefined') return
+    if (!isPrimaryHost) return
     const url = new URL(window.location.href)
     const message = url.searchParams.get('flash')
     const type = normalizeFlashKind(url.searchParams.get('type'))
@@ -161,7 +246,7 @@ function FlashMessagesInner() {
         showFlash(message, type)
       }
     }
-  }, [locationKey, showFlash])
+  }, [locationKey, showFlash, isPrimaryHost])
 
   // Listen for programmatic flash events
   React.useEffect(() => {
@@ -173,7 +258,13 @@ function FlashMessagesInner() {
       showFlash(text, t)
     }
     window.addEventListener('flash', handler as EventListener)
-    return () => window.removeEventListener('flash', handler as EventListener)
+    listeningFlashHostCount += 1
+    const pending = readPendingFlash()
+    if (pending) showFlash(pending.message, pending.type)
+    return () => {
+      listeningFlashHostCount -= 1
+      window.removeEventListener('flash', handler as EventListener)
+    }
   }, [showFlash])
 
   const handleDismiss = React.useCallback(() => {
@@ -181,7 +272,7 @@ function FlashMessagesInner() {
     setMsg(null)
   }, [clearDismissTimer])
 
-  if (!msg) return null
+  if (!msg || !isPrimaryHost) return null
 
   return (
     <div className="pointer-events-none fixed left-3 right-3 top-3 z-toast sm:left-auto sm:right-4 sm:w-[380px]">
@@ -190,6 +281,7 @@ function FlashMessagesInner() {
           status={flashKindToAlertStatus[kind]}
           size="sm"
           dismissible
+          dismissAriaLabel={translate ? translate('common.close', 'Close') : 'Close'}
           onDismiss={handleDismiss}
           className="shadow-md"
         >

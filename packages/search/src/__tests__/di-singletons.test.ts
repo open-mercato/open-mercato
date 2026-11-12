@@ -164,4 +164,19 @@ describe('registerSearchModule — fulltext driver canMemoize guard', () => {
 
     expect(jest.mocked(createFulltextDriver)).toHaveBeenCalledTimes(2)
   })
+
+  it('installs a fail-closed resolver when encrypted-field filtering cannot reach the database', async () => {
+    process.env.SEARCH_EXCLUDE_ENCRYPTED_FIELDS = 'true'
+    const container = makeMockContainer()
+
+    registerSearchModule(container as never, { skipVector: true, skipTokens: true })
+
+    const options = jest.mocked(createFulltextDriver).mock.calls[0]?.[0] as {
+      encryptionMapResolver?: (entityId: string) => Promise<unknown>
+    }
+    expect(options.encryptionMapResolver).toEqual(expect.any(Function))
+    await expect(options.encryptionMapResolver?.('demo:item') as Promise<unknown>).rejects.toThrow(
+      'refusing to index potentially encrypted fields',
+    )
+  })
 })

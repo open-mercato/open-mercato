@@ -5,9 +5,11 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
-import { isOpenInteractionStatus } from '../../lib/interactionStatus'
+import { isCanceledInteractionStatus, isOpenInteractionStatus } from '../../lib/interactionStatus'
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   call: Phone,
@@ -38,9 +40,9 @@ export function ActivityTimeline({ activities, onEdit, onMarkDone, onDelete }: A
   return (
     <div>
       {activities.map((activity, index) => {
-        const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
+        const dateStr = activity.scheduledAt ?? activity.occurredAt
         const activityYear = dateStr ? new Date(dateStr).getFullYear() : null
-        const prevDateStr = index > 0 ? (activities[index - 1].scheduledAt ?? activities[index - 1].occurredAt ?? activities[index - 1].createdAt) : null
+        const prevDateStr = index > 0 ? (activities[index - 1].scheduledAt ?? activities[index - 1].occurredAt) : null
         const prevYear = prevDateStr ? new Date(prevDateStr).getFullYear() : null
         const showYearSeparator = activityYear !== null && prevYear !== null && activityYear !== prevYear
 
@@ -85,11 +87,12 @@ function TimelineEntry({
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
   onDelete?: (activity: InteractionSummary) => void | Promise<void>
 }) {
-  const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
+  const dateStr = activity.scheduledAt ?? activity.occurredAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
   const title = activity.title ?? activity.body ?? activity.interactionType
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
   const isOpen = isOpenInteractionStatus(activity.status)
+  const isCanceled = isCanceledInteractionStatus(activity.status)
   const [markingDone, setMarkingDone] = React.useState(false)
   // Re-entrancy guard only — a ref avoids a render pair per delete since
   // nothing in the UI consumes the in-flight state.
@@ -127,11 +130,11 @@ function TimelineEntry({
       <div className="grid items-start gap-3" style={{ gridTemplateColumns: '75px 32px 1fr' }}>
         {/* Column 1: Date */}
         <div className="shrink-0">
-          <span className="block text-[11px] font-semibold leading-tight text-foreground">
-            {formatRelativeDate(dateStr, t)}
+          <span className="block text-xs font-semibold leading-tight text-foreground">
+            {dateStr ? formatRelativeDate(dateStr, t) : t('customers.timeline.date.unknown', 'Unknown date')}
           </span>
-          <span className="block text-[10px] leading-tight text-muted-foreground">
-            {formatTime(dateStr)}
+          <span className="block text-xs leading-tight text-muted-foreground">
+            {dateStr ? formatTime(dateStr) : null}
           </span>
         </div>
 
@@ -143,9 +146,21 @@ function TimelineEntry({
         {/* Column 3: Content */}
         <div className="min-w-0 space-y-1.5">
           <div className="flex items-start justify-between gap-2">
-            <span className="block text-[12px] font-semibold leading-tight text-foreground">
-              {title}{duration}
-            </span>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span
+                className={cn(
+                  'block text-xs font-semibold leading-tight',
+                  isCanceled ? 'text-muted-foreground line-through' : 'text-foreground',
+                )}
+              >
+                {title}{duration}
+              </span>
+              {isCanceled ? (
+                <StatusBadge variant="neutral" className="shrink-0">
+                  {t('customers.interactions.status.canceled', 'Canceled')}
+                </StatusBadge>
+              ) : null}
+            </div>
             <div className="flex shrink-0 items-center gap-1">
               {isOpen && onMarkDone ? (
                 <Button

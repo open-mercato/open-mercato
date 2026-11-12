@@ -79,8 +79,11 @@ test.describe('TC-WF-029: workflow organization scoping (#2462)', () => {
         name: 'QA TC-WF-029 B',
       })
       // Restrict each user's visibility to their own organization (sets the scope filter).
-      await setUserAclVisibility(request, superadminToken, { userId: userAId, organizations: [orgAId] })
-      await setUserAclVisibility(request, superadminToken, { userId: userBId, organizations: [orgBId] })
+      // A per-user ACL is an absolute override, so the workflow grant has to be restated
+      // alongside the scope — an organization-only override would leave the user with no
+      // features at all rather than narrowing the role (#5493).
+      await setUserAclVisibility(request, superadminToken, { userId: userAId, organizations: [orgAId], features: ['workflows.*'] })
+      await setUserAclVisibility(request, superadminToken, { userId: userBId, organizations: [orgBId], features: ['workflows.*'] })
 
       tokenA = await getAuthToken(request, `qa-tc-wf-029-a-${stamp}@example.com`, password)
       const tokenB = await getAuthToken(request, `qa-tc-wf-029-b-${stamp}@example.com`, password)

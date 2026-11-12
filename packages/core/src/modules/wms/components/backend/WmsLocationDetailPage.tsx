@@ -23,6 +23,7 @@ import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { downloadInventoryCsv } from '../../lib/inventoryCsvExport'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { Progress } from '@open-mercato/ui/primitives/progress'
@@ -38,7 +39,7 @@ import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
 import {
-  inventoryMovementReasonLabel,
+  formatInventoryMovementActivitySubtitle,
   type InventoryDisplayTranslator,
 } from '../../lib/inventoryDisplayUi'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
@@ -129,23 +130,6 @@ type InventoryMutationPreset = {
 type ItemFilter = 'all' | 'sellable' | 'picking' | 'nearExpiry'
 
 const NEAR_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
-
-function escapeCsvCell(value: string | number): string {
-  const str = String(value ?? '')
-  if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`
-  return str
-}
-
-function downloadCsvFile(filename: string, rows: string[][]) {
-  const csv = rows.map((row) => row.map(escapeCsvCell).join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
 
 function toNumber(value: string | number | null | undefined): number {
   const parsed = Number(value ?? 0)
@@ -340,17 +324,16 @@ function formatMovementSubtitle(
   row: InventoryMovementRow,
   t: InventoryDisplayTranslator,
 ): string | null {
-  const reasonLabel = inventoryMovementReasonLabel(
+  return formatInventoryMovementActivitySubtitle(
     {
       reasonCode: row.reason_code,
       reason: row.reason,
       movementType: row.type,
+      referenceType: row.reference_type,
+      referenceId: row.reference_id,
     },
     t,
   )
-  if (reasonLabel) return reasonLabel
-  if (row.reference_type && row.reference_id) return `${row.reference_type} · ${row.reference_id}`
-  return null
 }
 
 function formatMovementLocation(
@@ -398,34 +381,38 @@ function LocationKpiCard({
 }: LocationKpiCardProps) {
   return (
     <section className="flex min-h-52 flex-col rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="mt-3 text-xs text-muted-foreground">{caption}</p>
-      <div className="mt-2 flex items-end gap-3">
-        <p className="text-3xl font-semibold tracking-tight">{value}</p>
-        {badgeLabel ? (
-          <StatusBadge variant={badgeVariant} dot>
-            {badgeLabel}
-          </StatusBadge>
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="mt-3 text-xs text-muted-foreground">{caption}</p>
+      </div>
+      <div className="mt-auto pt-2">
+        <div className="flex items-end gap-3">
+          <p className="text-3xl font-semibold tracking-tight">{value}</p>
+          {badgeLabel ? (
+            <StatusBadge variant={badgeVariant} dot>
+              {badgeLabel}
+            </StatusBadge>
+          ) : null}
+        </div>
+        {progress != null ? (
+          <Progress
+            value={progress}
+            max={100}
+            tone={progress >= 80 ? 'warning' : 'accent'}
+            size="sm"
+            className="mt-3"
+          />
+        ) : null}
+        {onCtaClick ? (
+          <LinkButton variant="primary" size="sm" className="mt-4 w-fit" onClick={onCtaClick}>
+            {ctaLabel}
+          </LinkButton>
+        ) : ctaHref ? (
+          <LinkButton asChild variant="primary" size="sm" className="mt-4 w-fit">
+            <Link href={ctaHref}>{ctaLabel}</Link>
+          </LinkButton>
         ) : null}
       </div>
-      {progress != null ? (
-        <Progress
-          value={progress}
-          max={100}
-          tone={progress >= 80 ? 'warning' : 'accent'}
-          size="sm"
-          className="mt-3"
-        />
-      ) : null}
-      {onCtaClick ? (
-        <LinkButton variant="primary" size="sm" className="mt-auto pt-4 w-fit" onClick={onCtaClick}>
-          {ctaLabel}
-        </LinkButton>
-      ) : ctaHref ? (
-        <LinkButton asChild variant="primary" size="sm" className="mt-auto pt-4 w-fit">
-          <Link href={ctaHref}>{ctaLabel}</Link>
-        </LinkButton>
-      ) : null}
     </section>
   )
 }
@@ -759,13 +746,13 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
         formatSkuLabel(row),
         formatVariantName(row),
         formatLotLabel(lot, locale),
-        String(toNumber(row.quantity_on_hand)),
-        String(toNumber(row.quantity_reserved)),
+        toNumber(row.quantity_on_hand),
+        toNumber(row.quantity_reserved),
         t(status.labelKey, status.labelFallback),
       ]
     })
     const safeCode = pageTitle.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'location'
-    downloadCsvFile(`${safeCode}-items.csv`, [headers, ...rows])
+    downloadInventoryCsv(`${safeCode}-items.csv`, [headers, ...rows])
   }, [filteredBalances, locale, lotById, nowMs, pageTitle, reorderPointByVariant, t])
 
   const warehouseLabel = formatWarehouseLabel(locationQuery.data ?? {})
@@ -1198,6 +1185,7 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
 
             <DataTable<InventoryMovementRow>
               title={t('wms.backend.location.activity.title', 'Recent activity')}
+              titleHeadingLevel={2}
               columns={activityColumns}
               data={movementsQuery.data ?? []}
               disableRowClick

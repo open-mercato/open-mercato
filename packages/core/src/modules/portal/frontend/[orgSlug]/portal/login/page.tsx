@@ -12,6 +12,7 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { SearchX } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { navigateWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 
@@ -47,7 +48,7 @@ export default function PortalLoginPage({ params }: Props) {
         })
 
         if (result.ok && result.result?.ok) {
-          window.location.assign(`/${orgSlug}/portal/dashboard`)
+          navigateWithPageReload(`/${orgSlug}/portal/dashboard`)
           return
         }
 

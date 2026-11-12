@@ -7,7 +7,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   TimePicker as TimePickerPrimitive,
   formatTimePickerDisplay,
+  type TimeFormat,
 } from '../../primitives/time-picker'
+import { useTimeDisplayFormat } from '../../primitives/date-locale'
 
 export type TimePickerProps = {
   value?: string | null
@@ -19,7 +21,19 @@ export type TimePickerProps = {
   minuteStep?: number
   showNowButton?: boolean
   showClearButton?: boolean
+  /**
+   * Render the popover in Radix modal mode. Required for the slot list to be
+   * wheel/touch scrollable when the picker is opened from inside a modal
+   * Dialog; defaults to `false` so plain form pages keep a light popover.
+   */
   popoverModal?: boolean
+  /**
+   * Clock convention for the trigger label and the slot list. Defaults to the one the active
+   * locale writes time in — `12h` for English and Korean, `24h` for Polish, German and Spanish —
+   * so a tenant does not read an AM/PM clock its language never uses. Pass an explicit value to
+   * pin one regardless of locale.
+   */
+  format?: TimeFormat
 }
 
 function currentHHMM(): string {
@@ -55,8 +69,11 @@ export function TimePicker({
   // Dialog (the dialog scroll lock otherwise blocks the slot list), leave off on
   // plain form pages where a background scroll lock would be too heavy.
   popoverModal = false,
+  format,
 }: TimePickerProps) {
   const t = useT()
+  const localeFormat = useTimeDisplayFormat()
+  const timeFormat = format ?? localeFormat
   const [open, setOpen] = React.useState(false)
 
   const placeholderText = placeholder ?? t('ui.timePicker.placeholder', 'Pick a time')
@@ -64,11 +81,11 @@ export function TimePicker({
   const clearText = t('ui.timePicker.clearButton', 'Clear')
   const isInteractive = !disabled && !readOnly
 
-  // Render the trigger label in the same 12h "HH:MM AM/PM" format as the slot list
-  // inside the popover so users see one consistent representation.
+  // Render the trigger label in the same format as the slot list inside the popover
+  // so users see one consistent representation.
   const displayValue = value
     ? (() => {
-        const { main, suffix } = formatTimePickerDisplay(value, '12h')
+        const { main, suffix } = formatTimePickerDisplay(value, timeFormat)
         return suffix ? `${main} ${suffix}` : main
       })()
     : null
@@ -106,7 +123,7 @@ export function TimePicker({
   }> = []
   if (showNowButton) {
     const nowValue = currentHHMM()
-    const { main: nowMain, suffix: nowSuffix } = formatTimePickerDisplay(nowValue, '12h')
+    const { main: nowMain, suffix: nowSuffix } = formatTimePickerDisplay(nowValue, timeFormat)
     pinnedTopActions.push({
       label: nowText,
       icon: <ClockIcon aria-hidden="true" />,
@@ -138,6 +155,7 @@ export function TimePicker({
         onChange(next)
       }}
       intervalMinutes={Math.max(1, minuteStep)}
+      format={timeFormat}
       // Trigger button already displays current value — don't duplicate it
       // inside the popover header.
       showHeader={false}

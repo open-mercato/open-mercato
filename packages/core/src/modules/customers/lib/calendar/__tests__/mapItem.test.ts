@@ -148,6 +148,25 @@ describe('mapInteractionToCalendarItem', () => {
     expect(withoutParticipants!.participants).toEqual([])
   })
 
+  it('carries the participant status into the projection', () => {
+    const item = mapInteractionToCalendarItem(
+      makePayload({
+        id: 'participant-status',
+        participants: [
+          { userId: 'user-1', name: 'Anna', status: 'accepted' },
+          { email: 'guest@example.org', status: 'declined' },
+          { userId: 'user-2', status: 42 },
+        ],
+      }),
+      noColors,
+    )
+    expect(item!.participants).toEqual([
+      { userId: 'user-1', name: 'Anna', status: 'accepted' },
+      { email: 'guest@example.org', status: 'declined' },
+      { userId: 'user-2' },
+    ])
+  })
+
   it('drops duplicate participants by userId so avatar keys stay unique', () => {
     const item = mapInteractionToCalendarItem(
       makePayload({

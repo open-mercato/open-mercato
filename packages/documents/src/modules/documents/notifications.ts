@@ -4,6 +4,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'documents.comment.mentioned',
     module: 'documents',
+    channels: ['in_app', 'email'],
     titleKey: 'documents.notifications.comment.mentioned.title',
     bodyKey: 'documents.notifications.comment.mentioned.body',
     icon: 'at-sign',
@@ -17,6 +18,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'documents.watch.commented',
     module: 'documents',
+    channels: ['in_app', 'email'],
     titleKey: 'documents.notifications.watch.commented.title',
     bodyKey: 'documents.notifications.watch.commented.body',
     icon: 'bell',
@@ -30,6 +32,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'documents.watch.changed',
     module: 'documents',
+    channels: ['in_app', 'email'],
     titleKey: 'documents.notifications.watch.changed.title',
     bodyKey: 'documents.notifications.watch.changed.body',
     icon: 'bell',

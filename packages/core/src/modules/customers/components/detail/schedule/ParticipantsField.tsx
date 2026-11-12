@@ -9,6 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { fetchAssignableStaffMembersPage } from '../assignableStaff'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isVisible, getFieldLabel } from './fieldConfig'
@@ -66,6 +67,7 @@ function ParticipantSearchPopover({
   const [hasMore, setHasMore] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const selectableResults = React.useMemo(
     () => results.filter((result) => !existingIds.has(result.userId)),
     [existingIds, results],
@@ -75,7 +77,7 @@ function ParticipantSearchPopover({
     if (!open) return
     const controller = new AbortController()
     setLoading(true)
-    fetchAssignableStaffMembersPage(query, { page, pageSize: PAGE_SIZE, signal: controller.signal })
+    fetchAssignableStaffMembersPage(query, { page, pageSize: PAGE_SIZE, activeOrgId, signal: controller.signal })
       .then((result) => {
         const members = result.items
         const nextResults = members.map((member) => ({
@@ -104,7 +106,7 @@ function ParticipantSearchPopover({
       })
       .finally(() => setLoading(false))
     return () => controller.abort()
-  }, [open, page, query, t])
+  }, [activeOrgId, open, page, query, t])
 
   React.useEffect(() => {
     if (!open) return

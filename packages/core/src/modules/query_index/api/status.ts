@@ -17,6 +17,7 @@ import {
   SEARCH_AUTO_INDEX_CONFIG_MODULE,
 } from '@open-mercato/shared/lib/search/auto-indexing'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 
 export const metadata = {
@@ -59,7 +60,7 @@ export async function GET(req: Request) {
   const db = (em as any).getKysely()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
 
-  const organizationId = scope.selectedId ?? auth.orgId ?? null
+  const { organizationIds, rbacOrganizationId: organizationId } = resolveOrganizationScopeFilter(scope, auth)
   const tenantId = typeof scope.tenantId === 'string' && scope.tenantId.trim().length > 0
     ? scope.tenantId.trim()
     : (typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null)
@@ -67,14 +68,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Tenant context is required' }, { status: 400 })
   }
 
-  const organizationFilter =
-    scope.filterIds === null
-      ? null
-      : Array.isArray(scope.filterIds) && scope.filterIds.length > 0
-        ? scope.filterIds
-        : organizationId
-          ? [organizationId]
-          : []
+  const organizationFilter = organizationIds ?? null
 
   if (Array.isArray(organizationFilter) && organizationFilter.length === 0) {
     return NextResponse.json({ error: 'Organization access denied' }, { status: 403 })
@@ -334,6 +328,23 @@ export async function GET(req: Request) {
     )
     const stalledPartitions = activePartitions.filter((p) => p.status === 'stalled')
     const scopeCandidate = !preferOrg || !scopeRow || scopeRow.orgMatch ? scopeRow : null
+    // A scope-only job (no partition rows, e.g. partitionCount: 1) has nothing in
+    // `partitions` for the checks below to see, so its running/stalled/failed state and
+    // timestamps must fall back to the scope row itself instead of defaulting to idle/null.
+    const computeScopeStatus = (row: any): 'failed' | 'completed' | 'stalled' | 'reindexing' | 'purging' => {
+      const heartbeatDate = row.heartbeat_at ? new Date(row.heartbeat_at) : null
+      const finishedDate = row.finished_at ? new Date(row.finished_at) : null
+      if (finishedDate) return row.status === 'failed' ? 'failed' : 'completed'
+      if (!heartbeatDate || Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS) {
+        return 'stalled'
+      }
+      return (row.status as 'reindexing' | 'purging' | undefined | null) || 'reindexing'
+    }
+    const scopeStatus = scopeCandidate ? computeScopeStatus(scopeCandidate.row) : null
+    const scopeStartedAt = scopeCandidate?.row.started_at ? new Date(scopeCandidate.row.started_at).toISOString() : null
+    const scopeFinishedAt = scopeCandidate?.row.finished_at ? new Date(scopeCandidate.row.finished_at).toISOString() : null
+    const scopeHeartbeatAt = scopeCandidate?.row.heartbeat_at ? new Date(scopeCandidate.row.heartbeat_at).toISOString() : null
+
     let status: 'idle' | 'reindexing' | 'purging' | 'stalled' | 'failed' = 'idle'
     if (activePartitions.length) {
       if (runningPartitions.length) {
@@ -348,13 +359,19 @@ export async function GET(req: Request) {
       // The run finished but lost records; without this it reports "idle" and the only
       // hint that anything went wrong is the coverage percentage.
       status = 'failed'
+    } else if (!partitions.length && scopeStatus && scopeStatus !== 'completed') {
+      status = scopeStatus
     }
 
-    const startedAt = activePartitions[0]?.startedAt ?? partitions[0]?.startedAt ?? null
+    const startedAt = activePartitions[0]?.startedAt
+      ?? partitions[0]?.startedAt
+      ?? (!partitions.length ? scopeStartedAt : null)
     const finishedAt = status === 'idle' || status === 'failed'
-      ? (partitions.find((p) => p.finishedAt)?.finishedAt ?? null)
+      ? (partitions.find((p) => p.finishedAt)?.finishedAt ?? (!partitions.length ? scopeFinishedAt : null))
       : null
-    const heartbeatAt = activePartitions[0]?.heartbeatAt ?? partitions[0]?.heartbeatAt ?? null
+    const heartbeatAt = activePartitions[0]?.heartbeatAt
+      ?? partitions[0]?.heartbeatAt
+      ?? (!partitions.length ? scopeHeartbeatAt : null)
     const jobTotalCount = partitions.reduce((sum, p) => sum + (p.totalCount ?? 0), 0)
     const processedSum = partitions.reduce((sum, p) => sum + (p.processedCount ?? 0), 0)
     const processedCount = jobTotalCount ? Math.min(jobTotalCount, processedSum) : processedSum || null
@@ -369,18 +386,7 @@ export async function GET(req: Request) {
       partitions,
       scope: scopeCandidate
         ? {
-            status: (() => {
-              const heartbeatDate = scopeCandidate!.row.heartbeat_at ? new Date(scopeCandidate!.row.heartbeat_at) : null
-              const finishedDate = scopeCandidate!.row.finished_at ? new Date(scopeCandidate!.row.finished_at) : null
-              if (finishedDate) return scopeCandidate!.row.status === 'failed' ? 'failed' : 'completed'
-              if (
-                !heartbeatDate ||
-                Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS
-              ) {
-                return 'stalled'
-              }
-              return (scopeCandidate!.row.status as string) || 'reindexing'
-            })(),
+            status: scopeStatus!,
             processedCount: scopeCandidate.row.processed_count ?? null,
             totalCount: scopeCandidate.row.total_count ?? null,
           }
@@ -625,6 +631,7 @@ const queryIndexStatusDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Tenant or organization context required', schema: queryIndexErrorSchema },
     { status: 401, description: 'Authentication required', schema: queryIndexErrorSchema },
+    { status: 403, description: 'Organization access denied', schema: queryIndexErrorSchema },
   ],
 }
 

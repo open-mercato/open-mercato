@@ -4,9 +4,11 @@ import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/d
 const resolveMessageContextMock = jest.fn()
 const buildForwardPreviewMock = jest.fn()
 const findOneWithDecryptionMock = jest.fn()
+const hasChannelThreadReadAccessMock = jest.fn()
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
+  hasChannelThreadReadAccess: (...args: unknown[]) => hasChannelThreadReadAccessMock(...args),
   hasOrganizationAccess: (scopeOrganizationId: string | null, messageOrganizationId: string | null | undefined) => (
     scopeOrganizationId ? messageOrganizationId === scopeOrganizationId : messageOrganizationId == null
   ),
@@ -54,6 +56,7 @@ describe('messages /api/messages/[id]/forward-preview', () => {
     })
 
     findOneWithDecryptionMock.mockReset()
+    hasChannelThreadReadAccessMock.mockResolvedValue(false)
   })
 
   it('returns preview for sender with 200', async () => {
@@ -159,6 +162,60 @@ describe('messages /api/messages/[id]/forward-preview', () => {
       messageId: 'message-1',
       recipientUserId: 'user-1',
       deletedAt: null,
+    })
+  })
+
+  describe('on a channel-linked thread (#6355)', () => {
+    const inboundMessage = {
+      id: 'message-1',
+      threadId: 'thread-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      senderUserId: 'channel-system-user',
+      visibility: 'public',
+      sourceEntityType: 'communication_channels.external_conversation',
+    }
+
+    it('previews the public conversation for an operator the channel grants access to', async () => {
+      findOneWithDecryptionMock.mockResolvedValueOnce(inboundMessage)
+      em.findOne.mockResolvedValueOnce(null)
+      hasChannelThreadReadAccessMock.mockResolvedValueOnce(true)
+
+      const response = await GET(new Request('http://localhost'), { params: { id: 'message-1' } })
+
+      expect(response.status).toBe(200)
+      expect(hasChannelThreadReadAccessMock).toHaveBeenCalledWith(
+        expect.anything(),
+        { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' },
+        inboundMessage,
+      )
+      expect(buildForwardPreviewMock).toHaveBeenCalledWith(
+        em,
+        { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' },
+        inboundMessage,
+        { includePublicThreadMessages: true },
+      )
+    })
+
+    it('returns 403 when the channel refuses the caller', async () => {
+      findOneWithDecryptionMock.mockResolvedValueOnce(inboundMessage)
+      em.findOne.mockResolvedValueOnce(null)
+
+      const response = await GET(new Request('http://localhost'), { params: { id: 'message-1' } })
+
+      expect(response.status).toBe(403)
+      expect(buildForwardPreviewMock).not.toHaveBeenCalled()
+    })
+
+    it('never opens a non-public message through the channel fallback', async () => {
+      findOneWithDecryptionMock.mockResolvedValueOnce({ ...inboundMessage, senderUserId: 'user-2', visibility: null })
+      em.findOne.mockResolvedValueOnce(null)
+      hasChannelThreadReadAccessMock.mockResolvedValue(true)
+
+      const response = await GET(new Request('http://localhost'), { params: { id: 'message-1' } })
+
+      expect(response.status).toBe(403)
+      expect(hasChannelThreadReadAccessMock).not.toHaveBeenCalled()
     })
   })
 })

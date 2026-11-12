@@ -49,7 +49,7 @@ Container starts but services fail health checks. `postCreateCommand` never runs
 
 ### PostgreSQL password rejected
 **Symptom**: `FATAL: password authentication failed for user "postgres"`.
-**Diagnose**: `postgres_data` volume was created with different credentials than current `docker-compose.yml`.
+**Diagnose**: `postgres_data` volume was created with different credentials than current `.devcontainer/docker-compose.yml`.
 **Fix**: Wipe postgres volume (see above). Credentials are set on first init and stored in the volume.
 
 ### Redis not starting

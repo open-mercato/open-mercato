@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent SDK — Simplified Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --background:oklch(1 0 0); --foreground:oklch(0.145 0 0);
+  --card:oklch(1 0 0); --card-foreground:oklch(0.145 0 0);
+  --muted:oklch(0.97 0 0); --muted-foreground:oklch(0.556 0 0);
+  --secondary:oklch(0.97 0 0); --accent:oklch(0.97 0 0);
+  --primary:oklch(0.205 0 0); --primary-foreground:oklch(0.985 0 0);
+  --border:oklch(0.922 0 0); --input:oklch(0.922 0 0); --ring:oklch(0.708 0 0);
+  --destructive:oklch(0.577 0.245 27.325);
+  --brand-violet:oklch(0.55 0.2 293); --brand-violet-foreground:oklch(0.985 0 0);
+  --accent-indigo:#6366f1;
+  --status-error-bg:oklch(0.971 0.013 17.38); --status-error-text:oklch(0.396 0.141 25.723); --status-error-border:oklch(0.885 0.062 18.334);
+  --status-success-bg:oklch(0.982 0.018 155.826); --status-success-text:oklch(0.393 0.095 152.535); --status-success-border:oklch(0.925 0.084 155.995); --status-success-icon:oklch(0.627 0.194 149.214);
+  --status-warning-bg:oklch(0.987 0.022 95.277); --status-warning-text:oklch(0.414 0.112 45.904); --status-warning-border:oklch(0.924 0.12 95.746); --status-warning-icon:oklch(0.666 0.179 58.318);
+  --status-info-bg:oklch(0.962 0.018 272.314); --status-info-text:oklch(0.359 0.144 278.697); --status-info-border:oklch(0.870 0.065 274.039); --status-info-icon:oklch(0.511 0.262 276.966);
+  --status-neutral-bg:oklch(0.97 0 0); --status-neutral-text:oklch(0.371 0 0); --status-neutral-border:oklch(0.922 0 0);
+  --radius:0.625rem; --radius-sm:calc(var(--radius) - 4px); --radius-md:calc(var(--radius) - 2px); --radius-lg:var(--radius); --radius-xl:calc(var(--radius) + 6px);
+  --font-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:ui-mono,ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --shadow-sm:0 1px 2px oklch(0.145 0 0 / .05);
+  --shadow-md:0 1px 2px oklch(0.145 0 0 / .05), 0 4px 14px oklch(0.145 0 0 / .06);
+  --shadow-violet:0 4px 18px oklch(0.55 0.2 293 / .22);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:var(--font-sans);background:var(--background);color:var(--foreground);
+  line-height:1.45;-webkit-font-smoothing:antialiased;padding:32px 22px 56px;
+}
+.wrap{max-width:1220px;margin:0 auto}
+.mono{font-family:var(--font-mono)}
+.title-font{font-family:"Space Grotesk",var(--font-sans)}
+
+/* ---- header ---- */
+header{margin-bottom:18px}
+.eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600}
+h1{font-family:"Space Grotesk",var(--font-sans);font-size:28px;font-weight:600;letter-spacing:-.02em;margin-top:4px}
+.sub{color:var(--muted-foreground);font-size:13.5px;margin-top:5px;max-width:820px}
+
+.principle{
+  margin-top:14px;display:flex;align-items:center;gap:12px;
+  background:var(--card);border:1px solid var(--border);border-left:3px solid var(--brand-violet);
+  border-radius:var(--radius-lg);padding:11px 16px;font-size:13.5px;box-shadow:var(--shadow-sm);max-width:920px;
+}
+.principle .pmark{
+  flex:none;width:24px;height:24px;border-radius:7px;background:var(--brand-violet);color:var(--brand-violet-foreground);
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;font-family:"Space Grotesk",var(--font-sans);
+}
+.principle b{font-family:"Space Grotesk",var(--font-sans);font-weight:600}
+.pp-v{color:var(--brand-violet);font-weight:600}
+.pp-i{color:var(--primary);font-weight:600}
+
+/* ---- legend ---- */
+.legend{display:flex;gap:20px;flex-wrap:wrap;margin:18px 0 8px;align-items:center}
+.lg{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted-foreground);font-weight:500}
+.lg .sw{width:14px;height:14px;border-radius:5px;border:1.5px solid var(--border)}
+.sw.core{background:color-mix(in oklab, var(--brand-violet) 12%, white);border-color:var(--brand-violet)}
+.sw.overlay{background:var(--muted);border:1.5px dashed var(--muted-foreground)}
+.sw.foundation{background:var(--muted);border-color:var(--primary)}
+
+/* ---- section titles ---- */
+.sec-title{
+  font-family:"Space Grotesk",var(--font-sans);font-size:12px;font-weight:600;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--muted-foreground);margin:30px 0 13px;display:flex;align-items:center;gap:12px;
+}
+.sec-title .num{
+  flex:none;width:20px;height:20px;border-radius:6px;background:var(--primary);color:var(--primary-foreground);
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;
+}
+.sec-title::after{content:"";flex:1;height:1px;background:var(--border)}
+
+/* ---- arrows ---- */
+.flowdown{display:flex;justify-content:center;margin:10px 0;color:var(--ring)}
+.flowdown svg{width:22px;height:22px;stroke:var(--ring);fill:none;stroke-width:2}
+
+/* ---- generic node ---- */
+.node{
+  border-radius:var(--radius-lg);padding:10px 13px;font-size:12.5px;font-weight:600;border:1px solid var(--border);
+  background:var(--card);color:var(--foreground);display:flex;flex-direction:column;gap:2px;min-width:0;
+}
+.node small{font-size:10.5px;font-weight:500;color:var(--muted-foreground)}
+
+/* ===== CORE: Agent SDK box ===== */
+.core-card{
+  border:1.5px solid var(--brand-violet);border-radius:var(--radius-xl);
+  background:linear-gradient(180deg, color-mix(in oklab, var(--brand-violet) 5%, white) 0%, color-mix(in oklab, var(--brand-violet) 9%, white) 100%);
+  padding:16px 18px 18px;box-shadow:var(--shadow-violet);
+}
+.core-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:13px;border-bottom:1px dashed color-mix(in oklab, var(--brand-violet) 35%, white)}
+.core-badge{
+  flex:none;background:var(--brand-violet);color:var(--brand-violet-foreground);
+  border-radius:var(--radius-md);padding:6px 12px;font-family:"Space Grotesk",var(--font-sans);font-weight:600;font-size:14px;letter-spacing:-.01em;
+  box-shadow:var(--shadow-violet);
+}
+.core-head .ch-t{font-family:"Space Grotesk",var(--font-sans);font-weight:600;font-size:14.5px;color:var(--brand-violet)}
+.core-head .ch-s{font-size:11.5px;color:var(--muted-foreground)}
+.pill-core{
+  margin-left:auto;font-size:10.5px;font-weight:600;font-family:var(--font-mono);
+  background:var(--brand-violet);color:var(--brand-violet-foreground);padding:4px 9px;border-radius:999px;
+}
+
+.core-flow{display:flex;gap:12px;align-items:stretch;flex-wrap:wrap}
+.cf-step{
+  flex:1;min-width:230px;background:var(--card);border:1px solid color-mix(in oklab, var(--brand-violet) 30%, var(--border));
+  border-radius:var(--radius-lg);padding:12px 14px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:5px;position:relative;
+}
+.cf-step .cf-k{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-weight:600;font-size:13px;color:var(--brand-violet)}
+.cf-step .cf-k .dot{width:7px;height:7px;border-radius:50%;background:var(--brand-violet)}
+.cf-step .cf-d{font-size:11.5px;color:var(--muted-foreground);line-height:1.4}
+.cf-arrow{display:flex;align-items:center;color:var(--brand-violet);font-weight:700;font-size:18px}
+@media(max-width:880px){.cf-arrow{transform:rotate(90deg)}}
+
+.result-tags{display:flex;gap:7px;margin-top:3px;flex-wrap:wrap}
+.tag{font-size:10.5px;font-weight:600;font-family:var(--font-mono);padding:3px 9px;border-radius:999px;border:1px solid}
+.tag.actionable{background:var(--status-warning-bg);color:var(--status-warning-text);border-color:var(--status-warning-border)}
+.tag.informative{background:var(--status-info-bg);color:var(--status-info-text);border-color:var(--status-info-border)}
+
+/* core foundation strip */
+.core-base{
+  margin-top:13px;padding-top:12px;border-top:1px dashed color-mix(in oklab, var(--brand-violet) 30%, white);
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+}
+.core-base .cb-lbl{font-size:11px;font-weight:600;color:var(--muted-foreground);font-family:var(--font-mono)}
+.chip{
+  font-size:11px;font-weight:600;font-family:var(--font-mono);background:var(--card);
+  border:1px solid var(--border);color:var(--foreground);padding:5px 10px;border-radius:var(--radius-md);
+}
+
+/* ===== CALLERS ===== */
+.callers{display:flex;gap:14px;flex-wrap:wrap}
+.caller{
+  flex:1;min-width:280px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card);
+  padding:13px 15px;box-shadow:var(--shadow-md);position:relative;
+}
+.caller.default{border-color:var(--primary);border-width:1.5px}
+.caller.optional{border-style:dashed;border-color:var(--muted-foreground);background:var(--muted)}
+.caller-h{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.caller-h .icon{
+  width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;flex:none;
+  font-size:13px;
+}
+.caller.default .icon{background:var(--primary);color:var(--primary-foreground)}
+.caller.optional .icon{background:var(--status-neutral-bg);color:var(--muted-foreground);border:1px dashed var(--muted-foreground)}
+.caller-h .ct{font-family:"Space Grotesk",var(--font-sans);font-weight:600;font-size:14px}
+.caller .cd{font-size:11.5px;color:var(--muted-foreground);line-height:1.45}
+.badge-role{
+  position:absolute;top:12px;right:13px;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  font-family:var(--font-mono);padding:3px 8px;border-radius:999px;
+}
+.badge-role.def{background:var(--primary);color:var(--primary-foreground)}
+.badge-role.opt{background:var(--status-neutral-bg);color:var(--status-neutral-text);border:1px solid var(--status-neutral-border)}
+.callcode{
+  margin-top:9px;font-family:var(--font-mono);font-size:11px;background:var(--muted);border:1px solid var(--border);
+  border-radius:var(--radius-md);padding:7px 10px;color:var(--foreground);
+}
+.callcode .kw{color:var(--brand-violet);font-weight:600}
+
+/* ===== RESULT PATH ===== */
+.path-grid{display:flex;gap:14px;flex-wrap:wrap}
+.path-col{flex:1;min-width:300px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card);padding:13px 15px;box-shadow:var(--shadow-sm)}
+.path-col .pc-head{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.path-col .pc-head .tag{margin:0}
+.path-steps{display:flex;flex-direction:column;gap:8px}
+.pstep{display:flex;align-items:flex-start;gap:10px;font-size:12px}
+.pstep .pn{
+  flex:none;width:18px;height:18px;border-radius:50%;border:1px solid var(--border);background:var(--muted);
+  display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--muted-foreground);margin-top:1px;
+}
+.pstep .pt{color:var(--foreground)}
+.pstep .pt b{font-weight:600}
+.pstep .pt small{display:block;color:var(--muted-foreground);font-size:10.5px;margin-top:1px}
+.gate-row{display:flex;gap:7px;margin-top:3px;flex-wrap:wrap}
+.gate-pill{font-size:10.5px;font-weight:600;font-family:var(--font-mono);padding:3px 9px;border-radius:var(--radius-sm);border:1px solid}
+.gate-pill.auto{background:var(--status-success-bg);color:var(--status-success-text);border-color:var(--status-success-border)}
+.gate-pill.human{background:var(--status-warning-bg);color:var(--status-warning-text);border-color:var(--status-warning-border)}
+.gate-pill.ui{background:var(--status-info-bg);color:var(--status-info-text);border-color:var(--status-info-border)}
+
+/* ===== OVERLAYS ===== */
+.overlay-note{font-size:12px;color:var(--muted-foreground);margin:-4px 0 12px}
+.overlay-note b{color:var(--foreground);font-weight:600}
+.overlays{display:grid;grid-template-columns:repeat(auto-fill,minmax(196px,1fr));gap:11px}
+.ovl{
+  border:1.5px dashed var(--muted-foreground);border-radius:var(--radius-lg);background:var(--muted);
+  padding:11px 13px;display:flex;flex-direction:column;gap:3px;
+}
+.ovl .ot{font-family:"Space Grotesk",var(--font-sans);font-weight:600;font-size:12.5px;color:var(--foreground)}
+.ovl .od{font-size:10.5px;color:var(--muted-foreground);line-height:1.4}
+
+/* ===== FOUNDATION ===== */
+.foundation{
+  border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card);
+  padding:13px 15px;box-shadow:var(--shadow-sm);display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+}
+.foundation .fb-lbl{
+  font-family:"Space Grotesk",var(--font-sans);font-weight:600;font-size:12px;color:var(--foreground);
+  padding-right:13px;margin-right:2px;border-right:1px solid var(--border);
+}
+.fnode{
+  display:flex;flex-direction:column;gap:1px;border:1px solid var(--border);border-left:3px solid var(--primary);
+  background:var(--card);border-radius:var(--radius-md);padding:7px 11px;
+}
+.fnode .fn-t{font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--foreground)}
+.fnode .fn-s{font-size:9.5px;color:var(--muted-foreground)}
+
+footer{margin-top:32px;font-size:11px;color:var(--muted-foreground);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+footer .dotsep{opacity:.4}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Open Mercato · Agent Orchestrator</div>
+    <h1 class="title-font">Agent SDK — Simplified Architecture</h1>
+    <p class="sub">The agent is the primitive. Author once, call it like a function. Everything heavier — workflow, gating, dispatch, compliance — is an optional overlay you adopt à la carte.</p>
+
+    <div class="principle">
+      <span class="pmark">→</span>
+      <span><b>Agent is the primitive — call it like a function.</b> Workflow is one optional caller. <span class="pp-v">LLM proposes</span> → <span class="pp-i">the app disposes</span>.</span>
+    </div>
+
+    <div class="legend">
+      <span class="lg"><span class="sw core"></span>Core — the only must-build</span>
+      <span class="lg"><span class="sw overlay"></span>Optional overlay — adopt à la carte</span>
+      <span class="lg"><span class="sw foundation"></span>OM foundation — adopt / reuse</span>
+    </div>
+  </header>
+
+  <!-- ===================== CORE ===================== -->
+  <div class="sec-title"><span class="num">1</span>The core — the only must-build</div>
+
+  <div class="core-card">
+    <div class="core-head">
+      <span class="core-badge">Agent SDK</span>
+      <div>
+        <div class="ch-t">The callable agent primitive</div>
+        <div class="ch-s">Three small things — built entirely on what OM already ships</div>
+      </div>
+      <span class="pill-core">CORE</span>
+    </div>
+
+    <div class="core-flow">
+      <div class="cf-step">
+        <div class="cf-k"><span class="dot"></span>defineAgent</div>
+        <div class="cf-d">Author once, auto-discovered like <span class="mono">events.ts</span> / <span class="mono">acl.ts</span> via a module's <span class="mono">agents.ts</span>.</div>
+        <div class="result-tags">
+          <span class="tag" style="background:var(--card);border-color:var(--border);color:var(--muted-foreground)">instructions</span>
+          <span class="tag" style="background:var(--card);border-color:var(--border);color:var(--muted-foreground)">tools</span>
+          <span class="tag" style="background:var(--card);border-color:var(--border);color:var(--muted-foreground)">skills</span>
+          <span class="tag" style="background:var(--card);border-color:var(--border);color:var(--muted-foreground)">loop</span>
+          <span class="tag" style="background:var(--card);border-color:var(--border);color:var(--muted-foreground)">result</span>
+        </div>
+      </div>
+
+      <div class="cf-arrow">→</div>
+
+      <div class="cf-step">
+        <div class="cf-k"><span class="dot"></span>runAgent(id, input, ctx)</div>
+        <div class="cf-d">One function, callable from anywhere. Resolves agent, loads skills, runs the bounded loop, validates output. In-process, synchronous-ish (await).</div>
+      </div>
+
+      <div class="cf-arrow">→</div>
+
+      <div class="cf-step">
+        <div class="cf-k"><span class="dot"></span>AgentResult</div>
+        <div class="cf-d">A typed, validated result the caller acts on.</div>
+        <div class="result-tags">
+          <span class="tag actionable">actionable · proposal</span>
+          <span class="tag informative">informative · data</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="core-base">
+      <span class="cb-lbl">Sits on existing ai_assistant:</span>
+      <span class="chip">runAiAgentObject (object-mode)</span>
+      <span class="chip">AiModelFactory</span>
+      <span class="chip">defineAiTool</span>
+      <span class="chip">SKILL.md</span>
+    </div>
+  </div>
+
+  <!-- ===================== CALLERS ===================== -->
+  <div class="sec-title"><span class="num">2</span>Callers — who invokes runAgent</div>
+
+  <div class="callers">
+    <div class="caller default">
+      <span class="badge-role def">Default</span>
+      <div class="caller-h">
+        <span class="icon">⚙</span>
+        <span class="ct">App service / API route / worker</span>
+      </div>
+      <div class="cd">The default caller. A plain in-process call — no dispatch, queue, or A2A needed for the common case.</div>
+      <div class="callcode"><span class="kw">const</span> r = <span class="kw">await</span> runAgent(id, input, ctx)</div>
+    </div>
+
+    <div class="caller optional">
+      <span class="badge-role opt">Optional</span>
+      <div class="caller-h">
+        <span class="icon">◇</span>
+        <span class="ct">Workflow step</span>
+      </div>
+      <div class="cd">One optional caller — not the spine. Add it only when a process needs durability, human-tasks, or saga semantics.</div>
+      <div class="callcode"><span style="color:var(--muted-foreground)">EXECUTE_FUNCTION</span> → runAgent → <span style="color:var(--muted-foreground)">WAIT_FOR_SIGNAL</span></div>
+    </div>
+  </div>
+
+  <div class="flowdown"><svg viewBox="0 0 24 24"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div>
+
+  <!-- ===================== RESULT PATH ===================== -->
+  <div class="sec-title"><span class="num">3</span>The result path — caller disposes</div>
+
+  <div class="path-grid">
+    <div class="path-col">
+      <div class="pc-head"><span class="tag informative">informative</span><span style="font-size:12px;color:var(--muted-foreground)">an answer</span></div>
+      <div class="path-steps">
+        <div class="pstep"><span class="pn">→</span><span class="pt"><b>Caller reads <span class="mono">data</span></b><small>Summary, classification, extraction, answer — used directly by the calling code.</small></span></div>
+      </div>
+    </div>
+
+    <div class="path-col">
+      <div class="pc-head"><span class="tag actionable">actionable</span><span style="font-size:12px;color:var(--muted-foreground)">a proposal the app can execute</span></div>
+      <div class="path-steps">
+        <div class="pstep"><span class="pn">1</span><span class="pt"><b>Execute now</b> — run the proposed actions immediately (e.g. <span class="mono">confidence &gt; x</span>).</span></div>
+        <div class="pstep"><span class="pn">2</span><span class="pt"><b>Gate</b> — hand to a disposition gate:<div class="gate-row"><span class="gate-pill auto">auto-approve</span><span class="gate-pill human">human task</span></div></span></div>
+        <div class="pstep"><span class="pn">3</span><span class="pt"><b>Surface in UI</b> — show the proposal card; a person Approves / Edits / Rejects.<div class="gate-row"><span class="gate-pill ui">cockpit / My Tasks</span></div></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== OVERLAYS ===================== -->
+  <div class="sec-title"><span class="num">4</span>Optional overlays</div>
+  <p class="overlay-note">A menu, not a dependency. <b>Adopt à la carte</b> — each sits on top of <span class="mono">runAgent</span>; nothing here is required to ship a working agent.</p>
+
+  <div class="overlays">
+    <div class="ovl"><span class="ot">workflow-step</span><span class="od">Durable / multi-actor processes.</span></div>
+    <div class="ovl"><span class="ot">gate</span><span class="od">Approve actionable results — auto vs human.</span></div>
+    <div class="ovl"><span class="ot">guardrails</span><span class="od">Injection / grounding / moderation for untrusted input.</span></div>
+    <div class="ovl"><span class="ot">context-plane</span><span class="od">Governed retrieval / evidence (TDCR).</span></div>
+    <div class="ovl"><span class="ot">trace + eval + metrics</span><span class="od">Observability &amp; regression gating.</span></div>
+    <div class="ovl"><span class="ot">lifecycle</span><span class="od">Shadow / canary / autonomy rollout.</span></div>
+    <div class="ovl"><span class="ot">cockpit</span><span class="od">Ops UI — caseload, timeline, I/O drawer.</span></div>
+    <div class="ovl"><span class="ot">external-runtimes</span><span class="od">Dispatch + A2A + identity-OAuth.</span></div>
+    <div class="ovl"><span class="ot">regulated-decisioning</span><span class="od">AI-Act / DSAR / fairness / explanation.</span></div>
+  </div>
+
+  <!-- ===================== FOUNDATION ===================== -->
+  <div class="sec-title"><span class="num">5</span>OM foundation</div>
+
+  <div class="foundation">
+    <span class="fb-lbl">Adopt / reuse</span>
+    <span class="fnode"><span class="fn-t">ai_assistant</span><span class="fn-s">agent loop + tools</span></span>
+    <span class="fnode"><span class="fn-t">workflows</span><span class="fn-s">durable steps</span></span>
+    <span class="fnode"><span class="fn-t">business_rules</span><span class="fn-s">thresholds</span></span>
+    <span class="fnode"><span class="fn-t">auth</span><span class="fn-s">ctx / RBAC</span></span>
+    <span class="fnode"><span class="fn-t">audit_logs</span><span class="fn-s">executed actions</span></span>
+    <span class="fnode"><span class="fn-t">queue</span><span class="fn-s">background work</span></span>
+    <span class="fnode"><span class="fn-t">storage-s3</span><span class="fn-s">attachments</span></span>
+  </div>
+
+  <footer>
+    <span>Source: <span class="mono">2026-06-20-agent-sdk-simplification-audit.md</span></span>
+    <span class="dotsep">·</span>
+    <span class="mono">2026-06-20-agent-mvp-hackathon-sketch.md</span>
+    <span class="dotsep">·</span>
+    <span>Replaces the heavy 9-subdomain / eval-runner design.</span>
+  </footer>
+
+</div>
+</body>
+</html>

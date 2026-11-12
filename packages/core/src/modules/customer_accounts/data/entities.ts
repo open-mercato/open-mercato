@@ -13,7 +13,11 @@ export const DOMAIN_STATUSES: readonly DomainStatus[] = [
 ] as const
 
 @Entity({ tableName: 'customer_users' })
-@Unique({ properties: ['tenantId', 'emailHash'], name: 'customer_users_tenant_email_hash_uniq' })
+@Index({
+  name: 'customer_users_tenant_email_hash_uniq',
+  expression:
+    'create unique index "customer_users_tenant_email_hash_uniq" on "customer_users" ("tenant_id", "email_hash") where "deleted_at" is null',
+})
 export class CustomerUser {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -106,7 +110,11 @@ export class CustomerRole {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  // `onCreate` initializes the optimistic-lock version on insert (#8846) — without it
+  // a freshly created role persists `updated_at = NULL`, and the command-level lock
+  // guard (`enforceCommandOptimisticLock`) treats a null `current` as unlockable and
+  // no-ops, so the role's very first concurrent edit always wins the race silently.
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
   updatedAt?: Date
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })

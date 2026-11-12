@@ -2,6 +2,7 @@
 
 import { PATCH } from '@open-mercato/core/modules/inbox_ops/api/proposals/[id]/actions/[actionId]/route'
 import { InboxProposal, InboxProposalAction } from '@open-mercato/core/modules/inbox_ops/data/entities'
+import { z } from 'zod'
 
 const mockFindOneWithDecryption = jest.fn()
 
@@ -45,6 +46,12 @@ jest.mock('@open-mercato/core/modules/inbox_ops/events', () => ({
   emitInboxOpsEvent: jest.fn(),
 }))
 
+const mockGetInboxAction = jest.fn()
+
+jest.mock('@/.mercato/generated/inbox-actions.generated', () => ({
+  getInboxAction: (...args: unknown[]) => mockGetInboxAction(...args),
+}))
+
 const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at'
 
 function makeRequest(body: Record<string, unknown>, headers: Record<string, string> = {}) {
@@ -60,6 +67,7 @@ describe('PATCH /api/inbox_ops/proposals/[id]/actions/[actionId]', () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.flush.mockResolvedValue(undefined)
+    mockGetInboxAction.mockReturnValue(undefined)
   })
 
   it('merges payload and saves the action', async () => {
@@ -268,6 +276,82 @@ describe('PATCH /api/inbox_ops/proposals/[id]/actions/[actionId]', () => {
       expect.objectContaining({ customerName: 'New Name', currencyCode: 'USD' }),
     )
     expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('validates the edit against an overridden action payloadSchema (#6279)', async () => {
+    mockGetInboxAction.mockReturnValue({
+      type: 'create_quote',
+      payloadSchema: z.object({
+        customerName: z.string().min(1),
+        customerEmail: z.string().email(),
+      }),
+    })
+    const action = {
+      id: 'action-1',
+      proposalId: 'proposal-1',
+      actionType: 'create_quote',
+      status: 'pending',
+      payload: { customerName: 'A. Person', customerEmail: 'a@example.com' },
+    } as unknown as InboxProposalAction
+
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce(action)
+      .mockResolvedValueOnce({ id: 'proposal-1', isActive: true } as unknown as InboxProposal)
+
+    const response = await PATCH(makeRequest({ payload: { customerName: 'B. Person' } }))
+    const payload = await response.json()
+
+    expect(mockGetInboxAction).toHaveBeenCalledWith('create_quote')
+    expect(response.status).toBe(200)
+    expect(payload.ok).toBe(true)
+    expect(action.payload).toEqual({ customerName: 'B. Person', customerEmail: 'a@example.com' })
+    expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('rejects an edit the overridden action payloadSchema refuses (#6279)', async () => {
+    mockGetInboxAction.mockReturnValue({
+      type: 'create_quote',
+      payloadSchema: z.object({ customerEmail: z.string().email() }),
+    })
+    const action = {
+      id: 'action-1',
+      proposalId: 'proposal-1',
+      actionType: 'create_quote',
+      status: 'pending',
+      payload: { customerEmail: 'a@example.com' },
+    } as unknown as InboxProposalAction
+
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce(action)
+      .mockResolvedValueOnce({ id: 'proposal-1', isActive: true } as unknown as InboxProposal)
+
+    const response = await PATCH(makeRequest({ payload: { customerEmail: 'not-an-email' } }))
+    const payload = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(payload.error).toContain('customerEmail')
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the installed schema when no action definition is registered', async () => {
+    const action = {
+      id: 'action-1',
+      proposalId: 'proposal-1',
+      actionType: 'create_quote',
+      status: 'pending',
+      payload: { customerName: 'A. Person', customerEmail: 'a@example.com' },
+    } as unknown as InboxProposalAction
+
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce(action)
+      .mockResolvedValueOnce({ id: 'proposal-1', isActive: true } as unknown as InboxProposal)
+
+    const response = await PATCH(makeRequest({ payload: { customerName: 'B. Person' } }))
+    const payload = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(payload.error).toContain('Invalid payload for create_quote')
+    expect(mockEm.flush).not.toHaveBeenCalled()
   })
 
   it('returns 401 when not authenticated', async () => {

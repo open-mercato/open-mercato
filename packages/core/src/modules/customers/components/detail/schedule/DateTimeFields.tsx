@@ -17,7 +17,8 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
-import { isVisible, getFieldLabel } from './fieldConfig'
+import { isDateRequired, isTimeRequired, getFieldLabel } from './fieldConfig'
+import { USER_TIMEZONE } from '../../../lib/localDay'
 
 function parseIsoDate(value: string): Date | null {
   if (!value) return null
@@ -106,13 +107,15 @@ export function DateTimeFields({
 
   if (!visible.has('date')) return null
 
-  const showStartTime = isVisible(activityType, 'startTime')
-  const showDuration = isVisible(activityType, 'duration')
-  const showAllDay = isVisible(activityType, 'allDay')
-  const showRecurrence = isVisible(activityType, 'recurrence')
+  const showStartTime = visible.has('startTime')
+  const showDuration = visible.has('duration')
+  const showAllDay = visible.has('allDay')
+  const showRecurrence = visible.has('recurrence')
 
-  const dateMissing = !date.trim()
-  const timeMissing = showStartTime && !allDay && !startTime.trim()
+  const dateRequired = isDateRequired(activityType)
+  const timeRequired = isTimeRequired(activityType)
+  const dateMissing = dateRequired && !date.trim()
+  const timeMissing = timeRequired && showStartTime && !allDay && !startTime.trim()
   const dateErrorId = 'schedule-date-error'
   const timeErrorId = 'schedule-time-error'
 
@@ -123,13 +126,18 @@ export function DateTimeFields({
         <div className="flex min-w-0 flex-[1.5] flex-col gap-1.5">
           <label className="text-sm font-medium">
             {getFieldLabel(activityType, 'date', t, 'customers.schedule.date', 'Date')}
-            <span aria-hidden="true" className="text-accent-indigo"> *</span>
+            {dateRequired ? (
+              <span aria-hidden="true" className="text-accent-indigo"> *</span>
+            ) : null}
           </label>
           <DatePicker
             value={parseIsoDate(date)}
             onChange={(next) => setDate(formatIsoDate(next))}
             placeholder={t('customers.schedule.date.placeholder', 'Pick a date')}
-            required
+            required={dateRequired}
+            // An optional date seeds to today, so the picker needs a way back to
+            // "no due date"; the default apply/cancel footer cannot reach null.
+            footer={dateRequired ? undefined : 'today-clear'}
             aria-describedby={dateMissing ? dateErrorId : undefined}
             className={cn(
               'h-9',
@@ -146,7 +154,9 @@ export function DateTimeFields({
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <label className="text-sm font-medium">
               {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
-              <span aria-hidden="true" className="text-accent-indigo"> *</span>
+              {timeRequired ? (
+                <span aria-hidden="true" className="text-accent-indigo"> *</span>
+              ) : null}
             </label>
             <TimePicker
               value={startTime || null}
@@ -158,7 +168,7 @@ export function DateTimeFields({
                 timeMissing ? 'border-status-error-border' : undefined,
               )}
               showNowButton
-              showClearButton={false}
+              showClearButton={!timeRequired}
               popoverModal
             />
             {timeMissing ? (
@@ -205,7 +215,7 @@ export function DateTimeFields({
           </label>
           <span className="flex items-center gap-1.5">
             <Globe className="size-3.5" />
-            {Intl.DateTimeFormat().resolvedOptions().timeZone} (GMT{new Date().getTimezoneOffset() <= 0 ? '+' : '-'}{String(Math.abs(Math.floor(new Date().getTimezoneOffset() / 60))).padStart(1, '0')})
+            {USER_TIMEZONE} (GMT{new Date().getTimezoneOffset() <= 0 ? '+' : '-'}{String(Math.abs(Math.floor(new Date().getTimezoneOffset() / 60))).padStart(1, '0')})
           </span>
           {showRecurrence && (
             <>
