@@ -271,15 +271,17 @@ test('supplied root, ambient and company key/KMS settings survive missing app en
 test('supplied encryption strings round-trip through root/app dotenv without changing quotes, slashes or hash characters', async () => {
   const { ensureEnvFiles } = await import('../env-setup.mjs')
   const { parseEnv } = await import('node:util')
-  for (const secret of ['fixture"key', String.raw`fixture\key`, 'fixture#key', 'fixture$key']) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-key-roundtrip-'))
-    try {
-      const app = path.join(dir, 'apps', 'mercato'); fs.mkdirSync(app, { recursive: true })
-      fs.writeFileSync(path.join(app, '.env.example'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=public-fixture-key\nTENANT_DATA_ENCRYPTION_KEY=\n')
-      ensureEnvFiles(dir, { env: {}, extraDefaults: { TENANT_DATA_ENCRYPTION_KEY: secret }, log() {}, warn() {} })
-      assert.equal(parseEnv(fs.readFileSync(path.join(dir, '.env'), 'utf8')).TENANT_DATA_ENCRYPTION_KEY, secret)
-      assert.equal(parseEnv(fs.readFileSync(path.join(app, '.env'), 'utf8')).TENANT_DATA_ENCRYPTION_KEY, secret)
-    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  for (const key of ['TENANT_DATA_ENCRYPTION_KEY', 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY']) {
+    for (const secret of ['fixture"key', String.raw`fixture\key`, 'fixture#key', 'fixture$key', 'fixture$&key']) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-key-roundtrip-'))
+      try {
+        const app = path.join(dir, 'apps', 'mercato'); fs.mkdirSync(app, { recursive: true })
+        fs.writeFileSync(path.join(app, '.env.example'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=public-fixture-key\nTENANT_DATA_ENCRYPTION_KEY=\n')
+        ensureEnvFiles(dir, { env: {}, extraDefaults: { [key]: secret }, log() {}, warn() {} })
+        assert.equal(parseEnv(fs.readFileSync(path.join(dir, '.env'), 'utf8'))[key], secret)
+        assert.equal(parseEnv(fs.readFileSync(path.join(app, '.env'), 'utf8'))[key], secret)
+      } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+    }
   }
 })
 

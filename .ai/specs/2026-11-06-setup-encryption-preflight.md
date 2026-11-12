@@ -58,3 +58,5 @@ Implementation and revised local verification complete for #8913. All eight conf
 ### 2026-11-12 resume
 
 Merged current main and updated the upstream credential-display fixture to stub only the encryption proof; real rejection coverage remains intact. Disposable PostgreSQL QA exposed helper entrypoint detection comparing a symlinked argv path with a canonical module URL. The helper now compares real filesystem paths, so symlinked workspaces and installed-script layouts execute the proof and guarded command instead of silently exiting successfully. Unit regressions exercise both CLI modes through symlinked directories in all three mirrored helpers; the live PostgreSQL positive-boot fixture also uses a symlinked installed-script directory. No public signature or configuration format changes.
+
+- 2026-11-12: CI stabilization preserves supplied primary/Vault configuration when creating a missing app environment, without generating a higher-priority fallback; fallback values also use the shared dotenv serializer and have special-character round-trip regressions.
