@@ -23,6 +23,6 @@ Goal: implement structured, text-anchored review findings in the Documents modul
 | 3.2 | Playbook admin pages, review header playbook line, i18n (ingest resolution landed in 3.1) | done | 3b86637c0a |
 | 3.3 | Phase 3 integration tests (written; run blocked by env, see HANDOFF) | done | 041dc9c3d2 |
 | 4.1 | AI tools, agent contract, workflows.ts registration, peer dep | done | f7dc18c3b4 |
-| 4.2 | UPDATE_ENTITY array interpolation spike (array preserved, no findingsJson) + docs page | done | (see git log) |
+| 4.2 | UPDATE_ENTITY array interpolation spike (array preserved, no findingsJson) + docs page | done | 460e110d85 |
 | 4.3 | Phase 4 integration test | todo | |
 | 5.1 | Full validation gate, draft PR | todo | |

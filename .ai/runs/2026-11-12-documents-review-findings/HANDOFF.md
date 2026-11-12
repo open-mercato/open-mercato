@@ -25,6 +25,7 @@
 - 4.3: `__integration__/TC-DOC-AGENT-001.spec.ts` (stubbed agent outcome in `initialContext.review`, tenant enablement through `PUT /api/workflows/command-settings` with restore in `finally`, UPDATE_ENTITY ingest, keep → audit log shows `documents.review.cleared`, test sends `documents_review_cleared` by correlation key, run completes).
 
 ## Validation (local runner)
+- Phase 4: typecheck pass; jest 170 suites passed (1 skipped), 1200 tests passed (5 skipped); eslint on touched files 0 errors; `yarn mercato test:integration TC-DOC-AGENT` — 1 passed (environment healthy this time).
 - Phase 3: `yarn workspace @open-mercato/documents typecheck` pass; `cd packages/documents && npx jest --config jest.config.cjs` 167 suites passed (1 skipped), 1177 tests passed (5 skipped); eslint on touched files 0 errors (2 pre-existing-style `import/no-anonymous-default-export` warnings); DS grep on new UI: no hardcoded status colours, arbitrary values or `dark:` overrides; severity badges carry icon + text; icon-only buttons have `aria-label`.
 - Phase 3 integration: one attempt `yarn mercato test:integration TC-DOC-PLAY` failed in `yarn run initialize` with an esbuild Go runtime crash (environment, unrelated to documents). TC-DOC-PLAY-001..004 are written but not executed.
 - `yarn workspace @open-mercato/documents typecheck` — pass.
@@ -35,7 +36,6 @@
 ## Next
 - Run TC-DOC-FIND-001..010 in a healthy env: `OM_OPTIMISTIC_LOCK=all yarn mercato test:integration TC-DOC-FIND` (UI specs need the collab sidecar; they call `ensureManagedCollabSidecar`).
 - Spec `.ai/specs/2026-11-11-documents-ai-review-findings.md` UI details need aligning (out of this run's file scope): see Deviations.
-- Run TC-DOC-AGENT-001 in a healthy env (`yarn mercato test:integration TC-DOC-AGENT`).
 - Phase 5: full validation gate, draft PR.
 - Run TC-DOC-PLAY-001..004 in a healthy env (`yarn mercato test:integration TC-DOC-PLAY`).
 - Align the spec with the Phase 3 deviations below (spec file is outside this run's file scope).
