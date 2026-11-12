@@ -1,3 +1,9 @@
+const mockTranslate = jest.fn((_key: string, fallback: string) => fallback)
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: mockTranslate }),
+}))
+
 jest.mock('openid-client', () => ({
   customFetch: Symbol('openid-client.customFetch'),
   discovery: jest.fn(),
@@ -204,6 +210,19 @@ describe('OidcProvider discovery error disclosure', () => {
     discovery.mockRejectedValueOnce(error)
     return new OidcProvider().validateConfig(config)
   }
+
+  test('translates the fixed refusal without using resolver diagnostics', async () => {
+    mockTranslate.mockReturnValueOnce('Wyszukiwanie DNS nie powiodło się')
+
+    expect(await validateError(new UnsafeOidcUrlError(
+      'dns_resolution_failed',
+      'getaddrinfo ENOTFOUND private.internal',
+    ))).toEqual({ ok: false, error: 'Wyszukiwanie DNS nie powiodło się' })
+    expect(mockTranslate).toHaveBeenLastCalledWith(
+      'sso.errors.oidc_url.dns_resolution_failed',
+      messages.dns_resolution_failed,
+    )
+  })
 
   test.each(Object.entries(messages))('sanitizes direct and wrapped %s errors', async (reason, message) => {
     const unsafeError = new UnsafeOidcUrlError(
