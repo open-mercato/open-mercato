@@ -15,6 +15,7 @@ import {
   promotionCodeCreateSchema,
   promotionCodeUpdateSchema,
   clearableEndOfDayDateSchema,
+  benefitInputSchema,
   ruleInputSchema,
   ruleInputSchemaFull,
   PROMOTIONS_HIDDEN_RULE_TYPES,
@@ -63,6 +64,40 @@ describe('promotion create schema', () => {
     expect(parsed.excludedTags).toEqual([])
     expect(parsed.excludeFlags).toEqual({})
     expect(parsed.eligibleCurrencies).toEqual([])
+  })
+})
+
+describe('promotion decimal input normalization', () => {
+  it('normalizes a decimal comma in the promotion budget', () => {
+    const parsed = promotionUpdateSchema.parse({
+      id: PROMOTION_ID,
+      maxBudget: '1500,50',
+      budgetCurrency: 'PLN',
+    })
+
+    expect(parsed.maxBudget).toBe('1500.50')
+  })
+
+  it('normalizes a decimal comma in a benefit value', () => {
+    const parsed = benefitInputSchema.parse({
+      benefitType: 'cart_discount',
+      config: {
+        discountType: 'percentage',
+        value: '10,5',
+        labels: { pl: 'Rabat' },
+      },
+    })
+
+    expect(parsed.config.value).toBe('10.5')
+  })
+
+  it('keeps dot decimals and rejects mixed separators', () => {
+    expect(
+      promotionUpdateSchema.parse({ id: PROMOTION_ID, maxBudget: '1500.50', budgetCurrency: 'PLN' }).maxBudget,
+    ).toBe('1500.50')
+    expect(
+      promotionUpdateSchema.safeParse({ id: PROMOTION_ID, maxBudget: '1,500.50', budgetCurrency: 'PLN' }).success,
+    ).toBe(false)
   })
 })
 

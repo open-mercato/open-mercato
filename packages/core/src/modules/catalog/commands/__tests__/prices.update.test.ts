@@ -214,3 +214,115 @@ describe('catalog price update resolves the amount to recalculate from', () => {
     expect(record.unitPriceNet).toBe('200')
   })
 })
+
+describe('catalog price update resolves the scope when relations load lazily', () => {
+  const scopeGuards = jest.requireActual('@open-mercato/shared/lib/commands/scope')
+  const sharedMocks = jest.requireMock('../shared') as Record<string, jest.Mock>
+  const OFFER_ID = '55555555-5555-4555-8555-555555555555'
+  const VARIANT_ID = '66666666-6666-4666-8666-666666666666'
+  const FOREIGN_SCOPE_ID = '99999999-9999-4999-8999-999999999999'
+  const END_OF_PERIOD = new Date('2031-01-01T00:00:00.000Z')
+
+  type LazyRelation = { populated: Row; unloaded: Row }
+
+  const lazy = (entity: Row & { id: unknown }): LazyRelation => ({ populated: entity, unloaded: { id: entity.id } })
+
+  async function runLazyUpdate(input: Row, relations: Record<string, LazyRelation>, recordOverrides: Row = {}) {
+    const record = buildPriceRecord(recordOverrides)
+    findOneWithDecryption.mockImplementation(
+      async (_em: unknown, _entity: unknown, _where: unknown, options?: { populate?: string[] }) => {
+        const populated = options?.populate ?? []
+        for (const [name, relation] of Object.entries(relations)) {
+          record[name] = populated.includes(name) ? relation.populated : relation.unloaded
+        }
+        return record
+      },
+    )
+    const { ctx } = buildContext()
+    await updateCommand().execute({ id: PRICE_ID, ...input }, ctx)
+    return record
+  }
+
+  beforeEach(() => {
+    sharedMocks.ensureTenantScope.mockImplementation(scopeGuards.ensureTenantScope)
+    sharedMocks.ensureOrganizationScope.mockImplementation(scopeGuards.ensureOrganizationScope)
+    sharedMocks.ensureSameScope.mockImplementation(scopeGuards.ensureSameScope)
+    sharedMocks.ensureSameTenant.mockImplementation((entity: { tenantId: string }, tenantId: string) => {
+      if (entity.tenantId !== tenantId) throw new Error('[internal] tenant mismatch')
+    })
+  })
+
+  afterEach(() => {
+    sharedMocks.ensureTenantScope.mockReset()
+    sharedMocks.ensureOrganizationScope.mockReset()
+    sharedMocks.ensureSameScope.mockReset()
+    sharedMocks.ensureSameTenant.mockReset()
+    sharedMocks.requireOffer.mockReset()
+    sharedMocks.requireVariant.mockReset()
+  })
+
+  it('closes a price period on a product-scoped price without productId', async () => {
+    const record = await runLazyUpdate({ endsAt: END_OF_PERIOD }, { product: lazy(FAKE_PRODUCT) })
+    expect(record.endsAt).toEqual(END_OF_PERIOD)
+    expect(record.tenantId).toBe(TENANT_ID)
+    expect(record.organizationId).toBe(ORG_ID)
+    expect(record.product).toBe(FAKE_PRODUCT)
+  })
+
+  it('updates an amount on a product-scoped price without productId', async () => {
+    const record = await runLazyUpdate({ unitPriceGross: 150 }, { product: lazy(FAKE_PRODUCT) })
+    expect(record.unitPriceGross).toBe('150')
+    expect(record.product).toBe(FAKE_PRODUCT)
+  })
+
+  it('attaches an offer to a product-scoped price without productId', async () => {
+    const offer = { id: OFFER_ID, tenantId: TENANT_ID, organizationId: ORG_ID, product: { id: FAKE_PRODUCT.id }, channelId: 'channel-1' }
+    sharedMocks.requireOffer.mockResolvedValue(offer)
+    const record = await runLazyUpdate({ offerId: OFFER_ID }, { product: lazy(FAKE_PRODUCT) })
+    expect(record.offer).toBe(offer)
+    expect(record.channelId).toBe('channel-1')
+  })
+
+  it('updates an offer-linked price without productId', async () => {
+    const offer = { id: OFFER_ID, tenantId: TENANT_ID, organizationId: ORG_ID, product: { id: FAKE_PRODUCT.id }, channelId: 'channel-1' }
+    const record = await runLazyUpdate({ endsAt: END_OF_PERIOD }, { product: lazy(FAKE_PRODUCT), offer: lazy(offer) })
+    expect(record.endsAt).toEqual(END_OF_PERIOD)
+    expect((record.offer as { id: string }).id).toBe(OFFER_ID)
+  })
+
+  it('resolves the product through the variant when the price has no product of its own', async () => {
+    const variant = { id: VARIANT_ID, tenantId: TENANT_ID, organizationId: ORG_ID, product: FAKE_PRODUCT }
+    sharedMocks.requireVariant.mockResolvedValue(variant)
+    const record = await runLazyUpdate({ endsAt: END_OF_PERIOD }, {}, { product: null, variant: { id: VARIANT_ID } })
+    expect(record.endsAt).toEqual(END_OF_PERIOD)
+    expect(record.variant).toBe(variant)
+    expect(record.product).toBe(FAKE_PRODUCT)
+  })
+
+  it('still rejects a product from another tenant', async () => {
+    const foreignProduct = { ...FAKE_PRODUCT, tenantId: FOREIGN_SCOPE_ID }
+    await expect(runLazyUpdate({ endsAt: END_OF_PERIOD }, { product: lazy(foreignProduct) })).rejects.toMatchObject({
+      status: 403,
+    })
+  })
+
+  it('still rejects a product from an organization outside the caller scope', async () => {
+    const foreignProduct = { ...FAKE_PRODUCT, organizationId: FOREIGN_SCOPE_ID }
+    await expect(runLazyUpdate({ endsAt: END_OF_PERIOD }, { product: lazy(foreignProduct) })).rejects.toMatchObject({
+      status: 403,
+    })
+  })
+
+  it('still rejects an offer from another organization', async () => {
+    sharedMocks.requireOffer.mockResolvedValue({
+      id: OFFER_ID,
+      tenantId: TENANT_ID,
+      organizationId: FOREIGN_SCOPE_ID,
+      product: { id: FAKE_PRODUCT.id },
+      channelId: null,
+    })
+    await expect(runLazyUpdate({ offerId: OFFER_ID }, { product: lazy(FAKE_PRODUCT) })).rejects.toMatchObject({
+      status: 403,
+    })
+  })
+})
