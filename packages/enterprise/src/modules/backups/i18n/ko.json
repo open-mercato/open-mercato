@@ -1,0 +1,7 @@
+{
+  "backups.cli.error": "ERROR: 복구 명령이 거부되었거나 완료되지 않았습니다.",
+  "backups.cli.help": "암호화 백업 및 격리 복구: preflight, create, status, verify, restore, exercise.",
+  "backups.progress.bytes": "바이트",
+  "backups.progress.chunks": "청크",
+  "backups.progress.rows": "행"
+}

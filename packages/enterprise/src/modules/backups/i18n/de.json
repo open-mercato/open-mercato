@@ -1,0 +1,7 @@
+{
+  "backups.cli.error": "FEHLER: Wiederherstellung abgelehnt oder unvollständig.",
+  "backups.cli.help": "Verschlüsselte Sicherung und isolierte Wiederherstellung: preflight, create, status, verify, restore, exercise.",
+  "backups.progress.bytes": "Bytes",
+  "backups.progress.chunks": "Blöcke",
+  "backups.progress.rows": "Zeilen"
+}

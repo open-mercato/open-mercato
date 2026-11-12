@@ -268,3 +268,7 @@ if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
   // It imports the orchestrator SDK, so it is only enabled alongside it.
   enabledModules.push({ id: 'agent_examples', from: '@app' })
 }
+
+if (enterpriseModulesEnabled && parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_BACKUPS, false)) {
+  enabledModules.push({ id: 'backups', from: '@open-mercato/enterprise' })
+}
