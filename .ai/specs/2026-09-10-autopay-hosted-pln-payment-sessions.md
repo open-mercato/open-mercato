@@ -260,8 +260,53 @@ Tpay (`.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md`, "Out of
 Scope: Authoritative notifications").
 
 This does **not** block a usable MVP: `getStatus()` (`transactionStatus`) is
-a real, confirmed, pollable API — the payer-return page and any background
-reconciliation can call it directly without needing push notifications.
+a real, confirmed, pollable API — the payer-return page and the scheduled
+reconciliation below call it directly without needing push notifications.
+
+## Scheduled Status Reconciliation
+
+Without ITN, a payment whose payer never reaches the return page (closed
+tab, bank transfer that settles later, failed return request) would stay
+`pending` forever. The package therefore schedules the generic
+payment-gateway status poller for its own transactions.
+
+**Schedule** (registered from `setup.seedDefaults` and
+`setup.onOrganizationCreated`, soft dependency on `schedulerService`):
+
+| Field | Value |
+| --- | --- |
+| `id` | Deterministic UUID derived from `gateway_autopay:status-poller:<tenantId>:<organizationId>` (`lib/status-poller-schedule.ts`), so repeated setup updates one row. |
+| `scopeType` / scope | `organization`, the setup-provided tenant and organization. |
+| `scheduleType` / `scheduleValue` | `interval` / `5m`, UTC. |
+| `targetQueue` | `gateway-autopay-status-poller` (this module's queue). |
+| `targetPayload` | `{ limit: 100 }` only. |
+| `sourceType` / `sourceModule` | `module` / `gateway_autopay`. |
+| `isEnabled` | `true`. An organization without pending Autopay transactions costs one scoped DB query per run and no provider call. |
+
+**Worker** (`workers/status-poller.ts`, id `gateway_autopay:status-poller`,
+concurrency 1): reads the trusted `payload.scope.{tenantId,organizationId}`
+the scheduler injects, fixes `providerKey: 'autopay'`, caps `limit` at 100
+and delegates to the core
+`payment_gateways/workers/status-poller` handler. That handler lists
+transactions in `pending`, `authorized` or `partially_captured`, oldest
+`lastPolledAt` first, and runs the canonical
+`paymentGatewayService.getPaymentStatus` for each, so a poll-driven
+transition emits the same events as a return-page transition. A job without
+a trusted scope is skipped with a warning.
+
+**Why not the shared `payment-gateways-status-poller` queue.** The
+scheduler (`packages/scheduler/.../safeQueueTargets.ts`) dispatches a
+module-authored schedule only onto a queue whose workers belong to
+`sourceModule`, and it strips `scope`, `tenantId` and `organizationId` from
+the stored `targetPayload` before dispatch. A `gateway_autopay` schedule on
+the core queue would never fire, and a `scope.providerKey` in the payload
+would never reach the worker. Owning the queue and fixing the provider key in
+the worker satisfies both guards without touching core or the scheduler.
+
+**Bounds inherited from the core worker:** batch 100 oldest-first,
+per-transaction error isolation with an integration-log entry, the next run
+retries whatever is still non-terminal. No provider-specific backoff,
+dead-letter queue or second status worker is added.
 
 ## Proposed Solution
 
@@ -479,8 +524,8 @@ deferred until real sandbox credentials exist.
 - EUR/GBP/USD currencies.
 - Production credentials and rollout — explicitly out of scope per project
   decision; requires manual Autopay partner onboarding.
-- Background reconciliation polling / scheduled `getStatus` sweeps for
-  abandoned or async-refund transactions.
+- Refund-outcome reconciliation: the scheduled poller reads payment status
+  only; `transactionStatus` never reports refund results.
 
 ## Risks & Impact Review
 
@@ -627,6 +672,17 @@ would eventually plug into the generic webhook route) is explicitly deferred
 to a follow-up spec and does not block this spec's MVP scope.
 
 ## Changelog
+
+### 2026-11-12
+
+- Added scheduled status reconciliation: a 5-minute organization-scoped
+  schedule on the module's own `gateway-autopay-status-poller` queue and a
+  thin worker that narrows the generic payment-gateway status poller to
+  `providerKey: 'autopay'`. Registered from `seedDefaults` and
+  `onOrganizationCreated`; skipped with a warning when the scheduler module
+  is absent, and a registration failure is reported without failing tenant
+  setup. Documented why the shared core queue cannot be targeted by a
+  provider-authored schedule.
 
 ### 2026-11-04
 
