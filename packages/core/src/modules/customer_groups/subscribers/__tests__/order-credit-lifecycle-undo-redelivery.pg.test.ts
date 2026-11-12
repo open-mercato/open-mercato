@@ -53,6 +53,7 @@ import {
 import { createCustomerCreditService } from '../../services/customerCreditService'
 import handleOrderDeleted from '../order-deleted-credit-release'
 import handleOrderConfirmed from '../order-confirmed-credit-reinstate'
+import handleOrderCancelled from '../order-cancelled-credit-release'
 
 @Entity({ tableName: 'sales_orders' })
 class SalesOrderStandIn {
@@ -83,6 +84,7 @@ type OnAccountOrder = {
   orderId: string
   orderNumber: string
   accountId: string
+  customerId: string
   reserveKey: string
 }
 
@@ -186,7 +188,7 @@ maybe('sales order delete -> credit release -> undo -> reinstate under redeliver
     })
     if (!reserved.reserved) throw new Error(`[internal] fixture reservation refused: ${reserved.check.reason}`)
     await createCustomerCreditService(orm.em.fork()).linkCreditReservationToOrder({ scope, idempotencyKey: reserveKey, orderId })
-    return { tenantId, organizationId, orderId, orderNumber: `SO-${orderId.slice(0, 8)}`, accountId: account.id, reserveKey }
+    return { tenantId, organizationId, orderId, orderNumber: `SO-${orderId.slice(0, 8)}`, accountId: account.id, customerId, reserveKey }
   }
 
   function eventPayload(order: OnAccountOrder, extra: Partial<OrderEventPayload> = {}): OrderEventPayload {
@@ -213,6 +215,36 @@ maybe('sales order delete -> credit release -> undo -> reinstate under redeliver
     em.persist(em.create(SalesOrderStandIn, { id: order.orderId, tenantId: order.tenantId, organizationId: order.organizationId, status: 'confirmed' }))
     await em.flush()
     return eventPayload(order, { previousStatus: null, status: 'confirmed' })
+  }
+
+  // `sales.orders.cancel` committed: the row's status flips to `canceled`;
+  // `sales.order.cancelled` is queued.
+  async function cancelOrder(order: OnAccountOrder): Promise<OrderEventPayload> {
+    await orm.em.fork().nativeUpdate(SalesOrderStandIn, { id: order.orderId }, { status: 'canceled' })
+    return eventPayload(order, { previousStatus: 'confirmed', status: 'canceled' })
+  }
+
+  // The cancellation's undo committed: the row's status is back to `confirmed`;
+  // `sales.order.confirmed` is queued.
+  async function reconfirmOrder(order: OnAccountOrder): Promise<OrderEventPayload> {
+    await orm.em.fork().nativeUpdate(SalesOrderStandIn, { id: order.orderId }, { status: 'confirmed' })
+    return eventPayload(order, { previousStatus: 'canceled', status: 'confirmed' })
+  }
+
+  // A partial settlement against the fixture reservation (D-R5-2 hybrid settlement,
+  // spec §6.5) — the open amount left to release/reinstate is `ORDER_AMOUNT - amount`.
+  async function settlePartial(order: OnAccountOrder, amount: string): Promise<void> {
+    const settled = await createCustomerCreditService(orm.em.fork()).settleCredit({
+      scope: { tenantId: order.tenantId, organizationId: order.organizationId },
+      buyer: { customerId: order.customerId },
+      currencyCode: CURRENCY,
+      amount,
+      sourceType: 'payment',
+      sourceId: randomUUID(),
+      idempotencyKey: `settle:${randomUUID()}`,
+      reserveIdempotencyKey: order.reserveKey,
+    })
+    if (!settled.settled) throw new Error('[internal] fixture partial settlement refused')
   }
 
   async function exposure(order: OnAccountOrder): Promise<number> {
@@ -311,6 +343,51 @@ maybe('sales order delete -> credit release -> undo -> reinstate under redeliver
       { entryType: 'reserve', amount: 100, idempotencyKey: order.reserveKey, linkedOrderId: order.orderId },
       { entryType: 'release', amount: -100, idempotencyKey: `release:${order.reserveKey}`, linkedOrderId: null },
       { entryType: 'reserve', amount: 100, idempotencyKey: `reinstate:${order.reserveKey}`, linkedOrderId: order.orderId },
+    ])
+  })
+
+  // #8268 review Major 1. A partial settlement BEFORE delete leaves `releaseCredit`
+  // freeing only the open remainder (60), not the original reservation (100) — the
+  // reinstate on undo must restore exactly that remainder, never the full original
+  // amount (which would overstate exposure by the already-settled 40).
+  test('delete releases only the open remainder after a partial settlement, undo reinstates exactly that', async () => {
+    const order = await seedOnAccountOrder()
+    await settlePartial(order, '40.00')
+    // 100 reserved, 40 settled (paid, no longer at risk) — open exposure is the 60 left.
+    expect(await exposure(order)).toBe(60)
+
+    await handleOrderDeleted(await deleteOrder(order), subscriberCtx())
+    expect(await exposure(order)).toBe(0)
+
+    await handleOrderConfirmed(await undoDelete(order), subscriberCtx())
+    // Reinstating the full original 100 here would overstate exposure by the
+    // already-settled 40 — only the 60 the release actually freed comes back.
+    expect(await exposure(order)).toBe(60)
+    expect((await ledger(order)).map((line) => [line.entryType, line.amount])).toEqual([
+      ['reserve', 100],
+      ['settle', -40],
+      ['release', -60],
+      ['reserve', 60],
+    ])
+  })
+
+  // Same scenario through cancel/reconfirm instead of delete/undo — the other pair of
+  // lifecycle subscribers sharing the same advisory lock and stale-event fences.
+  test('cancel releases only the open remainder after a partial settlement, reconfirm reinstates exactly that', async () => {
+    const order = await seedOnAccountOrder()
+    await settlePartial(order, '40.00')
+    expect(await exposure(order)).toBe(60)
+
+    await handleOrderCancelled(await cancelOrder(order), subscriberCtx())
+    expect(await exposure(order)).toBe(0)
+
+    await handleOrderConfirmed(await reconfirmOrder(order), subscriberCtx())
+    expect(await exposure(order)).toBe(60)
+    expect((await ledger(order)).map((line) => [line.entryType, line.amount])).toEqual([
+      ['reserve', 100],
+      ['settle', -40],
+      ['release', -60],
+      ['reserve', 60],
     ])
   })
 

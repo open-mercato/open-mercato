@@ -1,10 +1,17 @@
+import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { urlForCustomerOrg } from '@open-mercato/core/modules/customer_accounts/lib/customerUrl'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { CustomerPurchaseApproval, type CustomerPurchaseApprovalActorType } from '../data/entities'
+import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import {
+  CustomerPurchaseApproval,
+  CustomerPurchaseApprovalEmailDelivery,
+  type CustomerPurchaseApprovalActorType,
+  type CustomerPurchaseApprovalEmailKind,
+} from '../data/entities'
 import ApprovalEmail from '../emails/ApprovalEmail'
 import { listCompanyCustomerUserCandidates, resolveCustomerUserEmail } from './approvalEmailRecipients'
 
@@ -62,6 +69,84 @@ export async function resolveApprovalEmailsEnabled(
 
 const BUYER_DECIDE_FEATURE = 'customer_groups.portal.approvals.decide'
 
+// #8268 review Major 3. `CustomerPurchaseApprovalEmailDelivery` is the source of truth
+// for "did this recipient already get this e-mail" — one row per actually-sent
+// recipient, written only AFTER `sendEmail` resolves. A redelivery queries this table
+// and sends only to whoever is missing from it, so a transient lookup/transport
+// failure retries exactly the unsent remainder on the next delivery, never skips
+// everything (the old single "sent" timestamp, committed before any send attempted,
+// used to get stuck permanently "sent" after a partial failure) and never double-sends
+// an already-delivered recipient.
+async function loadDeliveredRecipientKeys(
+  em: EntityManager,
+  tenantId: string,
+  approvalId: string,
+  kind: CustomerPurchaseApprovalEmailKind,
+): Promise<Set<string>> {
+  const rows = await em.find(CustomerPurchaseApprovalEmailDelivery, { tenantId, approvalId, kind })
+  return new Set(rows.map((row) => row.recipientKey))
+}
+
+// Idempotent insert: a race between two deliveries for the same recipient (or a
+// redelivery landing after this row already committed) hits the unique index and is
+// swallowed rather than thrown, same shape as `assisted_selling/commands/settings.ts`'s
+// `isUniqueViolation` guard. Uses its own fork so concurrent recipients in the same
+// batch (`Promise.all`) never share one `EntityManager`'s identity map/flush.
+async function recordEmailDelivery(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string; approvalId: string },
+  kind: CustomerPurchaseApprovalEmailKind,
+  recipientKey: string,
+): Promise<void> {
+  const recipientEm = em.fork()
+  const entry = recipientEm.create(CustomerPurchaseApprovalEmailDelivery, {
+    id: randomUUID(),
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    approvalId: scope.approvalId,
+    kind,
+    recipientKey,
+  })
+  recipientEm.persist(entry)
+  try {
+    await recipientEm.flush()
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err
+  }
+}
+
+async function deliverApprovalEmail(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string; approvalId: string },
+  kind: CustomerPurchaseApprovalEmailKind,
+  recipientKey: string,
+  input: { to: string; subject: string; react: ReturnType<typeof ApprovalEmail> },
+): Promise<void> {
+  await sendEmail({
+    to: input.to,
+    subject: input.subject,
+    react: input.react,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  await recordEmailDelivery(em, scope, kind, recipientKey)
+}
+
+// Bookkeeping only — nothing re-reads these two columns as a gate; the delivery ledger
+// above is authoritative. Kept for operator visibility ("when did this batch finish").
+async function markEmailBatchComplete(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string; approvalId: string },
+  kind: CustomerPurchaseApprovalEmailKind,
+): Promise<void> {
+  const field = kind === 'requested' ? 'requestedEmailSentAt' : 'decidedEmailSentAt'
+  await em.nativeUpdate(
+    CustomerPurchaseApproval,
+    { id: scope.approvalId, tenantId: scope.tenantId, organizationId: scope.organizationId, [field]: null },
+    { [field]: new Date() },
+  )
+}
+
 export type ApprovalRequestedEmailInput = {
   tenantId: string
   organizationId: string
@@ -75,12 +160,11 @@ export type ApprovalRequestedEmailInput = {
 
 // §10.2: "Every `CustomerUser` of the approval's company holding
 // `customer_groups.portal.approvals.decide`, except the requester" — gated to
-// policy `buyer`/`both`. The `requested_email_sent_at` CAS marker (claimed BEFORE
-// any send is attempted, same "claim then act" ordering `decideApproval`'s own CAS
-// already uses) makes the whole batch exactly-once per approval even under a
-// persistent-subscriber retry: `sendEmail` has no dedup of its own, unlike the
-// sibling in-app notification, which dedupes per recipient via the notification
-// system's `groupKey`.
+// policy `buyer`/`both`. `sendEmail` has no dedup of its own, unlike the sibling
+// in-app notification (which dedupes per recipient via the notification system's own
+// `groupKey`) — `loadDeliveredRecipientKeys`/`deliverApprovalEmail` above make this
+// batch exactly-once PER RECIPIENT, even under a redelivery that only partially
+// succeeded last time.
 export async function sendApprovalRequestedBuyerEmails(
   em: EntityManager,
   container: ResolverContainer,
@@ -99,27 +183,22 @@ export async function sendApprovalRequestedBuyerEmails(
     return
   }
 
-  const claimed = await em.nativeUpdate(
-    CustomerPurchaseApproval,
-    {
-      id: input.approvalId,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-      requestedEmailSentAt: null,
-    },
-    { requestedEmailSentAt: new Date() },
-  )
-  if (claimed === 0) return
-
   const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
-  const candidates = await listCompanyCustomerUserCandidates(em, input.customerId, input.tenantId)
-  const recipients: string[] = []
+  const deliveryScope = { ...scope, approvalId: input.approvalId }
+  const candidates = await listCompanyCustomerUserCandidates(em, input.customerId, input.tenantId, container)
+  const eligible: Array<{ id: string; email: string }> = []
   for (const candidate of candidates) {
     if (input.requestedBy.actorType === 'customer_user' && input.requestedBy.actorId === candidate.id) continue
     const allowed = await rbacService.userHasAllFeatures(candidate.id, [BUYER_DECIDE_FEATURE], scope)
-    if (allowed) recipients.push(candidate.email)
+    if (allowed) eligible.push(candidate)
   }
-  if (!recipients.length) return
+
+  const delivered = await loadDeliveredRecipientKeys(em, input.tenantId, input.approvalId, 'requested')
+  const pending = eligible.filter((candidate) => !delivered.has(candidate.id))
+  if (!pending.length) {
+    await markEmailBatchComplete(em, deliveryScope, 'requested')
+    return
+  }
 
   const { translate } = await resolveTranslations()
   const portalUrl = await urlForCustomerOrg(input.organizationId, '/')
@@ -141,16 +220,19 @@ export async function sendApprovalRequestedBuyerEmails(
   }
 
   await Promise.all(
-    recipients.map((to) =>
-      sendEmail({
-        to,
+    pending.map((candidate) =>
+      deliverApprovalEmail(em, deliveryScope, 'requested', candidate.id, {
+        to: candidate.email,
         subject,
         react: ApprovalEmail({ portalUrl, copy }),
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
       }),
     ),
   )
+
+  const remaining = await loadDeliveredRecipientKeys(em, input.tenantId, input.approvalId, 'requested')
+  if (eligible.every((candidate) => remaining.has(candidate.id))) {
+    await markEmailBatchComplete(em, deliveryScope, 'requested')
+  }
 }
 
 export type ApprovalDecidedEmailInput = {
@@ -195,19 +277,14 @@ export async function sendApprovalDecidedRequesterEmail(
   const moduleConfigService = tryResolve<ModuleConfigService>(container, 'moduleConfigService')
   if (!(await resolveApprovalEmailsEnabled(moduleConfigService, { tenantId: input.tenantId }))) return
 
-  const claimed = await em.nativeUpdate(
-    CustomerPurchaseApproval,
-    {
-      id: input.approvalId,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-      decidedEmailSentAt: null,
-    },
-    { decidedEmailSentAt: new Date() },
-  )
-  if (claimed === 0) return
+  const deliveryScope = { tenantId: input.tenantId, organizationId: input.organizationId, approvalId: input.approvalId }
+  const delivered = await loadDeliveredRecipientKeys(em, input.tenantId, input.approvalId, 'decided')
+  if (delivered.has(input.requestedBy.actorId)) {
+    await markEmailBatchComplete(em, deliveryScope, 'decided')
+    return
+  }
 
-  const email = await resolveCustomerUserEmail(em, input.requestedBy.actorId, input.tenantId)
+  const email = await resolveCustomerUserEmail(em, input.requestedBy.actorId, input.tenantId, container)
   if (!email) return
 
   const { translate } = await resolveTranslations()
@@ -225,11 +302,10 @@ export async function sendApprovalDecidedRequesterEmail(
     cta: translate('customer_groups.approvalEmail.decided.cta', 'View in your account'),
   }
 
-  await sendEmail({
+  await deliverApprovalEmail(em, deliveryScope, 'decided', input.requestedBy.actorId, {
     to: email,
     subject,
     react: ApprovalEmail({ portalUrl, copy }),
-    tenantId: input.tenantId,
-    organizationId: input.organizationId,
   })
+  await markEmailBatchComplete(em, deliveryScope, 'decided')
 }
