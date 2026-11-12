@@ -93,10 +93,9 @@ export default function ApiKeysListPage() {
           setTotalPages(payload.totalPages || 1)
           setTotalIsCapped(payload?.totalIsCapped === true)
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : t('api_keys.list.error.loadFailed')
-          flash(message, 'error')
+          flash(t('api_keys.list.error.loadFailed'), 'error')
         }
       } finally {
         if (!cancelled) setIsLoading(false)
