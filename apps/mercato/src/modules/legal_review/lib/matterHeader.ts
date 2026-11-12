@@ -71,3 +71,25 @@ export function buildStageStatusLine(
   if (!relative) return base
   return t('legal_review.header.status.withDue', '{status} · due {relative}', { status: base, relative })
 }
+
+/** Region display name for an ISO country code ("US" → "United States"); falls back to the code. */
+export function formatJurisdiction(code: string | null, locale?: string): string | null {
+  if (!code) return null
+  try {
+    const names = new Intl.DisplayNames(locale ? [locale] : undefined, { type: 'region' })
+    return names.of(code.toUpperCase()) ?? code
+  } catch {
+    return code
+  }
+}
+
+/** True when a matter still before release is past its due date. */
+export function isMatterOverdue(
+  matter: Pick<LegalMatterItem, 'stage' | 'dueAt'>,
+  now: number = Date.now(),
+): boolean {
+  if (matter.stage !== 'requested' && matter.stage !== 'review') return false
+  if (!matter.dueAt) return false
+  const due = new Date(matter.dueAt).getTime()
+  return !Number.isNaN(due) && due < now
+}

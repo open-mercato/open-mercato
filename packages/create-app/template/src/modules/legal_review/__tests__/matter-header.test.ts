@@ -3,6 +3,8 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import {
   buildMatterListPath,
   buildStageStatusLine,
+  formatJurisdiction,
+  isMatterOverdue,
   pickMatterFromListResponse,
   readDocumentIdFromContext,
 } from '../lib/matterHeader'
@@ -140,5 +142,23 @@ describe('legal matter items', () => {
       toLegalMatterItem(matterRow()),
     ])
     expect(item.assigneeLabel).toBeNull()
+  })
+})
+
+describe('matter header display helpers', () => {
+  it('names the jurisdiction region and falls back to the code', () => {
+    expect(formatJurisdiction('US', 'en')).toBe('United States')
+    expect(formatJurisdiction('gb', 'en')).toBe('United Kingdom')
+    expect(formatJurisdiction(null, 'en')).toBeNull()
+  })
+
+  it('flags overdue matters only before release', () => {
+    const now = Date.parse('2026-11-12T10:00:00Z')
+    const past = '2026-11-12T09:00:00Z'
+    const future = '2026-11-13T09:00:00Z'
+    expect(isMatterOverdue({ stage: 'review', dueAt: past }, now)).toBe(true)
+    expect(isMatterOverdue({ stage: 'review', dueAt: future }, now)).toBe(false)
+    expect(isMatterOverdue({ stage: 'released', dueAt: past }, now)).toBe(false)
+    expect(isMatterOverdue({ stage: 'requested', dueAt: null }, now)).toBe(false)
   })
 })

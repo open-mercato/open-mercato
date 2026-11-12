@@ -1,19 +1,19 @@
 "use client"
 
 import * as React from 'react'
-import { CalendarClock, FileSignature, Globe, Scale, ScrollText } from 'lucide-react'
+import { Globe, Scale } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
-import { Tag } from '@open-mercato/ui/primitives/tag'
-import { StepIndicator, type StepIndicatorStep } from '@open-mercato/ui/primitives/step-indicator'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import type { LegalMatterItem } from '../../../data/validators'
-import { buildLegalMatterSteps } from '../../../lib/stages'
+import { buildLegalMatterSteps, type LegalMatterStepState } from '../../../lib/stages'
 import {
   buildMatterListPath,
   buildStageStatusLine,
+  formatJurisdiction,
+  isMatterOverdue,
   pickMatterFromListResponse,
   readDocumentIdFromContext,
   type LegalMatterHeaderContext,
@@ -27,11 +27,11 @@ function PersonLine({ caption, label }: { caption: string; label: string | null 
   const t = useT()
   const display = label ?? t('legal_review.header.unassigned', 'Unassigned')
   return (
-    <div className="flex items-center gap-2">
-      <Avatar label={display} size="sm" />
-      <div className="flex flex-col">
+    <div className="flex min-w-0 items-center gap-3">
+      <Avatar label={display} size="md" />
+      <div className="flex min-w-0 flex-col">
         <span className="text-xs text-muted-foreground">{caption}</span>
-        <span className="text-sm font-medium text-foreground">{display}</span>
+        <span className="truncate text-sm font-medium text-foreground">{display}</span>
       </div>
     </div>
   )
@@ -78,54 +78,86 @@ export default function LegalMatterHeaderWidget({
   if (state.status !== 'ready' || !state.matter) return null
 
   const matter = state.matter
-  const steps: StepIndicatorStep[] = buildLegalMatterSteps(matter.stage).map((step) => ({
-    id: step.stage,
-    label: t(`legal_review.stage.${step.stage}`, step.stage),
-    status: step.state,
-  }))
+  const steps = buildLegalMatterSteps(matter.stage)
+  const currentStep = steps.find((step) => step.state === 'current') ?? steps[0]
   const statusLine = buildStageStatusLine(matter, t, locale)
+  const overdue = isMatterOverdue(matter)
+  const meta = [
+    formatJurisdiction(matter.jurisdiction, locale),
+    t(`legal_review.agreementType.${matter.agreementType}`, matter.agreementType),
+    t(`legal_review.paper.${matter.paper}`, matter.paper),
+  ].filter((value): value is string => Boolean(value))
 
   return (
     <section
-      className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4"
+      className="grid items-start gap-x-10 gap-y-6 border-b border-border pb-6 lg:grid-cols-2"
       aria-label={t('legal_review.header.ariaLabel', 'Legal matter')}
       data-testid="legal-review-matter-header"
     >
-      <div className="flex flex-col gap-1">
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          <Scale className="size-3.5" aria-hidden="true" />
-          <span className="font-mono">{matter.reference}</span>
-        </span>
-        <h2 className="text-lg font-semibold text-foreground">{matter.counterparty}</h2>
-        {matter.purpose ? <p className="text-sm text-muted-foreground">{matter.purpose}</p> : null}
+      <div className="flex min-w-0 flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <Scale className="size-3.5" aria-hidden="true" />
+            <span className="font-mono">{matter.reference}</span>
+          </span>
+          <h2 className="truncate text-2xl font-semibold tracking-tight text-foreground">{matter.counterparty}</h2>
+          {matter.purpose ? <p className="text-base text-muted-foreground">{matter.purpose}</p> : null}
+          {meta.length > 0 ? (
+            <p className="inline-flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground" data-testid="legal-review-matter-meta">
+              {matter.jurisdiction ? <Globe className="size-4" aria-hidden="true" /> : null}
+              {meta.map((item, index) => (
+                <React.Fragment key={item}>
+                  {index > 0 ? <span aria-hidden="true">·</span> : null}
+                  <span>{item}</span>
+                </React.Fragment>
+              ))}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-x-10 gap-y-3">
+          <PersonLine caption={t('legal_review.header.askedBy', 'Asked by')} label={matter.requestedByLabel} />
+          <PersonLine caption={t('legal_review.header.assignee', 'Assignee')} label={matter.assigneeLabel} />
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {matter.jurisdiction ? (
-          <Tag variant="neutral" leading={<Globe className="size-3.5" aria-hidden="true" />}>
-            {matter.jurisdiction}
-          </Tag>
-        ) : null}
-        <Tag variant="neutral" leading={<ScrollText className="size-3.5" aria-hidden="true" />}>
-          {t(`legal_review.agreementType.${matter.agreementType}`, matter.agreementType)}
-        </Tag>
-        <Tag variant="neutral" leading={<FileSignature className="size-3.5" aria-hidden="true" />}>
-          {t(`legal_review.paper.${matter.paper}`, matter.paper)}
-        </Tag>
-      </div>
-
-      <div className="flex flex-wrap gap-6">
-        <PersonLine caption={t('legal_review.header.askedBy', 'Asked by')} label={matter.requestedByLabel} />
-        <PersonLine caption={t('legal_review.header.assignee', 'Assignee')} label={matter.assigneeLabel} />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <StepIndicator steps={steps} aria-label={t('legal_review.header.stages', 'Matter stages')} />
-        <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground" data-testid="legal-review-stage-status">
-          <CalendarClock className="size-4" aria-hidden="true" />
-          {statusLine}
+      <div className="flex min-w-0 flex-col gap-3 lg:pt-6">
+        <p className="text-sm" data-testid="legal-review-stage-status">
+          <span className="font-semibold text-foreground">
+            {t(`legal_review.stage.${currentStep.stage}`, currentStep.stage)}
+          </span>
+          <span className={overdue ? 'text-status-error-text' : 'text-muted-foreground'}>
+            {' · '}
+            {statusLine}
+          </span>
         </p>
+        <ol className="grid grid-cols-4 gap-2" aria-label={t('legal_review.header.stages', 'Matter stages')}>
+          {steps.map((step) => (
+            <li
+              key={step.stage}
+              className="flex min-w-0 flex-col gap-2"
+              aria-current={step.state === 'current' ? 'step' : undefined}
+              data-state={step.state}
+            >
+              <span className={`h-1.5 rounded-full ${STEP_BAR_CLASS[step.state]}`} aria-hidden="true" />
+              <span className={`truncate text-xs ${STEP_LABEL_CLASS[step.state]}`}>
+                {t(`legal_review.stage.${step.stage}`, step.stage)}
+              </span>
+            </li>
+          ))}
+        </ol>
       </div>
     </section>
   )
+}
+
+const STEP_BAR_CLASS: Record<LegalMatterStepState, string> = {
+  complete: 'bg-primary',
+  current: 'bg-primary/50',
+  pending: 'bg-muted',
+}
+
+const STEP_LABEL_CLASS: Record<LegalMatterStepState, string> = {
+  complete: 'text-muted-foreground',
+  current: 'font-medium text-foreground',
+  pending: 'text-muted-foreground',
 }
