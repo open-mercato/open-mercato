@@ -52,7 +52,7 @@ test.describe('TC-ATT-026: scoped attachment bytes cannot enter shared caches (#
           for (let attempt = 0; attempt < 2; attempt += 1) {
             const response = await readBytes(path, true)
             expect(response.status()).toBe(200)
-            expect(response.headers()['cache-control']).toBe('private, max-age=60')
+            expect(response.headers()['cache-control']).toBe(isPublic ? 'private, max-age=60' : 'private, no-store')
             expect(response.headers()['content-type']).toBe('image/png')
             expect((await response.body()).length).toBeGreaterThan(0)
           }

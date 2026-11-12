@@ -1,6 +1,6 @@
 # Private attachment read permission (#8760)
 
-Status: Implemented; original HTTP scenarios passed in CI. Current-head CI, manual QA and named human maintainer security-waiver approval remain before merge.
+Status: Implemented; original HTTP scenarios passed in CI. Current-head CI, manual QA and independent re-review remain before merge.
 
 ## TLDR
 
@@ -45,7 +45,7 @@ Clients: authenticate using a principal granted `attachments.view` (or an existi
 
 Operators: audit roles, user ACLs and API-key grants before rollout and grant read only to intended readers. Deploy consistently to all byte-serving instances; purge previously cached affected private responses at browsers/proxies where possible. Already downloaded content cannot be recalled. No database migration or storage rewrite is required. Rolling back the binary reopens the bypass; block private byte routes at the deployment boundary before an unavoidable rollback.
 
-Before merge: a named human maintainer must explicitly approve the steps 1–3 security waiver; the required dated `BACKWARD_COMPATIBILITY.md` entry records the surface, qualifying argument and migration. Keep the PR security-labelled and pending human approval; automated review cannot clear this gate.
+Human maintainer @pkarw explicitly approved the steps 1–3 security waiver in this task; [relayed acknowledgment](https://github.com/open-mercato/open-mercato/pull/8774#issuecomment-6829115158). The dated `BACKWARD_COMPATIBILITY.md` entry records the exception and migration. This grants no automated or manual QA approval.
 
 ## Risks & Impact Review
 
@@ -56,10 +56,12 @@ Before merge: a named human maintainer must explicitly approve the steps 1–3 s
 
 ## Final Compliance Report
 
-Private byte routes and their regression tests are implemented. The original five TC-ATT-028 HTTP scenarios passed in GitHub Actions; the old environment-blocked authoring report is historical. The 2026-11-12 cache correction passes all 47 attachment suites / 533 tests locally, and TC-ATT-028 now also asserts no-store on freshly generated and warm thumbnails and successful file/download reads. Current-head CI and human QA must validate the updated HTTP assertions. Detailed evidence is recorded in `packages/core/src/modules/attachments/__integration__/issue-8760-validation.md`. The existing input contract gains only an optional trusted runner property; identifiers, route metadata, generated contracts, production dependencies and database structure remain unchanged. Human waiver approval, required CI and manual QA remain merge gates.
+Private byte routes and their regression tests are implemented. The original five TC-ATT-028 HTTP scenarios passed in GitHub Actions; the old environment-blocked authoring report is historical. The 2026-11-12 cache correction passes all 47 attachment suites / 533 tests locally, and TC-ATT-028 now also asserts no-store on freshly generated and warm thumbnails and successful file/download reads. Current-head CI and human QA must validate the updated HTTP assertions. Detailed evidence is recorded in `packages/core/src/modules/attachments/__integration__/issue-8760-validation.md`. The existing input contract gains only an optional trusted runner property; identifiers, route metadata, generated contracts, production dependencies and database structure remain unchanged. Required CI, independent re-review and manual QA remain merge gates.
 
 ## Changelog
 
 - 2026-11-12: Merged current main and fixed cache sensitivity for feature-only private reads; added runner, fresh/warm image and file/download header regressions, including HTTP assertions.
 
 - 2026-11-05: Implemented the private byte capability gate, runner/route regressions, self-contained HTTP scenarios and client/operator migration for #8760; recorded pending external gates.
+
+- 2026-11-12: Recorded @pkarw’s explicit compatibility waiver and updated legacy HTTP cache assertions to require no-store for private bytes; public caching expectations remain unchanged.
