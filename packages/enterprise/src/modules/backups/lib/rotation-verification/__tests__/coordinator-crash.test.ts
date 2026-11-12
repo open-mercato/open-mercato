@@ -4,13 +4,29 @@ import { randomBytes, randomUUID, createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { build, stop } from 'esbuild'
 import { generateX25519Identity, identityToRecipient } from '../../engine/crypto'
 import { encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 
 // These tests exercise real process death and production coordinator/store/age
 // durability. The committed row is a tiny fsynced fixture, not PostgreSQL/Core SQL.
 let directory: string
+let suiteDirectory: string
+let childScript: string
 const children = new Set<ChildProcess>()
+beforeAll(async () => {
+  suiteDirectory = await mkdtemp(join(tmpdir(), 'rotation-coordinator-child-'))
+  childScript = join(suiteDirectory, 'coordinator-child.cjs')
+  // Compile the current production imports once; each fault/resume still starts
+  // a fresh Node process with independent keys, state and recovery fixtures.
+  try {
+    await build({
+      stdin: { contents: childSource(), resolveDir: __dirname, sourcefile: 'coordinator-crash-child.ts', loader: 'ts' },
+      outfile: childScript, bundle: true, platform: 'node', format: 'cjs', target: 'node24', logLevel: 'silent',
+    })
+  } finally { stop() }
+})
+afterAll(async () => { if (suiteDirectory) await rm(suiteDirectory, { recursive: true, force: true }) })
 beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), 'rotation-coordinator-sigkill-')) })
 afterEach(async () => {
   await Promise.all([...children].map(child => new Promise<void>(done => {
@@ -22,7 +38,7 @@ afterEach(async () => {
 
 type Message = { stage: string; error?: string }
 function launch(script: string, configuration: string, mode: string, boundary: string) {
-  const child = spawn(process.execPath, ['--import', require.resolve('tsx'), script, configuration, mode, boundary], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
+  const child = spawn(process.execPath, [script, configuration, mode, boundary], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
   children.add(child)
   let stderr = '', received = false
   child.stderr?.on('data', (bytes: Buffer) => { stderr = (stderr + bytes.toString()).slice(-4096) })
@@ -43,8 +59,11 @@ async function fixture() {
   const configuration = join(directory, 'configuration.json')
   await writeFile(configuration, JSON.stringify({ directory, trust, source, target, identity, recipient }), { mode: 0o600 })
   await writeFile(join(directory, 'row.json'), JSON.stringify({ ciphertext: encryptWithAesGcm('original', source).value, timestamp: '2026-01-01T00:00:00.123Z' }), { mode: 0o600 })
-  const script = join(directory, 'coordinator-child.mts')
-  await writeFile(script, `
+  return { script: childScript, configuration, trust }
+}
+
+function childSource(): string {
+  return `
 import {readFile,writeFile,open,rename} from 'node:fs/promises'
 import {join} from 'node:path'
 import {createEnterpriseRotationProtection} from ${JSON.stringify(resolve(__dirname, '../coordinator.ts'))}
@@ -54,6 +73,7 @@ import {createRotationArtifactCipher} from ${JSON.stringify(resolve(__dirname, '
 import {publishRotationReport,publishRotationFailureReport} from ${JSON.stringify(resolve(__dirname, '../report.ts'))}
 import {encryptWithAesGcm,decryptWithAesGcm} from ${JSON.stringify(resolve(__dirname, '../../../../../../../shared/src/lib/encryption/aes.ts'))}
 import {canonicalRotationTimestamp} from ${JSON.stringify(resolve(__dirname, '../postgres-dataset.ts'))}
+async function main(){
 const c=JSON.parse(await readFile(process.argv[2],'utf8')),mode=process.argv[3],boundary=process.argv[4]
 const notify=message=>new Promise((done,reject)=>process.send(message,error=>error?reject(error):done()))
 const halt=()=>new Promise(()=>setInterval(()=>{},1000))
@@ -94,8 +114,9 @@ try{
  await at('trusted-passed-after');await notify({stage:'completed'})
 }catch(error){await notify({stage:'refused',error:String(error.message)})}
 process.disconnect()
-`, { mode: 0o600 })
-  return { script, configuration, trust }
+}
+main().catch(error=>{console.error(error);process.exitCode=1;process.disconnect()})
+`
 }
 
 async function state(trust: string) {
