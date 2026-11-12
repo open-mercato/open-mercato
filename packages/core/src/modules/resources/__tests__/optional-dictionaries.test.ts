@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { ResourcesResource, ResourcesResourceTag, ResourcesResourceType } from '../data/entities'
 
@@ -95,6 +95,12 @@ function commandContext(em: EntityManager): CommandRuntimeContext {
 }
 
 describe('resources without the dictionaries and planner modules', () => {
+  const originalEntityIds = getEntityIds(false)
+
+  afterAll(() => {
+    registerEntityIds(originalEntityIds)
+  })
+
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
     findWithDecryptionMock.mockReset()
@@ -130,7 +136,8 @@ describe('resources without the dictionaries and planner modules', () => {
     expect(fake.created).toContain(DictionaryEntry)
     const createdBeforeExamples = fake.created.length
     await setup.seedExamples!(setupContext(fake.em))
-    expect(fake.created.slice(createdBeforeExamples)).toContain(Dictionary)
+    const dictionariesCreatedByExamples = fake.created.slice(createdBeforeExamples).filter((entity) => entity === Dictionary)
+    expect(dictionariesCreatedByExamples).toHaveLength(2)
   })
 
   it('rejects a capacity unit on create with the existing 400 when dictionaries is disabled', async () => {
@@ -152,6 +159,22 @@ describe('resources without the dictionaries and planner modules', () => {
       body: { error: 'Capacity unit dictionary is not configured.' },
     })
     expect(queriedDictionaries()).toBe(false)
+  })
+
+  it('still resolves capacity units against the dictionary when the module is enabled', async () => {
+    registerRegistry(true)
+    findOneWithDecryptionMock.mockResolvedValue(null)
+    const handler = commandRegistry.get('resources.resources.create')!
+    const fake = createFakeEm(true)
+    const result = handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, name: 'Chair', capacityUnitValue: 'kg' },
+      commandContext(fake.em),
+    )
+    await expect(result).rejects.toMatchObject({
+      status: 400,
+      body: { error: 'Capacity unit dictionary is not configured.' },
+    })
+    expect(queriedDictionaries()).toBe(true)
   })
 
   it('rejects a capacity unit on update with the existing 400 when dictionaries is disabled', async () => {

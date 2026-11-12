@@ -124,6 +124,9 @@ const seedExamplesCommand: ModuleCli = {
       console.error('Usage: mercato resources seed-examples --tenant <tenantId> --org <organizationId>')
       return
     }
+    if (!isDictionariesModuleEnabled()) {
+      console.log('Dictionaries module is disabled; skipping resources activity types.')
+    }
     const container = await createRequestContainer()
     const scope: ResourcesSeedScope = { tenantId, organizationId }
     try {
