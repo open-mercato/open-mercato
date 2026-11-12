@@ -33,6 +33,6 @@ test('TC-ATT-017: host bytes use the real document share policy and retain unrel
     const unrelated = await fixture.upload(randomUUID(), 'unrelated', { entityId: 'sync_excel:import' })
     const read = await ownerPolicyRequest('GET', `/api/attachments/file/${unrelated}`, fixture.unshared.token)
     expect(read.status).toBe(200)
-    expect(read.headers['cache-control']).toBe('private, max-age=60')
+    expect(read.headers['cache-control']).toBe('private, no-store')
   })
 })
