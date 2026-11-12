@@ -178,6 +178,7 @@ There are no endpoint, response schema, UI route, or user-facing i18n changes. M
 
 - Unit tests use deferred promises and fake monotonic clocks/timers; no seeded data is required.
 - Integration at the infrastructure boundary records exact metrics through an in-memory provider and exercises real access-log service return contracts with fake persistence.
+- Real PostgreSQL regressions `TC-AUD-015` and `TC-AUD-016` run the built service in a unique disposable schema: tenant-A insert saturation still admits tenant B, mixed batches reject atomically, settlement restores admission, and a locked retention row leaves unrelated writes responsive while shutdown flush waits. The managed integration runner supplies the database; fixtures and schema are removed in teardown.
 - Existing audit-log API tests remain unchanged because HTTP response contracts do not change; no browser scenario is added.
 
 ## Risks & Impact Review
@@ -262,6 +263,10 @@ None.
 **Fully compliant: Approved — ready for implementation.**
 
 ## Changelog
+
+### 2026-11-12
+
+- Reconcile current main while preserving cart concurrency and variant-validation coverage. Add durable PostgreSQL tenant-saturation, mixed-batch rejection, recovery and retention-drain regressions for QA8472-D1. No production behavior or contract changes.
 
 ### 2026-11-02
 
