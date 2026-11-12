@@ -30,6 +30,7 @@ export const documentFindingItemSchema = z.object({
   explanation: z.string(),
   sectionLabel: z.string().nullable().default(null),
   quote: z.string(),
+  occurrence: z.number().int().min(1).default(1),
   suggestedText: z.string().nullable().default(null),
   anchor: findingAnchorSchema.nullable().default(null),
   anchorStatus: z.enum(['located', 'unlocated']),
@@ -142,20 +143,34 @@ export type FindingResolutionResult = {
   ranges: FindingDecorationRange[]
 }
 
+export type FindingRangeLocators = {
+  resolveAnchor: ((anchor: FindingAnchor) => FindingRange | null) | null
+  locateQuote: (request: { quote: string; occurrence: number; sectionLabel: string | null }) => FindingRange | null
+}
+
+export function locateFindingRange(finding: DocumentFindingItem, locators: FindingRangeLocators): FindingRange | null {
+  if (locators.resolveAnchor) return finding.anchor ? locators.resolveAnchor(finding.anchor) : null
+  return locators.locateQuote({
+    quote: finding.quote,
+    occurrence: finding.occurrence,
+    sectionLabel: finding.sectionLabel,
+  })
+}
+
 export function resolveFindingRanges(
   findings: DocumentFindingItem[],
-  resolveRange: (anchor: FindingAnchor) => FindingRange | null,
+  resolveRange: (finding: DocumentFindingItem) => FindingRange | null,
   readText: (range: FindingRange) => string,
 ): FindingResolutionResult {
   const resolutions: Record<string, FindingResolution> = {}
   const ranges: FindingDecorationRange[] = []
   for (const finding of findings) {
     if (finding.status === 'superseded') continue
-    if (finding.anchorStatus === 'unlocated' || !finding.anchor) {
+    if (finding.anchorStatus === 'unlocated') {
       resolutions[finding.id] = { kind: 'unlocated' }
       continue
     }
-    const range = resolveRange(finding.anchor)
+    const range = resolveRange(finding)
     if (!range || range.from >= range.to) {
       resolutions[finding.id] = { kind: 'missing' }
       continue

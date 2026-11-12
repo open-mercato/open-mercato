@@ -2,10 +2,14 @@ import { Extension, type Editor } from '@tiptap/core'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import { resolveCommentAnchor } from './CommentAnchorNavigation'
+import { createFindingQuoteLocator, type FindingQuoteLocator } from '../../../lib/findingQuoteLocator'
+import { extractPositionedReviewBlocks } from '../../../lib/reviewBlocks'
+import { hasCollaborationBinding, resolveCommentAnchor } from './CommentAnchorNavigation'
 import {
+  locateFindingRange,
   resolveFindingRanges,
   type DocumentFindingItem,
+  type FindingAnchor,
   type FindingDecorationRange,
   type FindingRange,
   type FindingResolutionResult,
@@ -141,9 +145,18 @@ export function resolveFindingsInEditor(
   findings: DocumentFindingItem[],
 ): FindingResolutionResult {
   if (!editor || editor.isDestroyed) return resolveFindingRanges(findings, () => null, () => '')
+  const collaborative = hasCollaborationBinding(editor)
+  let quoteLocator: FindingQuoteLocator | null = null
+  const locators = {
+    resolveAnchor: collaborative ? (anchor: FindingAnchor) => resolveCommentAnchor(editor, anchor) : null,
+    locateQuote: (request: { quote: string; occurrence: number; sectionLabel: string | null }) => {
+      if (!quoteLocator) quoteLocator = createFindingQuoteLocator(extractPositionedReviewBlocks(editor.state.doc))
+      return quoteLocator(request)
+    },
+  }
   return resolveFindingRanges(
     findings,
-    (anchor) => resolveCommentAnchor(editor, anchor),
+    (finding) => locateFindingRange(finding, locators),
     (range) => readRangeText(editor, range),
   )
 }
