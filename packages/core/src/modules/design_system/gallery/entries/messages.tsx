@@ -1,9 +1,6 @@
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import * as React from 'react'
-import {
-  EmailThreadsPanel,
-  MessageObjectPreview,
-  type EmailThread,
-} from '@open-mercato/ui/backend/messages'
+import { EmailThreadsPanel, MessageObjectPreview, type EmailThread } from '@open-mercato/ui/backend/messages'
 import { MessagePrioritySelector } from '@open-mercato/ui/backend/messages/MessagePrioritySelector'
 import type { MessagePriority } from '@open-mercato/ui/backend/messages/message-priority'
 import type { GalleryEntry } from '../types'
@@ -14,11 +11,88 @@ import type { GalleryEntry } from '../types'
 // its sibling `render`.
 
 // Fixed sample timestamps (June 2026) — previews must not depend on "today".
-const sampleThreads: EmailThread[] = [
+function EmailThreadsPanelEntryReadOnlyPreview() {
+  const t = useT()
+  return (
+    <EmailThreadsPanel
+      threads={sampleThreads(t)}
+      canCompose={false}
+      composeDisabledHint={
+        <span className="text-sm text-muted-foreground">
+          {t('design_system.gallery.samples.content.connectAnEmailProviderToReplyFromHere')}
+        </span>
+      }
+      onRefresh={() => {}}
+      className="w-full"
+    />
+  )
+}
+function MessageObjectPreviewEntryPreviewDataPreview() {
+  const t = useT()
+  return (
+    <MessageObjectPreview
+      entityId="order-10241"
+      entityModule="sales"
+      entityType="order"
+      previewData={{
+        title: t('design_system.gallery.samples.content.order10241'),
+        subtitle: t('design_system.gallery.samples.content.annaNowak3Items'),
+        status: 'processing',
+      }}
+    />
+  )
+}
+function MessageObjectPreviewEntryActionRequiredPreview() {
+  const t = useT()
+  return (
+    <MessageObjectPreview
+      entityId="return-1182"
+      entityModule="sales"
+      entityType="return"
+      actionRequired
+      actionLabel={t('design_system.gallery.samples.content.approveReturn')}
+      previewData={{
+        title: t('design_system.gallery.samples.content.returnRequest1182'),
+        subtitle: t('design_system.gallery.samples.content.order10241AnnaNowak'),
+        metadata: {
+          total: 'EUR 412.00',
+          due: 'Jun 15, 2026',
+        },
+      }}
+    />
+  )
+}
+function EmailThreadsPanelEntryConversationsPreview() {
+  const t = useT()
+  return (
+    <EmailThreadsPanel
+      threads={sampleThreads(t)}
+      canCompose
+      onComposeNew={() => {}}
+      onReply={() => {}}
+      onRefresh={() => {}}
+      className="w-full"
+    />
+  )
+}
+function EmailThreadsPanelEntryOptimisticStatusPreview() {
+  const t = useT()
+  return (
+    <EmailThreadsPanel
+      threads={optimisticThread(t)}
+      canCompose
+      onComposeNew={() => {}}
+      onReply={() => {}}
+      onRetry={() => {}}
+      className="w-full"
+    />
+  )
+}
+const sampleThreads = (t: ReturnType<typeof useT>): EmailThread[] => [
   {
     threadKey: 'thread-fitting',
-    subject: 'Fitting appointment — June 12',
-    preview: 'Great, see you Friday at 10:00.',
+    subject: t('design_system.gallery.samples.content.fittingAppointmentJune12'),
+    preview: t('design_system.gallery.samples.content.greatSeeYouFridayAt1000'),
     participants: ['anna.nowak@example.com'],
     lastMessageAt: '2026-06-10T14:05:00.000Z',
     messageCount: 2,
@@ -31,12 +105,12 @@ const sampleThreads: EmailThread[] = [
         rfcMessageId: '<fitting-1@example.com>',
         references: [],
         direction: 'outbound',
-        fromName: 'Studio Team',
+        fromName: t('design_system.gallery.samples.content.studioTeam'),
         fromEmail: 'studio@example.com',
         to: ['anna.nowak@example.com'],
         cc: [],
-        subject: 'Fitting appointment — June 12',
-        bodyText: 'Hi Anna, we can offer Friday June 12 at 10:00. Does that work for you?',
+        subject: t('design_system.gallery.samples.content.fittingAppointmentJune12'),
+        bodyText: t('design_system.gallery.samples.content.hiAnnaWeCanOfferFridayJune12At1000DoesThatWorkForYou'),
         sentAt: '2026-06-10T09:24:00.000Z',
         providerKey: 'gmail',
       },
@@ -50,8 +124,8 @@ const sampleThreads: EmailThread[] = [
         fromEmail: 'anna.nowak@example.com',
         to: ['studio@example.com'],
         cc: [],
-        subject: 'Re: Fitting appointment — June 12',
-        bodyText: 'Great, see you Friday at 10:00.',
+        subject: t('design_system.gallery.samples.content.reFittingAppointmentJune12'),
+        bodyText: t('design_system.gallery.samples.content.greatSeeYouFridayAt1000'),
         sentAt: '2026-06-10T14:05:00.000Z',
         providerKey: 'gmail',
       },
@@ -59,8 +133,8 @@ const sampleThreads: EmailThread[] = [
   },
   {
     threadKey: 'thread-invoice',
-    subject: 'Invoice 2026-118',
-    preview: 'Attached is the corrected invoice for May.',
+    subject: t('design_system.gallery.samples.content.invoice2026118'),
+    preview: t('design_system.gallery.samples.content.attachedIsTheCorrectedInvoiceForMay'),
     participants: ['billing@acme.example.com'],
     lastMessageAt: '2026-06-08T08:12:00.000Z',
     messageCount: 1,
@@ -73,24 +147,23 @@ const sampleThreads: EmailThread[] = [
         rfcMessageId: '<invoice-1@example.com>',
         references: [],
         direction: 'inbound',
-        fromName: 'Acme Billing',
+        fromName: t('design_system.gallery.samples.content.acmeBilling'),
         fromEmail: 'billing@acme.example.com',
         to: ['studio@example.com'],
         cc: ['accounting@example.com'],
-        subject: 'Invoice 2026-118',
-        bodyText: 'Attached is the corrected invoice for May.',
+        subject: t('design_system.gallery.samples.content.invoice2026118'),
+        bodyText: t('design_system.gallery.samples.content.attachedIsTheCorrectedInvoiceForMay'),
         sentAt: '2026-06-08T08:12:00.000Z',
         providerKey: 'gmail',
       },
     ],
   },
 ]
-
-const optimisticThread: EmailThread[] = [
+const optimisticThread = (t: ReturnType<typeof useT>): EmailThread[] => [
   {
     threadKey: 'thread-optimistic',
-    subject: 'Order 10241 — delivery update',
-    preview: 'Your order ships tomorrow.',
+    subject: t('design_system.gallery.samples.content.order10241DeliveryUpdate'),
+    preview: t('design_system.gallery.samples.content.yourOrderShipsTomorrow'),
     participants: ['jan.kowalski@example.com'],
     lastMessageAt: '2026-06-11T16:40:00.000Z',
     messageCount: 3,
@@ -103,12 +176,12 @@ const optimisticThread: EmailThread[] = [
         rfcMessageId: null,
         references: [],
         direction: 'outbound',
-        fromName: 'Studio Team',
+        fromName: t('design_system.gallery.samples.content.studioTeam'),
         fromEmail: 'studio@example.com',
         to: ['jan.kowalski@example.com'],
         cc: [],
-        subject: 'Order 10241 — delivery update',
-        bodyText: 'Your order ships tomorrow.',
+        subject: t('design_system.gallery.samples.content.order10241DeliveryUpdate'),
+        bodyText: t('design_system.gallery.samples.content.yourOrderShipsTomorrow'),
         sentAt: '2026-06-11T16:38:00.000Z',
         providerKey: 'gmail',
         status: 'sent',
@@ -119,12 +192,12 @@ const optimisticThread: EmailThread[] = [
         rfcMessageId: null,
         references: [],
         direction: 'outbound',
-        fromName: 'Studio Team',
+        fromName: t('design_system.gallery.samples.content.studioTeam'),
         fromEmail: 'studio@example.com',
         to: ['jan.kowalski@example.com'],
         cc: [],
-        subject: 'Re: Order 10241 — delivery update',
-        bodyText: 'Tracking number follows in a separate email.',
+        subject: t('design_system.gallery.samples.content.reOrder10241DeliveryUpdate'),
+        bodyText: t('design_system.gallery.samples.content.trackingNumberFollowsInASeparateEmail'),
         sentAt: '2026-06-11T16:39:00.000Z',
         providerKey: 'gmail',
         status: 'sending',
@@ -135,21 +208,20 @@ const optimisticThread: EmailThread[] = [
         rfcMessageId: null,
         references: [],
         direction: 'outbound',
-        fromName: 'Studio Team',
+        fromName: t('design_system.gallery.samples.content.studioTeam'),
         fromEmail: 'studio@example.com',
         to: ['jan.kowalski@example.com'],
         cc: [],
-        subject: 'Re: Order 10241 — delivery update',
-        bodyText: 'Here is the tracking link.',
+        subject: t('design_system.gallery.samples.content.reOrder10241DeliveryUpdate'),
+        bodyText: t('design_system.gallery.samples.content.hereIsTheTrackingLink'),
         sentAt: '2026-06-11T16:40:00.000Z',
         providerKey: 'gmail',
         status: 'failed',
-        statusError: 'Mailbox temporarily unavailable.',
+        statusError: t('design_system.gallery.samples.content.mailboxTemporarilyUnavailable'),
       },
     ],
   },
 ]
-
 const emailThreadsPanelEntry: GalleryEntry = {
   id: 'email-threads-panel',
   title: 'EmailThreadsPanel',
@@ -158,16 +230,7 @@ const emailThreadsPanelEntry: GalleryEntry = {
     {
       id: 'conversations',
       title: 'Conversations',
-      render: () => (
-        <EmailThreadsPanel
-          threads={sampleThreads}
-          canCompose
-          onComposeNew={() => {}}
-          onReply={() => {}}
-          onRefresh={() => {}}
-          className="w-full"
-        />
-      ),
+      render: () => <EmailThreadsPanelEntryConversationsPreview />,
       code: `import { EmailThreadsPanel, type EmailThread } from '@open-mercato/ui/backend/messages'
 
 <EmailThreadsPanel
@@ -181,16 +244,7 @@ const emailThreadsPanelEntry: GalleryEntry = {
     {
       id: 'optimistic-status',
       title: 'Optimistic send status',
-      render: () => (
-        <EmailThreadsPanel
-          threads={optimisticThread}
-          canCompose
-          onComposeNew={() => {}}
-          onReply={() => {}}
-          onRetry={() => {}}
-          className="w-full"
-        />
-      ),
+      render: () => <EmailThreadsPanelEntryOptimisticStatusPreview />,
       code: `import { EmailThreadsPanel } from '@open-mercato/ui/backend/messages'
 
 // Messages carry status: 'sending' | 'sent' | 'failed' via mergeOptimisticEmailThreads
@@ -205,9 +259,7 @@ const emailThreadsPanelEntry: GalleryEntry = {
     {
       id: 'empty',
       title: 'Empty state',
-      render: () => (
-        <EmailThreadsPanel threads={[]} canCompose onComposeNew={() => {}} className="w-full" />
-      ),
+      render: () => <EmailThreadsPanel threads={[]} canCompose onComposeNew={() => {}} className="w-full" />,
       code: `import { EmailThreadsPanel } from '@open-mercato/ui/backend/messages'
 
 <EmailThreadsPanel threads={[]} canCompose onComposeNew={() => openComposer()} />`,
@@ -215,19 +267,7 @@ const emailThreadsPanelEntry: GalleryEntry = {
     {
       id: 'read-only',
       title: 'Read-only (compose disabled)',
-      render: () => (
-        <EmailThreadsPanel
-          threads={sampleThreads}
-          canCompose={false}
-          composeDisabledHint={
-            <span className="text-sm text-muted-foreground">
-              Connect an email provider to reply from here.
-            </span>
-          }
-          onRefresh={() => {}}
-          className="w-full"
-        />
-      ),
+      render: () => <EmailThreadsPanelEntryReadOnlyPreview />,
       code: `import { EmailThreadsPanel } from '@open-mercato/ui/backend/messages'
 
 <EmailThreadsPanel
@@ -239,14 +279,12 @@ const emailThreadsPanelEntry: GalleryEntry = {
     },
   ],
 }
-
 const galleryT = (key: string, fallback?: string) => fallback ?? key
-
 function DemoMessagePrioritySelector() {
+  const t = useT()
   const [value, setValue] = React.useState<MessagePriority>('high')
-  return <MessagePrioritySelector value={value} onChange={setValue} t={galleryT} />
+  return <MessagePrioritySelector value={value} onChange={setValue} t={t} />
 }
-
 const messagePrioritySelectorEntry: GalleryEntry = {
   id: 'message-priority-selector',
   title: 'MessagePrioritySelector',
@@ -267,7 +305,6 @@ const [value, setValue] = React.useState<MessagePriority>('high')
     },
   ],
 }
-
 const messageObjectPreviewEntry: GalleryEntry = {
   id: 'message-object-preview',
   title: 'MessageObjectPreview',
@@ -276,18 +313,7 @@ const messageObjectPreviewEntry: GalleryEntry = {
     {
       id: 'preview-data',
       title: 'Preview data',
-      render: () => (
-        <MessageObjectPreview
-          entityId="order-10241"
-          entityModule="sales"
-          entityType="order"
-          previewData={{
-            title: 'Order #10241',
-            subtitle: 'Anna Nowak — 3 items',
-            status: 'processing',
-          }}
-        />
-      ),
+      render: () => <MessageObjectPreviewEntryPreviewDataPreview />,
       code: `import { MessageObjectPreview } from '@open-mercato/ui/backend/messages'
 
 <MessageObjectPreview
@@ -300,20 +326,7 @@ const messageObjectPreviewEntry: GalleryEntry = {
     {
       id: 'action-required',
       title: 'Action required with metadata',
-      render: () => (
-        <MessageObjectPreview
-          entityId="return-1182"
-          entityModule="sales"
-          entityType="return"
-          actionRequired
-          actionLabel="Approve return"
-          previewData={{
-            title: 'Return request #1182',
-            subtitle: 'Order #10241 — Anna Nowak',
-            metadata: { total: 'EUR 412.00', due: 'Jun 15, 2026' },
-          }}
-        />
-      ),
+      render: () => <MessageObjectPreviewEntryActionRequiredPreview />,
       code: `import { MessageObjectPreview } from '@open-mercato/ui/backend/messages'
 
 <MessageObjectPreview
@@ -331,9 +344,4 @@ const messageObjectPreviewEntry: GalleryEntry = {
     },
   ],
 }
-
-export const entries: GalleryEntry[] = [
-  emailThreadsPanelEntry,
-  messagePrioritySelectorEntry,
-  messageObjectPreviewEntry,
-]
+export const entries: GalleryEntry[] = [emailThreadsPanelEntry, messagePrioritySelectorEntry, messageObjectPreviewEntry]

@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals'
-import { parseCronExpression, getNextOccurrences, validateCron } from '../cronParser'
+import { parseCronExpression, getNextOccurrences, validateCron, validateCronExpression } from '../cronParser'
 
 describe('cronParser', () => {
   describe('parseCronExpression', () => {
@@ -239,6 +239,56 @@ describe('cronParser', () => {
       const nextRun = result.nextRun!
       expect(nextRun.getUTCMonth()).toBe(0) // January
       expect(nextRun.getUTCDate()).toBe(1)
+    })
+  })
+
+  describe('validateCronExpression', () => {
+    it('returns ok with three upcoming runs by default for a valid expression', () => {
+      const result = validateCronExpression('0 7 * * 1')
+
+      expect(result.ok).toBe(true)
+      expect(result.error).toBeUndefined()
+      expect(result.nextRuns).toHaveLength(3)
+      for (const run of result.nextRuns!) {
+        expect(run).toBeInstanceOf(Date)
+      }
+      expect(result.nextRuns![0].getTime()).toBeLessThan(result.nextRuns![1].getTime())
+      expect(result.nextRuns![1].getTime()).toBeLessThan(result.nextRuns![2].getTime())
+    })
+
+    it('rejects shape-valid garbage that token-count regexes accept', () => {
+      const result = validateCronExpression('foo bar baz qux quux')
+
+      expect(result.ok).toBe(false)
+      expect(result.nextRuns).toBeUndefined()
+      expect(result.error).toBeTruthy()
+    })
+
+    it('rejects empty input', () => {
+      expect(validateCronExpression('').ok).toBe(false)
+      expect(validateCronExpression('   ').ok).toBe(false)
+    })
+
+    it('honors a custom count (clamped to 1..10)', () => {
+      expect(validateCronExpression('*/5 * * * *', { count: 5 }).nextRuns).toHaveLength(5)
+      expect(validateCronExpression('*/5 * * * *', { count: 0 }).nextRuns).toHaveLength(1)
+      expect(validateCronExpression('*/5 * * * *', { count: 99 }).nextRuns).toHaveLength(10)
+    })
+
+    it('computes occurrences in the requested timezone from a fixed date', () => {
+      const currentDate = new Date('2026-01-01T00:00:00Z')
+      const result = validateCronExpression('0 12 * * *', { timezone: 'America/New_York', currentDate, count: 1 })
+
+      expect(result.ok).toBe(true)
+      // Noon in New York (EST, UTC-5) is 17:00 UTC.
+      expect(result.nextRuns![0].toISOString()).toBe('2026-01-01T17:00:00.000Z')
+    })
+
+    it('accepts 6-field (seconds) expressions that cron-parser schedules', () => {
+      const result = validateCronExpression('*/30 * * * * *', { count: 2 })
+
+      expect(result.ok).toBe(true)
+      expect(result.nextRuns).toHaveLength(2)
     })
   })
 })

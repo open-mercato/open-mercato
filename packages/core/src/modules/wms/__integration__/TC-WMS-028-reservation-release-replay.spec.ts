@@ -137,6 +137,39 @@ test.describe('TC-WMS-028: Reservation release replay', () => {
       expect(replay.status()).toBe(409)
       await expect(readJsonSafe(replay)).resolves.toMatchObject({ error: 'invalid_reservation_state' })
 
+      const allocateReleased = await apiRequest(request, 'POST', '/api/wms/inventory/allocate', {
+        token: adminToken,
+        data: {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          reservationId: firstReservation.reservationId,
+        },
+      })
+      expect(allocateReleased.status()).toBe(409)
+      await expect(readJsonSafe(allocateReleased)).resolves.toMatchObject({ error: 'invalid_reservation_state' })
+
+      const balancesAfterAllocateAttempt = await apiRequest(
+        request,
+        'GET',
+        `/api/wms/inventory/balances?warehouseId=${encodeURIComponent(warehouseId)}&catalogVariantId=${encodeURIComponent(variantId)}&page=1&pageSize=20`,
+        { token: adminToken },
+      )
+      expect(balancesAfterAllocateAttempt.ok()).toBeTruthy()
+      const balancesBody = await readJsonSafe<{
+        items?: Array<{
+          warehouse_id?: string | null
+          catalog_variant_id?: string | null
+          quantity_reserved?: string | number | null
+          quantity_allocated?: string | number | null
+        }>
+      }>(balancesAfterAllocateAttempt)
+      const balanceAfterReplay = balancesBody?.items?.find(
+        (item) => item.warehouse_id === warehouseId && item.catalog_variant_id === variantId,
+      )
+      expect(balanceAfterReplay).toBeTruthy()
+      expect(Number(balanceAfterReplay?.quantity_reserved)).toBe(5)
+      expect(Number(balanceAfterReplay?.quantity_allocated)).toBe(0)
+
       const reserveAgain = await apiRequest(request, 'POST', '/api/wms/inventory/reserve', {
         token: adminToken,
         data: {

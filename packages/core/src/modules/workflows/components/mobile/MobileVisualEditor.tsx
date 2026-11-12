@@ -4,39 +4,46 @@ import { useState } from 'react'
 import type { Node, Edge, Connection } from '@xyflow/react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Save, MoreVertical, FileText, Trash2, CircleQuestionMark, Play } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_LABELS } from '../../lib/node-type-icons'
-import { WorkflowGraph } from '../WorkflowGraph'
-import { MobileMetadataSheet } from './MobileMetadataSheet'
-import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../data/types'
+import { WorkflowGraph, type WorkflowGraphNodesChangeMeta } from '../WorkflowGraph'
+import type { WorkflowMetadataState } from '../../data/types'
 
 export interface MobileVisualEditorProps {
   definitionId: string | null
   isSaving: boolean
   nodes: Node[]
   edges: Edge[]
-  onNodesChange: (nodes: Node[]) => void
+  onNodesChange: (nodes: Node[], meta: WorkflowGraphNodesChangeMeta) => void
   onEdgesChange: (edges: Edge[]) => void
   onNodeClick: (event: React.MouseEvent, node: Node) => void
   onEdgeClick: (event: React.MouseEvent, edge: Edge) => void
   onConnect: (connection: Connection) => void
+  onReconnect?: (oldEdge: Edge, connection: Connection) => void
   onAddNode: (nodeType: string) => void
   onSave: () => void
   onValidate: () => void
-  onTest: () => void
+  onStartInstance: () => void
   onLoadExample: () => void
   onClear: () => void
   metadata: WorkflowMetadataState
-  metadataHandlers: WorkflowMetadataHandlers
+  /**
+   * The definition metadata lives in the shared `DefinitionMetadataDrawer`,
+   * owned by the page so mobile and desktop cannot drift apart again — the
+   * mobile-only sheet never grew the context schema, interpolation mode or
+   * error handler the desktop form gained.
+   */
+  onMetadataOpenChange: (open: boolean) => void
 }
 
-const NODE_TYPES = ['start', 'userTask', 'automated', 'waitForSignal', 'subWorkflow', 'end'] as const
+const NODE_TYPES = ['start', 'userTask', 'automated', 'invokeAgent', 'waitForSignal', 'subWorkflow', 'end'] as const
 
 export function MobileVisualEditor({
   definitionId,
@@ -48,17 +55,17 @@ export function MobileVisualEditor({
   onNodeClick,
   onEdgeClick,
   onConnect,
+  onReconnect,
   onAddNode,
   onSave,
   onValidate,
-  onTest,
+  onStartInstance,
   onLoadExample,
   onClear,
   metadata,
-  metadataHandlers,
+  onMetadataOpenChange,
 }: MobileVisualEditorProps) {
   const t = useT()
-  const [showMetadata, setShowMetadata] = useState(false)
   const [showMoreActions, setShowMoreActions] = useState(false)
 
   const { workflowName } = metadata
@@ -73,7 +80,7 @@ export function MobileVisualEditor({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowMetadata(true)}
+            onClick={() => onMetadataOpenChange(true)}
             className="h-8 px-2"
             aria-label={t('workflows.mobile.metadata', 'Metadata')}
           >
@@ -138,6 +145,7 @@ export function MobileVisualEditor({
           onNodeClick={onNodeClick}
           onEdgeClick={onEdgeClick}
           onConnect={onConnect}
+          onReconnect={onReconnect}
           editable={true}
           height="100%"
         />
@@ -158,26 +166,34 @@ export function MobileVisualEditor({
         )}
       </div>
 
-      <Dialog open={showMoreActions} onOpenChange={setShowMoreActions}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('workflows.mobile.moreActions', 'More Actions')}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
+      {/* An action sheet, so it rises from the bottom edge the thumb is at
+          rather than centring a modal over the canvas. Escape closes it. */}
+      <Drawer open={showMoreActions} onOpenChange={setShowMoreActions}>
+        <DrawerContent
+          side="bottom"
+          data-testid="workflow-mobile-actions-drawer"
+          closeAriaLabel={t('workflows.mobile.closeActions', 'Close actions')}
+        >
+          <DrawerHeader>
+            <DrawerTitle>{t('workflows.mobile.moreActions', 'More Actions')}</DrawerTitle>
+          </DrawerHeader>
+          <DrawerBody className="space-y-2 pb-5">
             <button
               onClick={() => { onLoadExample(); setShowMoreActions(false) }}
               className="flex w-full items-center gap-3 rounded-lg border p-3 text-left text-sm hover:bg-muted active:bg-muted"
             >
               {t('workflows.mobile.loadExample', 'Load Example')}
             </button>
-            <button
-              onClick={() => { onTest(); setShowMoreActions(false) }}
-              disabled={isSaving}
-              className="flex w-full items-center gap-3 rounded-lg border p-3 text-left text-sm hover:bg-muted active:bg-muted disabled:opacity-50"
-            >
-              <Play className="h-4 w-4" />
-              {t('workflows.mobile.runTest', 'Run Test')}
-            </button>
+            {definitionId && (
+              <button
+                onClick={() => { onStartInstance(); setShowMoreActions(false) }}
+                disabled={isSaving}
+                className="flex w-full items-center gap-3 rounded-lg border p-3 text-left text-sm hover:bg-muted active:bg-muted disabled:opacity-50"
+              >
+                <Play className="h-4 w-4" />
+                {t('workflows.actions.startInstance')}
+              </button>
+            )}
             <button
               onClick={() => { onClear(); setShowMoreActions(false) }}
               disabled={isSaving}
@@ -186,17 +202,10 @@ export function MobileVisualEditor({
               <Trash2 className="h-4 w-4" />
               {t('workflows.mobile.clear', 'Clear')}
             </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
 
-      <MobileMetadataSheet
-        open={showMetadata}
-        onOpenChange={setShowMetadata}
-        definitionId={definitionId}
-        metadata={metadata}
-        metadataHandlers={metadataHandlers}
-      />
     </div>
   )
 }

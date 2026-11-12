@@ -515,6 +515,7 @@ export default function ResourcesResourcesPage() {
         <DataTable
           stickyActionsColumn
           title={t('resources.resources.page.title', 'Resources')}
+          titleHeadingLevel={1}
           actions={canManage ? (
             <Button asChild>
               <Link href="/backend/resources/resources/create">{t('resources.resources.list.actions.create', 'New resource')}</Link>

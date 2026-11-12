@@ -30,8 +30,15 @@ import {
   WorkflowEvent,
 } from '../data/entities'
 import { logWorkflowEvent } from './event-logger'
+import {
+  ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES,
+  readPendingAsyncJobIds,
+  resolveAsyncActivityWait,
+} from './async-activity-wait'
 import * as stepHandler from './step-handler'
-import { branchToken } from './execution-token'
+import { branchToken, mergeTokenContext, type ExecutionToken } from './execution-token'
+import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-routing'
+import { isSafeMappingTargetPath, safeGetNestedValue } from './safe-mapping-path'
 
 export interface AdvanceBranchesResult {
   outcome: 'joined' | 'waiting' | 'failed'
@@ -104,15 +111,22 @@ interface ParallelContext {
   userId?: string
 }
 
+export function applyParallelJoinOutputMapping(
+  context: Record<string, unknown>,
+  outputMapping: Record<string, string>,
+): void {
+  for (const [topKey, sourcePath] of Object.entries(outputMapping)) {
+    if (topKey === 'branches' || !isSafeMappingTargetPath(topKey)) continue
+    const value = safeGetNestedValue(context, sourcePath)
+    if (value !== undefined) context[topKey] = value
+  }
+}
+
 function normalizeWorkflowUserId(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   if (!trimmed || trimmed.startsWith('trigger:')) return null
   return trimmed
-}
-
-function getNestedValue(obj: any, path: string): any {
-  return path.split('.').reduce((current, key) => (current == null ? undefined : current[key]), obj)
 }
 
 /**
@@ -201,25 +215,29 @@ export async function resumeBranchAfterActivities(
   }
 
   const namespace = branch.contextNamespace || {}
-  const pendingJobIds = (namespace._pendingAsyncActivities as any[]) || []
+  const pendingJobIds = readPendingAsyncJobIds(namespace._pendingAsyncActivities)
 
-  const completedEvents = await em.find(WorkflowEvent, {
-    workflowInstanceId: instanceId,
-    branchInstanceId,
-    eventType: 'ACTIVITY_COMPLETED',
-    eventData: { async: true },
-  })
-  const failedCount = await em.count(WorkflowEvent, {
-    workflowInstanceId: instanceId,
-    branchInstanceId,
-    eventType: 'ACTIVITY_FAILED',
-    eventData: { async: true },
-  })
+  const outcomeEvents = pendingJobIds.length === 0
+    ? []
+    : await em.find(
+      WorkflowEvent,
+      {
+        workflowInstanceId: instanceId,
+        branchInstanceId,
+        eventType: { $in: [...ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES] },
+        eventData: { async: true, jobId: { $in: pendingJobIds } },
+      },
+      { orderBy: { occurredAt: 'asc', id: 'asc' } },
+    )
+  const wait = resolveAsyncActivityWait(pendingJobIds, outcomeEvents)
 
-  if (completedEvents.length + failedCount < pendingJobIds.length) {
+  if (!wait.settled) {
     // Still waiting on other branch activities.
     return { continueExecution: false }
   }
+
+  const completedEvents = wait.completed
+  const failedCount = wait.failed.length
 
   const now = new Date()
   if (failedCount > 0) {
@@ -392,10 +410,29 @@ async function advanceOneBranch(
       token,
       selected.fromStepId,
       selected.toStepId,
-      evalContext,
+      { ...evalContext, transitionId: selected.transitionId },
     )
 
     if (!transitionResult.success) {
+      // Error routing (spec 5.9) inside a branch: a wired error route is taken
+      // in the branch itself, so only unhandled failures propagate to the
+      // instance. The failure-queue directive is deliberately instance-level and
+      // is not honored per branch — such a branch keeps failing as it does today.
+      const routed = await followBranchErrorRoute(
+        em,
+        container,
+        instance,
+        branch,
+        token,
+        transitionResult,
+        evalContext,
+      )
+      if (routed) {
+        if (branch.currentStepId === branch.joinStepId) {
+          await completeBranchAtJoin(em, instance, branch)
+        }
+        return 'advanced'
+      }
       await failBranch(em, instance, branch, transitionResult.error || 'Branch transition failed')
       return 'failed'
     }
@@ -411,6 +448,63 @@ async function advanceOneBranch(
     await failBranch(em, instance, branch, message)
     return 'failed'
   }
+}
+
+/**
+ * Follow a branch step's wired error route with the branch token, so the branch
+ * keeps its own cursor and context namespace. Returns false when the transition
+ * result carries no route or the route could not be taken.
+ */
+async function followBranchErrorRoute(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  branch: WorkflowBranchInstance,
+  token: ExecutionToken,
+  transitionResult: { failedStepId?: string; errorRoute?: { transitionId?: string; toStepId: string }; error?: string },
+  evalContext: { workflowContext: Record<string, any>; userId?: string },
+): Promise<boolean> {
+  const { failedStepId, errorRoute } = transitionResult
+  if (!failedStepId || !errorRoute) return false
+
+  const error = transitionResult.error || 'Branch transition failed'
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    branchInstanceId: branch.id,
+    eventType: 'ERROR_ROUTED',
+    eventData: {
+      failedStepId,
+      toStepId: errorRoute.toStepId,
+      transitionId: errorRoute.transitionId,
+      branchKey: branch.branchKey,
+      error,
+    },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+
+  const errorEntry = buildErrorContextEntry(failedStepId, error)
+  mergeTokenContext(token, { [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry })
+  await em.flush()
+
+  const transitionHandler = await import('./transition-handler')
+  const routedResult = await transitionHandler.executeTransitionForToken(
+    em,
+    container,
+    token,
+    failedStepId,
+    errorRoute.toStepId,
+    {
+      ...evalContext,
+      workflowContext: {
+        ...evalContext.workflowContext,
+        [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
+      },
+      transitionId: errorRoute.transitionId,
+    },
+  )
+
+  return routedResult.success === true
 }
 
 async function completeBranchAtJoin(
@@ -548,11 +642,7 @@ async function fireJoin(
   // mapping cannot clobber the per-branch namespaces.
   const outputMapping: Record<string, string> | undefined = joinStep?.config?.outputMapping
   if (outputMapping) {
-    for (const [topKey, sourcePath] of Object.entries(outputMapping)) {
-      if (topKey === 'branches') continue
-      const value = getNestedValue(nextContext, sourcePath)
-      if (value !== undefined) nextContext[topKey] = value
-    }
+    applyParallelJoinOutputMapping(nextContext, outputMapping)
   }
 
   // Park the root token ON the JOIN step (not its successor) and let the

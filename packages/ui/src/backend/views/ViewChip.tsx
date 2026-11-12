@@ -52,7 +52,10 @@ export function ViewChip({
   if (isRenaming) {
     const renameTrimmed = renameValue.trim()
     return (
-      <div className="inline-flex items-center gap-1 rounded-md border border-primary bg-primary/5 px-3 h-8">
+      <div
+        data-active={isActive ? 'true' : 'false'}
+        className="inline-flex items-center gap-1 rounded-md border border-primary bg-primary/5 px-3 h-8"
+      >
         <input
           value={renameValue}
           onChange={(e) => onRenameValueChange(e.target.value)}
@@ -92,7 +95,8 @@ export function ViewChip({
 
   return (
     <div
-      className={`inline-flex items-center gap-0.5 rounded-md border h-8 text-sm ${
+      data-active={isActive ? 'true' : 'false'}
+      className={`inline-flex min-w-0 max-w-full items-center gap-0.5 rounded-md border h-8 text-sm ${
         isActive
           ? 'bg-brand-violet/10 border-brand-violet/30 font-medium text-brand-violet'
           : 'border-border'
@@ -102,12 +106,14 @@ export function ViewChip({
         type="button"
         variant="ghost"
         size="sm"
-        className="h-auto px-3 py-0 text-sm hover:bg-transparent"
+        className="h-auto min-w-0 shrink px-3 py-0 text-sm hover:bg-transparent"
+        title={label}
         onClick={onActivate}
         disabled={disabled}
+        aria-current={isActive ? 'true' : undefined}
       >
         {showUsersIcon ? <Users className="size-3 mr-1 opacity-50" /> : null}
-        {label}
+        <span className="truncate">{label}</span>
       </Button>
       <ViewChipMenu
         kind={kind}

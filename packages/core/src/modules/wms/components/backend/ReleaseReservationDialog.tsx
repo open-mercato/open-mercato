@@ -231,6 +231,7 @@ export function ReleaseReservationDialog({
                   ),
                   'error',
                 )
+                await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
                 return { handled: true as const }
               }
               await raiseCrudError(
@@ -409,13 +410,19 @@ export function ReleaseReservationDialog({
           </div>
 
           <DialogFooter bordered={false} className="border-t px-6 py-4 sm:justify-between">
-            <p className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1.5">
+            <p
+              className="hidden text-xs text-muted-foreground sm:inline-flex sm:min-w-0 sm:flex-wrap sm:items-center sm:gap-1.5"
+              data-testid="wms-inventory-release-shortcut-hint"
+            >
               <KbdShortcut keys={['⌘', 'Enter']} />
               <span>/</span>
               <KbdShortcut keys={['Ctrl', 'Enter']} />
               <span>{t('wms.backend.inventory.release.dialog.shortcutSave', 'to confirm')}</span>
             </p>
-            <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
+            <div
+              className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:shrink-0 sm:flex-row"
+              data-testid="wms-inventory-release-actions"
+            >
               <Button type="button" variant="outline" onClick={closeDialog} disabled={submitting}>
                 {t('common.cancel', 'Cancel')}
               </Button>

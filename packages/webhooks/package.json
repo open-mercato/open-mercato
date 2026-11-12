@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/webhooks",
-  "version": "0.7.0",
+  "version": "0.10.0",
   "license": "MIT",
   "description": "Webhooks module for Open Mercato — Standard Webhooks compliant outbound/inbound delivery",
   "type": "module",
@@ -8,6 +8,7 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "jest --config jest.config.cjs",
+    "test:pg-integration": "cross-env OM_PG_INTEGRATION=1 jest --config jest.config.cjs --runInBand 'src/modules/webhooks/lib/__tests__/delivery-claim\\.integration\\.test\\.ts$'",
     "typecheck": "tsc --noEmit"
   },
   "exports": {
@@ -70,6 +71,7 @@
     }
   },
   "dependencies": {
+    "@open-mercato/cache": "workspace:*",
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
@@ -77,20 +79,26 @@
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-is": ">=18.0.0"
   },
   "devDependencies": {
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "esbuild": "^0.28.1",
-    "glob": "^13.0.6",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "cross-env": "^10.1.0",
+    "esbuild": "^0.28.2",
+    "glob": "^14.0.4",
     "jest": "^30.4.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-is": "^19.2.8",
+    "testcontainers": "^12.0.3",
     "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },

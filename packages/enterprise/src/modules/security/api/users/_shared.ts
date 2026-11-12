@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -115,6 +116,10 @@ export async function assertActorOwnsTenantScope(
 export async function mapSecurityUsersError(error: unknown): Promise<NextResponse> {
   if (error instanceof CrudHttpError) {
     return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
+  }
+  const interceptorRejection = getCommandInterceptorHttpRejection(error)
+  if (interceptorRejection) {
+    return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
   }
   if (isSudoRequiredError(error)) {
     return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.statusCode })

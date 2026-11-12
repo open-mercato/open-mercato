@@ -214,6 +214,19 @@ describe('DiscordChannelAdapter.validateCredentials', () => {
     expect(result.ok).toBe(true)
   })
 
+  it('reports the application id as the stable channel identity so a reconnect heals in place', async () => {
+    stubRest()
+    const adapter = getDiscordChannelAdapter()
+    const first = await adapter.validateCredentials({ providerKey: 'discord', credentials, scope: { organizationId: 'o', tenantId: 't' } })
+    const rotated = await adapter.validateCredentials({
+      providerKey: 'discord',
+      credentials: { ...credentials, botToken: 'bot-token-rotated', guildId: '999' },
+      scope: { organizationId: 'o', tenantId: 't' },
+    })
+    expect(first.externalIdentifier).toBe('discord:123')
+    expect(rotated.externalIdentifier).toBe(first.externalIdentifier)
+  })
+
   it('rejects a bad token with a field error', async () => {
     stubRest({
       async getCurrentUser() {
@@ -225,5 +238,6 @@ describe('DiscordChannelAdapter.validateCredentials', () => {
     const result = await adapter.validateCredentials({ providerKey: 'discord', credentials, scope: { organizationId: 'o', tenantId: 't' } })
     expect(result.ok).toBe(false)
     expect(result.errors?.botToken).toBeTruthy()
+    expect(result.externalIdentifier).toBeUndefined()
   })
 })

@@ -129,5 +129,5 @@ New query parameter:
 - UX: added `balance_integrity_violation` specific flash in `ReleaseReservationDialog` with actionable CLI hint; i18n key added to all 4 locales
 
 ### 2026-08-20
-- Reservation mutation commands reject non-active reservations with `409 reservation_not_active` before changing balances; cancelled-order release automation treats the error as an idempotent per-reservation skip.
+- Reservation release and allocate commands reject non-active reservations with `409 invalid_reservation_state` before changing balances; cancelled-order release automation treats the error as an idempotent per-reservation skip.
 - The release API documents its `409` responses, and the release dialog explains when a reservation was already released or fulfilled.

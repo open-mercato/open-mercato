@@ -40,6 +40,15 @@ export type CheckoutTemplateInput = {
     terms?: { title: string; markdown: string; required?: boolean }
     privacyPolicy?: { title: string; markdown: string; required?: boolean }
   }
+  sendStartEmail?: boolean
+  startEmailSubject?: string | null
+  startEmailBody?: string | null
+  sendSuccessEmail?: boolean
+  successEmailSubject?: string | null
+  successEmailBody?: string | null
+  sendErrorEmail?: boolean
+  errorEmailSubject?: string | null
+  errorEmailBody?: string | null
   displayCustomFieldsOnPage?: boolean
   password?: string | null
   maxCompletions?: number | null
@@ -62,6 +71,7 @@ export type CheckoutLinkRecord = {
   templateId?: string | null
   completionCount?: number
   activeReservationCount?: number
+  isLocked?: boolean
   fixedPriceAmount?: number | null
   displayCustomFieldsOnPage?: boolean
   publicCustomFields?: Array<{ key?: string; label?: string; value?: unknown }>

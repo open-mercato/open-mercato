@@ -342,6 +342,7 @@ function InventoryDataTableSection<T extends RowData>({
       <DataTable
         embedded
         title={t(titleKey, titleFallback)}
+        titleHeadingLevel={2}
         columns={columns}
         data={query.data?.items ?? []}
         isLoading={query.isLoading}
@@ -756,19 +757,36 @@ export function InventoryReservationsSection({
         reservationId: row.id,
       }
       try {
+        let staleReservation = false
         await runAllocateMutation({
           operation: async () => {
-            const call = await apiCall<{ ok?: boolean }>('/api/wms/inventory/allocate', {
+            const call = await apiCall<{ ok?: boolean; error?: string }>('/api/wms/inventory/allocate', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(payload),
             })
-            if (!call.ok) await raiseCrudError(call.response, t('wms.backend.inventory.allocate.errors.submit', 'Failed to allocate reservation.'))
+            if (!call.ok) {
+              if (call.response.status === 409 && call.result?.error === 'invalid_reservation_state') {
+                staleReservation = true
+                return {}
+              }
+              await raiseCrudError(call.response, t('wms.backend.inventory.allocate.errors.submit', 'Failed to allocate reservation.'))
+            }
             return call.result ?? {}
           },
           context: allocateMutationContext,
           mutationPayload: payload,
         })
+        if (staleReservation) {
+          flash(
+            t(
+              'wms.backend.inventory.allocate.errors.reservationNotActive',
+              'This reservation is no longer active — it was already released or fulfilled. Refresh the list to see its current state.',
+            ),
+            'error',
+          )
+          return
+        }
         flash(t('wms.backend.inventory.allocate.flash.success', 'Reservation allocated'), 'success')
       } catch {
         flash(t('wms.backend.inventory.allocate.errors.submit', 'Failed to allocate reservation.'), 'error')

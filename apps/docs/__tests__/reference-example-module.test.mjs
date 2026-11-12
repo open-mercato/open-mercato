@@ -35,8 +35,8 @@ function extractDocumentedCapabilityIds(pageSource) {
 
 function extractLinkedSourcePaths(pageSource) {
   const paths = new Set();
-  const blobPrefix = 'https://github.com/open-mercato/open-mercato/blob/develop/apps/mercato/';
-  const pattern = /\]\((https:\/\/github\.com\/open-mercato\/open-mercato\/blob\/develop\/apps\/mercato\/[^)]+)\)/g;
+  const blobPrefix = 'https://github.com/open-mercato/open-mercato/blob/main/apps/mercato/';
+  const pattern = /\]\((https:\/\/github\.com\/open-mercato\/open-mercato\/blob\/main\/apps\/mercato\/[^)]+)\)/g;
   for (const match of pageSource.matchAll(pattern)) {
     const [pathOnly] = match[1].slice(blobPrefix.length).split('#');
     paths.add(pathOnly);
