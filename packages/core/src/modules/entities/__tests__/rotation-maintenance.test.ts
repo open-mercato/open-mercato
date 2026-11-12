@@ -32,7 +32,7 @@ describe('bounded scoped maintenance', () => {
     const execute = jest.fn().mockResolvedValueOnce([{ verified: '2' }]).mockResolvedValueOnce([{ verified: '1' }])
     const writes = [{ row: { id: 1 }, updates: { value: 'first' } }, { row: { id: 2 }, updates: { value: 'second' } }]
     await verifyMaintenanceBatch({ execute }, '"records"', ['id'], writes, scope)
-    expect(execute.mock.calls[0][1]).toEqual(['tenant-a', null, 1, 'first', 2, 'second'])
+    expect(execute.mock.calls[0][1]).toEqual(['tenant-a', null, 1, 2, 1, 'first', 2, 'second'])
     await expect(verifyMaintenanceBatch({ execute }, '"records"', ['id'], writes, scope)).rejects.toThrow('batch')
   })
   test('scoped compare-and-swap includes complete identity and previous values', async () => {

@@ -56,7 +56,7 @@ function fixture(definitions: CustomFieldDef[], batches: Row[][], key: string | 
       expect(query).toContain('offset 0')
       return []
     }
-    if (query.startsWith('select count(*)::text as verified from custom_entities_storage')) return [{ verified: String(parameters.length / 6) }]
+    if (query.includes('select count(*)::text as verified from custom_maintenance_readback')) return [{ verified: String(parameters.length / 7) }]
     if (query.startsWith('select ')) return pending.shift() ?? []
     updates.push({ query, parameters, doc: JSON.parse(String(parameters[0])) as Record<string, unknown> })
     return [{ id: parameters[1] }]
@@ -488,7 +488,7 @@ describe('custom entity document encryption rotation', () => {
   test('failed persisted readback never advances the durable custom cursor',async()=>{
     const setup=fixture([definition('code')],[[row({'cf:code':'legacy'})]])
     const original=setup.execute.getMockImplementation()!
-    setup.execute.mockImplementation(async(sql,params)=>sql.startsWith('select count(*)::text as verified')?[{verified:'0'}]:original(sql,params))
+    setup.execute.mockImplementation(async(sql,params)=>sql.includes('select count(*)::text as verified')?[{verified:'0'}]:original(sql,params))
     setup.options.timestampForWrite=async()=>new Date('2026-01-02T00:00:00Z')
     setup.options.checkpointBatch=jest.fn()
     await expect(rotateCustomEntityDocuments(setup.em,setup.options)).rejects.toThrow('Persisted custom document batch')
@@ -513,7 +513,7 @@ describe('custom entity document encryption rotation', () => {
     const first=fixture([definition('code')],[[row({'cf:code':'legacy'})]])
     const original=first.execute.getMockImplementation()!
     first.execute.mockImplementation(async(sql,parameters)=>{
-      if(sql.startsWith('select count(*)::text as verified'))throw new Error('connection lost after commit')
+      if(sql.includes('select count(*)::text as verified'))throw new Error('connection lost after commit')
       return original(sql,parameters)
     })
     first.options.timestampForWrite=async()=>new Date('2026-01-02T00:00:00Z')

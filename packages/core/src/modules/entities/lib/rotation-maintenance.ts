@@ -90,8 +90,14 @@ export async function verifyMaintenanceBatch(
   scope: MaintenanceScope,
 ): Promise<void> {
   if (!writes.length) return
-  if (writes.length > 500) throw new Error('[internal] Invalid maintenance readback batch')
+  if (writes.length > 500 || !primaryKeys.length) throw new Error('[internal] Invalid maintenance readback batch')
   const parameters: unknown[] = [scope.tenantId, scope.organizationId]
+  const identities = writes.map(({ row }) => {
+    for (const key of primaryKeys) parameters.push(row[key])
+    return `(${primaryKeys.map(() => '?').join(', ')})`
+  })
+  const keyTuple = `(${primaryKeys.map(quoteMaintenanceIdentifier).join(', ')})`
+  const selected = [...new Set([...primaryKeys, ...writes.flatMap(({ updates }) => Object.keys(updates))])]
   const comparisons = writes.map(({ row, updates }) => {
     const identity = primaryKeys.map((key) => { parameters.push(row[key]); return `${quoteMaintenanceIdentifier(key)} = ?` })
     const values = Object.entries(updates).map(([key, value]) => { parameters.push(value); return `${quoteMaintenanceIdentifier(key)} IS NOT DISTINCT FROM ?` })
@@ -99,7 +105,10 @@ export async function verifyMaintenanceBatch(
   })
   if (parameters.length > 60000) throw new Error('[internal] Maintenance readback parameter bound exceeded')
   const result = await connection.execute(
-    `SELECT count(*)::text AS verified FROM ${table} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? AND (${comparisons.join(' OR ')})`, parameters,
+    `WITH maintenance_readback AS MATERIALIZED (
+      SELECT ${selected.map(quoteMaintenanceIdentifier).join(', ')} FROM ${table}
+      WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? AND ${keyTuple} IN (${identities.join(', ')})
+    ) SELECT count(*)::text AS verified FROM maintenance_readback WHERE ${comparisons.join(' OR ')}`, parameters,
   )
   if (!Array.isArray(result) || result.length !== 1 || String((result[0] as { verified?: unknown }).verified) !== String(writes.length)) throw new Error('[internal] Persisted encryption maintenance batch did not match intended values')
 }

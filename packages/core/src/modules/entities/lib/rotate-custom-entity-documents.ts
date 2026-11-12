@@ -264,8 +264,11 @@ export async function rotateCustomEntityDocuments(
     }
     if (committedChecks.length) {
       const committed = await connection.execute<Array<{ verified: string }>>(
-        `select count(*)::text as verified from custom_entities_storage where ${committedChecks.map(() => '(id = ? and entity_type = ? and tenant_id is not distinct from ? and organization_id is not distinct from ? and doc = ?::jsonb and updated_at = ?)').join(' or ')}`,
-        committedChecks.flat(),
+        `with custom_maintenance_readback as materialized (
+          select id,entity_type,tenant_id,organization_id,doc,updated_at from custom_entities_storage
+          where id in (${committedChecks.map(() => '?').join(', ')})
+        ) select count(*)::text as verified from custom_maintenance_readback where ${committedChecks.map(() => '(id = ? and entity_type = ? and tenant_id is not distinct from ? and organization_id is not distinct from ? and doc = ?::jsonb and updated_at = ?)').join(' or ')}`,
+        [...committedChecks.map(check => check[0]), ...committedChecks.flat()],
       )
       if (committed.length !== 1 || committed[0].verified !== String(committedChecks.length)) throw new Error('[internal] Persisted custom document batch did not match intended values')
     }
