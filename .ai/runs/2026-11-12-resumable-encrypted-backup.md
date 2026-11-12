@@ -40,7 +40,7 @@ PR: #9333
 
 ### Phase 0: approval and feasibility
 
-- [ ] 0.1 Obtain explicit Q2 age version/recipient/custody approval, Q3 synthetic-vs-deployment escrow acceptance, ; record evidence without secrets.
+- [x] 0.1 Obtain explicit Q2 age version/recipient/custody approval, Q3 synthetic-vs-deployment escrow acceptance, ; record evidence without secrets.
 - [ ] 0.2 Provision disposable PostgreSQL and run the 20-GiB snapshot/chunk/age feasibility spike with published resource measurements.
 
 ### Phase 1: bootstrap and encrypted backup
@@ -65,3 +65,7 @@ PR: #9333
 ## Resume
 
 First remaining step: 0.1. Request approval of the concrete package/recipient policy and synthetic drill/harness proposal above, then resume this implementation PR via `om-auto-continue-pr`. Do not substitute native spec review approval for the explicit implementation security decisions.
+
+## Authorization — resumed 2026-11-12
+
+User explicitly approved all pending proposals: “yes go on, the modules go to enterpirse / commercial i've got the rights to do so”. Q2/Q3 implementation policy is authorized; real deployment custody acceptance remains separate. Harness is repository-native. Production implementation now proceeds without requesting these approvals again.
