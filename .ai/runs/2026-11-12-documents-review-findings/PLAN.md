@@ -20,8 +20,8 @@ Goal: implement structured, text-anchored review findings in the Documents modul
 | 2.2 | Decorations, apply/keep/reopen UI, outline dots, i18n (server tweak 374dfff616) | done | 18c423fc40 |
 | 2.3 | Phase 2 integration tests (written; run blocked by env, see HANDOFF) + DS guardian | done | a839f2534b |
 | 3.1 | Playbook/rule/reference entities, commands, CRUD routes, ACL (+ ingest rule resolution, server side) | done | e67509452c |
-| 3.2 | Playbook admin pages, review header playbook line, i18n (ingest resolution landed in 3.1) | done | (see git log) |
-| 3.3 | Phase 3 integration tests | todo | |
+| 3.2 | Playbook admin pages, review header playbook line, i18n (ingest resolution landed in 3.1) | done | 3b86637c0a |
+| 3.3 | Phase 3 integration tests (written; run blocked by env, see HANDOFF) | done | see git log |
 | 4.1 | AI tools, agent contract, workflows.ts registration, peer dep | todo | |
 | 4.2 | UPDATE_ENTITY array interpolation spike + docs page | todo | |
 | 4.3 | Phase 4 integration test | todo | |
