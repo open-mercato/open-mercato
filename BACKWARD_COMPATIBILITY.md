@@ -653,3 +653,17 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## Staff report-history metadata (2026-11-12)
+
+**Status: proposed emergency security exception; named human maintainer approval is pending.** This entry documents the requested waiver and does not itself grant one. PR #9362 carries the implementation replacing #8595.
+
+**Surface and classification.** `GET /api/staff/timesheets/reports/{id}/sheet`, `events[].metadata`, is a STABLE HTTP response surface (category 7). For readers without `staff.timesheets.rates.view`, the response no longer includes `totalAmount`, `frozenTotalAmount`, `currencyCode`, unrecognized keys, or structurally invalid values. This is a deliberate breaking restriction for consumers relying on those fields. Authorized readers receive the original metadata unchanged.
+
+**Qualifying argument and narrow scope.** Close and unlock events contain invoice totals even when the sheet's monetary totals are redacted. Returning those event values to a caller without the rates permission is itself the disclosure. A dual response, feature flag, or bridge retaining them would keep it exploitable throughout the deprecation period. The replacement permits only typed known nonfinancial counts, rounding and export details, because unknown or nested metadata can also carry amounts. Null metadata remains null. No event is deleted, no stored metadata is changed, and timestamps, actors, reasons and authorized responses are preserved.
+
+**Client migration.** Treat absent monetary fields as unavailable, never as zero. Custom history renderers must accept the reduced metadata object. Read financial history only with a legitimately authorized identity holding the existing rates permission; do not broaden reader grants merely to restore the old response.
+
+**Operator migration.** Deploy the server repair to every replica, invalidate any cached report-sheet responses, and update custom clients as above. Review logs/exports or stored responses collected by unauthorized readers as potentially containing disclosed totals; assess access and retention under the deployment's incident procedure. Stored report events remain valid and need no rewrite or database migration. A rollback restoring the old response reopens the disclosure.
+
+**Specification and disclosure.** See `.ai/specs/2026-08-12-time-tracking-consulting-suite.md` § Migration & Backward Compatibility and `UPGRADE_NOTES.md` § Staff report history: rate permission. The PR must carry `security` and a human maintainer approval explicitly acknowledging this narrow waiver before merge. Automated review and the request to rewrite the PR are not recorded as that approval.

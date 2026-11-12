@@ -2,7 +2,11 @@
 
 ## Staff report history: rate permission
 
-The report-sheet API now omits financial event metadata when the caller lacks `staff.timesheets.rates.view`. Only recognized nonfinancial counts, rounding settings and export fields with valid primitive types remain. Authorized readers retain the original metadata. Consumers must accept unavailable monetary fields. This corrects a disclosure without a database migration.
+The report-sheet API now omits financial event metadata when the caller lacks `staff.timesheets.rates.view`. Only recognized nonfinancial counts, rounding settings and export fields with valid primitive types remain. Authorized readers retain the original metadata. Consumers must accept unavailable monetary fields. This deliberately restricts the STABLE response under the proposed Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`; named human maintainer sign-off is required before merge.
+
+**Client authors:** custom history renderers must tolerate missing fields and display unavailable money rather than zero. Existing rates-authorized clients retain their metadata.
+
+**Operators:** deploy the repaired server to all replicas and invalidate cached report-sheet responses. Review previously stored responses/logs/exports obtained by unauthorized readers as potentially disclosed financial data under your incident procedure. Update custom clients; do not expand reader permissions to preserve the old response. Stored events remain valid, with no database migration or rewrite. Rolling back the response repair reopens the disclosure.
 
 ## Production Compose tenant encryption key (#7231)
 
@@ -5428,4 +5432,3 @@ Existing standalone applications must refresh `scripts/dev.mjs` and add `scripts
 Container compatibility refusals exit with status `78` and are fatal even before role-ACL synchronization. Custom `SYNC_ROLE_ACLS_COMMAND` implementations should reserve status `78` for fatal configuration failures; other nonzero ACL-sync statuses retain the existing warning behavior.
 
 The compatibility proof authenticates at most five candidate rows per store/key scope using server-side filtering; total plaintext table size is not a transfer limit. Known Documents CRDT binary columns are excluded. This is not a full historical ciphertext audit: unreadable values outside a sample may remain, and normal per-record runtime guards still apply. Optional dev auto-migrations warn and skip writes on a compatibility refusal; explicit setup/container initialization and migrations remain blocking.
-

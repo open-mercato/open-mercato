@@ -635,6 +635,10 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 
 ## Migration & Backward Compatibility
 
+**Report-history security restriction (replacement PR #9362 / #8595).** `events[].metadata` on the existing report-sheet route is a STABLE HTTP response surface. Readers without `staff.timesheets.rates.view` lose monetary, unknown and structurally invalid metadata; known nonfinancial primitive counts, rounding and export fields remain. Authorized responses, event identity/reason/actor/timestamps and persisted events are unchanged. This is an intentional response restriction requiring the Emergency Security Exception recorded in `BACKWARD_COMPATIBILITY.md` (2026-11-12). Keeping the old financial payload as a bridge would preserve the unauthorized disclosure. The entry is proposed, with named human maintainer sign-off still pending; automation cannot waive this gate.
+
+Clients must treat omitted amounts as unavailable and update custom renderers. Operators must deploy all replicas, invalidate cached sheet responses and review retained unauthorized responses as potentially disclosed financial information. No database migration or event rewrite is needed; rollback restores the exposure. `UPGRADE_NOTES.md` gives the client and operator steps. TC-TT-028 has independent self-contained API permission cases and browser containment coverage.
+
 **Whole-filter entry totals (#6990).** `GET /api/staff/timesheets/time-entries?includeTotals=true` adds optional `totals: { entryCount, durationMinutes, roundedMinutes, money? }` across the entire filtered result, independent of pagination. `money` is absent without `staff.timesheets.rates.view`; authorized amounts use entry-level rounding and separate currency groups. Authorization-derived project predicates are structurally AND-composed with advanced filters for both items and totals. Aggregate failure omits `totals` while preserving the list. Requests without the opt-in retain the existing response.
 
 The entries footer renders through the existing `data-table:staff.time_entries.list:footer` spot and retains the `staff.entries_summary_footer` replacement handle and existing props, adding only optional `totals`. Shared `DataTable` / `FilterBar` accept optional `showActiveFilterChips`, defaulting to `true`. No ACL, database, route, event, or required prop changes; no client or operator migration is needed. `UPGRADE_NOTES.md` describes the footer placement for component replacements.
@@ -655,7 +659,7 @@ Reviewed against [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md)'
 | 4. Import paths | None changed; all new code is module-internal |
 | 5. Event ids | **Additive only.** No existing id renamed or removed |
 | 6. Widget spot ids | Additive — new `data-table:` ids for the entries and tasks tables |
-| 7. API routes | **Additive only.** Existing routes gain optional request fields and additive response fields |
+| 7. API routes | Additive except the deliberate unauthorized history-metadata restriction described above; emergency security exception and named human sign-off required |
 | 8. DB schema | Additive — 10 new tables, 11 nullable/defaulted columns (incl. `staff_time_tasks.parent_task_id`, `staff_time_projects.customer_snapshot`). No column dropped or retyped; `customer_id` gains a declared target but no enforced FK, since it crosses a module boundary |
 | 9. DI names | Additive — `timeTrackingAccessResolver` |
 | 10. ACL features | **Additive only.** 7 new ids; no existing id renamed (they are FROZEN) |
@@ -665,7 +669,7 @@ Reviewed against [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md)'
 
 **Page routes are the one moving part.** `/backend/staff/timesheets*` → `/backend/staff/time-tracking*` with 308 redirects retained for at least one minor release, plus an `UPGRADE_NOTES.md` entry covering the move, the `notes`/`description` aliasing, and the new default role grants.
 
-No deprecation protocol is triggered beyond that, because nothing is removed in this change.
+Apart from the history-metadata security restriction described above, no further removal requires a deprecation protocol.
 
 The #7834 export permission fix adds only the optional `ReportExportInput.canSeeMoney` field; omission preserves existing serializer callers. Routes, methods, format identifiers, ACL features, required input fields and authorized output remain compatible. Contributed serializers now receive redacted money for unauthorized callers and should honor `canSeeMoney: false` when deciding which monetary columns to display. No database migration is required.
 

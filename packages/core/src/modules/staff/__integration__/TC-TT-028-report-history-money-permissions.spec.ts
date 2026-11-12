@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, request as playwrightRequest, test, type APIRequestContext } from '@playwright/test'
+import { expect, request as playwrightRequest, test as base, type APIRequestContext } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
@@ -42,73 +42,98 @@ async function createRecord(
   return expectId(body?.id, `POST ${path} should return its fixture id`)
 }
 
-test('TC-TT-028: report history hides money across close, unlock and export', async ({ request, page }, testInfo) => {
-  const adminToken = await getAuthToken(request, 'admin')
-  const superadminToken = await getAuthToken(request, 'superadmin')
-  const { tenantId, organizationId } = getTokenContext(adminToken)
-  const stamp = randomUUID().slice(0, 8)
-  const password = `QA-${randomUUID()}!aA1`
-  const projectName = `QATT28 project ${stamp}`
-  const roleIds: string[] = []
-  const userIds: string[] = []
-  const viewerContexts: APIRequestContext[] = []
-  let customer: TestCustomerFixture | null = null
-  let memberId: string | null = null
-  let projectId: string | null = null
-  let entryId: string | null = null
-  let reportId: string | null = null
-  let otherOrganizationId: string | null = null
+type ReportFixture = {
+  adminToken: string
+  superadminToken: string
+  tenantId: string
+  organizationId: string
+  reportId: string
+}
 
-  try {
-    customer = await createTestCustomer(request, adminToken, { displayName: `QATT28 customer ${stamp}` })
-    memberId = await createRecord(request, adminToken, MEMBERS_PATH, { displayName: `QATT28 member ${stamp}` })
-    projectId = await createRecord(request, adminToken, PROJECTS_PATH, {
-      name: projectName,
-      code: `QT28-${stamp}`,
-      customerId: customer.id,
-      status: 'active',
-      hourlyRate: 123.45,
-      currencyCode: 'EUR',
-      billableByDefault: true,
-    })
-    const assignment = await apiRequest(request, 'POST', `${PROJECTS_PATH}/${projectId}/employees`, {
-      token: adminToken,
-      data: { staffMemberId: memberId, status: 'active', assignedStartDate: PERIOD_FROM },
-    })
-    expect(assignment.ok(), 'The fixture member should be assigned to the project').toBe(true)
-    entryId = await createRecord(request, adminToken, ENTRIES_PATH, {
-      staffMemberId: memberId,
-      timeProjectId: projectId,
-      date: '2028-03-10',
-      durationMinutes: 120,
-      source: 'manual',
-      isBillable: true,
-      description: `QATT28 billable work ${stamp}`,
-    })
-    reportId = await createRecord(request, adminToken, REPORTS_PATH, {
-      customerId: customer.id,
-      title: `QATT28 report ${stamp}`,
-      periodKind: 'custom',
-      periodFrom: PERIOD_FROM,
-      periodTo: PERIOD_TO,
-      timeProjectIds: [projectId],
-      showRates: true,
-    })
-
-    for (const action of ['close', 'unlock', 'close']) {
-      const response = await apiRequest(request, 'POST', `${REPORTS_PATH}/${reportId}/${action}`, {
-        token: adminToken,
-        data: action === 'unlock' ? { reason: 'Corrected allocation' } : {},
+const test = base.extend<{ reportFixture: ReportFixture }>({
+  reportFixture: async ({ request }, use) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const { tenantId, organizationId } = getTokenContext(adminToken)
+    const stamp = randomUUID().slice(0, 8)
+    const projectName = `QATT28 project ${stamp}`
+    let customer: TestCustomerFixture | null = null
+    let memberId: string | null = null
+    let projectId: string | null = null
+    let entryId: string | null = null
+    let reportId: string | null = null
+    try {
+      customer = await createTestCustomer(request, adminToken, { displayName: `QATT28 customer ${stamp}` })
+      memberId = await createRecord(request, adminToken, MEMBERS_PATH, { displayName: `QATT28 member ${stamp}` })
+      projectId = await createRecord(request, adminToken, PROJECTS_PATH, {
+        name: projectName,
+        code: `QT28-${stamp}`,
+        customerId: customer.id,
+        status: 'active',
+        hourlyRate: 123.45,
+        currencyCode: 'EUR',
+        billableByDefault: true,
       })
-      expect(response.status()).toBe(200)
-    }
-    const exportResponse = await apiRequest(request, 'GET', `${REPORTS_PATH}/${reportId}/export?format=csv`, { token: adminToken })
-    expect(exportResponse.status()).toBe(200)
-    otherOrganizationId = await createOrganizationFixture(request, superadminToken, { tenantId, name: `History isolation ${stamp}` })
+      const assignment = await apiRequest(request, 'POST', `${PROJECTS_PATH}/${projectId}/employees`, {
+        token: adminToken,
+        data: { staffMemberId: memberId, status: 'active', assignedStartDate: PERIOD_FROM },
+      })
+      expect(assignment.ok(), 'The fixture member should be assigned to the project').toBe(true)
+      entryId = await createRecord(request, adminToken, ENTRIES_PATH, {
+        staffMemberId: memberId,
+        timeProjectId: projectId,
+        date: '2028-03-10',
+        durationMinutes: 120,
+        source: 'manual',
+        isBillable: true,
+        description: `QATT28 billable work ${stamp}`,
+      })
+      reportId = await createRecord(request, adminToken, REPORTS_PATH, {
+        customerId: customer.id,
+        title: `QATT28 report ${stamp}`,
+        periodKind: 'custom',
+        periodFrom: PERIOD_FROM,
+        periodTo: PERIOD_TO,
+        timeProjectIds: [projectId],
+        showRates: true,
+      })
 
-    for (const mode of ['time', 'money', 'denied', 'other-org']) {
+      for (const action of ['close', 'unlock', 'close']) {
+        const response = await apiRequest(request, 'POST', `${REPORTS_PATH}/${reportId}/${action}`, {
+          token: adminToken,
+          data: action === 'unlock' ? { reason: 'Corrected allocation' } : {},
+        })
+        expect(response.status()).toBe(200)
+      }
+      const exportResponse = await apiRequest(request, 'GET', `${REPORTS_PATH}/${reportId}/export?format=csv`, { token: adminToken })
+      expect(exportResponse.status()).toBe(200)
+      await use({ adminToken, superadminToken, tenantId, organizationId, reportId })
+    } finally {
+      if (reportId) await apiRequest(request, 'POST', `${REPORTS_PATH}/${reportId}/unlock`, { token: adminToken, data: { reason: 'Fixture cleanup' } })
+      await deleteEntityByPathIfExists(request, adminToken, reportId ? `${REPORTS_PATH}?id=${reportId}` : null)
+      await deleteEntityByPathIfExists(request, adminToken, entryId ? `${ENTRIES_PATH}?id=${entryId}` : null)
+      await deleteEntityByPathIfExists(request, adminToken, projectId ? `${PROJECTS_PATH}?id=${projectId}` : null)
+      await deleteEntityByPathIfExists(request, adminToken, memberId ? `${MEMBERS_PATH}?id=${memberId}` : null)
+      if (customer) await customer.cleanup()
+    }
+  },
+})
+
+for (const mode of ['time', 'money', 'denied', 'other-org']) {
+  test(`TC-TT-028: report history permissions (${mode})`, async ({ request, reportFixture }) => {
+    const { superadminToken, tenantId, organizationId, reportId } = reportFixture
+    const stamp = randomUUID().slice(0, 8)
+    const password = `QA-${randomUUID()}!aA1`
+    const roleIds: string[] = []
+    const userIds: string[] = []
+    const viewerContexts: APIRequestContext[] = []
+    let otherOrganizationId: string | null = null
+    try {
+      if (mode === 'other-org') {
+        otherOrganizationId = await createOrganizationFixture(request, superadminToken, { tenantId, name: `History isolation ${stamp}` })
+      }
       const canSeeMoney = mode === 'money'
-      const viewerOrganizationId = mode === 'other-org' ? otherOrganizationId : organizationId
+      const viewerOrganizationId = otherOrganizationId ?? organizationId
       const roleId = await createRoleFixture(request, superadminToken, {
         name: `qa-tt-028-${stamp}-${mode}`,
         tenantId,
@@ -180,34 +205,31 @@ test('TC-TT-028: report history hides money across close, unlock and export', as
           for (const event of sheet?.events ?? []) expect(event.metadata).not.toHaveProperty('currencyCode')
         }
       }
+    } finally {
+      for (const viewerContext of viewerContexts) await viewerContext.dispose()
+      for (const userId of userIds) await deleteUserIfExists(request, superadminToken, userId)
+      for (const roleId of roleIds) await deleteRoleIfExists(request, superadminToken, roleId)
+      await deleteOrganizationIfExists(request, superadminToken, otherOrganizationId)
     }
-    await login(page, 'admin')
-    await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto(`/backend/staff/time-tracking/reports/${reportId}`)
-    const region = page.getByRole('region', { name: 'Locked entries' })
-    await expect(region).toBeVisible()
-    await expect(region.getByRole('table')).toBeVisible()
-    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-    await expect.poll(() => region.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
-    await region.focus()
-    await page.keyboard.press('ArrowRight')
-    await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
-    await testInfo.attach('report-mobile', { body: await page.screenshot(), contentType: 'image/png' })
-    await page.setViewportSize({ width: 1440, height: 900 })
-    await expect(region).toBeVisible()
-    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-    await testInfo.attach('report-desktop', { body: await page.screenshot(), contentType: 'image/png' })
+  })
+}
 
-  } finally {
-    for (const viewerContext of viewerContexts) await viewerContext.dispose()
-    if (reportId) await apiRequest(request, 'POST', `${REPORTS_PATH}/${reportId}/unlock`, { token: adminToken, data: { reason: 'Fixture cleanup' } })
-    await deleteEntityByPathIfExists(request, adminToken, reportId ? `${REPORTS_PATH}?id=${reportId}` : null)
-    await deleteEntityByPathIfExists(request, adminToken, entryId ? `${ENTRIES_PATH}?id=${entryId}` : null)
-    await deleteEntityByPathIfExists(request, adminToken, projectId ? `${PROJECTS_PATH}?id=${projectId}` : null)
-    await deleteEntityByPathIfExists(request, adminToken, memberId ? `${MEMBERS_PATH}?id=${memberId}` : null)
-    if (customer) await customer.cleanup()
-    for (const userId of userIds) await deleteUserIfExists(request, superadminToken, userId)
-    for (const roleId of roleIds) await deleteRoleIfExists(request, superadminToken, roleId)
-    await deleteOrganizationIfExists(request, superadminToken, otherOrganizationId)
-  }
+test('TC-TT-028: closed report table stays within mobile and desktop viewports', async ({ page, reportFixture }, testInfo) => {
+  const { reportId } = reportFixture
+  await login(page, 'admin')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/backend/staff/time-tracking/reports/${reportId}`)
+  const region = page.getByRole('region', { name: 'Locked entries' })
+  await expect(region).toBeVisible()
+  await expect(region.getByRole('table')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await expect.poll(() => region.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  await region.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+  await testInfo.attach('report-mobile', { body: await page.screenshot(), contentType: 'image/png' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(region).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await testInfo.attach('report-desktop', { body: await page.screenshot(), contentType: 'image/png' })
 })
