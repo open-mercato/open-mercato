@@ -359,8 +359,19 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
     ) {
       const examplePath = path.join(appDir, '.env.example')
       if (fs.existsSync(examplePath)) {
+<<<<<<< HEAD
         fs.copyFileSync(examplePath, envPath)
         console.log(`📋 Copied .env.example → .env (edit ${envPath} to customize)`)
+=======
+        const { createEnvFileFromExample } = await import('./lib/env-example.js')
+        createEnvFileFromExample(examplePath, envPath)
+        console.log('')
+        console.log('⚠️  No .env was found, so one was created from .env.example.')
+        console.log(`   ${envPath}`)
+        console.log('   A unique tenant encryption key was generated; keep it — data encrypted with it is unreadable without it.')
+        console.log('   It carries the example placeholders — review DATABASE_URL and secrets before continuing.')
+        console.log('')
+>>>>>>> 91a6b83bd (fix(docker): require production tenant encryption configuration (#7231) (#8377))
       }
     }
     if (fs.existsSync(envPath)) {

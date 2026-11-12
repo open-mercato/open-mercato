@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { constants as fsConstants, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,7 @@ import {
   redactPostgresUrl,
 } from '../packages/cli/src/lib/testing/runtime-utils'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
+import { createEnvFileFromExample } from './dev-env-file.mjs'
 import { createEphemeralShutdownController } from './dev-ephemeral-shutdown.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 import {
@@ -488,8 +489,8 @@ async function ensureEnvFile(): Promise<void> {
     return
   }
 
-  await copyFile(envExamplePath, envPath)
-  console.log('[dev:ephemeral] Created apps/mercato/.env from apps/mercato/.env.example.')
+  createEnvFileFromExample(envExamplePath, envPath)
+  console.log('[dev:ephemeral] Created apps/mercato/.env from apps/mercato/.env.example with a generated tenant encryption key.')
 }
 
 function runCommand(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<number> {

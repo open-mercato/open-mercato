@@ -50,6 +50,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-memory-sampler.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-env-file.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-env-file.mjs'),
+    rel: 'scripts/dev-env-file.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash.html'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash.html'),
     rel: 'scripts/dev-splash.html',
