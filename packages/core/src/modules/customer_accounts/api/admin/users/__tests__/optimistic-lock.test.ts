@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
-import { PUT, DELETE } from '../[id]'
+import { GET, PUT, DELETE } from '../[id]'
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
 const USER_ID = '123e4567-e89b-12d3-a456-426614174070'
@@ -129,6 +129,50 @@ describe('customer_accounts admin user optimistic locking', () => {
     const res = await PUT(request('PUT', null, { displayName: 'X' }), params)
     expect(res.status).toBe(200)
     expect(mockEm.nativeUpdate).toHaveBeenCalled()
+  })
+
+  describe('never-updated record (null updated_at)', () => {
+    const CREATED_AT = '2026-05-01T08:00:00.000Z'
+
+    it('GET reports the creation time as the version so the client can send it back', async () => {
+      mockFindOneWithDecryption.mockResolvedValue({
+        id: USER_ID,
+        email: 'a@b.com',
+        organizationId: 'org-2',
+        createdAt: new Date(CREATED_AT),
+        updatedAt: null,
+      })
+      const res = await GET(request('GET', null), params)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(new Date(body.updatedAt).toISOString()).toBe(CREATED_AT)
+      expect(body.organizationId).toBe('org-2')
+    })
+
+    it('PUT refuses a first-save form after another admin already saved the record', async () => {
+      mockFindOneWithDecryption.mockResolvedValue({
+        id: USER_ID,
+        email: 'a@b.com',
+        createdAt: new Date(CREATED_AT),
+        updatedAt: new Date(CURRENT_VERSION),
+      })
+      const res = await PUT(request('PUT', CREATED_AT, { displayName: 'X' }), params)
+      expect(res.status).toBe(409)
+      expect(mockCustomerUserService.updateProfile).not.toHaveBeenCalled()
+      expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+    })
+
+    it('PUT accepts the creation-time version while the record is still unchanged', async () => {
+      mockFindOneWithDecryption.mockResolvedValue({
+        id: USER_ID,
+        email: 'a@b.com',
+        createdAt: new Date(CREATED_AT),
+        updatedAt: null,
+      })
+      const res = await PUT(request('PUT', CREATED_AT, { isActive: false }), params)
+      expect(res.status).toBe(200)
+      expect(mockEm.nativeUpdate).toHaveBeenCalled()
+    })
   })
 
   it('DELETE returns 409 when the expected version is stale', async () => {

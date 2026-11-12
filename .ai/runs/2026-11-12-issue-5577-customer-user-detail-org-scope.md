@@ -10,7 +10,7 @@ Admin detail/action routes for customer users follow the organization switcher (
 ## Scope
 - `packages/core/src/modules/customer_accounts/api/admin/users/[id].ts` (PUT ordering, version token, `organizationId` in GET)
 - `packages/core/src/modules/customer_accounts/api/admin/users.ts` (list version token)
-- `packages/core/src/modules/customer_accounts/data/entities.ts` (`updatedAt` set on create; no schema change)
+- `packages/core/src/modules/customer_accounts/lib/customerUserVersion.ts` (version token: `updatedAt ?? createdAt`; no entity or schema change)
 - `packages/core/src/modules/customer_accounts/backend/customer_accounts/users/[id]/PortalUserDetailPageClient.tsx` (roles fetched for the user's organization)
 - Unit tests next to the changed routes.
 

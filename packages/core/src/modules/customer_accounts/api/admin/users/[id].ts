@@ -15,6 +15,7 @@ import { findAdminScopedCustomerUser } from '@open-mercato/core/modules/customer
 import { isOwnedCompanyEntity, isOwnedPersonEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveCustomerUserVersion } from '@open-mercato/core/modules/customer_accounts/lib/customerUserVersion'
 
 export const metadata = {}
 
@@ -91,7 +92,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     customerEntityId: user.customerEntityId || null,
     personEntityId: user.personEntityId || null,
     createdAt: user.createdAt,
-    updatedAt: user.updatedAt || null,
+    organizationId: user.organizationId,
+    updatedAt: resolveCustomerUserVersion(user),
     roles,
     sessions,
   })
@@ -137,7 +139,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'customer_accounts.user',
       resourceId: user.id,
-      current: user.updatedAt ?? null,
+      current: resolveCustomerUserVersion(user),
       request: req,
     })
   } catch (err) {
@@ -279,7 +281,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'customer_accounts.user',
       resourceId: user.id,
-      current: user.updatedAt ?? null,
+      current: resolveCustomerUserVersion(user),
       request: req,
     })
   } catch (err) {
@@ -307,6 +309,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 const roleSchema = z.object({ id: z.string().uuid(), name: z.string(), slug: z.string() })
 const userDetailSchema = z.object({
   id: z.string().uuid(),
+  organizationId: z.string().uuid(),
   email: z.string(),
   displayName: z.string(),
   emailVerified: z.boolean(),
