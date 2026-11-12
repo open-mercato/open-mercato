@@ -10,7 +10,7 @@ import {
 
 const logger = createLogger('customers')
 
-const REDACTED_INTERACTION_FIELDS = ['title', 'body'] as const
+const REDACTED_INTERACTION_FIELDS = ['title', 'body', 'participants', 'linkedEntities'] as const
 
 export type CustomerAuditRedactionContext = {
   viewerUserId: string | null

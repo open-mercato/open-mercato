@@ -79,6 +79,60 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     expect(interaction.body).toBe('Legacy body')
   })
 
+  it('redacts participants/linkedEntities alongside title/body for a private email when the viewer is not the author', () => {
+    const entry = interactionEntry({
+      snapshotBefore: {
+        interaction: {
+          entityId: PERSON_ID,
+          interactionType: 'email',
+          visibility: 'private',
+          authorUserId: OWNER,
+          title: 'Private subject',
+          body: 'Private body',
+          participants: [{ userId: 'user-3', name: 'Third Party', email: 'third@example.com' }],
+          linkedEntities: [{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }],
+        },
+      },
+    })
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const interaction = (redacted.snapshotBefore as any).interaction
+    expect(interaction.participants).toBeNull()
+    expect(interaction.linkedEntities).toBeNull()
+  })
+
+  it('leaves participants/linkedEntities visible to the email author', () => {
+    const entry = interactionEntry({
+      snapshotBefore: {
+        interaction: {
+          entityId: PERSON_ID,
+          interactionType: 'email',
+          visibility: 'private',
+          authorUserId: OWNER,
+          title: 'Private subject',
+          body: 'Private body',
+          participants: [{ userId: 'user-3', name: 'Third Party', email: 'third@example.com' }],
+          linkedEntities: [{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }],
+        },
+      },
+    })
+    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    const interaction = (redacted.snapshotBefore as any).interaction
+    expect(interaction.participants).toEqual([{ userId: 'user-3', name: 'Third Party', email: 'third@example.com' }])
+    expect(interaction.linkedEntities).toEqual([{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }])
+  })
+
+  it('strips participants/linkedEntities keys from the changes diff when the row is hidden', () => {
+    const entry = interactionEntry({
+      changesJson: {
+        participants: { from: [], to: [{ userId: 'user-3', email: 'third@example.com' }] },
+        linkedEntities: { from: [], to: [{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }] },
+        status: { from: 'planned', to: 'done' },
+      },
+    })
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    expect(redacted.changesJson).toEqual({ status: { from: 'planned', to: 'done' } })
+  })
+
   it('leaves non-email interactions untouched', () => {
     const entry = interactionEntry({
       snapshotBefore: {
@@ -162,6 +216,23 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
     const redacted = redactCustomerAuditEntry(entry, ctx())
     const interactions = (redacted.snapshotBefore as any).interactions
     expect(interactions[0].title).toBe('Call notes')
+  })
+
+  it('defense-in-depth: redacts participants/linkedEntities on an embedded email row too, should they ever be present', () => {
+    const entry = personDeleteEntry([
+      {
+        interactionType: 'email',
+        authorUserId: OWNER,
+        title: 'Secret',
+        body: 'Secret body',
+        participants: [{ userId: 'user-3', email: 'third@example.com' }],
+        linkedEntities: [{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }],
+      },
+    ])
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const interactions = (redacted.snapshotBefore as any).interactions
+    expect(interactions[0].participants).toBeNull()
+    expect(interactions[0].linkedEntities).toBeNull()
   })
 
   it('applies the same fail-closed rule to customers.company delete snapshots', () => {

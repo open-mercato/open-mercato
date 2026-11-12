@@ -199,6 +199,93 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
     expect(data.items[0].snapshotBefore.interaction.body).toBe('Private body')
   })
 
+  // Regression for the follow-up security finding on #8978 — the route only
+  // redacted title/body, so a hidden private email's participants (addresses)
+  // and linkedEntities still leaked to a viewer without live CRM access.
+  it('redacts private email participants/linkedEntities from a customers.interaction entry when the viewer is not the author', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        makeActionLogEntry({
+          resourceKind: 'customers.interaction',
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-2',
+              title: 'Private subject',
+              body: 'Private body',
+              participants: [{ userId: 'user-3', name: 'Third Party', email: 'third@example.com' }],
+              linkedEntities: [{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }],
+            },
+          },
+          snapshotAfter: null,
+        }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].snapshotBefore.interaction.participants).toBeNull()
+    expect(data.items[0].snapshotBefore.interaction.linkedEntities).toBeNull()
+  })
+
+  it('leaves private email participants/linkedEntities visible to its own author', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        makeActionLogEntry({
+          resourceKind: 'customers.interaction',
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-1',
+              title: 'Private subject',
+              body: 'Private body',
+              participants: [{ userId: 'user-3', name: 'Third Party', email: 'third@example.com' }],
+              linkedEntities: [{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }],
+            },
+          },
+          snapshotAfter: null,
+        }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].snapshotBefore.interaction.participants).toEqual([
+      { userId: 'user-3', name: 'Third Party', email: 'third@example.com' },
+    ])
+    expect(data.items[0].snapshotBefore.interaction.linkedEntities).toEqual([
+      { id: 'deal-1', type: 'deal', label: 'Confidential Deal' },
+    ])
+  })
+
   it('passes page and pageSize to service', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({

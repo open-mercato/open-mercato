@@ -227,6 +227,64 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
     expect(csv).not.toContain('New private subject')
   })
 
+  // Regression for the follow-up security finding on #8978 — the CSV export only
+  // stripped title/body, so a hidden private email's participant addresses and
+  // linked-entity labels still rendered as "participants"/"linkedEntities" rows.
+  it('strips private email participants/linkedEntities changes from the exported rows when the viewer is not the author', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        {
+          id: 'action-2',
+          commandId: 'cmd-2',
+          actionLabel: 'Update interaction',
+          actorUserId: 'user-2',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          resourceKind: 'customers.interaction',
+          resourceId: 'interaction-2',
+          createdAt: new Date('2024-06-16T12:00:00.000Z'),
+          contextJson: null,
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-2',
+              title: 'Old private subject',
+              body: 'Old private body',
+              participants: [{ userId: 'user-3', name: 'Third Party', email: 'third@example.com' }],
+              linkedEntities: [{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }],
+            },
+          },
+          changesJson: {
+            participants: { from: [], to: [{ userId: 'user-3', name: 'Third Party', email: 'third@example.com' }] },
+            linkedEntities: { from: [], to: [{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }] },
+          },
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+
+    expect(res.status).toBe(200)
+    const csv = await res.text()
+    expect(csv).not.toContain('third@example.com')
+    expect(csv).not.toContain('Confidential Deal')
+  })
+
   it('uses the canonical API-key subject for self-only exports', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
