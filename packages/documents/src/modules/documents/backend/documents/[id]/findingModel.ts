@@ -21,6 +21,9 @@ export const documentFindingItemSchema = z.object({
   source: z.string(),
   sourceWorkflowInstanceId: z.string().nullable().default(null),
   sourceAgentRunId: z.string().nullable().default(null),
+  playbookId: z.string().nullable().default(null),
+  playbookVersion: z.number().int().nullable().default(null),
+  ruleId: z.string().nullable().default(null),
   ruleCode: z.string().nullable().default(null),
   severity: severitySchema,
   title: z.string(),
@@ -47,9 +50,19 @@ const severityCountsSchema = z.object({
   info: z.number().int().nonnegative(),
 })
 
+export const findingReviewPlaybookSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  name: z.string(),
+  version: z.number().int().nullable(),
+})
+
+export type FindingReviewPlaybook = z.infer<typeof findingReviewPlaybookSchema>
+
 export const findingSummarySchema = z.object({
   reviewId: z.string().nullable(),
   reviewedAt: z.string().nullable(),
+  playbook: findingReviewPlaybookSchema.nullable().default(null),
   open: severityCountsSchema,
   decided: z.object({
     applied: z.number().int().nonnegative(),

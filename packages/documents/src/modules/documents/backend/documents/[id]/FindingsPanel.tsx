@@ -176,6 +176,16 @@ function ReviewHeader({ model }: { model: DocumentFindingsModel }) {
           time: new Date(reviewedAt).toLocaleString(),
         })}
       </p>
+      {model.summary?.playbook ? (
+        <p data-testid="documents-findings-review-playbook">
+          {model.summary.playbook.version !== null
+            ? t('documents.reviewPlaybooks.header.playbook', {
+              name: model.summary.playbook.name,
+              version: model.summary.playbook.version,
+            })
+            : t('documents.reviewPlaybooks.header.playbookNoVersion', { name: model.summary.playbook.name })}
+        </p>
+      ) : null}
       {reviewed.sourceWorkflowInstanceId ? (
         <p>
           {t('documents.findings.header.workflowInstance')}{' '}
