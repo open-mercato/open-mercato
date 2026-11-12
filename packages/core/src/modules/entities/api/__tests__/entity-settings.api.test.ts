@@ -6,7 +6,8 @@ const STORED_UPDATED_AT = '2026-01-01T00:00:00.000Z'
 const mockGetRecord = jest.fn()
 const mockSetValue = jest.fn()
 const mockRunAfterSuccess = jest.fn(async () => undefined)
-const mockBeginGuard = jest.fn(async () => ({ blockedResponse: null, runAfterSuccess: mockRunAfterSuccess }))
+const mockBeginGuard = jest.fn(async (..._args: unknown[]) => ({ blockedResponse: null, runAfterSuccess: mockRunAfterSuccess }))
+const mockTranslate = jest.fn((key: string, fallback?: string) => fallback ?? key)
 let mockConfigsEnabled = true
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -27,14 +28,14 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('../definitions.mutation-guard', () => ({
-  beginEntitiesMutationGuard: (...args: unknown[]) => mockBeginGuard(...(args as [])),
+  beginEntitiesMutationGuard: (...args: unknown[]) => mockBeginGuard(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({
     locale: 'en',
     t: (key: string, fallback?: string) => fallback ?? key,
-    translate: (key: string, fallback?: string) => fallback ?? key,
+    translate: mockTranslate,
   })),
 }))
 
@@ -71,6 +72,7 @@ describe('/api/entities/entity-settings', () => {
 
       expect(response.status).toBe(503)
       await expect(response.json()).resolves.toEqual({ error: 'Settings storage unavailable' })
+      expect(mockTranslate).toHaveBeenCalledWith('entities.settings.errors.storageUnavailable', 'Settings storage unavailable')
       expect(mockBeginGuard).not.toHaveBeenCalled()
       expect(mockRunAfterSuccess).not.toHaveBeenCalled()
     })
@@ -89,6 +91,15 @@ describe('/api/entities/entity-settings', () => {
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ newEntitiesRestrictedByDefault: true, updatedAt: STORED_UPDATED_AT })
       expect(mockGetRecord).toHaveBeenCalledWith('entities', 'newEntitiesRestrictedByDefault', { tenantId: 'tenant-1' })
+    })
+
+    it('GET returns the default policy when no record is stored', async () => {
+      mockGetRecord.mockResolvedValue(null)
+
+      const response = await GET(new Request('http://localhost/api/entities/entity-settings'))
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ newEntitiesRestrictedByDefault: false, updatedAt: null })
     })
 
     it('PUT saves the policy through the mutation guard', async () => {
