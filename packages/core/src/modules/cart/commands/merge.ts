@@ -31,6 +31,7 @@ import type { CartVisibilityResult } from '../lib/visibility'
 import { assertCartNotLocked } from '../lib/lockGuard'
 import { recordBasketMutationActivity } from '../lib/cartActivity'
 import { acquireCartLineLocks } from '../lib/lineMutationLock'
+import { buildFreshAcceptanceChallenge } from '../lib/acceptanceChallenge'
 import { tryResolveCustomerPurchaseApprovalService, tryResolveCartCodeService } from '../lib/adminCartScope'
 import { withdrawPendingCartApproval } from '../lib/approvalLifecycle'
 import { releaseCartCodeReservations } from '../lib/sweepers'
@@ -270,6 +271,14 @@ export type CartMergeManualInput = CartMergeInputBase & {
   proposalCartId: string
   lines: Array<{ proposalLineId: string; accepted: boolean }>
   sourceToken?: undefined
+  /** M8 fix: the target's and the proposal's `updatedAt` snapshots `cart.proposal.accept`
+   * (`commands/proposal.ts`) verified the caller's `acceptanceToken` against, OUTSIDE any
+   * lock. `executeProposalAcceptance` below re-checks both against the freshly refreshed
+   * rows, UNDER the same per-cart advisory locks it already takes, so a change landing in
+   * the gap between that verification and lock acquisition is refused with a fresh
+   * challenge instead of silently merged against. */
+  expectedProposalUpdatedAt: string
+  expectedTargetUpdatedAt: string
 }
 
 /** The ordinary §7.1 guest->customer login-merge path — identifies the SOURCE (guest) cart
@@ -480,10 +489,18 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
   // checkout session id." Checked BEFORE reactivation, same ordering the guest-merge path
   // above uses.
   assertCartNotLocked(target)
-  // Acceptance is buyer activity on the target (unlike authoring, §7a.2) — an `abandoned`
-  // target reactivates exactly as any other basket mutation would.
-  await recordBasketMutationActivity(em, target)
-  if (target.status !== 'active') {
+  // M8 fix (review follow-up): `recordBasketMutationActivity` (reactivation + the
+  // `lastActivityAt` touch) used to run HERE, pre-lock. Its own pending change gets flushed
+  // at the FIRST `withAtomicFlush` phase boundary below (SPEC-018), which also advances
+  // `target.updatedAt` via the entity's `onUpdate` hook — a side effect of THIS SAME accept
+  // call, not a concurrent edit by anyone else. Doing it here made every accept trip the new
+  // under-lock freshness recheck below against itself (100% of the time, not just on a real
+  // race). Moved to run AFTER that recheck, under the lock, so the recheck compares against
+  // a value nothing in this call has touched yet. Only a cheap optimization early-exits here
+  // now — a target in a GENUINELY terminal state (`converted`/`expired`/`merged`) skips the
+  // line-fetch/pricing work below; `abandoned` falls through, same as `cart.proposal.create`'s
+  // own identically-shaped pre-lock gate, since it is still reactivatable under the lock.
+  if (target.status !== 'active' && target.status !== 'abandoned') {
     throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: target.status })
   }
   // A proposal never reactivates (§7a.1) — a non-active proposal (expired, already
@@ -611,7 +628,34 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
       },
       async () => {
         await em.refresh(target)
+        await em.refresh(proposal)
+        // §7a.4: re-checked under the lock, same ordering the pre-lock check above uses —
+        // a target locked by a concurrent checkout wins over the M8 freshness check just
+        // below (both would otherwise fire: locking a cart also advances its `updatedAt`).
         assertCartNotLocked(target)
+        // M8 fix: `cart.proposal.accept` verified the caller's `acceptanceToken` against
+        // `target`/`proposal` snapshots taken BEFORE this lock was acquired — a concurrent
+        // write to either cart (e.g. another `cart.lines.add` on this same target) can land
+        // in that gap. Re-check both `updatedAt`s now, under the lock, against the exact
+        // versions that verification used: a mismatch means the preview the caller accepted
+        // is no longer the live state, so refuse with a fresh challenge (§7a.4's own "either
+        // preview version moves" rule) rather than merging against a basket the caller never
+        // actually saw. Deliberately runs BEFORE `recordBasketMutationActivity` below: that
+        // call's own pending write (on an EM this atomic-flush's phase boundary — SPEC-018 —
+        // commits before the next phase) would otherwise advance `target.updatedAt` as a
+        // side effect of THIS SAME accept, which this recheck must never mistake for an
+        // external edit.
+        if (
+          target.updatedAt.toISOString() !== input.expectedTargetUpdatedAt ||
+          proposal.updatedAt.toISOString() !== input.expectedProposalUpdatedAt
+        ) {
+          const fresh = await buildFreshAcceptanceChallenge(em, ctx.container, scope, target, proposal, mergeAssortmentScope)
+          throw new CrudHttpError(409, { error: '[internal] proposal_changed', code: 'proposal_changed', ...fresh })
+        }
+        // Acceptance is buyer activity on the target (unlike authoring, §7a.2) — an
+        // `abandoned` target reactivates exactly as any other basket mutation would. Moved
+        // here (under the lock, after the freshness recheck) per the M8 fix above.
+        await recordBasketMutationActivity(em, target)
         if (target.status !== 'active') {
           throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: target.status })
         }

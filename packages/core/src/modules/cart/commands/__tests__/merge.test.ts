@@ -1,3 +1,8 @@
+// M8 regression tests below mint a fresh `acceptanceToken` via `buildFreshAcceptanceChallenge`
+// (`lib/acceptanceChallenge.ts`), which signs a JWT — same precedent `proposal.test.ts` and
+// the race harness (`support/cartCommandRaceHarness.ts`) already set for the same reason.
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret-for-cart-merge-tests'
+
 jest.mock('../../events', () => ({
   emitCartEvent: jest.fn(async () => undefined),
 }))
@@ -1441,6 +1446,11 @@ describe('cart.mergeUndo', () => {
 // that machinery is `commands/__tests__/proposal.test.ts`'s own scope.
 describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)', () => {
   const PROPOSAL_ID = 'proposal-1'
+  // Matches `makeCartFixture`'s default `updatedAt` — every call site below passes these as
+  // the `acceptanceToken`'s already-verified versions (`commands/proposal.ts`'s own job),
+  // so the M8 under-lock recheck in `commands/merge.ts` sees a match and does not itself
+  // refuse with `409 proposal_changed` for tests that are not exercising that check.
+  const FIXTURE_UPDATED_AT = new Date('2026-03-01T00:00:00.000Z').toISOString()
 
   function makeProposalFixture(overrides: FakeRow = {}): FakeRow {
     return makeCartFixture({
@@ -1472,6 +1482,8 @@ describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)'
         tenantId: TENANT_ID,
         organizationId: ORG_ID,
         proposalCartId: PROPOSAL_ID,
+        expectedTargetUpdatedAt: FIXTURE_UPDATED_AT,
+        expectedProposalUpdatedAt: FIXTURE_UPDATED_AT,
         lines: [
           { proposalLineId: 'proposal-line-1', accepted: true },
           { proposalLineId: 'proposal-line-2', accepted: false },
@@ -1550,6 +1562,8 @@ describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)'
           tenantId: TENANT_ID,
           organizationId: ORG_ID,
           proposalCartId: PROPOSAL_ID,
+          expectedTargetUpdatedAt: FIXTURE_UPDATED_AT,
+          expectedProposalUpdatedAt: FIXTURE_UPDATED_AT,
           lines: [{ proposalLineId: 'proposal-line-1', accepted: true }],
           routeContext: makeRouteContext(),
         } as CartMergeInput,
@@ -1583,6 +1597,8 @@ describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)'
           tenantId: TENANT_ID,
           organizationId: ORG_ID,
           proposalCartId: PROPOSAL_ID,
+          expectedTargetUpdatedAt: FIXTURE_UPDATED_AT,
+          expectedProposalUpdatedAt: FIXTURE_UPDATED_AT,
           lines: [{ proposalLineId: 'proposal-line-1', accepted: true }],
           routeContext: makeRouteContext(),
         } as CartMergeInput,
@@ -1609,6 +1625,8 @@ describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)'
           tenantId: TENANT_ID,
           organizationId: ORG_ID,
           proposalCartId: PROPOSAL_ID,
+          expectedTargetUpdatedAt: FIXTURE_UPDATED_AT,
+          expectedProposalUpdatedAt: FIXTURE_UPDATED_AT,
           lines: [{ proposalLineId: 'proposal-line-1', accepted: true }],
           routeContext: makeRouteContext(),
         } as CartMergeInput,
@@ -1635,6 +1653,8 @@ describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)'
           tenantId: TENANT_ID,
           organizationId: ORG_ID,
           proposalCartId: PROPOSAL_ID,
+          expectedTargetUpdatedAt: FIXTURE_UPDATED_AT,
+          expectedProposalUpdatedAt: FIXTURE_UPDATED_AT,
           lines: [{ proposalLineId: 'proposal-line-1', accepted: true }],
           routeContext: makeRouteContext(),
         } as CartMergeInput,
@@ -1664,6 +1684,8 @@ describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)'
           tenantId: TENANT_ID,
           organizationId: ORG_ID,
           proposalCartId: PROPOSAL_ID,
+          expectedTargetUpdatedAt: FIXTURE_UPDATED_AT,
+          expectedProposalUpdatedAt: FIXTURE_UPDATED_AT,
           lines: [],
           routeContext: makeRouteContext(),
         } as CartMergeInput,
@@ -1689,6 +1711,8 @@ describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)'
           tenantId: TENANT_ID,
           organizationId: ORG_ID,
           proposalCartId: PROPOSAL_ID,
+          expectedTargetUpdatedAt: FIXTURE_UPDATED_AT,
+          expectedProposalUpdatedAt: FIXTURE_UPDATED_AT,
           lines: [{ proposalLineId: 'does-not-exist', accepted: true }],
           routeContext: makeRouteContext(),
         } as CartMergeInput,
@@ -1714,6 +1738,8 @@ describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)'
           tenantId: TENANT_ID,
           organizationId: ORG_ID,
           proposalCartId: PROPOSAL_ID,
+          expectedTargetUpdatedAt: FIXTURE_UPDATED_AT,
+          expectedProposalUpdatedAt: FIXTURE_UPDATED_AT,
           lines: [{ proposalLineId: 'proposal-line-1', accepted: false }],
           routeContext: makeRouteContext(),
         } as CartMergeInput,
@@ -1743,6 +1769,8 @@ describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)'
         tenantId: TENANT_ID,
         organizationId: ORG_ID,
         proposalCartId: PROPOSAL_ID,
+        expectedTargetUpdatedAt: FIXTURE_UPDATED_AT,
+        expectedProposalUpdatedAt: FIXTURE_UPDATED_AT,
         lines: [{ proposalLineId: 'proposal-line-1', accepted: true }],
         routeContext: makeRouteContext({ assortmentScope: [{ categoryIds: ['allowed'], tagIds: [] }] }),
       } as CartMergeInput,
@@ -1751,6 +1779,129 @@ describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)'
 
     expect(result.mergeSummary.counts).toMatchObject({ rejected: 1 })
     expect(seededCartLines.find((row) => row.cartId === 'cart-target')).toBeUndefined()
+  })
+
+  // M8 fix (review follow-up) regression guard: moving `recordBasketMutationActivity` from
+  // pre-lock to under-lock (so its own `updatedAt`-advancing side effect can never fool the
+  // new freshness recheck above) must not break the existing §9 "any basket mutation
+  // reactivates an abandoned basket" behavior for THIS path — mirrors the guest-merge path's
+  // own "reactivates an abandoned TARGET cart instead of 404ing" test above.
+  it('reactivates an abandoned TARGET cart instead of refusing it, then accepts the proposal normally (§9)', async () => {
+    seededCarts = [
+      makeCartFixture({
+        id: 'cart-target',
+        status: 'abandoned',
+        resolvedAt: new Date('2026-02-25T00:00:00.000Z'),
+        expiresAt: new Date('2026-02-26T00:00:00.000Z'),
+        customerId: 'customer-1',
+      }),
+      makeProposalFixture(),
+    ]
+    seededCartLines = [makeLineFixture({ id: 'proposal-line-1', cartId: PROPOSAL_ID, productId: 'product-1', quantity: '1' })]
+
+    const handler = getMergeHandler()
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    const result = await handler.execute(
+      {
+        targetCartId: 'cart-target',
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        proposalCartId: PROPOSAL_ID,
+        expectedTargetUpdatedAt: FIXTURE_UPDATED_AT,
+        expectedProposalUpdatedAt: FIXTURE_UPDATED_AT,
+        lines: [{ proposalLineId: 'proposal-line-1', accepted: true }],
+        routeContext: makeRouteContext(),
+      } as CartMergeInput,
+      ctx,
+    )
+
+    expect(result.mergeSummary.strategy).toBe('manual')
+    const targetCart = seededCarts.find((row) => row.id === 'cart-target')!
+    expect(targetCart.status).toBe('active')
+    expect(targetCart.resolvedAt).toBeNull()
+    expect(targetCart.expiresAt.getTime()).toBeGreaterThan(new Date('2026-02-26T00:00:00.000Z').getTime())
+  })
+
+  // M8 fix (inherited review finding): `cart.proposal.accept` (`commands/proposal.ts`)
+  // verifies the caller's `acceptanceToken` against unlocked snapshots, then dispatches
+  // here — this file is the only place that ever re-checks freshness under the SAME
+  // advisory locks the merge itself takes. These two tests simulate the gap a real race
+  // would land in: the row this phase refreshes under the lock already carries a NEWER
+  // `updatedAt` than the one the (already-passed) token verification saw, because the test
+  // passes an older `expected*UpdatedAt` than the fixture's own `updatedAt` — exactly what
+  // a concurrent write landing between verification and lock acquisition would produce.
+  const STALE_UPDATED_AT = new Date('2026-02-28T00:00:00.000Z').toISOString()
+
+  it('refuses with 409 proposal_changed and a fresh challenge when the TARGET moved after the token was verified, and merges nothing', async () => {
+    seededCarts = [makeCartFixture({ id: 'cart-target' }), makeProposalFixture()]
+    seededCartLines = [makeLineFixture({ id: 'proposal-line-1', cartId: PROPOSAL_ID, productId: 'product-1', quantity: '1' })]
+
+    const handler = getMergeHandler()
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    const err = await expectReject(() =>
+      handler.execute(
+        {
+          targetCartId: 'cart-target',
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+          proposalCartId: PROPOSAL_ID,
+          // Stale relative to the target's real (fixture) `updatedAt` — simulates a target
+          // edit landing after the token was verified but before this lock.
+          expectedTargetUpdatedAt: STALE_UPDATED_AT,
+          expectedProposalUpdatedAt: FIXTURE_UPDATED_AT,
+          lines: [{ proposalLineId: 'proposal-line-1', accepted: true }],
+          routeContext: makeRouteContext(),
+        } as CartMergeInput,
+        ctx,
+      ),
+    )
+    expect(isCrudHttpError(err)).toBe(true)
+    expect((err as { status: number; body: FakeRow }).status).toBe(409)
+    const body = (err as { body: FakeRow }).body
+    expect(body.code).toBe('proposal_changed')
+    expect(typeof body.acceptanceToken).toBe('string')
+    expect(body.acceptancePreview).toMatchObject({ proposalCartId: PROPOSAL_ID, targetCartId: 'cart-target' })
+
+    expect(seededMergeLogs).toHaveLength(0)
+    expect(seededCarts.find((row) => row.id === PROPOSAL_ID)!.status).toBe('active')
+    expect(seededCartLines.some((row) => row.cartId === 'cart-target')).toBe(false)
+  })
+
+  it('refuses with 409 proposal_changed when the PROPOSAL moved after the token was verified, and merges nothing', async () => {
+    seededCarts = [makeCartFixture({ id: 'cart-target' }), makeProposalFixture()]
+    seededCartLines = [makeLineFixture({ id: 'proposal-line-1', cartId: PROPOSAL_ID, productId: 'product-1', quantity: '1' })]
+
+    const handler = getMergeHandler()
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    const err = await expectReject(() =>
+      handler.execute(
+        {
+          targetCartId: 'cart-target',
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+          proposalCartId: PROPOSAL_ID,
+          expectedTargetUpdatedAt: FIXTURE_UPDATED_AT,
+          // Stale relative to the proposal's real (fixture) `updatedAt`.
+          expectedProposalUpdatedAt: STALE_UPDATED_AT,
+          lines: [{ proposalLineId: 'proposal-line-1', accepted: true }],
+          routeContext: makeRouteContext(),
+        } as CartMergeInput,
+        ctx,
+      ),
+    )
+    expect(isCrudHttpError(err)).toBe(true)
+    expect((err as { status: number; body: FakeRow }).status).toBe(409)
+    expect((err as { body: FakeRow }).body.code).toBe('proposal_changed')
+
+    expect(seededMergeLogs).toHaveLength(0)
+    expect(seededCarts.find((row) => row.id === PROPOSAL_ID)!.status).toBe('active')
+    expect(seededCartLines.some((row) => row.cartId === 'cart-target')).toBe(false)
   })
 })
 

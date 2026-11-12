@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -20,6 +21,7 @@ import { cartProposalAuthorRequestSchema } from '../../data/validators'
 import type { CartProposalCreateInput, CartProposalCreateResult, CartProposalRouteContext } from '../../commands/proposal'
 import { createProposalCommand } from '../../commands/proposal'
 import {
+  CART_RESOURCE_KIND,
   mapRouteErrorToResponse,
   notFoundCartResponse,
   readCartToken,
@@ -132,6 +134,42 @@ export async function POST(request: Request) {
       throw err
     }
 
+    const organizationId = auth.orgId ?? null
+
+    // M12 fix (inherited review finding): this write dispatched `cart.proposal.create`
+    // without going through the route mutation-guard registry at all — the same shared
+    // wrapper `api/proposals/[id]/accept/route.ts` and `api/proposals/[id]/reject/route.ts`
+    // already use for their own writes. Run BEFORE resolving the target/routeContext below
+    // so a transforming guard's `modifiedPayload` (e.g. a rewritten `targetCartId` or
+    // `lines`) reaches that resolution too, not just the command dispatch.
+    const guarded = await runRouteMutationGuards({
+      container,
+      req: request,
+      auth: {
+        userId: auth.sub ?? 'anonymous',
+        tenantId,
+        organizationId,
+        userFeatures: [],
+      },
+      input: {
+        resourceKind: CART_RESOURCE_KIND,
+        resourceId: body.targetCartId,
+        operation: 'create',
+        mutationPayload: body,
+      },
+    })
+    if (!guarded.ok) return guarded.response
+    if (guarded.modifiedPayload) {
+      try {
+        body = paramsSchema.parse({ ...body, ...guarded.modifiedPayload })
+      } catch (err) {
+        if (err instanceof z.ZodError) {
+          return NextResponse.json({ error: '[internal] invalid request body', issues: err.issues }, { status: 400 })
+        }
+        throw err
+      }
+    }
+
     const ctx: CommandRuntimeContext = {
       container,
       auth,
@@ -151,7 +189,6 @@ export async function POST(request: Request) {
     // assortment-scope enforcement when it is absent, same fallback that route documents),
     // and refresh the TARGET buyer's own scope via `resolveForBuyer` — never the staff
     // author's own request context.
-    const organizationId = auth.orgId ?? null
     const em = (container.resolve('em') as EntityManager).fork()
     const target = organizationId
       ? await findOneWithDecryption(
@@ -192,6 +229,8 @@ export async function POST(request: Request) {
       ctx,
     })
 
+    await guarded.runAfterSuccess()
+
     return NextResponse.json({
       proposalCartId: result.proposalCartId,
       lines: result.lines,
@@ -230,7 +269,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 403, description: 'Missing cart.proposals.author' },
         { status: 404, description: 'targetCartId does not resolve a basket in the caller\'s tenant/organization' },
         { status: 409, description: 'cart_not_active' },
-        { status: 422, description: 'proposal_empty' },
+        { status: 422, description: 'proposal_empty, or blocked by a mutation guard' },
         { status: 423, description: 'cart_locked' },
       ],
     },
