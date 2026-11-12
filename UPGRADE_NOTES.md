@@ -5340,3 +5340,10 @@ With `NODE_ENV=production`, `mercato init` now rejects missing, blank, or built-
 Operators using starter or generated-app full-app Compose deployments must set a unique `OM_INIT_SUPERADMIN_PASSWORD` securely before first initialization or reinstall; the Compose `password` fallback is only usable outside production. Existing initialized databases still support `--skip-if-initialized` without bootstrap credentials. Bootstrap scripts must supply the secret via environment or `--password` and handle initialization failures. Do not store secrets in source control or logs.
 
 This does not rotate existing credentials. If a deployment previously initialized with a predictable password, rotate the superadmin credential and review account access separately. No schema migration is needed. See [the specification](.ai/specs/2026-11-06-production-bootstrap-credentials.md#migration--backward-compatibility). Maintainer @pkarw approved the production-only emergency security exception on 2026-11-06; see the specification for the approval record. QA and validation remain required.
+# CRUD sort-map boundary (#3827)
+
+When a CRUD route supplies `list.sortFieldMap`, ordinary requested sort fields
+outside its own keys now fall back to the route's default order. Clients should
+use a mapped alias; module authors should add an alias for each intended sortable
+ordinary column. Dynamic `cf_`/`cf:` sorts and routes without maps are unchanged.
+Operators do not need a database migration or startup/configuration change.
