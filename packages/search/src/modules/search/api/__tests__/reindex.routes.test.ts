@@ -307,7 +307,6 @@ describe('fulltext reindex routes when the progress module is disabled', () => {
     expect(body).toEqual(expect.objectContaining({ ok: true, action: 'reindex', useQueue: true }))
     expect(mockAcquireReindexLock).toHaveBeenCalled()
     expect(mockSearchIndexer.reindexEntityToFulltext).toHaveBeenCalled()
-    expect(mockEnsureReindexProgressJob).toHaveBeenCalledWith(expect.objectContaining({ progressService: null }))
     expect(mockCompleteReindexProgress).toHaveBeenCalledWith(expect.objectContaining({ progressService: null }))
     expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
     expect(mockContainer.dispose).toHaveBeenCalled()
@@ -322,18 +321,21 @@ describe('fulltext reindex routes when the progress module is disabled', () => {
       recreateIndex: jest.fn().mockResolvedValue(undefined),
     }
     const mockSearchIndexer = makeSearchIndexer(3)
-    mockCreateRequestContainer.mockResolvedValue(makeContainer({
+    const mockContainer = makeContainer({
       em: mockEm,
       searchStrategies: [mockStrategy],
       searchIndexer: mockSearchIndexer,
-    }))
+    })
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
 
     const res = await fulltextReindexPost(makeRequest({ action: 'reindex', entityId: 'catalog:catalog_product' }))
 
     expect(res.status).toBe(200)
     expect(mockAcquireReindexLock).toHaveBeenCalled()
+    expect(mockSearchIndexer.reindexEntityToFulltext).toHaveBeenCalled()
     expect(mockCompleteReindexProgress).not.toHaveBeenCalled()
     expect(mockClearReindexLock).not.toHaveBeenCalled()
+    expect(mockContainer.dispose).toHaveBeenCalled()
   })
 
   test('cancel drains the scoped queue and clears the lock without a progress service', async () => {

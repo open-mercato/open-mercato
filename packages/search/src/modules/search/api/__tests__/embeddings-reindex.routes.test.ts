@@ -293,6 +293,37 @@ describe('vector reindex routes when the progress module is disabled', () => {
     expect(mockContainer.dispose).toHaveBeenCalled()
   })
 
+  test('queued reindex keeps the lock for the workers without a progress service', async () => {
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    const mockSearchIndexer = {
+      reindexEntityToVector: jest.fn().mockResolvedValue({
+        success: true,
+        entitiesProcessed: 1,
+        recordsIndexed: 30,
+        recordsDropped: 0,
+        jobsEnqueued: 3,
+        errors: [],
+      }),
+    }
+    const mockContainer = makeContainer({ em: mockEm, searchIndexer: mockSearchIndexer })
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await vectorReindexPost(new Request('http://localhost/api/search/embeddings/reindex', {
+      method: 'POST',
+      body: JSON.stringify({ entityId: 'catalog:catalog_product_variant' }),
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockAcquireReindexLock).toHaveBeenCalled()
+    expect(mockSearchIndexer.reindexEntityToVector).toHaveBeenCalled()
+    expect(mockEnsureReindexProgressJob).toHaveBeenCalledWith(expect.objectContaining({ progressService: null }))
+    expect(mockCompleteReindexProgress).not.toHaveBeenCalled()
+    expect(mockFailReindexProgress).not.toHaveBeenCalled()
+    expect(mockClearReindexLock).not.toHaveBeenCalled()
+    expect(mockContainer.dispose).toHaveBeenCalled()
+  })
+
   test('cancel drains the scoped queue and clears the lock without a progress service', async () => {
     const mockDb = { db: true }
     const mockEm = { getKysely: jest.fn(() => mockDb) }
