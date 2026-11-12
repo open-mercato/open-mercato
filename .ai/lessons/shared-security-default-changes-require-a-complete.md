@@ -1,6 +1,6 @@
 ---
 title: "Shared security-default changes require a complete consumer audit"
-modules: ["shared","auth","cache","events","example","create_app","sso","api_keys"]
+modules: ["shared","auth","cache","events","example","create_app","sso","api_keys","entities","workflows"]
 areas: ["integration","testing","module-data"]
 topics: ["access-control","data-scoping","events","testing"]
 ---
@@ -14,6 +14,8 @@ topics: ["access-control","data-scoping","events","testing"]
 **Rule**: When changing a shared security default, enumerate every production call site and remove local overrides that bypass the contract. Centralize repeated key derivation in the owning module and add tests for direct, one-proxy, multi-proxy, and fallback behavior.
 
 **Applies to**: shared auth, rate-limit, origin, session, encryption, and tenant-scoping helpers and every module that consumes them.
+
+- 2026-11-10 · entities/workflows: tenant-wide entity restriction checks also affect workflow task access. Run the consumer's tests with realistic tenant/global predicates, preserve page-level deduplication while accounting for the added restriction query, and assert sibling restrictions survive local overlays. Run the consuming package's typecheck too: a union-shaped ORM predicate can infer a narrower entity than its constructor; explicitly parameterize the decryption helper with the entity instance type when necessary (PR #9219).
 
 - 2026-11-01 · api_keys: raising bcrypt cost on random API secrets also raises unauthenticated verification cost. A public key prefix and distinct wrong suffixes bypass full-secret negative caching; audit application and MCP callers for pre-verification admission and bounded work before increasing the factor. Successful create/verify regressions alone do not prove the change improves security (review of #8376).
 

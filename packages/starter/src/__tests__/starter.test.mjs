@@ -11,7 +11,7 @@ import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '.
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, hostGatewayStep, infraUpStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
+import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, hostGatewayStep, infraUpStep, serviceConfigurationStep, serviceConnectionsStep, buildUpSteps, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
 import { ensureEnvFiles } from '../env-setup.mjs'
 import { describeInfraProblem, devRuntimeArgs, externalDatabaseHost, removeLeftoverComposeResources, resolveUpMode, startInfra } from '../infra.mjs'
 import { detectDockerRuntime, detectWsl, findPortConflicts, findUnhealthyServices, formatInfraProblem, startInfraServices } from '../infra-preflight.mjs'
@@ -205,7 +205,7 @@ test('resolveSpawnCommand rejects cmd metacharacters instead of degrading into i
 })
 
 function quietCtx(overrides = {}) {
-  return { log: () => {}, flags: {}, company: { steps: { disable: [], extra: [] } }, ...overrides }
+  return { assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }), assertDatabaseWriteAllowedImpl: async () => ({ remote: false }), log: () => {}, flags: {}, company: { steps: { disable: [], extra: [] } }, ...overrides }
 }
 
 test('runSteps skips satisfied steps, applies unsatisfied ones, and stops on StepBlocked with guidance', async () => {
@@ -490,6 +490,15 @@ test('ensureEnvFiles writes the documented dev credentials and threads them into
     readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL'),
     'postgres://postgres:postgres@127.0.0.1:5432/open-mercato',
   )
+})
+
+test('ensureEnvFiles gives the app .env the same generated tenant encryption key as the compose .env', () => {
+  const repo = makeFakeAppRepo()
+  fs.appendFileSync(path.join(repo, 'apps', 'mercato', '.env.example'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=\n')
+  ensureEnvFiles(repo, { log: () => {}, warn: () => {} })
+  const rootKey = readEnvValue(path.join(repo, '.env'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
+  assert.ok(rootKey && Buffer.byteLength(rootKey) >= 32)
+  assert.equal(readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY'), rootKey)
 })
 
 test('ensureEnvFiles never overwrites credentials already present in .env', () => {
@@ -887,6 +896,7 @@ test('the database step initializes with --skip-if-initialized so a re-run never
     repoRoot: repo,
     env: {},
     flags: { noInfra: true },
+    logs: { raw() {}, suspend() {}, resume() {} },
     runStreamingImpl: (command, args, options) => {
       invocations.push({ command, args, env: options.env })
       return 0
@@ -897,9 +907,121 @@ test('the database step initializes with --skip-if-initialized so a re-run never
   await databaseStep.apply(ctx)
   assert.deepEqual(invocations.map((entry) => entry.args), [['db:migrate'], ['initialize', '--', '--skip-if-initialized']])
   assert.equal(invocations[1].env.OM_INIT_DEV_AUTOSTART, '1')
+  assert.equal(Number(invocations[1].env.OM_INIT_SUMMARY_COLUMNS) + 3, process.stdout.columns || 80)
+  assert.equal(invocations[1].env.OM_INIT_SUMMARY_COLOR, process.stdout.isTTY ? '1' : '0')
 
   invocations.length = 0
-  const emptied = quietCtx({ ...ctx, dbReinitialize: true })
+  const emptied = quietCtx({ ...ctx, dbReinitialize: true, env: { NO_COLOR: '1' } })
   await databaseStep.apply(emptied)
   assert.deepEqual(invocations.map((entry) => entry.args), [['db:migrate'], ['initialize']])
+  assert.equal(invocations[1].env.OM_INIT_SUMMARY_COLOR, '0')
+})
+
+
+test('service configuration uses app URLs and root Compose env before build and database', async () => {
+  const repo = makeFakeRepo()
+  let called
+  let cleaned = false
+  const ctx = {
+    repoRoot: repo,
+    mode: 'hybrid',
+    flags: { serviceMode: 'ephemeral', noInfra: true },
+    env: { KEEP: 'value' },
+    log() {},
+    company: { steps: { disable: [], extra: [] } },
+    async configureServiceModeImpl(options) {
+      called = options
+      return { ok: true, env: { DATABASE_URL: 'postgres://temporary' }, cleanup: async () => { cleaned = true } }
+    },
+  }
+  const steps = buildUpSteps(ctx).map((step) => step.id)
+  assert.ok(steps.indexOf('service-configuration') > steps.indexOf('workspace-install'))
+  assert.ok(steps.indexOf('service-configuration') < steps.indexOf('workspace-build'))
+  assert.ok(steps.indexOf('service-configuration') < steps.indexOf('database'))
+  await serviceConfigurationStep.apply(ctx)
+  assert.equal(called.mode, 'ephemeral')
+  assert.equal(called.projectDir, path.join(repo, 'apps', 'mercato'))
+  assert.deepEqual(called.envFiles, [path.join(repo, '.env')])
+  assert.deepEqual(called.services.map((service) => service.service), ['postgres', 'redis', 'meilisearch'])
+  assert.equal(ctx.env.DATABASE_URL, 'postgres://temporary')
+  assert.equal(ctx.env.KEEP, 'value')
+  await ctx.cleanupServices()
+  assert.equal(cleaned, true)
+})
+
+test('reuse and ephemeral service choices skip Compose-dependent steps', () => {
+  for (const serviceMode of ['reuse', 'ephemeral']) {
+    const ctx = { mode: 'hybrid', flags: { noInfra: true, serviceMode } }
+    assert.equal(containerRuntimeStep.appliesTo(ctx), false)
+    assert.equal(infraUpStep.appliesTo(ctx), false)
+    assert.equal(hostGatewayStep.appliesTo(ctx), false)
+    assert.deepEqual(devRuntimeArgs([], ctx.flags), ['--no-infra'])
+  }
+})
+
+test('failed service configuration does not reach subsequent setup steps', async () => {
+  let laterStepRan = false
+  const outcome = await runSteps([serviceConfigurationStep, {
+    id: 'database', title: 'database',
+    async apply() { laterStepRan = true },
+  }], {
+    repoRoot: makeFakeRepo(), mode: 'hybrid', flags: { serviceMode: 'ephemeral' }, env: {}, log() {},
+    async configureServiceModeImpl() { throw new Error('Docker unavailable') },
+  })
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.failedStep, 'service-configuration')
+  assert.equal(laterStepRan, false)
+})
+
+
+test('cancelling an earlier asynchronous step prevents services and database setup', async () => {
+  let servicesStarted = false
+  let databaseRan = false
+  const ctx = { repoRoot: makeFakeRepo(), mode: 'hybrid', flags: { serviceMode: 'ephemeral' }, env: {}, log() {}, cancelled: false,
+    async configureServiceModeImpl() { servicesStarted = true; return { ok: true, env: {} } },
+  }
+  const outcome = await runSteps([
+    { id: 'earlier', title: 'earlier', async apply(context) { await Promise.resolve(); context.cancelled = true } },
+    serviceConfigurationStep,
+    { id: 'database', title: 'database', async apply() { databaseRan = true } },
+  ], ctx)
+  assert.equal(outcome.ok, false)
+  assert.equal(servicesStarted, false)
+  assert.equal(databaseRan, false)
+})
+
+test('random-port reconfiguration reconverges healthy Compose services before database setup', async () => {
+  const calls = []
+  const ctx = quietCtx({
+    repoRoot: makeFakeRepo(), mode: 'hybrid', flags: { serviceMode: 'random', profiles: [], noInfra: false }, env: {},
+    async configureServiceModeImpl() { calls.push('configure'); return { ok: true, env: {} } },
+    runComposeImpl() { return { status: 0, stdout: ['postgres', 'redis', 'meilisearch', 'opencode'].map((service) => JSON.stringify({ Service: service, State: 'running', Health: 'healthy' })).join('\n') } },
+    async startInfraImpl() { calls.push('converge'); return { ok: true } },
+  })
+  const outcome = await runSteps([serviceConfigurationStep, infraUpStep, { id: 'database', title: 'database', async apply() { calls.push('database') } }], ctx)
+  assert.equal(outcome.ok, true)
+  assert.deepEqual(calls, ['configure', 'converge', 'database'])
+})
+
+
+test('credential verification runs after infrastructure and blocks database setup on rejection', async () => {
+  const ctx = quietCtx({ repoRoot: makeFakeRepo(), mode: 'hybrid', flags: { serviceMode: 'reuse' }, env: {}, company: { steps: { disable: [], extra: [] } },
+    async verifyServiceConnectionsImpl() { throw new Error('PostgreSQL rejected configured credentials; check DATABASE_URL in .env') },
+  })
+  const ids = buildUpSteps(ctx).map((step) => step.id)
+  assert.ok(ids.indexOf('service-connections') > ids.indexOf('infra-up'))
+  assert.ok(ids.indexOf('service-connections') < ids.indexOf('database'))
+  let databaseRan = false
+  const outcome = await runSteps([serviceConnectionsStep, { id: 'database', title: 'database', async apply() { databaseRan = true } }], ctx)
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.failedStep, 'service-connections')
+  assert.equal(databaseRan, false)
+})
+
+test('infrastructure starting detail is separated from its step heading by a blank line', async () => {
+  const messages = []
+  await runSteps([{ id: 'infra-up', title: 'Infrastructure', check: async () => ({ ok: false, detail: 'starting: postgres' }), apply: async () => {} }], quietCtx({ log: (line) => messages.push(line) }))
+  const detail = messages.findIndex((line) => line.includes('starting: postgres'))
+  assert.ok(detail > 0)
+  assert.equal(messages[detail - 1], '')
 })
