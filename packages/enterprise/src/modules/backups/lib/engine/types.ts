@@ -58,7 +58,7 @@ export type RestoreTarget = {
   identity(): Promise<DatabaseIdentity>
   challenge(binding: { backupId: string; manifestSha256: string; sourceIdentity: DatabaseIdentity }): Promise<string>
   initialize(run: RestoreRun): Promise<void>
-  hasStep(stepId: string): Promise<boolean>
+  hasStep(stepId: string, expected?: {sha256:string;rows:string}): Promise<boolean>
   schema(section: 'pre-data' | 'post-data', stream: ByteStream, stepId: string, workspace?: string): Promise<void>
   chunk(entity: Entity, stream: ByteStream, record: { runId: string; sequence: number; sha256: string; rows: string }): Promise<void>
   sequences(states: SequenceState[]): Promise<void>

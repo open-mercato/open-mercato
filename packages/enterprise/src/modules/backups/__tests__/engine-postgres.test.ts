@@ -178,6 +178,10 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
     expect(resume).toBeDefined()
     const committed=artifact.index.chunks.find((entry)=>entry.entityKey===committedKey)!
     await rm(join(backup.artifactPath,committed.path))
+    await targetDb.query('UPDATE om_backup_restore.restore_chunks SET sha256=$1 WHERE entity_key=$2 AND seq=$3',['f'.repeat(64),committed.entityKey,committed.sequence])
+    const corrupted=createPostgresTarget(options),unsafe=await corrupted.challenge(binding)
+    await expect(restoreBackup({...shared,target:corrupted,confirmation:unsafe,resume})).rejects.toMatchObject({code:'BACKUP_RESTORE_CHUNK_MISMATCH',exitCode:4,context:expect.objectContaining({restoreRunId:resume})})
+    await targetDb.query('UPDATE om_backup_restore.restore_chunks SET sha256=$1 WHERE entity_key=$2 AND seq=$3',[committed.sha256,committed.entityKey,committed.sequence])
     const target=createPostgresTarget(options)
     const fresh=await target.challenge(binding)
     const restored=await restoreBackup({...shared,target,confirmation:fresh,resume})
