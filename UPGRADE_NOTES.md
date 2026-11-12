@@ -1,5 +1,9 @@
 # Upgrade Notes
 
+## Staff report history: rate permission
+
+The report-sheet API now omits financial event metadata when the caller lacks `staff.timesheets.rates.view`. Only recognized nonfinancial counts, rounding settings and export fields with valid primitive types remain. Authorized readers retain the original metadata. Consumers must accept unavailable monetary fields. This corrects a disclosure without a database migration.
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app
@@ -5425,6 +5429,3 @@ Container compatibility refusals exit with status `78` and are fatal even before
 
 The compatibility proof authenticates at most five candidate rows per store/key scope using server-side filtering; total plaintext table size is not a transfer limit. Known Documents CRDT binary columns are excluded. This is not a full historical ciphertext audit: unreadable values outside a sample may remain, and normal per-record runtime guards still apply. Optional dev auto-migrations warn and skip writes on a compatibility refusal; explicit setup/container initialization and migrations remain blocking.
 
-### Staff report history: rate permission
-
-The report-sheet API now omits financial event metadata when the caller lacks `staff.timesheets.rates.view`. Only recognized nonfinancial counts, rounding settings and export fields with valid primitive types remain. Authorized readers retain the original metadata. Consumers must accept unavailable monetary fields. This corrects a disclosure without a database migration.
