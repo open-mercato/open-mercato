@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createPersonFixture, deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/crmFixtures'
@@ -65,8 +66,9 @@ test.describe('TC-UNDO-001 customers.comments undo/redo', () => {
       expect(original?.authorUserId).toBeTruthy()
       commentId = original!.id
       const readComment = async () => {
-        const response = await apiRequest(request, 'GET', `/api/customers/comments?entityId=${personId}`, { token })
+        const response = await apiRequest(request, 'GET', `/api/customers/comments?entityId=${personId}&fresh=${randomUUID()}`, { token })
         expect(response.ok()).toBeTruthy()
+        expect(response.headers()['x-om-cache']).not.toBe('hit')
         const result = await readJsonSafe<{ items: Array<{ id: string; body: string; author_user_id: string }> }>(response)
         return result!.items.find(item => item.id === commentId)
       }
@@ -81,7 +83,9 @@ test.describe('TC-UNDO-001 customers.comments undo/redo', () => {
         expect(await readComment()).toMatchObject({ body: 'Original attribution', author_user_id: original!.authorUserId })
         await redoOk(request, token, operation.logId, 'attribution update')
         expect(await readComment()).toMatchObject({ body: 'Edited attribution', author_user_id: original!.authorUserId })
-        await apiRequest(request, 'PUT', '/api/customers/comments', { token, data: { id: commentId, body: 'Original attribution' } })
+        const reset = await apiRequest(request, 'PUT', '/api/customers/comments', { token, data: { id: commentId, body: 'Original attribution' } })
+        expect(reset.ok()).toBeTruthy()
+        expect(await readComment()).toMatchObject({ body: 'Original attribution', author_user_id: original!.authorUserId })
       }
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/comments', commentId)
