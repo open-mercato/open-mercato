@@ -15,7 +15,7 @@ import {
 import { uniqueLabel } from './helpers'
 
 const ORDER_COUNT = 90
-const BATCH_SIZE = 10
+const BATCH_SIZE = 5
 
 type PortalOrdersPage = {
   items?: Array<{ id?: string }>
@@ -103,7 +103,9 @@ test.describe('TC-WC-041: portal order picker pages orders sharing a placed_at e
       expect(total).toBe(ORDER_COUNT)
       expect(seen).toHaveLength(ORDER_COUNT)
       expect(new Set(seen).size, 'no order may appear on two pages').toBe(ORDER_COUNT)
-      expect(seen, 'tied orders should be listed newest id first').toEqual([...orderIds].sort().reverse())
+      expect(seen, 'tied orders should be listed by id descending').toEqual(
+        [...orderIds].sort((left, right) => (left < right ? 1 : left > right ? -1 : 0)),
+      )
     } finally {
       for (const orderId of orderIds) {
         await deleteSalesEntityIfExists(request, adminToken, '/api/sales/orders', orderId)
