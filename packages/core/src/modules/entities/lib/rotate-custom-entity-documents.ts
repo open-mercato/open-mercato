@@ -39,6 +39,7 @@ type DocumentRow = {
   organization_id: string | null
   doc: Record<string, unknown>
   updated_at?: string | Date | null
+  rotation_eligible?: boolean
 }
 
 type DocumentFieldPolicy = {
@@ -98,7 +99,7 @@ export async function rotateCustomEntityDocuments(
   let updated = 0
   for (;;) {
     options.signal?.throwIfAborted()
-    const predicates = ['EXISTS (SELECT 1 FROM custom_field_defs d WHERE d.entity_id = custom_entities_storage.entity_type AND (d.tenant_id IS NULL OR d.tenant_id = custom_entities_storage.tenant_id) AND (d.organization_id IS NULL OR d.organization_id = custom_entities_storage.organization_id))']
+    const predicates = ['true']
     const parameters: unknown[] = []
     if (options.tenantId) {
       predicates.push('tenant_id = ?')
@@ -112,17 +113,32 @@ export async function rotateCustomEntityDocuments(
       predicates.push('id > ?')
       parameters.push(cursor)
     }
+    // Materialize only a light indexed frontier BEFORE the definition semi-join or
+    // any TOAST projection. Otherwise PostgreSQL can sort/scan every document for
+    // each page. Ineligible frontier rows still advance the durable cursor.
+    const candidates = `with frontier as materialized (
+      select id, entity_type, tenant_id, organization_id from custom_entities_storage
+      where ${predicates.join(' and ')} order by id asc limit ${batchSize}
+    ), eligible as materialized (
+      select f.*, exists (select 1 from custom_field_defs d where d.entity_id = f.entity_type
+        and (d.tenant_id is null or d.tenant_id = f.tenant_id)
+        and (d.organization_id is null or d.organization_id = f.organization_id)) as rotation_eligible
+      from frontier f
+    ) select e.*, payload.doc, payload.updated_at from eligible e
+      left join lateral (select s.doc, s.updated_at from custom_entities_storage s
+        where s.id = e.id and e.rotation_eligible offset 0) payload on true`
     const oversized = await connection.execute<Array<{ oversized: number }>>(
-      `select 1 as oversized from (select doc from custom_entities_storage where ${predicates.join(' and ')} order by id asc limit ${batchSize}) candidates where octet_length(convert_to(doc::text, 'UTF8')) > ? limit 1`,
+      `select 1 as oversized from (${candidates}) candidates where rotation_eligible and octet_length(convert_to(doc::text, 'UTF8')) > ? limit 1`,
       [...parameters, MAINTENANCE_ROW_BYTES],
     )
     if (oversized.length) throw new Error('[internal] Custom document exceeds supported maintenance size')
     const rows = await connection.execute<DocumentRow[]>(
-      `select id, entity_type, tenant_id, organization_id, doc::text as doc, updated_at::text as updated_at from custom_entities_storage where ${predicates.join(' and ')} order by id asc limit ${batchSize}`,
+      `select id, entity_type, tenant_id, organization_id, rotation_eligible, doc::text as doc, updated_at::text as updated_at from (${candidates}) bounded_candidates order by id asc`,
       parameters,
     )
     if (!rows.length) break
     for (const row of rows) {
+      if (row.rotation_eligible === false) continue
       if (typeof row.doc === 'string') row.doc = parseRotationJson(row.doc) as Record<string, unknown>
       if (!row.doc || typeof row.doc !== 'object' || Array.isArray(row.doc)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
     }
@@ -131,6 +147,7 @@ export async function rotateCustomEntityDocuments(
     const preparedWrites: Array<{ row: DocumentRow; nextDoc: Record<string, unknown>; tenantId: string }> = []
     for (const row of rows) {
       options.signal?.throwIfAborted()
+      if (row.rotation_eligible === false) continue
       const scopeKey = JSON.stringify([row.entity_type, row.tenant_id, row.organization_id])
       let policy = fieldsByScope.get(scopeKey)
       if (!policy) {

@@ -148,6 +148,39 @@ native('native PostgreSQL persisted verification', () => {
     await client.query('INSERT INTO custom_entities_storage VALUES($1,$2,$3,NULL,$4,$5)', [id, 'test:dynamic', tenantId, JSON.stringify({ secret: plaintext ? 'legacy-plaintext' : encryptWithAesGcm('dynamic-secret', source).value, untouched: { nested: [null, '日本語'] } }), '2026-01-02 03:04:05.123456+00'])
     await client.query('INSERT INTO custom_field_defs(id,entity_id,tenant_id,key,config_json) VALUES($1,$2,$3,$4,$5)', [randomUUID(), 'test:dynamic', tenantId, 'secret', JSON.stringify({ encrypted: true })])
   }
+  test('custom rotation bounds its PK frontier before definition filtering and advances empty eligible pages', async () => {
+    await customFixture(false)
+    await client.query('DELETE FROM custom_entities_storage')
+    for (let index = 1; index <= 9; index++) await client.query(
+      'INSERT INTO custom_entities_storage VALUES($1,$2,$3,NULL,$4,now())',
+      [`00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, index === 9 ? 'test:dynamic' : 'test:no-definition', tenantId,
+        JSON.stringify({ secret: encryptWithAesGcm('dynamic-secret', source).value })],
+    )
+    const context = await inputContext(); const connection = context.entityManager.getConnection()
+    const queries: Array<{ sql: string; parameters: unknown[] }> = []
+    context.entityManager.getConnection = () => ({ execute: async (sql: string, parameters: unknown[]) => {
+      queries.push({ sql, parameters }); return connection.execute(sql, parameters)
+    } }) as ReturnType<EntityManager['getConnection']>
+    const checkpoints: Array<{cursor: string[];readRows:number;writtenRows:number}> = []
+    const updated = await rotateCustomEntityDocuments(context.entityManager, {
+      tenantId, organizationId: null, dryRun: false, oldKms: createDerivedKeyKmsService(sourceSecret),
+      encryptionService: new TenantDataEncryptionService(context.entityManager, { kms: createDerivedKeyKmsService(targetSecret) }),
+      checkpointBatch: async checkpoint => { checkpoints.push(checkpoint) },
+    })
+    expect(updated).toBe(1)
+    expect(checkpoints[0]).toMatchObject({ cursor: ['00000000-0000-4000-8000-000000000008'], readRows: 8, writtenRows: 0 })
+    const rows = (await client.query('SELECT id,doc FROM custom_entities_storage ORDER BY id')).rows
+    expect(decryptWithAesGcm(rows[0].doc.secret, source)).toBe('dynamic-secret')
+    expect(decryptWithAesGcm(rows[8].doc.secret, target)).toBe('dynamic-secret')
+    const query = queries.find(entry => entry.sql.startsWith('select id'))!
+    let parameter = 0
+    const plan = (await client.query('EXPLAIN (ANALYZE,FORMAT JSON) '+query.sql.replace(/\?/g, () => `$${++parameter}`), query.parameters)).rows[0]['QUERY PLAN'][0].Plan
+    type Plan = { 'Subplan Name'?: string; Plans?: Plan[]; [key: string]: unknown }
+    const descendants = (node: Plan): Plan[] => [node, ...(node.Plans ?? []).flatMap(descendants)]
+    const frontier = descendants(plan).find(node => node['Subplan Name'] === 'CTE frontier')!
+    expect(frontier['Node Type']).toBe('Limit')
+    expect(frontier['Actual Rows']).toBe(8)
+  })
   test('production protection covers custom JSON and exact authenticated timestamp batches through the real Core helper', async () => {
     await customFixture()
     const environment = await runtimeEnvironment(); const context = await inputContext()
@@ -326,7 +359,7 @@ native('native PostgreSQL persisted verification', () => {
       await orm.close(true) // retain identity-map objects while releasing the discovery-only session
       const context = await inputContext()
       context.entityManager.find = (async (...args: Parameters<typeof em.find>) => { const result = await em.find(...args); await orm.close(true); return result }) as typeof context.entityManager.find
-      context.entityManager.getMetadata = (() => ({ getAll: () => [{ className: 'FixtureRecord', tableName: 'fixture_records', schema: 'public', primaryKeys: ['id'], properties: { id: { name: 'id', fieldNames: ['id'] }, secret: { name: 'secret', fieldNames: ['secret'] }, secondSecret: { name: 'secondSecret', fieldNames: ['second_secret'] } } }] })) as typeof context.entityManager.getMetadata
+      context.entityManager.getMetadata = (() => ({ getAll: () => [{ className: 'FixtureRecord', tableName: 'fixture_records', schema: 'public', primaryKeys: ['id'], properties: { id: { name: 'id', fieldNames: ['id'] }, secret: { name: 'secret', fieldNames: ['secret'] }, secondSecret: { name: 'secondSecret', fieldNames: ['second_secret'] } } }] })) as unknown as typeof context.entityManager.getMetadata
       const data = await createPostgresRotationDataset({ context, providers: { previousKms: createDerivedKeyKmsService(sourceSecret), kms: createDerivedKeyKmsService(targetSecret) }, backupDigest: 'a'.repeat(64), provider: 'explicit' })
       await orm.close(true) // return the discovery-only pool before enforcing the single maintenance session
       const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)

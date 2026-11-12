@@ -51,7 +51,9 @@ function fixture(definitions: CustomFieldDef[], batches: Row[][], key: string | 
   const updates: Array<{ query: string; parameters: unknown[]; doc: Record<string, unknown> }> = []
   const execute = jest.fn(async (query: string, parameters: unknown[]) => {
     if (query.startsWith('select 1 as oversized')) {
-      expect(query).toContain('limit 8) candidates')
+      expect(query).toContain('order by id asc limit 8')
+      expect(query).toContain('frontier as materialized')
+      expect(query).toContain('offset 0')
       return []
     }
     if (query.startsWith('select count(*)::text as verified from custom_entities_storage')) return [{ verified: String(parameters.length / 6) }]
@@ -412,6 +414,19 @@ describe('custom entity document encryption rotation', () => {
     const selections = setup.execute.mock.calls.filter(([query]) => query.startsWith('select id'))
     expect(selections[1]![0]).toContain('id > ? order by id asc limit 8')
     expect(selections[1]![1]).toEqual([tenantId, organizationId, 'row-007'])
+  })
+
+  test('advances a full ineligible PK frontier before rotating a later eligible document', async () => {
+    const skipped = Array.from({ length: 8 }, (_, index) => ({ ...row({}, { id: `row-${index}` }), doc: null, rotation_eligible: false }))
+    const setup = fixture([definition('code')], [skipped as unknown as Row[], [row({ 'cf:code': 'legacy' }, { id: 'row-8' })]])
+    const checkpointBatch = jest.fn()
+    await expect(rotateCustomEntityDocuments(setup.em, { ...setup.options, checkpointBatch })).resolves.toBe(1)
+    expect(checkpointBatch.mock.calls[0]![0]).toMatchObject({ cursor: ['row-7'], readRows: 8, writtenRows: 0 })
+    expect(setup.updates).toHaveLength(1)
+    const query = setup.execute.mock.calls.find(([sql]) => sql.startsWith('select id'))![0]
+    expect(query.indexOf('limit 8')).toBeLessThan(query.indexOf('exists (select'))
+    expect(query).toContain('left join lateral')
+    expect(query).toContain('s.id = e.id and e.rotation_eligible offset 0')
   })
 
   test('refuses to overwrite a document changed during rotation', async () => {

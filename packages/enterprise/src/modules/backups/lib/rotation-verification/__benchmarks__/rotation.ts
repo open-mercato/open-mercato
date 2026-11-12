@@ -11,6 +11,7 @@ import { EncryptionMap, CustomFieldDef } from '@open-mercato/core/modules/entiti
 import { rotateCustomEntityDocuments } from '@open-mercato/core/modules/entities/lib/rotate-custom-entity-documents'
 import { readMaintenanceBatches, writeMaintenanceRow, verifyMaintenanceBatch } from '@open-mercato/core/modules/entities/lib/rotation-maintenance'
 import { createBackup, verifyBackup, createPostgresSource, type ProgressEvent } from '../../engine'
+import type { RotationBatchCheckpoint } from '@open-mercato/shared/lib/encryption/rotationProtection'
 import { progressRenderer } from '../../engine/progress'
 import { generateX25519Identity, identityToRecipient } from '../../engine/crypto'
 import { createEnterpriseRotationProtection } from '../coordinator'
@@ -99,10 +100,12 @@ async function main() {
   let progressCpuMicros = 0
   const renderer = progressRenderer('plain')
   const progress = (event: ProgressEvent) => { const cpu = process.cpuUsage(); renderer(event); const spent = process.cpuUsage(cpu); progressCpuMicros += spent.user + spent.system }
+  let checkpointMs = 0
   let intentMs = 0
   let backupMs = 0; let verifyBackupMs = 0; let rotationMs = 0; let baselineMs = 0; let finalMs = 0
   let baseDataset: Awaited<ReturnType<typeof createPostgresRotationDataset>> | undefined
   const protection = createEnterpriseRotationProtection({
+    resumeId: process.env.OM_ROTATION_BENCHMARK_RESUME_ID,
     artifactRoot: `${root}/rotation-artifacts`, trustRoot: `${root}/rotation-trust`, assertEntitlement: async () => {}, providers: async () => pinned,
     async dataset(input, providers, backupDigest, intents) {
       baseDataset ??= await createPostgresRotationDataset({ context: input, providers, provider: pinned.provider, backupDigest, progress, intents: { prefetch: intents.prefetch?.bind(intents), load: async identity => { const started = performance.now(); try { return await intents.load(identity) } finally { loadIntentMs += performance.now() - started } } } })
@@ -131,6 +134,7 @@ async function main() {
   const started = performance.now(); const cpuStarted = process.cpuUsage()
   await protection.protect(context, async (providers) => {
     if (!providers) throw new Error('No pinned providers')
+    const checkpointBatch = providers.checkpointBatch ? async (checkpoint: RotationBatchCheckpoint) => { const started = performance.now(); try { await providers.checkpointBatch!(checkpoint) } finally { checkpointMs += performance.now() - started } } : undefined
     const start = performance.now()
     const mapId = (await client.query('SELECT id::text FROM encryption_maps LIMIT 1')).rows[0].id
     const operationId = JSON.stringify(['mapped-v1', mapId, 'public', 'bench_records', tenantId, null])
@@ -145,9 +149,9 @@ async function main() {
         writes.push({ row, updates })
       }
       await verifyMaintenanceBatch(connection, '"public"."bench_records"', ['id'], writes, { tenantId, organizationId: null })
-      await providers.checkpointBatch?.({ operationId, cursor: [String(rows[rows.length - 1]!.id)], readRows: rows.length, writtenRows: writes.length })
+      await checkpointBatch?.({ operationId, cursor: [String(rows[rows.length - 1]!.id)], readRows: rows.length, writtenRows: writes.length })
     }
-    await rotateCustomEntityDocuments(em, { encryptionService: new TenantDataEncryptionService(em, { kms: providers.kms }), oldKms: providers.previousKms, tenantId, organizationId: null, dryRun: false, batchSize: providers.batchSize, timestampForBatchWrite: providers.timestampForBatchWrite ? async (intents) => { const started = performance.now(); try { return await providers.timestampForBatchWrite!(intents) } finally { intentMs += performance.now() - started } } : undefined, timestampForWrite: providers.timestampForWrite, resumeCursor: providers.resumeCursor, checkpointBatch: providers.checkpointBatch })
+    await rotateCustomEntityDocuments(em, { encryptionService: new TenantDataEncryptionService(em, { kms: providers.kms }), oldKms: providers.previousKms, tenantId, organizationId: null, dryRun: false, batchSize: providers.batchSize, timestampForBatchWrite: providers.timestampForBatchWrite ? async (intents) => { const started = performance.now(); try { return await providers.timestampForBatchWrite!(intents) } finally { intentMs += performance.now() - started } } : undefined, timestampForWrite: providers.timestampForWrite, resumeCursor: providers.resumeCursor, checkpointBatch })
     rotationMs = performance.now() - start
     console.log(JSON.stringify({ phase: 'rotated', gib, elapsedMs: Math.round(rotationMs), rssMiB: Math.round(peak / 1024 / 1024) }))
   })
@@ -164,7 +168,7 @@ async function main() {
   const baselineCost = backupMs + verifyBackupMs + rotationMs - earlyReadbackMs - intentMs
   const overheadMs = totalMs - baselineCost
   const postgresVersion = (await client.query("SELECT current_setting('server_version') AS version")).rows[0].version
-  const result = { root, nodeVersion: process.version, postgresVersion, progressRendererCpuMicros: progressCpuMicros, totalCpuMicros, progressRendererCpuPass: progressCpuMicros <= totalCpuMicros * 0.02, nodeMemoryFlags: process.execArgv, gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, intentMs, finalMs, scanAfterOwnMs, scanBeforeOwnMs, loadIntentMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: finalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: coordinatorPeak / 1024 / 1024, coordinatorRssPass: coordinatorPeak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: process.env.OM_BENCH_CACHE_PROTOCOL ?? 'warm source after isolated seed/ANALYZE; reference scan runs after verification without timestamp-intent lookup', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
+  const result = { root, checkpointMs, supplementaryTotalProtectionOverheadMs: totalMs - rotationMs + earlyReadbackMs + intentMs + checkpointMs, comparisonPolicy: 'Checkpointing remains in the matched safe rotation baseline; supplementary protection overhead includes backup creation, offline verification, all safety hooks and control work.', nodeVersion: process.version, postgresVersion, progressRendererCpuMicros: progressCpuMicros, totalCpuMicros, progressRendererCpuPass: progressCpuMicros <= totalCpuMicros * 0.02, nodeMemoryFlags: process.execArgv, gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, intentMs, finalMs, scanAfterOwnMs, scanBeforeOwnMs, loadIntentMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: finalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: coordinatorPeak / 1024 / 1024, coordinatorRssPass: coordinatorPeak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: process.env.OM_BENCH_CACHE_PROTOCOL ?? 'warm source after isolated seed/ANALYZE; reference scan runs after verification without timestamp-intent lookup', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
   await writeFile(`${root}/rotation-${gib}g-report.json`, JSON.stringify(result, null, 2), { mode: 0o600 })
   console.log(JSON.stringify(result)); clearInterval(sampling); await client.end()
   if (!result.overheadPass || !result.finalThroughputPass || !result.coordinatorRssPass || !result.progressRendererCpuPass) process.exitCode = 1

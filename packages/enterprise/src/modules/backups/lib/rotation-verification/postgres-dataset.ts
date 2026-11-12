@@ -176,7 +176,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
   // Budget current + prefetched wire pages and conservative text-decoding headroom.
   const verificationBatchRows = Math.min(MAX_ROWS, Math.max(1, Math.floor((8 * 1024 * 1024) / ((maximumRowBytes + 4096) * 4))))
   const orderedTables = [...tables.values()].sort((left, right) => left.name < right.name ? -1 : 1)
-  const tenants = await query<{ tenant_id: string }>(`SELECT DISTINCT tenant_id::text AS tenant_id FROM (${orderedTables.map((table) => `SELECT tenant_id FROM ${tableSql(table)} WHERE ${scopeSql}`).join(' UNION ALL ')}) selected ORDER BY tenant_id`, orderedTables.flatMap(() => scopeParameters()))
+  const tenants = await query<{ tenant_id: string }>(`SELECT DISTINCT tenant_id::text AS tenant_id FROM (${orderedTables.map((table) => `SELECT tenant_id FROM ${tableSql(table)} WHERE ${scopeSql}`).join(' UNION ALL ')}) selected ORDER BY tenant_id LIMIT 1001`, orderedTables.flatMap(() => scopeParameters()))
   if (tenants.length > 1000) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   const selectedTenants = tenants.map((entry) => entry.tenant_id)
   const definitionCache = new Map<string, { known: Set<string>; required: Set<string> }>()
