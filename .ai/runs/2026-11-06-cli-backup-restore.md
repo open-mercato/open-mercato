@@ -56,8 +56,16 @@ Revise the design-only spec so the backup/restore feature is enterprise-only, en
 
 - [x] 3.1 Specify a red fail-closed warning and explicit CLI acknowledgment for Core rotation without Enterprise resumable encrypted backup. — c28d4f5489
 - [x] 3.2 Cross-reference the separate Enterprise post-rotation correctness verification design and acceptance coverage. — c28d4f5489
-- [ ] 3.3 Validate documentation, review the revised design, and publish the outcome.
+- [x] 3.3 Validate documentation, review the revised design, and publish the outcome. — 1062359500
 
 ## Resume scope — 2026-11-12
 
 User direction: keep key rotation available in Core, but refuse mutating rotation without a fresh explicit risk acknowledgment when Enterprise recovery is unavailable. Write a separate Enterprise-only verification spec, consumed by rotation, with fast data correctness/checksum validation. Both PRs remain design-only. Existing completed work and security decisions remain intact.
+
+
+## Verification — 2026-11-12 resume
+
+- Independent specification review examined all five lenses against Core rotation/custom-document code and compatibility rules. No blocker/major; corrected two minor stale scope/compliance statements in 1062359500.
+- `git diff --check` and changed-spec relative-link checks pass. No configured Markdown-specific lint command exists; all eight runtime validation.commands are inapplicable to this design-only diff (build, generation, translation, type/unit/app gates skipped, not claimed).
+- Companion spec lives on `spec/rotation-data-verification` and is published separately via `om-auto-write-spec`; no implementation added to either design PR.
+- New-head hosted CI and independent GitHub approval remain merge gates; prior-head approval/check signals do not certify this revision. Existing Q2/Q3/harness decisions remain implementation gates.
