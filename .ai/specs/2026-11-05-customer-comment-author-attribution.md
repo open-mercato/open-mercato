@@ -30,7 +30,8 @@ Keeping the old unauthorized assignment behind an alias, toggle or bridge would 
 
 1. Guard only the update author assignment and validate changed privileged targets before scalar mutation.
 2. Command regressions cover ordinary actors, API keys, key/superadmin contexts, omission, null authors, scoped privileged changes, invalid/deleted/foreign targets, tenant/org denial, snapshots and undo.
-3. Route mapping regressions cover explicit/omitted/null author intent, unchanged permissions and response. Extend `TC-UNDO-001-comments.spec.ts` to exercise PUT plus list readback and undo/redo attribution using self-created person/comment fixtures and cleanup.
+3. Shared NotesSection editors leave recognized optimistic and record-lock conflicts to the existing translated banner, without repeating raw server codes inline; regression tests cover content and appearance editors.
+4. Route mapping regressions cover explicit/omitted/null author intent, unchanged permissions and response. Extend `TC-UNDO-001-comments.spec.ts` to exercise PUT plus list readback and undo/redo attribution using self-created person/comment fixtures and cleanup.
 
 ## Risks & Impact Review
 
@@ -41,10 +42,12 @@ Keeping the old unauthorized assignment behind an alias, toggle or bridge would 
 
 ## Final Compliance Report
 
-Focused customers-only implementation; no schema migration, dependency, discovery registration or UI changes. Existing mutation lifecycle and undo stay intact. Piotr Karwatka approved the narrow compatibility waiver on 2026-11-12; validation and QA gates still apply. Runtime integration and full-gate results are recorded in the PR, including environment limits.
+Focused customers command change plus NotesSection conflict feedback; no schema migration, dependency or discovery registration changes. Existing mutation lifecycle and undo stay intact. Piotr Karwatka approved the narrow compatibility waiver on 2026-11-12; validation and QA gates still apply. Runtime integration and full-gate results are recorded in the PR, including environment limits.
 
 ## Changelog
 
 - 2026-11-05: Documented guarded update semantics, migration, regressions and unresolved human compatibility gate.
 
 - 2026-11-12: Recorded Piotr Karwatka’s explicit waiver of deprecation steps 1–3; validation and QA remain separate gates.
+
+- 2026-11-12: Complex stale-write QA found duplicate raw conflict codes in NotesSection editors; suppress inline conflict codes while preserving the shared banner and ordinary validation errors.
