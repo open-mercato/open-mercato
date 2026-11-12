@@ -78,7 +78,7 @@ async function main() {
   const connection = { execute: async (sql: string, parameters: unknown[]) => {
     let number = 0; const started = performance.now()
     const result = await client.query(sql.replace(/\?/g, () => `$${++number}`), parameters)
-    if (/^SELECT count\(\*\)::text AS verified/.test(sql) || /^select count\(\*\)::text as verified/.test(sql)) earlyReadbackMs += performance.now() - started
+    if (/SELECT count\(\*\)::text AS verified/i.test(sql)) earlyReadbackMs += performance.now() - started
     return result.rows
   } }
   const em = {
@@ -96,7 +96,7 @@ async function main() {
   const native = { sourceService: 'source', binariesDir: '/usr/lib/postgresql/16/bin', serviceFile: `${root}/service.conf`, passwordFile: `${root}/password` }
   await writeFile(native.serviceFile, `[source]\nhost=127.0.0.1\nport=5432\ndbname=${database}\nuser=postgres\nsslmode=disable\n`, { mode: 0o600 })
   await writeFile(native.passwordFile, `*:*:*:postgres:${process.env.POSTGRES_PASSWORD}\n`, { mode: 0o600 })
-  let scanAfterOwnMs = 0; let scanBeforeOwnMs = 0; let loadIntentMs = 0; let finalSizeGuardMs = 0
+  let scanAfterOwnMs = 0; let scanBeforeOwnMs = 0; let loadIntentMs = 0
   let progressCpuMicros = 0
   const renderer = progressRenderer('plain')
   const progress = (event: ProgressEvent) => { const cpu = process.cpuUsage(); renderer(event); const spent = process.cpuUsage(cpu); progressCpuMicros += spent.user + spent.system }
@@ -108,7 +108,7 @@ async function main() {
     resumeId: process.env.OM_ROTATION_BENCHMARK_RESUME_ID,
     artifactRoot: `${root}/rotation-artifacts`, trustRoot: `${root}/rotation-trust`, assertEntitlement: async () => {}, providers: async () => pinned,
     async dataset(input, providers, backupDigest, intents) {
-      baseDataset ??= await createPostgresRotationDataset({ context: input, providers, provider: pinned.provider, backupDigest, progress, onFinalSizeGuardMs: elapsed => { finalSizeGuardMs += elapsed }, intents: { prefetch: intents.prefetch?.bind(intents), load: async identity => { const started = performance.now(); try { return await intents.load(identity) } finally { loadIntentMs += performance.now() - started } } } })
+      baseDataset ??= await createPostgresRotationDataset({ context: input, providers, provider: pinned.provider, backupDigest, progress, intents: { prefetch: intents.prefetch?.bind(intents), load: async identity => { const started = performance.now(); try { return await intents.load(identity) } finally { loadIntentMs += performance.now() - started } } } })
       const dataset = baseDataset
       return { ...dataset, async binding() { return { ...await dataset.binding(), backupDigest } }, async *rows(phase, signal) { const started = performance.now(); try { const iterator = dataset.rows(phase, signal)[Symbol.asyncIterator](); for (;;) { const began = performance.now(); const next = await iterator.next(); const elapsed = performance.now() - began; if (phase === 'before') scanBeforeOwnMs += elapsed; else scanAfterOwnMs += elapsed; if (next.done) break; yield next.value } } finally { if (phase === 'before') baselineMs += performance.now() - started; else finalMs += performance.now() - started } } }
     },
@@ -167,10 +167,10 @@ async function main() {
   console.log(JSON.stringify({ phase: 'matched-target-scan', gib, rows: scanned, elapsedMs: Math.round(standaloneMs) }))
   const baselineCost = backupMs + verifyBackupMs + rotationMs - earlyReadbackMs - intentMs
   const overheadMs = totalMs - baselineCost
-  const streamingFinalMs = finalMs - finalSizeGuardMs
+  const streamingFinalMs = finalMs
   if (!Number.isFinite(streamingFinalMs) || streamingFinalMs < 0) throw new Error('Final scan timing accounting is invalid')
   const postgresVersion = (await client.query("SELECT current_setting('server_version') AS version")).rows[0].version
-  const result = { root, finalSizeGuardMs, streamingFinalMs, streamingComparisonPolicy: 'finalMs includes the fresh post-write server size guard; streamingFinalMs excludes only that preflight. All guard time remains in totalMs and overheadMs; row authentication, timestamp validation and canonical HMAC comparison remain in the streaming metric.', checkpointMs, supplementaryTotalProtectionOverheadMs: totalMs - rotationMs + earlyReadbackMs + intentMs + checkpointMs, comparisonPolicy: 'Checkpointing remains in the matched safe rotation baseline; supplementary protection overhead includes backup creation, offline verification, all safety hooks and control work.', nodeVersion: process.version, postgresVersion, progressRendererCpuMicros: progressCpuMicros, totalCpuMicros, progressRendererCpuPass: progressCpuMicros <= totalCpuMicros * 0.02, nodeMemoryFlags: process.execArgv, gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, intentMs, finalMs, scanAfterOwnMs, scanBeforeOwnMs, loadIntentMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: streamingFinalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: coordinatorPeak / 1024 / 1024, coordinatorRssPass: coordinatorPeak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: process.env.OM_BENCH_CACHE_PROTOCOL ?? 'warm source after isolated seed/ANALYZE; reference scan runs after verification without timestamp-intent lookup', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
+  const result = { root, finalSizeGuardMs: 0, streamingFinalMs, streamingComparisonPolicy: 'The exact bounded page snapshot is guarded inside every scanner query; no separate final-size phase exists. All fused guard, row authentication, timestamp validation and canonical HMAC comparison time remains in finalMs, streamingFinalMs, totalMs and overheadMs.', checkpointMs, supplementaryTotalProtectionOverheadMs: totalMs - rotationMs + earlyReadbackMs + intentMs + checkpointMs, comparisonPolicy: 'Checkpointing remains in the matched safe rotation baseline; supplementary protection overhead includes backup creation, offline verification, all safety hooks and control work.', nodeVersion: process.version, postgresVersion, progressRendererCpuMicros: progressCpuMicros, totalCpuMicros, progressRendererCpuPass: progressCpuMicros <= totalCpuMicros * 0.02, nodeMemoryFlags: process.execArgv, gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, intentMs, finalMs, scanAfterOwnMs, scanBeforeOwnMs, loadIntentMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: streamingFinalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: coordinatorPeak / 1024 / 1024, coordinatorRssPass: coordinatorPeak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: process.env.OM_BENCH_CACHE_PROTOCOL ?? 'warm source after isolated seed/ANALYZE; reference scan runs after verification without timestamp-intent lookup', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
   await writeFile(`${root}/rotation-${gib}g-report.json`, JSON.stringify(result, null, 2), { mode: 0o600 })
   console.log(JSON.stringify(result)); clearInterval(sampling); await client.end()
   if (!result.overheadPass || !result.finalThroughputPass || !result.coordinatorRssPass || !result.progressRendererCpuPass) process.exitCode = 1

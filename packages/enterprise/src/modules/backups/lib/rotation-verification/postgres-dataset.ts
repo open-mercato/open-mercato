@@ -23,8 +23,6 @@ export type PostgresRotationOptions = {
   intents?: { load(identity: string): Promise<Intent | undefined>; prefetch?(identities: string[]): Promise<void> }
   progress?: ProgressSink
   runId?: string
-  /** Measurement observer; all final size-guard work remains part of verification. */
-  onFinalSizeGuardMs?(elapsedMs: number): void
 }
 type Rule = { tenantId: string | null; organizationId: string | null; column: string; hashColumn: string | null; active: boolean }
 type Column = { name: string; type: string }
@@ -213,13 +211,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
 
   }
   // Budget current + prefetched wire pages and conservative text-decoding headroom.
-  let verificationBatchRows = rowsForBudget(maximumSourceBudget)
-  const refreshFinalWireBudget = async (): Promise<void> => {
-    await assertFence()
-    let maximum = 4096
-    for (const table of tables.values()) maximum = Math.max(maximum, await measureWire(table) + columnHeadroom(table))
-    verificationBatchRows = rowsForBudget(maximum)
-  }
+  const verificationBatchRows = rowsForBudget(Math.max(maximumSourceBudget, maximumProjectedBudget) + 128)
   const orderedTables = [...tables.values()].sort((left, right) => left.name < right.name ? -1 : 1)
   const tenants = await query<{ tenant_id: string }>(`SELECT DISTINCT tenant_id::text AS tenant_id FROM (${orderedTables.map((table) => `SELECT tenant_id FROM ${tableSql(table)} WHERE ${scopeSql}`).join(' UNION ALL ')}) selected ORDER BY tenant_id LIMIT 1001`, orderedTables.flatMap(() => scopeParameters()))
   if (tenants.length > 1000) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
@@ -284,11 +276,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
   async function* rows(phase: 'before' | 'after', signal?: AbortSignal): AsyncGenerator<VerificationRow> {
     signal?.throwIfAborted()
     await checkedBinding()
-    if (phase === 'after') {
-      const started = performance.now()
-      try { await refreshFinalWireBudget() }
-      finally { options.onFinalSizeGuardMs?.(performance.now() - started) }
-    }
+    if (phase === 'after') await assertFence()
     for (const table of orderedTables) {
       const expectedCount = await query<{ count: string }>(`SELECT count(*)::text AS count FROM ${tableSql(table)} WHERE ${scopeSql}`, scopeParameters())
       const expectedRows = BigInt(expectedCount[0]?.count ?? '-1')
@@ -297,9 +285,42 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
       const progress = (type: 'entity.progress' | 'entity.done') => options.progress?.({ schemaVersion: 1, type, runId: options.runId ?? 'rotation', entity: table.name, phase: phase === 'before' ? 'baseline' : 'verification', rowsDone: String(yieldedRows), rowsTotal: String(expectedRows), rowsTotalExact: true, bytesDone: String(bytesDone), chunksDone, at: new Date().toISOString() })
       progress('entity.progress')
       const primary = table.primaryKeys.map((key) => `verification_rows.${quote(key)}`)
+      const used = new Set(table.columns.map(column => column.name))
+      const internalName = (prefix: string): string => {
+        let name = prefix
+        let suffix = 0
+        while (used.has(name)) name = `${prefix}_${++suffix}`
+        used.add(name)
+        return name
+      }
+      const marker = internalName('__rotation_guard')
+      const ordinal = internalName('__rotation_ordinal')
+      const rowValid = internalName('__rotation_row_valid')
+      const rowBytes = internalName('__rotation_row_bytes')
       const fetchBatch = async (cursor: string[] | null): Promise<SqlRow[]> => {
         const predicate = cursor ? ` AND (${primary.join(', ')}) > (${primary.map(() => '?').join(', ')})` : ''
-        const selected = await query<SqlRow>(`SELECT ${table.columns.map((entry) => `${quote(entry.name)}::text AS ${quote(entry.name)}`).join(', ')} FROM ${tableSql(table)} AS verification_rows WHERE ${scopeSql}${predicate} ORDER BY ${primary.join(', ')} LIMIT ${verificationBatchRows}`, [...scopeParameters(), ...(cursor ?? [])])
+        const columnNames = table.columns.map(column => quote(column.name))
+        const wireBytes = [`${7 + 4 * (table.columns.length + 1) + 32}::bigint`, ...columnNames.map(name => `coalesce(octet_length(persisted.${name})::bigint,0)`)].join(' + ')
+        const perRowLimit = Math.min(MAX_ROW_BYTES, Math.floor((8 * 1024 * 1024 / 4) / verificationBatchRows) - columnHeadroom(table) - 32)
+        // First limit native keys, then project exactly those rows once. The
+        // materialized aggregate withholds the ENTIRE page on either row or
+        // page overflow; only one NULL-payload sentinel crosses the wire.
+        const selected = await query<SqlRow>(`WITH frontier AS MATERIALIZED (
+          SELECT limited.*,row_number() OVER (ORDER BY ${table.primaryKeys.map(key => `limited.${quote(key)}`).join(',')}) AS ${quote(ordinal)}
+          FROM (SELECT ${primary.join(',')} FROM ${tableSql(table)} AS verification_rows WHERE ${scopeSql}${predicate} ORDER BY ${primary.join(',')} LIMIT ${verificationBatchRows}) limited
+        ), projected AS MATERIALIZED (
+          SELECT ${columnNames.map(name => `CASE WHEN wire.bytes<=${perRowLimit} THEN persisted.${name} ELSE NULL::text END AS ${name}`).join(',')},frontier.${quote(ordinal)},wire.bytes<=${perRowLimit} AS ${quote(rowValid)},wire.bytes AS ${quote(rowBytes)}
+          FROM frontier CROSS JOIN LATERAL (SELECT ${table.columns.map(column => `persisted_row.${quote(column.name)}::text AS ${quote(column.name)}`).join(',')} FROM ${tableSql(table)} AS persisted_row WHERE ${table.primaryKeys.map(key => `persisted_row.${quote(key)}=frontier.${quote(key)}`).join(' AND ')} OFFSET 0) persisted
+          CROSS JOIN LATERAL (SELECT ${wireBytes} AS bytes OFFSET 0) wire
+        ), budget AS MATERIALIZED (
+          SELECT coalesce(bool_and(${quote(rowValid)}),true)
+            AND coalesce(sum(${quote(rowBytes)} + ${columnHeadroom(table) + 32}),0) <= ${8 * 1024 * 1024 / 4} AS ok FROM projected
+        ) SELECT ${quote(marker)},${columnNames.join(',')} FROM (
+          SELECT 'ok'::text AS ${quote(marker)},${columnNames.map(name => `projected.${name}`).join(',')},projected.${quote(ordinal)} FROM projected CROSS JOIN budget WHERE budget.ok
+          UNION ALL SELECT 'oversized'::text,${columnNames.map(() => 'NULL::text').join(',')},0::bigint FROM budget WHERE NOT budget.ok
+        ) guarded_page ORDER BY ${quote(ordinal)}`, [...scopeParameters(), ...(cursor ?? [])])
+        if (selected.some(row => row[marker] !== 'ok')) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+        for (const row of selected) delete row[marker]
         if (phase === 'after' && table.custom && options.intents?.prefetch) await options.intents.prefetch(selected.map(raw => JSON.stringify([table.name, raw.tenant_id, raw.organization_id ?? null, table.primaryKeys.map(key => raw[key])])) )
         return selected
       }

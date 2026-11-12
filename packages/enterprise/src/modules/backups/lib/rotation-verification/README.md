@@ -158,8 +158,11 @@ Current bounds include 1 MiB wire rows, 500 custom definitions per selected
 inventory, 5,000 maps, 1,000 selected organizations, and a 10,000-record/4 MiB binding
 projection. Unsupported data must be resolved explicitly; no success flag bypasses it.
 Known lookup, ciphertext-padding and timestamp growth is budgeted before mutation.
-Every final reader freshly checks actual persisted row sizes before transferring
-contents, so a trigger or generated value cannot bypass the wire allocation cap.
+Every scanner query limits native primary keys first and checks the exact projected
+page inside the same database snapshot before transferring contents. A row or page
+overflow returns one NULL-payload failure sentinel; it never filters out data or
+advances a cursor. This also bounds trigger/generated-value growth on repeated final
+reads. The fused size check remains part of the measured verification stream.
 
 Benchmark artifacts under `.ai/qa/2026-11-12-key-rotation-verification` distinguish
 exploration, interruption/recovery evidence and release acceptance. The measured

@@ -569,14 +569,19 @@ native('native PostgreSQL persisted verification', () => {
       await expect(dataset(restricted)).rejects.toThrow('ROTATION_RLS_VISIBILITY_UNPROVEN')
     } finally { await restricted.end(); await client.query(`DROP OWNED BY "${role}"; DROP ROLE "${role}"`) }
   })
-  test('every final reader probes fresh wire bounds before fetching trigger-expanded untouched data', async () => {
+  test('every final reader withholds the entire exact page when a trigger expands untouched data', async () => {
     await client.query(`CREATE FUNCTION expand_untouched() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN NEW.other=jsonb_build_object('expanded',repeat('x',2097152)); RETURN NEW; END $$;
       CREATE TRIGGER expand_untouched BEFORE UPDATE OF secret ON fixture_records
       FOR EACH ROW WHEN (OLD.secret IS NOT DISTINCT FROM NEW.secret) EXECUTE FUNCTION expand_untouched()`)
     const queries: string[] = []
+    const responses: Array<{ rows: number; bytes: number; nonNull: string[] }> = []
     const traced = new Proxy(client, { get(connection, property) {
-      if (property === 'query') return (sql: string, parameters?: unknown[]) => { queries.push(sql); return connection.query(sql, parameters) }
+      if (property === 'query') return async (sql: string, parameters?: unknown[]) => {
+        queries.push(sql); const result = await connection.query(sql, parameters)
+        if (sql.includes('guarded_page')) responses.push({ rows: result.rows.length, bytes: Buffer.byteLength(JSON.stringify(result.rows)), nonNull: result.rows.flatMap(row => Object.keys(row).filter(key => row[key] !== null)) })
+        return result
+      }
       const value = Reflect.get(connection, property, connection)
       return typeof value === 'function' ? value.bind(connection) : value
     } })
@@ -588,9 +593,56 @@ native('native PostgreSQL persisted verification', () => {
     const id = (await client.query('SELECT id FROM fixture_records ORDER BY id LIMIT 1')).rows[0].id
     await client.query('UPDATE fixture_records SET secret=secret WHERE id=$1', [id])
     queries.length = 0
-    await expect((async () => { for await (const _row of reader.rows('after')) { /* Never reached. */ } })()).rejects.toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+    responses.length = 0
+    let leakedRows = 0
+    await expect((async () => { for await (const _row of reader.rows('after')) leakedRows++ })()).rejects.toThrow('ROTATION_COVERAGE_UNSUPPORTED')
     expect(queries.some(sql => sql.includes('octet_length'))).toBe(true)
-    expect(queries.some(sql => /AS verification_rows/.test(sql))).toBe(false)
+    expect(leakedRows).toBe(0)
+    expect(responses).toHaveLength(1)
+    expect(responses[0]!.rows).toBe(1)
+    expect(responses[0]!.bytes).toBeLessThan(1024)
+    expect(responses[0]!.nonNull).toEqual(['__rotation_guard'])
+  })
+  test('fused page discriminator and ordinal cannot collide with real stored columns', async () => {
+    await client.query(`ALTER TABLE fixture_records
+      ADD COLUMN __rotation_guard text DEFAULT 'stored-marker',
+      ADD COLUMN __rotation_guard_1 text DEFAULT 'second-marker',
+      ADD COLUMN __rotation_ordinal bigint DEFAULT 9007199254740993,
+      ADD COLUMN __rotation_row_valid boolean DEFAULT false,
+      ADD COLUMN __rotation_row_bytes bigint DEFAULT 9007199254740995`)
+    const data = await dataset(); const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)
+    await rotate()
+    await expect(verifyRotationData(prepared, data, artifacts)).resolves.toMatchObject({ status: 'passed', comparedRows: '19' })
+    await client.query("UPDATE fixture_records SET __rotation_guard='corrupt' WHERE id=(SELECT id FROM fixture_records ORDER BY id DESC LIMIT 1)")
+    await expect(verifyRotationData(prepared, data, artifacts)).rejects.toThrow('ROTATION_DATA_MISMATCH')
+  })
+  test('fused scanner limits native keys before window ordering and projected payload work', async () => {
+    await client.query('ALTER TABLE fixture_records DROP CONSTRAINT fixture_records_pkey; ALTER TABLE fixture_records DROP COLUMN id; ALTER TABLE fixture_records ADD COLUMN id bigserial PRIMARY KEY')
+    await client.query("INSERT INTO fixture_records(tenant_id,secret,exact,other) SELECT $1,$2,1,'{}'::jsonb FROM generate_series(1,10000)", [tenantId, encryptWithAesGcm('bounded-frontier', source).value])
+    await client.query('ANALYZE fixture_records')
+    const captured: Array<{ sql: string; parameters: unknown[] }> = []
+    const traced = new Proxy(client, { get(connection, property) {
+      if (property === 'query') return (sql: string, parameters: unknown[] = []) => {
+        if (sql.includes('guarded_page')) captured.push({ sql, parameters })
+        return connection.query(sql, parameters)
+      }
+      const value = Reflect.get(connection, property, connection)
+      return typeof value === 'function' ? value.bind(connection) : value
+    } })
+    const reader = await dataset(traced)
+    for await (const _row of reader.rows('before')) break
+    const first = captured[0]!
+    const plan = (await client.query('EXPLAIN (ANALYZE,FORMAT JSON) '+first.sql, first.parameters)).rows[0]['QUERY PLAN'][0].Plan
+    type Plan = { 'Subplan Name'?: string; Plans?: Plan[]; [key: string]: unknown }
+    const descendants = (node: Plan): Plan[] => [node, ...(node.Plans ?? []).flatMap(descendants)]
+    const frontier = descendants(plan).find(node => node['Subplan Name'] === 'CTE frontier')!
+    const window = descendants(frontier).find(node => node['Node Type'] === 'WindowAgg')!
+    const limited = descendants(window).find(node => node['Node Type'] === 'Limit')!
+    expect(Number(limited['Actual Rows'])).toBeLessThanOrEqual(500)
+    expect(descendants(limited).some(node => node['Node Type'] === 'Index Scan' && node['Index Name'] === 'fixture_records_pkey')).toBe(true)
+    const projected = descendants(plan).find(node => node['Subplan Name'] === 'CTE projected')!
+    expect(Number(projected['Actual Rows'])).toBe(Number(limited['Actual Rows']))
+    expect(descendants(projected).some(node => node['Node Type'] === 'Index Scan' && node['Index Name'] === 'fixture_records_pkey')).toBe(true)
   })
   function authenticatedInvalidUtf8(key: string): string {
     const iv = randomBytes(12)
