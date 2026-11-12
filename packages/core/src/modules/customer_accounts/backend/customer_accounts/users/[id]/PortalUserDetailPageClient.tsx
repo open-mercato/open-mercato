@@ -22,6 +22,7 @@ import { buildPortalUrlPattern } from '../../../../lib/portalUrl'
 
 type UserDetail = {
   id: string
+  organizationId: string | null
   displayName: string
   email: string
   emailVerifiedAt: string | null
@@ -233,12 +234,16 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
     return () => { cancelled = true }
   }, [id, t])
 
+  const userOrganizationId = data?.organizationId ?? null
+
   React.useEffect(() => {
+    if (!userOrganizationId) return
     let cancelled = false
     async function loadRoles() {
       try {
+        const query = new URLSearchParams({ pageSize: '100', organizationId: userOrganizationId! })
         const call = await apiCall<{ items?: Array<{ id: string; name: string }> }>(
-          '/api/customer_accounts/admin/roles?pageSize=100',
+          `/api/customer_accounts/admin/roles?${query.toString()}`,
         )
         if (cancelled || !call.ok) return
         const items = Array.isArray(call.result?.items) ? call.result!.items : []
@@ -251,7 +256,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
     }
     loadRoles()
     return () => { cancelled = true }
-  }, [])
+  }, [userOrganizationId])
 
   React.useEffect(() => {
     if (!data) return
