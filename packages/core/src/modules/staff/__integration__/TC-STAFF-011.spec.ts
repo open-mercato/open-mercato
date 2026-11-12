@@ -142,7 +142,23 @@ test.describe('TC-STAFF-011: Timer Start/Stop + Segments via API', () => {
       expect(patchBody.item!.id).toBe(segmentId)
       expect(patchBody.item!.endedAt).toBeTruthy()
 
-      // Step 5: Stop timer
+      // Step 5: List the entries BEFORE stopping. This warms the opt-in CRUD
+      // list cache key that step 6 reuses; without it the post-stop assertion
+      // reads a cold key straight from the database and stays blind to stale
+      // cached list projections (#2609).
+      const preStopListResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/staff/timesheets/time-entries?staffMemberId=${encodeURIComponent(staffMemberId!)}&from=2026-04-01&to=2026-04-30`,
+        { token },
+      )
+      expect(preStopListResponse.ok(), 'Pre-stop GET /api/staff/timesheets/time-entries should succeed').toBeTruthy()
+      const preStopListBody = (await preStopListResponse.json()) as { items?: Array<Record<string, unknown>> }
+      const runningEntry = preStopListBody.items?.find((item) => item.id === entryId)
+      expect(runningEntry, 'Running entry should appear in the pre-stop list').toBeTruthy()
+      expect(runningEntry!.ended_at, 'Running entry should have no ended_at before the stop').toBeFalsy()
+
+      // Step 6: Stop timer
       const timerStopResponse = await apiRequest(request, 'POST', `/api/staff/timesheets/time-entries/${entryId}/timer-stop`, {
         token,
       })
@@ -151,7 +167,8 @@ test.describe('TC-STAFF-011: Timer Start/Stop + Segments via API', () => {
       expect(timerStopBody.ok, 'Timer stop response should return ok: true').toBe(true)
       expect(typeof timerStopBody.durationMinutes, 'Timer stop should return durationMinutes as number').toBe('number')
 
-      // Step 6: Verify the stopped entry has started_at and ended_at set
+      // Step 7: Verify the stopped entry has started_at and ended_at set —
+      // read back through the SAME list cache key warmed in step 5.
       const listEntriesResponse = await apiRequest(
         request,
         'GET',

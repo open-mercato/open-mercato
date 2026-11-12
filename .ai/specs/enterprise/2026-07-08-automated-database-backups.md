@@ -2,6 +2,8 @@
 
 > Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md` (rev 5) on 2026-07-08. Companion spec: [`2026-07-08-gdpr-data-erasure.md`](2026-07-08-gdpr-data-erasure.md) — GDPR erasure orchestration, the primary consumer of this spec's erasure-manifest mechanism.
 
+> Backup engine and operator CLI: [Resumable Encrypted PostgreSQL Backup and Restore CLI](2026-11-06-cli-backup-restore.md) (enterprise `backups` module). It owns the chunked, resumable, encrypted-by-default artifact format, per-entity progress and the `create/verify/restore/exercise` commands. This spec retains scheduling, object storage, retention, UI and erasure-manifest ownership. Before implementation, reconcile here: the single-stream `pg_dump → AES-GCM` pipeline and `OM_BACKUP_ENCRYPTION_KEY` framing are replaced by the engine's per-chunk age encryption, and `backups restore --force` / live-target restore is replaced by the engine's empty-target, resumable restore.
+
 ## TLDR
 **Key Points:**
 - Enterprise module `backups`: scheduled encrypted physical database backups to object storage, tooled CLI restore with safety rails, bounded retention, on-demand restore verification, superadmin status page.

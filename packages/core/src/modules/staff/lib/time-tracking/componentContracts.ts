@@ -18,9 +18,11 @@ export const callbackProp = <TCallback>() =>
   })
 
 export const optionalCallbackProp = <TCallback>() =>
-  z.custom<TCallback | undefined>(
-    (value) => value === undefined || typeof value === 'function',
-    { message: '[internal] expected a function prop or undefined' },
-  )
+  z
+    .custom<TCallback | undefined>(
+      (value) => value === undefined || typeof value === 'function',
+      { message: '[internal] expected a function prop or undefined' },
+    )
+    .optional()
 
 export const opaqueProp = <TValue>() => z.custom<TValue>(() => true)
