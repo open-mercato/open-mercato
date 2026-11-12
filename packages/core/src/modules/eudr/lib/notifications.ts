@@ -2,6 +2,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { notificationTypes } from '../notifications'
+import { tryResolve } from './tryResolve'
 
 const logger = createLogger('eudr').child({ component: 'notifications' })
 
@@ -45,6 +46,14 @@ export async function deliverEudrNotification({
   typeId,
   payload,
 }: DeliverEudrNotificationInput): Promise<void> {
+  if (!tryResolve(container as Parameters<typeof tryResolve>[0], 'notificationService')) {
+    logger.debug('Notifications module not enabled; skipping EUDR notification', {
+      typeId,
+      entityId: payload.entityId,
+    })
+    return
+  }
+
   let notificationService: ReturnType<typeof resolveNotificationService>
   try {
     notificationService = resolveNotificationService(container)
