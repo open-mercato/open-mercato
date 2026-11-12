@@ -583,6 +583,31 @@ the new optional `createOnly` flag selects conflict-on-existing creation. No
 operator configuration or database migration is needed. See the
 [locking coverage spec](.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md#custom-record-creation--7815).
 
+### Bootstrap credentials no longer appear in initialization output (#7822)
+
+`mercato init` now lists created accounts without printing their passwords. Module
+command banners mask secret-bearing options in both `--option value` and
+`--option=value` forms. CLI-owned failure diagnostics also mask known credential
+inputs and URI passwords. Commands, flags, execution arguments and exit codes stay
+the same; automation that reads passwords from stdout must change.
+
+**Client/module authors:** remove password-line parsing and pass credentials through
+the existing inputs. Custom module commands must continue sanitizing their own
+output; the dispatcher cannot protect arbitrary output emitted by a module.
+
+**Operators:** provide known bootstrap passwords from your secret manager through
+`OM_INIT_SUPERADMIN_PASSWORD`, `OM_INIT_ADMIN_PASSWORD` and
+`OM_INIT_EMPLOYEE_PASSWORD`, or use the configured password-reset flow for accounts
+whose passwords were generated. No replacement plaintext credential file is written.
+Rotate bootstrap credentials exposed by earlier initialization runs and review
+access to retained terminal, CI and deployment logs. Existing log copies are not
+removed by this upgrade.
+
+This narrow security-output removal has no compatibility toggle: a bridge would
+retain the disclosure. See the [spec](.ai/specs/2026-10-27-bootstrap-credential-output-redaction.md)
+and the dated entry in `BACKWARD_COMPATIBILITY.md`. Human maintainer
+[@haxiorz acknowledged this waiver and migration on 2026-10-29](https://github.com/open-mercato/open-mercato/pull/8089#issuecomment-6505347774).
+
 ### Inbound webhook receipt deduplication includes verified scope (#7830)
 
 Inbound receipts now identify duplicates by endpoint, message ID, tenant, and organization.
