@@ -235,3 +235,89 @@ describe('POST /api/search/embeddings/reindex', () => {
     expect(mockContainer.dispose).toHaveBeenCalled()
   })
 })
+
+describe('vector reindex routes when the progress module is disabled', () => {
+  const progressDisabledError = new Error("[internal] AwilixResolutionError: Could not resolve 'progressService'")
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuthFromRequest.mockResolvedValue({
+      tenantId: 'tenant-123',
+      orgId: 'org-456',
+      sub: 'user-789',
+    })
+    mockGetReindexLockStatus.mockResolvedValue(null)
+    mockAcquireReindexLock.mockResolvedValue({ acquired: true })
+  })
+
+  function makeContainer(services: Record<string, unknown>) {
+    return {
+      resolve: jest.fn((name: string) => {
+        if (name === 'progressService') throw progressDisabledError
+        if (name in services) return services[name]
+        throw new Error(`Unknown service: ${name}`)
+      }),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    }
+  }
+
+  test('reindex runs, completes without a progress service and clears the lock', async () => {
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    const mockSearchIndexer = {
+      reindexEntityToVector: jest.fn().mockResolvedValue({
+        success: true,
+        entitiesProcessed: 1,
+        recordsIndexed: 0,
+        recordsDropped: 0,
+        jobsEnqueued: 0,
+        errors: [],
+      }),
+    }
+    const mockContainer = makeContainer({ em: mockEm, searchIndexer: mockSearchIndexer })
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await vectorReindexPost(new Request('http://localhost/api/search/embeddings/reindex', {
+      method: 'POST',
+      body: JSON.stringify({ entityId: 'catalog:catalog_product_variant' }),
+    }))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual(expect.objectContaining({ ok: true, entitiesProcessed: 1 }))
+    expect(mockAcquireReindexLock).toHaveBeenCalled()
+    expect(mockSearchIndexer.reindexEntityToVector).toHaveBeenCalled()
+    expect(mockEnsureReindexProgressJob).toHaveBeenCalledWith(expect.objectContaining({ progressService: null }))
+    expect(mockCompleteReindexProgress).toHaveBeenCalledWith(expect.objectContaining({ progressService: null }))
+    expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'vector', 'org-456')
+    expect(mockContainer.dispose).toHaveBeenCalled()
+  })
+
+  test('cancel drains the scoped queue and clears the lock without a progress service', async () => {
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    const mockQueue = {
+      clear: jest.fn(),
+      removeQueuedJobsByScope: jest.fn().mockResolvedValue({ removed: 2 }),
+    }
+    const mockContainer = makeContainer({ em: mockEm, vectorIndexQueue: mockQueue })
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await vectorReindexCancelPost(new Request(
+      'http://localhost/api/search/embeddings/reindex/cancel',
+      { method: 'POST' },
+    ))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, jobsRemoved: 2 })
+    expect(mockQueue.removeQueuedJobsByScope).toHaveBeenCalledWith({
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      jobTypes: ['batch-index'],
+    })
+    expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'vector', 'org-456')
+    expect(mockCancelReindexProgress).toHaveBeenCalledWith(expect.objectContaining({ progressService: null }))
+    expect(mockContainer.dispose).toHaveBeenCalled()
+  })
+})

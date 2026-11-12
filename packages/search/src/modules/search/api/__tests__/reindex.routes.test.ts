@@ -250,3 +250,116 @@ describe('POST /api/search/reindex', () => {
     expect(mockContainer.dispose).toHaveBeenCalled()
   })
 })
+
+describe('fulltext reindex routes when the progress module is disabled', () => {
+  const progressDisabledError = new Error("[internal] AwilixResolutionError: Could not resolve 'progressService'")
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockAuth()
+    mockGetReindexLockStatus.mockResolvedValue(null)
+    mockAcquireReindexLock.mockResolvedValue({ acquired: true })
+  })
+
+  function makeSearchIndexer(jobsEnqueued: number) {
+    return {
+      listEnabledEntities: jest.fn(() => ['catalog:catalog_product']),
+      reindexEntityToFulltext: jest.fn().mockResolvedValue({
+        success: true,
+        recordsIndexed: jobsEnqueued * 10,
+        jobsEnqueued,
+        errors: [],
+      }),
+    }
+  }
+
+  function makeContainer(services: Record<string, unknown>) {
+    return {
+      resolve: jest.fn((name: string) => {
+        if (name === 'progressService') throw progressDisabledError
+        if (name in services) return services[name]
+        throw new Error(`Unknown service: ${name}`)
+      }),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    }
+  }
+
+  test('reindex runs, completes without a progress service and clears the lock', async () => {
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    const mockStrategy = {
+      id: 'fulltext',
+      isAvailable: jest.fn().mockResolvedValue(true),
+      recreateIndex: jest.fn().mockResolvedValue(undefined),
+    }
+    const mockSearchIndexer = makeSearchIndexer(0)
+    const mockContainer = makeContainer({
+      em: mockEm,
+      searchStrategies: [mockStrategy],
+      searchIndexer: mockSearchIndexer,
+    })
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await fulltextReindexPost(makeRequest({ action: 'reindex', entityId: 'catalog:catalog_product' }))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual(expect.objectContaining({ ok: true, action: 'reindex', useQueue: true }))
+    expect(mockAcquireReindexLock).toHaveBeenCalled()
+    expect(mockSearchIndexer.reindexEntityToFulltext).toHaveBeenCalled()
+    expect(mockEnsureReindexProgressJob).toHaveBeenCalledWith(expect.objectContaining({ progressService: null }))
+    expect(mockCompleteReindexProgress).toHaveBeenCalledWith(expect.objectContaining({ progressService: null }))
+    expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
+    expect(mockContainer.dispose).toHaveBeenCalled()
+  })
+
+  test('queued reindex keeps the lock for the workers without a progress service', async () => {
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    const mockStrategy = {
+      id: 'fulltext',
+      isAvailable: jest.fn().mockResolvedValue(true),
+      recreateIndex: jest.fn().mockResolvedValue(undefined),
+    }
+    const mockSearchIndexer = makeSearchIndexer(3)
+    mockCreateRequestContainer.mockResolvedValue(makeContainer({
+      em: mockEm,
+      searchStrategies: [mockStrategy],
+      searchIndexer: mockSearchIndexer,
+    }))
+
+    const res = await fulltextReindexPost(makeRequest({ action: 'reindex', entityId: 'catalog:catalog_product' }))
+
+    expect(res.status).toBe(200)
+    expect(mockAcquireReindexLock).toHaveBeenCalled()
+    expect(mockCompleteReindexProgress).not.toHaveBeenCalled()
+    expect(mockClearReindexLock).not.toHaveBeenCalled()
+  })
+
+  test('cancel drains the scoped queue and clears the lock without a progress service', async () => {
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    const mockQueue = {
+      clear: jest.fn(),
+      removeQueuedJobsByScope: jest.fn().mockResolvedValue({ removed: 2 }),
+    }
+    const mockContainer = makeContainer({ em: mockEm, fulltextIndexQueue: mockQueue })
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await fulltextReindexCancelPost(new Request('http://localhost/api/search/reindex/cancel', {
+      method: 'POST',
+    }))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, jobsRemoved: 2 })
+    expect(mockQueue.removeQueuedJobsByScope).toHaveBeenCalledWith({
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      jobTypes: ['batch-index'],
+    })
+    expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
+    expect(mockCancelReindexProgress).toHaveBeenCalledWith(expect.objectContaining({ progressService: null }))
+    expect(mockContainer.dispose).toHaveBeenCalled()
+  })
+})

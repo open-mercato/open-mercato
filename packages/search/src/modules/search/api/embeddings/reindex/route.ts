@@ -18,6 +18,7 @@ import {
   ensureReindexProgressJob,
   failReindexProgress,
 } from '../../../lib/reindex-progress'
+import { tryResolve } from '../../../lib/tryResolve'
 import { embeddingsReindexOpenApi } from '../../openapi'
 
 export const metadata = {
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const progressService = container.resolve('progressService') as ProgressService
+  const progressService = tryResolve<ProgressService>(container, 'progressService')
   const db = (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
 
   // Check if another vector reindex operation is already in progress
