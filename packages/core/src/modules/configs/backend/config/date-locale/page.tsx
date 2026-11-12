@@ -87,8 +87,8 @@ export default function DateLocaleSettingsPage() {
         errorMessage: t('configs.dateLocale.errors.load', 'Failed to load date and time settings.'),
       })
       setData(payload)
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : t('configs.dateLocale.errors.load', 'Failed to load date and time settings.'))
+    } catch {
+      setLoadError(t('configs.dateLocale.errors.load', 'Failed to load date and time settings.'))
     }
   }, [t])
 
@@ -317,6 +317,7 @@ export default function DateLocaleSettingsPage() {
               optimisticLockUpdatedAt={data.updatedAt}
               submitLabel={t('configs.dateLocale.save', 'Save settings')}
               onSubmit={handleSubmit}
+              readOnly={!canManage}
               hideFooterActions={!canManage}
             />
           </div>
