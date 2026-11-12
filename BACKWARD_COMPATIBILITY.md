@@ -639,6 +639,11 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 Conflicts API `startTime`/`endTime` use the caller offset (ISO `startsAt`/`endsAt` added); default date rendering changed. See [contract](.ai/specs/2026-05-18-date-locale-settings.md#migration--backward-compatibility).
 
+## Compose encryption (2026-11-01, #7231)
+
+STABLE: unsafe keys/HTTP Vault rejected; bridges retain exposure. [Migration](UPGRADE_NOTES.md).
+Named human waiver of steps 1–3 required.
+
 ## Encryption maintenance safety gates (2026-11-02, #6767)
 
 CLI safety confirmations changed; stop writers and restart replicas. [Flags, migration and stable formats](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767).
