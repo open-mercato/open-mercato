@@ -254,6 +254,31 @@ test('the starter session hands its token to the dev runner and releases on fail
   }
 })
 
+test('the starter setup session uses the checkout recovery and keeps the hard stop when non-interactive', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-starter-recovery-'))
+  try {
+    fs.mkdirSync(path.join(dir, 'scripts'))
+    for (const file of ['dev-session-guard.mjs', 'dev-session-recovery.mjs']) {
+      fs.copyFileSync(path.join(repoRoot, 'scripts', file), path.join(dir, 'scripts', file))
+    }
+    const { acquireSetupSession } = await import('../setup-session.mjs')
+    const first = await acquireSetupSession(dir, { interactive: false })
+    try {
+      await assert.rejects(acquireSetupSession(dir, { interactive: false }), /Another Open Mercato dev session already owns this workspace/)
+    } finally {
+      first.release()
+    }
+    const lockDirectory = path.join(dir, '.mercato', 'dev-session.lock')
+    fs.mkdirSync(path.join(lockDirectory, 'members'), { recursive: true })
+    fs.writeFileSync(path.join(lockDirectory, 'owner.json'), JSON.stringify({ token: '00000000-0000-4000-8000-000000000000', pid: 2147483647, mode: 'setup:hybrid', workspaceRoot: fs.realpathSync(dir) }))
+    const recovered = await acquireSetupSession(dir, { interactive: false })
+    assert.notEqual(recovered.token, '00000000-0000-4000-8000-000000000000', 'a lock left by an exited process is replaced')
+    recovered.release()
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('a fresh clone without Docker or services fails within seconds, before yarn install or builds', { skip: process.platform === 'win32' ? 'fake shims are POSIX shell scripts' : false }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-starter-fresh-'))
   try {

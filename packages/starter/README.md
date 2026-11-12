@@ -3,10 +3,13 @@
 The central, cross-platform way to stand up an Open Mercato dev environment. One command, idempotent, platform-aware:
 
 ```bash
-# Anywhere (clones the repo if you are not inside one):
+# Outside a clone (clones the repo into ./open-mercato first):
 npx @open-mercato/starter
 
-# Inside a clone:
+# Inside a fresh clone, before the first `yarn install`:
+node packages/starter/bin/om-start.mjs
+
+# Inside a clone once dependencies are installed:
 yarn setup              # same as `yarn om up`: everything from install to a running app
 yarn om                 # alias for node packages/starter/bin/om-start.mjs
 ```

@@ -174,8 +174,8 @@ services:
       - sso
     command: start-dev
     environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     ports:
       - "${INFRA_BIND_HOST:-127.0.0.1}:${KEYCLOAK_PORT:-8080}:8080"
     healthcheck:
@@ -219,7 +219,14 @@ services:
       - registry
     environment:
       VERDACCIO_PORT: 4873
-      VERDACCIO_PUBLIC_URL: http://localhost:4873
+      # Base of the tarball URLs Verdaccio advertises in package metadata. It
+      # overrides the request host, so it must be reachable by every client.
+      VERDACCIO_PUBLIC_URL: ${OM_VERDACCIO_PUBLIC_URL:-http://localhost:4873}
+    # Standalone fullapp builds reach the registry at host.docker.internal:4873.
+    # On native Linux that is the Docker bridge gateway, not loopback: set
+    # VERDACCIO_HOST to the bridge address (e.g. 172.17.0.1) and
+    # OM_VERDACCIO_PUBLIC_URL to http://<that address>:4873 for a route only
+    # containers and the host can use. See docker/README.md.
     ports:
       - "${VERDACCIO_HOST:-127.0.0.1}:${VERDACCIO_PORT:-4873}:4873"
     volumes:
