@@ -50,7 +50,11 @@ cannot work and is never led to where the work happens.
 `href` must match `^/(?![/\\])\S*$` — a relative path with a single leading slash. Absolute,
 protocol-relative and whitespace-bearing values are rejected by the schema, and again after
 interpolation; a token that does not resolve (`{{…}}` left in the result) drops the `href`. Both
-fail closed to the task page, so a link — including one in a notification email, which is rendered
+the schema and the post-interpolation check also apply the notification layer's own
+`isSafeNotificationHref` (`@open-mercato/shared/modules/notifications/safeHref`), so an inner
+backslash or a control character (U+0000–U+001F, U+007F) is refused too — otherwise the stored href
+would reach `assertSafeNotificationHref`, which throws, and the whole notification would be lost
+instead of falling back to the task page. All of these fail closed to the task page, so a link — including one in a notification email, which is rendered
 from the stored href prefixed with the panel origin — never leaves the panel origin.
 
 ### Resolution and storage
@@ -76,6 +80,9 @@ Tasks created before this change have `completion = null` and behave exactly as 
 | `workflows.task.assigned` notification | no `complete` quick action; `view` action and `linkHref` = `href` |
 | `workflows.task.reminder_due` / `deadline_breached` | `view` action and `linkHref` = `href` |
 | `/backend/tasks/[id]` | no generic form/decisions/Complete; an information notice links to `href` (or says the host UI renders below) |
+| `/backend/tasks/[id]` on mobile | same notice; `MobileTaskForm` gets `offerCompletion={false}`, which withholds the form without being read as "already completed or cancelled" (that copy stays for a finished task) |
+| Portal `GET /api/workflows/portal/tasks[/id]` | additive `completion` field (shared serializer) |
+| `/<orgSlug>/portal/tasks/[id]` | for the assignee, no `PortalTaskForm`; links to `href` only when it is a path under `/<orgSlug>/portal/` (`resolvePortalTaskCompletionHref`), otherwise a notice that the task is completed outside the portal. A company reader who may not act keeps the read-only copy |
 
 Events gain an additive optional `completion` payload key (`workflows.task.assigned`,
 `workflows.task.reminder_due`, `workflows.task.deadline_breached`) so the notification subscribers
@@ -101,6 +108,9 @@ The declaration is about the **surface**, never about **who may act**:
 - **No `spot` key.** The issue floated `{ surface: 'host', spot }`. The existing
   `workflows.task.detail:context` spot already renders any injected widget on the task page, so
   `{ surface: 'host' }` without an `href` covers it without a second contract.
+- **No audience restriction on the declaration.** A customer-assigned task may declare a host
+  surface too. The portal never links a customer to a backend path; a host that wants a portal
+  link declares a portal path (e.g. `/{{context.orgSlug}}/portal/…`).
 - **No Studio inspector field yet.** The key is authored in the Code view or the step's Advanced
   JSON; `graphToDefinition` preserves it from `userTaskConfig` so a Studio save never strips it.
 
@@ -110,7 +120,10 @@ The declaration is about the **surface**, never about **who may act**:
 - DB: additive nullable column `user_tasks.completion` (migration `Migration20261111120000_workflows`).
 - API: additive response field `completion`; no field removed or retyped.
 - Events: additive optional payload key.
-- UI: new i18n keys `workflows.tasks.detail.hostCompletion.*`; existing test ids unchanged.
+- UI: new i18n keys `workflows.tasks.detail.hostCompletion.*` and
+  `workflows.portal.tasks.detail.hostCompletion.*` (all locales); existing test ids unchanged.
+- `MobileTaskForm`: additive optional prop `offerCompletion` (default `true`), so existing callers
+  render exactly as before.
 
 ## Risks & impact review
 
@@ -118,6 +131,8 @@ The declaration is about the **surface**, never about **who may act**:
 |------|----------|------------|----------|
 | A crafted `href` sends users off-origin (phishing via email buttons) | High | Schema regex + post-interpolation re-check; unresolved tokens dropped; fallback to task page | Low — a same-origin path built from context values may still point at a wrong backend page |
 | A host task is left with no way to complete when the host never renders anything | Medium | The task page states where completion happens; `canComplete`, reassign and the task API are unchanged, so an operator or the host can still complete via API | Medium — depends on the host module shipping its UI |
+| A host href the notification layer refuses (backslash, control char) silently drops notifications | Medium | `isSafeTaskCompletionHref` composes `isSafeNotificationHref`; such an href resolves to `null` | Low |
+| A customer is linked to a backend host page they cannot open | Medium | Portal links only to `/<orgSlug>/portal/…` hrefs; otherwise an informative notice | Low |
 | A Studio save strips the key | Medium | `graphToDefinition` preserves `userTaskConfig.completion`; round-trip test | Low |
 | Mismatch with #7189 (`deadlineAt` sibling key) | Low | Single adjacent line in `userTaskConfigSchema`; trivial merge | Low |
 
@@ -126,10 +141,17 @@ The declaration is about the **surface**, never about **who may act**:
 - Unit: `lib/__tests__/task-completion.test.ts` (schema, resolution, fail-closed hrefs),
   `task-quick-action.test.ts`, `subscribers/__tests__/task-assigned-notification.test.ts`,
   `work-inbox-provider.test.ts`, `user-task-config.test.ts` (creation + Studio round trip),
-  `backend/tasks/__tests__/taskDetailPage.test.tsx`. Each includes the no-key regression case.
+  `backend/tasks/__tests__/taskDetailPage.test.tsx` (desktop and mobile),
+  `backend/work-inbox/__tests__/workInboxPage.test.tsx` (host row has no `complete` row action,
+  core row keeps it, claim-next opens the host), `frontend/__tests__/portal-tasks-pages.test.tsx`
+  (portal host link vs. notice). Each includes the no-key regression case.
 - Integration: `__integration__/TC-WF-077.spec.ts` — task detail API, Work Inbox `detailHref`,
   notification actions/link, and the task page, against a host definition and a control.
 
 ## Changelog
 
 - 2026-11-11 — Initial spec and implementation (issue #7179).
+- 2026-11-12 — Review/QA follow-up: completion hrefs also refuse what `isSafeNotificationHref`
+  refuses (backslash, control chars); mobile task page no longer calls an active host task
+  "already completed"; the portal task page honours the declaration (portal-path link or notice);
+  Work Inbox row-action coverage moved to the page test.

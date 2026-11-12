@@ -26,6 +26,8 @@
  * PURE: no ORM, DI, React or registry imports.
  */
 
+import { isSafeNotificationHref } from '@open-mercato/shared/modules/notifications/safeHref'
+
 export const TASK_COMPLETION_SURFACE_HOST = 'host'
 
 /** The resolved declaration as stored on the task row and sent on the wire. */
@@ -37,9 +39,22 @@ export type TaskCompletion = {
 
 const SAFE_RELATIVE_HREF = /^\/(?![/\\])\S*$/
 
-/** A same-origin relative path with every template token resolved. */
+/**
+ * A same-origin relative path with every template token resolved.
+ *
+ * It must also pass the notification layer's own check: the stored href becomes
+ * a notification `linkHref` and action href, and `assertSafeNotificationHref`
+ * throws on anything `isSafeNotificationHref` refuses (an inner backslash, a
+ * control character), which would silently drop the whole notification instead
+ * of falling back to the task page.
+ */
 export function isSafeTaskCompletionHref(value: unknown): value is string {
-  return typeof value === 'string' && SAFE_RELATIVE_HREF.test(value) && !value.includes('{{')
+  return (
+    typeof value === 'string' &&
+    SAFE_RELATIVE_HREF.test(value) &&
+    !value.includes('{{') &&
+    isSafeNotificationHref(value)
+  )
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -87,4 +102,18 @@ export function isHostCompletedTask(completion: unknown): boolean {
 /** The declared host href, when there is a usable one. */
 export function resolveTaskCompletionHref(completion: unknown): string | null {
   return readTaskCompletion(completion)?.href ?? null
+}
+
+/**
+ * The declared host href, only when a customer can open it from the portal.
+ *
+ * A declaration has no audience, so a customer-assigned task can carry a
+ * backend path the customer cannot reach. The portal therefore links only to a
+ * path under its own `/<orgSlug>/portal/` root; anything else is null and the
+ * portal explains where the work happens instead of offering a dead link.
+ */
+export function resolvePortalTaskCompletionHref(completion: unknown, orgSlug: string): string | null {
+  const href = resolveTaskCompletionHref(completion)
+  if (!href || !orgSlug) return null
+  return href.startsWith(`/${orgSlug}/portal/`) ? href : null
 }

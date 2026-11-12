@@ -7,6 +7,11 @@
  * portal admin reading a company member's task gets `false` and sees the work
  * read-only. The completion route enforces the same answer independently, so
  * hiding the form is a courtesy and never the control.
+ *
+ * A host-owned task (issue #7179, `completion.surface: 'host'`) is finished in
+ * its host module's own flow, so the generic form is never offered. The host
+ * link is shown only when it is a portal path; otherwise the page says where the
+ * work happens rather than linking a customer to a backend screen.
  */
 
 import * as React from 'react'
@@ -16,11 +21,13 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalCard } from '@open-mercato/ui/portal/components/PortalCard'
 import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
 import { PortalTaskForm, type PortalTaskFormValue } from '../../../../../components/portal/PortalTaskForm'
 import { flattenTaskText } from '../../../../../lib/task-resolution'
+import { readTaskCompletion, resolvePortalTaskCompletionHref } from '../../../../../lib/task-completion'
 
 type PortalTaskDetail = {
   id: string
@@ -31,6 +38,7 @@ type PortalTaskDetail = {
   formSchema: unknown
   formData: unknown
   entityBindings: unknown[] | null
+  completion?: unknown
 }
 
 type PortalTaskDetailResponse = {
@@ -153,6 +161,8 @@ export default function PortalTaskDetailPage({ params }: Props) {
 
   const isOpen = OPEN_STATUSES.includes(task.status)
   const canComplete = detail.canComplete === true && isOpen
+  const hostOwned = readTaskCompletion(task.completion) !== null
+  const hostHref = resolvePortalTaskCompletionHref(task.completion, params.orgSlug)
 
   return (
     <div className="flex flex-col gap-8">
@@ -168,7 +178,31 @@ export default function PortalTaskDetailPage({ params }: Props) {
       />
 
       <PortalCard>
-        {canComplete ? (
+        {canComplete && hostOwned ? (
+          <div
+            data-testid="portal-task-host-completion"
+            className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <p className="text-sm text-muted-foreground">
+              {hostHref
+                ? t(
+                    'workflows.portal.tasks.detail.hostCompletion.description',
+                    'This task is completed on its own page, not here. Open it to finish.',
+                  )
+                : t(
+                    'workflows.portal.tasks.detail.hostCompletion.unavailable',
+                    'This task is completed outside this portal, so there is nothing to submit here. Contact us if you are unsure how to proceed.',
+                  )}
+            </p>
+            {hostHref ? (
+              <Button asChild size="sm">
+                <Link href={hostHref} data-testid="portal-task-host-completion-link">
+                  {t('workflows.portal.tasks.detail.hostCompletion.open', 'Open to complete')}
+                </Link>
+              </Button>
+            ) : null}
+          </div>
+        ) : canComplete ? (
           <PortalTaskForm
             taskId={task.id}
             taskName={task.taskName}

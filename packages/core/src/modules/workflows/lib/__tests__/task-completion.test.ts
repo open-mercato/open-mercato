@@ -9,11 +9,13 @@
 
 import { describe, test, expect } from '@jest/globals'
 import { userTaskConfigSchema } from '../../data/validators'
+import { assertSafeNotificationHref, isSafeNotificationHref } from '../../../notifications/lib/safeHref'
 import {
   isHostCompletedTask,
   isSafeTaskCompletionHref,
   readTaskCompletion,
   resolveTaskCompletion,
+  resolvePortalTaskCompletionHref,
   resolveTaskCompletionHref,
 } from '../task-completion'
 
@@ -51,6 +53,8 @@ describe('userTaskConfigSchema.completion', () => {
     'backend/relative',
     'javascript:alert(1)',
     '/backend/with space',
+    '/backend/invoices\\view',
+    '/backend/a\u0007b',
   ])('refuses an href that could leave the panel origin: %s', (href) => {
     expect(userTaskConfigSchema.safeParse({ completion: { surface: 'host', href } }).success).toBe(false)
   })
@@ -91,6 +95,22 @@ describe('resolveTaskCompletion', () => {
     expect(resolved).toEqual({ surface: 'host', href: null })
   })
 
+  test.each([
+    ['an inner backslash', '/backend/invoices\\view'],
+    ['a control character', '/backend/invoices/inv\u0001'],
+    ['DEL', '/backend/invoices/inv\u007F'],
+  ])('drops an href with %s so notifications fall back to the task page', (_label, href) => {
+    expect(resolveTaskCompletion({ surface: 'host', href }, identity)).toEqual({ surface: 'host', href: null })
+  })
+
+  test('drops an href whose interpolated context value carries a control character', () => {
+    const resolved = resolveTaskCompletion(
+      { surface: 'host', href: '/backend/invoices/{{context.invoiceId}}' },
+      fromContext({ invoiceId: 'inv\u0000-42' }),
+    )
+    expect(resolved).toEqual({ surface: 'host', href: null })
+  })
+
   test('a host declaration without an href renders in the injection spot', () => {
     expect(resolveTaskCompletion({ surface: 'host' }, identity)).toEqual({ surface: 'host', href: null })
   })
@@ -124,5 +144,39 @@ describe('readTaskCompletion and friends', () => {
     expect(isSafeTaskCompletionHref('/backend/{{context.x}}')).toBe(false)
     expect(isSafeTaskCompletionHref('//x')).toBe(false)
     expect(isSafeTaskCompletionHref(42)).toBe(false)
+  })
+
+  test('isSafeTaskCompletionHref refuses exactly what the notification layer refuses', () => {
+    const candidates = [
+      '/backend/a?b=c#d',
+      '/backend/invoices\\view',
+      '/backend/a\u0000',
+      '/backend/a\u001F',
+      '/backend/a\u007F',
+      '/\\evil.example',
+      '//evil.example',
+    ]
+    for (const href of candidates) {
+      expect(isSafeTaskCompletionHref(href)).toBe(isSafeNotificationHref(href))
+    }
+    expect(() => assertSafeNotificationHref('/backend/invoices\\view')).toThrow()
+    expect(readTaskCompletion({ surface: 'host', href: '/backend/invoices\\view' })).toEqual({
+      surface: 'host',
+      href: null,
+    })
+  })
+})
+
+describe('resolvePortalTaskCompletionHref', () => {
+  test('keeps only a path under the caller organization\'s own portal', () => {
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/acme/portal/returns/r-1' }, 'acme')).toBe(
+      '/acme/portal/returns/r-1',
+    )
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/backend/refunds/r-1' }, 'acme')).toBeNull()
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/globex/portal/returns/r-1' }, 'acme')).toBeNull()
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/acme/portalx/r-1' }, 'acme')).toBeNull()
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: null }, 'acme')).toBeNull()
+    expect(resolvePortalTaskCompletionHref(null, 'acme')).toBeNull()
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/acme/portal/x' }, '')).toBeNull()
   })
 })

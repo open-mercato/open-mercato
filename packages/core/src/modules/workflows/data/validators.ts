@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isSafeNotificationHref } from '@open-mercato/shared/modules/notifications/safeHref'
 import { conditionExpressionSchema } from '@open-mercato/core/modules/business_rules/data/validators'
 import { validateConditionExpressionForApi } from '@open-mercato/core/modules/business_rules/lib/payload-validation'
 import { parseDuration } from '../lib/duration'
@@ -250,6 +251,7 @@ export const taskCompletionSchema = z.object({
     .string()
     .min(1)
     .regex(/^\/(?![/\\])\S*$/, 'Completion href must be a relative path starting with a single "/"')
+    .refine(isSafeNotificationHref, 'Completion href must not contain backslashes or control characters')
     .optional(),
 })
 export type TaskCompletionConfig = z.infer<typeof taskCompletionSchema>

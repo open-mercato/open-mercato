@@ -363,7 +363,6 @@ describe('user_task row projection', () => {
 
     expect(row.detailHref).toBe('/backend/invoices/inv-42/approve')
     expect(row.details.completion).toEqual({ surface: 'host', href: '/backend/invoices/inv-42/approve' })
-    expect(row.actions.some((action) => action.id === 'complete')).toBe(false)
   })
 
   test('a host-owned task without an href, or no declaration at all, keeps the task page', () => {

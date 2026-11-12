@@ -149,8 +149,9 @@ jest.mock('@open-mercato/ui/primitives/kbd', () => ({
   KbdShortcut: ({ keys }: { keys: string[] }) => <kbd>{keys.join('+')}</kbd>,
 }))
 
+let mockIsMobile = false
 jest.mock('@open-mercato/ui/hooks/useIsMobile', () => ({
-  useIsMobile: () => false,
+  useIsMobile: () => mockIsMobile,
 }))
 
 const flashMock = jest.fn()
@@ -285,6 +286,7 @@ function renderPage() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockIsMobile = false
 })
 
 describe('decision buttons', () => {
@@ -800,6 +802,53 @@ describe('a host-owned task (issue #7179)', () => {
     renderPage()
 
     await waitFor(() => expect(screen.getByTestId('task-complete')).toBeTruthy())
+    expect(screen.queryByTestId('task-host-completion')).toBeNull()
+  })
+})
+
+describe('a host-owned task on mobile (issue #7179)', () => {
+  beforeEach(() => {
+    mockIsMobile = true
+  })
+
+  test('an active host task shows the host notice, no generic form and no "already completed" warning', async () => {
+    mockTask(
+      baseTask({
+        status: 'PENDING',
+        canComplete: true,
+        completion: { surface: 'host', href: '/backend/workflows' },
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-host-completion')).toBeTruthy())
+    expect(screen.getByTestId('task-host-completion-link').getAttribute('href')).toBe('/backend/workflows')
+    expect(screen.queryByTestId('mobile-task-form')).toBeNull()
+    expect(screen.queryByTestId('mobile-task-cannot-complete')).toBeNull()
+    expect(screen.queryByText('workflows.tasks.detail.cannotComplete')).toBeNull()
+  })
+
+  test('a completed host task still says it can no longer be modified', async () => {
+    mockTask(
+      baseTask({
+        status: 'COMPLETED',
+        canComplete: false,
+        completion: { surface: 'host', href: '/backend/workflows' },
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('mobile-task-cannot-complete')).toBeTruthy())
+    expect(screen.queryByTestId('task-host-completion')).toBeNull()
+    expect(screen.queryByTestId('mobile-task-form')).toBeNull()
+  })
+
+  test('regression: a core task keeps the generic mobile form', async () => {
+    mockTask(baseTask({ status: 'PENDING', canComplete: true, completion: null }))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('mobile-task-form')).toBeTruthy())
+    expect(screen.queryByTestId('mobile-task-cannot-complete')).toBeNull()
     expect(screen.queryByTestId('task-host-completion')).toBeNull()
   })
 })

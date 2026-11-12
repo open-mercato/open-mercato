@@ -491,7 +491,8 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               formData={formData}
               comments={comments}
               submitting={submitting}
-              isCompletable={offerCoreCompletion}
+              isCompletable={canComplete}
+              offerCompletion={hostCompletion === null}
               isOverdue={isOverdue}
               onFieldChange={handleFieldChange}
               onCommentsChange={setComments}
