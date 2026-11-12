@@ -6,7 +6,7 @@
   "translations.locales.contentOnly": "Tylko treści",
   "translations.locales.contentOnlyHint": "Aplikacja nie ma interfejsu w tym języku, więc służy on wyłącznie do tłumaczenia treści.",
   "translations.locales.description": "Języki, na które można tłumaczyć treści. Język, dla którego aplikacja ma interfejs, jest też dostępny w przełączniku języka panelu; pozostałe służą wyłącznie do tłumaczenia treści.",
-  "translations.locales.errors.storageUnavailable": "Magazyn ustawień jest niedostępny",
+  "translations.locales.errors.storageUnavailable": "Przechowywanie ustawień jest niedostępne",
   "translations.locales.flash.error": "Nie udało się zaktualizować języków",
   "translations.locales.flash.saved": "Języki zaktualizowane",
   "translations.locales.loading": "Ładowanie języków...",
