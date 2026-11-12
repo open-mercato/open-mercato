@@ -15,10 +15,11 @@ const widget: DashboardWidgetModule<RevenueTrendSettings> = {
     category: 'analytics',
     icon: 'line-chart',
     supportsRefresh: true,
+    respectsDashboardDateRange: true,
   },
   Widget: RevenueTrendWidget,
   hydrateSettings,
-  dehydrateSettings: (s) => ({ dateRange: s.dateRange, granularity: s.granularity, showArea: s.showArea }),
+  dehydrateSettings: (s) => ({ dateRangeMode: s.dateRangeMode, dateRange: s.dateRange, granularity: s.granularity, showArea: s.showArea }),
 }
 
 export default widget

@@ -15,10 +15,11 @@ const widget: DashboardWidgetModule<RevenueKpiSettings> = {
     category: 'analytics',
     icon: 'dollar-sign',
     supportsRefresh: true,
+    respectsDashboardDateRange: true,
   },
   Widget: RevenueKpiWidget,
   hydrateSettings,
-  dehydrateSettings: (s) => ({ dateRange: s.dateRange, showComparison: s.showComparison }),
+  dehydrateSettings: (s) => ({ dateRangeMode: s.dateRangeMode, dateRange: s.dateRange, showComparison: s.showComparison }),
 }
 
 export default widget

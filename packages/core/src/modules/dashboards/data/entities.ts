@@ -1,5 +1,6 @@
 import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type { DashboardLayoutItem } from '@open-mercato/shared/modules/dashboard/widgets'
+import type { DashboardLayoutState } from '../lib/layoutState'
 
 @Entity({ tableName: 'dashboard_layouts' })
 @Unique({ properties: ['userId', 'tenantId', 'organizationId'] })
@@ -17,7 +18,7 @@ export class DashboardLayout {
   organizationId?: string | null
 
   @Property({ name: 'layout_json', type: 'json', default: [] })
-  layoutJson: DashboardLayoutItem[] = []
+  layoutJson: DashboardLayoutItem[] | DashboardLayoutState = []
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

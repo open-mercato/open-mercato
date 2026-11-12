@@ -1241,10 +1241,13 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: integration-test-results-*
+          path: .ai/qa/test-results
           merge-multiple: true
 
       - name: Merge shard coverage reports
-        run: node scripts/merge-coverage.mjs .ai/qa/test-results
+        run: |
+          node scripts/merge-coverage.mjs .ai/qa/test-results
+          test -s .ai/qa/test-results/coverage/code/coverage-summary.json
 
       - name: Display merged integration coverage
         if: always()

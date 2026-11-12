@@ -15,10 +15,11 @@ const widget: DashboardWidgetModule<TopCustomersSettings> = {
     category: 'analytics',
     icon: 'users',
     supportsRefresh: true,
+    respectsDashboardDateRange: true,
   },
   Widget: TopCustomersWidget,
   hydrateSettings,
-  dehydrateSettings: (s) => ({ dateRange: s.dateRange, limit: s.limit }),
+  dehydrateSettings: (s) => ({ dateRangeMode: s.dateRangeMode, dateRange: s.dateRange, limit: s.limit }),
 }
 
 export default widget

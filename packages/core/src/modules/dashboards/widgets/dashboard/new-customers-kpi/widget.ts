@@ -15,10 +15,11 @@ const widget: DashboardWidgetModule<NewCustomersKpiSettings> = {
     category: 'analytics',
     icon: 'user-plus',
     supportsRefresh: true,
+    respectsDashboardDateRange: true,
   },
   Widget: NewCustomersKpiWidget,
   hydrateSettings,
-  dehydrateSettings: (s) => ({ dateRange: s.dateRange, showComparison: s.showComparison }),
+  dehydrateSettings: (s) => ({ dateRangeMode: s.dateRangeMode, dateRange: s.dateRange, showComparison: s.showComparison }),
 }
 
 export default widget
