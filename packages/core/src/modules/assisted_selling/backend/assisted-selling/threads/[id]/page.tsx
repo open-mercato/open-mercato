@@ -18,6 +18,7 @@ import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ProposalBuilderDialog } from './ProposalBuilderDialog'
+import { useProposalAuthorAccess } from './useProposalAuthorAccess'
 
 const THREAD_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
   open: 'info',
@@ -108,6 +109,7 @@ export default function AssistedSellingThreadPage({ params }: { params?: { id?: 
   const [reloadToken, setReloadToken] = React.useState(0)
   const [composerBody, setComposerBody] = React.useState('')
   const [builderOpen, setBuilderOpen] = React.useState(false)
+  const { canCreateOrRepropose, canWithdraw } = useProposalAuthorAccess()
 
   const labels = React.useMemo(
     () => ({
@@ -392,9 +394,11 @@ export default function AssistedSellingThreadPage({ params }: { params?: { id?: 
             <Button type="button" variant="outline" onClick={() => void handleAssignToMe()}>
               {labels.assignToMe}
             </Button>
-            <Button type="button" onClick={() => setBuilderOpen(true)}>
-              {labels.newProposal}
-            </Button>
+            {canCreateOrRepropose ? (
+              <Button type="button" onClick={() => setBuilderOpen(true)}>
+                {labels.newProposal}
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -432,12 +436,12 @@ export default function AssistedSellingThreadPage({ params }: { params?: { id?: 
                           {labels.proposalStatuses[proposal.status as keyof typeof labels.proposalStatuses] ?? proposal.status}
                         </StatusBadge>
                         <div className="flex gap-2">
-                          {proposal.status === 'published' ? (
+                          {proposal.status === 'published' && canWithdraw ? (
                             <Button type="button" size="sm" variant="outline" onClick={() => void handleWithdraw(proposal)}>
                               {labels.withdraw}
                             </Button>
                           ) : null}
-                          {['expired', 'rejected', 'withdrawn', 'superseded'].includes(proposal.status) ? (
+                          {['expired', 'rejected', 'withdrawn', 'superseded'].includes(proposal.status) && canCreateOrRepropose ? (
                             <Button type="button" size="sm" variant="outline" onClick={() => void handleRepropose(proposal)}>
                               {labels.repropose}
                             </Button>

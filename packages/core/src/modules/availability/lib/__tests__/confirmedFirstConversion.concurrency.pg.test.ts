@@ -305,6 +305,132 @@ maybe('confirmed-first conversion: availability.commit vs the sales.order.confir
     }
   }
 
+  // Two warehouses holding the same variant, each with `perWarehouseOnHand` units, so a
+  // checkout reserve of `quantity` (greater than either warehouse alone, at most their sum)
+  // splits across both — reproducing the multi-warehouse checkout-row shape `#8268`'s
+  // Major finding 1 needs (`confirmedFirstConversion.concurrency.pg.test.ts:271` could not,
+  // being pinned to a single checkout wms row).
+  async function seedMultiWarehouseCheckoutHold(input: { perWarehouseOnHand: number; quantity: number }) {
+    const em = orm.em.fork()
+    const suffix = randomUUID().slice(0, 8)
+    const productId = randomUUID()
+    const variantId = randomUUID()
+    for (const label of ['a', 'b']) {
+      const warehouse = em.create(Warehouse, {
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        name: `Confirmed-first multi-WH ${label} ${suffix}`,
+        code: `WH-${label}-${suffix}`,
+        isActive: true,
+        isPrimary: false,
+      })
+      const location = em.create(WarehouseLocation, {
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        warehouse,
+        code: `BIN-${label}-${suffix}`,
+        type: 'bin',
+        isActive: true,
+      })
+      em.persist([warehouse, location])
+      await em.flush()
+      em.persist(
+        em.create(InventoryBalance, {
+          organizationId: ORG_ID,
+          tenantId: TENANT_ID,
+          warehouse,
+          location,
+          catalogVariantId: variantId,
+          quantityOnHand: String(input.perWarehouseOnHand),
+          quantityReserved: '0',
+          quantityAllocated: '0',
+        }),
+      )
+    }
+    em.persist(
+      em.create(ProductInventoryProfile, {
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        catalogProductId: productId,
+        catalogVariantId: variantId,
+        defaultUom: 'unit',
+        defaultStrategy: 'fifo',
+      }),
+    )
+    await em.flush()
+
+    const idempotencyKey = `confirmed-first-multi-${suffix}`
+    const reserved = await reserveAvailabilityCommand.execute(
+      {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        items: [{ catalogProductId: productId, catalogVariantId: variantId, quantity: input.quantity }],
+        sourceType: 'checkout',
+        sourceId: randomUUID(),
+        idempotencyKey,
+      },
+      callerCtx(),
+    )
+    if (!reserved.reserved) throw new Error('[internal] the multi-warehouse checkout hold fixture could not reserve stock')
+    const hold = await orm.em.fork().findOneOrFail(AvailabilityReservation, { idempotencyKey })
+
+    const orderId = randomUUID()
+    salesOrders.set(orderId, { id: orderId, orderNumber: `SO-multi-${suffix}`, variantId, quantity: input.quantity })
+    return { productId, variantId, orderId, idempotencyKey, checkoutRowId: hold.wmsReservationIds[0] } satisfies CheckoutFixture
+  }
+
+  test('two checkout rows for the same order/variant in different warehouses: a shared independent covering reservation is spent once, not once per row (#8268 Major finding 1)', async () => {
+    const fixture = await seedMultiWarehouseCheckoutHold({ perWarehouseOnHand: 3, quantity: 4 })
+
+    const checkoutRows = await orm.em.fork().find(InventoryReservation, {
+      catalogVariantId: fixture.variantId,
+      sourceType: 'checkout',
+      status: 'active',
+    })
+    expect(checkoutRows).toHaveLength(2)
+    expect(checkoutRows.reduce((sum, row) => sum + Number(row.quantity), 0)).toBe(4)
+
+    // The row holding only 1 unit leaves 2 units free in its own warehouse — exactly enough
+    // for the automation's own, separate order-sourced reservation below.
+    const smallerRow = checkoutRows.reduce((min, row) => (Number(row.quantity) < Number(min.quantity) ? row : min))
+    const smallerWarehouseId =
+      typeof smallerRow.warehouse === 'string' ? smallerRow.warehouse : smallerRow.warehouse.id
+
+    // Simulates the confirmed-first automation already holding an independent `order` row
+    // for this order/variant in ONE of the two warehouses, ahead of `availability.commit`.
+    const reserveInput = {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      warehouseId: smallerWarehouseId,
+      catalogVariantId: fixture.variantId,
+      quantity: 2,
+      sourceType: 'order' as const,
+      sourceId: fixture.orderId,
+    }
+    await commandBus.execute<typeof reserveInput, { reservationId: string }>('wms.inventory.reserve', {
+      input: reserveInput,
+      ctx: callerCtx(),
+    })
+
+    expect((await commit(fixture)).status).toBe('committed')
+
+    const activeRows = await orm.em.fork().find(InventoryReservation, {
+      catalogVariantId: fixture.variantId,
+      status: 'active',
+    })
+    expect(activeRows.every((row) => row.sourceType === 'order' && row.sourceId === fixture.orderId)).toBe(true)
+    const totalHeld = activeRows.reduce((sum, row) => sum + Number(row.quantity), 0)
+    // The checkout's original 4-unit hold must still total 4 once the shared 2-unit
+    // covering reservation is netted out exactly once — never 3 (the bug: the same covering
+    // quantity subtracted again against the second checkout row, under-reserving the order)
+    // and never 6 (double-held, exposing no stock back to the pool at all).
+    expect(totalHeld).toBe(4)
+
+    const balances = await orm.em.fork().find(InventoryBalance, { catalogVariantId: fixture.variantId })
+    const totalReserved = balances.reduce((sum, balance) => sum + Number(balance.quantityReserved), 0)
+    expect(totalReserved).toBe(totalHeld)
+  })
+
   type HeldRowLock = { holderPid: number; release: () => Promise<void> }
 
   // Holds `SELECT ... FOR UPDATE` on one row in its own transaction until `release()`.

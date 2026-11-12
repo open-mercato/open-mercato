@@ -98,6 +98,14 @@ export type ReservationMetadata = {
   releasedReason?: string
   releasedAt?: string
   allocatedAt?: string
+  /**
+   * §4.4: running total of how much of THIS (independent, order-sourced) reservation's
+   * quantity has already been claimed as covering for a sibling checkout row converted
+   * earlier in the same order's conversion (`convertInTransaction`). Without this, a
+   * covering reservation's full quantity would be re-offered, unconsumed, to every
+   * checkout row of the order in turn — double-counting the same stock across warehouses.
+   */
+  coverageClaimedForOrderConversion?: number
   [key: string]: unknown
 }
 
@@ -1106,9 +1114,40 @@ export class WmsReservationService {
       const independentCovering = covering.filter(
         (row) => extractReservationMetadata(row).convertedFromCheckout !== true,
       )
-      const coveredQuantity = independentCovering.reduce((sum, row) => sum + toNumber(row.quantity), 0)
       const heldQuantity = toNumber(reservation.quantity)
       const touchedBalances: InventoryBalance[] = []
+
+      // §4.4: every checkout row of this order/variant (one per warehouse) runs this same
+      // query and would otherwise see the SAME independent covering reservation(s) at their
+      // full, unconsumed quantity — double-counting that coverage across rows and leaving
+      // the order under-reserved once all rows convert. Claim each covering row's quantity
+      // down as it is spent, tracked on the covering row itself so a sibling row converted
+      // later in this same transaction sees only what remains.
+      let remainingNeed = heldQuantity
+      const claims: { row: InventoryReservation; amount: number }[] = []
+      for (const row of independentCovering) {
+        if (remainingNeed <= 0.000001) break
+        const rowMetadata = extractReservationMetadata(row)
+        const alreadyClaimed = toNumber(rowMetadata.coverageClaimedForOrderConversion)
+        const available = toNumber(row.quantity) - alreadyClaimed
+        if (available <= 0.000001) continue
+        const take = Math.min(available, remainingNeed)
+        claims.push({ row, amount: take })
+        remainingNeed -= take
+      }
+      const coveredQuantity = claims.reduce((sum, claim) => sum + claim.amount, 0)
+      if (claims.length > 0) {
+        for (const claim of claims) {
+          const rowMetadata = extractReservationMetadata(claim.row)
+          claim.row.metadata = {
+            ...rowMetadata,
+            coverageClaimedForOrderConversion: toNumber(rowMetadata.coverageClaimedForOrderConversion) + claim.amount,
+          }
+        }
+        // Persist the claim now, before releasing/shrinking this row, so it is visible to
+        // the next checkout row's covering query within this same transaction.
+        await innerTrx.flush()
+      }
 
       if (coveredQuantity >= heldQuantity - 0.000001 && coveredQuantity > 0) {
         const released = await this.releaseInTransaction(innerTrx, ctx, {
