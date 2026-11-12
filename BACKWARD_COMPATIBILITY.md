@@ -635,14 +635,14 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
 
-## Date & Locale Settings (2026-11-03)
-
-Conflicts API `startTime`/`endTime` use the caller offset (ISO `startsAt`/`endsAt` added); default date rendering changed. See [contract](.ai/specs/2026-05-18-date-locale-settings.md#migration--backward-compatibility).
-
 ## Compose encryption (2026-11-01, #7231)
 
 STABLE: unsafe keys/HTTP Vault rejected; bridges retain exposure. [Migration](UPGRADE_NOTES.md).
 Named human waiver of steps 1–3 required.
+
+## Date & Locale Settings (2026-11-03)
+
+Conflicts API `startTime`/`endTime` use the caller offset (ISO `startsAt`/`endsAt` added); default date rendering changed. See [contract](.ai/specs/2026-05-18-date-locale-settings.md#migration--backward-compatibility).
 
 ## Encryption maintenance safety gates (2026-11-02, #6767)
 
