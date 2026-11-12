@@ -1,6 +1,6 @@
 # Issue 9282 — localized flat price-rule amounts
 
-Status: implementation and browser regression verified locally; publication of follow-up blocked by foreign QA claim. Full financial QA approval remains outstanding.
+Status: implementation and browser regression verified locally; follow-up ready for publication after prior QA claim release. Full financial QA approval remains outstanding.
 
 Both create and edit normalize typed net/gross through `parseLocaleNumber` and then the existing catalog amount validator. Canonical API/database validators, loaded record normalization and optimistic-lock wiring are unchanged. Invalid fields are refused before mutation with translated errors in en/pl/de/es/ko. Zero and single dot/comma decimal input remain supported.
 
@@ -41,3 +41,5 @@ Browser test corrections: explicitly focus/open comboboxes; select the price-kin
 - Independent production QA on the previous PR head separately confirms parser refusals, canonical monetary magnitudes, stale-write conflicts and tenant/RBAC isolation. Its full financial matrix is incomplete and it flagged the preserved canonical-dot Polish display as an existing gap; no financial/QA approval is claimed.
 
 PR 9339 currently has a foreign atomic QA claim owned by open-mercato-maintenance[bot], run e1ab2880-8f5f-463a-856f-e4e61746b6de. Parent will not push over that claim or remove it. Follow-up is committed locally for publication when the owner releases the lock.
+
+The previous QA owner subsequently released its claim. Parent acquired its own atomic follow-up claim before publication; the corrected browser test and evidence are now being published to the existing PR. QA approval remains outstanding.
