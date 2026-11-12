@@ -51,7 +51,7 @@ PR: #9320
 
 ### Phase 1: Audit and reproduce
 
-- [ ] 1.1 Independently audit main CI and confirm existing full-suite selection
+- [x] 1.1 Independently audit main CI and confirm existing full-suite selection — ed93c71813
 
 ### Phase 2: Stabilize and validate
 
@@ -59,5 +59,5 @@ PR: #9320
 
 ### Phase 3: Review and handoff
 
-- [ ] 3.1 Dispatch exactly one final independent review task
+- [x] 3.1 Dispatch exactly one final independent review task — ed93c71813
 - [ ] 3.2 Publish verification evidence and request automerge after all checks pass
