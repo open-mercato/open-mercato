@@ -70,7 +70,7 @@ async function freePort(): Promise<number> {
 async function makeApp() {
   const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-setup-infra-'))
   fs.mkdirSync(path.join(appDir, 'scripts'))
-  for (const file of SHIPPED_SCRIPTS) {
+  for (const file of [...SHIPPED_SCRIPTS, 'dev-encryption-preflight.mjs']) {
     fs.copyFileSync(path.join(TEMPLATE_SCRIPTS, file), path.join(appDir, 'scripts', file))
   }
   fs.writeFileSync(path.join(appDir, 'scripts', 'dev.mjs'), DEV_STUB)
