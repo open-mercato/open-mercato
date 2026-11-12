@@ -1,0 +1,380 @@
+{
+  "runId": "549aa108-89bf-477e-857c-ef1e3aacb9e4",
+  "mode": "pr",
+  "target": {
+    "prNumber": 9290,
+    "title": "fix(sales): refuse new shipments on fully refunded orders",
+    "branch": "fix/shipment-create-refunded-order-guard",
+    "headSha": "07d5f2ca2979fcf98bf9c893377b446ef5dd00d2"
+  },
+  "priorHead": "a2b63a6cb785618f8b2edc97b5f4ced546063866",
+  "verdict": "FAIL",
+  "targetedRefundGuardVerdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:33291",
+    "mode": "production ephemeral",
+    "runner": "local",
+    "role": "own tenant-bound managers/reader and tenantB actor",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "browserVersion": "1.61.1",
+    "status": "stopped"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "CLI: exact-head preparation and production boot",
+      "expected": "Packages build \u2192 generate \u2192 packages build; production app and authenticated readiness",
+      "observed": "All preparation passed; app build198s, readiness13s; cold and warm authenticated probes passed; WRITE flock1535124 held through teardown; listener1586338 cwd own apps/mercato at exact head. Boot RSS peak10.14GiB below21GiB; Rayon2/Nextworkers2.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "CLI: focused refund guards and cancellation regression",
+      "expected": "Guard and cancellation tests pass",
+      "observed": "2 suites /14 tests passed with core Jest config.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "CLI: real PostgreSQL create/redo refund races, ten invocations",
+      "expected": "Create and redo see committed refund after waiting; non-refund control ships",
+      "observed": "10 runs,30/30 tests passed on real PostgreSQL16. Each run independently creates/stops its test container. Encryption/side effects are mocked in this repository test; order locks and persistence are real.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "CLI: TC-SALES-054 via repository environment runner",
+      "expected": "Full-refund API422, partial-refund control201, Addshipment UI refusal",
+      "observed": "3/3 passed with OM_INTEGRATION_MODULES=sales. CLI reused exact owned production environment and provided complete test env.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "UI: own tenant empty order list and own taxed order",
+      "expected": "2\u00d7net50 at23%=net100+tax23=gross123",
+      "observed": "Empty list rendered; VAT23 and zero-cost shipping method created through settings UI; custom line and order created through UI. Detail/API/DB agree100/23/123.",
+      "result": "PASS",
+      "screenshot": "step-02-taxed-order-en.png"
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "UI: record payment123, then prepaid shipment",
+      "expected": "Paid123/outstanding0, shipment201/fulfilled1",
+      "observed": "Payment entered through UI keyboard submit; prepaid shipment created201. No-refund paid orders remain shippable.",
+      "result": "PASS",
+      "screenshot": "step-04-prepaid-shipment-en.png"
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "API: shipment create undo\u2192redo\u2192undo, then refund123 and redo",
+      "expected": "Fulfilled1\u21920\u21921\u21920; refunded redo422 with no domain writes",
+      "observed": "Initial stale undo-token reuse was rejected400 by audit API; after using the newly issued redo undo-token, lifecycle completed. Refund redo422; order/line/shipment/payment/item rows byte-equivalent before/after refusal.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "action": "UI English: refunded shipment create, keyboard retry, double submit, focus, Escape",
+      "expected": "Translated422; form remains usable; no writes",
+      "observed": "English message shown, keyboard submit422; focused quantity input and double-click retry422; Escape closed form; complete domain unchanged.",
+      "result": "PASS",
+      "screenshot": "step-05-refunded-create-refused-en.png"
+    },
+    {
+      "step": 9,
+      "priority": "P0",
+      "action": "UI Polish: explicitly select Polski, repeat refusal, long note and390px viewport",
+      "expected": "Polish message and usable mobile controls; no writes",
+      "observed": "Locale cookiepl; exact Polish refusal422; domain unchanged. Dialog width390 in390\u00d7844 viewport; long notes retained; Escape works.",
+      "result": "PASS",
+      "screenshot": "step-07-refused-mobile-pl.png"
+    },
+    {
+      "step": 10,
+      "priority": "P0",
+      "action": "API: full/excess/partial/deposit/unpaid/zero controls and ten refused retries",
+      "expected": "Full/excess422; partial/deposit/unpaid/zero201; repeated refusals atomic",
+      "observed": "All six statuses matched. Full/excess and ten repeats left all scoped domain rows unchanged; allowed controls fulfilled1.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 11,
+      "priority": "P0",
+      "action": "UI/API: second actor changes reference while A has shipment-note draft",
+      "expected": "Stale shipment refuses without losing B reference; retry remains safe",
+      "observed": "B UI reference save persisted; mixed UI/API second-actor retry surfaced Record changed and closed A dialog. Full post-B domain unchanged; both B references preserved. Same-open-dialog second retry could not run because dialog closed; ten fresh direct API attempts subsequently422.",
+      "result": "PARTIAL",
+      "screenshot": "step-08-second-actor-conflict-en.png"
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "action": "UI: reader has sales.orders.view and no sales.shipments.manage",
+      "expected": "Addshipment hidden/disabled",
+      "observed": "On canonical /backend/sales/orders/:id route, reader sees enabled Addshipment and can open dialog. Same prior finding; ShipmentsSection.tsx389/478 unchanged. Generic /documents/:id correctly denies reader because it additionally requires quotes.view.",
+      "result": "FAIL",
+      "screenshot": "step-10-reader-opens-shipment-dialog.png"
+    },
+    {
+      "step": 13,
+      "priority": "P0",
+      "action": "API: reader and other tenant negative controls",
+      "expected": "Reader mutation403; positive read200; tenantB sees no target and cannot write",
+      "observed": "Reader read200/1item; shipment POST403. TenantB GET200/0items and POST403 Cross-tenant relation forbidden. Whole target domain unchanged.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "action": "UI Polish: decimal-comma payment, reload, partial-refund shipment",
+      "expected": "10,25 stores10.25; paid133.25-refund61.50=71.75; outstanding51.25; shipment201",
+      "observed": "10,25 USD redisplayed after reload. Stored10.2500; paid133.25/refund61.50/outstanding51.25. Remaining unit shipped201, fulfilled2/two active shipments; no main alert after10s.",
+      "result": "PASS",
+      "screenshot": "step-12-partial-refund-shipment-success-pl.png"
+    },
+    {
+      "step": 15,
+      "priority": "P0",
+      "action": "API: delete existing shipment after full refund, undo-delete, redo-delete; reverse main refund and retry refused create redo",
+      "expected": "Delete/restore semantics and money preserved; refund reversal permits redo",
+      "observed": "Delete/undo/redo all200; fulfillment1\u21920\u21921\u21920; paid/refunded123 preserved. Main refund reversed0, redo200/fulfilled1, then undo/restored refund123.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 16,
+      "priority": "P0",
+      "action": "API: returned expensive goods refunded while cheap goods remain; return undo/redo",
+      "expected": "Refund123<paid147.60 allows remaining shipment; paid/refunded preserved",
+      "observed": "Correctly allowed remaining cheap line201 even though refund123 exceeds remaining total24.60. Return undo/redo200; paid147.60/refunded123 preserved.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 17,
+      "priority": "P0",
+      "action": "UI/API/DB/CSV: reconcile return totals",
+      "expected": "Remaining net20+tax4.60=gross24.60",
+      "observed": "Actual net20/tax27.60/gross24.60 in current production UI, API, database and full CSV. Undo restores initial total; redo reproduces tax27.60. Same prior failure; calculations.ts352 unchanged.",
+      "result": "FAIL",
+      "screenshot": "step-13-return-tax-mismatch-pl.png"
+    },
+    {
+      "step": 18,
+      "priority": "P0",
+      "action": "API: independent PLN discounted totals",
+      "expected": "3\u00d750\u00d70.9=135; tax31.05; gross166.05",
+      "observed": "PLN order persisted135/31.05/166.05; API/DB and list display agree. Discounted return variant not repeated in this run.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 19,
+      "priority": "P0",
+      "action": "UI: full orders CSV, list/detail consistency and loading state",
+      "expected": "Same stored money in list/detail/export; useful loading shell",
+      "observed": "Full CSV confirms baseline100/23/123 and returned20/27.60/24.60. List net/gross agrees. Injected1600ms orders-response delay displayed \u0141adowanie shell; useful record in2675ms.",
+      "result": "PASS",
+      "screenshot": "step-15-loading-shell-pl.png"
+    },
+    {
+      "step": 20,
+      "priority": "P0",
+      "action": "CLI: locale coverage, source/readiness and cleanup",
+      "expected": "All five dictionaries include new message; source unchanged; own env removed",
+      "observed": "i18n sync and usage passed (8121 unused-key advisory). New key present en/pl/es/de/ko. No product500/infra503 observed. Own environment/PIDs/db removed; source clean; globalflock released.",
+      "result": "PASS",
+      "screenshot": null
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "medium",
+      "file": "packages/core/src/modules/sales/components/documents/ShipmentsSection.tsx",
+      "line": 389,
+      "summary": "Reader can open enabled Addshipment without shipment-manage permission; server correctly403.",
+      "introducedByPr": false
+    },
+    {
+      "id": "F2",
+      "severity": "high",
+      "file": "packages/core/src/modules/sales/lib/calculations.ts",
+      "line": 352,
+      "summary": "Return subtracts net/gross but tax remains27.60 rather than4.60; detail/API/CSV fail reconciliation.",
+      "introducedByPr": false
+    }
+  ],
+  "hasUiTest": true,
+  "coverageGaps": [
+    "External payment-gateway webhooks, live carrier dispatch/labels, email delivery and catalog/WMS reservation/stock counters were not exercised. No live providers or credentials were enabled; custom lines/manual payments used.",
+    "Refund setup, API boundary fixtures, return lifecycle, audit undo/redo/delete, other-tenant controls and one second-actor reference mutation were API-driven. Main order/line/settings/payment/prepaid shipment/refusal/partial shipment/locale flows were UI-driven.",
+    "Same-open-dialog second stale UI retry not exercised: first conflict closed the dialog. Record integrity and preserved second-actor references were checked; fresh direct retries all422. Full two-UI-session repeat was interrupted by harness failure; mixed UI/API second-actor control ran afterward.",
+    "Discounted PLN return variant, live optional subscribers, print/PDF and additional module consumers were not exercised. No shared component was changed; new helper is local to create/redo. No separate cancel route was identified in shipment route surface; delete/undo/redo covered.",
+    "Spanish/German/Korean translation presence was checked statically; browser coverage en/pl. Empty/loading/error/no-permission/long-content/mobile states covered; no .uxproof directory exists.",
+    "Exploratory browser driver is not a green standalone regression suite: first driver failed from an unhandled response timeout; subsequent driver was stopped during a networkidle wait; final driver ended after an in-flight route.continue raced unroute during the loading probe. Successful checkpoints have individual command-result artifacts and real PNGs. None of these harness errors is reported as a product defect."
+  ],
+  "checks": [
+    {
+      "command": "yarn workspace @open-mercato/core test --runInBand --runTestsByPath src/modules/sales/commands/__tests__/shipments.create-refunded-guard.test.ts src/modules/sales/commands/__tests__/orderCancellation.bypass-guard.test.ts",
+      "environment": {
+        "OM_PG_INTEGRATION": "1"
+      },
+      "passed": 14,
+      "log": "focused-tests.log"
+    },
+    {
+      "command": "yarn workspace @open-mercato/core test --runInBand --runTestsByPath src/modules/sales/commands/__tests__/shipments.create-refund-race.integration.test.ts",
+      "environment": {
+        "OM_PG_INTEGRATION": "1"
+      },
+      "repetitions": 10,
+      "passed": 30,
+      "log": "focused-tests.log"
+    },
+    {
+      "command": "python3 .ai/scripts/test-env-owned-command.py timeout 600 env OM_INTEGRATION_MODULES=sales yarn mercato test:integration TC-SALES-054",
+      "passed": 3,
+      "log": "tc-sales-054-scoped.log"
+    },
+    {
+      "command": "timeout 90 env TMPDIR=/tmp yarn i18n:check-sync",
+      "log": "i18n-sync-retry.log"
+    },
+    {
+      "command": "timeout 90 env TMPDIR=/tmp yarn i18n:check-usage",
+      "log": "i18n-usage.log"
+    }
+  ],
+  "notes": [
+    "New significant commit adds parent-order lock+refresh for create/redo and realPG race suite; prior screenshot evidence alone was not sufficient.",
+    "Prior two QA failures reproduced in unchanged files. Follow-ups9364(pre-lock version/update reads) and9365(update-guard policy) are distinct and remain outside this fix.",
+    "Existing needs-qa and automerge-blocked preserved; no approval/failure or pipeline labels changed.",
+    "Source was read-only. A tracked email-capture runtime fixture was restored to exactHEAD after environment teardown; final source clean.",
+    "Initial CLI invocation rejected unsupported --workers; broad discovery was stopped by ownedPID; scoped sales CLI run passed. Initial i18n tsx pipe failed with longTMPDIR; TMPDIR=/tmp passed.",
+    "Optional native build warnings during install did not prevent install/build. Independent better-sqlite3 in-memory smoke passed using shipped prebuild."
+  ],
+  "screenshots": [
+    {
+      "name": "step-01-empty-orders-en.png",
+      "width": 1280,
+      "height": 720,
+      "bytes": 59537,
+      "sha256": "7ba08343597f5f3a2b49a0342716c51bbd9f281e53359feaa252ad94dbefe2ae"
+    },
+    {
+      "name": "step-02-taxed-order-en.png",
+      "width": 1280,
+      "height": 1613,
+      "bytes": 131916,
+      "sha256": "63b7620527302efcdbbe292c736cc70d60997b430ad0746cdae0269d3b39e54e"
+    },
+    {
+      "name": "step-03-paid-order-en.png",
+      "width": 1280,
+      "height": 1664,
+      "bytes": 123951,
+      "sha256": "64a5bcc47969aaae4302cc91099da6b370a8b15b0361bcbb8081442373558b7b"
+    },
+    {
+      "name": "step-04-prepaid-shipment-en.png",
+      "width": 1280,
+      "height": 1712,
+      "bytes": 118577,
+      "sha256": "f6396276f92d101987149f142d4126d5ab568763a8f3db9ecd6e78960084f8e4"
+    },
+    {
+      "name": "step-05-refunded-create-refused-en.png",
+      "width": 1280,
+      "height": 1748,
+      "bytes": 151650,
+      "sha256": "1d9297d67a6ba7b61cd82bebc8930eb7fa6a1ad0b3d7e3cb6e21573f61b8e9ca"
+    },
+    {
+      "name": "step-06-refused-pl.png",
+      "width": 1280,
+      "height": 1748,
+      "bytes": 178980,
+      "sha256": "e5592e6533e59d906b0976bd19c3c9d910ae7a2e398a923c72afd7d92fc5f51e"
+    },
+    {
+      "name": "step-07-refused-mobile-pl.png",
+      "width": 390,
+      "height": 2550,
+      "bytes": 150948,
+      "sha256": "1f3d728b9c47e2918006249d29944bc05565b99bb90eb59c6ae12c2ebb71a96a"
+    },
+    {
+      "name": "step-08-second-actor-conflict-en.png",
+      "width": 1280,
+      "height": 1814,
+      "bytes": 152221,
+      "sha256": "137dbcca154e3e651fb3572175f693eab1d98417a9a8692f7ade115833efd052"
+    },
+    {
+      "name": "step-09-reader-exposes-add-shipment.png",
+      "width": 1280,
+      "height": 1632,
+      "bytes": 122242,
+      "sha256": "68901e96897b090d6d1c4ff8a2b352b2d8ad817700b133b9c3a95ee1293187e6"
+    },
+    {
+      "name": "step-10-reader-opens-shipment-dialog.png",
+      "width": 1280,
+      "height": 1734,
+      "bytes": 112164,
+      "sha256": "3ad21326c3b05e926ed38581ca81b6387e9d831d5e4b462d3749c96cff425c6b"
+    },
+    {
+      "name": "step-11-polish-decimal-payment-reloaded.png",
+      "width": 1280,
+      "height": 1820,
+      "bytes": 162215,
+      "sha256": "386c650f0aae746122cf3c8d8dcbc7a9bdbb007936fa7e3dc20ede8ffb994bed"
+    },
+    {
+      "name": "step-12-partial-refund-shipment-success-pl.png",
+      "width": 1280,
+      "height": 1694,
+      "bytes": 153570,
+      "sha256": "1d75de439c4920f31ac4b412f83b386b6e4ab7c160209520ad9f92f073320233"
+    },
+    {
+      "name": "step-13-return-tax-mismatch-pl.png",
+      "width": 1280,
+      "height": 2073,
+      "bytes": 174969,
+      "sha256": "6bdeafff0a8128687917b381ba8b9bf0c664fae58f819f88076c84a42361de11"
+    },
+    {
+      "name": "step-14-order-list-pl.png",
+      "width": 1280,
+      "height": 900,
+      "bytes": 160164,
+      "sha256": "f1be1a3f9aeaaf83737b5ef72dbe762837fea96b6f15c084e37fc22a14d0355f"
+    },
+    {
+      "name": "step-15-loading-shell-pl.png",
+      "width": 1280,
+      "height": 720,
+      "bytes": 20651,
+      "sha256": "20cd96bbc73e046ebfca1f273148f7d42dbeaa2dd1c8f74059a7b77b32be3e87"
+    }
+  ],
+  "sourceUnchanged": true
+}
