@@ -18,6 +18,7 @@
   "assisted_selling.admin.builder.actions.removeLine": "Position entfernen",
   "assisted_selling.admin.builder.actions.submit": "Angebot erstellen",
   "assisted_selling.admin.builder.description": "Schlage dem Käufer Positionen vor. Preise werden serverseitig als der Käufer berechnet — niemals als Sie.",
+  "assisted_selling.admin.builder.errors.invalidQuantity": "Gib eine Menge größer als null ein.",
   "assisted_selling.admin.builder.errors.missingProduct": "Wähle für jede Position ein Produkt.",
   "assisted_selling.admin.builder.errors.submit": "Dieses Angebot konnte nicht erstellt werden.",
   "assisted_selling.admin.builder.fields.note": "Notiz an den Käufer (optional)",

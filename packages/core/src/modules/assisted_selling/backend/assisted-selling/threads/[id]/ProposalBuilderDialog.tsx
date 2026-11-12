@@ -19,7 +19,8 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
 
 // Step 5.3 (§7.1's "Proposal builder", §6.3). `CrudForm` over a line-item field array (§7.1's
 // own prescribed shape) is not buildable here — this codebase's `CrudForm` has no array-field
@@ -45,6 +46,19 @@ export type ProposalBuilderDialogProps = {
   onOpenChange: (open: boolean) => void
   threadId: string
   onSuccess: () => void
+}
+
+const CANONICAL_POSITIVE_DECIMAL = /^\d+(\.\d+)?$/
+
+/**
+ * The typed quantity in the author's own locale (`1,5` under `pl`) as the canonical decimal
+ * string the proposal route accepts (`1.5`), or `null` when it is not a number greater than zero.
+ */
+export function normalizeProposalQuantity(input: string, locale?: string): string | null {
+  const parsed = parseLocaleNumber(input, locale)
+  if (parsed == null || !Number.isFinite(parsed) || parsed <= 0) return null
+  const canonical = String(parsed)
+  return CANONICAL_POSITIVE_DECIMAL.test(canonical) ? canonical : null
 }
 
 function makeLine(): ProposalBuilderLine {
@@ -75,9 +89,12 @@ async function loadProductSuggestions(query?: string): Promise<ComboboxOption[]>
 
 export function ProposalBuilderDialog({ open, onOpenChange, threadId, onSuccess }: ProposalBuilderDialogProps) {
   const t = useT()
+  const locale = useLocale()
   const [lines, setLines] = React.useState<ProposalBuilderLine[]>(() => [makeLine()])
   const [note, setNote] = React.useState('')
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [invalidQuantityKeys, setInvalidQuantityKeys] = React.useState<string[]>([])
+  const submittingRef = React.useRef(false)
   const idempotencyKeyRef = React.useRef<string>(globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`)
 
   const labels = React.useMemo(
@@ -97,6 +114,7 @@ export function ProposalBuilderDialog({ open, onOpenChange, threadId, onSuccess 
       submit: t('assisted_selling.admin.builder.actions.submit', 'Author proposal'),
       errors: {
         missingProduct: t('assisted_selling.admin.builder.errors.missingProduct', 'Pick a product for every line.'),
+        invalidQuantity: t('assisted_selling.admin.builder.errors.invalidQuantity', 'Enter a quantity greater than zero.'),
         submit: t('assisted_selling.admin.builder.errors.submit', 'Failed to author this proposal.'),
       },
       flash: { published: t('assisted_selling.admin.builder.flash.published', 'Proposal published.') },
@@ -108,6 +126,7 @@ export function ProposalBuilderDialog({ open, onOpenChange, threadId, onSuccess 
     if (open) {
       setLines([makeLine()])
       setNote('')
+      setInvalidQuantityKeys([])
       idempotencyKeyRef.current = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`
     }
   }, [open])
@@ -124,6 +143,7 @@ export function ProposalBuilderDialog({ open, onOpenChange, threadId, onSuccess 
   })
 
   const handleSubmit = React.useCallback(async () => {
+    if (submittingRef.current) return
     const trimmedLines = lines
       .map((line) => ({ ...line, productId: line.productId.trim(), variantId: line.variantId.trim(), quantity: line.quantity.trim() }))
       .filter((line) => line.productId.length > 0)
@@ -131,7 +151,15 @@ export function ProposalBuilderDialog({ open, onOpenChange, threadId, onSuccess 
       flash(labels.errors.missingProduct, 'error')
       return
     }
+    const normalizedLines = trimmedLines.map((line) => ({ ...line, quantity: normalizeProposalQuantity(line.quantity, locale) }))
+    const invalidKeys = normalizedLines.filter((line) => line.quantity == null).map((line) => line.key)
+    setInvalidQuantityKeys(invalidKeys)
+    if (invalidKeys.length > 0) {
+      flash(labels.errors.invalidQuantity, 'error')
+      return
+    }
 
+    submittingRef.current = true
     setIsSubmitting(true)
     try {
       const result = await runMutation({
@@ -141,7 +169,7 @@ export function ProposalBuilderDialog({ open, onOpenChange, threadId, onSuccess 
             {
               method: 'POST',
               body: JSON.stringify({
-                lines: trimmedLines.map((line) => ({
+                lines: normalizedLines.map((line) => ({
                   productId: line.productId,
                   variantId: line.variantId || undefined,
                   quantity: line.quantity,
@@ -171,9 +199,10 @@ export function ProposalBuilderDialog({ open, onOpenChange, threadId, onSuccess 
       if (surfaceRecordConflict(error, t)) return
       flash(labels.errors.submit, 'error')
     } finally {
+      submittingRef.current = false
       setIsSubmitting(false)
     }
-  }, [labels, lines, mutationContextId, note, onOpenChange, onSuccess, retryLastMutation, runMutation, t, threadId])
+  }, [labels, lines, locale, mutationContextId, note, onOpenChange, onSuccess, retryLastMutation, runMutation, t, threadId])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -227,9 +256,13 @@ export function ProposalBuilderDialog({ open, onOpenChange, threadId, onSuccess 
                   id={`proposal-line-quantity-${line.key}`}
                   inputMode="decimal"
                   value={line.quantity}
-                  onChange={(event) =>
-                    setLines((prev) => prev.map((row) => (row.key === line.key ? { ...row, quantity: event.target.value } : row)))
-                  }
+                  aria-invalid={invalidQuantityKeys.includes(line.key) || undefined}
+                  aria-describedby={invalidQuantityKeys.includes(line.key) ? `proposal-line-quantity-error-${line.key}` : undefined}
+                  onChange={(event) => {
+                    const quantity = event.target.value
+                    setLines((prev) => prev.map((row) => (row.key === line.key ? { ...row, quantity } : row)))
+                    setInvalidQuantityKeys((prev) => (prev.includes(line.key) ? prev.filter((key) => key !== line.key) : prev))
+                  }}
                 />
               </div>
               <IconButton
@@ -243,6 +276,11 @@ export function ProposalBuilderDialog({ open, onOpenChange, threadId, onSuccess 
                 <Trash2 className="size-4" />
               </IconButton>
               <span className="sr-only">{index + 1}</span>
+              {invalidQuantityKeys.includes(line.key) ? (
+                <p id={`proposal-line-quantity-error-${line.key}`} role="alert" className="basis-full text-xs text-status-error-text">
+                  {labels.errors.invalidQuantity}
+                </p>
+              ) : null}
             </div>
           ))}
           <Button type="button" variant="outline" size="sm" className="self-start gap-2" onClick={() => setLines((prev) => [...prev, makeLine()])}>

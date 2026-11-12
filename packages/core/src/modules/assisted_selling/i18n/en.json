@@ -18,6 +18,7 @@
   "assisted_selling.admin.builder.actions.removeLine": "Remove line",
   "assisted_selling.admin.builder.actions.submit": "Author proposal",
   "assisted_selling.admin.builder.description": "Propose lines to the buyer. Prices are resolved server-side, as the buyer — never as you.",
+  "assisted_selling.admin.builder.errors.invalidQuantity": "Enter a quantity greater than zero.",
   "assisted_selling.admin.builder.errors.missingProduct": "Pick a product for every line.",
   "assisted_selling.admin.builder.errors.submit": "Failed to author this proposal.",
   "assisted_selling.admin.builder.fields.note": "Note to the buyer (optional)",

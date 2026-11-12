@@ -18,6 +18,7 @@
   "assisted_selling.admin.builder.actions.removeLine": "Eliminar línea",
   "assisted_selling.admin.builder.actions.submit": "Crear propuesta",
   "assisted_selling.admin.builder.description": "Propón líneas al comprador. Los precios se calculan en el servidor, como el comprador — nunca como tú.",
+  "assisted_selling.admin.builder.errors.invalidQuantity": "Introduce una cantidad mayor que cero.",
   "assisted_selling.admin.builder.errors.missingProduct": "Elige un producto para cada línea.",
   "assisted_selling.admin.builder.errors.submit": "No se pudo crear esta propuesta.",
   "assisted_selling.admin.builder.fields.note": "Nota para el comprador (opcional)",

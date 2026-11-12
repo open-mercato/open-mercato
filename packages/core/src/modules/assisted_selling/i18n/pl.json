@@ -18,6 +18,7 @@
   "assisted_selling.admin.builder.actions.removeLine": "Usuń pozycję",
   "assisted_selling.admin.builder.actions.submit": "Utwórz propozycję",
   "assisted_selling.admin.builder.description": "Zaproponuj pozycje kupującemu. Ceny są wyliczane po stronie serwera, jako kupujący — nigdy jako Ty.",
+  "assisted_selling.admin.builder.errors.invalidQuantity": "Wpisz ilość większą od zera.",
   "assisted_selling.admin.builder.errors.missingProduct": "Wybierz produkt dla każdej pozycji.",
   "assisted_selling.admin.builder.errors.submit": "Nie udało się utworzyć tej propozycji.",
   "assisted_selling.admin.builder.fields.note": "Notatka do kupującego (opcjonalnie)",
