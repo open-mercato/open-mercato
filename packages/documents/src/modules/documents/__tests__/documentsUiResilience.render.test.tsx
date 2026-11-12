@@ -164,7 +164,7 @@ describe('document editor island failures stay contained in the rendered page', 
 
     render(<DocumentPageClient documentId={DOCUMENT_ID} />)
     expect((await screen.findByTestId('editor-island')).textContent).toBe('<p>Body v1</p>')
-    expect(mockEditorIsland.mountCount).toBe(1)
+    await waitFor(() => expect(mockEditorIsland.mountCount).toBe(1))
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'documents.actions.versions' })) })
     const restore = await screen.findByRole('button', { name: 'restore-version' })
@@ -179,7 +179,7 @@ describe('document editor island failures stay contained in the rendered page', 
 
     await waitFor(() => expect(screen.getByTestId('editor-island').textContent).toBe('<p>Body v2</p>'))
     expect(mockVersionRestore.lastError).toBeNull()
-    expect(mockEditorIsland.mountCount).toBe(2)
+    await waitFor(() => expect(mockEditorIsland.mountCount).toBe(2))
   })
 })
 

@@ -140,6 +140,7 @@ This catalog indexes 184 focused lessons. Route the task first, then read only r
 ### backend-ui
 
 - [Design-system coverage needs a source inventory and visual checks](lessons/design-system-coverage-needs-a-source-inventory.md) — area:backend-ui,testing; module:ui,design_system,security; topic:design-system,ui-components,visual-testing,native-navigation,realtime,dev-runtime
+- [Selected calendar days need day-aware time defaults](lessons/selected-calendar-days-use-day-aware-time-defaults.md) — area:backend-ui,testing; module:customers; topic:calendar,date-time,testing
 - [Write-only secret editors need explicit unchanged intent and separate form state](lessons/write-only-secret-editors-need-explicit-unchanged-intent.md) — area:backend-ui,integration,testing; module:integrations,ui; topic:data-integrity,ui-components,testing
 - [Always propagate structured conflict payload from `onBeforeSave` blockers](lessons/always-propagate-structured-conflict-payload-from.md) — area:backend-ui,umes,debugging; module:ui; topic:concurrency,optimistic-locking,ui-components
 - [Async edit selects must be hydrated as value-plus-options](lessons/async-edit-selects-must-be-hydrated-as-value-plus.md) — area:backend-ui,integration,testing; module:checkout,entities,ui; topic:custom-fields,filters,testing
