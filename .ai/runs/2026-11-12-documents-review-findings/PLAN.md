@@ -22,7 +22,7 @@ Goal: implement structured, text-anchored review findings in the Documents modul
 | 2.4 | Fallback locating without realtime binding (fix 2109e6e69a, tests 32f0206e3c, 73068ab312) | done | 2109e6e69a |
 | 3.1 | Playbook/rule/reference entities, commands, CRUD routes, ACL (+ ingest rule resolution, server side) | done | e67509452c |
 | 3.2 | Playbook admin pages, review header playbook line, i18n (ingest resolution landed in 3.1) | done | 3b86637c0a |
-| 3.3 | Phase 3 integration tests (written; run blocked by env, see HANDOFF) | done | 041dc9c3d2 |
+| 3.3 | Phase 3 integration tests (green after the version-refresh fix) | done | 041dc9c3d2, fix: see HANDOFF |
 | 4.1 | AI tools, agent contract, workflows.ts registration, peer dep | done | f7dc18c3b4 |
 | 4.2 | UPDATE_ENTITY array interpolation spike (array preserved, no findingsJson) + docs page | done | 460e110d85 |
 | 4.3 | Phase 4 integration test (TC-DOC-AGENT-001, passed locally) | done | 78d912d3c8 |

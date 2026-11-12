@@ -106,11 +106,6 @@ export function ReviewPlaybookDetailClient({ playbookId }: { playbookId: string 
           initialValues={initialValues}
           schema={reviewPlaybookFormSchema}
           submitLabel={t('documents.reviewPlaybooks.actions.save')}
-          extraActions={(
-            <span className="text-sm text-muted-foreground" data-testid="documents-review-playbook-version">
-              {t('documents.reviewPlaybooks.versionLabel', { version: playbook.version })}
-            </span>
-          )}
           onSubmit={async (values) => {
             await updateCrud('documents/review-playbooks', { id: playbook.id, ...reviewPlaybookPayload(values) }, {
               errorMessage: t('documents.reviewPlaybooks.form.saveError'),
@@ -126,6 +121,9 @@ export function ReviewPlaybookDetailClient({ playbookId }: { playbookId: string 
             router.push(LIST_HREF)
           }}
         />
+        <p className="text-sm text-muted-foreground" data-testid="documents-review-playbook-version">
+          {t('documents.reviewPlaybooks.versionLabel', { version: playbook.version })}
+        </p>
         <RulesEditor playbookId={playbook.id} onChanged={reload} />
         <GuidanceDocuments playbookId={playbook.id} onChanged={reload} />
       </PageBody>

@@ -400,22 +400,40 @@ async function assertReferenceCapacity(
 
 /**
  * Bumps the playbook version without touching its optimistic-lock token, so a
- * rule or guidance change does not invalidate an open playbook form.
+ * rule or guidance change does not invalidate an open playbook form. The row is
+ * refreshed so the caller can mark it for re-indexing with the new version.
  */
 export async function bumpReviewPlaybookVersion(
   em: EntityManager,
   scope: DocumentsCommandScope,
   playbookId: string,
-): Promise<number> {
+): Promise<DocumentReviewPlaybook | null> {
   const playbook = await loadReviewPlaybook(em, scope, playbookId, true)
-  if (!playbook) return 0
-  const nextVersion = playbook.version + 1
+  if (!playbook) return null
   await em.nativeUpdate(
     DocumentReviewPlaybook,
     { id: playbookId, tenantId: scope.tenantId, organizationId: scope.organizationId },
-    { version: nextVersion },
+    { version: playbook.version + 1 },
   )
-  return nextVersion
+  return (await em.refresh(playbook)) ?? playbook
+}
+
+const PLAYBOOK_CACHE_RESOURCE = 'documents.review_playbook'
+
+async function bufferPlaybookVersionRefresh(
+  ctx: CommandRuntimeContext,
+  playbook: DocumentReviewPlaybook | null,
+  undo = false,
+): Promise<void> {
+  if (!playbook) return
+  const emit = undo ? emitCrudUndoSideEffects : emitCrudSideEffects
+  await emit({
+    dataEngine: resolveDataEngine(ctx),
+    action: 'updated',
+    entity: playbook,
+    identifiers: { id: playbook.id, tenantId: playbook.tenantId, organizationId: playbook.organizationId },
+    indexer: { entityType: DOCUMENTS_ENTITY_IDS.documentReviewPlaybook },
+  })
 }
 
 function assertSnapshotUnchanged(
@@ -541,6 +559,7 @@ async function buildSnapshotLog<TState>(args: {
   before: TState
   after: TState
   redoInput?: unknown
+  cacheAliases?: string[]
 }) {
   const { translate } = await resolveTranslations()
   return {
@@ -552,6 +571,7 @@ async function buildSnapshotLog<TState>(args: {
     organizationId: args.scope.organizationId,
     snapshotBefore: args.before,
     snapshotAfter: args.after,
+    ...(args.cacheAliases ? { context: { cacheAliases: args.cacheAliases } } : {}),
     payload: {
       undo: { before: args.before, after: args.after },
       ...(args.redoInput !== undefined ? { __redoInput: args.redoInput } : {}),
@@ -810,7 +830,7 @@ export const createReviewRuleCommand: CommandHandler<ReviewRuleCreateCommandInpu
     let rule!: DocumentReviewRule
     let before!: ReviewRuleState
     let after!: ReviewRuleState
-    let playbookVersion = 0
+    let bumped: DocumentReviewPlaybook | null = null
     await withAtomicFlush(em, [async () => {
       const scope = await authorizeReviewPlaybookMutation(ctx, input)
       await requireActivePlaybook(em, scope, input.rule.playbookId)
@@ -842,15 +862,24 @@ export const createReviewRuleCommand: CommandHandler<ReviewRuleCreateCommandInpu
       rule.updatedAt = nextDocumentVersion(rule.updatedAt)
     }, async () => {
       after = captureRuleState(rule)
-      playbookVersion = await bumpReviewPlaybookVersion(em, input, rule.playbookId)
+      bumped = await bumpReviewPlaybookVersion(em, input, rule.playbookId)
     }], { transaction: true, label: 'documents.review_rule.create' })
     await bufferRuleSideEffect(ctx, 'created', rule)
-    return { id: rule.id, playbookId: rule.playbookId, updatedAt: rule.updatedAt.toISOString(), playbookVersion, before, after }
+    await bufferPlaybookVersionRefresh(ctx, bumped)
+    return {
+      id: rule.id,
+      playbookId: rule.playbookId,
+      updatedAt: rule.updatedAt.toISOString(),
+      playbookVersion: (bumped as DocumentReviewPlaybook | null)?.version ?? 0,
+      before,
+      after,
+    }
   },
   async buildLog({ input, result }) {
     return buildSnapshotLog({
       labelKey: 'documents.audit.reviewRuleCreated',
       labelFallback: 'Create review rule',
+      cacheAliases: ['documents.review_rule', PLAYBOOK_CACHE_RESOURCE],
       resourceKind: DOCUMENTS_ENTITY_IDS.documentReviewRule,
       resourceId: result.id,
       parentResourceKind: DOCUMENTS_ENTITY_IDS.documentReviewPlaybook,
@@ -877,7 +906,7 @@ export const updateReviewRuleCommand: CommandHandler<ReviewRuleUpdateCommandInpu
     let rule!: DocumentReviewRule
     let before!: ReviewRuleState
     let after!: ReviewRuleState
-    let playbookVersion = 0
+    let bumped: DocumentReviewPlaybook | null = null
     await withAtomicFlush(em, [async () => {
       const scope = await authorizeReviewPlaybookMutation(ctx, input)
       const current = await loadRule(em, scope, input.rule.id, true)
@@ -904,15 +933,24 @@ export const updateReviewRuleCommand: CommandHandler<ReviewRuleUpdateCommandInpu
       rule.updatedAt = nextDocumentVersion(rule.updatedAt)
     }, async () => {
       after = captureRuleState(rule)
-      playbookVersion = await bumpReviewPlaybookVersion(em, input, rule.playbookId)
+      bumped = await bumpReviewPlaybookVersion(em, input, rule.playbookId)
     }], { transaction: true, label: 'documents.review_rule.update' })
     await bufferRuleSideEffect(ctx, 'updated', rule)
-    return { id: rule.id, playbookId: rule.playbookId, updatedAt: rule.updatedAt.toISOString(), playbookVersion, before, after }
+    await bufferPlaybookVersionRefresh(ctx, bumped)
+    return {
+      id: rule.id,
+      playbookId: rule.playbookId,
+      updatedAt: rule.updatedAt.toISOString(),
+      playbookVersion: (bumped as DocumentReviewPlaybook | null)?.version ?? 0,
+      before,
+      after,
+    }
   },
   async buildLog({ input, result }) {
     return buildSnapshotLog({
       labelKey: 'documents.audit.reviewRuleUpdated',
       labelFallback: 'Update review rule',
+      cacheAliases: ['documents.review_rule', PLAYBOOK_CACHE_RESOURCE],
       redoInput: { ...input, rule: { ...input.rule, expectedUpdatedAt: null } },
       resourceKind: DOCUMENTS_ENTITY_IDS.documentReviewRule,
       resourceId: result.id,
@@ -940,7 +978,7 @@ export const deleteReviewRuleCommand: CommandHandler<ReviewRuleDeleteCommandInpu
     let rule!: DocumentReviewRule
     let before!: ReviewRuleState
     let after!: ReviewRuleState
-    let playbookVersion = 0
+    let bumped: DocumentReviewPlaybook | null = null
     await withAtomicFlush(em, [async () => {
       const scope = await authorizeReviewPlaybookMutation(ctx, input)
       const current = await loadRule(em, scope, input.ruleId, true)
@@ -961,15 +999,24 @@ export const deleteReviewRuleCommand: CommandHandler<ReviewRuleDeleteCommandInpu
       rule.updatedAt = now
     }, async () => {
       after = captureRuleState(rule)
-      playbookVersion = await bumpReviewPlaybookVersion(em, input, rule.playbookId)
+      bumped = await bumpReviewPlaybookVersion(em, input, rule.playbookId)
     }], { transaction: true, label: 'documents.review_rule.delete' })
     await bufferRuleSideEffect(ctx, 'deleted', rule)
-    return { id: rule.id, playbookId: rule.playbookId, updatedAt: rule.updatedAt.toISOString(), playbookVersion, before, after }
+    await bufferPlaybookVersionRefresh(ctx, bumped)
+    return {
+      id: rule.id,
+      playbookId: rule.playbookId,
+      updatedAt: rule.updatedAt.toISOString(),
+      playbookVersion: (bumped as DocumentReviewPlaybook | null)?.version ?? 0,
+      before,
+      after,
+    }
   },
   async buildLog({ input, result }) {
     return buildSnapshotLog({
       labelKey: 'documents.audit.reviewRuleDeleted',
       labelFallback: 'Delete review rule',
+      cacheAliases: ['documents.review_rule', PLAYBOOK_CACHE_RESOURCE],
       redoInput: { ...input, expectedUpdatedAt: null },
       resourceKind: DOCUMENTS_ENTITY_IDS.documentReviewRule,
       resourceId: result.id,
@@ -996,6 +1043,7 @@ async function undoRuleSnapshot(
   const input = inputSchema.parse(readCommandRedoInput(logEntry))
   const em = resolveDocumentsCommandEntityManager(ctx)
   let rule!: DocumentReviewRule
+  let bumped: DocumentReviewPlaybook | null = null
   await withAtomicFlush(em, [async () => {
     const scope = await authorizeReviewPlaybookMutation(ctx, input)
     const current = await loadRule(em, scope, undo.after.id, true)
@@ -1023,9 +1071,10 @@ async function undoRuleSnapshot(
     }
     rule.updatedAt = now
   }, async () => {
-    await bumpReviewPlaybookVersion(em, input, rule.playbookId)
+    bumped = await bumpReviewPlaybookVersion(em, input, rule.playbookId)
   }], { transaction: true, label })
   await bufferRuleSideEffect(ctx, undoActionFor(undo.before), rule, true)
+  await bufferPlaybookVersionRefresh(ctx, bumped, true)
 }
 
 export const createReviewPlaybookReferenceCommand: CommandHandler<
@@ -1043,6 +1092,7 @@ export const createReviewPlaybookReferenceCommand: CommandHandler<
     let reference!: DocumentReviewPlaybookReference
     let before!: ReviewPlaybookReferenceState
     let after!: ReviewPlaybookReferenceState
+    let bumped: DocumentReviewPlaybook | null = null
     await withAtomicFlush(em, [async () => {
       const scope = await authorizeReviewPlaybookMutation(ctx, input)
       await requireActivePlaybook(em, scope, input.playbookId)
@@ -1071,15 +1121,17 @@ export const createReviewPlaybookReferenceCommand: CommandHandler<
       reference.updatedAt = nextDocumentVersion(reference.updatedAt)
     }, async () => {
       after = captureReferenceState(reference)
-      await bumpReviewPlaybookVersion(em, input, input.playbookId)
+      bumped = await bumpReviewPlaybookVersion(em, input, input.playbookId)
     }], { transaction: true, label: 'documents.review_playbook_reference.create' })
     await bufferReferenceSideEffect(ctx, 'created', reference)
+    await bufferPlaybookVersionRefresh(ctx, bumped)
     return { id: reference.id, playbookId: reference.playbookId, documentId: reference.documentId, before, after }
   },
   async buildLog({ input, result }) {
     return buildSnapshotLog({
       labelKey: 'documents.audit.reviewPlaybookReferenceCreated',
       labelFallback: 'Link guidance document to review playbook',
+      cacheAliases: ['documents.review_playbook_reference', PLAYBOOK_CACHE_RESOURCE],
       resourceKind: DOCUMENTS_ENTITY_IDS.documentReviewPlaybookReference,
       resourceId: result.id,
       parentResourceKind: DOCUMENTS_ENTITY_IDS.documentReviewPlaybook,
@@ -1109,6 +1161,7 @@ export const deleteReviewPlaybookReferenceCommand: CommandHandler<
     let reference!: DocumentReviewPlaybookReference
     let before!: ReviewPlaybookReferenceState
     let after!: ReviewPlaybookReferenceState
+    let bumped: DocumentReviewPlaybook | null = null
     await withAtomicFlush(em, [async () => {
       const scope = await authorizeReviewPlaybookMutation(ctx, input)
       await requireActivePlaybook(em, scope, input.playbookId)
@@ -1127,15 +1180,17 @@ export const deleteReviewPlaybookReferenceCommand: CommandHandler<
       reference.updatedAt = now
     }, async () => {
       after = captureReferenceState(reference)
-      await bumpReviewPlaybookVersion(em, input, input.playbookId)
+      bumped = await bumpReviewPlaybookVersion(em, input, input.playbookId)
     }], { transaction: true, label: 'documents.review_playbook_reference.delete' })
     await bufferReferenceSideEffect(ctx, 'deleted', reference)
+    await bufferPlaybookVersionRefresh(ctx, bumped)
     return { id: reference.id, playbookId: reference.playbookId, documentId: reference.documentId, before, after }
   },
   async buildLog({ input, result }) {
     return buildSnapshotLog({
       labelKey: 'documents.audit.reviewPlaybookReferenceDeleted',
       labelFallback: 'Unlink guidance document from review playbook',
+      cacheAliases: ['documents.review_playbook_reference', PLAYBOOK_CACHE_RESOURCE],
       resourceKind: DOCUMENTS_ENTITY_IDS.documentReviewPlaybookReference,
       resourceId: result.id,
       parentResourceKind: DOCUMENTS_ENTITY_IDS.documentReviewPlaybook,
@@ -1161,6 +1216,7 @@ async function undoReferenceSnapshot(
   const input = inputSchema.parse(readCommandRedoInput(logEntry))
   const em = resolveDocumentsCommandEntityManager(ctx)
   let reference!: DocumentReviewPlaybookReference
+  let bumped: DocumentReviewPlaybook | null = null
   await withAtomicFlush(em, [async () => {
     const scope = await authorizeReviewPlaybookMutation(ctx, input)
     const current = await loadReference(em, scope, { id: undo.after.id })
@@ -1178,9 +1234,10 @@ async function undoReferenceSnapshot(
     if (undo.before.existed) reference.sortOrder = undo.before.sortOrder
     reference.updatedAt = now
   }, async () => {
-    await bumpReviewPlaybookVersion(em, input, reference.playbookId)
+    bumped = await bumpReviewPlaybookVersion(em, input, reference.playbookId)
   }], { transaction: true, label })
   await bufferReferenceSideEffect(ctx, undoActionFor(undo.before) === 'deleted' ? 'deleted' : 'created', reference, true)
+  await bufferPlaybookVersionRefresh(ctx, bumped, true)
 }
 
 registerCommand(createReviewPlaybookCommand)

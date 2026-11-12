@@ -16,6 +16,7 @@ const mockStore = {
   references: [] as DocumentReviewPlaybookReference[],
   findings: [] as DocumentFinding[],
   document: null as Document | null,
+  persisted: new Map<string, Row>(),
 }
 const mockFeatures = jest.fn(async () => ['documents.review_playbooks.manage'])
 const mockAssertCapability = jest.fn(async () => [])
@@ -122,15 +123,20 @@ function makeEntityManager(): EntityManager {
     count: jest.fn(async (entity: unknown, where: Row) => mockQuery(entity, where).length),
     nativeUpdate: jest.fn(async (entity: unknown, where: Row, data: Row) => {
       const rows = mockQuery(entity, where)
-      for (const row of rows) Object.assign(row, data)
+      for (const row of rows) {
+        mockStore.persisted.set(row.id as string, { ...(mockStore.persisted.get(row.id as string) ?? {}), ...data })
+      }
       return rows.length
     }),
+    refresh: jest.fn(async (entity: Row) => Object.assign(entity, mockStore.persisted.get(entity.id as string) ?? {})),
   }
   return em as unknown as EntityManager
 }
 
+const mockMarkOrmEntityChange = jest.fn()
+
 function makeContext(em: EntityManager): CommandRuntimeContext {
-  const dataEngine = { markOrmEntityChange: jest.fn() }
+  const dataEngine = { markOrmEntityChange: mockMarkOrmEntityChange }
   return {
     container: {
       resolve: (name: string) => (name === 'em' ? em : name === 'dataEngine' ? dataEngine : null),
@@ -197,6 +203,8 @@ beforeEach(() => {
     organizationId: ORGANIZATION_ID,
     deletedAt: null,
   })
+  mockStore.persisted = new Map()
+  mockMarkOrmEntityChange.mockClear()
   mockFeatures.mockClear()
   mockAssertCapability.mockClear()
 })
@@ -282,9 +290,28 @@ describe('review rule commands', () => {
     expect(updated.playbookVersion).toBe(3)
     const deleted = await deleteReviewRuleCommand.execute({ ...SCOPE, ruleId, expectedUpdatedAt: updated.updatedAt }, ctx)
     expect(deleted.playbookVersion).toBe(4)
+    expect(mockStore.persisted.get(PLAYBOOK_ID)).toEqual({ version: 4 })
     expect(mockStore.playbooks[0]?.version).toBe(4)
     expect(mockStore.playbooks[0]?.updatedAt.toISOString()).toBe(lockToken)
     expect(mockStore.rules[0]?.deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('re-indexes the playbook and invalidates its cached lists when a rule bumps the version', async () => {
+    seedPlaybook(PLAYBOOK_ID, 'nda')
+    const ctx = makeContext(makeEntityManager())
+    const input = {
+      ...SCOPE,
+      ruleId: nextId(),
+      rule: { playbookId: PLAYBOOK_ID, code: 'NDA-2', title: 'Term', position: 'Two years.', severity: 'warning' as const },
+    }
+    const created = await createReviewRuleCommand.execute(input, ctx)
+    const playbookMarks = mockMarkOrmEntityChange.mock.calls
+      .map(([change]) => change as { entity: Row; indexer?: { entityType: string } })
+      .filter((change) => change.indexer?.entityType === 'documents:document_review_playbook')
+    expect(playbookMarks).toHaveLength(1)
+    expect(playbookMarks[0]?.entity).toMatchObject({ id: PLAYBOOK_ID, version: 2 })
+    const log = await createReviewRuleCommand.buildLog!({ input, result: created, ctx })
+    expect(log?.context?.cacheAliases).toEqual(expect.arrayContaining(['documents.review_playbook', 'documents.review_rule']))
   })
 
   it('keeps rule codes unique per playbook only', async () => {
