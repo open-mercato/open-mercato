@@ -88,6 +88,6 @@ Runner: local; no configured Compose app container is running. Existing develope
 
 ### Phase 4: Review feedback and ephemeral QA
 
-- [ ] 4.1 Merge current main and repair the credential-display fixture without weakening encryption enforcement.
+- [x] 4.1 Merge current main and repair the credential-display fixture without weakening encryption enforcement. — fa78b9014c, 49db4e79f2
 - [ ] 4.2 Run configured validation, merged-result scripts and disposable PostgreSQL/standalone verification.
 - [ ] 4.3 Complete authoritative re-review, publish QA evidence, update PR and release the claim.
