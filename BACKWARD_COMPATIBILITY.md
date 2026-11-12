@@ -637,8 +637,8 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 ## Compose encryption (2026-11-01, #7231)
 
-STABLE: unsafe root/lookup keys or remote HTTP Vault refused; bridges retain exposure. [Migrate](UPGRADE_NOTES.md).
-Named human waiver of steps 1–3 required before merge.
+STABLE: unsafe keys/HTTP Vault rejected; bridges retain exposure. [Migration](UPGRADE_NOTES.md).
+Named human waiver of steps 1–3 required.
 
 ## Encryption maintenance safety gates (2026-11-02, #6767)
 
