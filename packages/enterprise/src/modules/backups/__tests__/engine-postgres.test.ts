@@ -220,6 +220,73 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
     for(let table=1;table<=8;table++)expect((await targetDb.query(`SELECT * FROM app.concurrent_${table} ORDER BY id`)).rows).toEqual((await sourceDb.query(`SELECT * FROM app.concurrent_${table} ORDER BY id`)).rows)
   },30000)
 
+  test('target preflight refuses a nonempty baseline without initializing or mutating a restore journal',async()=>{
+    await targetDb.query('CREATE TABLE existing_data(id int);INSERT INTO existing_data VALUES(42)')
+    const target=createPostgresTarget(options)
+    try{
+      await expect(target.preflightWorkers!(2)).rejects.toThrow('BACKUP_TARGET_NOT_EMPTY')
+      expect((await targetDb.query('SELECT * FROM existing_data')).rows).toEqual([{id:42}])
+      expect((await targetDb.query("SELECT count(*)::text AS count FROM pg_namespace WHERE nspname='om_backup_restore'")).rows[0].count).toBe('0')
+    }finally{await target.close()}
+  })
+
+  test('sequence recovery uses restored extrema, exact bigint progressions and unchanged empty is_called',async()=>{
+    await sourceDb.query(`CREATE TABLE app.ascending_ids(id bigint PRIMARY KEY);CREATE SEQUENCE app.ascending_counter START 1 INCREMENT 10;ALTER SEQUENCE app.ascending_counter OWNED BY app.ascending_ids.id;INSERT INTO app.ascending_ids VALUES(1);SELECT setval('app.ascending_counter',1,true);
+      CREATE TABLE app.descending_ids(id bigint PRIMARY KEY);CREATE SEQUENCE app.descending_counter START -1 INCREMENT -10 MINVALUE -9223372036854775808 MAXVALUE -1;ALTER SEQUENCE app.descending_counter OWNED BY app.descending_ids.id;INSERT INTO app.descending_ids VALUES(-1);SELECT setval('app.descending_counter',-1,true);
+      CREATE TABLE app.empty_ids(id bigint);CREATE SEQUENCE app.empty_counter START 700;ALTER SEQUENCE app.empty_counter OWNED BY app.empty_ids.id`)
+    const source=createPostgresSource(options),target=createPostgresTarget(options)
+    try{
+      const snapshot=await source.open();await initialize(snapshot,target)
+      for(const entity of snapshot.entities)for await(const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536})){const contents=await collect(chunk.stream);await target.chunk(entity,data(contents),{runId:'run',sequence:chunk.sequence,sha256:digest(contents),rows:chunk.rows})}
+      const states=await snapshot.sequences()
+      expect(states.find(state=>state.name==='descending_counter')).toMatchObject({value:'-1',maxValue:'-1',isCalled:true})
+      // Older retained entities may contain values deleted/reset in the newer source epoch.
+      await targetDb.query('INSERT INTO app.ascending_ids VALUES(9007199254741005);INSERT INTO app.descending_ids VALUES(-15)')
+      await target.sequences(states)
+      expect((await targetDb.query("SELECT nextval('app.ascending_counter')::text AS value")).rows[0].value).toBe('9007199254741011')
+      expect((await targetDb.query("SELECT nextval('app.descending_counter')::text AS value")).rows[0].value).toBe('-21')
+      expect((await targetDb.query('SELECT last_value::text AS value,is_called FROM app.empty_counter')).rows[0]).toEqual({value:'700',is_called:false})
+      expect((await targetDb.query("SELECT nextval('app.empty_counter')::text AS value")).rows[0].value).toBe('700')
+    }finally{await source.close();await target.close()}
+  })
+  test('all sequence plans are validated before any nontransactional setval is applied',async()=>{
+    const source=createPostgresSource(options),target=createPostgresTarget(options)
+    try{
+      const snapshot=await source.open();await initialize(snapshot,target)
+      await targetDb.query(`CREATE TABLE app.valid_counter_rows(id bigint);CREATE SEQUENCE app.valid_counter START 7;ALTER SEQUENCE app.valid_counter OWNED BY app.valid_counter_rows.id;INSERT INTO app.valid_counter_rows VALUES(100);
+        CREATE TABLE app.text_counter_rows(code text);CREATE SEQUENCE app.text_counter;ALTER SEQUENCE app.text_counter OWNED BY app.text_counter_rows.code`)
+      await expect(target.sequences([{schema:'app',name:'valid_counter',value:'7',isCalled:false},{schema:'app',name:'text_counter',value:'1',isCalled:false}])).rejects.toMatchObject({code:'BACKUP_SEQUENCE_COLUMN_UNSUPPORTED',exitCode:6})
+      expect((await targetDb.query('SELECT last_value::text AS value,is_called FROM app.valid_counter')).rows[0]).toEqual({value:'7',is_called:false})
+      expect((await targetDb.query("SELECT count(*)::text AS count FROM om_backup_restore.restore_steps WHERE step_key='sequences'")).rows[0].count).toBe('0')
+    }finally{await source.close();await target.close()}
+  })
+  test.each(['text','cycle'])('source preflight refuses an unsupported owned %s sequence before exporting data',async(kind)=>{
+    await sourceDb.query(kind==='text'?`CREATE TABLE app.unsafe_counter_rows(code text);CREATE SEQUENCE app.unsafe_counter;ALTER SEQUENCE app.unsafe_counter OWNED BY app.unsafe_counter_rows.code`:`CREATE TABLE app.unsafe_counter_rows(id bigint);CREATE SEQUENCE app.unsafe_counter MINVALUE 1 MAXVALUE 10 CYCLE;ALTER SEQUENCE app.unsafe_counter OWNED BY app.unsafe_counter_rows.id`)
+    const source=createPostgresSource(options)
+    try{await expect(source.open()).rejects.toThrow('BACKUP_SEQUENCE_COLUMN_UNSUPPORTED')}finally{await source.close()}
+  })
+
+  test('an ambiguous nontransactional setval is safe to replay before its journal step commits',async()=>{
+    const source=createPostgresSource(options),target=createPostgresTarget(options)
+    try{
+      const snapshot=await source.open();await initialize(snapshot,target)
+      await targetDb.query(`CREATE TABLE app.retry_a_rows(id bigint);CREATE SEQUENCE app.retry_a START 1;ALTER SEQUENCE app.retry_a OWNED BY app.retry_a_rows.id;INSERT INTO app.retry_a_rows VALUES(30);
+        CREATE TABLE app.retry_b_rows(id bigint);CREATE SEQUENCE app.retry_b START 1;ALTER SEQUENCE app.retry_b OWNED BY app.retry_b_rows.id;INSERT INTO app.retry_b_rows VALUES(70)`)
+      const states=[{schema:'app',name:'retry_a',value:'1',isCalled:false},{schema:'app',name:'retry_b',value:'1',isCalled:false}]
+      const query=Client.prototype.query;let injected=false
+      const lost=jest.spyOn(Client.prototype,'query').mockImplementation(function(this:Client,...args:unknown[]){
+        const result=Reflect.apply(query,this,args)
+        if(args[0]==='SELECT setval($1::regclass,$2::bigint,$3)'&&!injected){injected=true;return Promise.resolve(result).then(()=>{throw new Error('simulated lost setval acknowledgement')})}
+        return result
+      } as typeof Client.prototype.query)
+      try{await expect(target.sequences(states)).rejects.toThrow('simulated lost setval acknowledgement')}finally{lost.mockRestore()}
+      expect((await targetDb.query('SELECT last_value::text AS value,is_called FROM app.retry_a')).rows[0]).toEqual({value:'31',is_called:false})
+      expect((await targetDb.query("SELECT count(*)::text AS count FROM om_backup_restore.restore_steps WHERE step_key='sequences'")).rows[0].count).toBe('0')
+      await target.sequences(states)
+      expect((await targetDb.query("SELECT nextval('app.retry_a')::text AS a,nextval('app.retry_b')::text AS b")).rows[0]).toEqual({a:'31',b:'71'})
+    }finally{await source.close();await target.close()}
+  })
+
   test('schema staging stops at its explicit byte budget before invoking restore SQL', async () => {
     const source = createPostgresSource(options); const target = createPostgresTarget({ ...options, maxStagingBytes: 16 })
     try {

@@ -1,4 +1,4 @@
-import { mkdtemp, chmod, mkdir, writeFile, rm, symlink } from 'node:fs/promises'
+import { mkdtemp, chmod, mkdir, writeFile, readFile,rm, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { contained, privateDirectory, readBoundedFile } from '../lib/engine/artifacts'
@@ -84,6 +84,17 @@ describe('recovery security boundary', () => {
     expect(await runBackupCli(['--help','--json'],{stdout:text=>output.push(text),stderr:()=>{}})).toBe(0)
     expect(output).toHaveLength(1)
     expect(JSON.parse(output[0])).toMatchObject({command:'help',runId:expect.stringMatching(/^[a-f0-9-]{36}$/),status:'completed'})
+  })
+  test('preflight operation selects a read-only source check and invalid operation/mode refuse',async()=>{
+    for(const key of rights)process.env[key]='true'
+    const close=jest.fn(async()=>{}),open=jest.fn(async()=>({identity:{clusterIncarnation:'fixture',databaseOid:'99',serverMajor:16,encoding:'UTF8',collation:'C'},entities:[],catalogDigest:'a'.repeat(64),close}))
+    const output:string[]=[]
+    expect(await runBackupCli(['preflight','--operation','create','--source-service','fixture','--report',join(root,'preflight-report.json'),'--json'],{stdout:text=>output.push(text),stderr:()=>{},sourceFactory:()=>({open,close} as unknown as BackupSource)})).toBe(0)
+    expect(JSON.parse(output[0])).toMatchObject({command:'preflight',operation:'create',entityCount:0})
+    expect(JSON.parse(await readFile(join(root,'preflight-report.json'),'utf8'))).toEqual(JSON.parse(output[0]))
+    expect(close).toHaveBeenCalled();expect(open).toHaveBeenCalledTimes(1)
+    expect(await runBackupCli(['preflight','--operation','unknown','--json'],{stdout:()=>{},stderr:()=>{}})).toBe(2)
+    expect(await runBackupCli(['restore','--verify-mode','unknown','--json'],{stdout:()=>{},stderr:()=>{}})).toBe(2)
   })
   test('app wrapper refuses JSON rather than corrupting the standalone machine protocol',async () => {
     const output:string[]=[]

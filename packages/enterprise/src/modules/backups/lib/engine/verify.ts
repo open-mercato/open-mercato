@@ -89,22 +89,28 @@ export async function verifyBackupChunks(options: VerifyBackupOptions, artifact:
   const ownWorkspace = !options.schemaInspector && !options.workspace ? await mkdtemp(join(tmpdir(),'om-backup-verify-')) : undefined
   const inspector = options.schemaInspector ?? createPostgresSchemaInspector({ workspace: options.workspace ?? ownWorkspace!, binariesDir: options.binariesDir ?? process.env.OM_BACKUP_BINARIES_DIR ?? '', maxStagingBytes: options.maxStagingBytes, signal: options.signal })
   const totals = new Map<string,{rows:bigint;chunks:number}>()
+  const fullScope=chunks===artifact.index.chunks
+  if(fullScope)for(const entity of artifact.index.entities)totals.set(entity.key,{rows:0n,chunks:0})
   const completed = new Map<string,{rows:bigint;bytes:bigint;chunks:number}>()
   for(const chunk of chunks) if(chunk.entityKey){const total=totals.get(chunk.entityKey)??{rows:0n,chunks:0};total.rows+=BigInt(chunk.rows);total.chunks++;totals.set(chunk.entityKey,total)}
   const overallTotal=String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n));let overallDone=0n
+  let entitiesDone=0
+  const started=new Set<string>()
   const runId=artifact.manifest.backupId
-  options.progress?.({schemaVersion:1,type:'run.started',runId,overallRowsDone:'0',overallRowsTotal:overallTotal,overallRowsTotalExact:true,phase:'verify',rowsDone:'0',rowsTotal:'0',rowsTotalExact:true,bytesDone:'0',chunksDone:0,chunksTotal:chunks.length,at:new Date().toISOString()})
+  options.progress?.({schemaVersion:1,type:'run.started',runId,entitiesTotal:totals.size,entitiesDone:0,overallRowsDone:'0',overallRowsTotal:overallTotal,overallRowsTotalExact:true,phase:'verify',rowsDone:'0',rowsTotal:'0',rowsTotalExact:true,bytesDone:'0',chunksDone:0,chunksTotal:chunks.length,at:new Date().toISOString()})
   try {
     for (const chunk of chunks) {
+      if(chunk.entityKey&&!started.has(chunk.entityKey)){started.add(chunk.entityKey);options.progress?.({schemaVersion:1,type:'entity.progress',runId,entityKey:chunk.entityKey,entity:artifact.index.entities.find(entity=>entity.key===chunk.entityKey)?.label,entitiesTotal:totals.size,entitiesDone,overallRowsDone:String(overallDone),overallRowsTotal:overallTotal,overallRowsTotalExact:true,rowsDone:'0',rowsTotal:String(totals.get(chunk.entityKey)!.rows),rowsTotalExact:true,bytesDone:'0',chunksDone:0,chunksTotal:totals.get(chunk.entityKey)!.chunks,at:new Date().toISOString()})}
       if(chunk.section) await inspector(verifiedChunk(options,artifact.manifest,chunk),artifact.manifest.serverMajor)
       else for await (const block of authenticatedChunk(options, artifact.manifest, chunk)) { checkAbort(options.signal); void block }
       if(chunk.entityKey){
         const done=completed.get(chunk.entityKey)??{rows:0n,bytes:0n,chunks:0};done.rows+=BigInt(chunk.rows);done.bytes+=BigInt(chunk.cipherBytes);done.chunks++;completed.set(chunk.entityKey,done)
-        const total=totals.get(chunk.entityKey)!;overallDone+=BigInt(chunk.rows)
-        options.progress?.({schemaVersion:1,type:done.chunks===total.chunks?'entity.done':'entity.progress',runId,overallRowsDone:String(overallDone),overallRowsTotal:overallTotal,overallRowsTotalExact:true,entity:artifact.index.entities.find((entity)=>entity.key===chunk.entityKey)?.label,rowsDone:String(done.rows),rowsTotal:String(total.rows),rowsTotalExact:true,bytesDone:String(done.bytes),chunksDone:done.chunks,chunksTotal:total.chunks,at:new Date().toISOString()})
+        const total=totals.get(chunk.entityKey)!;overallDone+=BigInt(chunk.rows);if(done.chunks===total.chunks)entitiesDone++
+        options.progress?.({schemaVersion:1,type:done.chunks===total.chunks?'entity.done':'entity.progress',runId,entityKey:chunk.entityKey,entitiesTotal:totals.size,entitiesDone,overallRowsDone:String(overallDone),overallRowsTotal:overallTotal,overallRowsTotalExact:true,entity:artifact.index.entities.find((entity)=>entity.key===chunk.entityKey)?.label,rowsDone:String(done.rows),rowsTotal:String(total.rows),rowsTotalExact:true,bytesDone:String(done.bytes),chunksDone:done.chunks,chunksTotal:total.chunks,at:new Date().toISOString()})
       }
     }
-    options.progress?.({schemaVersion:1,type:'run.finished',runId,overallRowsDone:overallTotal,overallRowsTotal:overallTotal,overallRowsTotalExact:true,phase:'verify',rowsDone:String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n)),rowsTotal:String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n)),rowsTotalExact:true,bytesDone:artifact.manifest.totalCipherBytes,chunksDone:chunks.length,chunksTotal:chunks.length,at:new Date().toISOString()})
+    if(fullScope)for(const entity of artifact.index.entities)if(!started.has(entity.key)){entitiesDone++;options.progress?.({schemaVersion:1,type:'entity.done',runId,entityKey:entity.key,entity:entity.label,entitiesTotal:totals.size,entitiesDone,overallRowsDone:String(overallDone),overallRowsTotal:overallTotal,overallRowsTotalExact:true,rowsDone:'0',rowsTotal:'0',rowsTotalExact:true,bytesDone:'0',chunksDone:0,chunksTotal:0,at:new Date().toISOString()})}
+    options.progress?.({schemaVersion:1,type:'run.finished',runId,entitiesTotal:totals.size,entitiesDone:totals.size,overallRowsDone:overallTotal,overallRowsTotal:overallTotal,overallRowsTotalExact:true,phase:'verify',rowsDone:String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n)),rowsTotal:String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n)),rowsTotalExact:true,bytesDone:artifact.manifest.totalCipherBytes,chunksDone:chunks.length,chunksTotal:chunks.length,at:new Date().toISOString()})
   } finally {if(ownWorkspace) await rm(ownWorkspace,{recursive:true,force:true})}
 }
 

@@ -5,24 +5,18 @@ import { join, isAbsolute } from 'node:path'
 import { createGzip } from 'node:zlib'
 import { z } from 'zod'
 import type { BackupSource, EngineContext, Snapshot, ByteStream } from './types'
-import { indexSchema, manifestSchema, chunkSchema, type BackupIndex, type Manifest, type Chunk } from './schemas'
+import { preparedBackupSchema as settingsSchema, backupJournalEventSchema as journalEvent, indexSchema, manifestSchema, chunkSchema, type BackupIndex, type Manifest, type Chunk } from './schemas'
 import { atomicStream, privateDirectory, privateFile, syncDirectory, readBoundedFile, digestFile, contained } from './artifacts'
 import { encryptBytes, decryptBytes, encryptStream, generateX25519Identity, identityToRecipient, recipientFingerprint, identitiesFromFile } from './crypto'
 import { bytes, transform } from './streams'
 import { classifyBoundary } from './snapshot'
 import { Journal } from './journal'
+import { publishBackupSummary } from './status'
 import { acquireBackupLock } from './lock'
-import { partialBackupDigest } from './partial-trust'
+import { partialBackupDigest,trustedPartialStatus } from './partial-trust'
 import { BackupError, checkAbort, shellQuote } from './errors'
 
 const maximumIndexBytes = 64 * 1024 * 1024
-const settingsSchema = z.object({ backupId: z.string().uuid(), startedAt: z.string(), recipients: z.array(z.string()), encryption: z.boolean(), chunkSizeBytes: z.number(), index: indexSchema }).strict()
-const journalEvent = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('chunk'), chunk: chunkSchema }).strict(),
-  z.object({ kind: z.literal('entity-complete'), entityKey: z.string() }).strict(),
-  z.object({ kind: z.literal('restart'), entityKey: z.string() }).strict(),
-  z.object({ kind: z.literal('epoch'), index: indexSchema, reset: z.boolean() }).strict(),
-])
 export type CreateBackupOptions = EngineContext & {
   source: BackupSource
   output: string
@@ -51,10 +45,10 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
   checkAbort(options.signal)
   const jobs = options.jobs ?? 2
   if (!Number.isInteger(jobs) || jobs < 1 || jobs > 8) throw new BackupError('BACKUP_INVALID_RESOURCE_OPTION', 2)
-  if (options.noEncryption && (options.requireEncryption || !options.confirmUnencrypted)) throw new BackupError('BACKUP_UNENCRYPTED_REFUSED', 3)
-  if (!options.noEncryption && !options.recipients.length) throw new BackupError('BACKUP_RECIPIENTS_REQUIRED', 3)
+  if (options.noEncryption && (options.requireEncryption || (!options.confirmUnencrypted&&!options.resume))) throw new BackupError('BACKUP_UNENCRYPTED_REFUSED', 3)
+  if (!options.resume&&!options.noEncryption && !options.recipients.length) throw new BackupError('BACKUP_RECIPIENTS_REQUIRED', 3)
   if (!isAbsolute(options.output) || !isAbsolute(options.workspace)) throw new BackupError('BACKUP_ABSOLUTE_PATH_REQUIRED', 2)
-  const chunkSizeBytes = options.chunkSizeBytes ?? 64 * 1024 * 1024
+  let chunkSizeBytes = options.chunkSizeBytes ?? 64 * 1024 * 1024
   if (chunkSizeBytes < 8 * 1024 * 1024 || chunkSizeBytes > 1024 * 1024 * 1024) throw new BackupError('BACKUP_CHUNK_SIZE_INVALID', 2)
   await privateDirectory(options.output, true)
   await privateDirectory(options.workspace, true)
@@ -125,7 +119,7 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
       const sealedSchema = z.object({ manifest: manifestSchema, index: indexSchema, manifestSha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict()
       const sealed = sealedSchema.parse(JSON.parse((await decryptBytes(await readBoundedFile(join(partial, 'seal.age'), maximumIndexBytes + 2 * 1024 * 1024), [runIdentity], maximumIndexBytes + 1024 * 1024)).toString()))
       if (hash(JSON.stringify(sealed.manifest)) !== sealed.manifestSha256) throw new BackupError('BACKUP_SEAL_INTEGRITY_FAILED', 4)
-      if (sealed.manifest.encryption.mode !== (options.noEncryption ? 'none' : 'age-v1') || sealed.manifest.encryption.mode === 'age-v1' && sealed.manifest.encryption.recipientSetFingerprint !== recipientFingerprint(options.recipients) || options.quiesced && sealed.index.consistency !== 'quiesced') throw new BackupError('BACKUP_RESUME_BINDING_MISMATCH', 3)
+      if (options.requireEncryption&&sealed.manifest.encryption.mode==='none'||options.noEncryption!==undefined&&sealed.manifest.encryption.mode !== (options.noEncryption ? 'none' : 'age-v1') || sealed.manifest.encryption.mode === 'age-v1' && options.recipients.length>0&&sealed.manifest.encryption.recipientSetFingerprint !== recipientFingerprint(options.recipients) || options.quiesced && sealed.index.consistency !== 'quiesced') throw new BackupError('BACKUP_RESUME_BINDING_MISMATCH', 3)
       return await finishSealed(sealed.manifest, sealed.index, sealed.manifestSha256, true)
     }
     const completed = new Set<string>()
@@ -133,7 +127,9 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
     if (options.resume) {
       settings = settingsSchema.parse(JSON.parse((await decryptBytes(await readBoundedFile(join(partial, 'prepare.age'), maximumIndexBytes + 65536), [runIdentity], maximumIndexBytes)).toString()))
       if (settings.backupId !== backupId || settings.index.backupId !== backupId) throw new BackupError('BACKUP_RESUME_BINDING_MISMATCH', 3)
-      if (settings.encryption !== !options.noEncryption || recipientFingerprint(settings.recipients) !== recipientFingerprint(options.recipients) || settings.chunkSizeBytes !== chunkSizeBytes) throw new BackupError('BACKUP_RESUME_BINDING_MISMATCH', 3)
+      if(options.requireEncryption&&!settings.encryption)throw new BackupError('BACKUP_UNENCRYPTED_REFUSED',3)
+      if (options.noEncryption!==undefined&&settings.encryption !== !options.noEncryption || options.recipients.length>0&&recipientFingerprint(settings.recipients) !== recipientFingerprint(options.recipients) || options.chunkSizeBytes!==undefined&&settings.chunkSizeBytes !== chunkSizeBytes) throw new BackupError('BACKUP_RESUME_BINDING_MISMATCH', 3)
+      chunkSizeBytes=settings.chunkSizeBytes
       for await (const record of journal.entries()) {
         const event = journalEvent.parse(record)
         if (event.kind === 'chunk') settings.index.chunks.push(event.chunk)
@@ -193,6 +189,9 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
     let allocatedOutputBytes = cipherBytes
     const entityChunks=new Map<string,Chunk[]>()
     for(const chunk of index.chunks)if(chunk.entityKey){const existing=entityChunks.get(chunk.entityKey)??[];existing.push(chunk);entityChunks.set(chunk.entityKey,existing)}
+    let summaryQueue:Promise<void>=Promise.resolve()
+    const updateSummary=()=>{const operation=summaryQueue.then(()=>publishBackupSummary(partial,{schemaVersion:1,backupId,entitiesDone:completed.size,entitiesTotal:index.entities.length,chunkCount:index.chunks.length,totalCipherBytes:String(cipherBytes),consistency:index.consistency,encryption:settings.encryption?'age-v1':'none',updatedAt:new Date().toISOString()}));summaryQueue=operation;return operation}
+    await updateSummary()
     const entityRows=new Map<string,bigint>()
     let overallRows=0n
     const estimatedRows=snapshot.entities.reduce((sum,entity)=>sum+BigInt(entity.estimatedRows),0n)
@@ -200,7 +199,7 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
       if(entityKey){const count=BigInt(rows);overallRows+=count-(entityRows.get(entityKey)??0n);entityRows.set(entityKey,count)}
       return {overallRowsDone:String(overallRows),overallRowsTotal:String(finished?overallRows:estimatedRows),overallRowsTotalExact:finished}
     }
-    const emit = (type: 'run.started' | 'entity.done' | 'phase.changed' | 'run.finished', entity?: string, rows = '0', entityKey?:string) => options.progress?.({ schemaVersion: 1, type, runId: backupId, entity, ...aggregate(entityKey,rows,type==='run.finished'), rowsDone: rows, rowsTotal: rows, rowsTotalExact: type === 'entity.done'||type === 'run.finished', phase: settings.encryption ? 'encrypted' : 'UNENCRYPTED', bytesDone: String(cipherBytes), chunksDone: index.chunks.length, at: new Date().toISOString() })
+    const emit = (type: 'run.started' | 'entity.done' | 'phase.changed' | 'run.finished', entity?: string, rows = '0', entityKey?:string) => options.progress?.({ schemaVersion: 1, type, runId: backupId, entity, entityKey,entitiesTotal:index.entities.length,entitiesDone:completed.size,...aggregate(entityKey,rows,type==='run.finished'), rowsDone: rows, rowsTotal: rows, rowsTotalExact: type === 'entity.done'||type === 'run.finished', phase: settings.encryption ? 'encrypted' : 'UNENCRYPTED', bytesDone: entityKey?String((entityChunks.get(entityKey)??[]).reduce((sum,chunk)=>sum+BigInt(chunk.plainBytes),0n)):String(cipherBytes), chunksDone: index.chunks.length, at: new Date().toISOString() })
     emit('run.started')
     await mkdir(join(partial, 'schema'), { mode: 0o700, recursive: true })
     await mkdir(join(partial, 'data'), { mode: 0o700, recursive: true })
@@ -263,15 +262,18 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
       const prefixLength=prefix.length
       const after=prefix.at(-1)?.keyTo
       const retainedRows=after?String(rows):undefined
+      options.progress?.({schemaVersion:1,type:'entity.progress',runId:backupId,entityKey:entity.key,entity:entity.label,entitiesTotal:index.entities.length,entitiesDone:completed.size,...aggregate(entity.key,String(rows)),rowsDone:String(rows),rowsTotal:entity.estimatedRows,rowsTotalExact:false,bytesDone:String(entityBytes),chunksDone:prefixLength,at:new Date().toISOString()})
       for await (const chunk of snapshot!.chunks(entity, { chunkSizeBytes,after,retainedRows })) {
         if (poolFailure) throw poolFailure
         const sequence=prefixLength+chunk.sequence
         const written = await write(`data/${entity.key}/${sequence}.chunk`, chunk.stream, { sequence, rows: chunk.rows, entityKey: entity.key, keyFrom: chunk.keyFrom, keyTo: chunk.keyTo })
         rows += BigInt(chunk.rows)
         entityBytes += BigInt(written.plainBytes)
-        options.progress?.({ schemaVersion: 1, type: 'entity.progress', runId: backupId, entity: entity.label, ...aggregate(entity.key,String(rows)), rowsDone: String(rows), rowsTotal: entity.estimatedRows, rowsTotalExact: false, bytesDone: String(entityBytes), chunksDone: sequence + 1, at: new Date().toISOString() })
+        options.progress?.({ schemaVersion: 1, type: 'entity.progress', runId: backupId, entityKey:entity.key,entitiesTotal:index.entities.length,entitiesDone:completed.size,entity: entity.label, ...aggregate(entity.key,String(rows)), rowsDone: String(rows), rowsTotal: entity.estimatedRows, rowsTotalExact: false, bytesDone: String(entityBytes), chunksDone: sequence + 1, at: new Date().toISOString() })
       }
       await journal.append({ kind: 'entity-complete', entityKey: entity.key })
+      completed.add(entity.key)
+      await updateSummary()
       emit('entity.done', entity.label, String(rows),entity.key)
     }
     await Promise.all(Array.from({ length: Math.min(jobs, Math.max(1, index.entities.length)) }, async () => {
@@ -282,7 +284,7 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
             const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
             const connectionMessage = error instanceof Error && ['Client has encountered a connection error and is not queryable', 'Connection terminated unexpectedly'].includes(error.message)
             const transient = connectionMessage || ['BACKUP_COPY_READ_FAILED', 'BACKUP_CONNECTION_FAILED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', '57P01', '57P02', '57P03'].includes(code) || /^08[A-Z0-9]{3}$/.test(code)
-            if (!transient || attempt === 2 || options.signal?.aborted || poolFailure) { poolFailure = error; break }
+            if (!transient || attempt === 2 || options.signal?.aborted || poolFailure) { options.progress?.({schemaVersion:1,type:'entity.failed',runId:backupId,entityKey:entity.key,entity:entity.label,entitiesTotal:index.entities.length,entitiesDone:completed.size,...aggregate(entity.key,String(entityRows.get(entity.key)??0n)),rowsDone:String(entityRows.get(entity.key)??0n),rowsTotal:entity.estimatedRows,rowsTotalExact:false,bytesDone:'0',chunksDone:entityChunks.get(entity.key)?.length??0,at:new Date().toISOString()});poolFailure = error; break }
           }
         }
       }
@@ -319,7 +321,10 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
       await rm(partial, { recursive: true, force: true })
     }
     const failure = error instanceof BackupError ? error : new BackupError('BACKUP_CREATE_FAILED', 5, stateReady)
-    if (stateReady && failure.resumable) failure.context = { backupId, partialStateSha256: await partialBackupDigest(partial).catch(() => undefined), resumeCommand: options.resumeCommand?.(backupId, await partialBackupDigest(partial).catch(() => undefined)) ?? `mercato-backup create --resume ${backupId} --output ${shellQuote(options.output)} --workspace ${shellQuote(options.workspace)} --source-service <same-service> --recipients-file <same-recipients-file>` }
+    if(stateReady&&failure.resumable){
+      const partialStateSha256=await trustedPartialStatus(partial,options.workspace,backupId).then(state=>state.partialStateSha256).catch(()=>undefined)
+      failure.context={backupId,partialStateSha256,resumeCommand:options.resumeCommand?.(backupId,partialStateSha256)??`mercato-backup create --resume ${backupId} --output ${shellQuote(options.output)} --workspace ${shellQuote(options.workspace)} --source-service <same-service> --recipients-file <same-recipients-file>`}
+    }
     throw failure
   } finally {
     await snapshot?.close().catch(() => undefined)

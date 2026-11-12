@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-11-12T16:19:52.751167+00:00",
+  "image": {
+    "tag": "om-backup-benchmark:9333",
+    "id": "sha256:dba18772f464b864872691703a79fc856f4b45931f36472b8515c5a00e508d5c",
+    "os": "linux",
+    "architecture": "arm64"
+  },
+  "configuredLimits": {
+    "nanoCpus": 4000000000,
+    "memoryBytes": 8589934592,
+    "cpuSet": ""
+  },
+  "runtime": {
+    "benchmarkNode": "v24.22.2",
+    "postgresql": "postgres (PostgreSQL) 16.15 (Debian 16.15-1.pgdg13+2)",
+    "nodeBinarySha256": "b4855de8c4781130b722ceaec9718fed77cca3eed2e5cfc5455e267c0b9ee3b0",
+    "kernel": "Linux 7.0.14-linuxkit",
+    "hostGateNode": "v26.12.1",
+    "esbuild": "0.28.2",
+    "nodeHeapFlags": []
+  },
+  "bundles": {
+    "timings-1g-warm-cold-and-20g-warm": {
+      "sha256": "e8f702d6c518f27aed7f098acfef4516683fd7a2a6cab813ae1436d997830cb9",
+      "bytes": 1387585,
+      "file": "benchmark-final.mjs"
+    },
+    "timing-20g-cold-final-operator": {
+      "sha256": "2721143e4c4c76ab1b588b12cff5eeb1baf47fbeea0a70b63eef1abc53ccaf43",
+      "bytes": 1404583,
+      "file": "benchmark-operator-final.mjs"
+    },
+    "workers-20g": {
+      "sha256": "2b9c1830386b6046d178e0297a3dca343cb666765d8d330b835e14cee5d28998",
+      "bytes": 1379538,
+      "file": "om-backup-jobs-256k.mjs"
+    },
+    "workers-1g-final": {
+      "sha256": "140ee56269c7e580f40b0a3259be0d7db06d59a1ed6bf80c2dfd51acd7d0cd34",
+      "bytes": 1382304,
+      "file": "om-backup-jobs-final.mjs"
+    },
+    "progress-cpu-final": {
+      "sha256": "aaf7e1164465e2b51048a37adc88e883cded6d5da4550e6f9237e356833f9e77",
+      "bytes": 13159,
+      "file": "progress-final.mjs"
+    }
+  },
+  "sourceNotes": [
+    "Timings 1g warm/cold and 20g warm were bundled from the ece9-based working tree with the progress CPU helper. Exact bundle hashes, rather than a claim of a clean source commit, identify these measured artifacts.",
+    "The 20g cold run includes the final operator summary/progress source packet before its commit; its exact bundle SHA is recorded.",
+    "The 20g workers bundle was the 256KiB stream candidate before later additive CLI/resume metadata commits. The successful stream policy is unchanged.",
+    "The 1g workers bundle was rebuilt from the final ece9 engine branch. Helpers and Dockerfile/eviction C source are committed with the PR.",
+    "Images and bundle hashes identify local measured artifacts. No production credentials or identity files are part of this provenance."
+  ]
+}
