@@ -10,6 +10,7 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useDateLocaleSettings, useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import { packOverlaps } from '../../lib/calendar/layout'
 import { getVisibleRange } from '../../lib/calendar/range'
 import {
@@ -170,6 +171,8 @@ export function TimeGrid({
   const t = useT()
   const locale = useLocale()
   const dateSettings = useDateLocaleSettings()
+  const isMobile = useIsMobile()
+  const peekSide = isMobile ? 'bottom' : 'right'
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const nowMs = Date.now()
   const today = startOfDay(new Date())
@@ -351,6 +354,7 @@ export function TimeGrid({
                   {allDayItems.map((item) => (
                     <EventPeekPopover
                       key={item.id}
+                      side={peekSide}
                       item={item}
                       open={selectedId === item.id}
                       joinUrl={resolveJoinUrl(item.location)}
@@ -463,6 +467,7 @@ export function TimeGrid({
                   {blocks.map((block) => (
                     <EventPeekPopover
                       key={`${block.item.id}-${block.top}`}
+                      side={peekSide}
                       item={block.item}
                       open={selectedId === block.item.id}
                       joinUrl={resolveJoinUrl(block.item.location)}
