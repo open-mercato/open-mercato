@@ -32,7 +32,7 @@ export function canonicalValue(value: LogicalValue): Buffer {
   if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
     throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   }
-  return frame('o', Buffer.concat(Object.keys(value).sort().map((key) => Buffer.concat([
+  return frame('o', Buffer.concat(Object.keys(value).sort((left, right) => left < right ? -1 : left > right ? 1 : 0).map((key) => Buffer.concat([
     canonicalValue(key), canonicalValue(value[key]),
   ]))))
 }
@@ -78,7 +78,7 @@ function encodedSize(value: LogicalValue): number {
   }
   if (Array.isArray(value)) return 5 + value.reduce<number>((size, entry) => size + encodedSize(entry), 0)
   if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-  return 5 + Object.keys(value).sort().reduce((size, key) => size + encodedSize(key) + encodedSize(value[key]), 0)
+  return 5 + Object.keys(value).sort((left, right) => left < right ? -1 : left > right ? 1 : 0).reduce((size, key) => size + encodedSize(key) + encodedSize(value[key]), 0)
 }
 
 function writeCanonical(value: LogicalValue, output: Buffer, offset: number): number {
@@ -90,14 +90,14 @@ function writeCanonical(value: LogicalValue, output: Buffer, offset: number): nu
   else if (typeof value === 'string') offset += output.write(value, offset)
   else if (typeof value === 'number') offset += output.write(Object.is(value, -0) ? '-0' : String(value), offset)
   else if (Array.isArray(value)) { for (const entry of value) offset = writeCanonical(entry, output, offset) }
-  else { for (const key of Object.keys(value).sort()) { offset = writeCanonical(key, output, offset); offset = writeCanonical(value[key], output, offset) } }
+  else { for (const key of Object.keys(value).sort((left, right) => left < right ? -1 : left > right ? 1 : 0)) { offset = writeCanonical(key, output, offset); offset = writeCanonical(value[key], output, offset) } }
   // Backfill the payload length after writing it once; recursively measuring every
   // ancestor would rescan large UTF-8 values once for each nesting level.
   output.writeUInt32BE(offset - start - 5, start + 1)
   return offset
 }
 
-export function keyedRowDigest(key: Buffer, row: VerificationRow): string {
+export function keyedRowDigestAndSize(key: Buffer, row: VerificationRow): { digest: string; bytes: number } {
   const value = rowValue(row)
   const size = encodedSize(value)
   if (size > 1024 * 1024) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
@@ -105,5 +105,7 @@ export function keyedRowDigest(key: Buffer, row: VerificationRow): string {
   if (writeCanonical(value, encoded, 0) !== size) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   const hmac = createHmac('sha256', key).update(frame('d', Buffer.from('row-v1')))
   hmac.update(encoded)
-  return hmac.digest('hex')
+  return { digest: hmac.digest('hex'), bytes: size }
 }
+
+export function keyedRowDigest(key: Buffer, row: VerificationRow): string { return keyedRowDigestAndSize(key, row).digest }

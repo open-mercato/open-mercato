@@ -457,4 +457,61 @@ describe('custom entity document encryption rotation', () => {
     expect(setup.updates).toHaveLength(0)
   })
 
+  test('resumes from a committed cursor and checkpoints only after persisted batch readback',async()=>{
+    const setup=fixture([definition('code')],[[row({'cf:code':'legacy'},{id:'row-002'})]])
+    setup.options.resumeCursor=jest.fn(async()=>['row-001'])
+    setup.options.timestampForWrite=async()=>new Date('2026-01-02T00:00:00Z')
+    const checkpoint=jest.fn(async()=>{
+      const calls=setup.execute.mock.calls
+      expect(calls[calls.length-1]![0]).toContain('select count(*)::text as verified')
+    })
+    setup.options.checkpointBatch=checkpoint
+    await rotateCustomEntityDocuments(setup.em,setup.options)
+    expect(setup.execute.mock.calls.find(([sql])=>sql.startsWith('select id'))![1]).toContain('row-001')
+    expect(checkpoint).toHaveBeenCalledWith({operationId:JSON.stringify(['custom-documents-v1',tenantId,organizationId]),cursor:['row-002'],readRows:1,writtenRows:1})
+  })
+  test('failed persisted readback never advances the durable custom cursor',async()=>{
+    const setup=fixture([definition('code')],[[row({'cf:code':'legacy'})]])
+    const original=setup.execute.getMockImplementation()!
+    setup.execute.mockImplementation(async(sql,params)=>sql.startsWith('select count(*)::text as verified')?[{verified:'0'}]:original(sql,params))
+    setup.options.timestampForWrite=async()=>new Date('2026-01-02T00:00:00Z')
+    setup.options.checkpointBatch=jest.fn()
+    await expect(rotateCustomEntityDocuments(setup.em,setup.options)).rejects.toThrow('Persisted custom document batch')
+    expect(setup.options.checkpointBatch).not.toHaveBeenCalled()
+  })
+
+  test('timestamp batch intents cover actual writes and never authorize an unchanged current-key row',async()=>{
+    const current=encryptWithAesGcm('already-current',currentKey).value!
+    const setup=fixture([definition('code')],[[row({'cf:code':current},{id:'row-001'}),row({'cf:code':'legacy'},{id:'row-002'})]])
+    const timestamp=new Date('2026-01-02T00:00:00Z')
+    setup.options.timestampForBatchWrite=jest.fn(async intents=>{
+      expect(setup.updates).toHaveLength(0)
+      expect(intents.map(intent=>intent.identity)).toEqual(['row-002'])
+      return [timestamp]
+    })
+    await expect(rotateCustomEntityDocuments(setup.em,setup.options)).resolves.toBe(1)
+    expect(setup.options.timestampForBatchWrite).toHaveBeenCalledTimes(1)
+    expect(setup.updates[0]!.query).toContain('updated_at is not distinct from ?')
+  })
+
+  test('an ambiguous committed write replays from the old cursor without rewriting current ciphertext',async()=>{
+    const first=fixture([definition('code')],[[row({'cf:code':'legacy'})]])
+    const original=first.execute.getMockImplementation()!
+    first.execute.mockImplementation(async(sql,parameters)=>{
+      if(sql.startsWith('select count(*)::text as verified'))throw new Error('connection lost after commit')
+      return original(sql,parameters)
+    })
+    first.options.timestampForWrite=async()=>new Date('2026-01-02T00:00:00Z')
+    first.options.checkpointBatch=jest.fn()
+    await expect(rotateCustomEntityDocuments(first.em,first.options)).rejects.toThrow('after commit')
+    expect(first.updates).toHaveLength(1);expect(first.options.checkpointBatch).not.toHaveBeenCalled()
+    const resumed=fixture([definition('code')],[[row(first.updates[0]!.doc)]])
+    resumed.options.resumeCursor=async()=>['row-000']
+    resumed.options.timestampForBatchWrite=jest.fn()
+    resumed.options.checkpointBatch=jest.fn()
+    await expect(rotateCustomEntityDocuments(resumed.em,resumed.options)).resolves.toBe(0)
+    expect(resumed.updates).toHaveLength(0);expect(resumed.options.timestampForBatchWrite).not.toHaveBeenCalled()
+    expect(resumed.options.checkpointBatch).toHaveBeenCalledWith(expect.objectContaining({cursor:['row-001'],writtenRows:0,readRows:1}))
+  })
+
 })

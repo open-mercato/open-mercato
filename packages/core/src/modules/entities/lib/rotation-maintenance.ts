@@ -18,12 +18,14 @@ export async function* readMaintenanceBatches(
   primaryKeys: string[],
   scope: MaintenanceScope,
   batchSize = MAINTENANCE_BATCH_SIZE,
+  initialCursor?: string[] | null,
 ): AsyncGenerator<MaintenanceRow[]> {
   if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 500) throw new Error('[internal] Invalid maintenance batch size')
   if (!primaryKeys.length) throw new Error('[internal] Maintenance requires a complete primary key')
   const names = [...new Set([...primaryKeys, ...columns])]
   const projection = names.map(quoteMaintenanceIdentifier).join(', ')
-  const keys = primaryKeys.map(quoteMaintenanceIdentifier)
+  const selected = names.map((name) => primaryKeys.includes(name) ? `maintenance_rows.${quoteMaintenanceIdentifier(name)}::text AS ${quoteMaintenanceIdentifier(name)}` : `maintenance_rows.${quoteMaintenanceIdentifier(name)}`).join(', ')
+  const keys = primaryKeys.map((key) => `maintenance_rows.${quoteMaintenanceIdentifier(key)}`)
   const scopeSql = 'tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?'
   const scopeValues = [scope.tenantId, scope.organizationId]
   const oversized = await connection.execute(
@@ -32,11 +34,12 @@ export async function* readMaintenanceBatches(
   )
   if (!Array.isArray(oversized)) throw new Error('[internal] Invalid maintenance size preflight')
   if (oversized.length) throw new Error('[internal] Maintenance row exceeds supported byte limit')
-  let cursor: unknown[] | null = null
+  if (initialCursor && (initialCursor.length !== primaryKeys.length || initialCursor.some(value => typeof value !== 'string' || Buffer.byteLength(value) > 8192))) throw new Error('[internal] Invalid maintenance resume cursor')
+  let cursor: unknown[] | null = initialCursor ?? null
   for (;;) {
     const predicate = cursor ? ` AND (${keys.join(', ')}) > (${keys.map(() => '?').join(', ')})` : ''
     const result = await connection.execute(
-      `SELECT ${projection} FROM ${table} WHERE ${scopeSql}${predicate} ORDER BY ${keys.join(', ')} LIMIT ${batchSize}`,
+      `SELECT ${selected} FROM ${table} AS maintenance_rows WHERE ${scopeSql}${predicate} ORDER BY ${keys.join(', ')} LIMIT ${batchSize}`,
       [...scopeValues, ...(cursor ?? [])],
     )
     if (!Array.isArray(result)) throw new Error('[internal] Invalid maintenance batch')

@@ -194,7 +194,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
     const memberships = await query<{ payload: string }>("SELECT jsonb_build_array(roleid::text,member::text,admin_option)::text AS payload FROM pg_auth_members ORDER BY roleid,member LIMIT 10001")
     if (roles.length > 10000 || memberships.length > 10000) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
     const schema = digest(JSON.stringify([metadata, policies, ownership, roles, memberships]))
-    return { database: digest(JSON.stringify(identity[0])), scope: JSON.stringify({ tenantId: context.tenantId, organizationId: context.organizationId, excludedSystemEntities: [...systemEntities].sort(), emptyMaps: emptyMaps.sort() }), schema, coverage: digest(JSON.stringify([controls, definitions, orderedTables, hashForLookup('rotation-verification-lookup-configuration-v1')])), provider: options.provider, backupDigest: options.backupDigest }
+    return { database: digest(JSON.stringify(identity[0])), scope: JSON.stringify({ tenantId: context.tenantId, organizationId: context.organizationId, excludedSystemEntities: [...systemEntities].sort((left, right) => left < right ? -1 : left > right ? 1 : 0), emptyMaps: emptyMaps.sort((left, right) => left < right ? -1 : left > right ? 1 : 0) }), schema, coverage: digest(JSON.stringify([controls, definitions, orderedTables, hashForLookup('rotation-verification-lookup-configuration-v1')])), provider: options.provider, backupDigest: options.backupDigest }
   }
   const decode = async (value: string, tenantId: string, phase: 'before' | 'after'): Promise<string> => {
     const key = await providers.kms.getTenantDek(tenantId)

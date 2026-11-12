@@ -10,7 +10,8 @@ import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption
 import { EncryptionMap, CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { rotateCustomEntityDocuments } from '@open-mercato/core/modules/entities/lib/rotate-custom-entity-documents'
 import { readMaintenanceBatches, writeMaintenanceRow, verifyMaintenanceBatch } from '@open-mercato/core/modules/entities/lib/rotation-maintenance'
-import { createBackup, verifyBackup, createPostgresSource } from '../../engine'
+import { createBackup, verifyBackup, createPostgresSource, type ProgressEvent } from '../../engine'
+import { progressRenderer } from '../../engine/progress'
 import { generateX25519Identity, identityToRecipient } from '../../engine/crypto'
 import { createEnterpriseRotationProtection } from '../coordinator'
 import { createPostgresRotationDataset } from '../postgres-dataset'
@@ -95,20 +96,23 @@ async function main() {
   await writeFile(native.serviceFile, `[source]\nhost=127.0.0.1\nport=5432\ndbname=${database}\nuser=postgres\nsslmode=disable\n`, { mode: 0o600 })
   await writeFile(native.passwordFile, `*:*:*:postgres:${process.env.POSTGRES_PASSWORD}\n`, { mode: 0o600 })
   let scanAfterOwnMs = 0; let scanBeforeOwnMs = 0; let loadIntentMs = 0
+  let progressCpuMicros = 0
+  const renderer = progressRenderer('plain')
+  const progress = (event: ProgressEvent) => { const cpu = process.cpuUsage(); renderer(event); const spent = process.cpuUsage(cpu); progressCpuMicros += spent.user + spent.system }
   let intentMs = 0
   let backupMs = 0; let verifyBackupMs = 0; let rotationMs = 0; let baselineMs = 0; let finalMs = 0
   let baseDataset: Awaited<ReturnType<typeof createPostgresRotationDataset>> | undefined
   const protection = createEnterpriseRotationProtection({
     artifactRoot: `${root}/rotation-artifacts`, trustRoot: `${root}/rotation-trust`, assertEntitlement: async () => {}, providers: async () => pinned,
     async dataset(input, providers, backupDigest, intents) {
-      baseDataset ??= await createPostgresRotationDataset({ context: input, providers, provider: pinned.provider, backupDigest, intents: { load: async identity => { const started = performance.now(); try { return await intents.load(identity) } finally { loadIntentMs += performance.now() - started } } } })
+      baseDataset ??= await createPostgresRotationDataset({ context: input, providers, provider: pinned.provider, backupDigest, progress, intents: { load: async identity => { const started = performance.now(); try { return await intents.load(identity) } finally { loadIntentMs += performance.now() - started } } } })
       const dataset = baseDataset
       return { ...dataset, async binding() { return { ...await dataset.binding(), backupDigest } }, async *rows(phase, signal) { const started = performance.now(); try { const iterator = dataset.rows(phase, signal)[Symbol.asyncIterator](); for (;;) { const began = performance.now(); const next = await iterator.next(); const elapsed = performance.now() - began; if (phase === 'before') scanBeforeOwnMs += elapsed; else scanAfterOwnMs += elapsed; if (next.done) break; yield next.value } } finally { if (phase === 'before') baselineMs += performance.now() - started; else finalMs += performance.now() - started } } }
     },
     recovery: {
       async create(_input, databaseBinding) {
         const started = performance.now()
-        const result = await createBackup({ source: createPostgresSource(native), output: `${root}/backups`, workspace: `${root}/workspace`, recipients, requireEncryption: true, quiesced: true, reserveBytes: 0n })
+        const result = await createBackup({ source: createPostgresSource(native), output: `${root}/backups`, workspace: `${root}/workspace`, recipients, requireEncryption: true, quiesced: true, reserveBytes: 0n, progress })
         backupMs = performance.now() - started
         console.log(JSON.stringify({ phase: 'backup-created', gib, elapsedMs: Math.round(backupMs), rssMiB: Math.round(peak / 1024 / 1024) }))
         if (result.sourceIdentityDigest !== databaseBinding || result.consistency !== 'quiesced') throw new Error('Backup identity/consistency mismatch')
@@ -116,7 +120,7 @@ async function main() {
       },
       async verify(artifact) {
         const started = performance.now()
-        const result = await verifyBackup({ artifact: artifact.artifactPath, trustedManifestSha256: artifact.digest, identities: [identity] })
+        const result = await verifyBackup({ artifact: artifact.artifactPath, trustedManifestSha256: artifact.digest, identities: [identity], binariesDir: native.binariesDir, workspace: `${root}/workspace` })
         if (createHash('sha256').update(JSON.stringify(result.index.identity)).digest('hex') !== artifact.databaseBinding) throw new Error('Wrong database backup')
         verifyBackupMs += performance.now() - started
       },
@@ -124,11 +128,14 @@ async function main() {
     cipher: async () => createRotationArtifactCipher(recipients, [identity]),
     async report(result) { if (result.comparedRows !== String(perKindRows * 2)) throw new Error('Incomplete final coverage') },
   })
-  const started = performance.now()
+  const started = performance.now(); const cpuStarted = process.cpuUsage()
   await protection.protect(context, async (providers) => {
     if (!providers) throw new Error('No pinned providers')
     const start = performance.now()
-    for await (const rows of readMaintenanceBatches(connection, '"public"."bench_records"', ['secret'], ['id'], { tenantId, organizationId: null }, providers.batchSize)) {
+    const mapId = (await client.query('SELECT id::text FROM encryption_maps LIMIT 1')).rows[0].id
+    const operationId = JSON.stringify(['mapped-v1', mapId, 'public', 'bench_records', tenantId, null])
+    const resumed = await providers.resumeCursor?.(operationId)
+    for await (const rows of readMaintenanceBatches(connection, '"public"."bench_records"', ['secret'], ['id'], { tenantId, organizationId: null }, providers.batchSize, resumed)) {
       const writes: Array<{ row: Record<string, unknown>; updates: Record<string, unknown> }> = []
       for (const row of rows) {
         const plaintext = decryptWithAesGcm(String(row.secret), sourceKey)
@@ -138,12 +145,14 @@ async function main() {
         writes.push({ row, updates })
       }
       await verifyMaintenanceBatch(connection, '"public"."bench_records"', ['id'], writes, { tenantId, organizationId: null })
+      await providers.checkpointBatch?.({ operationId, cursor: [String(rows[rows.length - 1]!.id)], readRows: rows.length, writtenRows: writes.length })
     }
-    await rotateCustomEntityDocuments(em, { encryptionService: new TenantDataEncryptionService(em, { kms: providers.kms }), oldKms: providers.previousKms, tenantId, organizationId: null, dryRun: false, batchSize: providers.batchSize, timestampForBatchWrite: providers.timestampForBatchWrite ? async (intents) => { const started = performance.now(); try { return await providers.timestampForBatchWrite!(intents) } finally { intentMs += performance.now() - started } } : undefined, timestampForWrite: providers.timestampForWrite })
+    await rotateCustomEntityDocuments(em, { encryptionService: new TenantDataEncryptionService(em, { kms: providers.kms }), oldKms: providers.previousKms, tenantId, organizationId: null, dryRun: false, batchSize: providers.batchSize, timestampForBatchWrite: providers.timestampForBatchWrite ? async (intents) => { const started = performance.now(); try { return await providers.timestampForBatchWrite!(intents) } finally { intentMs += performance.now() - started } } : undefined, timestampForWrite: providers.timestampForWrite, resumeCursor: providers.resumeCursor, checkpointBatch: providers.checkpointBatch })
     rotationMs = performance.now() - start
     console.log(JSON.stringify({ phase: 'rotated', gib, elapsedMs: Math.round(rotationMs), rssMiB: Math.round(peak / 1024 / 1024) }))
   })
   const totalMs = performance.now() - started
+  const totalCpu = process.cpuUsage(cpuStarted); const totalCpuMicros = totalCpu.user + totalCpu.system
   const coordinatorPeak = peak
   clearInterval(sampling)
   const standalone = baseDataset!
@@ -154,7 +163,7 @@ async function main() {
   console.log(JSON.stringify({ phase: 'matched-target-scan', gib, rows: scanned, elapsedMs: Math.round(standaloneMs) }))
   const baselineCost = backupMs + verifyBackupMs + rotationMs - earlyReadbackMs - intentMs
   const overheadMs = totalMs - baselineCost
-  const result = { root, nodeMemoryFlags: process.execArgv, gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, intentMs, finalMs, scanAfterOwnMs, scanBeforeOwnMs, loadIntentMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: finalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: coordinatorPeak / 1024 / 1024, coordinatorRssPass: coordinatorPeak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: process.env.OM_BENCH_CACHE_PROTOCOL ?? 'warm source after isolated seed/ANALYZE; reference scan runs after verification without timestamp-intent lookup', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
+  const result = { root, progressRendererCpuMicros: progressCpuMicros, totalCpuMicros, progressRendererCpuPass: progressCpuMicros <= totalCpuMicros * 0.02, nodeMemoryFlags: process.execArgv, gib, logicalBytes: String(BigInt(perKindRows * 2) * BigInt(payload.length)), rows: scanned, scalarRows: perKindRows, customRows: perKindRows, totalMs, backupMs, verifyBackupMs, rotationMs, baselineMs, earlyReadbackMs, intentMs, finalMs, scanAfterOwnMs, scanBeforeOwnMs, loadIntentMs, standaloneMs, overheadMs, overheadPass: overheadMs <= baselineCost * 0.3 + 30000, finalThroughputPass: finalMs <= standaloneMs / 0.7, coordinatorPeakRssMiB: coordinatorPeak / 1024 / 1024, coordinatorRssPass: coordinatorPeak <= 256 * 1024 * 1024, runner: 'Node24/PostgreSQL16/Docker4CPU8GiB', cacheProtocol: process.env.OM_BENCH_CACHE_PROTOCOL ?? 'warm source after isolated seed/ANALYZE; reference scan runs after verification without timestamp-intent lookup', fixture: '64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage', completePersistedCoverage: true }
   await writeFile(`${root}/rotation-${gib}g-report.json`, JSON.stringify(result, null, 2), { mode: 0o600 })
   console.log(JSON.stringify(result)); clearInterval(sampling); await client.end()
 }

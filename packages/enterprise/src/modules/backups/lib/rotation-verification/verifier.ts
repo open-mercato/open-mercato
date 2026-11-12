@@ -1,15 +1,16 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { canonicalValue, keyedDigest, keyedRowDigest, keyFingerprint, rowIdentity, sameDigest, type VerificationRow } from './canonical'
+import { canonicalValue, keyedDigest, keyedRowDigestAndSize, keyFingerprint, rowIdentity, sameDigest, type VerificationRow } from './canonical'
 import { RotationArtifactStore } from './store'
 
 const headerSchema = z.object({
   schemaVersion: z.literal(1), runId: z.string().uuid(), binding: z.string().length(64),
+  bytes: z.string().regex(/^\d+$/), coverageDigest: z.string().regex(/^[a-f0-9]{64}$/),
   rows: z.number().int().nonnegative(), fields: z.number().int().nonnegative(),
   chunks: z.number().int().nonnegative().max(1_000_000), root: z.string().regex(/^[0-9a-f]{64}$/),
   sourceFingerprint: z.string().length(64), targetFingerprint: z.string().length(64),
 }).strict()
-const expectedSchema = z.array(z.object({ identity: z.string().max(8192), digest: z.string().regex(/^[0-9a-f]{64}$/), fields: z.number().int().nonnegative(), metadata: z.string().regex(/^[0-9a-f]{64}$/) }).strict()).max(500)
+const expectedSchema = z.array(z.object({ identity: z.string().max(8192), digest: z.string().regex(/^[0-9a-f]{64}$/), fields: z.number().int().nonnegative(), bytes: z.number().int().nonnegative().max(1024 * 1024), metadata: z.string().regex(/^[0-9a-f]{64}$/) }).strict()).max(500)
 export type VerificationBinding = { database: string; scope: string; schema: string; coverage: string; provider: string; backupDigest: string }
 export interface RotationDataset {
   maintenanceBatchRows?: number
@@ -19,7 +20,7 @@ export interface RotationDataset {
   keys(): Promise<{ source: string; target: string; provider: string }>
 }
 export type PreparedRotation = { runId: string; trustedHeaderDigest: string }
-export type VerificationResult = { schemaVersion: 1; runId: string; status: 'passed'; expectedRows: string; comparedRows: string; expectedFields: string; comparedFields: string; durationMs: number }
+export type VerificationResult = { schemaVersion: 1; runId: string; status: 'passed'; coordinatorRunId?: string; expectedBytes: string; comparedBytes: string; expectedRows: string; comparedRows: string; expectedFields: string; comparedFields: string; durationMs: number }
 
 function digest(value: Buffer | string): string { return createHash('sha256').update(value).digest('hex') }
 function bindingDigest(binding: VerificationBinding): string {
@@ -43,6 +44,7 @@ export async function prepareRotationVerification(dataset: RotationDataset, stor
   await store.initialize()
   await store.write('run-key', runKey)
   let count = 0
+  let totalBytes = 0n
   let fields = 0
   let chunks = 0
   let previousIdentity: string | null = null
@@ -62,14 +64,16 @@ export async function prepareRotationVerification(dataset: RotationDataset, stor
       const identity = rowIdentity(row)
       if (identity === previousIdentity) throw new Error('[internal] ROTATION_DUPLICATE_IDENTITY')
       previousIdentity = identity
-      records.push({ identity, digest: keyedRowDigest(runKey, row), fields: row.columns.length, metadata: keyedDigest(runKey, 'metadata-v1', canonicalValue(row.metadata ?? {})) })
+      const measured = keyedRowDigestAndSize(runKey, row)
+      totalBytes += BigInt(measured.bytes)
+      records.push({ identity, digest: measured.digest, bytes: measured.bytes, fields: row.columns.length, metadata: keyedDigest(runKey, 'metadata-v1', canonicalValue(row.metadata ?? {})) })
       count++; fields += row.columns.length
       if (records.length === 500) await flush()
     }
     await flush()
     await dataset.assertFence()
     if (!sameDigest(binding, bindingDigest(await dataset.binding()))) throw new Error('[internal] ROTATION_BINDING_CHANGED')
-    const header = Buffer.from(JSON.stringify(headerSchema.parse({ schemaVersion: 1, runId, binding, rows: count, fields, chunks, root: root.digest('hex'), sourceFingerprint, targetFingerprint })))
+    const header = Buffer.from(JSON.stringify(headerSchema.parse({ schemaVersion: 1, runId, binding, bytes: String(totalBytes), coverageDigest: digest(JSON.stringify([bindingValue.scope, bindingValue.schema, bindingValue.coverage])), rows: count, fields, chunks, root: root.digest('hex'), sourceFingerprint, targetFingerprint })))
     await store.write('header', header)
     await store.write('checkpoint', Buffer.from(JSON.stringify({ runId, status: 'prepared' })))
     return { runId, trustedHeaderDigest: digest(header) }
@@ -95,6 +99,7 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
     await store.write('checkpoint', Buffer.from(JSON.stringify({ runId: header.runId, status: 'verifying' })))
     iterator = dataset.rows('after', signal)[Symbol.asyncIterator]()
     let rows = 0
+    let comparedBytes = 0n
     let fields = 0
     const root = createHash('sha256')
     for (let chunk = 0; chunk < header.chunks; chunk++) {
@@ -104,7 +109,8 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
       for (const expected of expectedSchema.parse(JSON.parse(chunkBytes.toString()))) {
         interrupted(signal)
         const next = await iterator.next()
-        if (next.done || rowIdentity(next.value) !== expected.identity || next.value.columns.length !== expected.fields || !sameDigest(expected.digest, keyedRowDigest(runKey, next.value))) throw new Error('[internal] ROTATION_DATA_MISMATCH')
+        const measured = next.done ? undefined : keyedRowDigestAndSize(runKey, next.value)
+        if (next.done || !measured || measured.bytes !== expected.bytes || rowIdentity(next.value) !== expected.identity || next.value.columns.length !== expected.fields || !sameDigest(expected.digest, measured.digest)) throw new Error('[internal] ROTATION_DATA_MISMATCH')
         const metadata = keyedDigest(runKey, 'metadata-v1', canonicalValue(next.value.metadata ?? {}))
         if (!sameDigest(expected.metadata, metadata)) {
           const intent = next.value.metadataIntent
@@ -114,13 +120,13 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
             throw new Error('[internal] ROTATION_METADATA_MISMATCH')
           }
         }
-        rows++; fields += expected.fields
+        rows++; fields += expected.fields; comparedBytes += BigInt(measured.bytes)
       }
     }
-    if (!(await iterator.next()).done || rows !== header.rows || fields !== header.fields || !sameDigest(root.digest('hex'), header.root)) throw new Error('[internal] ROTATION_DATA_MISMATCH')
+    if (!(await iterator.next()).done || rows !== header.rows || fields !== header.fields || String(comparedBytes) !== header.bytes || !sameDigest(root.digest('hex'), header.root)) throw new Error('[internal] ROTATION_DATA_MISMATCH')
     await dataset.assertFence()
     if (!sameDigest(header.binding, bindingDigest(await dataset.binding()))) throw new Error('[internal] ROTATION_BINDING_CHANGED')
-    const result: VerificationResult = { schemaVersion: 1, runId: header.runId, status: 'passed', expectedRows: String(header.rows), comparedRows: String(rows), expectedFields: String(header.fields), comparedFields: String(fields), durationMs: Date.now() - started }
+    const result: VerificationResult = { schemaVersion: 1, runId: header.runId, status: 'passed', expectedBytes: header.bytes, comparedBytes: String(comparedBytes), expectedRows: String(header.rows), comparedRows: String(rows), expectedFields: String(header.fields), comparedFields: String(fields), durationMs: Date.now() - started }
     await store.write('checkpoint', Buffer.from(JSON.stringify(result)))
     return result
   } catch (error) {
@@ -146,14 +152,14 @@ export async function validatePreparedRotation(prepared: PreparedRotation, datas
     if (!sameDigest(header.binding, bindingDigest(binding)) || keys.provider !== binding.provider) throw new Error('[internal] ROTATION_BINDING_CHANGED')
     if (!sameDigest(header.sourceFingerprint, keyFingerprint(runKey, keys.source)) || !sameDigest(header.targetFingerprint, keyFingerprint(runKey, keys.target))) throw new Error('[internal] ROTATION_KEY_CHANGED')
     const root = createHash('sha256')
-    let rows = 0; let fields = 0
+    let rows = 0; let fields = 0; let totalBytes = 0n
     for (let chunk = 0; chunk < header.chunks; chunk++) {
       interrupted(signal)
       const chunkBytes = await store.read(chunkName(chunk))
       root.update(keyedDigest(runKey, `chunk-${chunk}`, chunkBytes))
-      for (const expected of expectedSchema.parse(JSON.parse(chunkBytes.toString()))) { rows++; fields += expected.fields }
+      for (const expected of expectedSchema.parse(JSON.parse(chunkBytes.toString()))) { rows++; fields += expected.fields; totalBytes += BigInt(expected.bytes) }
     }
-    if (rows !== header.rows || fields !== header.fields || !sameDigest(root.digest('hex'), header.root)) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
+    if (rows !== header.rows || fields !== header.fields || String(totalBytes) !== header.bytes || !sameDigest(root.digest('hex'), header.root)) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
     return runKey
   } catch (error) { runKey.fill(0); throw error }
 }

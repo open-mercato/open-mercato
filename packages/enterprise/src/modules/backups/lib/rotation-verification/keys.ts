@@ -44,7 +44,7 @@ export async function pinRotationProviders(
   }
   const sourceIdentity = source.identity; const targetIdentity = target.identity
   const sourceKeys = new Map<string, TenantDek>(); const targetKeys = new Map<string, TenantDek>()
-  for (const tenantId of [...new Set(tenantIds)].sort()) {
+  for (const tenantId of [...new Set(tenantIds)].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)) {
     await checkpoint()
     const old = await readKey(source, tenantId); const next = await readKey(target, tenantId)
     if (timingSafeEqual(keyBytes(old.key), keyBytes(next.key))) throw new Error('[internal] ROTATION_UNCHANGED_KEY')

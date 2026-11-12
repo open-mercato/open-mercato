@@ -14,7 +14,7 @@ import {
 import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { CustomFieldDef } from '../data/entities'
-import type { RotationTimestampIntent } from '@open-mercato/shared/lib/encryption/rotationProtection'
+import type { RotationTimestampIntent, RotationKeyProviders } from '@open-mercato/shared/lib/encryption/rotationProtection'
 import { MAINTENANCE_ROW_BYTES } from './rotation-maintenance'
 
 type RotationOptions = {
@@ -25,6 +25,8 @@ type RotationOptions = {
   dryRun: boolean
   signal?: AbortSignal
   batchSize?: number
+  resumeCursor?: RotationKeyProviders['resumeCursor']
+  checkpointBatch?: RotationKeyProviders['checkpointBatch']
   timestampForBatchWrite?: (intents: RotationTimestampIntent[]) => Promise<Date[]>
   timestampForWrite?: (intent: RotationTimestampIntent) => Promise<Date>
 }
@@ -88,7 +90,10 @@ export async function rotateCustomEntityDocuments(
   }
   const fieldsByScope = new Map<string, DocumentFieldPolicy>()
   const oldDeks = new Map<string, TenantDek | null>()
-  let cursor: string | null = null
+  const operationId = JSON.stringify(['custom-documents-v1', options.tenantId, options.organizationId])
+  const resumedCursor = !options.dryRun && options.resumeCursor ? await options.resumeCursor(operationId) : null
+  if (resumedCursor && (resumedCursor.length !== 1 || typeof resumedCursor[0] !== 'string' || Buffer.byteLength(resumedCursor[0]) > 8192)) throw new Error('[internal] Invalid custom maintenance resume cursor')
+  let cursor: string | null = resumedCursor?.[0] ?? null
   let updated = 0
   for (;;) {
     options.signal?.throwIfAborted()
@@ -116,13 +121,10 @@ export async function rotateCustomEntityDocuments(
       parameters,
     )
     if (!rows.length) break
-    const timestamps = !options.dryRun && options.timestampForBatchWrite ? await options.timestampForBatchWrite(rows.map((row) => {
-      if (!row.tenant_id) throw new Error('[internal] Protected custom maintenance requires an owned tenant scope')
-      return { table: 'custom_entities_storage', identity: row.id, tenantId: row.tenant_id, organizationId: row.organization_id, previousTimestamp: row.updated_at ?? null }
-    })) : undefined
-    if (timestamps && (timestamps.length !== rows.length || timestamps.some((value) => !(value instanceof Date) || !Number.isFinite(value.getTime())))) throw new Error('[internal] Invalid maintenance timestamp batch intent')
     const committedChecks: unknown[][] = []
-    for (const [rowIndex, row] of rows.entries()) {
+    const previouslyUpdated = updated
+    const preparedWrites: Array<{ row: DocumentRow; nextDoc: Record<string, unknown>; tenantId: string }> = []
+    for (const row of rows) {
       options.signal?.throwIfAborted()
       const scopeKey = JSON.stringify([row.entity_type, row.tenant_id, row.organization_id])
       let policy = fieldsByScope.get(scopeKey)
@@ -217,14 +219,22 @@ export async function rotateCustomEntityDocuments(
           ? value.map((entry, index) => mask[index] ? entry : previous[index])
           : value
       }
+      preparedWrites.push({ row, nextDoc, tenantId })
+    }
+    const timestamps = preparedWrites.length && options.timestampForBatchWrite ? await options.timestampForBatchWrite(preparedWrites.map(({row,tenantId}) => ({
+      table: 'custom_entities_storage', identity: row.id, tenantId, organizationId: row.organization_id, previousTimestamp: row.updated_at ?? null,
+    }))) : undefined
+    if (timestamps && (timestamps.length !== preparedWrites.length || timestamps.some((value) => !(value instanceof Date) || !Number.isFinite(value.getTime())))) throw new Error('[internal] Invalid maintenance timestamp batch intent')
+    for (const [rowIndex, {row,nextDoc,tenantId}] of preparedWrites.entries()) {
+      options.signal?.throwIfAborted()
       const intendedTimestamp = timestamps?.[rowIndex] ?? (options.timestampForWrite ? await options.timestampForWrite({
         table: 'custom_entities_storage', identity: row.id, tenantId, organizationId: row.organization_id,
         previousTimestamp: row.updated_at ?? null,
       }) : null)
       if (intendedTimestamp && !Number.isFinite(intendedTimestamp.getTime())) throw new Error('[internal] Invalid maintenance timestamp intent')
       const written = await connection.execute<Array<{ id: string }>>(
-        `update custom_entities_storage set doc = ?::jsonb, updated_at = ${intendedTimestamp ? '?' : 'now()'} where id = ? and entity_type = ? and tenant_id is not distinct from ? and organization_id is not distinct from ? and doc = ?::jsonb returning id`,
-        [JSON.stringify(nextDoc), ...(intendedTimestamp ? [intendedTimestamp] : []), row.id, row.entity_type, tenantId, row.organization_id, JSON.stringify(row.doc)],
+        `update custom_entities_storage set doc = ?::jsonb, updated_at = ${intendedTimestamp ? '?' : 'now()'} where id = ? and entity_type = ? and tenant_id is not distinct from ? and organization_id is not distinct from ? and doc = ?::jsonb${intendedTimestamp ? ' and updated_at is not distinct from ?' : ''} returning id`,
+        [JSON.stringify(nextDoc), ...(intendedTimestamp ? [intendedTimestamp] : []), row.id, row.entity_type, tenantId, row.organization_id, JSON.stringify(row.doc), ...(intendedTimestamp ? [row.updated_at ?? null] : [])],
       )
       if (!written.length) throw new Error('[internal] Custom entity document changed during encryption; retry the operation')
       if (intendedTimestamp) committedChecks.push([row.id, row.entity_type, tenantId, row.organization_id, JSON.stringify(nextDoc), intendedTimestamp])
@@ -238,6 +248,7 @@ export async function rotateCustomEntityDocuments(
       if (committed.length !== 1 || committed[0].verified !== String(committedChecks.length)) throw new Error('[internal] Persisted custom document batch did not match intended values')
     }
     cursor = rows[rows.length - 1]!.id
+    if (!options.dryRun && options.checkpointBatch) await options.checkpointBatch({ operationId, cursor: [cursor], readRows: rows.length, writtenRows: updated - previouslyUpdated })
     if (rows.length < batchSize) break
   }
   return updated

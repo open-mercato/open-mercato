@@ -38,4 +38,11 @@ describe('rotation protection preflight', () => {
     await protectKeyRotation(context, undefined, { protect: async (_context, operation) => { order.push('backup'); await operation(); order.push('verify') } }, async () => { order.push('rotate') })
     expect(order).toEqual(['backup', 'rotate', 'verify'])
   })
+  test('protected maintenance refuses an active outer transaction before calling the service',async()=>{
+    const service={protect:jest.fn()};const operation=jest.fn()
+    const entityManager={isInTransaction:()=>true} as RotationProtectionContext['entityManager']
+    await expect(protectKeyRotation({...context,entityManager},undefined,service,operation)).rejects.toThrow('active transaction')
+    expect(service.protect).not.toHaveBeenCalled();expect(operation).not.toHaveBeenCalled()
+  })
+
 })

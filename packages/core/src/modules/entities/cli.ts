@@ -611,6 +611,8 @@ const rotateEncryptionKey: ModuleCli = {
     const customDocuments = await rotateCustomEntityDocuments(em, {
       encryptionService,
       oldKms,
+      resumeCursor: providers?.resumeCursor,
+      checkpointBatch: providers?.checkpointBatch,
       timestampForWrite: providers?.timestampForWrite,
       timestampForBatchWrite: providers?.timestampForBatchWrite,
       signal: providers?.signal,
@@ -666,6 +668,7 @@ const rotateEncryptionKey: ModuleCli = {
       return available
     }
     const processScope = async (
+      operationId: string,
       entityId: string,
       meta: any,
       fields: Array<{ field: string; hashField?: string | null }>,
@@ -694,7 +697,8 @@ const rotateEncryptionKey: ModuleCli = {
         ? `${quoteMaintenanceIdentifier(schema)}.${quoteMaintenanceIdentifier(tableName)}`
         : quoteMaintenanceIdentifier(tableName)
       let updated = 0
-      for await (const batch of readMaintenanceBatches(conn, qualifiedTable, columnList, primaryKeys, scope, providers?.batchSize)) {
+      const resumedCursor = providers?.resumeCursor ? await providers.resumeCursor(operationId) : null
+      for await (const batch of readMaintenanceBatches(conn, qualifiedTable, columnList, primaryKeys, scope, providers?.batchSize, resumedCursor)) {
       const committedWrites: Array<{ row: Record<string, unknown>; updates: Record<string, unknown> }> = []
       const dekAvailable = dryRun ? await hasExistingDek(scope.tenantId) : true
       // The scope pins one tenant, so the current DEK is the same for every row here.
@@ -803,6 +807,7 @@ const rotateEncryptionKey: ModuleCli = {
         updated += 1
       }
       if (providers && committedWrites.length) await verifyMaintenanceBatch(conn, qualifiedTable, primaryKeys, committedWrites, scope)
+      if (!dryRun && providers?.checkpointBatch) await providers.checkpointBatch({ operationId, cursor: primaryKeys.map((key) => String(batch[batch.length - 1]![key])), readRows: batch.length, writtenRows: committedWrites.length })
       }
       return updated
     }
@@ -812,7 +817,8 @@ const rotateEncryptionKey: ModuleCli = {
       const { entityId, meta, fields, tenantId } = mapMeta
       const scopes = await resolveScopes(tenantId, map.organizationId ? String(map.organizationId) : null)
       for (const scope of scopes) {
-        const updated = await processScope(entityId, meta, fields, scope)
+        const operationId = JSON.stringify(['mapped-v1', String(map.id), meta.schema ?? 'public', meta.tableName, scope.tenantId, scope.organizationId])
+        const updated = await processScope(operationId, entityId, meta, fields, scope)
         if (updated > 0) {
           console.log(
             `${dryRun ? '[dry-run] ' : ''}Encrypted ${updated} record(s) for ${entityId} org=${scope.organizationId ?? 'null'}`

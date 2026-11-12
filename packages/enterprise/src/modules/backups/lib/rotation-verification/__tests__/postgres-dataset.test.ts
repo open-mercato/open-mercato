@@ -1,7 +1,7 @@
 import { Client } from 'pg'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
-import { mkdtemp, rm, mkdir, writeFile, readdir, readFile } from 'node:fs/promises'
+import { mkdtemp, rm, mkdir, writeFile, appendFile, readdir, readFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -16,6 +16,7 @@ import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds
 import { canonicalRotationTimestamp, createPostgresRotationDataset } from '../postgres-dataset'
 import { prepareRotationVerification, verifyRotationData } from '../verifier'
 import { RotationArtifactStore } from '../store'
+import { createPostgresTarget, restoreBackup, verifyBackup, identitiesFromFile } from '../../engine'
 
 const native = process.env.OM_ROTATION_TEST_DATABASE_URL ? describe : describe.skip
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -115,6 +116,7 @@ native('native PostgreSQL persisted verification', () => {
     execFileSync(docker, ['cp', containerFile, `${container}:${containerFile}`])
     execFileSync(docker, ['cp', passwordFile, `${container}:${passwordFile}`])
     for (const name of ['pg_dump', 'pg_restore', 'psql']) await writeFile(join(bin, name), `#!/bin/sh\nexec '${docker}' exec -i -e PGSERVICEFILE='${containerFile}' -e PGPASSFILE='${passwordFile}' '${container}' ${name} "$@"\n`, { mode: 0o700 })
+    await writeFile(join(bin, 'pg_restore'), `#!/bin/sh\nif [ "$1" = "--list" ]; then\n  exec '${docker}' exec -i '${container}' pg_restore --list < "$2"\nfi\nfor file in "$@"; do\n  if [ -f "$file" ]; then\n    '${docker}' exec '${container}' mkdir -p "$(/usr/bin/dirname "$file")"\n    '${docker}' cp "$file" '${container}':"$file"\n  fi\ndone\nexec '${docker}' exec -i -e PGSERVICEFILE='${containerFile}' -e PGPASSFILE='${passwordFile}' '${container}' pg_restore "$@"\n`, { mode: 0o700 })
     const identity = await generateX25519Identity(); const recipient = await identityToRecipient(identity)
     const recipientsFile = join(directory, 'recipients'); const identitiesFile = join(directory, 'identities')
     await writeFile(recipientsFile, recipient+'\n', { mode: 0o600 }); await writeFile(identitiesFile, identity+'\n', { mode: 0o600 })
@@ -151,12 +153,50 @@ native('native PostgreSQL persisted verification', () => {
     await createConfiguredRotationProtection(environment).protect(context, async (providers) => {
       if (!providers) throw new Error('Expected pinned protection')
       await rotate()
-      await rotateCustomEntityDocuments(context.entityManager, { tenantId, organizationId: null, dryRun: false, oldKms: providers.previousKms, encryptionService: new TenantDataEncryptionService(context.entityManager, { kms: providers.kms }), batchSize: providers.batchSize, timestampForBatchWrite: providers.timestampForBatchWrite, timestampForWrite: providers.timestampForWrite })
+      await rotateCustomEntityDocuments(context.entityManager, { tenantId, organizationId: null, dryRun: false, oldKms: providers.previousKms, encryptionService: new TenantDataEncryptionService(context.entityManager, { kms: providers.kms }), batchSize: providers.batchSize, timestampForBatchWrite: providers.timestampForBatchWrite, timestampForWrite: providers.timestampForWrite, resumeCursor: providers.resumeCursor, checkpointBatch: providers.checkpointBatch })
     })
     const row = (await client.query('SELECT doc,updated_at::text FROM custom_entities_storage')).rows[0]
     expect(decryptWithAesGcm(row.doc.secret, target)).toBe('dynamic-secret')
     expect(row.doc.untouched).toEqual({ nested: [null, '日本語'] })
   }, 60000)
+  test('failed persisted verification retains a recoverable encrypted preimage and the prior-DEK canary', async () => {
+    const environment = await runtimeEnvironment()
+    const sourceRow = (await client.query('SELECT id,secret FROM fixture_records ORDER BY id LIMIT 1')).rows[0]
+    const expected = decryptWithAesGcm(sourceRow.secret, source)
+    await expect(createConfiguredRotationProtection(environment).protect(await inputContext(), async () => {
+      await rotate()
+      await client.query('UPDATE fixture_records SET secret=$1 WHERE id=$2', [encryptWithAesGcm('wrong-but-valid', target).value, sourceRow.id])
+    })).rejects.toThrow('ROTATION_DATA_MISMATCH')
+    const reports = await readdir(environment.OM_ROTATION_TRUST_ROOT!)
+    const failure = JSON.parse(await readFile(join(environment.OM_ROTATION_TRUST_ROOT!, reports.find(name => name.includes('.failure.'))!), 'utf8'))
+    expect(failure).toMatchObject({ status: 'failed', errorCode: 'ROTATION_DATA_MISMATCH' })
+    expect(reports.some(name => name.endsWith('.report.json'))).toBe(false)
+    const targetDatabase = `rotation_drill_${randomUUID().replaceAll('-', '')}`
+    await client.query(`CREATE DATABASE "${targetDatabase}" TEMPLATE template0`)
+    try {
+      const service = (port: string) => `\n[target]\nhost=127.0.0.1\nport=${port}\ndbname=${targetDatabase}\nuser=postgres\nsslmode=disable\n`
+      await appendFile(environment.PGSERVICEFILE!, service(base.port))
+      const containerFile = join(directory, 'container.conf'); await appendFile(containerFile, service('5432'))
+      execFileSync('docker', ['cp', containerFile, `${process.env.OM_ROTATION_TEST_CONTAINER ?? 'om-pg-9334-fixture'}:${containerFile}`])
+      const identities = await identitiesFromFile(environment.OM_ROTATION_IDENTITIES_FILE!)
+      const workspace = join(directory, 'restore-workspace'); await mkdir(workspace, { mode: 0o700 })
+      const common = { artifact: failure.recoveryArtifact, trustedManifestSha256: failure.recoveryDigest, identities, binariesDir: environment.OM_BACKUP_BINARIES_DIR!, workspace }
+      const verified = await verifyBackup(common)
+      const restoreTarget = createPostgresTarget({ binariesDir: environment.OM_BACKUP_BINARIES_DIR!, serviceFile: environment.PGSERVICEFILE!, passwordFile: environment.PGPASSFILE!, targetService: 'target' })
+      const confirmation = await restoreTarget.challenge({ backupId: verified.manifest.backupId, manifestSha256: failure.recoveryDigest, sourceIdentity: verified.index.identity })
+      const restored = await restoreBackup({ ...common, target: restoreTarget, confirmation, afterDataVerified: async () => {
+        const url = new URL(base); url.pathname = `/${targetDatabase}`
+        const recovered = new Client({ connectionString: url.toString() }); await recovered.connect()
+        try {
+          const row = (await recovered.query('SELECT secret FROM fixture_records WHERE id=$1', [sourceRow.id])).rows[0]
+          expect(decryptWithAesGcm(row.secret, source)).toBe(expected)
+          expect(decryptWithAesGcm(row.secret, target)).toBeNull()
+        } finally { await recovered.end() }
+        return { keyRecovery: { status: 'passed', testedCanaries: 1 }, checks: [{ type: 'prior-dek-canary', status: 'passed' }] }
+      } })
+      expect(restored).toMatchObject({ status: 'completed', quarantined: true, promotionReady: false })
+    } finally { await client.query(`DROP DATABASE "${targetDatabase}" WITH (FORCE)`) }
+  }, 90000)
   test('plaintext in a custom field requiring encryption refuses before mutation', async () => {
     await customFixture(true)
     const data = await dataset(); const operation = jest.fn()
@@ -233,6 +273,18 @@ native('native PostgreSQL persisted verification', () => {
       await rotate() // deliberately leave the newly mapped second field under the source key
       await expect(verifyRotationData(prepared, data, artifacts)).rejects.toThrow('DATA_MISMATCH')
     } finally { await orm.close(true) }
+  })
+  test('streams a near-limit large encrypted row and rejects an oversized row before mutation', async () => {
+    const id = (await client.query('SELECT id FROM fixture_records ORDER BY id LIMIT 1')).rows[0].id
+    await client.query('UPDATE fixture_records SET secret=$1 WHERE id=$2', [encryptWithAesGcm('x'.repeat(600 * 1024), source).value, id])
+    const data = await dataset(); expect(data.maintenanceBatchRows).toBeLessThanOrEqual(8)
+    const artifacts = store(); const prepared = await prepareRotationVerification(data, artifacts)
+    await rotate()
+    await expect(verifyRotationData(prepared, data, artifacts)).resolves.toMatchObject({ status: 'passed', comparedRows: '19' })
+    await client.query('UPDATE fixture_records SET secret=$1 WHERE id=$2', [encryptWithAesGcm('x'.repeat(1024 * 1024), target).value, id])
+    const mutate = jest.fn()
+    await expect(dataset().then(mutate)).rejects.toThrow('COVERAGE_UNSUPPORTED')
+    expect(mutate).not.toHaveBeenCalled()
   })
   test('refuses an oversized policy binding before loading policy payloads or mutating', async () => {
     await client.query(`CREATE POLICY oversized_binding ON fixture_records USING (secret='${'a'.repeat(4 * 1024 * 1024 + 4096)}')`)

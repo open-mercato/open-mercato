@@ -9,9 +9,18 @@ export type RotationTimestampIntent = {
   previousTimestamp: string | Date | null
 }
 
+export type RotationBatchCheckpoint = {
+  operationId: string
+  cursor: string[]
+  readRows: number
+  writtenRows: number
+}
+
 export type RotationKeyProviders = {
   signal?: AbortSignal
   batchSize?: number
+  resumeCursor?: (operationId: string) => Promise<string[] | null>
+  checkpointBatch?: (checkpoint: RotationBatchCheckpoint) => Promise<void>
   kms: KmsService
   previousKms: KmsService | null
   timestampForBatchWrite?: (intents: RotationTimestampIntent[]) => Promise<Date[]>

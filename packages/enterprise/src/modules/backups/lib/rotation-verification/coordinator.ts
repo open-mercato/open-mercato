@@ -8,6 +8,7 @@ import type { RotationProtectionContext, RotationProtectionService, RotationKeyP
 import { canonicalValue, keyedDigest, sameDigest, type LogicalValue } from './canonical'
 import type { PinnedRotationProviders } from './keys'
 import { canonicalRotationTimestamp } from './postgres-dataset'
+import { RotationCheckpointJournal } from './journal'
 import { RotationArtifactStore, type RotationArtifactCipher } from './store'
 import { prepareRotationVerification, validatePreparedRotation, verifyRotationData, type PreparedRotation, type RotationDataset, type VerificationResult } from './verifier'
 
@@ -28,6 +29,7 @@ export type RotationCoordinatorOptions = {
   }
   cipher(): Promise<RotationArtifactCipher>
   reportRun?(id: string): Promise<void>
+  reportFailure?(code: string, recovery: RecoveryArtifact | undefined, coordinatorRunId: string, status: 'failed' | 'interrupted'): Promise<void>
   report(result: VerificationResult, recovery: RecoveryArtifact): Promise<void>
 }
 
@@ -91,6 +93,7 @@ async function acquireLock(path: string, id: string, resume: boolean) {
 export function createEnterpriseRotationProtection(options: RotationCoordinatorOptions): RotationProtectionService {
   return {
     async protect(context, operation) {
+      if (context.entityManager?.isInTransaction?.() || context.entityManager?.getTransactionContext?.()) throw new Error('[internal] ROTATION_ACTIVE_TRANSACTION_UNSUPPORTED')
       if (context.dryRun) throw new Error('[internal] ROTATION_MUTATING_COORDINATOR_IN_DRY_RUN')
       if (!context.previousKey) throw new Error('[internal] ROTATION_SOURCE_KEY_REQUIRED')
       options.signal?.throwIfAborted()
@@ -108,7 +111,9 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
       const lockPath = join(trustRoot, 'rotation.lock')
       const lock = await acquireLock(lockPath, id, Boolean(options.resumeId))
       let state: State | undefined
+      let pendingRecovery: RecoveryArtifact | undefined
       let runKey: Buffer | undefined
+      let journal: RotationCheckpointJournal | undefined
       try {
         const store = new RotationArtifactStore(join(artifactRoot, id), await options.cipher())
         await lock.writeFile(JSON.stringify({ pid: process.pid, host: hostname(), id, startedAt: new Date().toISOString() })); await lock.sync()
@@ -160,6 +165,7 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
           await options.recovery.verify(state.recovery, context)
         } else {
           const recovery = recoverySchema.parse(await options.recovery.create(context, databaseBinding))
+          pendingRecovery = recovery
           if (recovery.databaseBinding !== databaseBinding) throw new Error('[internal] ROTATION_BACKUP_DATABASE_MISMATCH')
           await options.recovery.verify(recovery, context)
           await initial.assertFence(); await providers.refresh()
@@ -171,6 +177,11 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         const dataset = await options.dataset(context, providers, state.recovery.digest, intents)
         runKey = await validatePreparedRotation(state.prepared, dataset, store, options.signal)
         await dataset.assertFence(); await providers.refresh(); await options.assertEntitlement()
+        journal = new RotationCheckpointJournal(store, join(trustRoot, `${id}-journal.tail`), state.prepared.trustedHeaderDigest, runKey)
+        await journal.initialize(Boolean(options.resumeId) && state.status !== 'prepared')
+        providers.resumeCursor = async operationId => journal!.cursor(operationId)
+        providers.checkpointBatch = checkpoint => journal!.batch(checkpoint)
+        await journal.append({ kind: 'phase', status: 'rotating' })
         state.status = 'rotating'; await publishState(trustPath, state)
         const identityFor = (intent: RotationTimestampIntent) => {
           const entity = intent.table.includes('.') ? intent.table : `public.${intent.table}`
@@ -220,14 +231,19 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         await operation(providers)
         await intentQueue
         await options.assertEntitlement(); await dataset.assertFence(); await providers.refresh()
+        await journal.append({ kind: 'phase', status: 'verifying' })
         state.status = 'verifying'; await publishState(trustPath, state)
         const result = await verifyRotationData(state.prepared as PreparedRotation, dataset, store, options.signal)
         await options.assertEntitlement()
-        await options.report(result, state.recovery)
+        await options.report({ ...result, coordinatorRunId: id }, state.recovery)
+        await journal.append({ kind: 'phase', status: 'passed' })
         state.status = 'passed'; await publishState(trustPath, state)
       } catch (error) {
+        const code = error instanceof Error ? error.message.match(/\bROTATION_[A-Z_]+\b/)?.[0] ?? 'ROTATION_FAILED' : 'ROTATION_FAILED'
+        await options.reportFailure?.(code, state?.recovery ?? pendingRecovery, id, options.signal?.aborted ? 'interrupted' : 'failed').catch(() => undefined)
         if (state) {
           state.status = options.signal?.aborted ? 'interrupted' : 'failed'
+          await journal?.append({ kind: 'phase', status: state.status, code }).catch(() => undefined)
           await publishState(trustPath, state)
         }
         throw error

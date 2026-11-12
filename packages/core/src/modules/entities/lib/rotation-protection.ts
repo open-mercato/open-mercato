@@ -18,6 +18,7 @@ export async function protectKeyRotation(
   }
   if (service) {
     if (typeof service.protect !== 'function') throw new Error('[internal] Rotation protection service is invalid')
+    if (context.entityManager?.isInTransaction?.() || context.entityManager?.getTransactionContext?.()) throw new Error('[internal] Protected key rotation requires committed maintenance writes outside an active transaction')
     return service.protect(context, operation)
   }
   const { translate } = await resolveTranslations()

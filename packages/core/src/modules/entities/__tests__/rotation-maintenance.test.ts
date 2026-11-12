@@ -8,7 +8,7 @@ describe('bounded scoped maintenance', () => {
     const batches = []
     for await (const rows of readMaintenanceBatches({ execute }, '"records"', ['value'], ['shard', 'id'], scope)) batches.push(rows)
     expect(batches.flat()).toHaveLength(MAINTENANCE_BATCH_SIZE + 1)
-    expect(execute.mock.calls[2][0]).toContain('("shard", "id") > (?, ?)')
+    expect(execute.mock.calls[2][0]).toContain('(maintenance_rows."shard", maintenance_rows."id") > (?, ?)')
     expect(execute.mock.calls[2][1]).toEqual(['tenant-a', null, 'a', MAINTENANCE_BATCH_SIZE - 1])
   })
   test('refuses oversized data before fetching row contents', async () => {
@@ -43,4 +43,18 @@ describe('bounded scoped maintenance', () => {
     execute.mockResolvedValue([])
     await expect(writeMaintenanceRow({ execute }, '"records"', ['id'], { id: 1, value: 'before' }, { value: 'after' }, scope)).rejects.toThrow('changed concurrently')
   })
+  test('resumes from exact composite text values while ordering native base columns', async () => {
+    const execute=jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{shard:'9007199254740993',id:'2026-01-01 01:02:03.123456+00'}])
+    const after=['9007199254740992','2026-01-01 01:02:03.000001+00']
+    for await(const _batch of readMaintenanceBatches({execute},'"records"',['value'],['shard','id'],scope,8,after)) {}
+    expect(execute.mock.calls[1][0]).toContain('maintenance_rows."id"::text AS "id"')
+    expect(execute.mock.calls[1][0]).toContain('ORDER BY maintenance_rows."shard", maintenance_rows."id"')
+    expect(execute.mock.calls[1][1]).toEqual(['tenant-a',null,...after])
+  })
+  test('invalid resume identity shape refuses before fetching rows', async()=>{
+    const execute=jest.fn().mockResolvedValue([])
+    await expect((async()=>{for await(const _batch of readMaintenanceBatches({execute},'"records"',['value'],['shard','id'],scope,8,['only-one'])){}})()).rejects.toThrow('resume cursor')
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
 })

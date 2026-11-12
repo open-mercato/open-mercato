@@ -20,7 +20,7 @@ export class RotationArtifactStore {
   }
 
   private path(name: string): string {
-    if (!/^(header|run-key|checkpoint|chunk-[0-9]{12}|intent-[a-f0-9]{64})$/.test(name)) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
+    if (!/^(header|run-key|checkpoint|chunk-[0-9]{12}|journal-[0-9]{12}|intent-[a-f0-9]{64})$/.test(name)) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
     return join(this.directory, `${name}.age`)
   }
 
@@ -54,7 +54,19 @@ export class RotationArtifactStore {
     await this.fileIdentity(name)
     const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
-      const plaintext = Buffer.from(await this.cipher.open(await file.readFile()))
+      // Validate the opened inode, then cap reads even if mutable artifact custody
+      // replaces or grows a regular file concurrently.
+      const info = await file.stat()
+      if (!info.isFile() || info.size > 9 * 1024 * 1024 || (info.mode & 0o077) !== 0 || info.uid !== process.getuid?.()) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
+      const ciphertext = Buffer.alloc(info.size + 1)
+      let offset = 0
+      while (offset < ciphertext.length) {
+        const { bytesRead } = await file.read(ciphertext, offset, ciphertext.length - offset, null)
+        if (!bytesRead) break
+        offset += bytesRead
+      }
+      if (offset !== info.size) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
+      const plaintext = Buffer.from(await this.cipher.open(ciphertext.subarray(0, offset)))
       if (plaintext.length > 8 * 1024 * 1024) throw new Error('[internal] ROTATION_ARTIFACT_LIMIT')
       return plaintext
     } finally { await file.close() }

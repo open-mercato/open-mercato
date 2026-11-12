@@ -187,3 +187,11 @@ test('rights lost during the final persisted scan cannot publish success', async
   await expect(createEnterpriseRotationProtection(options).protect(context, async () => {})).rejects.toThrow('entitlement')
   expect(state.reports).toBe(0)
 })
+
+
+test('direct protected callers cannot checkpoint writes hidden inside an outer transaction', async () => {
+  const { state, options, context } = fixture()
+  context.entityManager = { isInTransaction: () => true } as unknown as EntityManager
+  await expect(createEnterpriseRotationProtection(options).protect(context, async () => { state.mutated = true })).rejects.toThrow('ACTIVE_TRANSACTION_UNSUPPORTED')
+  expect(state.creates).toBe(0); expect(state.mutated).toBe(false)
+})

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { isAbsolute, join } from 'node:path'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -9,7 +9,7 @@ import { progressRenderer } from '../engine/progress'
 import { createRotationArtifactCipher } from './age'
 import { createEnterpriseRotationProtection } from './coordinator'
 import { pinRotationProviders } from './keys'
-import { publishRotationReport } from './report'
+import { publishRotationReport, publishRotationFailureReport } from './report'
 import { createPostgresRotationDataset } from './postgres-dataset'
 
 function required(environment: NodeJS.ProcessEnv, name: string): string {
@@ -94,12 +94,15 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
               return { artifactPath: backup.artifactPath, digest: backup.manifestSha256, databaseBinding, consistency: 'quiesced', encrypted: true }
             },
             async verify(artifact) {
-              const verified = await verifyBackup({ artifact: artifact.artifactPath, trustedManifestSha256: artifact.digest, identities, signal: controller.signal })
+              const verified = await verifyBackup({ artifact: artifact.artifactPath, trustedManifestSha256: artifact.digest, identities, signal: controller.signal, binariesDir: native.binariesDir, workspace: path(environment, 'OM_ROTATION_BACKUP_WORKSPACE') })
               if (verified.manifest.encryption.mode !== 'age-v1' || verified.manifest.consistency.mode !== 'quiesced' || createHash('sha256').update(JSON.stringify(verified.index.identity)).digest('hex') !== artifact.databaseBinding) throw new Error('[internal] ROTATION_BACKUP_DATABASE_MISMATCH')
             },
           },
           async cipher() { return createRotationArtifactCipher(recipients, identities) },
           async reportRun(id) { runId = id; console.error(`${translate('backups.rotation.runPrepared', 'Protected rotation run; retain this identifier for an explicit resume:')} ${id}`) },
+          async reportFailure(code, recovery, coordinatorRunId, status) {
+            await publishRotationFailureReport(join(path(environment, 'OM_ROTATION_TRUST_ROOT'), `${coordinatorRunId}.failure.${randomUUID()}.json`), code, recovery, coordinatorRunId, status)
+          },
           async report(result, recovery) {
             const reportPath = join(path(environment, 'OM_ROTATION_TRUST_ROOT'), `${result.runId}.report.json`)
             await publishRotationReport(reportPath, result, recovery)

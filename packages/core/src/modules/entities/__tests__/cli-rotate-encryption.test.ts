@@ -2,6 +2,7 @@
 import { CustomFieldDef, EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import type { RotationProtectionService, RotationKeyProviders } from '@open-mercato/shared/lib/encryption/rotationProtection'
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
 // Register mock entity IDs for the test
@@ -11,6 +12,7 @@ registerEntityIds({
   },
 } as any)
 
+let mockProtectionService: RotationProtectionService | undefined
 const execute = jest.fn()
 const find = jest.fn()
 const getAllMetadata = jest.fn()
@@ -71,7 +73,7 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
-    resolve: (name: string) => name === 'rotationProtectionService' ? undefined : ({
+    resolve: (name: string) => name === 'rotationProtectionService' ? mockProtectionService : ({
       getConnection: () => ({ execute }),
       getMetadata: () => ({
         getAll: () => getAllMetadata(),
@@ -107,6 +109,7 @@ describe('entities rotate-encryption-key CLI', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockProtectionService = undefined
     execute.mockReset()
     execute.mockImplementation(async (sql: string) => sql.includes('RETURNING') ? [{ id: 'row-1' }] : [])
     getAllMetadata.mockReturnValue([accessLogMetadata])
@@ -549,6 +552,20 @@ describe('entities rotate-encryption-key CLI', () => {
     await expect(rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1'])).rejects.toThrow('changed concurrently')
     expect(execute.mock.calls[2][0]).toContain('IS NOT DISTINCT FROM ?')
     expect(execute.mock.calls[2][1]).toContain('plain-value')
+  })
+
+  it('resumes the mapped native cursor and checkpoints only after committed batch readback',async()=>{
+    singleMapFixture()
+    const checkpointBatch=jest.fn(async()=>{
+      expect(execute.mock.calls[execute.mock.calls.length-1]![0]).toContain('count(*)::text AS verified')
+    })
+    const kms={isHealthy:()=>true,getTenantDek:async()=>({tenantId:'tenant-1',key:'new-key',fetchedAt:0}),createTenantDek:async()=>null}
+    const providers:RotationKeyProviders={kms,previousKms:null,resumeCursor:async()=>['row-000'],checkpointBatch}
+    mockProtectionService={protect:async(_context,operation)=>operation(providers)}
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([{id:'row-002',resource_id:'plain-value',context_json:null}]).mockResolvedValueOnce([{id:'row-002'}]).mockResolvedValueOnce([{verified:'1'}])
+    await cli.find(entry=>entry.command==='rotate-encryption-key')!.run(['--tenant','tenant-1','--org','org-1'])
+    expect(execute.mock.calls[1]![1]).toContain('row-000')
+    expect(checkpointBatch).toHaveBeenCalledWith(expect.objectContaining({cursor:['row-002'],readRows:1,writtenRows:1}))
   })
 
 })
