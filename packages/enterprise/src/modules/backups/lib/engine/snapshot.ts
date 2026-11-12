@@ -8,3 +8,9 @@ export function classifyBoundary(previous: { identity: DatabaseIdentity; evidenc
     && previous.evidence.xipList.length === 0 && next.evidence.xipList.length === 0
     ? 'quiesced' : 'multi-snapshot'
 }
+
+/** Physical-origin collision checks intentionally survive server lifetime/timeline changes. */
+export function samePhysicalDatabase(left:DatabaseIdentity,right:DatabaseIdentity):boolean{
+  const origin=(identity:DatabaseIdentity)=>/^[0-9]+:[0-9]+:(primary|recovery)(:[0-9]+)?$/.test(identity.clusterIncarnation)?identity.clusterIncarnation.split(':')[0]:identity.clusterIncarnation
+  return left.databaseOid===right.databaseOid&&origin(left)===origin(right)
+}

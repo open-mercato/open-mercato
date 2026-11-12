@@ -9,7 +9,7 @@ import type { RestoreTarget } from '../lib/engine/types'
 import { createBackup } from '../lib/engine/create'
 import { verifyBackup as verifyNativeBackup, type VerifyBackupOptions } from '../lib/engine/verify'
 import { encryptBytes, decryptBytes, generateX25519Identity, identityToRecipient } from '../lib/engine/crypto'
-import { classifyBoundary } from '../lib/engine/snapshot'
+import { classifyBoundary, samePhysicalDatabase } from '../lib/engine/snapshot'
 import { partialBackupDigest } from '../lib/engine/partial-trust'
 import { BackupError } from '../lib/engine/errors'
 import { Journal } from '../lib/engine/journal'
@@ -209,6 +209,37 @@ describe('encrypted recovery artifacts', () => {
     ]}}
     await expect(restoreBackup({schemaInspector:fixtureSchemaInspector,artifact:backup.artifactPath,trustedManifestSha256:backup.manifestSha256,identities:[escrow],workspace:join(root,'worker-failure'),confirmation:'CONFIRM',target,jobs:2})).rejects.toThrow('BACKUP_TEST_INTEGRITY')
     expect(peerChunks).toHaveBeenCalledTimes(1);expect(closed).toHaveBeenCalledTimes(2);expect(foreignKeys).not.toHaveBeenCalled()
+  })
+  test('quiesced keyset resume preserves and authenticates the committed prefix and rebases suffix sequence',async()=>{
+    let fail=true;const requests:({after?:string[];retainedRows?:string})[]=[]
+    const fixture=source(),open=fixture.open.bind(fixture)
+    fixture.open=async()=>{const snapshot=await open();snapshot.entities=[{...entity('e0001'),estimatedRows:'6'}];snapshot.chunks=async function*(row,request){requests.push(request);const start=Number(request.after?.[0]??0);if(start)expect(request.retainedRows).toBe(String(start));for(let tail=start+2,sequence=0;tail<=6;tail+=2,sequence++){yield {sequence,rows:'2',keyFrom:tail===2?undefined:[String(tail-2)],keyTo:[String(tail)],stream:(async function*(){yield Buffer.from(`rows-through-${tail}`)})()};if(fail&&tail===4)throw new Error('durable prefix interruption')}};return snapshot}
+    await expect(createBackup({...options(),source:fixture,quiesced:true})).rejects.toThrow()
+    const partial=(await readdir(join(root,'out'))).find(name=>name.endsWith('.partial'))!,id=partial.slice(1,-8)
+    const prefix=await readFile(join(root,'out',partial,'data/e0001/0.chunk'))
+    fail=false
+    const result=await createBackup({...options(),source:fixture,quiesced:true,resume:id})
+    expect(requests.at(-1)).toMatchObject({after:['4'],retainedRows:'4'})
+    expect(await readFile(join(result.artifactPath,'data/e0001/0.chunk'))).toEqual(prefix)
+    const artifact=await verifyBackup({artifact:result.artifactPath,trustedManifestSha256:result.manifestSha256,identities:[escrow]})
+    expect(artifact.index.chunks.filter(chunk=>chunk.entityKey).map(chunk=>chunk.sequence)).toEqual([0,1,2])
+    expect(artifact.index.chunks.filter(chunk=>chunk.entityKey).reduce((sum,chunk)=>sum+Number(chunk.rows),0)).toBe(6)
+  })
+  test('damaged retained ciphertext refuses resume before a new epoch mutates its authenticated journal',async()=>{
+    await expect(createBackup({...options(),source:source({fail:'e0002'})})).rejects.toThrow()
+    const partial=(await readdir(join(root,'out'))).find(name=>name.endsWith('.partial'))!,directory=join(root,'out',partial)
+    const journal=await readFile(join(directory,'journal.jsonl'))
+    await writeFile(join(directory,'data/e0001/0.chunk'),Buffer.from('corrupted ciphertext'))
+    const reopened=jest.fn(async()=>{throw new Error('must not reopen source')})
+    await expect(createBackup({...options(),source:{open:reopened,async close(){}},resume:partial.slice(1,-8)})).rejects.toThrow('RETAINED_CHUNK_INTEGRITY')
+    expect(reopened).not.toHaveBeenCalled();expect(await readFile(join(directory,'journal.jsonl'))).toEqual(journal)
+  })
+  test('postmaster lifetime changes refuse quiesced prefix proof without weakening physical source collision checks',()=>{
+    const old={...identity,clusterIncarnation:'123456:1:primary'},current={...identity,clusterIncarnation:'123456:1:primary:1760000000000000'}
+    expect(samePhysicalDatabase(old,current)).toBe(true)
+    expect(samePhysicalDatabase(current,{...current,clusterIncarnation:'123456:2:recovery:1761000000000000'})).toBe(true)
+    expect(samePhysicalDatabase(current,{...current,databaseOid:'200'})).toBe(false)
+    expect(classifyBoundary({identity:current,evidence},{identity:{...current,clusterIncarnation:'123456:1:primary:1761000000000000'},evidence},'quiesced')).toBe('multi-snapshot')
   })
   test('a bounded worker connection retry reuses the held snapshot and restarts that entity exactly once', async () => {
     const fixture=source();const open=fixture.open.bind(fixture);let attempts=0

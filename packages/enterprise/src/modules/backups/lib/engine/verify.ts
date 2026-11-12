@@ -54,7 +54,7 @@ export async function* authenticatedChunk(options: VerifyBackupOptions, manifest
   const hash = createHash('sha256')
   let cipherBytes = 0n
   async function* input() {
-    for await (const block of createReadStream(path, { highWaterMark: 1024 * 1024 })) {
+    for await (const block of createReadStream(path, { highWaterMark: 256 * 1024 })) {
       checkAbort(options.signal)
       cipherBytes += BigInt(block.byteLength)
       if (cipherBytes > BigInt(chunk.cipherBytes)) throw new BackupError('BACKUP_CHUNK_INTEGRITY_FAILED', 4)
@@ -74,7 +74,7 @@ export async function* authenticatedChunk(options: VerifyBackupOptions, manifest
 export async function* verifiedChunk(options: VerifyBackupOptions, manifest: Manifest, chunk: Chunk): ByteStream {
   let plainBytes = 0n
   try {
-    for await (const block of transform(authenticatedChunk(options, manifest, chunk), createGunzip({ chunkSize: 1024 * 1024 }))) {
+    for await (const block of transform(authenticatedChunk(options, manifest, chunk), createGunzip({ chunkSize: 256 * 1024 }))) {
       plainBytes += BigInt(block.byteLength)
       if (plainBytes > BigInt(chunk.plainBytes)) throw new BackupError('BACKUP_CHUNK_INTEGRITY_FAILED', 4)
       yield block

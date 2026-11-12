@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { parseArgs } from 'node:util'
 import { createInterface } from 'node:readline/promises'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -21,6 +22,9 @@ import { backupTranslation } from '../locale'
 import type { NativeOptions, BackupSource, RestoreTarget } from '../types'
 
 export async function runBackupCli(argv: string[], io: { stdout: (text: string) => void; stderr: (text: string) => void; appWrapper?: boolean; labels?: Record<string, string>; signal?: AbortSignal; sourceFactory?: (options: NativeOptions) => BackupSource; targetFactory?: (options: NativeOptions) => RestoreTarget } = { stdout: (text) => process.stdout.write(text), stderr: (text) => process.stderr.write(text) }): Promise<number> {
+  const requestId=randomUUID()
+  const commands=['preflight','create','status','verify','restore','exercise','help']
+  let command=commands.includes(argv[0])?argv[0]:'unknown'
   let json = argv.includes('--json')
   const abort = new AbortController()
   const signal = io.signal ? AbortSignal.any([abort.signal, io.signal]) : abort.signal
@@ -41,10 +45,11 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     } })
     const values = parsed.values
     json = Boolean(values.json)
-    const command = parsed.positionals[0] ?? 'help'
+    const candidate=parsed.positionals[0]??'help'
+    command=commands.includes(candidate)?candidate:'unknown'
     if (io.appWrapper && json) throw new BackupError('BACKUP_USE_STANDALONE_FOR_JSON', 2)
     if (values.help || command === 'help') {
-      io.stdout(json ? JSON.stringify({ schemaVersion: 1, command: 'help', status: 'completed', help: backupTranslation('backups.cli.help'), warnings: [] }) + '\n' : backupTranslation('backups.cli.help') + '\n')
+      io.stdout(json ? JSON.stringify({ schemaVersion: 1, command: 'help', runId:requestId, status: 'completed', help: backupTranslation('backups.cli.help'), warnings: [] }) + '\n' : backupTranslation('backups.cli.help') + '\n')
       return 0
     }
     if (io.appWrapper && json) throw new BackupError('BACKUP_USE_STANDALONE_FOR_JSON', 2)
@@ -110,7 +115,8 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
       result = command === 'exercise' ? await exerciseBackup({ ...shared, checksFile: required('checks-file'), canaryKeysFile: typeof values['canary-keys-file'] === 'string' ? values['canary-keys-file'] : undefined }) : await restoreBackup(shared)
     } else throw new BackupError('BACKUP_UNKNOWN_COMMAND', 2)
     const unencrypted = result && typeof result === 'object' && 'encryption' in result && result.encryption === 'none'
-    io.stdout(JSON.stringify({ schemaVersion: 1, command, status: 'completed', warnings: unencrypted ? ['UNENCRYPTED'] : [], ...result as object }) + '\n')
+    const identifiers=result as {restoreRunId?:string;backupId?:string}
+    io.stdout(JSON.stringify({ schemaVersion: 1, command, status: 'completed', warnings: unencrypted ? ['UNENCRYPTED'] : [], ...result as object,runId:identifiers.restoreRunId??identifiers.backupId??requestId }) + '\n')
     return 0
   } catch (error) {
     const inputFailure = error && typeof error === 'object' && (('code' in error && String(error.code).startsWith('ERR_PARSE_ARGS')) || ('name' in error && ['ZodError', 'SyntaxError'].includes(String(error.name))))
@@ -118,7 +124,7 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     if (error instanceof BackupError && signal.aborted) failure.context = error.context
     createLogger('backups').error('[internal] Backup command failed', { code: failure.code })
     reportError(new Error(`[internal] ${failure.code}`), { module: 'backups', code: 'backups.command_failed', attributes: { failure_code: failure.code } })
-    const output = { schemaVersion: 1, status: [130, 143].includes(failure.exitCode) ? 'interrupted' : failure.resumable ? 'resumable' : failure.exitCode === 2 || failure.exitCode === 3 ? 'refused' : 'failed', error: { code: failure.code, messageKey: 'backups.cli.error' }, warnings: [], ...failure.context }
+    const output = { schemaVersion: 1, command,runId:failure.context.restoreRunId??failure.context.backupId??requestId,status: [130, 143].includes(failure.exitCode) ? 'interrupted' : failure.resumable ? 'resumable' : failure.exitCode === 2 || failure.exitCode === 3 ? 'refused' : 'failed', error: { code: failure.code, messageKey: 'backups.cli.error' }, warnings: [], ...failure.context }
     if (json) io.stdout(JSON.stringify(output) + '\n')
     else io.stderr(`${backupTranslation('backups.cli.error')} ${failure.code}\n${failure.context.resumeCommand ? failure.context.resumeCommand + '\n' : ''}`)
     return failure.exitCode

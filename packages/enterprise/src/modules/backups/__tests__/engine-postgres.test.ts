@@ -598,7 +598,8 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
         tail=chunk.keyTo;copied+=Number(chunk.rows);break
       }
       expect(tail).toBeDefined();expect(copied).toBe(1)
-      for await(const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536,after:tail})){
+      await expect((async()=>{for await(const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536,after:tail,retainedRows:'999'}))await collect(chunk.stream)})()).rejects.toThrow('BACKUP_SOURCE_COVERAGE_MISMATCH')
+      for await(const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536,after:tail,retainedRows:String(copied)})){
         const contents=await collect(chunk.stream)
         await target.chunk(entity,data(contents),{runId:'run',sequence:chunk.sequence+1,sha256:digest(contents),rows:chunk.rows})
       }

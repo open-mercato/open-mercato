@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { privateDirectory, readBoundedFile } from './artifacts'
 import { BackupError } from './errors'
+import { samePhysicalDatabase } from './snapshot'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createWriteStream } from 'node:fs'
@@ -25,7 +26,7 @@ const failure = (code: string): BackupError => {
   return new BackupError(code, invalid.has(code) ? 2 : 3)
 }
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
-const limits = { highWaterMark: 1024 * 1024 }
+const limits = { highWaterMark: 256 * 1024 }
 
 type Wire = {
   stream: NodeJS.ReadWriteStream & { pause(): void; resume(): void; writableLength: number }
@@ -185,15 +186,16 @@ async function connect(options: NativeOptions, service: string) {
 }
 
 async function databaseIdentity(client: Client): Promise<DatabaseIdentity> {
-  const result = await client.query<{ oid: string; major: string; encoding: string; collation: string; system_id: string; timeline: string; recovery: boolean }>(`
+  const result = await client.query<{ oid: string; major: string; encoding: string; collation: string; system_id: string; timeline: string; recovery: boolean;postmaster_start_us:string }>(`
     SELECT d.oid::text, (current_setting('server_version_num')::int / 10000)::text AS major,
       pg_encoding_to_char(d.encoding) AS encoding, d.datcollate AS collation,
-      c.system_identifier::text AS system_id, p.timeline_id::text AS timeline, pg_is_in_recovery() AS recovery
+      c.system_identifier::text AS system_id, p.timeline_id::text AS timeline, pg_is_in_recovery() AS recovery,
+      (extract(epoch from pg_postmaster_start_time())*1000000)::bigint::text AS postmaster_start_us
     FROM pg_database d CROSS JOIN pg_control_system() c CROSS JOIN pg_control_checkpoint() p
     WHERE d.datname = current_database()`)
   const row = result.rows[0]
   if (!row || !['16', '17', '18'].includes(row.major)) throw failure('BACKUP_POSTGRES_VERSION_OR_IDENTITY')
-  return { clusterIncarnation: `${row.system_id}:${row.timeline}:${row.recovery ? 'recovery' : 'primary'}`, databaseOid: row.oid,
+  return { clusterIncarnation: `${row.system_id}:${row.timeline}:${row.recovery ? 'recovery' : 'primary'}:${row.postmaster_start_us}`, databaseOid: row.oid,
     serverMajor: Number(row.major), encoding: row.encoding, collation: row.collation }
 }
 
@@ -462,8 +464,13 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
             if (request.after) await bindCursor(request.after)
             const initialPredicate = request.after ? ` WHERE (${keys.map(identifier).join(',')}) > (${cursor})` : ''
             const expectedRows = BigInt((await client.query<{ count: string }>(`SELECT count(*)::text AS count FROM ONLY ${relation(entity)}${initialPredicate}`)).rows[0].count)
+            if(request.retainedRows!==undefined){
+              if(!request.after||!/^(0|[1-9][0-9]*)$/.test(request.retainedRows))throw failure('BACKUP_SOURCE_CURSOR_BINDING')
+              const fullRows=BigInt((await client.query<{count:string}>(`SELECT count(*)::text AS count FROM ONLY ${relation(entity)}`)).rows[0].count)
+              if(fullRows!==BigInt(request.retainedRows)+expectedRows)throw failure('BACKUP_SOURCE_COVERAGE_MISMATCH')
+            }
             let copiedRows = 0n
-            const sampleSelection = `SELECT ${columnSql} FROM ONLY ${relation(entity)} ${keys.length ? `ORDER BY ${keys.map(identifier).join(',')}` : 'ORDER BY ctid'} LIMIT 128`
+            const sampleSelection = `SELECT ${columnSql} FROM ONLY ${relation(entity)}${initialPredicate} ${keys.length ? `ORDER BY ${keys.map(identifier).join(',')}` : 'ORDER BY ctid'} LIMIT 128`
             const sampleRows = Number((await client.query<{ count: string }>(`SELECT count(*)::text AS count FROM (${sampleSelection}) sample`)).rows[0].count)
             let sampleBytes = 0
             if (sampleRows) for await (const bytes of exportCopy(client, `COPY (${sampleSelection}) TO STDOUT (FORMAT ${copyFormat})`)) sampleBytes += bytes.byteLength
@@ -654,7 +661,7 @@ function postgresTarget(options: NativeOptions, bound?: { client: Client; runId:
     async identity() { const connection = await current(); const identity = await databaseIdentity(connection); await verifyTools(options, identity.serverMajor); return identity },
     async challenge(binding) {
       const identity = await databaseIdentity(await current())
-      if (identity.clusterIncarnation === binding.sourceIdentity.clusterIncarnation && identity.databaseOid === binding.sourceIdentity.databaseOid) throw failure('BACKUP_TARGET_IS_SOURCE')
+      if (samePhysicalDatabase(identity,binding.sourceIdentity)) throw failure('BACKUP_TARGET_IS_SOURCE')
       if (identity.serverMajor !== binding.sourceIdentity.serverMajor || identity.encoding !== binding.sourceIdentity.encoding || identity.collation !== binding.sourceIdentity.collation) throw failure('BACKUP_TARGET_INCOMPATIBLE')
       const currentBaseline=await baseline(await current())
       const challenge = `RESTORE-${digest(JSON.stringify({ binding, identity, baseline:currentBaseline, timeWindow: Math.floor(Date.now() / 600000) })).slice(0, 20)}`

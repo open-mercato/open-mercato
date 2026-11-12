@@ -7,6 +7,7 @@ import type { EngineContext, RestoreTarget } from './types'
 import { readBackup, verifiedChunk, verifyBackup, verifyBackupChunks, type VerifyBackupOptions } from './verify'
 import { privateDirectory, atomicStream, readBoundedFile } from './artifacts'
 import { bytes } from './streams'
+import { samePhysicalDatabase } from './snapshot'
 import { BackupError, checkAbort, shellQuote } from './errors'
 
 export type RecoveryEvidence = {
@@ -42,7 +43,7 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
   phase('artifact-verification')
   const {manifest,index}=loaded
   const targetIdentity=await options.target.identity()
-  if(targetIdentity.clusterIncarnation===index.identity.clusterIncarnation&&targetIdentity.databaseOid===index.identity.databaseOid)throw new BackupError('BACKUP_SOURCE_TARGET_COLLISION',3)
+  if(samePhysicalDatabase(targetIdentity,index.identity))throw new BackupError('BACKUP_SOURCE_TARGET_COLLISION',3)
   if(targetIdentity.serverMajor!==index.identity.serverMajor||targetIdentity.encoding!==index.identity.encoding||targetIdentity.collation!==index.identity.collation)throw new BackupError('BACKUP_TARGET_INCOMPATIBLE',3)
   await options.target.preflightWorkers?.(jobs)
   const expected=await options.target.challenge({backupId:manifest.backupId,manifestSha256:options.trustedManifestSha256,sourceIdentity:index.identity})

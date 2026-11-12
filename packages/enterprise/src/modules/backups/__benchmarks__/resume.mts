@@ -27,9 +27,9 @@ try{
  await admin.query('DROP DATABASE IF EXISTS om_backup_resume_benchmark WITH (FORCE)');await admin.query('CREATE DATABASE om_backup_resume_benchmark TEMPLATE template0')
  const metadata=await readBackup({artifact,trustedManifestSha256,identities})
  const binding={backupId:metadata.manifest.backupId,manifestSha256:trustedManifestSha256,sourceIdentity:metadata.index.identity}
- const initial=createPostgresTarget(native),confirmation=await initial.challenge(binding),chunk=initial.chunk.bind(initial)
+ const initial=createPostgresTarget(native),confirmation=await initial.challenge(binding),factory=initial.chunkWorkers!.bind(initial)
  let injected=false,resume:string|undefined
- initial.chunk=async(...args)=>{await chunk(...args);if(!injected){injected=true;throw new BackupError('BACKUP_BENCHMARK_INTERRUPTED',5,true)}}
+ initial.chunkWorkers=async(count)=>(await factory(count)).map(worker=>({...worker,async chunk(...args){await worker.chunk(...args);if(!injected){injected=true;throw new BackupError('BACKUP_BENCHMARK_INTERRUPTED',5,true)}}}))
  const shared={artifact,trustedManifestSha256,identities,workspace:native.workspace,binariesDir:native.binariesDir}
  try{await restoreBackup({...shared,target:initial,confirmation})}catch(error){if(!(error instanceof BackupError)||error.code!=='BACKUP_BENCHMARK_INTERRUPTED')throw error;resume=error.context.restoreRunId}
  if(!resume)throw new Error('Interruption did not leave a resumable journal')

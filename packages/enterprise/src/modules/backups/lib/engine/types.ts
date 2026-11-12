@@ -38,7 +38,7 @@ export type Snapshot = {
   foreignKeys: ForeignKey[]
   boundary(): Promise<{ identity: DatabaseIdentity; evidence: SnapshotEvidence }>
   schema(section: 'pre-data' | 'post-data'): ByteStream
-  chunks(entity: Entity, options: { chunkSizeBytes: number; after?: string[] }): AsyncIterable<SourceChunk>
+  chunks(entity: Entity, options: { chunkSizeBytes: number; after?: string[]; retainedRows?: string }): AsyncIterable<SourceChunk>
   sequences(): Promise<SequenceState[]>
   close(): Promise<void>
 }
