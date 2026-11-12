@@ -1,6 +1,15 @@
 import { TransactionContext } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  decimalToNumber,
+  divideDecimals,
+  isZeroDecimal,
+  multiplyDecimals,
+  parseDecimal,
+  roundDecimal,
+  subtractDecimals,
+} from '@open-mercato/shared/lib/decimal'
 import { CatalogProduct, CatalogProductVariant } from '@open-mercato/core/modules/catalog/data/entities'
 import type { ScopedProductScope } from '@open-mercato/core/modules/catalog/services/catalogScopedProductService'
 import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
@@ -99,6 +108,14 @@ function pickEffectLabel(labels: Record<string, string>, locale: string): string
 
 function giftLineKey(promotionId: string, productId: string, variantId: string | null): string {
   return `${promotionId}:${productId}:${variantId ?? ''}`
+}
+
+function discountTaxRate(amountNet: unknown, amountGross: unknown): number | null {
+  const net = parseDecimal(amountNet)
+  const gross = parseDecimal(amountGross)
+  if (!net || !gross || isZeroDecimal(net)) return null
+  const rate = multiplyDecimals(subtractDecimals(divideDecimals(gross, net), 1), 100)
+  return decimalToNumber(roundDecimal(rate, 4))
 }
 
 type ApplicationEntry = {
@@ -428,6 +445,7 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
       pushApplication(promotionId, { cartLineId: line.id, effect, amountNet: effect.amountNet, amountGross: effect.amountGross })
     }
     for (const { promotionId, effect } of cartDiscountEntries) {
+      const taxRate = discountTaxRate(effect.amountNet, effect.amountGross)
       adjustments.push({
         scope: 'order',
         kind: 'discount',
@@ -438,6 +456,13 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
         amountGrossExact: effect.amountGross,
         currencyCode: effect.currency,
         label: pickEffectLabel(effect.label, cart.locale),
+        // The sales calculator only reduces `taxTotal` for a discount adjustment when it
+        // can see a tax rate (`extractAdjustmentTaxRate` in sales/lib/calculations.ts) — it
+        // otherwise treats a discount as tax-neutral, which is correct for a manually
+        // entered flat amount but wrong here: `amountNet`/`amountGross` above already embed
+        // the cart's blended tax split, so without this metadata the order's tax total kept
+        // reflecting the pre-discount price while subtotalNet/Gross were correctly reduced.
+        metadata: taxRate !== null ? { taxRate } : null,
       })
       pushApplication(promotionId, { cartLineId: null, effect, amountNet: effect.amountNet, amountGross: effect.amountGross })
     }

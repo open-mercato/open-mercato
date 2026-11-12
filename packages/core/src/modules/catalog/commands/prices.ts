@@ -578,7 +578,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       em,
       CatalogProductPrice,
       { id: parsed.id, ...commandScopeWhere(ctx) },
-      { populate: ['priceKind'] },
+      { populate: ['priceKind', 'product'] },
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
