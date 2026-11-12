@@ -214,9 +214,9 @@ test.describe('TC-ASSIST-001: thread page proposal controls follow the author gr
     await openThreadPage(page, sharedThreadId);
 
     await expect(page.getByText('Awaiting the buyer').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'New proposal' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Withdraw' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Re-propose' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'New proposal', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Withdraw', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Re-propose', exact: true })).toHaveCount(0);
 
     await expectAuthorCallsRefused(request, viewer!.token, {
       threadId: sharedThreadId,
@@ -233,8 +233,8 @@ test.describe('TC-ASSIST-001: thread page proposal controls follow the author gr
     await openThreadPage(page, sharedThreadId);
 
     await expect(page.getByText('Awaiting the buyer').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'New proposal' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Withdraw' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'New proposal', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Withdraw', exact: true })).toHaveCount(0);
 
     await expectAuthorCallsRefused(request, withdrawOnly!.token, {
       threadId: sharedThreadId,
@@ -251,8 +251,8 @@ test.describe('TC-ASSIST-001: thread page proposal controls follow the author gr
     await openThreadPage(page, sharedThreadId);
 
     await expect(page.getByText('Awaiting the buyer').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'New proposal' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Withdraw' }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'New proposal', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Withdraw', exact: true }).first()).toBeVisible();
   });
 
   test('a full author creates, withdraws and re-proposes from the thread page', async ({ page, request }) => {
@@ -260,7 +260,7 @@ test.describe('TC-ASSIST-001: thread page proposal controls follow the author gr
     await signInStaff(page, fullAuthor!.email);
     await openThreadPage(page, threadId);
 
-    const newProposal = page.getByRole('button', { name: 'New proposal' });
+    const newProposal = page.getByRole('button', { name: 'New proposal', exact: true });
     await expect(newProposal).toBeVisible();
 
     await newProposal.click();
@@ -288,9 +288,9 @@ test.describe('TC-ASSIST-001: thread page proposal controls follow the author gr
     const published = await readThreadProposals(request, adminToken!, threadId);
     expect(published.map((proposal) => proposal.status)).toEqual(['published']);
 
-    await page.getByRole('button', { name: 'Withdraw' }).click();
+    await page.getByRole('button', { name: 'Withdraw', exact: true }).click();
     await expect(page.getByText('Proposal withdrawn.').first()).toBeVisible({ timeout: 30_000 });
-    const reproposeButton = page.getByRole('button', { name: 'Re-propose' });
+    const reproposeButton = page.getByRole('button', { name: 'Re-propose', exact: true });
     await expect(reproposeButton).toBeVisible({ timeout: 30_000 });
     const withdrawn = await readThreadProposals(request, adminToken!, threadId);
     expect(withdrawn.map((proposal) => proposal.status)).toEqual(['withdrawn']);
