@@ -67,3 +67,4 @@ merge. Keeping old private names as a compatibility bridge retains the disclosur
 ## Changelog
 
 - 2026-11-07: Added projection redaction, replay checks, historical cleanup and regressions.
+- 2026-11-12: Corrected the repair to compare UUID IDs as text against the historical text reference column; regression fixtures now use the production column type and cover malformed/empty references and repeated cleanup.

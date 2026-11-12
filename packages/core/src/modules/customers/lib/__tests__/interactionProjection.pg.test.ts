@@ -30,7 +30,7 @@ describePostgres('shared next-interaction privacy against PostgreSQL', () => {
     await pool.query(`CREATE TABLE customer_entities (
       id uuid PRIMARY KEY, tenant_id uuid NOT NULL, organization_id uuid NOT NULL,
       next_interaction_at timestamptz, next_interaction_name text,
-      next_interaction_ref_id uuid, next_interaction_icon text,
+      next_interaction_ref_id text, next_interaction_icon text,
       next_interaction_color text, updated_at timestamptz
     )`)
     await pool.query(`CREATE TABLE customer_interactions (
@@ -115,6 +115,7 @@ describePostgres('shared next-interaction privacy against PostgreSQL', () => {
       await pool.query('UPDATE customer_entities SET next_interaction_name = $1, next_interaction_ref_id = $2', [oldName, id])
       for (const statement of statements) await pool.query(statement)
       for (const statement of statements) await pool.query(statement)
+      for (const statement of statements) await pool.query(statement)
       expect((await projection()).next_interaction_name).toBeNull()
     }
     expect(queryIndexReindexEntityTypes).toEqual([
@@ -126,18 +127,21 @@ describePostgres('shared next-interaction privacy against PostgreSQL', () => {
 
   test('backfill preserves permitted/manual names and removes foreign or missing references', async () => {
     const publicId = await interaction({ visibility: 'shared' })
+    const legacyId = await interaction({ visibility: null })
+    const callId = await interaction({ type: 'call', visibility: 'private' })
     const migration = Object.create(Migration20261107010000_private_next_interaction_names.prototype) as Migration20261107010000_private_next_interaction_names
     const statements: string[] = []
     Object.defineProperty(migration, 'addSql', { value: (statement: string) => statements.push(statement) })
     migration.up()
-    for (const reference of [publicId, null]) {
+    for (const reference of [publicId, legacyId, callId, null]) {
       await pool.query('UPDATE customer_entities SET next_interaction_name = $1, next_interaction_ref_id = $2', ['Permitted name', reference])
       for (const statement of statements) await pool.query(statement)
       expect((await projection()).next_interaction_name).toBe('Permitted name')
     }
     await pool.query('UPDATE customer_interactions SET tenant_id = $1 WHERE id = $2', [randomUUID(), publicId])
-    for (const reference of [publicId, randomUUID()]) {
+    for (const reference of [publicId, randomUUID(), 'malformed-historical-reference', '']) {
       await pool.query('UPDATE customer_entities SET next_interaction_name = $1, next_interaction_ref_id = $2', ['Unverified name', reference])
+      for (const statement of statements) await pool.query(statement)
       for (const statement of statements) await pool.query(statement)
       expect((await projection()).next_interaction_name).toBeNull()
     }

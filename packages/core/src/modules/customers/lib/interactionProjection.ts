@@ -101,6 +101,10 @@ export async function redactRestoredNextInteractionName(
   },
 ): Promise<void> {
   if (!snapshot.nextInteractionRefId) return
+  if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(snapshot.nextInteractionRefId)) {
+    snapshot.nextInteractionName = null
+    return
+  }
   const interaction = await findOneWithDecryption(
     em,
     CustomerInteraction,

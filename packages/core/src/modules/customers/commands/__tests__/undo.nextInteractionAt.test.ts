@@ -379,3 +379,27 @@ describe('customers create redo restores nextInteractionAt as a Date (#6336)', (
     expect((state.flushedEntity!.nextInteractionAt as Date).toISOString()).toBe(NEXT_AT_ISO)
   })
 })
+
+
+describe.each<Kind>(['person', 'company'])('%s replay with a historical text reference', (kind) => {
+  afterEach(() => jest.clearAllMocks())
+
+  it.each(['create', 'update', 'delete'] as const)('redacts an unresolved custom reference during %s replay', async (action) => {
+    const { em, state } = createFakeEm(kind, { entity: action === 'create' ? null : makeEntity(kind) })
+    const snapshot = makeSnapshot(kind, NEXT_AT_ISO)
+    snapshot.entity.nextInteractionRefId = 'external-calendar:appointment-123'
+    snapshot.entity.nextInteractionName = 'Unverified historical name'
+    const handler = commandFor(kind, action)
+
+    if (action === 'create') {
+      await handler.redo!({ logEntry: undoLogEntry(null, snapshot), ctx: createCtx(em) } as never)
+    } else {
+      await handler.undo!({ logEntry: undoLogEntry(snapshot, null), ctx: createCtx(em) } as never)
+    }
+
+    expect(state.flushedEntity!.nextInteractionName).toBeNull()
+    expect(state.flushedEntity!.nextInteractionRefId).toBe('external-calendar:appointment-123')
+    expect(state.flushedEntity!.nextInteractionAt).toBeInstanceOf(Date)
+    expect(em.findOne).not.toHaveBeenCalledWith(CustomerInteraction, expect.anything(), expect.anything())
+  })
+})
