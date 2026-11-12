@@ -25,7 +25,7 @@ This branch owns Core rotation safety preflight/neutral bounded maintenance adap
 ## Concrete decisions proposed for confirmation
 
 1. **Entitlement:** retain the commercially licensed package boundary, explicit operator confirmation of rights for the installed version and DI capability availability. Do not invent a license server or treat module flags as licensing. Confirm that this is the supported Phase-0 policy; if a supported entitlement resolver already exists, supply that resolver instead. Subscription expiration alone does not revoke perpetual rights to an installed version.
-2. **Fence:** v1 requires operator-provisioned dedicated maintenance credentials and an already stopped writer fleet. Preflight proves all relevant writer grants/access are denied, no in-flight/prepared writer transactions remain, and the reader has complete visibility including FORCE RLS; it refuses otherwise. The engine does not kill sessions or revoke production privileges automatically. Recheck role/policy/schema evidence before each phase and after reconnection; unexpected access or fence loss invalidates completion. Confirm this offline-only deployment contract.
+2. **Fence:** v1 requires operator-provisioned dedicated maintenance credentials and an already stopped writer fleet. Preflight proves all relevant writer grants/access are denied, no in-flight/prepared writer transactions remain, and the reader has complete visibility including FORCE RLS; it refuses otherwise. The engine does not kill sessions or revoke production privileges automatically. Recheck role/policy/schema evidence before each phase and after reconnection; unexpected access or fence loss invalidates completion. This offline-only contract is already selected by the source; enforcement and fixture evidence are autonomous implementation work, not a separate approval request.
 3. **CLI compatibility:** the user-requested immediate mandatory `--acknowledge-unprotected-key-rotation` changes existing automation. Recommended compatible route is a first release with the red warning and explicit acknowledgment option while retaining existing invocation compatibility, followed by mandatory enforcement after at least one minor release, with dated upgrade/deprecation instructions. This changes the requested immediate refusal timing and therefore needs a specification decision before code. If immediate mandatory enforcement is required, a named maintainer must authorize a specific specification/compatibility amendment; the existing Emergency Security Exception is not assumed to cover this usage-risk tightening. This run cannot grant that amendment or exception to itself.
 4. **Shared backup security:** Q2 requires security-owner approval of the exact age tool/library version/packaging and recipient custody; Q3 requires the data-key/escrow inventory and isolated drill criteria. The sibling backup run prepares that concrete decision packet. No production verifier implementation proceeds until the source spec's prerequisite is satisfied.
 
@@ -34,7 +34,7 @@ This branch owns Core rotation safety preflight/neutral bounded maintenance adap
 ### Phase 0 — prerequisite evidence and feasibility
 
 1. Resolve source, audit duplicates and code reality; publish this plan and exact decisions in a draft implementation PR.
-2. Record named security/custody/entitlement/fence/CLI compatibility decisions and the selected backup adapter contract. Confirm harness placement and test key custody using generated isolated fixtures; no live secrets in artifacts.
+2. Record named security/custody/entitlement/CLI compatibility decisions and the existing offline-fence enforcement evidence and the selected backup adapter contract. Use the repository-native integration harness and test key custody using generated isolated fixtures; no live secrets in artifacts.
 3. Spike typed baseline/final scans and bounded metadata on 1-GiB/20-GiB fixtures; measure overhead and prefetch bounds. Revise targets explicitly if infeasible, without reducing coverage.
 
 ### Phase 1 — encrypted expected-data verification
@@ -54,6 +54,10 @@ This branch owns Core rotation safety preflight/neutral bounded maintenance adap
 10. Run V01–V12, fault injection and quarantined recovery drill; publish cold/warm phase timings and process-tree resource measurements against the spec's targets.
 11. Run every configured validation command in order, authoritative `om-auto-review-pr --autofix`, fix findings and publish exact evidence/limits in PR comments. Promote only when complete and required decisions resolved; no merge or QA self-approval.
 
+## Preparatory review
+
+Independent parent-agent review found no blocker in this plan-only diff. Clarified that offline fencing is an existing requirement, not a new approval request; native integration harness placement follows AGENTS guidance. This is a preparatory review, not production code approval.
+
 ## Risks and current limits
 
 The main false-pass risks are shared codec errors, invisible RLS rows, fallback keys and mutable metadata exceptions; each has a named negative control. Backup runtime, explicit human decisions and compatibility approval are prerequisites, not optional follow-up work. This plan preserves every implementation step pending and grants no waiver.
@@ -67,7 +71,7 @@ PR: #9334
 ### Phase 0: prerequisites and feasibility
 
 - [x] 0.1 Resolve source, audit duplicates/code reality, and publish implementation plan/gate report. — 8cdd245377
-- [ ] 0.2 Record security/custody/entitlement/fence/CLI decisions and backup adapter contract.
+- [ ] 0.2 Record security/custody/entitlement/CLI decisions, offline-fence enforcement evidence and backup adapter contract.
 - [ ] 0.3 Run isolated bounded-scan performance/codec spike.
 
 ### Phase 1: encrypted verification
