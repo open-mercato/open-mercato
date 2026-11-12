@@ -27,7 +27,7 @@
 
 The mockups in [`.ai/mockups/time-tracking/`](../mockups/time-tracking/) resolve the requirements into 17 concrete screens. They are the design authority for this spec. Their per-screen `notes` blocks flag every place the requirements were silent or self-contradictory; all eight of those are decided in [Resolved Decisions](#resolved-decisions), and two of the decisions deliberately override what the mockup drew.
 
-This spec **extends and refactors** the existing module. It does not fork it. Every existing entity, route, command and event survives; the redesign is additive at the contract layer and a rewrite at the page layer.
+This spec **extends and refactors** the existing module. It does not fork it. Every existing entity, route, command and event survives; the redesign is additive at the contract layer and a rewrite at the page layer, except for the later report-history security restriction documented under Migration & Backward Compatibility.
 
 ---
 
