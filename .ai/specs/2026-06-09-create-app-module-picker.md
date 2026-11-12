@@ -538,3 +538,7 @@ _None outstanding._ The 2026-06-09 decisions on catalog source and official-modu
   list (#8168, follow-up to #8188). The deny list let extra arguments and `!` through and dropped the valid
   `yarn add ... && echo OM_ENABLE_STORAGE_S3=true >> .env && yarn generate` command of storage_s3, which is
   selectable again on 0.8 and 0.9.
+- 2026-11-05: Cross-reference. `2026-11-05-issue-8784-module-dependency-integrity.md` (#8784) adds scaffolder
+  output that lists the optional capabilities a preset leaves inactive, from an inventory baked into create-app.
+  It prints only; interactive core-module toggling stays with Phase 2 of this spec, which can read the same
+  inventory.

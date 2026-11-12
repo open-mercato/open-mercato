@@ -519,6 +519,7 @@
   "resources.resources.unavailability.title.daily": "No disponibilidad diaria",
   "resources.resources.unavailability.title.once": "No disponibilidad",
   "resources.resources.unavailability.title.weekly": "No disponibilidad semanal",
+  "resources.resources.validation.capacityInvalid": "La capacidad debe ser un número entero mayor que 0.",
   "resources.search.badge.attendee": "Asistente",
   "resources.search.badge.availabilityRuleSet": "Conjunto de reglas de disponibilidad",
   "resources.search.badge.resource": "Recurso",
