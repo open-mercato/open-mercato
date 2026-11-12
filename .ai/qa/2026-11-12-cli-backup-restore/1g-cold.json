@@ -1,0 +1,37 @@
+{
+  "gib": 1,
+  "expected": {
+    "rows": "16384",
+    "bytes": "1073741824",
+    "ids": "134225920",
+    "content_digest": "4bb5f3f43fb34e034797851bbb0897ee"
+  },
+  "logicalBytes": "1073741824",
+  "rows": "16384",
+  "backupMs": 1783,
+  "verifyMs": 51,
+  "restoreMs": 1526,
+  "baselineBackupMs": 1663,
+  "baselineRestoreMs": 2310,
+  "maxRssMiB": 161,
+  "completeOrderedContentDigestEqual": true,
+  "rssBudgetPass": true,
+  "backupLatencyPass": true,
+  "restoreLatencyPass": true,
+  "progress": {
+    "mode": "plain",
+    "sink": "byte-counting; terminal device I/O excluded",
+    "renderedBytes": 654,
+    "cpuMs": {
+      "backup": 2.063999999999999,
+      "verify": 0.11600000000000002,
+      "restore": 0.4660000000000002
+    },
+    "backupCpuPercent": 0.1157780528063732,
+    "restoreCpuPercent": 0.03053967070883174,
+    "cpuBudgetPass": true
+  },
+  "runner": "Docker4vCPU8GiB/PostgreSQL16/Node24",
+  "cacheProtocol": "PostgreSQL stopped; task-volume clean-file cache eviction; fresh PostgreSQL shared buffers",
+  "fixture": "64KiB per row, EXTERNAL storage, repetitive generated synthetic content"
+}

@@ -5,6 +5,11 @@
   "backups.cli.unencryptedPrompt": "Type UNENCRYPTED to confirm readable backup: ",
   "backups.progress.bytes": "bytes",
   "backups.progress.chunks": "chunks",
+  "backups.progress.completed": "completed",
+  "backups.progress.failed": "failed",
   "backups.progress.overall": "Overall",
-  "backups.progress.rows": "rows"
+  "backups.progress.phase": "Phase",
+  "backups.progress.queued": "queued",
+  "backups.progress.rows": "rows",
+  "backups.progress.running": "running"
 }

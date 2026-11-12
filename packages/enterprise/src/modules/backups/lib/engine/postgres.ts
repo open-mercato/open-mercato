@@ -568,6 +568,14 @@ function postgresTarget(options: NativeOptions, bound?: { client: Client; runId:
     const steps=(await connection.query("SELECT status,count(*)::text AS count,max(finished_at)::text AS newest FROM om_backup_restore.restore_steps GROUP BY status ORDER BY status")).rows
     return digest(JSON.stringify({catalog,run,chunks,steps}))
   }
+  const emptyBaseline=async(session:Client)=>{
+          const objects = await session.query("SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%' LIMIT 1")
+          const extra = await session.query(`SELECT 1 FROM pg_namespace WHERE nspname NOT IN ('public','pg_catalog','information_schema') AND nspname NOT LIKE 'pg_toast%' AND nspname NOT LIKE 'pg_temp%'
+            UNION ALL SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+            UNION ALL SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%'
+            UNION ALL SELECT 1 FROM pg_largeobject_metadata LIMIT 1`)
+          if (objects.rowCount || extra.rowCount) throw failure('BACKUP_TARGET_NOT_EMPTY')
+  }
   const capacity=async(count:number,resumable=false)=>{
     if(!Number.isInteger(count)||count<1||count>8)throw failure('BACKUP_INVALID_RESOURCE_OPTION')
     const record=(await (await current()).query<{capacity:number;used:number}>("SELECT current_setting('max_connections')::int AS capacity,(SELECT count(*)::int FROM pg_stat_activity) AS used")).rows[0]
@@ -594,7 +602,7 @@ function postgresTarget(options: NativeOptions, bound?: { client: Client; runId:
     })
   }
   return {
-    async preflightWorkers(count) { await capacity(count) },
+    async preflightWorkers(count) { await capacity(count);const connection=await current();if(!(await connection.query("SELECT 1 FROM pg_namespace WHERE nspname='om_backup_restore'")).rowCount)await emptyBaseline(connection) },
     async chunkWorkers(count) {
       if (!activeRun || !expected || !lockId || !Number.isInteger(count) || count < 1 || count > 8) throw failure('BACKUP_RESTORE_WORKER_BINDING')
       await capacity(count,true)
@@ -681,12 +689,7 @@ function postgresTarget(options: NativeOptions, bound?: { client: Client; runId:
           if (record.length !== 1 || record[0].run !== run.runId || record[0].backup !== run.backupId || record[0].digest !== run.manifestSha256) throw failure('BACKUP_RESTORE_BINDING')
           await session.query('UPDATE om_backup_restore.restore_run SET resume_count=resume_count+1,resume_timestamps=array_append(resume_timestamps,now()),heartbeat_at=now() WHERE restore_run_id=$1',[run.runId])
         } else {
-          const objects = await session.query("SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%' LIMIT 1")
-          const extra = await session.query(`SELECT 1 FROM pg_namespace WHERE nspname NOT IN ('public','pg_catalog','information_schema') AND nspname NOT LIKE 'pg_toast%' AND nspname NOT LIKE 'pg_temp%'
-            UNION ALL SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema')
-            UNION ALL SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%'
-            UNION ALL SELECT 1 FROM pg_largeobject_metadata LIMIT 1`)
-          if (objects.rowCount || extra.rowCount) throw failure('BACKUP_TARGET_NOT_EMPTY')
+          await emptyBaseline(session)
           await session.query(`CREATE SCHEMA om_backup_restore;
             CREATE TABLE om_backup_restore.restore_run(restore_run_id text PRIMARY KEY,backup_id text NOT NULL,manifest_sha256 text NOT NULL,target_challenge_digest text NOT NULL,phase text NOT NULL DEFAULT 'initialized',resume_count integer NOT NULL DEFAULT 0,resume_timestamps timestamptz[] NOT NULL DEFAULT '{}',heartbeat_at timestamptz NOT NULL DEFAULT now(),started_at timestamptz NOT NULL DEFAULT now());
             CREATE TABLE om_backup_restore.restore_chunks(entity_key text NOT NULL,seq int NOT NULL,sha256 text NOT NULL,rows bigint NOT NULL,restored_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(entity_key,seq));

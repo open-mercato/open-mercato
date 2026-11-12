@@ -220,6 +220,16 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
     for(let table=1;table<=8;table++)expect((await targetDb.query(`SELECT * FROM app.concurrent_${table} ORDER BY id`)).rows).toEqual((await sourceDb.query(`SELECT * FROM app.concurrent_${table} ORDER BY id`)).rows)
   },30000)
 
+  test('target preflight refuses a nonempty baseline without initializing or mutating a restore journal',async()=>{
+    await targetDb.query('CREATE TABLE existing_data(id int);INSERT INTO existing_data VALUES(42)')
+    const target=createPostgresTarget(options)
+    try{
+      await expect(target.preflightWorkers!(2)).rejects.toThrow('BACKUP_TARGET_NOT_EMPTY')
+      expect((await targetDb.query('SELECT * FROM existing_data')).rows).toEqual([{id:42}])
+      expect((await targetDb.query("SELECT count(*)::text AS count FROM pg_namespace WHERE nspname='om_backup_restore'")).rows[0].count).toBe('0')
+    }finally{await target.close()}
+  })
+
   test('schema staging stops at its explicit byte budget before invoking restore SQL', async () => {
     const source = createPostgresSource(options); const target = createPostgresTarget({ ...options, maxStagingBytes: 16 })
     try {

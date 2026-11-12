@@ -5,6 +5,11 @@
   "backups.cli.unencryptedPrompt": "읽을 수 있는 백업을 확인하려면 UNENCRYPTED를 입력하세요: ",
   "backups.progress.bytes": "바이트",
   "backups.progress.chunks": "청크",
+  "backups.progress.completed": "완료",
+  "backups.progress.failed": "실패",
   "backups.progress.overall": "전체",
-  "backups.progress.rows": "행"
+  "backups.progress.phase": "단계",
+  "backups.progress.queued": "대기 중",
+  "backups.progress.rows": "행",
+  "backups.progress.running": "진행 중"
 }

@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import { encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { getBackupStatus } from '../lib/engine/status'
+import { trustedPartialStatus } from '../lib/engine/partial-trust'
 import { restoreBackup } from '../lib/engine/restore'
 import { exerciseBackup } from '../lib/engine/exercise'
 import type { RestoreTarget } from '../lib/engine/types'
@@ -240,6 +242,47 @@ describe('encrypted recovery artifacts', () => {
     expect(samePhysicalDatabase(current,{...current,clusterIncarnation:'123456:2:recovery:1761000000000000'})).toBe(true)
     expect(samePhysicalDatabase(current,{...current,databaseOid:'200'})).toBe(false)
     expect(classifyBoundary({identity:current,evidence},{identity:{...current,clusterIncarnation:'123456:1:primary:1761000000000000'},evidence},'quiesced')).toBe('multi-snapshot')
+  })
+  test('public partial counts hide names and identity status is strictly read-only even with a torn tail',async()=>{
+    await expect(createBackup({...options(),source:source({fail:'e0002'})})).rejects.toThrow()
+    const partial=(await readdir(join(root,'out'))).find(name=>name.endsWith('.partial'))!,directory=join(root,'out',partial),id=partial.slice(1,-8)
+    const observed=await getBackupStatus(directory)
+    expect(observed).toMatchObject({entitiesDone:1,entitiesTotal:2,consistency:'single-snapshot',summaryAdvisory:true})
+    expect(observed).not.toHaveProperty('entities');expect(JSON.stringify(observed)).not.toContain('protected entity')
+    const journal=join(directory,'journal.jsonl'),original=await readFile(journal),torn=Buffer.concat([original,Buffer.from('{torn checkpoint')])
+    await writeFile(journal,torn);const before=await (await import('node:fs/promises')).stat(journal)
+    const decoded=await getBackupStatus(directory,{identities:[escrow]})
+    expect(decoded).toMatchObject({entitiesDone:1,entitiesTotal:2,metadataSource:'decrypted-journal'})
+    expect(decoded).toHaveProperty('entities',expect.arrayContaining([expect.objectContaining({entityKey:'e0001',label:'protected entity',done:true})]))
+    await trustedPartialStatus(directory,join(root,'workspace'),id)
+    expect(await readFile(journal)).toEqual(torn)
+    expect((await (await import('node:fs/promises')).stat(journal)).mtimeMs).toBe(before.mtimeMs)
+    expect((await getBackupStatus(directory)).resumeCommand).toContain(id)
+  })
+  test('complete status exposes public aggregate counts and names only when decrypted',async()=>{
+    const result=await createBackup(options())
+    expect(await getBackupStatus(result.artifactPath)).toMatchObject({entitiesDone:2,entitiesTotal:2,chunkCount:4,summaryAdvisory:true})
+    expect(await getBackupStatus(result.artifactPath)).not.toHaveProperty('entities')
+    expect(await getBackupStatus(result.artifactPath,{identities:[escrow]})).toHaveProperty('entities',expect.arrayContaining([expect.objectContaining({label:'protected entity'})]))
+  })
+  test('resume inherits its authenticated chunk target and recipient policy when omitted',async()=>{
+    await expect(createBackup({...options(),chunkSizeBytes:8*1024*1024,source:source({fail:'e0002'})})).rejects.toThrow()
+    const partial=(await readdir(join(root,'out'))).find(name=>name.endsWith('.partial'))!,fixture=source(),open=fixture.open.bind(fixture),sizes:number[]=[]
+    fixture.open=async()=>{const snapshot=await open(),chunks=snapshot.chunks.bind(snapshot);snapshot.chunks=async function*(entity,request){sizes.push(request.chunkSizeBytes);yield*chunks(entity,request)};return snapshot}
+    const result=await createBackup({...options(),source:fixture,recipients:[],resume:partial.slice(1,-8)})
+    expect(sizes).toEqual([8*1024*1024])
+    await expect(verifyBackup({artifact:result.artifactPath,trustedManifestSha256:result.manifestSha256,identities:[escrow]})).resolves.toHaveProperty('index.consistency','quiesced')
+  })
+  test('trusted partial export hashes the authenticated snapshot rather than a later path replacement',async()=>{
+    await expect(createBackup({...options(),source:source({fail:'e0002'})})).rejects.toThrow()
+    const partial=(await readdir(join(root,'out'))).find(name=>name.endsWith('.partial'))!,directory=join(root,'out',partial),id=partial.slice(1,-8)
+    const original=await partialBackupDigest(directory),entries=Journal.prototype.entries
+    const swapped=jest.spyOn(Journal.prototype,'entries').mockImplementation(async function*(this:Journal,settings){yield*entries.call(this,settings);await writeFile(join(directory,'prepare.age'),Buffer.from('replaced after authenticated snapshot'))})
+    try{
+      const captured=await trustedPartialStatus(directory,join(root,'workspace'),id)
+      expect(captured.partialStateSha256).toBe(original)
+      expect(captured.partialStateSha256).not.toBe(await partialBackupDigest(directory))
+    }finally{swapped.mockRestore()}
   })
   test('a bounded worker connection retry reuses the held snapshot and restarts that entity exactly once', async () => {
     const fixture=source();const open=fixture.open.bind(fixture);let attempts=0

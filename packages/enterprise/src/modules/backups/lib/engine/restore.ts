@@ -80,9 +80,10 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
   for(const chunk of index.chunks)if(chunk.entityKey){const total=totals.get(chunk.entityKey)??{rows:0n,bytes:0n,chunks:0};total.rows+=BigInt(chunk.rows);total.bytes+=BigInt(chunk.plainBytes);total.chunks++;totals.set(chunk.entityKey,total)}
   const overallTotal=String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n))
   let overallDone=0n
+  let entitiesDone=0
   let initialized=false
   try{
-    options.progress?.({schemaVersion:1,type:'run.started',runId,overallRowsDone:'0',overallRowsTotal:overallTotal,overallRowsTotalExact:true,phase:manifest.encryption.mode==='none'?'UNENCRYPTED':'encrypted',rowsDone:'0',rowsTotal:'0',rowsTotalExact:true,bytesDone:'0',chunksDone:0,chunksTotal:index.chunks.length,at:new Date().toISOString()})
+    options.progress?.({schemaVersion:1,type:'run.started',runId,entitiesTotal:index.entities.length,entitiesDone:0,overallRowsDone:'0',overallRowsTotal:overallTotal,overallRowsTotalExact:true,phase:manifest.encryption.mode==='none'?'UNENCRYPTED':'encrypted',rowsDone:'0',rowsTotal:'0',rowsTotalExact:true,bytesDone:'0',chunksDone:0,chunksTotal:index.chunks.length,at:new Date().toISOString()})
     await options.target.initialize(run);initialized=true;phase('journal-initialization')
     for(const chunk of index.chunks.filter((entry)=>entry.section==='pre-data')){
       const step=`schema:pre-data:${chunk.sequence}`
@@ -90,6 +91,7 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
     }
     phase('pre-data')
     const restoreEntity=async(entity:typeof index.entities[number],writer:Pick<RestoreTarget,'chunk'>)=>{
+    options.progress?.({schemaVersion:1,type:'entity.progress',runId,entityKey:entity.key,entity:entity.label,entitiesTotal:index.entities.length,entitiesDone,overallRowsDone:String(overallDone),overallRowsTotal:overallTotal,overallRowsTotalExact:true,rowsDone:'0',rowsTotal:String(totals.get(entity.key)?.rows??0n),rowsTotalExact:true,bytesDone:'0',chunksDone:0,chunksTotal:totals.get(entity.key)?.chunks??0,at:new Date().toISOString()})
     for(const chunk of entityChunks.get(entity.key)??[]){
       if(failed)return
       checkAbort(options.signal)
@@ -101,14 +103,16 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
       if(applied)current.resumedChunks++;else current.newRows+=BigInt(chunk.rows)
       progress.set(entity.key,current)
       overallDone+=BigInt(chunk.rows)
-      options.progress?.({schemaVersion:1,type:current.chunks===total.chunks?'entity.done':'entity.progress',runId,overallRowsDone:String(overallDone),overallRowsTotal:overallTotal,overallRowsTotalExact:true,entity:entity.label,rowsDone:String(current.rows),rowsTotal:String(total.rows),rowsTotalExact:true,bytesDone:String(current.bytes),chunksDone:current.chunks,chunksTotal:total.chunks,at:new Date().toISOString()})
+      if(current.chunks===total.chunks)entitiesDone++
+      options.progress?.({schemaVersion:1,type:current.chunks===total.chunks?'entity.done':'entity.progress',runId,entityKey:entity.key,entitiesTotal:index.entities.length,entitiesDone,overallRowsDone:String(overallDone),overallRowsTotal:overallTotal,overallRowsTotalExact:true,entity:entity.label,rowsDone:String(current.rows),rowsTotal:String(total.rows),rowsTotalExact:true,bytesDone:String(current.bytes),chunksDone:current.chunks,chunksTotal:total.chunks,at:new Date().toISOString()})
     }
+    if(!entityChunks.get(entity.key)?.length){entitiesDone++;options.progress?.({schemaVersion:1,type:'entity.done',runId,entityKey:entity.key,entity:entity.label,entitiesTotal:index.entities.length,entitiesDone,overallRowsDone:String(overallDone),overallRowsTotal:overallTotal,overallRowsTotalExact:true,rowsDone:'0',rowsTotal:'0',rowsTotalExact:true,bytesDone:'0',chunksDone:0,chunksTotal:0,at:new Date().toISOString()})}
     }
     const workers=options.target.chunkWorkers?await options.target.chunkWorkers(Math.min(jobs,Math.max(1,index.entities.length))):[options.target]
     let nextEntity=0,failed=false,firstFailure:unknown
     try{
       const outcomes=await Promise.allSettled(workers.map(async(worker)=>{
-        while(!failed){const entity=index.entities[nextEntity++];if(!entity)return;try{await restoreEntity(entity,worker)}catch(error){if(!failed)firstFailure=error;failed=true;throw error}}
+        while(!failed){const entity=index.entities[nextEntity++];if(!entity)return;try{await restoreEntity(entity,worker)}catch(error){if(!failed)firstFailure=error;failed=true;options.progress?.({schemaVersion:1,type:'entity.failed',runId,entityKey:entity.key,entity:entity.label,entitiesTotal:index.entities.length,entitiesDone,overallRowsDone:String(overallDone),overallRowsTotal:overallTotal,overallRowsTotalExact:true,rowsDone:String(progress.get(entity.key)?.rows??0n),rowsTotal:String(totals.get(entity.key)?.rows??0n),rowsTotalExact:true,bytesDone:String(progress.get(entity.key)?.bytes??0n),chunksDone:progress.get(entity.key)?.chunks??0,at:new Date().toISOString()});throw error}}
       }))
       const rejected=outcomes.find((outcome):outcome is PromiseRejectedResult=>outcome.status==='rejected')
       if(rejected)throw firstFailure??rejected.reason
@@ -129,7 +133,7 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
     await atomicStream(reportPath,bytes(Buffer.from(JSON.stringify(report))))
     await options.target.finish(reportPath)
     const rows=String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n))
-    options.progress?.({schemaVersion:1,type:'run.finished',runId,overallRowsDone:overallTotal,overallRowsTotal:overallTotal,overallRowsTotalExact:true,rowsDone:rows,rowsTotal:rows,rowsTotalExact:true,bytesDone:String([...totals.values()].reduce((sum,total)=>sum+total.bytes,0n)),chunksDone:index.chunks.length,chunksTotal:index.chunks.length,at:new Date().toISOString()})
+    options.progress?.({schemaVersion:1,type:'run.finished',runId,entitiesTotal:index.entities.length,entitiesDone:index.entities.length,overallRowsDone:overallTotal,overallRowsTotal:overallTotal,overallRowsTotalExact:true,rowsDone:rows,rowsTotal:rows,rowsTotalExact:true,bytesDone:String([...totals.values()].reduce((sum,total)=>sum+total.bytes,0n)),chunksDone:index.chunks.length,chunksTotal:index.chunks.length,at:new Date().toISOString()})
     return result
   }catch(error){
     const failure=error instanceof BackupError?error:new BackupError('BACKUP_RESTORE_FAILED',5,true)

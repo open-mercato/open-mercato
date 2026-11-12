@@ -9,6 +9,7 @@ import { BackupError } from './errors'
 const recordSchema = z.object({ sequence: z.number().int().nonnegative(), previous: z.string().regex(/^[a-f0-9]{64}$/), payload: z.string().max(12 * 1024 * 1024), hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 export class Journal {
+  lastReadSnapshot?:{sha256:string;bytes:number}
   private previous = '0'.repeat(64)
   private sequence = 0
   private pending: Promise<void> = Promise.resolve()
@@ -29,15 +30,18 @@ export class Journal {
     this.previous = record.hash
     this.sequence++
   }
-  async *entries(): AsyncIterable<unknown> {
+  async *entries(options: {repairTail?:boolean} = {}): AsyncIterable<unknown> {
     await privateFile(this.path)
     const file = await open(this.path, constants.O_RDONLY | constants.O_NOFOLLOW)
     let count = 0
     const size = (await file.stat()).size
     let validBytes = 0
+    const readHash=createHash('sha256');let readBytes=0
     async function* lines(): AsyncIterable<string> {
+      if(size===0)return
       let pending = ''
-      for await (const block of file.createReadStream({ autoClose: false, highWaterMark: 65536 })) {
+      for await (const block of file.createReadStream({ autoClose: false, highWaterMark: 65536,end:size-1 })) {
+        readHash.update(block);readBytes+=block.byteLength
         pending += block.toString('utf8')
         let newline: number
         while ((newline = pending.indexOf('\n')) >= 0) {
@@ -67,7 +71,8 @@ export class Journal {
         validBytes += Buffer.byteLength(line) + 1
         yield value
       }
-      if (validBytes < size) {
+      this.lastReadSnapshot={sha256:readHash.digest('hex'),bytes:readBytes}
+      if (validBytes < size && options.repairTail !== false) {
         const writer = await open(this.path, constants.O_WRONLY | constants.O_NOFOLLOW)
         try { await writer.truncate(validBytes); await writer.sync() } finally { await writer.close() }
       }

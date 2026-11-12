@@ -32,3 +32,11 @@ export const checksSchema = z.array(z.discriminatedUnion('type', [
 export type Manifest = z.infer<typeof manifestSchema>
 export type BackupIndex = z.infer<typeof indexSchema>
 export type Chunk = z.infer<typeof chunkSchema>
+
+export const preparedBackupSchema = z.object({ backupId: z.string().uuid(), startedAt: z.string(), recipients: z.array(z.string()), encryption: z.boolean(), chunkSizeBytes: z.number(), index: indexSchema }).strict()
+export const backupJournalEventSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('chunk'), chunk: chunkSchema }).strict(),
+  z.object({ kind: z.literal('entity-complete'), entityKey: z.string() }).strict(),
+  z.object({ kind: z.literal('restart'), entityKey: z.string() }).strict(),
+  z.object({ kind: z.literal('epoch'), index: indexSchema, reset: z.boolean() }).strict(),
+])

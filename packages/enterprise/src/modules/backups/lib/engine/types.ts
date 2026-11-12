@@ -83,6 +83,9 @@ export type ProgressEvent = {
   type: 'run.started' | 'entity.progress' | 'entity.done' | 'entity.failed' | 'phase.changed' | 'run.finished'
   runId: string
   entity?: string
+  entityKey?: string
+  entitiesTotal?: number
+  entitiesDone?: number
   overallRowsDone?: string
   overallRowsTotal?: string
   overallRowsTotalExact?: boolean

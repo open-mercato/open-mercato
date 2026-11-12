@@ -3,7 +3,7 @@ import { parseArgs } from 'node:util'
 import { createInterface } from 'node:readline/promises'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportError } from '@open-mercato/telemetry/facade/report-error'
-import { readFile } from 'node:fs/promises'
+import { readFile,statfs,lstat } from 'node:fs/promises'
 import { createPostgresSource, createPostgresTarget } from '../postgres'
 import { createBackup } from '../create'
 import { verifyBackup, readBackup } from '../verify'
@@ -11,13 +11,14 @@ import { restoreBackup } from '../restore'
 import { exerciseBackup } from '../exercise'
 import { preflightBackup } from '../preflight'
 import { trustedPartialStatus } from '../partial-trust'
-import { basename } from 'node:path'
+import { basename,dirname,isAbsolute,resolve } from 'node:path'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { getBackupStatus } from '../status'
 import { recipientsFromFile, identitiesFromFile } from '../crypto'
 import { progressRenderer } from '../progress'
 import { BackupError, shellQuote } from '../errors'
-import { readBoundedFile } from '../artifacts'
+import { readBoundedFile,privateDirectory,atomicStream } from '../artifacts'
+import { bytes } from '../streams'
 import { backupTranslation } from '../locale'
 import type { NativeOptions, BackupSource, RestoreTarget } from '../types'
 
@@ -35,7 +36,7 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
   let timeout: NodeJS.Timeout | undefined
   try {
     const parsed = parseArgs({ args: argv, allowPositionals: true, strict: true, options: {
-      json: { type: 'boolean' }, help: { type: 'boolean' }, 'source-service': { type: 'string' }, 'target-service': { type: 'string' },
+      operation:{type:'string'},json: { type: 'boolean' }, help: { type: 'boolean' }, 'source-service': { type: 'string' }, 'target-service': { type: 'string' },
       output: { type: 'string' }, workspace: { type: 'string' }, artifact: { type: 'string' }, resume: { type: 'string' },
       'trusted-manifest-sha256': { type: 'string' }, 'confirm-target': { type: 'string' }, 'identity-file': { type: 'string' }, 'recipients-file': { type: 'string' },
       'no-encryption': { type: 'boolean' }, 'confirm-unencrypted': { type: 'boolean' }, quiesced: { type: 'boolean' },
@@ -68,6 +69,10 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     }
     const required = (key: keyof typeof values) => { const value = values[key]; if (typeof value !== 'string' || !value) throw new BackupError('BACKUP_REQUIRED_OPTION', 2); return value }
     const number = (key: keyof typeof values, fallback: number) => { const value = values[key]; if (value === undefined) return fallback; if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new BackupError('BACKUP_INVALID_NUMBER', 2); const n = Number(value); if (!Number.isSafeInteger(n)) throw new BackupError('BACKUP_INVALID_NUMBER', 2); return n }
+    if(typeof values.report==='string'){if(!isAbsolute(values.report))throw new BackupError('BACKUP_ABSOLUTE_PATH_REQUIRED',2);await privateDirectory(dirname(values.report));if(!['restore','exercise'].includes(command)&&await lstat(values.report).catch(()=>null))throw new BackupError('BACKUP_REPORT_ALREADY_EXISTS',3)}
+    if(values['verify-mode']!==undefined&&!['full','streaming'].includes(values['verify-mode']))throw new BackupError('BACKUP_INVALID_VERIFY_MODE',2)
+    const operation=values.operation??(values['target-service']?'restore':'create')
+    if(values.operation!==undefined&&(command!=='preflight'||!['create','restore','exercise'].includes(operation)))throw new BackupError('BACKUP_INVALID_OPERATION',2)
     const jobs = number('jobs', 2)
     const deadline = number('deadline-seconds', 21600)
     if (jobs < 1 || jobs > 8 || deadline < 1 || deadline > 86400) throw new BackupError('BACKUP_INVALID_RESOURCE_OPTION', 2)
@@ -76,26 +81,34 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     if (values['verify-mode'] && !['full', 'streaming'].includes(values['verify-mode'])) throw new BackupError('BACKUP_INVALID_VERIFY_MODE', 2)
     const progressMode = values.progress ?? (process.stderr.isTTY ? 'tty' : 'plain')
     if (!['tty', 'plain', 'json', 'verbose', 'none'].includes(String(progressMode))) throw new BackupError('BACKUP_INVALID_PROGRESS', 2)
-    const progress = progressRenderer(progressMode as 'tty' | 'plain' | 'json' | 'verbose' | 'none', { write: (text) => { io.stderr(String(text)); return true } })
+    const progress = progressRenderer(progressMode as 'tty' | 'plain' | 'json' | 'verbose' | 'none', { write: (text) => { io.stderr(String(text)); return true },get columns(){return process.stderr.columns},get rows(){return process.stderr.rows} })
     const artifact = typeof values.artifact === 'string' ? values.artifact : parsed.positionals[1]
     const identities = typeof values['identity-file'] === 'string' ? await identitiesFromFile(values['identity-file']) : []
     let result: unknown
     if (command === 'status') {
       if (!artifact) throw new BackupError('BACKUP_REQUIRED_ARTIFACT', 2)
-      result = await getBackupStatus(artifact)
+      result = await getBackupStatus(artifact,{identities,workspace:typeof values.workspace==='string'?values.workspace:undefined,identityFile:typeof values['identity-file']==='string'?values['identity-file']:undefined,sourceService:native.sourceService,recipientsFile:typeof values['recipients-file']==='string'?values['recipients-file']:undefined,trustedManifestSha256:typeof values['trusted-manifest-sha256']==='string'?values['trusted-manifest-sha256']:undefined})
       if (typeof values.workspace === 'string' && basename(artifact).endsWith('.partial')) result = { ...result as object, ...await trustedPartialStatus(artifact, values.workspace, basename(artifact).slice(1,-8)) }
     } else if (command === 'verify') {
       if (!artifact) throw new BackupError('BACKUP_REQUIRED_ARTIFACT', 2)
       const verified = await verifyBackup({ artifact, trustedManifestSha256: required('trusted-manifest-sha256'), identities, signal: signal, progress, binariesDir: native.binariesDir, workspace: typeof values.workspace === 'string' ? values.workspace : undefined, maxStagingBytes: native.maxStagingBytes })
       result = { backupId: verified.manifest.backupId, consistency: verified.index.consistency, encryption: verified.manifest.encryption.mode }
     } else if (command === 'preflight') {
-      if (native.targetService && artifact) {
+      if(operation==='restore'||operation==='exercise'){
+        required('target-service');if(!artifact)throw new BackupError('BACKUP_REQUIRED_ARTIFACT',2)
         const target = (io.targetFactory ?? createPostgresTarget)(native)
         try {
+          await target.preflightWorkers?.(jobs)
           const backup = await readBackup({ artifact, trustedManifestSha256: required('trusted-manifest-sha256'), identities })
           result = { confirmationChallenge: await target.challenge({ backupId: backup.manifest.backupId, manifestSha256: required('trusted-manifest-sha256'), sourceIdentity: backup.index.identity }), targetIdentity: await target.identity() }
         } finally { await target.close() }
-      } else result = await preflightBackup((io.sourceFactory ?? createPostgresSource)(native))
+      } else {required('source-service');
+        for(const key of ['workspace','output'] as const)if(typeof values[key]==='string'){if(!isAbsolute(values[key]))throw new BackupError('BACKUP_ABSOLUTE_PATH_REQUIRED',2);await privateDirectory(values[key]);const disk=await statfs(values[key],{bigint:true});if(disk.bavail*disk.bsize<1024n*1024n*1024n)throw new BackupError('BACKUP_DISK_RESERVE',3)}
+        if(values['no-encryption']&&(process.env.OM_BACKUP_REQUIRE_ENCRYPTION!==undefined&&parseBooleanToken(process.env.OM_BACKUP_REQUIRE_ENCRYPTION)!==false))throw new BackupError('BACKUP_UNENCRYPTED_REFUSED',3)
+        const recipientsFile=typeof values['recipients-file']==='string'?values['recipients-file']:process.env.OM_BACKUP_RECIPIENTS_FILE
+        if(recipientsFile)await recipientsFromFile(recipientsFile)
+        result = await preflightBackup((io.sourceFactory ?? createPostgresSource)(native))}
+      result={...result as object,operation}
     } else if (command === 'create') {
       const recipientsFile = typeof values['recipients-file'] === 'string' ? values['recipients-file'] : process.env.OM_BACKUP_RECIPIENTS_FILE
       const recipients = recipientsFile ? await recipientsFromFile(recipientsFile) : []
@@ -107,7 +120,9 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
         try { confirmUnencrypted = await prompt.question(backupTranslation('backups.cli.unencryptedPrompt'), { signal: signal }) === 'UNENCRYPTED' } finally { prompt.close() }
       }
       if (values['no-encryption'] && confirmUnencrypted) io.stderr(backupTranslation('backups.cli.unencrypted') + '\n')
-      result = await createBackup({ source: (io.sourceFactory ?? createPostgresSource)(native), output: required('output'), workspace: required('workspace'), recipients, labels, jobs, resumeCommand: (id, digest) => resumeCommand('create', id, digest), noEncryption: Boolean(values['no-encryption']), confirmUnencrypted, requireEncryption: process.env.OM_BACKUP_REQUIRE_ENCRYPTION === undefined ? false : parseBooleanToken(process.env.OM_BACKUP_REQUIRE_ENCRYPTION) !== false, chunkSizeBytes: number('chunk-size-bytes', 64 * 1024 * 1024), maxOutputBytes: values['max-output-bytes'] === undefined ? undefined : number('max-output-bytes', 0), resume: typeof values.resume === 'string' ? values.resume : undefined, quiesced: Boolean(values.quiesced), identities, trustedPartialSha256: typeof values['trusted-partial-sha256'] === 'string' ? values['trusted-partial-sha256'] : undefined, takeOverLock: typeof values['take-over-lock'] === 'string' ? values['take-over-lock'] : undefined, progress, signal: signal })
+      let createResume=typeof values.resume==='string'?values.resume:undefined
+      if(createResume&&!/^[a-f0-9-]{36}$/.test(createResume)){const path=resolve(createResume),id=/^\.([a-f0-9-]{36})\.partial$/.exec(basename(path))?.[1];if(!id||resolve(required('output'))!==dirname(path))throw new BackupError('BACKUP_RESUME_PATH_MISMATCH',2);createResume=id}
+      result = await createBackup({ source: (io.sourceFactory ?? createPostgresSource)(native), output: required('output'), workspace: required('workspace'), recipients, labels, jobs, resumeCommand: (id, digest) => resumeCommand('create', id, digest), noEncryption: values['no-encryption']===undefined?undefined:Boolean(values['no-encryption']), confirmUnencrypted, requireEncryption: process.env.OM_BACKUP_REQUIRE_ENCRYPTION === undefined ? false : parseBooleanToken(process.env.OM_BACKUP_REQUIRE_ENCRYPTION) !== false, chunkSizeBytes: values['chunk-size-bytes']===undefined?undefined:number('chunk-size-bytes',64*1024*1024), maxOutputBytes: values['max-output-bytes'] === undefined ? undefined : number('max-output-bytes', 0), resume:createResume, quiesced: Boolean(values.quiesced), identities, trustedPartialSha256: typeof values['trusted-partial-sha256'] === 'string' ? values['trusted-partial-sha256'] : undefined, takeOverLock: typeof values['take-over-lock'] === 'string' ? values['take-over-lock'] : undefined, progress, signal: signal })
     } else if (command === 'restore' || command === 'exercise') {
       if (!artifact) throw new BackupError('BACKUP_REQUIRED_ARTIFACT', 2)
       const target = (io.targetFactory ?? createPostgresTarget)(native)
@@ -116,7 +131,9 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     } else throw new BackupError('BACKUP_UNKNOWN_COMMAND', 2)
     const unencrypted = result && typeof result === 'object' && 'encryption' in result && result.encryption === 'none'
     const identifiers=result as {restoreRunId?:string;backupId?:string}
-    io.stdout(JSON.stringify({ schemaVersion: 1, command, status: 'completed', warnings: unencrypted ? ['UNENCRYPTED'] : [], ...result as object,runId:identifiers.restoreRunId??identifiers.backupId??requestId }) + '\n')
+    const output={ schemaVersion: 1, command, status: 'completed', warnings: unencrypted ? ['UNENCRYPTED'] : [], ...result as object,runId:identifiers.restoreRunId??identifiers.backupId??requestId }
+    if(typeof values.report==='string'&&!['restore','exercise'].includes(command))await atomicStream(values.report,bytes(Buffer.from(JSON.stringify(output))))
+    io.stdout(JSON.stringify(output)+'\n')
     return 0
   } catch (error) {
     const inputFailure = error && typeof error === 'object' && (('code' in error && String(error.code).startsWith('ERR_PARSE_ARGS')) || ('name' in error && ['ZodError', 'SyntaxError'].includes(String(error.name))))
