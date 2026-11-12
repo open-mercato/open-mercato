@@ -445,6 +445,10 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
       expect(homeEntries.map((entry) => entry.recordId)).toEqual([todoId])
       expect(foreignEntries.map((entry) => entry.recordId)).toEqual([foreignTodoId])
 
+      await test.step('Use exact pgvector search for the two-row organization scope fixture', async () => {
+        await queryIntegrationDatabase(`DROP INDEX "${vectorTableName}_embedding_idx"`)
+      })
+
       await expect.poll(
         () =>
           vectorService

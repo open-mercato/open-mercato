@@ -231,6 +231,31 @@ describe('the list', () => {
       expect.objectContaining({ limit: 100 }),
     )
   })
+
+  test.each([
+    { page: 3335, pageSize: 30 },
+    { page: 1002, pageSize: 100 },
+    { page: 100002, pageSize: 1 },
+    { page: 999999999, pageSize: 30 },
+  ])('rejects an excessive derived offset for page $page / size $pageSize', async ({ page, pageSize }) => {
+    const response = await runList(`?page=${page}&pageSize=${pageSize}`)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ ok: false, error: 'WORKFLOW_LIST_OFFSET_EXCEEDED' })
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum derived offset without changing the requested page', async () => {
+    const response = await runList('?page=1001&pageSize=100')
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      UserTask,
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORG_ID }),
+      expect.objectContaining({ limit: 100, offset: 100000 }),
+    )
+    expect(body.pagination).toMatchObject({ page: 1001, pageSize: 100 })
+  })
 })
 
 describe('the detail route and its refusals', () => {

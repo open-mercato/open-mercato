@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { workflowListPaginationSchema } from '../../../../data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -58,6 +59,17 @@ export async function GET(
       )
     }
 
+    const { searchParams } = new URL(request.url)
+    const eventType = searchParams.get('eventType')
+    const pagination = workflowListPaginationSchema.safeParse({
+      limit: searchParams.get('limit') ?? 100,
+      offset: searchParams.get('offset') ?? undefined,
+    })
+    if (!pagination.success) {
+      return NextResponse.json({ error: pagination.error.message }, { status: 400 })
+    }
+    const { limit, offset } = pagination.data
+
     // Verify instance exists and belongs to tenant
     const instance = await em.findOne(WorkflowInstance, {
       id: params.id,
@@ -71,11 +83,6 @@ export async function GET(
         { status: 404 }
       )
     }
-
-    const { searchParams } = new URL(request.url)
-    const eventType = searchParams.get('eventType')
-    const limit = parseInt(searchParams.get('limit') || '100')
-    const offset = parseInt(searchParams.get('offset') || '0')
 
     // Build where clause
     const where: any = {
@@ -127,10 +134,15 @@ export const openApi = {
       }),
       query: z.object({
         eventType: z.string().optional(),
-        limit: z.number().int().positive().default(100).optional(),
-        offset: z.number().int().min(0).default(0).optional(),
+        limit: workflowListPaginationSchema.shape.limit.default(100),
+        offset: workflowListPaginationSchema.shape.offset,
       }),
       responses: [
+        {
+          status: 400,
+          description: 'Invalid pagination: page size must be an integer from 1 to 100 and offset an integer from 0 to 100000.',
+          schema: z.object({ error: z.string() }),
+        },
         {
           status: 200,
           description: 'List of workflow events',
