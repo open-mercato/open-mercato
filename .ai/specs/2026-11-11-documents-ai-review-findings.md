@@ -165,8 +165,8 @@ The server never writes document content for a finding.
 | `documents.finding.keep` | `open → kept`, stores `decision_note` (required when severity is `blocking`); emits `documents.finding.kept` and possibly `documents.review.cleared` | Restores the previous status |
 | `documents.finding.reopen` | `applied | kept → open`; clears decision fields; emits `documents.finding.reopened` | Restores the prior decision |
 | `documents.review_playbook.create / update / delete` | Playbook CRUD; `update` bumps `version` | Standard snapshot undo |
-| `documents.review_rule.create / update / delete` | Rule CRUD; any change bumps the parent playbook `version` | Standard snapshot undo |
-| `documents.review_playbook_reference.create / delete` | Link/unlink a guidance document | Standard |
+| `documents.review_rule.create / update / delete` | Rule CRUD; any change bumps the parent playbook `version` (without touching the playbook's `updated_at`, so an open playbook form does not 409) | Standard snapshot undo; undo bumps `version` again, never lowers it |
+| `documents.review_playbook_reference.create / delete` | Link/unlink a guidance document; bumps the playbook `version`; linking a document the caller cannot view returns 404 | Standard |
 
 Undo never emits `documents.review.cleared`, even when it brings open blocking findings back to zero (event lists are built at execution). Consumers confirm state with `GET /findings/summary`. Apply is refused with 422 on an `unlocated` finding, server-side as well as in the UI.
 
@@ -541,3 +541,4 @@ Purely additive: new tables, new routes, new events, new ACL feature, new option
 - 2026-11-11 — Status set to implementation-ready; peer dependency approved; consumer examples made client-agnostic.
 - 2026-11-12 — Phase 1 implemented. Aligned with implementation: anchoring via `@tiptap/y-tiptap`; undo does not emit `review.cleared`; 404 for findings is a deliberate exception to the module's 403 tier denials; apply refused on unlocated findings.
 - 2026-11-12 — Phase 2 implemented. UI details aligned: rail tabs Changes | Comments (Versions stays a header toggle), locating needs the live collaboration binding, review header wording.
+- 2026-11-12 — Phase 3 implemented. Aligned: version bumps skip the playbook's `updated_at`, guidance link changes bump `version`, undo re-bumps `version`; duplicate codes 409, caps 422.
