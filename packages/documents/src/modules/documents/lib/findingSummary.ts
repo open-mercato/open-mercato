@@ -1,6 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { DocumentFinding, DocumentReviewPlaybook, type DocumentFindingSeverity } from '../data/entities'
+import {
+  DocumentFinding,
+  DocumentReviewPlaybook,
+  DocumentReviewPlaybookReference,
+  DocumentReviewRule,
+  type DocumentFindingSeverity,
+} from '../data/entities'
 
 export type DocumentFindingScope = {
   tenantId: string
@@ -16,10 +22,22 @@ export type DocumentReviewPlaybookInfo = {
   version: number | null
 }
 
+/**
+ * What the latest review checked against: active rules and guidance documents
+ * of its playbook. Null when unknown — no playbook, or the playbook changed
+ * since the review (rules are not snapshotted per version).
+ */
+export type DocumentReviewCoverage = {
+  rules: number | null
+  references: number | null
+}
+
 export type DocumentFindingSummary = {
   reviewId: string | null
   reviewedAt: string | null
+  source: string | null
   playbook: DocumentReviewPlaybookInfo | null
+  coverage: DocumentReviewCoverage
   open: DocumentFindingSeverityCounts
   decided: { applied: number; kept: number }
   unlocated: number
@@ -111,7 +129,7 @@ export async function resolveLatestReview(
   em: EntityManager,
   scope: DocumentFindingScope,
   documentId: string,
-): Promise<{ reviewId: string; reviewedAt: Date } | null> {
+): Promise<{ reviewId: string; reviewedAt: Date; source: string } | null> {
   const latest = await findOneWithDecryption(
     em,
     DocumentFinding,
@@ -121,10 +139,10 @@ export async function resolveLatestReview(
       organizationId: scope.organizationId,
       deletedAt: null,
     },
-    { orderBy: { createdAt: 'DESC', id: 'DESC' }, fields: ['id', 'reviewId', 'createdAt'] },
+    { orderBy: { createdAt: 'DESC', id: 'DESC' }, fields: ['id', 'reviewId', 'createdAt', 'source'] },
     scope,
   )
-  return latest ? { reviewId: latest.reviewId, reviewedAt: latest.createdAt } : null
+  return latest ? { reviewId: latest.reviewId, reviewedAt: latest.createdAt, source: latest.source } : null
 }
 
 export async function countOpenBlockingFindings(
@@ -174,10 +192,15 @@ export async function countLatestReviewOpenBlocking(
   return countOpenBlockingFindings(em, scope, documentId, reviewId)
 }
 
+export function emptyReviewCoverage(): DocumentReviewCoverage {
+  return { rules: null, references: null }
+}
+
 export function summarizeFindings(
-  review: { reviewId: string; reviewedAt: Date } | null,
+  review: { reviewId: string; reviewedAt: Date; source?: string | null } | null,
   findings: ReadonlyArray<Pick<DocumentFinding, 'severity' | 'status' | 'anchorStatus'>>,
   playbook: DocumentReviewPlaybookInfo | null = null,
+  coverage: DocumentReviewCoverage = emptyReviewCoverage(),
 ): DocumentFindingSummary {
   const open = emptySeverityCounts()
   const decided = { applied: 0, kept: 0 }
@@ -191,7 +214,9 @@ export function summarizeFindings(
   return {
     reviewId: review?.reviewId ?? null,
     reviewedAt: review ? review.reviewedAt.toISOString() : null,
+    source: review?.source ?? null,
     playbook,
+    coverage,
     open,
     decided,
     unlocated,
@@ -219,7 +244,35 @@ export async function loadDocumentFindingSummary(
     scope,
   )
   const playbook = await loadReviewPlaybookInfo(em, scope, documentId, review.reviewId)
-  return summarizeFindings(review, findings, playbook)
+  const coverage = playbook ? await loadReviewCoverage(em, scope, playbook) : emptyReviewCoverage()
+  return summarizeFindings(review, findings, playbook, coverage)
+}
+
+export function isPlaybookCoverageCurrent(reviewVersion: number | null, currentVersion: number | null | undefined): boolean {
+  return reviewVersion !== null && currentVersion !== null && currentVersion !== undefined && reviewVersion === currentVersion
+}
+
+/**
+ * Counts the active rules and guidance documents of the review's playbook,
+ * only while the playbook is still at the version the review used.
+ */
+export async function loadReviewCoverage(
+  em: EntityManager,
+  scope: DocumentFindingScope,
+  playbook: DocumentReviewPlaybookInfo,
+): Promise<DocumentReviewCoverage> {
+  const current = await findOneWithDecryption(
+    em,
+    DocumentReviewPlaybook,
+    { id: playbook.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+    { fields: ['id', 'version'] },
+    scope,
+  )
+  if (!isPlaybookCoverageCurrent(playbook.version, current?.version)) return emptyReviewCoverage()
+  const where = { playbookId: playbook.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null }
+  const rules = await em.count(DocumentReviewRule, { ...where, isActive: true })
+  const references = await em.count(DocumentReviewPlaybookReference, where)
+  return { rules, references }
 }
 
 /**

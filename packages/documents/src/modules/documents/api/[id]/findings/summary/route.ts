@@ -29,7 +29,12 @@ const severityCountsSchema = z.object({
 const findingSummaryResponseSchema = z.object({
   reviewId: z.string().uuid().nullable(),
   reviewedAt: z.string().nullable(),
+  source: z.string().nullable().describe('Source of the latest review (ai or import)'),
   playbook: reviewPlaybookInfoSchema.nullable(),
+  coverage: z.object({
+    rules: z.number().int().nonnegative().nullable(),
+    references: z.number().int().nonnegative().nullable(),
+  }).describe('Active rules and guidance documents of the review playbook; null when unknown or the playbook changed since the review'),
   open: severityCountsSchema,
   decided: z.object({
     applied: z.number().int().nonnegative(),
@@ -61,7 +66,7 @@ export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   methods: {
     GET: {
       summary: 'Summarize the latest review',
-      description: 'Open findings by severity, decided counts and unlocated count for the latest review. A process can treat open.blocking = 0 as the review being cleared.',
+      description: 'Open findings by severity, decided counts and unlocated count for the latest review, plus its source and playbook coverage (active rules and guidance documents, null when unknown). A process can treat open.blocking = 0 as the review being cleared.',
       responses: [{ status: 200, description: 'Review summary', schema: findingSummaryResponseSchema }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },

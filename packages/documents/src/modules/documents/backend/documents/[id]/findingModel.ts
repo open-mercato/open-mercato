@@ -63,7 +63,12 @@ export type FindingReviewPlaybook = z.infer<typeof findingReviewPlaybookSchema>
 export const findingSummarySchema = z.object({
   reviewId: z.string().nullable(),
   reviewedAt: z.string().nullable(),
+  source: z.string().nullable().default(null),
   playbook: findingReviewPlaybookSchema.nullable().default(null),
+  coverage: z.object({
+    rules: z.number().int().nonnegative().nullable(),
+    references: z.number().int().nonnegative().nullable(),
+  }).default({ rules: null, references: null }),
   open: severityCountsSchema,
   decided: z.object({
     applied: z.number().int().nonnegative(),
