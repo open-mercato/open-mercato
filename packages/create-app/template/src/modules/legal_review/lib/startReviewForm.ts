@@ -37,6 +37,7 @@ export function buildStartReviewPayload(
   form: StartReviewForm,
   documentId: string,
   currentUserId: string | null,
+  assigneeUserId: string | null = currentUserId,
 ): Record<string, unknown> {
   const jurisdiction = form.jurisdiction.trim()
   const dueAt = form.dueDate ? new Date(`${form.dueDate}T17:00:00`) : null
@@ -49,7 +50,7 @@ export function buildStartReviewPayload(
     agreementType: form.agreementType,
     paper: form.paper,
     requestedByUserId: currentUserId,
-    assigneeUserId: currentUserId,
+    assigneeUserId: assigneeUserId ?? currentUserId,
     dueAt: dueAt && !Number.isNaN(dueAt.getTime()) ? dueAt.toISOString() : null,
   }
 }

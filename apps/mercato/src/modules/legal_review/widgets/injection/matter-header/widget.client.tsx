@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from 'react'
-import { Globe, Scale } from 'lucide-react'
+import { Globe, Scale, Sparkles } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -109,6 +110,100 @@ function StartReviewBar({ documentId, onStarted }: { documentId: string; onStart
   )
 }
 
+const PROGRESS_POLL_MS = 4000
+const PROGRESS_MAX_MS = 5 * 60 * 1000
+const PROGRESS_PENDING_MS = 30 * 1000
+const ACTIVE_STATUSES = new Set(['RUNNING', 'PAUSED', 'WAITING', 'WAITING_FOR_ACTIVITIES'])
+const AGENT_STEPS = new Set(['ai_review', 'start'])
+
+type ReviewProgress = 'idle' | 'running' | 'failed'
+
+function readLatestInstance(payload: unknown): { status: string; currentStepId: string } | null {
+  if (!payload || typeof payload !== 'object') return null
+  const data = (payload as { data?: unknown }).data
+  const first = Array.isArray(data) ? data[0] : null
+  if (!first || typeof first !== 'object') return null
+  const record = first as Record<string, unknown>
+  return {
+    status: typeof record.status === 'string' ? record.status : '',
+    currentStepId: typeof record.currentStepId === 'string' ? record.currentStepId : '',
+  }
+}
+
+function useReviewProgress(documentId: string | null): ReviewProgress {
+  const [progress, setProgress] = React.useState<ReviewProgress>('idle')
+  const seenRunningRef = React.useRef(false)
+  const reloadedRef = React.useRef(false)
+  React.useEffect(() => {
+    if (!documentId) return
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const startedAt = Date.now()
+    const path = `/api/workflows/instances?correlationKey=${encodeURIComponent(`legal_review:${documentId}`)}&limit=1&pageSize=1`
+    const poll = async () => {
+      if (stopped) return
+      let keepPolling = false
+      try {
+        const call = await apiCall<unknown>(path, { headers: { 'x-om-forbidden-redirect': '0' } })
+        if (stopped) return
+        const instance = call.ok ? readLatestInstance(call.result) : null
+        if (instance && ACTIVE_STATUSES.has(instance.status) && AGENT_STEPS.has(instance.currentStepId)) {
+          seenRunningRef.current = true
+          setProgress('running')
+          keepPolling = true
+        } else if (instance && seenRunningRef.current && instance.currentStepId === 'manual_review') {
+          setProgress('failed')
+        } else if (instance && seenRunningRef.current) {
+          setProgress('idle')
+          if (!reloadedRef.current) {
+            reloadedRef.current = true
+            window.location.reload()
+          }
+        } else {
+          setProgress('idle')
+          keepPolling = !instance && call.ok && Date.now() - startedAt < PROGRESS_PENDING_MS
+        }
+      } catch {
+        if (!stopped) setProgress('idle')
+      }
+      if (keepPolling && !stopped && Date.now() - startedAt < PROGRESS_MAX_MS) {
+        timer = setTimeout(() => void poll(), PROGRESS_POLL_MS)
+      } else if (keepPolling) {
+        setProgress('idle')
+      }
+    }
+    void poll()
+    return () => {
+      stopped = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [documentId])
+  return progress
+}
+
+function ReviewProgressBar({ progress }: { progress: ReviewProgress }) {
+  const t = useT()
+  return (
+    <div aria-live="polite" className="lg:col-span-2">
+      {progress === 'running' ? (
+        <div
+          className="flex items-center gap-2 rounded-md border border-status-info-border bg-status-info-bg px-3 py-2 text-sm text-status-info-text"
+          data-testid="legal-review-progress"
+        >
+          <Spinner size="sm" />
+          <Sparkles className="size-4" aria-hidden="true" />
+          <span>{t('legal_review.progress.running', 'Review agent is analysing the document…')}</span>
+        </div>
+      ) : null}
+      {progress === 'failed' ? (
+        <p className="text-sm text-status-warning-text" data-testid="legal-review-progress-failed">
+          {t('legal_review.progress.failed', 'Automatic review failed — manual review task created')}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 type LoadState =
   | { status: 'idle' | 'loading' }
   | { status: 'ready'; matter: LegalMatterItem | null }
@@ -145,6 +240,8 @@ export default function LegalMatterHeaderWidget({
   const [state, setState] = React.useState<LoadState>({ status: 'idle' })
   const [reloadToken, setReloadToken] = React.useState(0)
   const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
+  const hasMatter = state.status === 'ready' && state.matter !== null
+  const progress = useReviewProgress(hasMatter ? documentId : null)
 
   React.useEffect(() => {
     if (!documentId) {
@@ -191,6 +288,7 @@ export default function LegalMatterHeaderWidget({
       aria-label={t('legal_review.header.ariaLabel', 'Legal matter')}
       data-testid="legal-review-matter-header"
     >
+      <ReviewProgressBar progress={progress} />
       <div className="flex min-w-0 flex-col gap-4">
         <div className="flex min-w-0 flex-col gap-1">
           <span className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">

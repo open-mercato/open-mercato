@@ -7,6 +7,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import {
   LEGAL_AGREEMENT_TYPES,
   LEGAL_PAPER_SIDES,
@@ -27,15 +28,54 @@ type StartReviewDialogProps = {
   onSubmit: (payload: Record<string, unknown>) => Promise<boolean>
 }
 
+type UserOption = { id: string; label: string }
+
+function readUserOptions(payload: unknown): UserOption[] {
+  if (!payload || typeof payload !== 'object') return []
+  const items = (payload as { items?: unknown }).items
+  if (!Array.isArray(items)) return []
+  return items.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const record = entry as Record<string, unknown>
+    const id = typeof record.id === 'string' ? record.id : null
+    if (!id) return []
+    const pick = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null)
+    const label = pick(record.name) ?? pick(record.display_name) ?? pick(record.displayName) ?? pick(record.email) ?? id
+    return [{ id, label }]
+  })
+}
+
+function useTenantUsers(open: boolean): UserOption[] {
+  const [users, setUsers] = React.useState<UserOption[]>([])
+  React.useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    apiCall<unknown>('/api/auth/users?page=1&pageSize=100', { headers: { 'x-om-forbidden-redirect': '0' } })
+      .then((call) => {
+        if (!cancelled && call.ok) setUsers(readUserOptions(call.result))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+  return users
+}
+
 export function StartReviewDialog({ open, documentId, currentUserId, onOpenChange, onSubmit }: StartReviewDialogProps) {
   const t = useT()
   const [form, setForm] = React.useState<StartReviewForm>(() => buildDefaultStartReviewForm(new Date()))
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const idPrefix = React.useId()
+  const users = useTenantUsers(open)
+  const [assigneeUserId, setAssigneeUserId] = React.useState<string | null>(currentUserId)
 
   React.useEffect(() => {
-    if (open) setForm(buildDefaultStartReviewForm(new Date()))
-  }, [open])
+    if (open) {
+      setForm(buildDefaultStartReviewForm(new Date()))
+      setAssigneeUserId(currentUserId)
+    }
+  }, [open, currentUserId])
 
   const update = <K extends keyof StartReviewForm>(key: K, value: StartReviewForm[K]) =>
     setForm((current) => ({ ...current, [key]: value }))
@@ -46,12 +86,12 @@ export function StartReviewDialog({ open, documentId, currentUserId, onOpenChang
     if (!canSubmit) return
     setIsSubmitting(true)
     try {
-      const ok = await onSubmit(buildStartReviewPayload(form, documentId, currentUserId))
+      const ok = await onSubmit(buildStartReviewPayload(form, documentId, currentUserId, assigneeUserId))
       if (ok) onOpenChange(false)
     } finally {
       setIsSubmitting(false)
     }
-  }, [canSubmit, currentUserId, documentId, form, onOpenChange, onSubmit])
+  }, [assigneeUserId, canSubmit, currentUserId, documentId, form, onOpenChange, onSubmit])
 
   const handleOpenChange = (next: boolean) => {
     if (!isSubmitting) onOpenChange(next)
@@ -124,9 +164,27 @@ export function StartReviewDialog({ open, documentId, currentUserId, onOpenChang
               </SelectContent>
             </Select>
           </div>
-          <p className="text-sm text-muted-foreground sm:col-span-2">
-            {t('legal_review.start.assigneeHint', 'You will be the requester and the assignee.')}
-          </p>
+          <div className="flex flex-col gap-2 sm:col-span-2">
+            <Label>{t('legal_review.start.assignee', 'Assignee')}</Label>
+            <Select value={assigneeUserId ?? undefined} onValueChange={(value) => setAssigneeUserId(value)} disabled={isSubmitting}>
+              <SelectTrigger data-testid="legal-review-start-assignee">
+                <SelectValue placeholder={t('legal_review.start.assigneePlaceholder', 'Select a user')} />
+              </SelectTrigger>
+              <SelectContent>
+                {currentUserId && !users.some((user) => user.id === currentUserId) ? (
+                  <SelectItem value={currentUserId}>{t('legal_review.start.assigneeMe', 'Me')}</SelectItem>
+                ) : null}
+                {users.map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {user.id === currentUserId ? `${user.label} (${t('legal_review.start.assigneeMe', 'Me')})` : user.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {t('legal_review.start.requesterHint', 'You will be recorded as the requester.')}
+            </p>
+          </div>
           <DialogFooter className="sm:col-span-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               {t('legal_review.start.cancel', 'Cancel')}
