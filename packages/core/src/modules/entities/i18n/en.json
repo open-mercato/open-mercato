@@ -197,6 +197,8 @@
   "entities.nav.userEntities": "User Entities",
   "entities.nav.userEntities.create": "Create Entity",
   "entities.records.errors.alreadyExists": "A record with this ID already exists. Use PUT to update it.",
+  "entities.rotation.acknowledgmentRequired": "Key rotation refused. Rerun with --acknowledge-unprotected-key-rotation to explicitly accept unprotected rotation. Generic confirmation or force options cannot replace this acknowledgment.",
+  "entities.rotation.unprotectedWarning": "Enterprise resumable encrypted backup and post-rotation verification are unavailable. Interrupted or incorrect rotation can make data unrecoverable. Keep a tested independent backup and all previous keys. To accept this risk, rerun the same command with --acknowledge-unprotected-key-rotation.",
   "entities.settings.description": "Manage global custom entity configurations.",
   "entities.settings.errors.conflict": "Settings were modified by another user. Please reload.",
   "entities.settings.errors.loadFailed": "Failed to load settings",
