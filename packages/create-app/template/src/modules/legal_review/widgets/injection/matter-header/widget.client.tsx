@@ -3,8 +3,12 @@
 import * as React from 'react'
 import { Globe, Scale } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import type { LegalMatterItem } from '../../../data/validators'
@@ -18,6 +22,92 @@ import {
   readDocumentIdFromContext,
   type LegalMatterHeaderContext,
 } from '../../../lib/matterHeader'
+import { StartReviewDialog } from './StartReviewDialog'
+
+const MANAGE_FEATURE = 'legal_review.matters.manage'
+
+type ManageAccess = { canManage: boolean; userId: string | null }
+
+function useManageAccess(): ManageAccess {
+  const [access, setAccess] = React.useState<ManageAccess>({ canManage: false, userId: null })
+  React.useEffect(() => {
+    let cancelled = false
+    apiCall<{ granted?: unknown[]; userId?: unknown }>('/api/auth/feature-check', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ features: [MANAGE_FEATURE] }),
+    })
+      .then((call) => {
+        if (cancelled || !call.ok) return
+        const granted = Array.isArray(call.result?.granted) ? call.result.granted.map((entry) => String(entry)) : []
+        const userId = typeof call.result?.userId === 'string' ? call.result.userId : null
+        setAccess({ canManage: hasAllFeatures([MANAGE_FEATURE], granted), userId })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return access
+}
+
+function StartReviewBar({ documentId, onStarted }: { documentId: string; onStarted: () => void }) {
+  const t = useT()
+  const access = useManageAccess()
+  const [open, setOpen] = React.useState(false)
+  const contextId = `legal-review-start:${documentId}`
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({ contextId, blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation') })
+
+  const handleSubmit = React.useCallback(async (payload: Record<string, unknown>) => {
+    try {
+      await runMutation({
+        operation: () => apiCallOrThrow<unknown>(
+          '/api/legal_review/matters',
+          { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) },
+          { errorMessage: t('legal_review.start.error', 'Could not start the legal review') },
+        ),
+        context: { formId: contextId, resourceKind: 'legal_review.matter', resourceId: documentId, retryLastMutation },
+        mutationPayload: payload,
+      })
+      flash(t('legal_review.start.success', 'Review started — results in about a minute'), 'success')
+      onStarted()
+      return true
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : t('legal_review.start.error', 'Could not start the legal review')
+      flash(message, 'error')
+      return false
+    }
+  }, [contextId, documentId, onStarted, retryLastMutation, runMutation, t])
+
+  if (!access.canManage) return null
+
+  return (
+    <section
+      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-4 py-3"
+      data-testid="legal-review-start-bar"
+    >
+      <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+        <Scale className="size-4" aria-hidden="true" />
+        {t('legal_review.start.prompt', 'No legal review for this document yet.')}
+      </span>
+      <Button type="button" size="sm" onClick={() => setOpen(true)} data-testid="legal-review-start-button">
+        {t('legal_review.start.button', 'Start legal review')}
+      </Button>
+      <StartReviewDialog
+        open={open}
+        documentId={documentId}
+        currentUserId={access.userId}
+        onOpenChange={setOpen}
+        onSubmit={handleSubmit}
+      />
+    </section>
+  )
+}
 
 type LoadState =
   | { status: 'idle' | 'loading' }
@@ -41,8 +131,10 @@ function PersonLine({ caption, label }: { caption: string; label: string | null 
  * Legal matter header for the document page (`detail:documents.document:header`).
  *
  * Loads the matter linked to `context.documentId`; renders nothing when the
- * document has no matter or the viewer may not read matters. Read-only — it
- * performs no writes, so it needs no guarded mutation or optimistic lock.
+ * viewer may not read matters. When the document has no matter yet and the
+ * viewer may manage matters, it offers "Start legal review" instead — the
+ * create goes through a guarded mutation and the matter-created subscriber
+ * starts the NDA review run.
  */
 export default function LegalMatterHeaderWidget({
   context,
@@ -51,6 +143,8 @@ export default function LegalMatterHeaderWidget({
   const locale = useLocale()
   const documentId = readDocumentIdFromContext(context)
   const [state, setState] = React.useState<LoadState>({ status: 'idle' })
+  const [reloadToken, setReloadToken] = React.useState(0)
+  const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
 
   React.useEffect(() => {
     if (!documentId) {
@@ -58,7 +152,7 @@ export default function LegalMatterHeaderWidget({
       return
     }
     let cancelled = false
-    setState({ status: 'loading' })
+    setState((current) => (current.status === 'ready' && reloadToken > 0 ? current : { status: 'loading' }))
     apiCall<unknown>(buildMatterListPath(documentId), { headers: { 'x-om-forbidden-redirect': '0' } })
       .then((call) => {
         if (cancelled) return
@@ -70,12 +164,15 @@ export default function LegalMatterHeaderWidget({
     return () => {
       cancelled = true
     }
-  }, [documentId])
+  }, [documentId, reloadToken])
 
   if (state.status === 'loading') {
     return <LoadingMessage label={t('legal_review.header.loading', 'Loading legal matter…')} />
   }
-  if (state.status !== 'ready' || !state.matter) return null
+  if (state.status !== 'ready') return null
+  if (!state.matter) {
+    return documentId ? <StartReviewBar documentId={documentId} onStarted={reload} /> : null
+  }
 
   const matter = state.matter
   const steps = buildLegalMatterSteps(matter.stage)
