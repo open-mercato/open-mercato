@@ -23,7 +23,7 @@ export function register(container: AppContainer) {
       resolveManifest: () => container.hasRegistration('erasureManifestService')
         ? container.resolve('erasureManifestService')
         : null,
-    })).scoped(),
+    })).scoped().proxy(),
     privacyRestoreReapplicationService: asFunction((
       privacyGovernanceService: PrivacyGovernanceService,
     ) => new PrivacyRestoreReapplicationService(
@@ -31,6 +31,6 @@ export function register(container: AppContainer) {
       () => container.hasRegistration('erasureManifestService')
         ? container.resolve('erasureManifestService')
         : null,
-    )).scoped(),
+    )).scoped().proxy(),
   })
 }

@@ -17,6 +17,10 @@ export function createTransactionalEntityManagerDouble<Operations extends Entity
   const createManager = (): Operations & TransactionalEntityManagerDouble => {
     let transactionActive = false
     const manager = {
+      // Raw-SQL seams used by encryption policy lookups and other helpers that
+      // bypass the ORM; tests override these when they need real rows.
+      execute: async () => [],
+      getConnection: () => ({ execute: async () => [] }),
       ...operations,
       begin: async () => {
         transactionActive = true

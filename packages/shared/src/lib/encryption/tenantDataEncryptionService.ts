@@ -275,9 +275,24 @@ export function resolveEncryptionKeyId(
  * transaction-aware map write needs.
  */
 function getSqlExecutor(em: EntityManager): SqlConnection | null {
-  const candidate = em as unknown as { execute?: unknown }
-  if (typeof candidate.execute !== 'function') return null
-  return candidate as unknown as SqlConnection
+  const candidate = em as unknown as {
+    execute?: unknown
+    getConnection?: () => { execute?: unknown } | null | undefined
+  }
+  if (typeof candidate.execute === 'function') return candidate as unknown as SqlConnection
+  // Test doubles and some MikroORM wrappers expose the driver only through
+  // `getConnection()`; both shapes can run the policy statement.
+  if (typeof candidate.getConnection === 'function') {
+    try {
+      const connection = candidate.getConnection()
+      if (connection && typeof connection.execute === 'function') {
+        return connection as unknown as SqlConnection
+      }
+    } catch {
+      return null
+    }
+  }
+  return null
 }
 
 export class TenantDataEncryptionService {
@@ -646,19 +661,6 @@ export class TenantDataEncryptionService {
       debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    // `isEnabled()` folds the environment toggle together with KMS health. In a
-    // required-encryption deployment this must fail closed instead of writing
-    // plaintext (production boot already asserts a healthy KMS).
-    if (!this.isEnabled()) {
-      if (encryptionRequired) {
-        throw new TenantDataEncryptionUnavailableError(
-          entityId,
-          encryptionEnabled ? 'kms-unhealthy' : 'disabled',
-        )
-      }
-      debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
-      return payload
-    }
     const { map, fields } = await this.resolvePolicy(
       { entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null },
       options?.em,
@@ -672,6 +674,19 @@ export class TenantDataEncryptionService {
       return key !== null && payload[key] !== null && payload[key] !== undefined
     })
     if (!hasProtectedValue) return payload
+    // `isEnabled()` folds the environment toggle together with KMS health. In a
+    // required-encryption deployment this must fail closed instead of writing
+    // plaintext (production boot already asserts a healthy KMS).
+    if (!this.isEnabled()) {
+      if (encryptionRequired) {
+        throw new TenantDataEncryptionUnavailableError(
+          entityId,
+          encryptionEnabled ? 'kms-unhealthy' : 'disabled',
+        )
+      }
+      debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
+      return payload
+    }
     const keyId = resolveEncryptionKeyId(entityId, map?.keyScope, tenantId)
     const dek = await this.resolveDekForEncrypt(keyId, { createIfMissing: options?.createMissingDek !== false })
     if (!dek) {

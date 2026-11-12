@@ -41,7 +41,7 @@ export function register(container: AppContainer) {
       cradle.mfaProviderRegistry,
       readSecurityModuleConfig(),
       cradle.tenantEncryptionService,
-    )).scoped(),
+    )).scoped().proxy(),
     mfaVerificationService: asClass(MfaVerificationService).scoped(),
     mfaEnforcementService: asClass(MfaEnforcementService).scoped(),
     mfaAdminService: asClass(MfaAdminService).scoped(),

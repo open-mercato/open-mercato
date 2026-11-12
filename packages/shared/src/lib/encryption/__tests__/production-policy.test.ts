@@ -13,7 +13,10 @@ const entityId = 'test:protected_record'
 
 function makeService(options: { healthy: boolean; dek?: string | null }) {
   return new TenantDataEncryptionService(
-    { getConnection: () => ({ execute: jest.fn(async () => []) }) } as never,
+    {
+      getConnection: () => ({ execute: jest.fn(async () => []) }),
+      execute: jest.fn(async () => []),
+    } as never,
     {
       kms: {
         isHealthy: () => options.healthy,
