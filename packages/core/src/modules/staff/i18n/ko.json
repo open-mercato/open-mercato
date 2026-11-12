@@ -1860,6 +1860,7 @@
   "staff.time_tracking.settings.retro.jobName": "기존 항목에 반올림 다시 적용",
   "staff.time_tracking.settings.retro.nothing": "재계산할 항목이 없습니다.",
   "staff.time_tracking.settings.retro.queued": "{count}개 항목의 반올림 시간을 다시 계산하고 있습니다. 진행 상황은 상단 표시줄에서 확인할 수 있습니다.",
+  "staff.time_tracking.settings.retro.queuedWithoutProgress": "{count}개 항목의 반올림 시간을 백그라운드에서 다시 계산하고 있습니다.",
   "staff.time_tracking.settings.retro.saveFirst": "먼저 규칙을 저장하세요. 재계산은 화면의 규칙이 아니라 저장된 규칙을 사용합니다.",
   "staff.time_tracking.settings.retro.title": "기존 항목에 소급 적용",
   "staff.time_tracking.settings.retry": "다시 시도",

@@ -56,7 +56,7 @@ export type ReapplyRoundingScope = {
 }
 
 export type ReapplyRoundingJobPayload = {
-  progressJobId: string
+  progressJobId: string | null
   scope: ReapplyRoundingScope
   /**
    * EP-51. The recalculation hooks this job should run, in the order given.

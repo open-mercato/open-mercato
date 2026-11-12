@@ -173,6 +173,27 @@ describe('reapply rounding route', () => {
     })
   })
 
+  it('queues the job without a progress job when the progress module is disabled', async () => {
+    const resolveWithProgress = container.resolve.getMockImplementation()!
+    container.resolve.mockImplementation((name: string) => {
+      if (name === 'progressService') throw new Error('[internal] Could not resolve progressService')
+      return resolveWithProgress(name)
+    })
+    try {
+      const response = await POST(request())
+
+      expect(response.status).toBe(202)
+      expect(await response.json()).toEqual({ ok: true, progressJobId: null, candidateCount: 5 })
+      expect(createJob).not.toHaveBeenCalled()
+      expect(enqueue).toHaveBeenCalledWith({
+        progressJobId: null,
+        scope: { tenantId, organizationIds: [organizationId], userId },
+      })
+    } finally {
+      container.resolve.mockImplementation(resolveWithProgress)
+    }
+  })
+
   it('reports a queueing failure as a 500', async () => {
     enqueue.mockRejectedValueOnce(new Error('[internal] redis down'))
 

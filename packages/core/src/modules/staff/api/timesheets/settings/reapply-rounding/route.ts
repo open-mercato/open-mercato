@@ -33,6 +33,7 @@ import { emitStaffEvent } from '../../../../events'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ProgressService } from '../../../../../progress/lib/progressService'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { tryResolve } from '../../../../lib/tryResolve'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../guards'
 import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
 import {
@@ -141,8 +142,8 @@ export async function POST(req: Request) {
       return session.respond(200, responseSchema.parse({ ok: true, progressJobId: null, candidateCount: 0 }))
     }
 
-    const progressService = container.resolve('progressService') as ProgressService
-    const progressJob = await progressService.createJob(
+    const progressService = tryResolve<ProgressService>(container, 'progressService')
+    const progressJob = progressService ? await progressService.createJob(
       {
         jobType: STAFF_TIME_REAPPLY_ROUNDING_JOB_TYPE,
         name: translate('staff.time_tracking.settings.retro.jobName', 'Reapply rounding to existing entries'),
@@ -155,23 +156,24 @@ export async function POST(req: Request) {
         meta: { source: 'staff.timesheets.settings.reapply-rounding' },
       },
       { tenantId, organizationId, userId: actorId },
-    )
+    ) : null
+    const progressJobId = progressJob?.id ?? null
 
     const queue = getStaffQueue(STAFF_TIME_REAPPLY_ROUNDING_QUEUE)
-    await queue.enqueue({ progressJobId: progressJob.id, scope })
+    await queue.enqueue({ progressJobId, scope })
 
     await guardResult.runAfterSuccess()
 
     void emitStaffEvent('staff.timesheets.time_tracking.rounding_reapplied', {
       tenantId,
       organizationId,
-      progressJobId: progressJob.id,
+      progressJobId,
       candidateCount,
     }, { persistent: true }).catch((err) => {
       logger.error('staff.timesheets emit time_tracking.rounding_reapplied failed', { err })
     })
 
-    return session.respond(202, responseSchema.parse({ ok: true, progressJobId: progressJob.id, candidateCount }))
+    return session.respond(202, responseSchema.parse({ ok: true, progressJobId, candidateCount }))
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })

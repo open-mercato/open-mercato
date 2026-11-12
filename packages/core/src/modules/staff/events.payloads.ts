@@ -216,7 +216,7 @@ const settingsUpdated = scope.extend({ settings: z.record(z.string(), z.unknown(
 
 const roundingReapplied = scope
   .extend({
-    progressJobId: z.string(),
+    progressJobId: z.string().nullable(),
     candidateCount: z.number(),
   })
   .passthrough()

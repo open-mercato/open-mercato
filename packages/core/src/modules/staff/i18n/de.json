@@ -1860,6 +1860,7 @@
   "staff.time_tracking.settings.retro.jobName": "Rundung auf bestehende Einträge anwenden",
   "staff.time_tracking.settings.retro.nothing": "Es gibt nichts neu zu berechnen.",
   "staff.time_tracking.settings.retro.queued": "Die gerundete Zeit von {count} Einträgen wird neu berechnet. Den Fortschritt sehen Sie in der oberen Leiste.",
+  "staff.time_tracking.settings.retro.queuedWithoutProgress": "Die gerundete Zeit von {count} Einträgen wird im Hintergrund neu berechnet.",
   "staff.time_tracking.settings.retro.saveFirst": "Speichern Sie die Regel zuerst — die Neuberechnung verwendet die gespeicherte Regel, nicht die auf dem Bildschirm.",
   "staff.time_tracking.settings.retro.title": "Rückwirkend auf bestehende Einträge anwenden",
   "staff.time_tracking.settings.retry": "Erneut versuchen",

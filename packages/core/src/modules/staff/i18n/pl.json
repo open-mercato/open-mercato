@@ -1860,6 +1860,7 @@
   "staff.time_tracking.settings.retro.jobName": "Zastosuj zaokrąglanie do istniejących wpisów",
   "staff.time_tracking.settings.retro.nothing": "Nie ma czego przeliczać.",
   "staff.time_tracking.settings.retro.queued": "Przeliczanie zaokrąglonego czasu dla {count} wpisów. Postęp widać na górnym pasku.",
+  "staff.time_tracking.settings.retro.queuedWithoutProgress": "Przeliczanie w tle zaokrąglonego czasu dla {count} wpisów.",
   "staff.time_tracking.settings.retro.saveFirst": "Najpierw zapisz regułę — przeliczenie korzysta z zapisanej reguły, a nie z tej na ekranie.",
   "staff.time_tracking.settings.retro.title": "Zastosuj wstecz do istniejących wpisów",
   "staff.time_tracking.settings.retry": "Spróbuj ponownie",

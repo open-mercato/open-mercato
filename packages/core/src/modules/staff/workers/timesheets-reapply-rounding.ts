@@ -6,6 +6,7 @@ import {
   type ReapplyRoundingJobPayload,
 } from '../lib/time-tracking/reapplyRounding'
 import { runTimeTrackingRecalculations } from '../lib/time-tracking/recalculationRunner'
+import { tryResolve } from '../lib/tryResolve'
 
 export const metadata: WorkerMeta = {
   queue: STAFF_TIME_REAPPLY_ROUNDING_QUEUE,
@@ -40,9 +41,11 @@ export default async function handle(
       hookIds: job.payload.hookIds ?? null,
     })
   } catch (error) {
-    const progressService = container.resolve('progressService') as ProgressService
+    const progressJobId = job.payload.progressJobId
+    const progressService = progressJobId ? tryResolve<ProgressService>(container, 'progressService') : undefined
+    if (!progressJobId || !progressService) throw error
     await progressService.failJob(
-      job.payload.progressJobId,
+      progressJobId,
       {
         errorMessage:
           error instanceof Error ? error.message : 'Reapplying the rounding rule failed',
