@@ -18,6 +18,7 @@ import {
   resolveEphemeralPostgresImage,
   resolveEphemeralJwtSecret,
   buildEphemeralInitializationEnvironment,
+  resolveEphemeralSuperadminPassword,
   ephemeralPostgresInitSql,
   shouldReuseBuildArtifacts,
   acquireEphemeralRuntimeLock,
@@ -28,9 +29,11 @@ import {
   killProcessTree,
   terminateProcessTree,
   registerEphemeralShutdownHandlers,
+  withoutCoverageEnvironment,
 } from '../integration'
 import type { CapturedOutputProcess, ShutdownProcessRef } from '../integration'
 import { resolveSpawnCommand } from '../../spawn'
+import { resolveInitSuperadminCredentials } from '../../init-secrets'
 import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
@@ -508,6 +511,28 @@ describe('integration cache and options', () => {
     expect(resolveEphemeralJwtSecret({ JWT_SECRET: strongSecret })).toBe(strongSecret)
     expect(resolveEphemeralJwtSecret({ JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min' })).toBe(
       'ci-ephemeral-test-jwt-secret-32-chars-min',
+    )
+  })
+
+  it('supplies a production-valid superadmin password when the inherited one is missing or a placeholder', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const fallback = resolveEphemeralSuperadminPassword({})
+      expect(fallback).toBe('Om-Ephemeral-Superadmin-2026!')
+      expect(() =>
+        resolveInitSuperadminCredentials([], { NODE_ENV: 'production', OM_INIT_SUPERADMIN_PASSWORD: fallback }),
+      ).not.toThrow()
+      expect(warnSpy).not.toHaveBeenCalled()
+      expect(resolveEphemeralSuperadminPassword({ OM_INIT_SUPERADMIN_PASSWORD: 'secret' })).toBe(fallback)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('keeps a production-valid operator-provided superadmin password', () => {
+    expect(resolveEphemeralSuperadminPassword({ OM_INIT_SUPERADMIN_PASSWORD: 'Operator-Chosen-Pass-42!' })).toBe(
+      'Operator-Chosen-Pass-42!',
     )
   })
 
@@ -1156,6 +1181,36 @@ describe('formatCapturedOutput', () => {
     expect(formatCapturedOutput('only stderr', '')).toBe('only stderr')
     expect(formatCapturedOutput('', 'only stdout')).toBe('only stdout')
     expect(formatCapturedOutput('', '')).toBe('')
+  })
+})
+
+describe('withoutCoverageEnvironment', () => {
+  it('drops NODE_V8_COVERAGE and keeps every other key', () => {
+    const environment: NodeJS.ProcessEnv = {
+      NODE_V8_COVERAGE: '/tmp/coverage/raw',
+      DATABASE_URL: 'postgres://localhost/test',
+      NEXT_PUBLIC_FLAG: '1',
+    }
+
+    expect(withoutCoverageEnvironment(environment)).toEqual({
+      DATABASE_URL: 'postgres://localhost/test',
+      NEXT_PUBLIC_FLAG: '1',
+    })
+  })
+
+  it('does not mutate the input environment', () => {
+    const environment: NodeJS.ProcessEnv = { NODE_V8_COVERAGE: '/tmp/coverage/raw', PORT: '3000' }
+
+    const result = withoutCoverageEnvironment(environment)
+
+    expect(result).not.toBe(environment)
+    expect(environment).toEqual({ NODE_V8_COVERAGE: '/tmp/coverage/raw', PORT: '3000' })
+  })
+
+  it('returns an equal copy when coverage is not configured', () => {
+    const environment: NodeJS.ProcessEnv = { PORT: '3000' }
+
+    expect(withoutCoverageEnvironment(environment)).toEqual({ PORT: '3000' })
   })
 })
 

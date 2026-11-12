@@ -7,6 +7,7 @@
   "demoFeedback.dialog.successBody": "Wir melden uns in Kürze bei Ihnen.",
   "demoFeedback.dialog.successTitle": "Vielen Dank!",
   "demoFeedback.dialog.title": "Sprechen Sie mit dem Open Mercato Team",
+  "demoFeedback.errors.disabled": "Feedback ist nicht verfügbar, weil der Demomodus deaktiviert ist.",
   "demoFeedback.errors.emailInvalid": "Bitte geben Sie eine gültige E-Mail-Adresse ein.",
   "demoFeedback.errors.generic": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
   "demoFeedback.errors.termsRequired": "Bitte akzeptieren Sie die Nutzungsbedingungen.",

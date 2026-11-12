@@ -6396,13 +6396,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ioredis/commands@npm:1.10.0":
-  version: 1.10.0
-  resolution: "@ioredis/commands@npm:1.10.0"
-  checksum: 10/2b0322f99d24f11d99ae279b59d977bb129f95f973ed3a31cbee68376e8fad41f974d23d7f9a06151b3d9c140038ef312e0b45d4577048ab0797aa9a6839213d
-  languageName: node
-  linkType: hard
-
 "@ioredis/commands@npm:2.0.0":
   version: 2.0.0
   resolution: "@ioredis/commands@npm:2.0.0"
@@ -7789,12 +7782,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@mermaid-js/parser@npm:^1.2.0":
-  version: 1.2.0
-  resolution: "@mermaid-js/parser@npm:1.2.0"
+"@mermaid-js/parser@npm:^1.2.1":
+  version: 1.2.1
+  resolution: "@mermaid-js/parser@npm:1.2.1"
   dependencies:
     "@chevrotain/types": "npm:~11.1.2"
-  checksum: 10/278ae28edd452c9bcee3723a2d45a6a3f174700cb80fc907b9a5212f2ce449c9a5a6f7d45372bb18b6d633f8040dff4c4d2533b6a3c8d3f021903b3d6ccea799
+  checksum: 10/54c0de01f9d260d83f43921a9c739604fbe05e45b26ac645f5965ac6652d54cb28dae4021d4660b7bffcb455e9162c87a2cde91325c6cd5f698017178e052238
   languageName: node
   linkType: hard
 
@@ -8689,7 +8682,7 @@ __metadata:
     bcryptjs: "npm:^3.0.3"
     better-sqlite3: "npm:^13.0.3"
     bullmq: "npm:^6.0.9"
-    bullmq-otel: "npm:^1.3.1"
+    bullmq-otel: "npm:^2.0.1"
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
     cross-spawn: "npm:^7.0.6"
@@ -8707,6 +8700,7 @@ __metadata:
     react-big-calendar: "npm:^1.20.0"
     react-dom: "npm:19.2.8"
     react-email: "npm:^6.9.3"
+    react-is: "npm:19.2.8"
     remark-gfm: "npm:^4.0.1"
     resend: "npm:^6.24.0"
     semver: "npm:^7.8.5"
@@ -8754,6 +8748,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/carrier-inpost@workspace:packages/carrier-inpost"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
@@ -8763,18 +8758,21 @@ __metadata:
     "@types/react-dom": "npm:^19.2.5"
     chance: "npm:^1.1.13"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     ts-jest: "npm:^29.4.12"
     ts-pattern: "npm:^5.0.0"
     typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -8782,6 +8780,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/channel-apns@workspace:packages/channel-apns"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
@@ -8790,16 +8789,19 @@ __metadata:
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     ts-jest: "npm:^29.4.11"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -8816,10 +8818,11 @@ __metadata:
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
   peerDependencies:
@@ -8828,6 +8831,7 @@ __metadata:
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   peerDependenciesMeta:
     "@open-mercato/ai-assistant":
       optional: true
@@ -8838,6 +8842,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/channel-expo@workspace:packages/channel-expo"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
@@ -8846,16 +8851,19 @@ __metadata:
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.2"
     expo-server-sdk: "npm:^3.15.0"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     ts-jest: "npm:^29.4.11"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -8863,6 +8871,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/channel-fcm@workspace:packages/channel-fcm"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
@@ -8871,16 +8880,19 @@ __metadata:
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.2"
     firebase-admin: "npm:^13.0.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     ts-jest: "npm:^29.4.11"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -8888,6 +8900,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/channel-gmail@workspace:packages/channel-gmail"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
@@ -8896,18 +8909,21 @@ __metadata:
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     mailparser: "npm:^3.9.17"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -8915,6 +8931,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/channel-imap@workspace:packages/channel-imap"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
@@ -8925,20 +8942,23 @@ __metadata:
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     imapflow: "npm:^1.7.6"
     jest: "npm:^30.4.2"
     mailparser: "npm:^3.9.17"
     nodemailer: "npm:^10.1.4"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -8954,7 +8974,7 @@ __metadata:
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
@@ -8985,7 +9005,7 @@ __metadata:
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     nodemailer: "npm:^10.1.4"
     react: "npm:19.2.8"
@@ -9015,7 +9035,7 @@ __metadata:
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     nodemailer: "npm:^10.0.10"
     react: "npm:19.2.8"
@@ -9036,6 +9056,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/checkout@workspace:packages/checkout"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
@@ -9044,17 +9065,20 @@ __metadata:
     "@types/react-dom": "npm:^19.2.5"
     bcryptjs: "npm:^3.0.3"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -9204,7 +9228,7 @@ __metadata:
     "@types/react-dom": "npm:^19.2.5"
     cross-env: "npm:^10.1.0"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     happy-dom: "npm:21.0.4"
     jest: "npm:^30.4.2"
     jszip: "npm:^3.10.1"
@@ -9216,6 +9240,7 @@ __metadata:
     puppeteer-core: "npm:^25.3.0"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     testcontainers: "npm:^12.0.3"
     ts-jest: "npm:^29.4.11"
     tsx: "npm:^4.23.12"
@@ -9228,6 +9253,7 @@ __metadata:
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -9261,6 +9287,7 @@ __metadata:
     qrcode: "npm:^1.5.4"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
   peerDependencies:
@@ -9268,6 +9295,7 @@ __metadata:
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
     zod: ">=3.23.0"
   languageName: unknown
   linkType: soft
@@ -9306,7 +9334,7 @@ __metadata:
     "@open-mercato/shared": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     esbuild: "npm:^0.28.1"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
@@ -9324,6 +9352,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/gateway-stripe@workspace:packages/gateway-stripe"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
@@ -9334,18 +9363,21 @@ __metadata:
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     stripe: "npm:^22.3.1"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -9353,18 +9385,26 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/gateway-tpay@workspace:packages/gateway-tpay"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
+    react: "npm:19.2.8"
+    react-dom: "npm:19.2.8"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
     zod: "npm:^4.6.6"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
+    react: ^19.0.0
+    react-dom: ^19.0.0
   languageName: unknown
   linkType: soft
 
@@ -9395,7 +9435,7 @@ __metadata:
     typescript: "npm:7.0.2"
   peerDependencies:
     bullmq: ^5.72.0 || ^6.0.0
-    bullmq-otel: ^1.3.0
+    bullmq-otel: ^1.3.0 || ^2.0.0
   peerDependenciesMeta:
     bullmq:
       optional: true
@@ -9500,18 +9540,26 @@ __metadata:
   dependencies:
     "@aws-sdk/client-s3": "npm:^3.1085.0"
     "@aws-sdk/s3-request-presigner": "npm:^3.1085.0"
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
+    react: "npm:19.2.8"
+    react-dom: "npm:19.2.8"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
   peerDependencies:
-    "@mikro-orm/postgresql": ^6.6.10
+    "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
+    react: ^19.0.0
+    react-dom: ^19.0.0
   languageName: unknown
   linkType: soft
 
@@ -9519,6 +9567,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/sync-akeneo@workspace:packages/sync-akeneo"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
@@ -9526,18 +9575,21 @@ __metadata:
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     node-html-markdown: "npm:^2.0.0"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -9546,7 +9598,7 @@ __metadata:
   resolution: "@open-mercato/telemetry@workspace:packages/telemetry"
   dependencies:
     "@open-mercato/shared": "workspace:*"
-    "@opentelemetry/api": "npm:^1.9.1"
+    "@opentelemetry/api": "npm:~1.9.1"
     "@opentelemetry/api-logs": "npm:^0.220.0"
     "@opentelemetry/core": "npm:^2.9.0"
     "@opentelemetry/exporter-logs-otlp-http": "npm:^0.220.0"
@@ -9636,7 +9688,7 @@ __metadata:
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     esbuild: "npm:^0.28.1"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
@@ -9657,6 +9709,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/ui@workspace:packages/ui"
   dependencies:
+    "@codemirror/view": "npm:^6.23.0"
     "@dnd-kit/core": "npm:^6.3.1"
     "@dnd-kit/sortable": "npm:^10.0.0"
     "@dnd-kit/utilities": "npm:^3.2.2"
@@ -9680,7 +9733,7 @@ __metadata:
     "@types/react-dom": "npm:^19.2.5"
     cmdk: "npm:^1.0.0"
     date-fns: "npm:4.4.0"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     jest-environment-jsdom: "npm:^30.4.1"
     react: "npm:19.2.8"
@@ -9711,7 +9764,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.0.1"
     esbuild: "npm:^0.28.1"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     playwright: "npm:^1.40.0"
     ts-jest: "npm:^29.4.11"
@@ -9732,7 +9785,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.0.1"
     esbuild: "npm:^0.28.1"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
@@ -9750,7 +9803,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.0.1"
     esbuild: "npm:^0.28.1"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
@@ -9772,7 +9825,7 @@ __metadata:
     "@types/node": "npm:^26.0.1"
     ai: "npm:^7.0.4"
     esbuild: "npm:^0.28.1"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
@@ -9801,7 +9854,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.0.1"
     esbuild: "npm:^0.28.1"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
@@ -9819,7 +9872,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.0.1"
     esbuild: "npm:^0.28.1"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
@@ -9837,7 +9890,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.0.1"
     esbuild: "npm:^0.28.1"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
@@ -9854,7 +9907,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.0.1"
     esbuild: "npm:^0.28.1"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
@@ -9866,6 +9919,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/webhooks@workspace:packages/webhooks"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/cache": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
@@ -9874,19 +9928,24 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
+    cross-env: "npm:^10.1.0"
     esbuild: "npm:^0.28.2"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     svix: "npm:^1.99.1"
+    testcontainers: "npm:^12.0.3"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 
@@ -9917,7 +9976,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@opentelemetry/api@npm:^1.3.0, @opentelemetry/api@npm:^1.9.0, @opentelemetry/api@npm:^1.9.1":
+"@opentelemetry/api@npm:^1.3.0, @opentelemetry/api@npm:^1.9.0, @opentelemetry/api@npm:^1.9.1, @opentelemetry/api@npm:~1.9.1":
   version: 1.9.1
   resolution: "@opentelemetry/api@npm:1.9.1"
   checksum: 10/b26032739d3c54ca99b5a2920844a1fbd4c3ee383cacbb0915e8c706a2626fe91e96feaa6e893397abe0545dc8d0a765b220aa18a31b1773176eeaf3a225e10e
@@ -18062,33 +18121,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"bullmq-otel@npm:^1.3.1":
-  version: 1.3.1
-  resolution: "bullmq-otel@npm:1.3.1"
+"bullmq-otel@npm:^2.0.1":
+  version: 2.0.1
+  resolution: "bullmq-otel@npm:2.0.1"
   dependencies:
-    "@opentelemetry/api": "npm:^1.9.0"
-    bullmq: "npm:^5.76.2"
+    "@opentelemetry/api": "npm:^1.9.1"
     tslib: "npm:^2.8.0"
-  checksum: 10/376cc29cf244ea37f76e4a34265a1e363c44deb8715a45066c981199f68b10e701620792c02decea6fff4382da07e26382406c9f5e93c82fda43dfbc25130b7e
-  languageName: node
-  linkType: hard
-
-"bullmq@npm:^5.76.2":
-  version: 5.80.12
-  resolution: "bullmq@npm:5.80.12"
-  dependencies:
-    cron-parser: "npm:4.9.0"
-    ioredis: "npm:5.11.1"
-    msgpackr: "npm:2.0.4"
-    node-abort-controller: "npm:3.1.1"
-    semver: "npm:7.8.5"
-    tslib: "npm:2.8.1"
   peerDependencies:
-    redis: ">=5.0.0"
-  peerDependenciesMeta:
-    redis:
-      optional: true
-  checksum: 10/7810765f2a2ec76b9edaf55a9c2f7f32b63afa2eefa37aca7f914bcb52b42f64b6293e46fc70fefd45fa2b010885d103ac68bdda4394602018ca0e1a35fe2932
+    bullmq: ">=6.0.0"
+  checksum: 10/7ba3b01ee9aa74f0c1dbed88cca5f348676cbfe94c7c5d90827ff2ac1e2b26439d608590585d48d6342cca0224ef9c8f83a3f5eff9382bc469fb040acb2b6261
   languageName: node
   linkType: hard
 
@@ -19270,15 +19311,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cron-parser@npm:4.9.0":
-  version: 4.9.0
-  resolution: "cron-parser@npm:4.9.0"
-  dependencies:
-    luxon: "npm:^3.2.1"
-  checksum: 10/ffca5e532a5ee0923412ee6e4c7f9bbceacc6ddf8810c16d3e9fb4fe5ec7e2de1b6896d7956f304bb6bc96b0ce37ad7e3935304179d52951c18d84107184faa7
-  languageName: node
-  linkType: hard
-
 "cron-parser@npm:5.7.0":
   version: 5.7.0
   resolution: "cron-parser@npm:5.7.0"
@@ -19666,10 +19698,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cytoscape@npm:^3.33.3":
-  version: 3.34.0
-  resolution: "cytoscape@npm:3.34.0"
-  checksum: 10/5bbc169798829b1a0eaadcad2707e7762e7ba1a2bcd5dbeaf75b89eb2d2ab9211e51d96b24c1f5807e329ac44c50913062464e2af11c528a1255969a36b45268
+"cytoscape@npm:^3.34.0":
+  version: 3.34.4
+  resolution: "cytoscape@npm:3.34.4"
+  checksum: 10/62f13161e58692951f0e25b9038d056936dd0f35258f3d618d79f80f443bf97a4f7f03b1c20bb39b1146d527b143b4292d79fd6bb0d46200953c9f0b0694b331
   languageName: node
   linkType: hard
 
@@ -20130,7 +20162,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"dayjs@npm:^1.11.20, dayjs@npm:^1.11.21":
+"dayjs@npm:^1.11.21":
   version: 1.11.21
   resolution: "dayjs@npm:1.11.21"
   checksum: 10/dd16f9f2706b61b90e3c346a3211ac3afd9e26193136ce0e87f70bf74d1c17a447bceb230a88b175467fc9f5e3243d8c1544b9897092a12d9c80ee44d338dcb6
@@ -22370,6 +22402,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"fastdom@npm:1.0.12":
+  version: 1.0.12
+  resolution: "fastdom@npm:1.0.12"
+  dependencies:
+    strictdom: "npm:^1.0.1"
+  checksum: 10/e87d67aaed413de24680c9ec735231b6568b62e2b7740f320c3c9f0bc57ed8079ed16aaf8c83a1c27e14948f1a87a7dab98d83a375b85bf77f8bffc2ae55777f
+  languageName: node
+  linkType: hard
+
 "fastq@npm:^1.6.0":
   version: 1.20.1
   resolution: "fastq@npm:1.20.1"
@@ -23144,14 +23185,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"glob@npm:^14.0.3":
-  version: 14.0.3
-  resolution: "glob@npm:14.0.3"
+"glob@npm:^14.0.4":
+  version: 14.0.4
+  resolution: "glob@npm:14.0.4"
   dependencies:
-    minimatch: "npm:^11.0.2"
+    minimatch: "npm:^11.0.5"
     minipass: "npm:^7.1.3"
     path-scurry: "npm:^3.0.0"
-  checksum: 10/d993e6e40db60fe7963f3a097dcae17d48465c521eec1f984f13bad94e8648db0ebc9006f8a2f7a97796f71e7be4c637da22c224a7a9eb53458f76278de0fa53
+  checksum: 10/d43e532cc85bd2e26bc3a0064a809ed57f2581999fb0bf2b6bafe7d394358fac2693331c313d6eccc9952e0f2bfdd78f53c88ad06a657dc47c6bc99745e470e2
   languageName: node
   linkType: hard
 
@@ -23805,10 +23846,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"hono@npm:4.12.25":
-  version: 4.12.25
-  resolution: "hono@npm:4.12.25"
-  checksum: 10/0cbdcdfdfb45b43cc915beaa44604170bb73b45e647927917714ec222347e7f44c944708471a45b4733cfd20b03c53820593db5b3b19663b935afca9cf984817
+"hono@npm:4.13.14":
+  version: 4.13.14
+  resolution: "hono@npm:4.13.14"
+  checksum: 10/1eb7c4d358d071d208b09f62d803ac7e1674d209f23e4f9d3c666cd7107da40937d5e9a78cc44f8abc4a23050e849ec531293c4b834696862d3673e1d4942172
   languageName: node
   linkType: hard
 
@@ -24468,21 +24509,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ioredis@npm:5.11.1":
-  version: 5.11.1
-  resolution: "ioredis@npm:5.11.1"
-  dependencies:
-    "@ioredis/commands": "npm:1.10.0"
-    cluster-key-slot: "npm:1.1.1"
-    debug: "npm:4.4.3"
-    denque: "npm:2.1.0"
-    redis-errors: "npm:1.2.0"
-    redis-parser: "npm:3.0.0"
-    standard-as-callback: "npm:2.1.0"
-  checksum: 10/f27653075b0599a9e8886b28a59bb2e232ca7d91b4a81de699e932cb55dcdcec791fe571fb7d4ebc81fc26f44667a76cf165162ecea57285548190ea0d58f734
-  languageName: node
-  linkType: hard
-
 "ioredis@npm:^6.0.0":
   version: 6.0.0
   resolution: "ioredis@npm:6.0.0"
@@ -24514,10 +24540,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ip-address@npm:10.4.0":
-  version: 10.4.0
-  resolution: "ip-address@npm:10.4.0"
-  checksum: 10/8a286dd112a88c372b10c706caca14dcf5ed029a11c3911062ad8937ca0f951aa513ecacf82e15ffcf6343749ae6c079dd9741282fc94033a06ff1b7bd6ce69a
+"ip-address@npm:10.7.5":
+  version: 10.7.5
+  resolution: "ip-address@npm:10.7.5"
+  checksum: 10/30e328a30851fa944260acd6a618c9a32e7a8f16ff033bab0e7da46beb8572fc9c77514a57e777ba9e0c4e571bab24842c10d2bab96b2856ab602e4ecdd669e1
   languageName: node
   linkType: hard
 
@@ -26202,7 +26228,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"katex@npm:^0.16.45":
+"katex@npm:^0.16.47":
   version: 0.16.47
   resolution: "katex@npm:0.16.47"
   dependencies:
@@ -27054,7 +27080,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"luxon@npm:^3.2.1, luxon@npm:^3.7.2":
+"luxon@npm:^3.7.2":
   version: 3.7.2
   resolution: "luxon@npm:3.7.2"
   checksum: 10/b24cd205ed306ce7415991687897dcc4027921ae413c9116590bc33a95f93b86ce52cf74ba72b4f5c5ab1c10090517f54ac8edfb127c049e0bf55b90dc2260be
@@ -27603,32 +27629,33 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mermaid@npm:11.16.0":
-  version: 11.16.0
-  resolution: "mermaid@npm:11.16.0"
+"mermaid@npm:11.17.2":
+  version: 11.17.2
+  resolution: "mermaid@npm:11.17.2"
   dependencies:
     "@braintree/sanitize-url": "npm:^7.1.2"
     "@iconify/utils": "npm:^3.0.2"
-    "@mermaid-js/parser": "npm:^1.2.0"
+    "@mermaid-js/parser": "npm:^1.2.1"
     "@types/d3": "npm:^7.4.3"
     "@upsetjs/venn.js": "npm:^2.0.0"
-    cytoscape: "npm:^3.33.3"
+    cytoscape: "npm:^3.34.0"
     cytoscape-cose-bilkent: "npm:^4.1.0"
     cytoscape-fcose: "npm:^2.2.0"
     d3: "npm:^7.9.0"
     d3-sankey: "npm:^0.12.3"
     dagre-d3-es: "npm:7.0.14"
-    dayjs: "npm:^1.11.20"
+    dayjs: "npm:^1.11.21"
     dompurify: "npm:^3.3.3"
     es-toolkit: "npm:^1.45.1"
-    katex: "npm:^0.16.45"
+    fastdom: "npm:1.0.12"
+    katex: "npm:^0.16.47"
     khroma: "npm:^2.1.0"
     marked: "npm:^16.3.0"
     roughjs: "npm:^4.6.6"
     stylis: "npm:^4.3.6"
     ts-dedent: "npm:^2.2.0"
     uuid: "npm:^11.1.0 || ^12 || ^13 || ^14.0.0"
-  checksum: 10/9984131ac3e3c7d49dbbb7847a995d69766a26c88409188bbabce8775b93496a3e435e7b6407119342b8c429435184b81a361a43e12bca48650c108873e0d5bd
+  checksum: 10/4a6930587ebc4027357de00a960bf9c963d4a5d290b3b70bc5ff7a8259eeb5d4ae7f4609d73dcbab8f533ad0b772ff8b35b5683c287bb23fafc21f4e6d766508
   languageName: node
   linkType: hard
 
@@ -28522,18 +28549,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"msgpackr@npm:2.0.4":
-  version: 2.0.4
-  resolution: "msgpackr@npm:2.0.4"
-  dependencies:
-    msgpackr-extract: "npm:^3.0.4"
-  dependenciesMeta:
-    msgpackr-extract:
-      optional: true
-  checksum: 10/fb5eb85dee3b8b2ed83b81f5360f58cc3f3c290e79586d01c12cf54710b837ccc5d11abce4b5324b861e152fee9131a843cb4511ef03fcc037061c43f72b7195
-  languageName: node
-  linkType: hard
-
 "msgpackr@npm:2.0.5":
   version: 2.0.5
   resolution: "msgpackr@npm:2.0.5"
@@ -29310,7 +29325,7 @@ __metadata:
     eslint: "npm:^9.39.4"
     eslint-plugin-react: "npm:^7.37.5"
     eslint-plugin-react-hooks: "npm:^7.0.1"
-    glob: "npm:^14.0.3"
+    glob: "npm:^14.0.4"
     husky: "npm:^9.1.7"
     jest: "npm:^30.4.2"
     jest-environment-jsdom: "npm:^30.4.1"
@@ -32098,6 +32113,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"react-is@npm:19.2.8, react-is@npm:^19.2.8":
+  version: 19.2.8
+  resolution: "react-is@npm:19.2.8"
+  checksum: 10/09d053ff36e0ba4d47164baf9eab1c7772791f0371aa92281f0e547e0f6a5a5c8a1eb939aadd1a08b3c565958dd63ee59c746b6ac0d5ccb14ad742ac0314ab15
+  languageName: node
+  linkType: hard
+
 "react-is@npm:^16.13.1, react-is@npm:^16.6.0, react-is@npm:^16.7.0":
   version: 16.13.1
   resolution: "react-is@npm:16.13.1"
@@ -32109,13 +32131,6 @@ __metadata:
   version: 17.0.2
   resolution: "react-is@npm:17.0.2"
   checksum: 10/73b36281e58eeb27c9cc6031301b6ae19ecdc9f18ae2d518bdb39b0ac564e65c5779405d623f1df9abf378a13858b79442480244bd579968afc1faf9a2ce5e05
-  languageName: node
-  linkType: hard
-
-"react-is@npm:^19.2.8":
-  version: 19.2.8
-  resolution: "react-is@npm:19.2.8"
-  checksum: 10/09d053ff36e0ba4d47164baf9eab1c7772791f0371aa92281f0e547e0f6a5a5c8a1eb939aadd1a08b3c565958dd63ee59c746b6ac0d5ccb14ad742ac0314ab15
   languageName: node
   linkType: hard
 
@@ -32524,7 +32539,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"redis-parser@npm:3.0.0, redis-parser@npm:^3.0.0":
+"redis-parser@npm:^3.0.0":
   version: 3.0.0
   resolution: "redis-parser@npm:3.0.0"
   dependencies:
@@ -34410,6 +34425,13 @@ __metadata:
     fast-fifo: "npm:^1.3.2"
     text-decoder: "npm:^1.1.0"
   checksum: 10/4969d7032b16497172afa2f8ac889d137764963ae564daf1611a03225dd62d9316d51de8098b5866d21722babde71353067184e7a3e9795d6dc17c902904a780
+  languageName: node
+  linkType: hard
+
+"strictdom@npm:^1.0.1":
+  version: 1.0.1
+  resolution: "strictdom@npm:1.0.1"
+  checksum: 10/e9e030dd9b14eaee81e698044e405aaaceec6e09f32c920fa24c2ee9fe8153bf30780a06028b6c185dc6348b54cc803addb4bfa498246b9d26583b23b359b9fa
   languageName: node
   linkType: hard
 
