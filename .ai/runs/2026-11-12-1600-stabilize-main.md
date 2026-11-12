@@ -38,14 +38,23 @@ Source doc: `.ai/specs/implemented/2026-04-10-ci-cd-performance.md` (existing CI
 
 Run identity: `199b6237-1c69-4981-b22f-20ccd77d8fc9`.
 
+## Evidence
+
+- Main run [43232077194](https://github.com/open-mercato/open-mercato/actions/runs/43232077194), job 131239492865: typecheck and all unit suites passed; Test scripts failed `encryption-preflight.test.mjs:258` because a fallback key was generated despite an existing explicit key or Vault configuration. The later main run 43236858055 also failed its test job.
+- Independently reproduced with `ensureEnvFiles` and an isolated temporary root/app environment. The later unconditional fallback assignment overwrites the earlier configuration-aware rendering. Remove that duplicate assignment; existing fresh-environment key creation and root-to-app propagation remain responsible for new installations.
+- Open prerequisite fix [#9356](https://github.com/open-mercato/open-mercato/pull/9356) independently proposes the same source correction. This stabilization run retains the requested single-branch scope and adds ambient-fallback, company-key, root-Vault, and ambient-Vault regression cases.
+- Runner: local (no running compose app). Package build passed 42 tasks. All 16 focused encryption tests and the dependency-free reproduction passed after the fix. Initial full script run encountered the cockpit's long temporary socket path; rerun with a short isolated TMPDIR rather than changing project behavior.
+
 ## Progress
+
+PR: #9361
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Audit and diagnosis
 
 - [ ] 1.1 Independently audit main CI and full-suite selection
-- [ ] 1.2 Reproduce demonstrated failures and identify root causes
+- [x] 1.2 Reproduce demonstrated failures and identify root causes — cec00243f5
 
 ### Phase 2: Fixes and validation
 
