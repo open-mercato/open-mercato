@@ -34,6 +34,7 @@ import { CommandInterceptorError } from './errors'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
 import { withAtomicFlush } from './flush'
+import { getTelemetryRuntime } from '../telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   getTransactionLifetime,
@@ -50,6 +51,7 @@ type CommandActionLogService = {
   releaseUndoClaim(id: string, transactionalEm?: EntityManager): Promise<boolean>
   markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null | void>
   claimForRedo(id: string, transactionalEm?: EntityManager): Promise<boolean>
+  releaseRedoClaim?(id: string, transactionalEm?: EntityManager): Promise<boolean>
   log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null>
 }
 
@@ -145,15 +147,22 @@ function deepEqual(a: unknown, b: unknown, seen?: Set<unknown>): boolean {
   }
   if (a && b && typeof a === 'object' && typeof b === 'object') {
     if (!seen) seen = new Set()
+    // `seen` is the current path: an object met again on it is a cycle. An object reached twice by
+    // different paths (the items of one array held under two keys) is compared like any other.
     if (seen.has(a) || seen.has(b)) return false
     seen.add(a)
     seen.add(b)
-    const aRec = a as Record<string, unknown>
-    const bRec = b as Record<string, unknown>
-    const keysA = Object.keys(aRec)
-    const keysB = Object.keys(bRec)
-    if (keysA.length !== keysB.length) return false
-    return keysA.every((key) => deepEqual(aRec[key], bRec[key], seen))
+    try {
+      const aRec = a as Record<string, unknown>
+      const bRec = b as Record<string, unknown>
+      const keysA = Object.keys(aRec)
+      const keysB = Object.keys(bRec)
+      if (keysA.length !== keysB.length) return false
+      return keysA.every((key) => deepEqual(aRec[key], bRec[key], seen))
+    } finally {
+      seen.delete(a)
+      seen.delete(b)
+    }
   }
   return false
 }
@@ -297,6 +306,8 @@ export class CommandBus {
         auth: baseOptions.ctx.auth ?? null,
         selectedOrganizationId: baseOptions.ctx.selectedOrganizationId ?? baseOptions.ctx.auth?.orgId ?? null,
         container: baseOptions.ctx.container,
+        organizationScope: baseOptions.ctx.organizationScope ?? null,
+        request: baseOptions.ctx.request ?? null,
       }
       const beforeResult = await runCommandInterceptorsBefore(
         allInterceptors, commandId, baseOptions.input, interceptorCtx, resolvedUserFeatures,
@@ -338,16 +349,40 @@ export class CommandBus {
     }
 
     const executeCore = async (coreOptions: CommandExecutionOptions<TInput>) => {
-      const sourceLog = coreOptions.redoLogEntry ?? null
-      const snapshots = await this.prepareSnapshots(handler, coreOptions)
+      const snapshots: { before?: unknown } = {}
+      let executionOptions = coreOptions
+      if (handler.prepareSnapshotInsideTransaction && handler.prepare) {
+        const prepare = handler.prepare
+        const originalCtx = coreOptions.ctx
+        const originalBeforeTransactionalWrite = originalCtx.beforeTransactionalWrite
+        let prepared = false
+        let transactionalCtx: CommandRuntimeContext
+        transactionalCtx = {
+          ...originalCtx,
+          beforeTransactionalWrite: async (em, input) => {
+            await originalBeforeTransactionalWrite?.(em, input)
+            if (prepared) return
+            Object.assign(
+              snapshots,
+              (await prepare(coreOptions.input, { ...transactionalCtx, transactionalEm: em })) ?? {},
+            )
+            prepared = true
+          },
+        }
+        executionOptions = { ...coreOptions, ctx: transactionalCtx }
+      } else {
+        Object.assign(snapshots, await this.prepareSnapshots(handler, coreOptions))
+      }
+      effectiveOptions = executionOptions
+      const sourceLog = executionOptions.redoLogEntry ?? null
       const result =
         sourceLog && typeof handler.redo === 'function'
-          ? await handler.redo({ input: coreOptions.input, ctx: coreOptions.ctx, logEntry: sourceLog })
-          : await handler.execute(coreOptions.input, coreOptions.ctx)
-      const afterSnapshot = await this.captureAfter(handler, coreOptions, result)
+          ? await handler.redo({ input: executionOptions.input, ctx: executionOptions.ctx, logEntry: sourceLog })
+          : await handler.execute(executionOptions.input, executionOptions.ctx)
+      const afterSnapshot = await this.captureAfter(handler, executionOptions, result)
       const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
-      const logMeta = await this.buildLog(handler, coreOptions, result, snapshotsWithAfter)
-      let mergedMeta = this.mergeMetadata(coreOptions.metadata, logMeta)
+      const logMeta = await this.buildLog(handler, executionOptions, result, snapshotsWithAfter)
+      let mergedMeta = this.mergeMetadata(executionOptions.metadata, logMeta)
       // Interceptors opt into audit-log enrichment with a reserved `logContext` key rather
       // than the generic `context` one, so the metadata an interceptor already passes to its
       // own afterExecute hook is never silently promoted into audit storage.
@@ -362,7 +397,7 @@ export class CommandBus {
           ...logContextRecord,
         }
       }
-      const baseContext = asRecord(coreOptions.metadata?.context) ?? {}
+      const baseContext = asRecord(executionOptions.metadata?.context) ?? {}
       const logMetaContext = asRecord(logMeta?.context) ?? {}
       if (Object.keys(interceptorContextMerged).length > 0 || Object.keys(baseContext).length > 0 || Object.keys(logMetaContext).length > 0) {
         mergedMeta = mergedMeta ?? {}
@@ -376,7 +411,7 @@ export class CommandBus {
       if (undoable && mergedMeta?.replayable !== false) {
         mergedMeta = mergedMeta ?? {}
         if (!mergedMeta.undoToken) mergedMeta.undoToken = defaultUndoToken()
-        if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = coreOptions.ctx.auth?.sub ?? null
+        if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = executionOptions.ctx.auth?.sub ?? null
       } else if (mergedMeta?.replayable === false) {
         mergedMeta.undoToken = null
       }
@@ -405,7 +440,7 @@ export class CommandBus {
           if (inferred) mergedMeta.changes = inferred
         }
       }
-      const logEntry = await this.persistLog(commandId, coreOptions, mergedMeta)
+      const logEntry = await this.persistLog(commandId, executionOptions, mergedMeta)
       return { result, mergedMeta, logEntry }
     }
 
@@ -461,6 +496,15 @@ export class CommandBus {
         coreResult = await executeCore(effectiveOptions)
       }], { transaction: true, label: `${commandId}.redo` })
       replaySourceFinalized = !ambientReplay.joinsAmbient
+    } else if (replayLogEntry?.id) {
+      const redoClaimRelease = await this.claimRedoSource(effectiveOptions.ctx, commandId, replayLogEntry.id)
+      try {
+        coreResult = await executeCore(effectiveOptions)
+      } catch (err) {
+        await redoClaimRelease?.()
+        throw err
+      }
+      replaySourceFinalized = redoClaimRelease !== null
     } else {
       coreResult = await executeCore(effectiveOptions)
     }
@@ -474,6 +518,8 @@ export class CommandBus {
           auth: effectiveOptions.ctx.auth ?? null,
           selectedOrganizationId: effectiveOptions.ctx.selectedOrganizationId ?? effectiveOptions.ctx.auth?.orgId ?? null,
           container: effectiveOptions.ctx.container,
+          organizationScope: effectiveOptions.ctx.organizationScope ?? null,
+          request: effectiveOptions.ctx.request ?? null,
         }
         const afterResult = await runCommandInterceptorsAfter(
           allInterceptors, commandId, effectiveOptions.input, result, interceptorCtx,
@@ -545,6 +591,8 @@ export class CommandBus {
         auth: replayCtx.auth ?? null,
         selectedOrganizationId: replayCtx.selectedOrganizationId ?? replayCtx.auth?.orgId ?? null,
         container: replayCtx.container,
+        organizationScope: replayCtx.organizationScope ?? null,
+        request: replayCtx.request ?? null,
       }
       const beforeResult = await runCommandInterceptorsBeforeUndo(
         allInterceptors, log.commandId, undoCtx, interceptorCtx, resolvedUserFeatures,
@@ -633,10 +681,12 @@ export class CommandBus {
         label: `${log.commandId}.undo`,
       })
     } else {
+      let undoClaimed = false
       try {
         // Preserve the established non-atomic lifecycle exactly: authorization,
         // source claim, before-undo interceptors, handler, then finalization.
         await claimUndo()
+        undoClaimed = true
         const prepared = await runBeforeUndoInterceptors(ctx)
         undoInterceptorMetadata = prepared.metadata
         userFeatures = prepared.userFeatures
@@ -644,7 +694,15 @@ export class CommandBus {
       } catch (err) {
         // Legacy handlers retain their compensating release behavior because
         // their domain mutation may not share the action-log transaction.
-        await service.releaseUndoClaim(log.id).catch(() => {})
+        if (undoClaimed) {
+          await service.releaseUndoClaim(log.id).catch((releaseErr: unknown) => {
+            logger.error('Failed to release undo claim', { commandId: log.commandId, logId: log.id, err: releaseErr })
+            getTelemetryRuntime()?.reportError(releaseErr, {
+              module: 'shared',
+              code: 'shared.undo_claim_release_failed',
+            })
+          })
+        }
         throw err
       }
     }
@@ -659,6 +717,8 @@ export class CommandBus {
           auth: ctx.auth ?? null,
           selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
           container: ctx.container,
+          organizationScope: ctx.organizationScope ?? null,
+          request: ctx.request ?? null,
         }
         await runCommandInterceptorsAfterUndo(
           allInterceptors, log.commandId, undoCtx, interceptorCtx,
@@ -778,6 +838,43 @@ export class CommandBus {
     await withAtomicFlush(guardEm, [async () => {
       await ctx.replayTransactionGuard!({ operation, logEntry, transactionalEm: guardEm })
     }], { transaction: true, label: `${logEntry.commandId}.${operation}.request-guard` })
+  }
+
+  private async claimRedoSource(
+    ctx: CommandRuntimeContext,
+    commandId: string,
+    sourceLogId: string,
+  ): Promise<(() => Promise<void>) | null> {
+    let service: CommandActionLogService | null = null
+    try {
+      service = ctx.container.resolve('actionLogService') as CommandActionLogService
+    } catch {
+      service = null
+    }
+    if (!service || typeof service.claimForRedo !== 'function' || typeof service.releaseRedoClaim !== 'function') {
+      logger.warn('Redo source claim unavailable; replaying without an atomic claim', { commandId, sourceLogId })
+      return null
+    }
+    const releaseClaim = service.releaseRedoClaim.bind(service)
+    const transactionalEm = ctx.transactionalEm
+    const claimed = transactionalEm
+      ? await service.claimForRedo(sourceLogId, transactionalEm)
+      : await service.claimForRedo(sourceLogId)
+    if (!claimed) throw new Error('[internal] Redo source already consumed')
+    return async () => {
+      try {
+        const released = transactionalEm
+          ? await releaseClaim(sourceLogId, transactionalEm)
+          : await releaseClaim(sourceLogId)
+        if (!released) logger.warn('Redo source claim was not held at release', { commandId, sourceLogId })
+      } catch (releaseErr) {
+        logger.error('Failed to release redo source claim', { commandId, sourceLogId, err: releaseErr })
+        getTelemetryRuntime()?.reportError(releaseErr, {
+          module: 'shared',
+          code: 'shared.redo_claim_release_failed',
+        })
+      }
+    }
   }
 
   private async resolveHandler<TInput, TResult>(commandId: string): Promise<CommandHandler<TInput, TResult>> {

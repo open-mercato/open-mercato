@@ -35,6 +35,7 @@
   "availability.policies.errors.duplicateTarget": "이 스토어/상품/옵션 조합에 대한 정책이 이미 존재합니다.",
   "availability.policies.errors.integerTooLarge": "값이 너무 큽니다. 2147483647 이하의 숫자를 입력하세요.",
   "availability.policies.errors.maxBelowMin": "최대 주문 수량은 최소 주문 수량보다 작을 수 없습니다",
+  "availability.policies.errors.organizationRequired": "정책을 생성하기 전에 헤더에서 특정 조직을 선택하세요.",
   "availability.policies.errors.variantRequiresProduct": "옵션 수준 정책에는 상품이 필요합니다",
   "availability.policies.flash.created": "가용성 정책이 생성되었습니다",
   "availability.policies.flash.deleted": "가용성 정책이 삭제되었습니다",

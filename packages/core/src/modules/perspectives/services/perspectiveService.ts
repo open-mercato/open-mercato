@@ -321,6 +321,12 @@ export async function saveUserPerspective(
       name: input.name,
       deletedAt: null,
     })
+    if (entity && input.createOnly) {
+      throw new CrudHttpError(409, {
+        error: 'A view with this name already exists.',
+        code: 'duplicate_name',
+      })
+    }
   }
 
   const now = new Date()

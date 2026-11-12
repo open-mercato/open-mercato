@@ -232,6 +232,8 @@ export function ProjectTeamDrawer({
   onSaved,
 }: ProjectTeamDrawerProps) {
   const t = useT()
+  const translateRef = React.useRef(t)
+  React.useEffect(() => { translateRef.current = t }, [t])
   const currentUserId = useCurrentUserId()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation, retryLastMutation } = useGuardedMutation({
@@ -294,7 +296,7 @@ export function ProjectTeamDrawer({
       ])
 
       if (!membersRes.ok) {
-        setLoadError(t('staff.time_tracking.projects.team.drawer.loadError', 'Could not load the project team.'))
+        setLoadError(translateRef.current('staff.time_tracking.projects.team.drawer.loadError', 'Could not load the project team.'))
         return
       }
 
@@ -326,11 +328,11 @@ export function ProjectTeamDrawer({
       }
     } catch (error) {
       logger.error('staff.time_tracking.projects.team.load failed', { err: error })
-      setLoadError(t('staff.time_tracking.projects.team.drawer.loadError', 'Could not load the project team.'))
+      setLoadError(translateRef.current('staff.time_tracking.projects.team.drawer.loadError', 'Could not load the project team.'))
     } finally {
       setLoading(false)
     }
-  }, [projectId, mergeProfiles, t])
+  }, [projectId, mergeProfiles])
 
   React.useEffect(() => {
     if (!open) return

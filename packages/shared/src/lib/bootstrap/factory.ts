@@ -143,9 +143,14 @@ async function registerWidgetsAndOptionalPackages(data: BootstrapData, options: 
   // browser-facing UI registries. API-only bootstraps avoid loading @open-mercato/ui.
   try {
     const coreInjection = await import('@open-mercato/core/modules/widgets/lib/injection')
-    if (!options.skipCoreInjectionWidgets) {
-      coreInjection.registerCoreInjectionWidgets(data.injectionWidgetEntries)
-    }
+    // A partitioned runtime still needs its own entries — server-side resolvers read this
+    // registry on request paths — it just must not shrink what a fuller partition already
+    // published in the same process. Merge does both; skipping registration altogether left
+    // API-only processes with an unregistered registry that throws on first read.
+    coreInjection.registerCoreInjectionWidgets(
+      data.injectionWidgetEntries,
+      options.skipCoreInjectionWidgets ? { mode: 'merge' } : undefined,
+    )
     coreInjection.registerCoreInjectionTables(data.injectionTables, data.injectionWidgetEntries)
     coreInjection.registerEnabledModuleIds(
       data.modules.map((module) => module.id).filter((id): id is string => typeof id === 'string' && id.length > 0),

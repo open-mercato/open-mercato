@@ -68,6 +68,14 @@ export type CommandRuntimeContext = {
    */
   transactionalEm?: EntityManager
   /**
+   * Optional server-side guard that supported command handlers invoke after
+   * opening their write transaction and before reading or mutating records.
+   * The guard receives that same transaction-bound EntityManager and, when the
+   * handler provides it, the final input after command interceptors. The input
+   * stays optional so existing handlers and callers remain source-compatible.
+   */
+  beforeTransactionalWrite?: (em: EntityManager, input?: unknown) => Promise<void>
+  /**
    * Identifies the owner of an already-active {@link transactionalEm} lifetime.
    * Atomic replay accepts an ambient EntityManager only when this is the exact
    * token returned by `getTransactionLifetime(transactionalEm)` from the outer
@@ -158,8 +166,11 @@ export type CommandExecuteResult<TResult> = {
    * that transaction has committed. An ambient replay returns this as false
    * while its caller-owned transaction is still active; the returned result
    * object is updated to true by the owner's commit callback. It remains false
-   * on rollback. Callers that historically finalized redo themselves can use
-   * this additive signal to avoid a redundant post-commit write.
+   * on rollback. A non-atomic redo returns true once its compare-and-set claim
+   * moved the source log to redone before the command ran; with
+   * `ctx.transactionalEm` that claim is part of the caller's transaction, whose
+   * rollback reverts it. Callers that historically finalized redo themselves
+   * can use this additive signal to avoid a redundant post-commit write.
    */
   replaySourceFinalized?: boolean
 }
@@ -243,6 +254,12 @@ export interface CommandHandler<TInput = unknown, TResult = unknown> {
    */
   readonly outputSchema?: ZodTypeAny
   prepare?(input: TInput, ctx: CommandRuntimeContext): Promise<{ before?: unknown } | null> | { before?: unknown } | null
+  /**
+   * Opt in to taking the undo snapshot inside the write transaction. The bus
+   * defers `prepare()` into `ctx.beforeTransactionalWrite`, after the handler's
+   * transaction guard and before its first read or mutation.
+   */
+  readonly prepareSnapshotInsideTransaction?: boolean
   execute(input: TInput, ctx: CommandRuntimeContext): Promise<TResult> | TResult
   buildLog?(args: CommandLogBuilderArgs<TInput, TResult>): Promise<CommandLogMetadata | null | undefined> | CommandLogMetadata | null | undefined
   captureAfter?(input: TInput, result: TResult, ctx: CommandRuntimeContext): Promise<unknown> | unknown

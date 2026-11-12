@@ -1,4 +1,5 @@
 {
+  "notifications.categories.record_locks": "Bloqueo de registros",
   "record_locks.banner.active_users_label": "Active users",
   "record_locks.banner.contention_notice": "Otro usuario abrió este registro mientras lo estás editando. Puede haber conflictos al guardar.",
   "record_locks.banner.local_machine": "equipo local",

@@ -9,6 +9,8 @@
 - Run `yarn generate` after adding or changing agents, tools, API discovery metadata, or tool packs.
 - Route model selection through `createModelFactory(container)` instead of ad hoc provider clients.
 - Route mutation-capable AI tools through the mutation approval path before execution.
+- Bind MCP and session keys with `sessionUserId`; RBAC intersects their role grants with the owner's effective ACL. Unbound machine keys retain independent role grants.
+- In delegated-key tests, check organization isolation on business records. The UserAcl API clears an empty feature list; retain an unrelated feature when testing revocation.
 
 ## Ask First
 
@@ -1169,26 +1171,13 @@ Tool call → Extract _sessionToken → Lookup in DB → Load ACL → Check perm
 | **Lookup** | MUST use `findApiKeyBySessionToken()` — never query directly |
 | **ACL** | MUST use `rbacService.loadAcl()` — never bypass |
 
-**Code references**:
-- Session creation: `packages/ai-assistant/src/modules/ai_assistant/api/chat/route.ts:133-157`
-- Token lookup: `packages/core/src/modules/api_keys/services/apiKeyService.ts:143-158`
-- Context resolution: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts:32-88`
+See `api/chat/route.ts`, `lib/http-server.ts`, and core `api_keys/services/apiKeyService.ts` for issuance and resolution.
 
 ---
 
 ## Rules for Session Tokens
 
-### Generate Tokens Using This Function
-
-```typescript
-// packages/core/src/modules/api_keys/services/apiKeyService.ts:99-101
-export function generateSessionToken(): string {
-  return `sess_${randomBytes(16).toString('hex')}`
-}
-// Result: "sess_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
-```
-
-MUST NOT generate tokens with any other format. MUST use `randomBytes(16)`.
+Use `generateSessionToken()` from core `api_keys/services/apiKeyService.ts`. It uses `randomBytes(16)` and returns `sess_` plus 32 hex characters; preserve that format.
 
 ### Token Storage (api_keys table)
 

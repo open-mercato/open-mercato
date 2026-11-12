@@ -171,7 +171,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                   {activity.title ?? activity.body ?? activity.interactionType}
                 </span>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>{activity.scheduledAt ? formatScheduledDate(activity.scheduledAt) : ''}</span>
+                  <span>{activity.scheduledAt ? formatScheduledDate(activity.scheduledAt, t) : ''}</span>
                   {activity.authorName && (
                     <>
                       <span>·</span>
@@ -235,11 +235,10 @@ function formatRelativeOverdue(isoString: string, t: TranslateFn): string {
   }
 }
 
-function formatScheduledDate(isoString: string): string {
+function formatScheduledDate(isoString: string, t: TranslateFn): string {
   try {
     const date = new Date(isoString)
-    const now = new Date()
-    const tomorrow = new Date(now)
+    const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
 
     const dayName = date.toLocaleDateString(undefined, { weekday: 'short' })
@@ -247,7 +246,7 @@ function formatScheduledDate(isoString: string): string {
     const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
     if (isSameDay(date, tomorrow)) {
-      return `Tomorrow ${timeStr}`
+      return t('customers.timeline.planned.tomorrow', 'Tomorrow {{time}}', { time: timeStr })
     }
     return `${dayName}, ${dateStr} · ${timeStr}`
   } catch {
