@@ -9,6 +9,7 @@ import { loadAllModuleTools } from '../../../lib/tool-loader'
 import { getToolRegistry } from '../../../lib/tool-registry'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AiToolDefinition, McpToolContext } from '../../../lib/types'
+import { resolveRequestApiKeyPrincipal } from '../../../lib/api-key-principal'
 
 const logger = createLogger('ai_assistant')
 
@@ -72,6 +73,7 @@ export async function POST(req: NextRequest) {
       container,
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
+      ...(await resolveRequestApiKeyPrincipal(container, auth)),
     }
 
     // Execute the tool

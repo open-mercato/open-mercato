@@ -31,6 +31,7 @@ import { hasRequiredFeatures } from './auth'
 import { resolveToolFeaturesDeniedMessage } from './pending-action-messages'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
 import { planPendingActionExecution, resolvePendingActionBatchMessages } from './pending-action-batch'
+import { filterAttachmentRowsByOwnerAccess, type AttachmentOwnerAccessRow } from './attachment-owner-access'
 
 export type PendingActionRecheckCode =
   | 'invalid_status'
@@ -41,6 +42,7 @@ export type PendingActionRecheckCode =
   | 'tool_features_denied'
   | 'read_only_agent'
   | 'attachment_cross_tenant'
+  | 'attachment_access_denied'
   | 'stale_version'
   | 'schema_drift'
 
@@ -71,6 +73,8 @@ export interface PendingActionAuthContext {
   tenantId: string
   organizationId: string | null
   userId: string
+  apiKeyId?: string
+  apiKeyUserId?: string
   userFeatures: string[]
   isSuperAdmin: boolean
   /**
@@ -272,6 +276,28 @@ export async function checkAttachmentScope(
       }
     }
   }
+  const { denied } = await filterAttachmentRowsByOwnerAccess(
+    {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      apiKeyId: ctx.apiKeyId,
+      apiKeyUserId: ctx.apiKeyUserId,
+      isSuperAdmin: ctx.isSuperAdmin,
+      container: ctx.container,
+      em,
+    },
+    rows as unknown as AttachmentOwnerAccessRow[],
+    'read',
+  )
+  if (denied.length > 0) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'attachment_access_denied',
+      message: 'One or more attachments are not accessible to the caller.',
+    }
+  }
   return { ok: true }
 }
 
@@ -392,6 +418,8 @@ function toHandlerContext(ctx: PendingActionAuthContext): McpToolContext {
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,
     userId: ctx.userId,
+    ...(ctx.apiKeyId ? { apiKeyId: ctx.apiKeyId } : {}),
+    ...(ctx.apiKeyId && ctx.apiKeyUserId ? { apiKeyUserId: ctx.apiKeyUserId } : {}),
     container: ctx.container as never,
     userFeatures: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,
@@ -444,6 +472,7 @@ export const PENDING_ACTION_RECHECK_CODES: ReadonlyArray<PendingActionRecheckCod
   'tool_features_denied',
   'read_only_agent',
   'attachment_cross_tenant',
+  'attachment_access_denied',
   'stale_version',
   'schema_drift',
 ]

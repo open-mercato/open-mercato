@@ -2,6 +2,7 @@ import '@open-mercato/core/modules/messages/commands/messages'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage } from '@open-mercato/core/modules/messages/lib/attachments'
 
 const emitMessagesEventMock = jest.fn(async () => {})
 
@@ -157,6 +158,19 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
     expect(replyRow.threadId).toBe(threadId)
     expect(replyRow.parentMessageId).toBe(inboundMessageId)
     expect(replyRow.senderUserId).toBe(operatorUserId)
+  })
+
+  it('links reply attachments with the acting principal so owner access policies apply', async () => {
+    const command = commandRegistry.get('messages.messages.reply')
+    const { container } = makeContainer(grantedThread())
+    const ctx = commandCtx(container, ['messages.compose'])
+    const attachmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+
+    await command!.execute({ ...replyInput(), attachmentIds: [attachmentId], attachmentRecordId: 'library-temp' }, ctx as never)
+
+    const access = { auth: ctx.auth, container }
+    expect(linkAttachmentsToMessage).toHaveBeenCalledWith(expect.anything(), replyMessageId, [attachmentId], organizationId, tenantId, access)
+    expect(linkLibraryAttachmentsToMessage).toHaveBeenCalledWith(expect.anything(), replyMessageId, 'library-temp', organizationId, tenantId, access)
   })
 
   it('still denies a caller the channel itself refuses (personal mailbox of another user)', async () => {

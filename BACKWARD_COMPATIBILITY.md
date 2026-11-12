@@ -645,6 +645,10 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 **Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
 
+## Attachment owner access on direct readers (2026-11-03, #6282)
+
+STABLE behavior BREAK, protected owners only (e.g. Documents): the `attachments.*` AI tools, chat `attachmentIds`, the pending-action recheck, `catalog.draft_description_from_media` and Messages compose, reply and draft linking deny protected attachments the caller may not access; without it they bypass the #6726 owner policy, and a bridge would keep that bypass. New exports and optional tool context and Messages link fields are additive; the spec lists them. [Migration](UPGRADE_NOTES.md#ai-attachment-tools-ai-chat-attachments-and-messages-linking-enforce-attachment-owner-policies-6282); [spec](.ai/specs/2026-11-03-attachment-direct-reader-owner-access.md). Human maintainer waiver: PENDING.
+
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).

@@ -162,6 +162,8 @@ function buildToolHandlerContext(
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,
     userId: ctx.userId,
+    ...(ctx.apiKeyId ? { apiKeyId: ctx.apiKeyId } : {}),
+    ...(ctx.apiKeyId && ctx.apiKeyUserId ? { apiKeyUserId: ctx.apiKeyUserId } : {}),
     container: (container ?? undefined) as unknown as McpToolContext['container'],
     userFeatures: ctx.features,
     isSuperAdmin: ctx.isSuperAdmin,
@@ -284,6 +286,8 @@ function adaptToolToAiSdk(
               userId: mutation.ctx.userId,
               features: mutation.ctx.features,
               isSuperAdmin: mutation.ctx.isSuperAdmin,
+              apiKeyId: mutation.ctx.apiKeyId,
+              apiKeyUserId: mutation.ctx.apiKeyUserId,
               container: mutation.container,
             },
           )
