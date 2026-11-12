@@ -3,6 +3,10 @@ import { notificationMessages, openKeyboardNotification, test } from './helpers/
 
 async function expectWithinViewport(control: Locator, width: number) {
   await expect(control).toBeVisible()
+  await expect.poll(async () => {
+    const bounds = await control.boundingBox()
+    return bounds !== null && bounds.x >= 0 && bounds.x + bounds.width <= width
+  }).toBe(true)
   const bounds = await control.boundingBox()
   expect(bounds).not.toBeNull()
   expect(bounds!.x).toBeGreaterThanOrEqual(0)
