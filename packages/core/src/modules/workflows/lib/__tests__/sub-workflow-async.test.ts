@@ -344,6 +344,7 @@ describe('resumeParentAfterSubWorkflow', () => {
 
       await resumeParentAfterSubWorkflow(em, {} as AwilixContainer, makeResumeJob())
 
+      expect(sendSignalMock).toHaveBeenCalledTimes(1)
       const [, , options] = sendSignalMock.mock.calls[0] as [unknown, unknown, { payload: Record<string, unknown> }]
       expect(options.payload).toEqual({ overriddenResult: 'db-mapped-value' })
     })
