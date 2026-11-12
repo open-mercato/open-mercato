@@ -56,7 +56,7 @@ export async function PUT(req: Request) {
   if (!moduleConfigService) {
     const { translate } = await resolveTranslations()
     return NextResponse.json(
-      { error: translate('entities.settings.errors.storageUnavailable', 'Settings storage unavailable') },
+      { error: translate('entities.settings.errors.storageUnavailable', 'Settings storage is unavailable because the configs module is disabled') },
       { status: 503 },
     )
   }

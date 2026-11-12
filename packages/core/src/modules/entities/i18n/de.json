@@ -201,7 +201,7 @@
   "entities.settings.errors.conflict": "Die Einstellungen wurden von einem anderen Benutzer geändert. Bitte neu laden.",
   "entities.settings.errors.loadFailed": "Laden der Einstellungen fehlgeschlagen",
   "entities.settings.errors.saveFailed": "Speichern der Einstellungen fehlgeschlagen",
-  "entities.settings.errors.storageUnavailable": "Einstellungsspeicher nicht verfügbar",
+  "entities.settings.errors.storageUnavailable": "Der Einstellungsspeicher ist nicht verfügbar, weil das Modul configs deaktiviert ist",
   "entities.settings.flash.saved": "Einstellungen gespeichert",
   "entities.settings.newEntitiesRestrictedByDefault.description": "Für Datensätze neu erstellter benutzerdefinierter Entitäten standardmäßig explizite Berechtigungen pro Entität erfordern.",
   "entities.settings.newEntitiesRestrictedByDefault.label": "Datensatzzugriff standardmäßig einschränken",

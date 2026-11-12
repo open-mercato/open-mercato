@@ -201,7 +201,7 @@
   "entities.settings.errors.conflict": "La configuración fue modificada por otro usuario. Por favor recarga.",
   "entities.settings.errors.loadFailed": "Error al cargar la configuración",
   "entities.settings.errors.saveFailed": "Error al guardar la configuración",
-  "entities.settings.errors.storageUnavailable": "El almacenamiento de configuración no está disponible",
+  "entities.settings.errors.storageUnavailable": "El almacenamiento de configuración no está disponible porque el módulo configs está desactivado",
   "entities.settings.flash.saved": "Configuración guardada",
   "entities.settings.newEntitiesRestrictedByDefault.description": "Requerir permisos explícitos por entidad para registros de nuevas entidades creadas por defecto.",
   "entities.settings.newEntitiesRestrictedByDefault.label": "Restringir acceso a registros por defecto",

@@ -201,7 +201,7 @@
   "entities.settings.errors.conflict": "다른 사용자가 설정을 수정했습니다. 새로고침하세요.",
   "entities.settings.errors.loadFailed": "설정을 로드하지 못했습니다.",
   "entities.settings.errors.saveFailed": "설정을 저장하지 못했습니다.",
-  "entities.settings.errors.storageUnavailable": "설정 저장소를 사용할 수 없습니다.",
+  "entities.settings.errors.storageUnavailable": "configs 모듈이 비활성화되어 있어 설정 저장소를 사용할 수 없습니다.",
   "entities.settings.flash.saved": "설정이 저장되었습니다.",
   "entities.settings.newEntitiesRestrictedByDefault.description": "기본적으로 새로 생성된 사용자 지정 엔터티의 레코드에 대해 명시적인 엔터티별 권한이 필요합니다.",
   "entities.settings.newEntitiesRestrictedByDefault.label": "기본적으로 레코드 액세스 제한",

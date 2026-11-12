@@ -79,8 +79,8 @@ describe('/api/entities/entity-settings', () => {
       const response = await PUT(putRequest({ newEntitiesRestrictedByDefault: true }))
 
       expect(response.status).toBe(503)
-      await expect(response.json()).resolves.toEqual({ error: 'Settings storage unavailable' })
-      expect(mockTranslate).toHaveBeenCalledWith('entities.settings.errors.storageUnavailable', 'Settings storage unavailable')
+      await expect(response.json()).resolves.toEqual({ error: 'Settings storage is unavailable because the configs module is disabled' })
+      expect(mockTranslate).toHaveBeenCalledWith('entities.settings.errors.storageUnavailable', 'Settings storage is unavailable because the configs module is disabled')
       expect(mockBeginGuard).not.toHaveBeenCalled()
       expect(mockRunAfterSuccess).not.toHaveBeenCalled()
     })
