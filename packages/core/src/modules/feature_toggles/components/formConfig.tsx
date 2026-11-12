@@ -11,6 +11,7 @@ import {
 } from "@open-mercato/ui/primitives/select";
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { booleanOverrideSelectValue } from "./overrideFormConfig";
+import { normalizeDefaultValueForType } from "../lib/defaultValue";
 
 
 export function DefaultValueField(props: CrudCustomFieldRenderProps) {
@@ -44,7 +45,7 @@ export function DefaultValueField(props: CrudCustomFieldRenderProps) {
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.form.fields.defaultValue.string.label', 'Default Value (String)')}</label>
                     <Input
                         type="text"
-                        value={props.value as string || ''}
+                        value={normalizeDefaultValueForType('string', props.value) as string}
                         onChange={(e) => props.setValue(e.target.value)}
                         placeholder={t('feature_toggles.form.fields.defaultValue.string.placeholder', 'Enter default string value')}
                         disabled={props.disabled}
@@ -59,7 +60,7 @@ export function DefaultValueField(props: CrudCustomFieldRenderProps) {
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.form.fields.defaultValue.number.label', 'Default Value (Number)')}</label>
                     <Input
                         type="number"
-                        value={props.value as number || 0}
+                        value={normalizeDefaultValueForType('number', props.value) as number}
                         onChange={(e) => props.setValue(Number(e.target.value) || 0)}
                         disabled={props.disabled}
                         autoFocus={props.autoFocus}

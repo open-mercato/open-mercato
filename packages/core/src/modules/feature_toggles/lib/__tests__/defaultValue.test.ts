@@ -28,6 +28,17 @@ describe('normalizeDefaultValueForType', () => {
     expect(normalizeDefaultValueForType('number', 42)).toBe(42)
   })
 
+  it('coerces a value left over from another type to what the target field displays', () => {
+    expect(normalizeDefaultValueForType('number', 'abc')).toBe(0)
+    expect(normalizeDefaultValueForType('number', true)).toBe(0)
+    expect(normalizeDefaultValueForType('number', '42.5')).toBe(42.5)
+    expect(normalizeDefaultValueForType('number', '')).toBe(0)
+    expect(normalizeDefaultValueForType('number', Number.NaN)).toBe(0)
+    expect(normalizeDefaultValueForType('string', 42.5)).toBe('')
+    expect(normalizeDefaultValueForType('string', false)).toBe('')
+    expect(normalizeDefaultValueForType('string', { rollout: 10 })).toBe('')
+  })
+
   it('leaves json defaults untouched, null included', () => {
     const value = { rollout: 10 }
     expect(normalizeDefaultValueForType('json', value)).toBe(value)
