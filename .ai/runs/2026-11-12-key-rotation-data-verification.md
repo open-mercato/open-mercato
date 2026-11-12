@@ -2,7 +2,7 @@
 
 Source doc: .ai/specs/enterprise/2026-11-12-key-rotation-data-verification.md
 Source PR: #9328
-Backup prerequisite: #8910 (merged design; runtime is not implemented)
+Backup prerequisite: #9333 implementation (stacked); #8910 merged design
 Status: in-progress — implementation and integrated verification underway
 Engine: om-auto-create-pr (steps: 11, --loop: no)
 
@@ -82,9 +82,9 @@ PR: #9334
 
 ### Phase 2: rotation integration
 
-- [ ] 2.1 Neutral bounded Core maintenance refactor and regressions.
-- [ ] 2.2 Core risk acknowledgment and protected completion integration.
-- [ ] 2.3 Resume/ambiguous commit/lost capability recovery.
+- [x] 2.1 Neutral bounded Core maintenance refactor and regressions. — 0b5ef6c401
+- [x] 2.2 Core risk acknowledgment and protected completion integration. — fb0d766ecb
+- [x] 2.3 Resume/ambiguous commit/lost capability recovery. — 0b5ef6c401
 
 ### Phase 3: acceptance and publication
 
@@ -99,3 +99,7 @@ The operator instructed: “yes go on, the modules go to enterprise / commercial
 Implementation milestones: 9d7a7183de typed/encrypted verification engine and tests; 63100e7c32 neutral Core guard/bounded adapters plus PostgreSQL dataset and coordinator; 46160d7873 merges #9333's recovery-engine prerequisite without copying its source/spec. #9333 must merge before this implementation to remove the inherited diff. New implementation uses actual pg_dump/COPY, age encryption and native persisted scans; source #9328 remains separate and is not committed here.
 
 Verification underway: independent review found and corrected global-policy omission, numeric-PK text-alias pagination, quadratic custom-document size probes, provider-provenance and durable-report retry concerns. Native disposable PostgreSQL tests now include full production protection roundtrip, valid-but-wrong ciphertext, target-key-only failure, complete numeric-PK coverage, global policy coverage/refusal, writer grants, RLS/FORCE RLS and microsecond timestamp preservation. Runtime performance is being measured on real encrypted scalar/custom data at 1/20GiB; no unmeasured target is marked passed. Full configured gate and final authoritative review remain pending.
+
+Final safety milestones: 0b5ef6c401 binds the offline admission fence before any scope reads, validates column/schema privileges and worker drain, preserves exact JSON numeric tokens and prototype-named properties, authenticates attempt-specific failure aggregates, and includes real Core CLI/Enterprise DI/MikroORM plus real SIGKILL journal evidence. d3192ddd0f makes the frozen CLI registry authoritative; 619583e34e budgets prefetched wire pages; fb0d766ecb adds authenticated empty-value maintenance support without altering the existing nonempty heuristic. Current source is frozen for the complete validation and performance gate.
+
+Measured resource scope is the standalone coordinator with explicit Node heap flags, actual native recovery and real neutral Core maintenance helpers. The real CLI handler is tested functionally with actual ORM and DI; whole-application bootstrap memory is not claimed by the standalone measurement. Earlier exploratory timing files are preserved with `releaseAcceptance:false`, including a failed cold throughput result before the final prefetch implementation. Neither 20-GiB acceptance nor final release readiness is claimed until measured.
