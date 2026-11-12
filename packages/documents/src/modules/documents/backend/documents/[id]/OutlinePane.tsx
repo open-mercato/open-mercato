@@ -17,6 +17,7 @@ type OutlineHeading = {
 type OutlinePaneProps = {
   editor: Editor | null
   findingCountsByHeading?: Map<number, FindingSeverityCounts>
+  variant?: 'card' | 'column'
 }
 
 const SEVERITY_DOT_CLASS: Record<FindingSeverity, string> = {
@@ -52,7 +53,7 @@ function getIndentClass(level: number): string {
   return 'pl-8'
 }
 
-export function OutlinePane({ editor, findingCountsByHeading }: OutlinePaneProps) {
+export function OutlinePane({ editor, findingCountsByHeading, variant = 'card' }: OutlinePaneProps) {
   const t = useT()
   const [headings, setHeadings] = React.useState<OutlineHeading[]>([])
   const [editorFindingCounts, setEditorFindingCounts] = React.useState<Map<number, FindingSeverityCounts>>(() => new Map())
@@ -97,7 +98,13 @@ export function OutlinePane({ editor, findingCountsByHeading }: OutlinePaneProps
   }, [editor])
 
   return (
-    <aside className="rounded-lg border border-border bg-card p-3 shadow-sm lg:sticky lg:top-20 lg:w-64 lg:shrink-0">
+    <aside
+      className={variant === 'column'
+        ? 'w-56 shrink-0 overflow-y-auto border-r border-border bg-card p-3'
+        : 'rounded-lg border border-border bg-card p-3 shadow-sm lg:sticky lg:top-20 lg:w-64 lg:shrink-0'}
+      data-testid="documents-outline-pane"
+      data-variant={variant}
+    >
       <h2 className="mb-3 text-sm font-semibold text-foreground">{t('documents.editor.outline.title')}</h2>
       {headings.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('documents.editor.outline.empty')}</p>

@@ -226,8 +226,9 @@ describe('finding decorations plugin', () => {
 
   it('uses status tokens for every severity and an active ring', () => {
     expect(FINDING_DECORATION_STYLES).toContain('var(--status-error-bg)')
-    expect(FINDING_DECORATION_STYLES).toContain('var(--status-warning-bg)')
-    expect(FINDING_DECORATION_STYLES).toContain('var(--status-info-bg)')
+    expect(FINDING_DECORATION_STYLES).toMatch(/om-doc-finding--warning \{[^}]*wavy[^}]*var\(--status-warning-icon\)/)
+    expect(FINDING_DECORATION_STYLES).toMatch(/om-doc-finding--info \{[^}]*dotted[^}]*var\(--status-info-icon\)/)
+    expect(FINDING_DECORATION_STYLES).toMatch(/om-doc-finding--active \{[^}]*var\(--primary\)/)
     expect(FINDING_DECORATION_STYLES).not.toMatch(/#[0-9a-f]{3,6}\b/i)
     expect(findingDecorationClass(ranges[0], 'a')).toBe('om-doc-finding om-doc-finding--blocking om-doc-finding--active')
     expect(findingDecorationClass(ranges[0], null)).toBe('om-doc-finding om-doc-finding--blocking')

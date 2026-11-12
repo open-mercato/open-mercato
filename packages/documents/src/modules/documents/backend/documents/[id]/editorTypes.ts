@@ -3,6 +3,7 @@ import type { HocuspocusProvider } from '@hocuspocus/provider'
 import type * as Y from 'yjs'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { CommentAnchor } from './CommentAnchorNavigation'
+import type { FindingSummary } from './findingModel'
 
 export type CollabTokenUser = { id: string; name: string; color: string }
 export type CollabResources = { ydoc: Y.Doc; provider: HocuspocusProvider; user: CollabTokenUser }
@@ -24,6 +25,8 @@ export type DocumentEditorIslandProps = {
   onComment?: (anchor: CommentAnchor) => void
   onContentConflict?: () => void
   onTitleChange?: (title: string, updatedAt: string | null) => void
+  reviewSummary?: FindingSummary | null
+  reviewWorkspace?: boolean
 }
 
 export type CollabState =

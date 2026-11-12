@@ -82,9 +82,11 @@ export async function openDocumentChanges(page: Page, documentId: string): Promi
 export const SINGLE_USER_FALLBACK_NOTICE = 'Realtime is unavailable — changes are saved in single-user mode.'
 
 export async function isRealtimeConnected(page: Page): Promise<boolean> {
-  const fallbackNotice = page.getByText(SINGLE_USER_FALLBACK_NOTICE)
-  await expect(page.getByText('Live', { exact: true }).or(fallbackNotice).first()).toBeVisible({ timeout: 30_000 })
-  return (await fallbackNotice.count()) === 0
+  const statusPill = page.getByTestId('documents-editor-status-pill')
+  const live = statusPill.filter({ hasText: /^Live$/ })
+  const unavailable = statusPill.filter({ hasText: 'Realtime unavailable' })
+  await expect(live.or(unavailable).first()).toBeVisible({ timeout: 30_000 })
+  return (await unavailable.count()) === 0
 }
 
 export async function readPersistedContentHtml(request: APIRequestContext, token: string, documentId: string): Promise<string> {
@@ -96,6 +98,12 @@ export async function readPersistedContentHtml(request: APIRequestContext, token
 
 export function findingCard(page: Page, title: string): Locator {
   return page.getByTestId('documents-finding-card').filter({ has: page.getByRole('heading', { name: title, exact: true }) })
+}
+
+export async function expandFindingCard(card: Locator): Promise<void> {
+  const toggle = card.getByRole('heading').getByRole('button')
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
 }
 
 export async function selectEditorText(page: Page, expected: string): Promise<void> {

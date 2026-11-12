@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import type { Editor } from '@tiptap/core'
-import { ListChecks, MessageSquare } from 'lucide-react'
+import { ListChecks, Lock, MessageSquare, UserRound } from 'lucide-react'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -21,16 +21,18 @@ import { Tabs, TabsList, TabsTrigger, useTabsContext } from '@open-mercato/ui/pr
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 import type { CommentAnchor } from './CommentAnchorNavigation'
 import { FindingCard, findingCardElementId } from './FindingCard'
 import {
   FINDING_SEVERITIES,
-  countDistinctSections,
   groupFindings,
   openFindingTotal,
   type DocumentFindingItem,
   type FindingSeverity,
+  type FindingSummary,
 } from './findingModel'
+import { firstOpenFindingId, isFindingCardExpanded, isReviewMode } from './reviewModeModel'
 import { useDocumentFindings, type DocumentFindingsModel } from './useDocumentFindings'
 
 type RailTab = 'changes' | 'comments'
@@ -45,9 +47,22 @@ const GROUP_TITLE_KEYS: Record<FindingGroupKey, string> = {
   decided: 'documents.findings.groups.decided',
 }
 
-const GROUP_HINT_KEYS: Partial<Record<FindingGroupKey, string>> = {
-  blocking: 'documents.findings.groups.blockingHint',
-  warning: 'documents.findings.groups.warningHint',
+const GROUP_HINTS: Partial<Record<FindingGroupKey, { key: string; icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>; className: string }>> = {
+  blocking: { key: 'documents.findings.groups.blockingHint', icon: Lock, className: 'text-status-error-text' },
+  warning: { key: 'documents.findings.groups.warningHint', icon: UserRound, className: 'text-status-warning-text' },
+}
+
+function GroupHint({ group }: { group: FindingGroupKey }) {
+  const t = useT()
+  const hint = GROUP_HINTS[group]
+  if (!hint) return null
+  const Icon = hint.icon
+  return (
+    <span className={cn('flex items-center gap-1 text-xs font-medium', hint.className)} data-testid={`documents-findings-group-hint-${group}`}>
+      <Icon className="size-3.5" aria-hidden />
+      {t(hint.key)}
+    </span>
+  )
 }
 
 function RailTabPanel({ value, children }: { value: RailTab; children: React.ReactNode }) {
@@ -72,6 +87,8 @@ type DocumentReviewRailProps = {
   commentFocusRequestId: number | null
   comments: React.ReactNode
   onNote?: (anchor: CommentAnchor) => void
+  onSummaryChange?: (summary: FindingSummary | null) => void
+  releaseFocusRequestId?: number | null
 }
 
 export function DocumentReviewRail({
@@ -81,6 +98,8 @@ export function DocumentReviewRail({
   commentFocusRequestId,
   comments,
   onNote,
+  onSummaryChange,
+  releaseFocusRequestId = null,
 }: DocumentReviewRailProps) {
   const t = useT()
   const [tab, setTab] = React.useState<RailTab>('comments')
@@ -102,6 +121,30 @@ export function DocumentReviewRail({
     onDecorationFocus: () => selectTab('changes'),
   })
   const openTotal = openFindingTotal(findings.summary)
+  const reviewMode = isReviewMode(findings.summary)
+  const [blockingFocusPending, setBlockingFocusPending] = React.useState(false)
+  const onSummaryChangeRef = React.useRef(onSummaryChange)
+  onSummaryChangeRef.current = onSummaryChange
+
+  React.useEffect(() => {
+    onSummaryChangeRef.current?.(findings.summary)
+  }, [findings.summary])
+
+  React.useEffect(() => () => onSummaryChangeRef.current?.(null), [])
+
+  React.useEffect(() => {
+    if (releaseFocusRequestId === null) return
+    selectTab('changes')
+    setBlockingFocusPending(true)
+  }, [releaseFocusRequestId, selectTab])
+
+  const { listState, findings: findingItems, revealFinding } = findings
+  React.useEffect(() => {
+    if (!blockingFocusPending || listState.status !== 'ready') return
+    setBlockingFocusPending(false)
+    const findingId = firstOpenFindingId(findingItems, ['blocking'])
+    if (findingId) revealFinding(findingId)
+  }, [blockingFocusPending, findingItems, listState.status, revealFinding])
 
   React.useEffect(() => {
     if (!findings.summaryLoaded || userChoseTab.current) return
@@ -124,7 +167,7 @@ export function DocumentReviewRail({
       <Tabs
         value={tab}
         onValueChange={(value) => selectTab(value === 'changes' ? 'changes' : 'comments')}
-        variant="underline"
+        variant={reviewMode ? 'pill' : 'underline'}
       >
         <TabsList aria-label={t('documents.findings.rail.label')} className="w-full">
           <TabsTrigger
@@ -161,31 +204,12 @@ type FindingsPanelProps = {
   onNote?: (finding: DocumentFindingItem) => void
 }
 
-function ReviewHeader({ model }: { model: DocumentFindingsModel }) {
+function ReviewProvenance({ model }: { model: DocumentFindingsModel }) {
   const t = useT()
   const reviewed = model.findings.find((finding) => finding.status !== 'superseded') ?? model.findings[0]
-  if (!reviewed) return null
-  const reviewedAt = model.summary?.reviewedAt ?? reviewed.createdAt
-  const sourceLabel = t(reviewed.source === 'import' ? 'documents.findings.header.sourceImport' : 'documents.findings.header.sourceAi')
+  if (!reviewed || (!reviewed.sourceWorkflowInstanceId && !reviewed.sourceAgentRunId)) return null
   return (
-    <div className="space-y-1 text-xs text-muted-foreground" data-testid="documents-findings-review-header">
-      <p>
-        {t('documents.findings.header.reviewed', {
-          source: sourceLabel,
-          sections: countDistinctSections(model.findings),
-          time: new Date(reviewedAt).toLocaleString(),
-        })}
-      </p>
-      {model.summary?.playbook ? (
-        <p data-testid="documents-findings-review-playbook">
-          {model.summary.playbook.version !== null
-            ? t('documents.reviewPlaybooks.header.playbook', {
-              name: model.summary.playbook.name,
-              version: model.summary.playbook.version,
-            })
-            : t('documents.reviewPlaybooks.header.playbookNoVersion', { name: model.summary.playbook.name })}
-        </p>
-      ) : null}
+    <div className="space-y-1 text-xs text-muted-foreground" data-testid="documents-findings-review-provenance">
       {reviewed.sourceWorkflowInstanceId ? (
         <p>
           {t('documents.findings.header.workflowInstance')}{' '}
@@ -213,6 +237,18 @@ export function FindingsPanel({ model, canDecide, editorEditable, onNote }: Find
     info: false,
     decided: true,
   })
+  const [expandedOverrides, setExpandedOverrides] = React.useState<Record<string, boolean>>({})
+  const firstOpenId = React.useMemo(() => firstOpenFindingId(model.findings), [model.findings])
+  const cardExpanded = React.useCallback(
+    (findingId: string) => isFindingCardExpanded(findingId, { firstOpenId, activeId: model.activeFindingId }, expandedOverrides),
+    [expandedOverrides, firstOpenId, model.activeFindingId],
+  )
+  const { locateFinding } = model
+  const toggleCard = React.useCallback((finding: DocumentFindingItem) => {
+    const next = !cardExpanded(finding.id)
+    setExpandedOverrides((current) => ({ ...current, [finding.id]: next }))
+    if (next) void locateFinding(finding)
+  }, [cardExpanded, locateFinding])
   const [keepTarget, setKeepTarget] = React.useState<DocumentFindingItem | null>(null)
   const [keepNote, setKeepNote] = React.useState('')
   const [keepAttempted, setKeepAttempted] = React.useState(false)
@@ -226,6 +262,7 @@ export function FindingsPanel({ model, canDecide, editorEditable, onNote }: Find
     if (!finding) return
     const group: FindingGroupKey = finding.status === 'open' ? finding.severity : 'decided'
     setCollapsed((current) => (current[group] ? { ...current, [group]: false } : current))
+    setExpandedOverrides((current) => (current[finding.id] === false ? { ...current, [finding.id]: true } : current))
     window.requestAnimationFrame(() => {
       const card = document.getElementById(findingCardElementId(finding.id))
       if (!card) return
@@ -265,6 +302,8 @@ export function FindingsPanel({ model, canDecide, editorEditable, onNote }: Find
           finding={finding}
           resolution={model.resolutions[finding.id]}
           active={model.activeFindingId === finding.id}
+          expanded={cardExpanded(finding.id)}
+          onToggle={toggleCard}
           canDecide={canDecide}
           editorEditable={editorEditable}
           pending={model.pendingFindingId === finding.id}
@@ -300,7 +339,7 @@ export function FindingsPanel({ model, canDecide, editorEditable, onNote }: Find
         ) : null}
         {model.listState.status === 'ready' && visibleGroups.length > 0 ? (
           <>
-            <ReviewHeader model={model} />
+            <ReviewProvenance model={model} />
             {visibleGroups.map((key) => (
               <div key={key} data-testid={`documents-findings-group-${key}`}>
                 <CollapsibleSection
@@ -308,10 +347,8 @@ export function FindingsPanel({ model, canDecide, editorEditable, onNote }: Find
                   count={groups[key].length}
                   collapsed={collapsed[key]}
                   onCollapsedChange={(next) => setCollapsed((current) => ({ ...current, [key]: next }))}
+                  action={<GroupHint group={key} />}
                 >
-                  {GROUP_HINT_KEYS[key] ? (
-                    <p className="mb-2 text-xs text-muted-foreground">{t(GROUP_HINT_KEYS[key] ?? '')}</p>
-                  ) : null}
                   {renderCards(groups[key])}
                 </CollapsibleSection>
               </div>

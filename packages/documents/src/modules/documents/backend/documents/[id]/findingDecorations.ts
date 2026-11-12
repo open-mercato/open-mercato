@@ -191,25 +191,34 @@ export function revertLastEditorChange(editor: Editor | null): boolean {
 
 export const FINDING_DECORATION_STYLES = `
 .ProseMirror .om-doc-finding {
-  border-bottom: 2px solid transparent;
   border-radius: var(--radius-sm, 0.25rem);
   cursor: pointer;
+  text-decoration-skip-ink: none;
   transition: box-shadow 120ms ease;
 }
 .ProseMirror .om-doc-finding--blocking {
   background: var(--status-error-bg);
-  border-bottom-color: var(--status-error-icon);
+  border-bottom: 1px solid var(--status-error-border);
 }
 .ProseMirror .om-doc-finding--warning {
-  background: var(--status-warning-bg);
-  border-bottom-color: var(--status-warning-icon);
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--status-warning-icon);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
 }
 .ProseMirror .om-doc-finding--info {
-  background: var(--status-info-bg);
-  border-bottom-color: var(--status-info-icon);
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--status-info-icon);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
 }
 .ProseMirror .om-doc-finding--active {
-  box-shadow: 0 0 0 2px var(--ring);
+  box-shadow: 0 0 0 2px var(--primary);
+}
+.ProseMirror .om-doc-finding--blocking.om-doc-finding--active {
+  border-bottom-color: var(--status-error-icon);
 }
 .om-doc-preview .ProseMirror .om-doc-finding {
   cursor: default;

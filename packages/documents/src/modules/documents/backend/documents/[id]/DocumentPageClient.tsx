@@ -8,6 +8,8 @@ import { Archive, ArchiveRestore, Bell, Copy, History, Star, Trash2 } from 'luci
 import type { Editor } from '@tiptap/core'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -29,6 +31,17 @@ import { DocumentNavigator } from './DocumentNavigator'
 import { DocumentEditorErrorBoundary } from './DocumentEditorErrorBoundary'
 import { VersionHistoryPanel } from './VersionHistoryPanel'
 import { DocumentReviewRail } from './FindingsPanel'
+import type { FindingSummary } from './findingModel'
+import { ReleaseGate } from './ReleaseGate'
+import { isReviewMode, releaseGateState, reviewWorkspaceStyle } from './reviewModeModel'
+import { useWideViewport } from './useWideViewport'
+import { extensionPoints } from '../../../extension-points'
+
+export type DocumentHeaderInjectionContext = {
+  documentId: string
+  document: DocumentDetail
+  summary: FindingSummary | null
+}
 
 function DocumentEditorLoading({ error, retry }: { error?: Error | null; retry?: () => void }) {
   const t = useT()
@@ -92,6 +105,17 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
     return saved && contentSaveRef.current === registered
   }, [documentId])
   const [commentFocusRequest, setCommentFocusRequest] = React.useState<CommentFocusRequest | null>(null)
+  const [reviewSummary, setReviewSummary] = React.useState<FindingSummary | null>(null)
+  const [releaseFocusRequestId, setReleaseFocusRequestId] = React.useState<number | null>(null)
+  const focusReleaseBlockers = React.useCallback(() => {
+    setReleaseFocusRequestId((current) => (current ?? 0) + 1)
+  }, [])
+  const wideViewport = useWideViewport()
+  const loadedDocument = state.status === 'ready' ? state.document : null
+  const headerInjectionContext = React.useMemo<DocumentHeaderInjectionContext | null>(
+    () => (loadedDocument ? { documentId: loadedDocument.id, document: loadedDocument, summary: reviewSummary } : null),
+    [loadedDocument, reviewSummary],
+  )
   const requestSequence = React.useRef(0)
   const requestCommentAt = React.useCallback((anchor: CommentAnchor) => {
     setCommentFocusRequest((current) => ({ anchor, requestId: (current?.requestId ?? 0) + 1 }))
@@ -345,6 +369,12 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
   const { document, content } = state
   const capabilities = document.capabilities
   const canReviewFindings = capabilities.canEdit || document.tier === 'owner' || document.tier === 'editor'
+  const activeReviewSummary = canReviewFindings && isReviewMode(reviewSummary) ? reviewSummary : null
+  const reviewMode = activeReviewSummary !== null
+  const releaseGate = releaseGateState(activeReviewSummary)
+  const reviewWorkspace = reviewMode && wideViewport
+  const documentNavigator = <DocumentNavigator editor={editor} />
+  const relatedRecords = <RelatedRecordsPanel documentId={document.id} canEdit={capabilities.canEdit} editor={editor} />
   const commentsRail = (
     <CommentsRail
       documentId={document.id}
@@ -355,9 +385,10 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
     />
   )
   return (
-    <Page>
+    <Page style={reviewWorkspace ? reviewWorkspaceStyle() : undefined} data-layout={reviewWorkspace ? 'review-workspace' : 'default'}>
       <PageHeader title={t('documents.nav.document')} actions={(
         <>
+          {releaseGate ? <ReleaseGate state={releaseGate} onActivate={focusReleaseBlockers} /> : null}
           <LinkButton asChild variant="gray"><Link href="/backend/documents">{t('documents.actions.backToList')}</Link></LinkButton>
           <SimpleTooltip content={t(document.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')} size="sm">
             <IconButton
@@ -416,6 +447,13 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
             ) : null}
           </div>
         ) : null}
+        {headerInjectionContext ? (
+          <InjectionSpot
+            spotId={extensionPoints.hosts.documentHeader.spotId}
+            context={headerInjectionContext}
+            data={document}
+          />
+        ) : null}
         <div className="flex flex-col gap-4 xl:flex-row">
           <div className="min-w-0 flex-1">
             <DocumentEditorErrorBoundary
@@ -440,6 +478,8 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
                 onSaveReady={registerContentSave}
                 onContentConflict={handleContentConflict}
                 onComment={capabilities.canComment ? requestCommentAt : undefined}
+                reviewSummary={activeReviewSummary}
+                reviewWorkspace={reviewWorkspace}
                 onTitleChange={(title, updatedAt) => setState((current) => current.status === 'ready' ? {
                   ...current,
                   document: { ...current.document, title, updatedAt },
@@ -448,8 +488,8 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
             </DocumentEditorErrorBoundary>
           </div>
           <aside className="space-y-4 xl:sticky xl:top-[calc(var(--topbar-height,0px)+1rem)] xl:max-h-[calc(100dvh-var(--topbar-height,0px)-2rem)] xl:w-80 xl:shrink-0 xl:self-start xl:overflow-y-auto">
-            <DocumentNavigator editor={editor} />
-            <RelatedRecordsPanel documentId={document.id} canEdit={capabilities.canEdit} editor={editor} />
+            {reviewMode ? null : documentNavigator}
+            {reviewMode ? null : relatedRecords}
             {canReviewFindings ? (
               <DocumentReviewRail
                 documentId={document.id}
@@ -457,9 +497,21 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
                 canDecide={capabilities.canEdit}
                 commentFocusRequestId={commentFocusRequest?.requestId ?? null}
                 onNote={capabilities.canComment ? requestCommentAt : undefined}
+                onSummaryChange={setReviewSummary}
+                releaseFocusRequestId={releaseFocusRequestId}
                 comments={commentsRail}
               />
             ) : commentsRail}
+            {reviewMode ? (
+              <div className="rounded-lg border border-border bg-card p-3" data-testid="documents-review-secondary-panels">
+                <CollapsibleSection title={t('documents.review.layout.secondaryPanels')} defaultCollapsed>
+                  <div className="space-y-4">
+                    {documentNavigator}
+                    {relatedRecords}
+                  </div>
+                </CollapsibleSection>
+              </div>
+            ) : null}
             {showVersions ? (
               <div
                 ref={versionsPanelRef}

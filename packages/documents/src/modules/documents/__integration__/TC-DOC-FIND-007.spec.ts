@@ -12,6 +12,7 @@ import {
 import {
   createReviewedAgreement,
   editorLocator,
+  expandFindingCard,
   FINDINGS_UI_BASE_URL,
   findingCard,
   LAW_FINDING,
@@ -43,7 +44,13 @@ test.describe('TC-DOC-FIND-007: Changes tab groups findings, decorates passages 
 
       await login(page, 'admin')
       const panel = await openDocumentChanges(page, documentId)
-      await expect(panel.getByTestId('documents-findings-review-header')).toBeVisible()
+      const summaryBar = page.getByTestId('documents-review-summary-bar')
+      await expect(summaryBar).toBeVisible()
+      await expect(summaryBar).toContainText('Review agent')
+      const releaseGate = page.getByTestId('documents-release-gate')
+      await expect(releaseGate).toHaveAttribute('data-state', 'blocked')
+      await expect(releaseGate).toHaveText('Clear 1 blocking finding to release')
+      await expect(panel.getByTestId('documents-findings-group-hint-blocking')).toHaveText('Blocks release')
       await expect(panel.getByTestId('documents-findings-group-blocking')).toContainText(TERM_FINDING.title)
       await expect(panel.getByTestId('documents-findings-group-warning')).toContainText(LAW_FINDING.title)
       await expect(panel.getByTestId('documents-findings-group-info')).toContainText(MISSING_FINDING.title)
@@ -56,7 +63,10 @@ test.describe('TC-DOC-FIND-007: Changes tab groups findings, decorates passages 
       await expect(termCard.getByTestId('documents-finding-diff')).toContainText(TERM_FINDING.suggestedText ?? '')
       await expect(termCard.getByRole('button', { name: 'Apply', exact: true })).toBeEnabled()
 
+      await expect(termCard).toHaveAttribute('data-expanded', 'true')
       const missingCard = findingCard(page, MISSING_FINDING.title)
+      await expect(missingCard).toHaveAttribute('data-expanded', 'false')
+      await expandFindingCard(missingCard)
       await expect(missingCard.getByTestId('documents-finding-location-message')).toHaveText('Passage not found in the current text.')
       await expect(missingCard.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled()
       await expect(missingCard.getByRole('button', { name: 'Keep as is' })).toBeEnabled()
@@ -69,9 +79,14 @@ test.describe('TC-DOC-FIND-007: Changes tab groups findings, decorates passages 
       await editor.locator('.om-doc-finding--warning').click()
       await expect(findingCard(page, LAW_FINDING.title)).toBeFocused()
       await expect(editor.locator('.om-doc-finding--warning')).toHaveClass(/om-doc-finding--active/)
+      await expect(findingCard(page, LAW_FINDING.title)).toHaveAttribute('data-expanded', 'true')
 
-      await page.getByRole('button', { name: 'Outline', exact: true }).click()
+      await releaseGate.click()
+      await expect(page.getByRole('tab', { name: /Changes/ })).toHaveAttribute('aria-selected', 'true')
+      await expect(termCard).toBeFocused()
+
       const outline = page.getByRole('navigation', { name: 'Outline' })
+      await expect(outline).toBeVisible()
       const obligations = outline.getByRole('button', { name: /2\. Obligations/ })
       await expect(obligations.locator('[data-severity="blocking"]')).toHaveCount(1)
       await expect(obligations).toContainText('Open findings: 1 blocking, 0 warnings, 0 information')
@@ -90,6 +105,8 @@ test.describe('TC-DOC-FIND-007: Changes tab groups findings, decorates passages 
       await expect(commenterPage.getByPlaceholder('Write a comment…')).toBeVisible()
       await expect(commenterPage.getByRole('tab', { name: /Changes/ })).toHaveCount(0)
       await expect(commenterPage.getByTestId('documents-findings-panel')).toHaveCount(0)
+      await expect(commenterPage.getByTestId('documents-release-gate')).toHaveCount(0)
+      await expect(commenterPage.getByTestId('documents-review-summary-bar')).toHaveCount(0)
       await expect(editorLocator(commenterPage).locator('.om-doc-finding')).toHaveCount(0)
     } finally {
       await Promise.all(extraContexts.map((context) => context.close().catch(() => undefined)))

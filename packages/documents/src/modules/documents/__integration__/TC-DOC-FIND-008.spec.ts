@@ -7,6 +7,7 @@ import {
   createReviewedAgreement,
   editorLocator,
   FINDINGS_UI_BASE_URL,
+  expandFindingCard,
   findingCard,
   isRealtimeConnected,
   LAW_FINDING,
@@ -67,12 +68,15 @@ test.describe('TC-DOC-FIND-008: Apply writes the suggestion into the shared docu
 
       const panel = page.getByTestId('documents-findings-panel')
       await expect(panel.getByTestId('documents-findings-group-blocking')).toHaveCount(0)
+      await expect(page.getByTestId('documents-release-gate')).toHaveAttribute('data-state', 'ready')
+      await expect(page.getByTestId('documents-release-gate')).toHaveText('Ready to release')
       const decided = panel.getByTestId('documents-findings-group-decided')
       await expect(decided).toBeVisible()
       await decided.getByRole('button', { name: /Expand Decided section/ }).click()
       const appliedCard = findingCard(page, TERM_FINDING.title)
       await expect(appliedCard).toHaveAttribute('data-status', 'applied')
       await expect(appliedCard.getByText('Applied', { exact: true })).toBeVisible()
+      await expandFindingCard(appliedCard)
       await expect(appliedCard.getByRole('button', { name: 'Reopen' })).toBeVisible()
 
       if (secondPage) {

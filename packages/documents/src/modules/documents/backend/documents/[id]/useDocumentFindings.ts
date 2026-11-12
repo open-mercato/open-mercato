@@ -190,6 +190,11 @@ export function useDocumentFindings({
     decorations.selectFindingRange(editor, resolution)
   }, [editor, loadDecorations, resolutions])
 
+  const revealFinding = React.useCallback((findingId: string) => {
+    setActiveFindingId(findingId)
+    setFocusRequest((current) => ({ findingId, sequence: (current?.sequence ?? 0) + 1 }))
+  }, [])
+
   const replaceFinding = React.useCallback((updated: DocumentFindingItem) => {
     setFindings((current) => current.map((finding) => (finding.id === updated.id ? updated : finding)))
   }, [])
@@ -309,6 +314,7 @@ export function useDocumentFindings({
     revertableFindingId,
     reload,
     locateFinding,
+    revealFinding,
     applyFinding,
     keepFinding,
     reopenFinding,

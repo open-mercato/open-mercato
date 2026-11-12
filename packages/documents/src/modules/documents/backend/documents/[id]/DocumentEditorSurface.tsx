@@ -10,6 +10,10 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { EntityPicker } from '../components/EntityPicker'
 import { DocumentCanvas } from './DocumentCanvas'
+import { OutlinePane } from './OutlinePane'
+import { openFindingTotal } from './findingModel'
+import { isReviewMode } from './reviewModeModel'
+import { ReviewSummaryBar } from './ReviewSummaryBar'
 import { EditorStatusPresence } from './EditorStatusPresence'
 import { EditorToolbar } from './EditorToolbar'
 import { RecordFieldsDialog } from './RecordFieldsDialog'
@@ -33,7 +37,13 @@ type Props = DocumentEditorIslandProps & {
 export function DocumentEditorSurface(input: Props) {
   const t = useT()
   const nonce = useContentSecurityPolicyNonce()
-  const [outlineOpen, setOutlineOpen] = React.useState(false)
+  const reviewSummary = isReviewMode(input.reviewSummary ?? null) ? input.reviewSummary ?? null : null
+  const hasOpenFindings = openFindingTotal(reviewSummary) > 0
+  const [outlineOpen, setOutlineOpen] = React.useState(hasOpenFindings)
+  const outlineToggledRef = React.useRef(false)
+  React.useEffect(() => {
+    if (hasOpenFindings && !outlineToggledRef.current) setOutlineOpen(true)
+  }, [hasOpenFindings])
   const [suggestionRange, setSuggestionRange] = React.useState<{ from: number; to: number } | null>(null)
   const modeChangeInFlightRef = React.useRef(false)
   const effectiveReadOnly = input.readOnly || input.mode === 'preview'
@@ -97,6 +107,9 @@ export function DocumentEditorSurface(input: Props) {
       : input.mode === 'preview'
         ? t('documents.editor.mode.previewNotice')
         : null
+  const workspace = Boolean(input.reviewWorkspace && reviewSummary)
+  const statusNotice = workspace && input.transport === 'fallback' ? notice : null
+  const canvasNotice = statusNotice ? null : notice
   const selectionCommentHandler = canCreateSelectionComment({
     permissionReadOnly: input.readOnly,
     mode: input.mode,
@@ -121,50 +134,58 @@ export function DocumentEditorSurface(input: Props) {
   return (
     <div className={cn('space-y-3', input.transport === 'collab' && 'om-doc-collab', input.mode === 'preview' && 'om-doc-preview')}>
       <style nonce={nonce}>{EDITOR_PRESENCE_STYLES}</style>
-      <div className="overflow-hidden rounded-lg border border-border bg-muted shadow-sm">
-        <div className="sticky top-0 z-sticky border-b border-border bg-card/95">
-          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-            <EditorStatusPresence
-              status={status}
-              users={input.presenceUsers}
-              counts={editorModel.counts}
-              mode={input.mode}
-              canEdit={!input.readOnly}
-              onModeChange={(nextMode) => { void handleModeChange(nextMode) }}
-              fallbackSave={input.transport === 'fallback' && !input.readOnly ? {
-                status: fallbackPersistence.status,
-                onSave: fallbackPersistence.saveNow,
-              } : undefined}
-            />
-          </div>
-          {input.mode === 'edit' ? (
-            <EditorToolbar
-              editor={editorModel.editor}
-              disabled={effectiveReadOnly || !editorModel.editor}
-              outlineOpen={outlineOpen}
-              uploading={insertions.uploading}
-              onToggleOutline={() => setOutlineOpen((value) => !value)}
-              onOpenEntityPicker={insertions.openEntityPicker}
-              onOpenLink={insertions.openLink}
-              onImage={() => insertions.fileInputRef.current?.click()}
-            />
-          ) : null}
-          {insertions.linkOpen && !effectiveReadOnly ? (
-            <div className="flex flex-col gap-3 border-t border-border bg-muted/30 p-3 md:flex-row md:items-end" onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); insertions.applyLink() }
-              if (event.key === 'Escape') { event.preventDefault(); insertions.setLinkOpen(false) }
-            }}>
-              <div className="min-w-0 flex-1 space-y-2">
-                <Label htmlFor={`document-link-${input.documentId}`}>{t('documents.editor.link.url')}</Label>
-                <Input id={`document-link-${input.documentId}`} type="url" value={insertions.linkHref} onChange={(event) => insertions.setLinkHref(event.target.value)} placeholder={t('documents.editor.link.placeholder')} />
-              </div>
-              <Button type="button" onClick={insertions.applyLink}><Link2 />{t('documents.editor.link.apply')}</Button>
-              <Button type="button" variant="outline" onClick={insertions.removeLink}><Unlink />{t('documents.editor.link.remove')}</Button>
-              <Button type="button" variant="ghost" onClick={() => insertions.setLinkOpen(false)}>{t('documents.actions.cancel')}</Button>
+      <div className={cn('overflow-hidden rounded-lg border border-border bg-muted shadow-sm', workspace && 'flex items-stretch')} data-testid="documents-editor-frame" data-layout={workspace ? 'review-workspace' : 'default'}>
+        {workspace && outlineOpen ? <OutlinePane editor={editorModel.editor} variant="column" /> : null}
+        <div className={cn(workspace && 'flex min-w-0 flex-1 flex-col')}>
+          <div className="sticky top-0 z-sticky border-b border-border bg-card/95">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+              <EditorStatusPresence
+                status={status}
+                users={input.presenceUsers}
+                counts={editorModel.counts}
+                mode={input.mode}
+                canEdit={!input.readOnly}
+                onModeChange={(nextMode) => { void handleModeChange(nextMode) }}
+                statusNotice={statusNotice}
+                fallbackSave={input.transport === 'fallback' && !input.readOnly ? {
+                  status: fallbackPersistence.status,
+                  onSave: fallbackPersistence.saveNow,
+                } : undefined}
+              />
             </div>
-          ) : null}
+            {input.mode === 'edit' ? (
+              <EditorToolbar
+                editor={editorModel.editor}
+                disabled={effectiveReadOnly || !editorModel.editor}
+                outlineOpen={outlineOpen}
+                uploading={insertions.uploading}
+                onToggleOutline={() => {
+                  outlineToggledRef.current = true
+                  setOutlineOpen((value) => !value)
+                }}
+                onOpenEntityPicker={insertions.openEntityPicker}
+                onOpenLink={insertions.openLink}
+                onImage={() => insertions.fileInputRef.current?.click()}
+              />
+            ) : null}
+            {insertions.linkOpen && !effectiveReadOnly ? (
+              <div className="flex flex-col gap-3 border-t border-border bg-muted/30 p-3 md:flex-row md:items-end" onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); insertions.applyLink() }
+                if (event.key === 'Escape') { event.preventDefault(); insertions.setLinkOpen(false) }
+              }}>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Label htmlFor={`document-link-${input.documentId}`}>{t('documents.editor.link.url')}</Label>
+                  <Input id={`document-link-${input.documentId}`} type="url" value={insertions.linkHref} onChange={(event) => insertions.setLinkHref(event.target.value)} placeholder={t('documents.editor.link.placeholder')} />
+                </div>
+                <Button type="button" onClick={insertions.applyLink}><Link2 />{t('documents.editor.link.apply')}</Button>
+                <Button type="button" variant="outline" onClick={insertions.removeLink}><Unlink />{t('documents.editor.link.remove')}</Button>
+                <Button type="button" variant="ghost" onClick={() => insertions.setLinkOpen(false)}>{t('documents.actions.cancel')}</Button>
+              </div>
+            ) : null}
+          </div>
+          {reviewSummary ? <ReviewSummaryBar summary={reviewSummary} editor={editorModel.editor} /> : null}
+          <DocumentCanvas editor={editorModel.editor} title={title} readOnly={effectiveReadOnly} outlineOpen={outlineOpen && !workspace} notice={canvasNotice} compact={workspace} onOpenLink={insertions.openLink} onComment={selectionCommentHandler} />
         </div>
-        <DocumentCanvas editor={editorModel.editor} title={title} readOnly={effectiveReadOnly} outlineOpen={outlineOpen} notice={notice} onOpenLink={insertions.openLink} onComment={selectionCommentHandler} />
       </div>
       <EntityPicker open={insertions.entityPickerOpen} onOpenChange={insertions.setPickerOpen} onPick={(pick) => { void insertions.handleEntityPick(pick) }} />
       <RecordFieldsDialog

@@ -41,6 +41,7 @@ export function DocumentCanvas({
   readOnly,
   outlineOpen,
   notice,
+  compact = false,
   onOpenLink,
   onComment,
 }: {
@@ -49,6 +50,7 @@ export function DocumentCanvas({
   readOnly: boolean
   outlineOpen: boolean
   notice: string | null
+  compact?: boolean
   onOpenLink: () => void
   onComment?: (anchor: CommentAnchor) => void
 }) {
@@ -75,7 +77,7 @@ export function DocumentCanvas({
   )
 
   return (
-    <div className="om-doc-canvas max-h-[calc(100dvh-var(--topbar-height,0px)-12rem)] min-h-96 overflow-auto bg-muted p-0 sm:px-4 sm:py-8 md:px-8 md:py-10">
+    <div className={cn('om-doc-canvas max-h-[calc(100dvh-var(--topbar-height,0px)-12rem)] min-h-96 overflow-auto bg-muted p-0', compact ? 'sm:p-4' : 'sm:px-4 sm:py-8 md:px-8 md:py-10')}>
       <style nonce={nonce}>{CANVAS_STYLES}</style>
       {notice ? <Alert status="information" style="lighter" className="mx-auto mb-4 max-w-3xl"><AlertDescription>{notice}</AlertDescription></Alert> : null}
       <div className="mx-auto flex w-fit min-w-full flex-col gap-4 lg:flex-row lg:items-start">
