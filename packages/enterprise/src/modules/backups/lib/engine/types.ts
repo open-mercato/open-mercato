@@ -46,7 +46,7 @@ export type BackupSource = { open(): Promise<Snapshot>; close(): Promise<void> }
 export type RestoreRun = { runId: string; backupId: string; manifestSha256: string; confirmation: string }
 export type RestoreTarget = {
   inspectResume?(run: RestoreRun): Promise<boolean>
-  reportState?(): Promise<{ startedAt: string; resumeCount: number }>
+  reportState?(): Promise<{ startedAt: string; resumeCount: number; resumeTimestamps?: string[] }>
   analyze?(): Promise<void>
   migrationFingerprint?(): Promise<string>
   readCanary?(entity: Entity, check: { field: string; key: Record<string, string> }): Promise<string>

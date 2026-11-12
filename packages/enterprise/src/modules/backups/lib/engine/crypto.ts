@@ -22,7 +22,7 @@ export async function recipientsFromFile(path: string): Promise<string[]> {
     throw new BackupError('BACKUP_INVALID_RECIPIENTS', 2)
   }
   for (const recipient of recipients) { const encrypter = new Encrypter(); encrypter.addRecipient(recipient) }
-  return [...new Set(recipients)].sort()
+  return [...new Set(recipients)].sort((left,right)=>left<right?-1:left>right?1:0)
 }
 export async function identitiesFromFile(path: string): Promise<string[]> {
   await privateFile(path)
@@ -31,7 +31,7 @@ export async function identitiesFromFile(path: string): Promise<string[]> {
   return identities
 }
 export function recipientFingerprint(recipients: string[]): string {
-  return createHash('sha256').update(JSON.stringify([...recipients].sort())).digest('hex')
+  return createHash('sha256').update(JSON.stringify([...recipients].sort((left,right)=>left<right?-1:left>right?1:0))).digest('hex')
 }
 export async function encryptStream(source: ByteStream, recipients: string[]): Promise<ByteStream> {
   const encrypter = new Encrypter()

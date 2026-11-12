@@ -183,6 +183,8 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
     const restored=await restoreBackup({...shared,target,confirmation:fresh,resume})
     const report=JSON.parse(await readFile(restored.reportPath,'utf8'))
     expect(report).toMatchObject({status:'completed',resumeCount:1,promotionReady:false,keyRecovery:{status:'not-tested'}})
+    expect(report.resumeTimestamps).toHaveLength(1)
+    expect(report.foreignKeys.results).toEqual(expect.arrayContaining([expect.objectContaining({status:'passed',constraintKey:'f1'})]))
     expect(report.entities.some((entry:{resumedChunks:number})=>entry.resumedChunks>0)).toBe(true)
     expect((await targetDb.query('SELECT * FROM app.parents ORDER BY a,b')).rows).toEqual((await sourceDb.query('SELECT * FROM app.parents ORDER BY a,b')).rows)
     expect((await targetDb.query("SELECT count(*)::text AS count FROM pg_namespace WHERE nspname='om_backup_restore'")).rows[0].count).toBe('0')
