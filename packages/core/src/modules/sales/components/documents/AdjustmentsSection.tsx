@@ -88,6 +88,11 @@ export function SalesDocumentAdjustmentsSection({
   const [activeAdjustment, setActiveAdjustment] = React.useState<AdjustmentRow | null>(null)
   const [kindOptions, setKindOptions] = React.useState<DictionaryOption[]>([])
   const kindLoadingRef = React.useRef(false)
+  // Set right before this component emits its own totals-refresh event so the
+  // subscription below can skip the reload it would otherwise duplicate —
+  // `loadAdjustments()` already ran synchronously just before the emit. Cross-section
+  // events (e.g. from ItemsSection) arrive with the flag unset and still reload normally.
+  const skipNextSelfRefreshRef = React.useRef(false)
 
   const apiResourcePath = React.useMemo(
     () => (kind === 'order' ? '/api/sales/order-adjustments' : '/api/sales/quote-adjustments'),
@@ -260,6 +265,10 @@ export function SalesDocumentAdjustmentsSection({
       subscribeSalesDocumentTotalsRefresh((detail) => {
         if (detail.documentId !== documentId) return
         if (detail.kind && detail.kind !== kind) return
+        if (skipNextSelfRefreshRef.current) {
+          skipNextSelfRefreshRef.current = false
+          return
+        }
         void loadAdjustments()
       }),
     [documentId, kind, loadAdjustments],
@@ -342,6 +351,7 @@ export function SalesDocumentAdjustmentsSection({
         )
         if (result.ok) {
           await loadAdjustments()
+          skipNextSelfRefreshRef.current = true
           emitSalesDocumentTotalsRefresh({ documentId, kind })
           setDialogOpen(false)
           setActiveAdjustment(null)
@@ -389,6 +399,7 @@ export function SalesDocumentAdjustmentsSection({
         )
         if (result.ok) {
           await loadAdjustments()
+          skipNextSelfRefreshRef.current = true
           emitSalesDocumentTotalsRefresh({ documentId, kind })
         }
       } catch (err) {
