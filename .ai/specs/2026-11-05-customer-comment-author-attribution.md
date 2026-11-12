@@ -1,6 +1,6 @@
 # Customer comment update attribution (#8759)
 
-Status: implemented candidate; named security exception approved; validation and QA pending.
+Status: implemented candidate; named security exception approved; local validation and complex browser QA passed.
 
 ## TLDR and Overview
 
@@ -42,7 +42,7 @@ Keeping the old unauthorized assignment behind an alias, toggle or bridge would 
 
 ## Final Compliance Report
 
-Focused customers command change plus NotesSection conflict feedback; no schema migration, dependency or discovery registration changes. Existing mutation lifecycle and undo stay intact. Piotr Karwatka approved the narrow compatibility waiver on 2026-11-12; validation and QA gates still apply. Runtime integration and full-gate results are recorded in the PR, including environment limits.
+Focused customers command change plus NotesSection conflict feedback; no schema migration, dependency or discovery registration changes. Existing mutation lifecycle and undo stay intact. Piotr Karwatka approved the narrow compatibility waiver on 2026-11-12; validation and QA gates still apply. The full local unit gate passed all 51 workspace tasks; the 19 NotesSection tests, two comment HTTP integration cases and complex browser QA passed. Evidence is recorded in the PR. The candidate awaits merge/deployment; the spec remains outside implemented/.
 
 ## Changelog
 
@@ -51,3 +51,5 @@ Focused customers command change plus NotesSection conflict feedback; no schema 
 - 2026-11-12: Recorded Piotr Karwatka’s explicit waiver of deprecation steps 1–3; validation and QA remain separate gates.
 
 - 2026-11-12: Complex stale-write QA found duplicate raw conflict codes in NotesSection editors; suppress inline conflict codes while preserving the shared banner and ordinary validation errors.
+
+- 2026-11-12: Verified the full workspace unit gate, focused UI regressions, comment HTTP undo/redo cases, owned actor/tenant/API-key boundaries, and person/company/deal browser flows.
