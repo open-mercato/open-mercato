@@ -5,6 +5,8 @@ import { renderWithProviders as renderWithI18n } from '@open-mercato/shared/lib/
 import { calendarEventTypes } from '../../../calendar-event-types'
 import { CalendarEventEditor } from '../CalendarEventEditor'
 import customerTranslations from '../../../i18n/en.json'
+import germanCustomerTranslations from '../../../i18n/de.json'
+import germanAppTranslations from '../../../../../../../../apps/mercato/src/i18n/de.json'
 
 function renderWithProviders(ui: React.ReactElement) {
   return renderWithI18n(ui, { dict: customerTranslations })
@@ -69,5 +71,23 @@ it('keeps the draft when the save shortcut is pressed at the real discard prompt
 
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Outside overlay' })) })
   await act(async () => { fireEvent.click(await screen.findByRole('button', { name: 'Discard changes' })) })
+  await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+})
+
+
+it('localizes the Cancel discard prompt and retains the German draft until confirmed', async () => {
+  const onOpenChange = jest.fn()
+  renderWithI18n(
+    <CalendarEventEditor open mode="create" typeLabels={{}} onOpenChange={onOpenChange} onSaved={() => {}} />,
+    { dict: { ...germanCustomerTranslations, ...germanAppTranslations } },
+  )
+  fireEvent.change(screen.getByLabelText('Draft title'), { target: { value: 'Ungespeicherter Termin' } })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Abbrechen', exact: true })) })
+  expect(await screen.findByRole('button', { name: 'Änderungen verwerfen' })).toBeInTheDocument()
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Weiter bearbeiten' })) })
+  expect(onOpenChange).not.toHaveBeenCalled()
+  expect(screen.getByLabelText('Draft title')).toHaveValue('Ungespeicherter Termin')
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Abbrechen', exact: true })) })
+  await act(async () => { fireEvent.click(await screen.findByRole('button', { name: 'Änderungen verwerfen' })) })
   await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
 })

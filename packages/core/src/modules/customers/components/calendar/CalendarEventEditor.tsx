@@ -359,8 +359,8 @@ export function CalendarEventEditor({
         const confirmed = await confirm({
           title: t('ui.forms.unsavedChangesTitle', 'Discard unsaved changes?'),
           description: t('ui.forms.unsavedChangesDescription', 'Your edits will be lost if you leave now.'),
-          confirmText: t('customers.deals.detail.unsavedConfirm', 'Discard changes'),
-          cancelText: t('customers.deals.detail.unsavedCancel', 'Keep editing'),
+          confirmText: t('ui.forms.unsavedChangesDiscard', 'Discard changes'),
+          cancelText: t('ui.forms.unsavedChangesKeep', 'Keep editing'),
           variant: 'destructive',
         })
         if (!confirmed) return
@@ -691,7 +691,7 @@ export function CalendarEventEditor({
           <Button
             type="button"
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={() => { void requestClose() }}
           >
             {t('customers.calendar.editor.cancel', 'Cancel')}
           </Button>
