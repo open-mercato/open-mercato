@@ -1,0 +1,8 @@
+PASS src/lib/encryption/__tests__/kms.test.ts
+PASS src/lib/encryption/__tests__/lookupHash.test.ts
+
+Test Suites: 2 passed, 2 total
+Tests:       20 passed, 20 total
+Snapshots:   0 total
+Time:        0.487 s
+Ran all test suites matching src/lib/encryption/__tests__/kms.test.ts|src/lib/encryption/__tests__/lookupHash.test.ts.

@@ -1,0 +1,20 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)                                         
+ Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY                                                                  
+ Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.           
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✔ old snapshot and retained keys restore tenant, null-organization, system and nested credential records (431.368792ms)
+✔ changing only the active root/pepper cannot decrypt old data or match old keyed lookups (218.078542ms)
+✔ offline owner-assisted reseal and complete lookup backfill produce target-only readable data (860.987042ms)
+✔ outer-only reseal leaves an unreadable old credential envelope and must remain in maintenance (107.711834ms)
+✔ consistent snapshot rollback restores data plus matching old keys/pepper; secret-only rollback fails (434.241625ms)
+Synthetic PostgreSQL fixture: 4 scoped encrypted rows, target-only read/hash/unique checks and matching snapshot rollback passed
+✔ PostgreSQL encrypted snapshot restores consistent ciphertext/hashes and owner-assisted target-only cutover (905.673625ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2985.482376

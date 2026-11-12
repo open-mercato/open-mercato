@@ -1,0 +1,37 @@
+✔ starters/docker/compose.fullapp.yml: missing or incomplete encryption configuration fails the startup preflight (407.828333ms)
+✔ starters/docker/compose.fullapp.yml: operator TENANT_DATA_ENCRYPTION_FALLBACK_KEY reaches every consumer unchanged (78.273083ms)
+✔ starters/docker/compose.fullapp.yml: operator TENANT_DATA_ENCRYPTION_KEY reaches every consumer unchanged (81.873375ms)
+✔ starters/docker/compose.fullapp.yml: configured Vault works without injecting credentials into a derived key (76.949166ms)
+✔ starters/docker/compose.fullapp.yml: unsafe keys fail the executed startup preflight without leaking values (896.515125ms)
+✔ starters/docker/compose.fullapp.yml: invalid Vault address and effective fallback precedence fail safely (229.861167ms)
+✔ starters/docker/compose.fullapp.yml: Vault-only deployments require a strong dedicated lookup pepper (479.080791ms)
+✔ starters/docker/compose.fullapp.yml: weak explicit peppers cannot override strong encryption keys (705.427417ms)
+✔ starters/docker/compose.fullapp.yml: remote Vault requires TLS even when an encryption fallback is supplied (929.58175ms)
+✔ docker-compose.fullapp.yml: missing or incomplete encryption configuration fails the startup preflight (386.944166ms)
+✔ docker-compose.fullapp.yml: operator TENANT_DATA_ENCRYPTION_FALLBACK_KEY reaches every consumer unchanged (78.235583ms)
+✔ docker-compose.fullapp.yml: operator TENANT_DATA_ENCRYPTION_KEY reaches every consumer unchanged (77.872084ms)
+✔ docker-compose.fullapp.yml: configured Vault works without injecting credentials into a derived key (78.403458ms)
+✔ docker-compose.fullapp.yml: unsafe keys fail the executed startup preflight without leaking values (863.918709ms)
+✔ docker-compose.fullapp.yml: invalid Vault address and effective fallback precedence fail safely (232.746709ms)
+✔ docker-compose.fullapp.yml: Vault-only deployments require a strong dedicated lookup pepper (479.152375ms)
+✔ docker-compose.fullapp.yml: weak explicit peppers cannot override strong encryption keys (707.537459ms)
+✔ docker-compose.fullapp.yml: remote Vault requires TLS even when an encryption fallback is supplied (955.530084ms)
+✔ packages/create-app/template/docker-compose.fullapp.yml: missing or incomplete encryption configuration fails the startup preflight (378.35075ms)
+✔ packages/create-app/template/docker-compose.fullapp.yml: operator TENANT_DATA_ENCRYPTION_FALLBACK_KEY reaches every consumer unchanged (77.461625ms)
+✔ packages/create-app/template/docker-compose.fullapp.yml: operator TENANT_DATA_ENCRYPTION_KEY reaches every consumer unchanged (74.774625ms)
+✔ packages/create-app/template/docker-compose.fullapp.yml: configured Vault works without injecting credentials into a derived key (75.135166ms)
+✔ packages/create-app/template/docker-compose.fullapp.yml: unsafe keys fail the executed startup preflight without leaking values (866.078292ms)
+✔ packages/create-app/template/docker-compose.fullapp.yml: invalid Vault address and effective fallback precedence fail safely (234.655458ms)
+✔ packages/create-app/template/docker-compose.fullapp.yml: Vault-only deployments require a strong dedicated lookup pepper (454.942042ms)
+✔ packages/create-app/template/docker-compose.fullapp.yml: weak explicit peppers cannot override strong encryption keys (699.710458ms)
+✔ packages/create-app/template/docker-compose.fullapp.yml: remote Vault requires TLS even when an encryption fallback is supplied (934.6595ms)
+✔ shipped env examples contain no tenant encryption key value (0.316958ms)
+✔ Compose prevents a dependent application process from starting after a failed preflight (5430.662791ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 17127.243042

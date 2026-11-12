@@ -1,0 +1,46 @@
+✔ yarn setup --no-infra makes zero docker calls and forwards the opt-out to the dev runner (51.248375ms)
+✔ yarn setup creates .env from .env.example only when it is missing (72.750625ms)
+✔ yarn setup replaces placeholder secrets when it creates .env, and only then (70.050125ms)
+✔ yarn setup keeps a remote DATABASE_URL and says so instead of switching to the local container (42.167375ms)
+✔ classic and reinstall wrappers keep their semantics and forward --no-infra (36.10325ms)
+✔ yarn setup starts the infra with a health wait before handing over to the dev runner (40.298792ms)
+✔ yarn setup stops before any database step on missing docker CLI (27.365417ms)
+✔ yarn setup stops before any database step on missing compose plugin (25.8105ms)
+✔ yarn setup stops before any database step on stopped daemon (25.902584ms)
+✔ yarn setup stops before any database step on failed healthcheck (33.586459ms)
+✔ without Docker and without an answering database, yarn setup stops with the manual-setup guide (28.437083ms)
+✔ yarn setup reports a port held by another process and does not run compose up (28.92975ms)
+✔ yarn infra:down keeps volumes unless --volumes --yes is given (51.750541ms)
+✔ the template ships infra:up / infra:down and every setup variant routes through setup.mjs (0.864167ms)
+✔ yarn infra:up still runs when the script is reached through a symlinked directory (22.380042ms)
+✔ isDirectRun compares real paths and ignores drive-letter case on Windows (1.964834ms)
+✔ plain setup defaults to reusing services without Docker or config rewrites (34.15925ms)
+✔ random ports setup saves matching service URLs before compose and dev (46.509542ms)
+✔ failed dev setup prints the manual fallback and preserves exit status (41.761792ms)
+✔ ephemeral cleanup failures print manual recovery instructions and fail setup (36.436084ms)
+✔ rejected service credentials stop setup before database/dev and print clear recovery instructions (25.7755ms)
+✔ interrupting service verification prevents database/dev startup (25.962167ms)
+✔ database-name verification previews the selected database without rewriting env or consuming the dev flags (36.065833ms)
+✔ remote database write rejection happens before verification or database/dev startup (23.226625ms)
+✔ default selection (a): answering services that verify are reused without Compose (39.49575ms)
+✔ default selection (b): nothing answers and Docker works, so Compose starts on the configured ports (41.688209ms)
+✔ default selection (c): rejected credentials on the configured port start an isolated stack on free ports (46.924ms)
+✔ default selection (c): another project's container on the configured port is never verified or written to (48.507583ms)
+✔ default selection (d): without Docker and without answering services setup stops with the guide (27.432083ms)
+✔ default selection (d): without Docker, a configured database that rejects credentials stops setup (27.846125ms)
+✔ default selection (e): without Docker, configured services that verify are used (39.630833ms)
+✔ a second setup in a checkout with a live dev session is rejected before any .env write or Compose call (27.168792ms)
+✔ setup owns the dev session, hands its token to the dev runner and releases it on exit (37.614666ms)
+✔ without Docker and services, a fresh app fails within seconds before yarn install runs (26.299333ms)
+✔ credential verification that needs drivers installs dependencies, then decides (53.52875ms)
+✔ setup rejects invalid service credentials before invoking the database/dev runner (25.382125ms)
+✔ standalone setup verifies the effective database-name flag override without writing or prompting (35.81325ms)
+✔ standalone setup verifies the effective database-name environment override without writing or prompting (34.944083ms)
+ℹ tests 38
+ℹ suites 0
+ℹ pass 38
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1397.66525

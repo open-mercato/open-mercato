@@ -1,0 +1,14 @@
+PASS src/lib/__tests__/env-example.test.ts
+  env-example
+    ✓ generates an empty tenant encryption key without touching other lines (1 ms)
+    ✓ keeps a supplied key
+    ✓ creates .env with a fresh key and refuses to overwrite an existing file (4 ms)
+  operator key selection
+    ✓ preserves TENANT_DATA_ENCRYPTION_FALLBACK_KEY from either source (1 ms)
+    ✓ preserves TENANT_DATA_ENCRYPTION_KEY from either source
+
+Test Suites: 1 passed, 1 total
+Tests:       5 passed, 5 total
+Snapshots:   0 total
+Time:        0.277 s
+Ran all test suites matching src/lib/__tests__/env-example.test.ts.
