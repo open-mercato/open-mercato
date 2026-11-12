@@ -131,4 +131,16 @@ describe('recordScope', () => {
     await expect(loadEntityRecordScope(em, 'customers:customer_people', 'p1'))
       .resolves.toEqual({ tenantId: null, organizationId: null })
   })
+  it('keeps probed columns isolated between database clients', async () => {
+    const first = buildEm({ probeColumns: ['tenant_id'] })
+    const second = buildEm({ probeColumns: ['organization_id'] })
+
+    await expect(resolveEntityScopeColumns(first.em, 'mod:unregistered'))
+      .resolves.toEqual({ table: 'unregistered', organizationColumn: null, tenantColumn: 'tenant_id' })
+    await expect(resolveEntityScopeColumns(second.em, 'mod:unregistered'))
+      .resolves.toEqual({ table: 'unregistered', organizationColumn: 'organization_id', tenantColumn: null })
+    expect(first.db.selectFrom).toHaveBeenCalledTimes(1)
+    expect(second.db.selectFrom).toHaveBeenCalledTimes(1)
+  })
+
 })

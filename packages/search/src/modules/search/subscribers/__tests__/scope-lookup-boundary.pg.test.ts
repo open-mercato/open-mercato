@@ -127,7 +127,7 @@ describePostgres('subscriber scope lookup against real PostgreSQL records', () =
       expect(enqueue).toHaveBeenLastCalledWith({ jobType, entityType, recordId, tenantId, organizationId })
     }
     expect(enqueue).toHaveBeenCalledTimes(4)
-    expect(resolveAutoIndexingEnabled).toHaveBeenCalledTimes(4)
+    expect(resolveAutoIndexingEnabled).toHaveBeenCalledTimes(queueName === 'vectorIndexQueue' ? 4 : 0)
     await emit('boundary:scope_boundary_scoped', randomUUID())
     await emit('boundary:scope_boundary_tenant', randomUUID())
     await emit('boundary:scope_boundary_global', randomUUID())

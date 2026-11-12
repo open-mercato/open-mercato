@@ -5,6 +5,8 @@ import { listEntityMetadata } from './entityMetadata'
 import { getTelemetryRuntime } from '../telemetry/runtime'
 import { createLogger } from '../logger'
 
+const logger = createLogger('shared.recordScope')
+
 export type EntityScopeColumns = {
   table: string
   organizationColumn: string | null
@@ -21,16 +23,13 @@ type ScopeLookupEntityManager = {
   getMetadata?: () => unknown
 }
 
-type ScopeDatabase = Record<string, Record<string, unknown>>
-
-const logger = createLogger('shared.recordScope')
-
 type ScopePropertyMetadata = { fieldNames?: unknown }
+type ScopeDatabase = Record<string, Record<string, unknown>>
 
 const ORGANIZATION_COLUMN = 'organization_id'
 const TENANT_COLUMN = 'tenant_id'
 
-const probedColumnsCache = new Map<string, { organizationColumn: string | null; tenantColumn: string | null }>()
+let probedColumnsCache = new WeakMap<Kysely<ScopeDatabase>, Map<string, { organizationColumn: string | null; tenantColumn: string | null }>>()
 
 function readScopeFieldName(property: ScopePropertyMetadata | undefined): string | null {
   const fieldNames = property?.fieldNames
@@ -56,7 +55,12 @@ async function probeScopeColumns(
   db: Kysely<ScopeDatabase>,
   table: string,
 ): Promise<{ organizationColumn: string | null; tenantColumn: string | null } | null> {
-  const cached = probedColumnsCache.get(table)
+  let cache = probedColumnsCache.get(db)
+  if (!cache) {
+    cache = new Map()
+    probedColumnsCache.set(db, cache)
+  }
+  const cached = cache.get(table)
   if (cached) return cached
   try {
     const rows = await db
@@ -71,7 +75,7 @@ async function probeScopeColumns(
       organizationColumn: columns.has(ORGANIZATION_COLUMN) ? ORGANIZATION_COLUMN : null,
       tenantColumn: columns.has(TENANT_COLUMN) ? TENANT_COLUMN : null,
     }
-    probedColumnsCache.set(table, resolved)
+    cache.set(table, resolved)
     return resolved
   } catch (error) {
     try {
@@ -135,5 +139,5 @@ export async function loadEntityRecordScope(
 }
 
 export function resetEntityScopeColumnsCacheForTests(): void {
-  probedColumnsCache.clear()
+  probedColumnsCache = new WeakMap()
 }

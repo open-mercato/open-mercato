@@ -92,14 +92,18 @@ for (const relPath of COMPOSE_FILES) {
   })
 
   test(`${relPath} mirrors app encryption and Redis env into the sidecar`, () => {
-    const sidecar = documentsCollabBlock(readCompose(relPath), relPath)
+    const content = readCompose(relPath)
+    const sidecar = documentsCollabBlock(content, relPath)
+    const encryptionEnvironment = sidecar.includes('<<: *tenant-encryption-environment')
+      ? content.match(/^x-tenant-encryption-environment: &tenant-encryption-environment\n(?:  [^\n]*\n)+/m)?.[0] ?? ''
+      : sidecar
     assert.match(
-      sidecar,
+      encryptionEnvironment,
       /TENANT_DATA_ENCRYPTION_KEY:\s*\$\{TENANT_DATA_ENCRYPTION_KEY:-\}/,
       `${relPath} documents-collab must receive TENANT_DATA_ENCRYPTION_KEY like the app service`
     )
     assert.match(
-      sidecar,
+      encryptionEnvironment,
       /TENANT_DATA_ENCRYPTION_DEBUG:\s*\$\{TENANT_DATA_ENCRYPTION_DEBUG:-false\}/,
       `${relPath} documents-collab must receive TENANT_DATA_ENCRYPTION_DEBUG like the app service`
     )

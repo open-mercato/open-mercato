@@ -145,6 +145,19 @@ function evaluateFieldVisibility(
   return values[visibleWhen.field] === visibleWhen.equals
 }
 
+function isVerticalScrollContainer(element: Element): boolean {
+  const { overflowY } = window.getComputedStyle(element)
+  return overflowY === 'auto' || overflowY === 'scroll'
+}
+
+function isScrolledByPaddedDialog(root: HTMLElement, dialog: HTMLElement): boolean {
+  for (let node: HTMLElement | null = root; node && node !== dialog; node = node.parentElement) {
+    if (isVerticalScrollContainer(node)) return false
+  }
+  if (!isVerticalScrollContainer(dialog)) return false
+  return Number.parseFloat(window.getComputedStyle(dialog).paddingBottom) > 0
+}
+
 function isFormControlTarget(target: EventTarget | null): boolean {
   if (!target || typeof (target as Element).tagName !== 'string') return false
   const el = target as HTMLElement
@@ -920,6 +933,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   const [customFieldDefsVersion, setCustomFieldDefsVersion] = React.useState(0)
   const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null; view: 'entity' | 'fieldset' } | null>(null)
   const [isInDialog, setIsInDialog] = React.useState(false)
+  const [scrolledByPaddedDialog, setScrolledByPaddedDialog] = React.useState(false)
   const rootRef = React.useRef<HTMLDivElement | null>(null)
 
   // Collapsible groups support
@@ -1464,11 +1478,23 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   React.useEffect(() => {
     const root = rootRef.current
     if (!root) return
-    setIsInDialog(Boolean(root.closest('[data-dialog-content]')))
+    const dialog = root.closest<HTMLElement>('[data-dialog-content]')
+    setIsInDialog(Boolean(dialog))
+    setScrolledByPaddedDialog(dialog ? isScrolledByPaddedDialog(root, dialog) : false)
   }, [])
-  const dialogFooterClass = isInDialog
-    ? 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
-    : ''
+  // Sticky offsets resolve against the scroll container's content box, so when the
+  // padded `DialogContent` (`p-6`, `overflow-y-auto`) is the scroller a `bottom-0`
+  // footer parks 24px above the dialog edge and scrolled fields stay visible in that
+  // padding strip (#7497). Pull the footer down by the dialog padding (`-bottom-6`),
+  // let its own padding paint that strip (`pb-8` = `py-2` + 24px) and cancel the extra
+  // height in normal flow (`-mb-6`) so a short form gets no blank band below the
+  // buttons. A nested, unpadded scroller has no such strip: there `bottom-0` is flush
+  // and the compensation would hang the footer below the scrollport.
+  const dialogFooterClass = !isInDialog
+    ? ''
+    : scrolledByPaddedDialog
+      ? 'sticky -bottom-6 left-0 right-0 z-20 -mx-6 -mb-6 px-6 pt-2 pb-8 bg-card border-t border-border/70 sm:-mx-6 sm:px-6'
+      : 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
   // No bottom padding on the dialog form. The previous `pb-20` left an 80px gap below
   // the sticky footer in every dialog whose content fit the viewport (the form sized to
   // content + 80px with the footer as its last child) — visible as empty white space at
@@ -3832,7 +3858,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       if ((g.column ?? 1) === 2) col2.push(g)
       else col1.push(g)
     }
-    const col1Ids = col1.map((g) => g.id)
 
     const renderGroupedCards = (items: CrudFormGroup[]) => {
       const nodes: React.ReactNode[] = []
@@ -3989,17 +4014,21 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       return nodes
     }
 
-    const col1Nodes = renderGroupedCards(col1)
-    const col2Content = renderGroupedCards(col2)
-
-    // Wrap col1 nodes in sortable items when enabled
+    // Wrap group by group: a bare group can render nothing, so nodes and groups do not line up by index.
+    const col1Sortable = sortableGroupsEnabled
+      ? col1.flatMap((group) => {
+          const nodes = renderGroupedCards([group])
+          return nodes.length ? [{ id: group.id, nodes }] : []
+        })
+      : []
     const col1Content = sortableGroupsEnabled
-      ? col1Nodes.map((node, i) => (
-          <SortableGroupItem key={col1[i]?.id ?? i} id={col1[i]?.id ?? String(i)}>
-            {node}
+      ? col1Sortable.map(({ id, nodes }) => (
+          <SortableGroupItem key={id} id={id}>
+            {nodes}
           </SortableGroupItem>
         ))
-      : col1Nodes
+      : renderGroupedCards(col1)
+    const col2Content = renderGroupedCards(col2)
     const hasSecondaryColumn = col2Content.length > 0
 
     return (
@@ -4050,7 +4079,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
             >
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
-                  <SortableContext items={col1Ids} strategy={verticalListSortingStrategy}>
+                  <SortableContext items={col1Sortable.map(({ id }) => id)} strategy={verticalListSortingStrategy}>
                     <div className={densityStackMd}>{col1Content}</div>
                   </SortableContext>
                 </DndContext>
