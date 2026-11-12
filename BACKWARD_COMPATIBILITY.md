@@ -648,3 +648,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+### 2026-11-12 — explicit unprotected key-rotation acknowledgment
+
+The operator explicitly authorized immediate implementation of the Core rotation risk acknowledgment in the #8910/#9328 implementation session ("yes go on", Enterprise/commercial rights confirmed). `mercato entities rotate-encryption-key` now refuses an unprotected mutating invocation unless `--acknowledge-unprotected-key-rotation` is explicitly true. Dry runs remain read-only; protected Enterprise execution must complete its backup/verification coordinator instead. This is the specifically authorized CLI safety amendment, not an automated blanket Emergency Security Exception waiver. Scripts must add the flag on each unprotected invocation after reviewing the recovery risk, or configure the commercially licensed protection capability. Existing key, scope and concurrency checks remain mandatory. See UPGRADE_NOTES.md and `.ai/specs/enterprise/2026-11-12-key-rotation-data-verification.md`.

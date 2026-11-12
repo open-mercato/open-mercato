@@ -14,7 +14,8 @@ import {
 import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { CustomFieldDef } from '../data/entities'
-import { loadScopedCustomFieldDefs } from './scoped-field-defs'
+import type { RotationTimestampIntent } from '@open-mercato/shared/lib/encryption/rotationProtection'
+import { MAINTENANCE_ROW_BYTES } from './rotation-maintenance'
 
 type RotationOptions = {
   encryptionService: TenantDataEncryptionService
@@ -22,6 +23,7 @@ type RotationOptions = {
   tenantId: string | null
   organizationId: string | null
   dryRun: boolean
+  timestampForWrite?: (intent: RotationTimestampIntent) => Promise<Date>
 }
 
 type DocumentRow = {
@@ -30,6 +32,7 @@ type DocumentRow = {
   tenant_id: string | null
   organization_id: string | null
   doc: Record<string, unknown>
+  updated_at?: string | Date | null
 }
 
 type DocumentFieldPolicy = {
@@ -38,7 +41,9 @@ type DocumentFieldPolicy = {
   protectedKeys: Set<string>
 }
 
-const BATCH_SIZE = 100
+const BATCH_SIZE = 8
+const MAX_DEFINITIONS = 500
+const MAX_SCOPE_CACHE = 32
 
 function holdsCiphertext(value: unknown): boolean {
   return Array.isArray(value) ? value.some(isCustomEntityDocumentCiphertext) : isCustomEntityDocumentCiphertext(value)
@@ -66,20 +71,19 @@ export async function rotateCustomEntityDocuments(
   const definitionScope: FilterQuery<CustomFieldDef>[] = []
   if (options.tenantId) definitionScope.push({ $or: [{ tenantId: options.tenantId }, { tenantId: null }] })
   if (options.organizationId) definitionScope.push({ $or: [{ organizationId: options.organizationId }, { organizationId: null }] })
-  const definitions = await em.find(CustomFieldDef, {
+  const availableDefinitions = await em.find(CustomFieldDef, {
     ...(definitionScope.length ? { $and: definitionScope } : {}),
-  })
-  const entityIds = Array.from(new Set(definitions.map((definition) => definition.entityId)))
-  if (!entityIds.length) return 0
-
+  }, { limit: MAX_DEFINITIONS + 1, orderBy: { id: 'asc' } })
+  if (availableDefinitions.length > MAX_DEFINITIONS) throw new Error('[internal] Custom definition inventory exceeds supported maintenance bound')
+  if (!availableDefinitions.length) return 0
   const connection = em.getConnection()
   const fieldsByScope = new Map<string, DocumentFieldPolicy>()
   const oldDeks = new Map<string, TenantDek | null>()
   let cursor: string | null = null
   let updated = 0
   for (;;) {
-    const predicates = [`entity_type in (${entityIds.map(() => '?').join(', ')})`]
-    const parameters: unknown[] = [...entityIds]
+    const predicates = ['EXISTS (SELECT 1 FROM custom_field_defs d WHERE d.entity_id = custom_entities_storage.entity_type AND (d.tenant_id IS NULL OR d.tenant_id = custom_entities_storage.tenant_id) AND (d.organization_id IS NULL OR d.organization_id = custom_entities_storage.organization_id))']
+    const parameters: unknown[] = []
     if (options.tenantId) {
       predicates.push('tenant_id = ?')
       parameters.push(options.tenantId)
@@ -92,8 +96,13 @@ export async function rotateCustomEntityDocuments(
       predicates.push('id > ?')
       parameters.push(cursor)
     }
+    const oversized = await connection.execute<Array<{ oversized: number }>>(
+      `select 1 as oversized from custom_entities_storage where ${predicates.join(' and ')} and octet_length(convert_to(doc::text, 'UTF8')) > ? limit 1`,
+      [...parameters, MAINTENANCE_ROW_BYTES],
+    )
+    if (oversized.length) throw new Error('[internal] Custom document exceeds supported maintenance size')
     const rows = await connection.execute<DocumentRow[]>(
-      `select id, entity_type, tenant_id, organization_id, doc from custom_entities_storage where ${predicates.join(' and ')} order by id asc limit ${BATCH_SIZE}`,
+      `select id, entity_type, tenant_id, organization_id, doc, updated_at::text as updated_at from custom_entities_storage where ${predicates.join(' and ')} order by id asc limit ${BATCH_SIZE}`,
       parameters,
     )
     if (!rows.length) break
@@ -101,15 +110,16 @@ export async function rotateCustomEntityDocuments(
       const scopeKey = JSON.stringify([row.entity_type, row.tenant_id, row.organization_id])
       let policy = fieldsByScope.get(scopeKey)
       if (!policy) {
-        const scopedDefinitions = await loadScopedCustomFieldDefs(em, {
+        const definitionScope: FilterQuery<CustomFieldDef>[] = [
+          { $or: [{ tenantId: row.tenant_id }, { tenantId: null }] },
+          { $or: [{ organizationId: row.organization_id }, { organizationId: null }] },
+        ]
+        const visibleDefinitions = await em.find(CustomFieldDef, {
           entityId: row.entity_type,
-          tenantId: row.tenant_id,
-          organizationId: row.organization_id,
-        })
-        const visibleDefinitions = definitions
-          .filter((definition) => definition.entityId === row.entity_type
-            && (definition.tenantId == null || definition.tenantId === row.tenant_id)
-            && (definition.organizationId == null || definition.organizationId === row.organization_id))
+          $and: definitionScope,
+        }, { limit: MAX_DEFINITIONS + 1, orderBy: { id: 'asc' } })
+        if (visibleDefinitions.length > MAX_DEFINITIONS) throw new Error('[internal] Custom definition scope exceeds supported maintenance bound')
+        const scopedDefinitions = selectHistoricalDefinitions(visibleDefinitions.filter((definition) => definition.isActive && !definition.deletedAt))
         const keys = new Set(visibleDefinitions.map((definition) => definition.key))
         const historicalDefinitions = selectHistoricalDefinitions(visibleDefinitions)
         policy = {
@@ -120,6 +130,7 @@ export async function rotateCustomEntityDocuments(
             .filter((definition) => definition.configJson?.encrypted === true)
             .map((definition) => definition.key)),
         }
+        if (fieldsByScope.size >= MAX_SCOPE_CACHE) fieldsByScope.delete(fieldsByScope.keys().next().value!)
         fieldsByScope.set(scopeKey, policy)
       }
       const { fields, encryptedKeys, protectedKeys } = policy
@@ -134,7 +145,10 @@ export async function rotateCustomEntityDocuments(
         throw new TenantDataEncryptionError(TenantDataEncryptionErrorCode.KMS_UNAVAILABLE, '[internal] Custom entity encryption requires an available tenant key')
       }
       const currentDek = await options.encryptionService.getDek(tenantId)
-      if (options.oldKms && !oldDeks.has(tenantId)) oldDeks.set(tenantId, await options.oldKms.getTenantDek(tenantId))
+      if (options.oldKms && !oldDeks.has(tenantId)) {
+        if (oldDeks.size >= MAX_SCOPE_CACHE) oldDeks.delete(oldDeks.keys().next().value!)
+        oldDeks.set(tenantId, await options.oldKms.getTenantDek(tenantId))
+      }
       const oldDek = oldDeks.get(tenantId) ?? null
       const candidates: Record<string, unknown> = {}
       const arrayMasks = new Map<string, boolean[]>()
@@ -186,9 +200,14 @@ export async function rotateCustomEntityDocuments(
           ? value.map((entry, index) => mask[index] ? entry : previous[index])
           : value
       }
+      const intendedTimestamp = options.timestampForWrite ? await options.timestampForWrite({
+        table: 'custom_entities_storage', identity: row.id, tenantId, organizationId: row.organization_id,
+        previousTimestamp: row.updated_at ?? null,
+      }) : null
+      if (intendedTimestamp && !Number.isFinite(intendedTimestamp.getTime())) throw new Error('[internal] Invalid maintenance timestamp intent')
       const written = await connection.execute<Array<{ id: string }>>(
-        'update custom_entities_storage set doc = ?::jsonb, updated_at = now() where id = ? and entity_type = ? and tenant_id is not distinct from ? and organization_id is not distinct from ? and doc = ?::jsonb returning id',
-        [JSON.stringify(nextDoc), row.id, row.entity_type, tenantId, row.organization_id, JSON.stringify(row.doc)],
+        `update custom_entities_storage set doc = ?::jsonb, updated_at = ${intendedTimestamp ? '?' : 'now()'} where id = ? and entity_type = ? and tenant_id is not distinct from ? and organization_id is not distinct from ? and doc = ?::jsonb returning id`,
+        [JSON.stringify(nextDoc), ...(intendedTimestamp ? [intendedTimestamp] : []), row.id, row.entity_type, tenantId, row.organization_id, JSON.stringify(row.doc)],
       )
       if (!written.length) throw new Error('[internal] Custom entity document changed during encryption; retry the operation')
       updated += 1

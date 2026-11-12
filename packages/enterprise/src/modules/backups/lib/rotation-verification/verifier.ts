@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { canonicalRow, keyedDigest, keyFingerprint, rowIdentity, sameDigest, type VerificationRow } from './canonical'
+import { canonicalRow, canonicalValue, keyedDigest, keyFingerprint, rowIdentity, sameDigest, type VerificationRow } from './canonical'
 import { RotationArtifactStore } from './store'
 
 const headerSchema = z.object({
@@ -9,7 +9,7 @@ const headerSchema = z.object({
   chunks: z.number().int().nonnegative().max(1_000_000), root: z.string().regex(/^[0-9a-f]{64}$/),
   sourceFingerprint: z.string().length(64), targetFingerprint: z.string().length(64),
 }).strict()
-const expectedSchema = z.array(z.object({ identity: z.string().max(8192), digest: z.string().regex(/^[0-9a-f]{64}$/), fields: z.number().int().nonnegative() }).strict()).max(500)
+const expectedSchema = z.array(z.object({ identity: z.string().max(8192), digest: z.string().regex(/^[0-9a-f]{64}$/), fields: z.number().int().nonnegative(), metadata: z.string().regex(/^[0-9a-f]{64}$/) }).strict()).max(500)
 export type VerificationBinding = { database: string; scope: string; schema: string; coverage: string; provider: string; backupDigest: string }
 export interface RotationDataset {
   assertFence(): Promise<void>
@@ -63,7 +63,7 @@ export async function prepareRotationVerification(dataset: RotationDataset, stor
       previousIdentity = identity
       const bytes = canonicalRow(row)
       if (bytes.length > 1024 * 1024) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-      records.push({ identity, digest: keyedDigest(runKey, 'row-v1', bytes), fields: row.columns.length })
+      records.push({ identity, digest: keyedDigest(runKey, 'row-v1', bytes), fields: row.columns.length, metadata: keyedDigest(runKey, 'metadata-v1', canonicalValue(row.metadata ?? {})) })
       count++; fields += row.columns.length
       if (records.length === 500) await flush()
     }
@@ -106,6 +106,15 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
         interrupted(signal)
         const next = await iterator.next()
         if (next.done || rowIdentity(next.value) !== expected.identity || next.value.columns.length !== expected.fields || !sameDigest(expected.digest, keyedDigest(runKey, 'row-v1', canonicalRow(next.value)))) throw new Error('[internal] ROTATION_DATA_MISMATCH')
+        const metadata = keyedDigest(runKey, 'metadata-v1', canonicalValue(next.value.metadata ?? {}))
+        if (!sameDigest(expected.metadata, metadata)) {
+          const intent = next.value.metadataIntent
+          if (!intent || !sameDigest(expected.metadata, keyedDigest(runKey, 'metadata-v1', canonicalValue(intent.before)))
+            || !sameDigest(metadata, keyedDigest(runKey, 'metadata-v1', canonicalValue(intent.after)))
+            || !sameDigest(intent.mac, keyedDigest(runKey, 'metadata-intent-v1', canonicalValue([expected.identity, intent.before, intent.after])))) {
+            throw new Error('[internal] ROTATION_METADATA_MISMATCH')
+          }
+        }
         rows++; fields += expected.fields
       }
     }

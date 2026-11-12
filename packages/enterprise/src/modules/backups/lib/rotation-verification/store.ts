@@ -20,7 +20,7 @@ export class RotationArtifactStore {
   }
 
   private path(name: string): string {
-    if (!/^(header|run-key|checkpoint|chunk-[0-9]{12})$/.test(name)) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
+    if (!/^(header|run-key|checkpoint|chunk-[0-9]{12}|intent-[a-f0-9]{64})$/.test(name)) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
     return join(this.directory, `${name}.age`)
   }
 

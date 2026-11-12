@@ -440,6 +440,12 @@ export function resolveEncryptionMode(kms: Pick<KmsService, 'isHealthy'>): Tenan
   return kms.isHealthy() ? 'active' : 'unavailable'
 }
 
+export function createDerivedKeyKmsService(secret: string): KmsService {
+  const normalized = normalizeEnv(secret)
+  if (!normalized) throw new Error('[internal] ROTATION_KEY_UNAVAILABLE')
+  return new DerivedKmsService(normalized)
+}
+
 export function createKmsService(): KmsService {
   if (!isTenantDataEncryptionEnabled()) return new NoopKmsService()
   const primary = new HashicorpVaultKmsService()

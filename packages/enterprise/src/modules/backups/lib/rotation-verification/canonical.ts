@@ -8,6 +8,8 @@ export type VerificationRow = {
   organizationId: string | null
   identity: string[]
   columns: VerificationColumn[]
+  metadata?: { [key: string]: LogicalValue }
+  metadataIntent?: { before: { [key: string]: LogicalValue }; after: { [key: string]: LogicalValue }; mac: string }
 }
 
 function frame(type: string, bytes: Buffer): Buffer {

@@ -71,7 +71,7 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
-    resolve: () => ({
+    resolve: (name: string) => name === 'rotationProtectionService' ? undefined : ({
       getConnection: () => ({ execute }),
       getMetadata: () => ({
         getAll: () => getAllMetadata(),
@@ -139,18 +139,18 @@ describe('entities rotate-encryption-key CLI', () => {
 
     singleMapFixture()
 
-    execute.mockResolvedValueOnce([
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
       { id: 'row-1', resource_id: encryptedValue, context_json: encryptedValue },
     ])
     ;(decryptWithAesGcm as jest.Mock)
       .mockReturnValueOnce('resource-value')
       .mockReturnValueOnce('{"note":"hello"}')
 
-    await rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(decryptWithAesGcm).toHaveBeenCalledTimes(2)
-    expect(execute).toHaveBeenCalledTimes(2)
-    const updateCall = execute.mock.calls[1]
+    expect(execute).toHaveBeenCalledTimes(3)
+    const updateCall = execute.mock.calls[2]
     expect(updateCall[0]).toMatch(/UPDATE\s+"access_logs"/)
     expect(updateCall[1]).toEqual(expect.arrayContaining([
       'enc:resource-value',
@@ -165,7 +165,7 @@ describe('entities rotate-encryption-key CLI', () => {
   it('skips a row whose ciphertext opens under neither the old nor the current key', async () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     singleMapFixture()
-    execute.mockResolvedValueOnce([
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
       { id: 'row-1', resource_id: shapeValidCiphertext('cipher'), context_json: null },
     ])
     // Neither key opens it.
@@ -174,13 +174,13 @@ describe('entities rotate-encryption-key CLI', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
     await expect(
-      rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1']),
+      rotate.run(['--acknowledge-unprotected-key-rotation', '--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1']),
     ).rejects.toThrow('could not be rotated')
 
     // The unopenable field must not reach the encrypt path at all.
     expect(encryptEntityPayload.mock.calls[0][1]).not.toHaveProperty('resource_id')
     // Only the select ran — no UPDATE re-wrapped the ciphertext.
-    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(2)
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('opens under neither the previous nor the current tenant key'))
 
     logSpy.mockRestore()
@@ -191,7 +191,7 @@ describe('entities rotate-encryption-key CLI', () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     singleMapFixture()
     const alreadyRotated = shapeValidCiphertext('cipher')
-    execute.mockResolvedValueOnce([
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
       { id: 'row-1', resource_id: alreadyRotated, context_json: null },
     ])
     // The old key fails, the current key succeeds: this row was rotated by an earlier,
@@ -202,7 +202,7 @@ describe('entities rotate-encryption-key CLI', () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(encryptEntityPayload.mock.calls[0][1]).toHaveProperty('resource_id', alreadyRotated)
     expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('opens under neither'))
@@ -220,19 +220,19 @@ describe('entities rotate-encryption-key CLI', () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     singleMapFixture()
     const looksEncryptedButIsnt = 'user:supplied:colon:v1'
-    execute.mockResolvedValueOnce([
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
       { id: 'row-1', resource_id: looksEncryptedButIsnt, context_json: null },
     ])
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(decryptWithAesGcm).not.toHaveBeenCalled()
     expect(encryptEntityPayload).not.toHaveBeenCalled()
     expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('opens under neither'))
     // No update was issued for the untouched plaintext row — only the select ran.
-    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(2)
 
     logSpy.mockRestore()
     warnSpy.mockRestore()
@@ -247,13 +247,13 @@ describe('entities rotate-encryption-key CLI', () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     singleMapFixture()
     const foreignDekEnvelope = shapeValidCiphertext('cipher')
-    execute.mockResolvedValueOnce([
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
       { id: 'row-1', resource_id: foreignDekEnvelope, context_json: 'plain text' },
     ])
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(encryptEntityPayload).toHaveBeenCalledTimes(1)
     expect(encryptEntityPayload.mock.calls[0][1]).not.toHaveProperty('resource_id')
@@ -270,16 +270,16 @@ describe('entities rotate-encryption-key CLI', () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     singleMapFixture()
     getDek.mockResolvedValue(null)
-    execute.mockResolvedValueOnce([
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
       { id: 'row-1', resource_id: 'plain-value', context_json: null },
     ])
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--dry-run'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1', '--dry-run'])
 
     expect(encryptEntityPayload).not.toHaveBeenCalled()
-    expect(execute).toHaveBeenCalledTimes(1) // the select only — no update was issued
+    expect(execute).toHaveBeenCalledTimes(2) // the select only — no update was issued
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no key material was provisioned'))
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[dry-run] Encrypted 1 record(s)'))
 
@@ -290,12 +290,12 @@ describe('entities rotate-encryption-key CLI', () => {
   it('asks the encryption service not to create a missing DEK while dry-running', async () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     singleMapFixture()
-    execute.mockResolvedValueOnce([
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
       { id: 'row-1', resource_id: 'plain-value', context_json: null },
     ])
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
 
-    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--dry-run'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1', '--dry-run'])
 
     expect(encryptEntityPayload).toHaveBeenCalledWith(
       'audit_logs:access_log',
@@ -304,7 +304,7 @@ describe('entities rotate-encryption-key CLI', () => {
       'org-1',
       { createMissingDek: false },
     )
-    expect(execute).toHaveBeenCalledTimes(1) // still no update on a dry run
+    expect(execute).toHaveBeenCalledTimes(2) // still no update on a dry run
 
     logSpy.mockRestore()
   })
@@ -312,12 +312,12 @@ describe('entities rotate-encryption-key CLI', () => {
   it('allows DEK provisioning on a real run', async () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     singleMapFixture()
-    execute.mockResolvedValueOnce([
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
       { id: 'row-1', resource_id: 'plain-value', context_json: null },
     ])
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
 
-    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(encryptEntityPayload).toHaveBeenCalledWith(
       'audit_logs:access_log',
@@ -326,7 +326,7 @@ describe('entities rotate-encryption-key CLI', () => {
       'org-1',
       { createMissingDek: true },
     )
-    expect(execute).toHaveBeenCalledTimes(2) // select + update
+    expect(execute).toHaveBeenCalledTimes(3) // select + update
 
     logSpy.mockRestore()
   })
@@ -335,24 +335,24 @@ describe('entities rotate-encryption-key CLI', () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
     singleMapFixture()
-    execute.mockResolvedValueOnce([
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
       { id: 'row-1', resource_id: shapeValidCiphertext('cipher'), context_json: null },
     ])
     ;(decryptWithAesGcm as jest.Mock).mockReturnValueOnce('resource-value')
 
-    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(decryptWithAesGcm).toHaveBeenCalledTimes(1)
-    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute).toHaveBeenCalledTimes(3)
   })
 
   it('warns when the legacy --old-key argument carries key material', async () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     singleMapFixture()
-    execute.mockResolvedValueOnce([])
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([])
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('TENANT_DATA_ENCRYPTION_OLD_KEY'))
     warnSpy.mockRestore()
@@ -363,7 +363,7 @@ describe('entities rotate-encryption-key CLI', () => {
     process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'environment-secret'
 
     await expect(
-      rotate.run(['--allow-unsafe-old-key', '--old-key', 'argument-secret', '--tenant', 'tenant-1']),
+      rotate.run(['--acknowledge-unprotected-key-rotation', '--allow-unsafe-old-key', '--old-key', 'argument-secret', '--tenant', 'tenant-1']),
     ).rejects.toThrow('contain different values')
 
     expect(find).not.toHaveBeenCalled()
@@ -375,7 +375,7 @@ describe('entities rotate-encryption-key CLI', () => {
     process.env.TENANT_DATA_ENCRYPTION = 'no'
 
     await expect(
-      rotate.run(['--tenant', 'tenant-1']),
+      rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1']),
     ).rejects.toThrow('TENANT_DATA_ENCRYPTION is disabled')
 
     expect(find).not.toHaveBeenCalled()
@@ -386,10 +386,10 @@ describe('entities rotate-encryption-key CLI', () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
     singleMapFixture()
-    execute.mockResolvedValueOnce([])
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([])
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
 
-    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--debug'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1', '--debug'])
 
     const output = logSpy.mock.calls.flat().map(String).join('\n').toLowerCase()
     expect(output).not.toContain('fingerprint')
@@ -403,7 +403,7 @@ describe('entities rotate-encryption-key CLI', () => {
     getAllMetadata.mockReturnValue(new Map())
 
     const error = await rotate
-      .run(['--tenant', 'tenant-1', '--org', 'org-1'])
+      .run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1'])
       .then(() => null, (e: Error) => e)
 
     expect(error).toBeInstanceOf(Error)
@@ -422,7 +422,7 @@ describe('entities rotate-encryption-key CLI', () => {
     getAllMetadata.mockReturnValue(new Map())
 
     await expect(
-      rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--dry-run']),
+      rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1', '--dry-run']),
     ).rejects.toThrow('No rows were changed')
 
     expect(find.mock.calls.map((call) => call[0])).not.toContain(CustomFieldDef)
@@ -457,10 +457,10 @@ describe('entities rotate-encryption-key CLI', () => {
       if (entity === Organization) return [{ id: 'org-1', tenantId: 'tenant-1' }]
       return []
     })
-    execute.mockResolvedValueOnce([{ id: 'row-1', resource_id: 'plain-value' }])
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'row-1', resource_id: 'plain-value' }])
 
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
-    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('declares no encrypted fields'))
     expect(execute).toHaveBeenCalled()
@@ -497,10 +497,10 @@ describe('entities rotate-encryption-key CLI', () => {
       if (entity === Organization) return [{ id: 'org-1', tenantId: 'tenant-1' }]
       return []
     })
-    execute.mockResolvedValueOnce([{ id: 'row-1', resource_id: 'plain-value' }])
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'row-1', resource_id: 'plain-value' }])
 
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
-    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('backfill-system-encryption'))
     expect(execute).toHaveBeenCalled()
@@ -509,6 +509,7 @@ describe('entities rotate-encryption-key CLI', () => {
   it('previews custom entity documents even when no ORM encryption maps exist', async () => {
     const rotate = cli.find((entry) => entry.command === 'rotate-encryption-key')!
     find.mockImplementation(async (entity: unknown) => entity === CustomFieldDef ? [{
+      isActive: true,
       entityId: 'user:private_record',
       key: 'secret',
       kind: 'text',
@@ -517,7 +518,7 @@ describe('entities rotate-encryption-key CLI', () => {
       configJson: { encrypted: true },
       updatedAt: new Date(),
     }] : [])
-    execute.mockResolvedValueOnce([{
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([{
       id: 'document-1',
       entity_type: 'user:private_record',
       tenant_id: 'tenant-1',
@@ -526,9 +527,9 @@ describe('entities rotate-encryption-key CLI', () => {
     }])
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
 
-    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--dry-run'])
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1', '--dry-run'])
 
-    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(2)
     expect(execute.mock.calls[0][0]).toContain('from custom_entities_storage')
     expect(logSpy).toHaveBeenCalledWith('[dry-run] Encrypted 1 custom entity document(s).')
     expect(encryptEntityPayload).not.toHaveBeenCalled()
@@ -537,17 +538,17 @@ describe('entities rotate-encryption-key CLI', () => {
 
   it('rejects legacy argv key material unless the unsafe compatibility bridge is explicit', async () => {
     const rotate = cli.find((entry) => entry.command === 'rotate-encryption-key')!
-    await expect(rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1'])).rejects.toThrow('--allow-unsafe-old-key')
+    await expect(rotate.run(['--acknowledge-unprotected-key-rotation', '--old-key', 'old-secret', '--tenant', 'tenant-1'])).rejects.toThrow('--allow-unsafe-old-key')
     expect(execute).not.toHaveBeenCalled()
   })
 
   it('does not overwrite a concurrently changed value during rotation', async () => {
     const rotate = cli.find((entry) => entry.command === 'rotate-encryption-key')!
     singleMapFixture()
-    execute.mockResolvedValueOnce([{ id: 'row-1', resource_id: 'plain-value' }]).mockResolvedValueOnce([])
-    await expect(rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])).rejects.toThrow('changed concurrently')
-    expect(execute.mock.calls[1][0]).toContain('IS NOT DISTINCT FROM ?')
-    expect(execute.mock.calls[1][1]).toContain('plain-value')
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'row-1', resource_id: 'plain-value' }]).mockResolvedValueOnce([])
+    await expect(rotate.run(['--acknowledge-unprotected-key-rotation', '--tenant', 'tenant-1', '--org', 'org-1'])).rejects.toThrow('changed concurrently')
+    expect(execute.mock.calls[2][0]).toContain('IS NOT DISTINCT FROM ?')
+    expect(execute.mock.calls[2][1]).toContain('plain-value')
   })
 
 })

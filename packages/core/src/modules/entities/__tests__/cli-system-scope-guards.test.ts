@@ -51,7 +51,7 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
-    resolve: (name: string) => name === 'tenantEncryptionService' ? { invalidateMap } : ({
+    resolve: (name: string) => name === 'rotationProtectionService' ? undefined : name === 'tenantEncryptionService' ? { invalidateMap } : ({
       execute,
       getConnection: () => ({ execute }),
       getMetadata: () => ({
@@ -109,7 +109,7 @@ describe('entities CLI system-scope guards', () => {
       return []
     })
 
-    await loadCommand('rotate-encryption-key').run(['--old-key', 'old-secret', '--allow-unsafe-old-key', '--tenant', 'tenant-1'])
+    await loadCommand('rotate-encryption-key').run(['--acknowledge-unprotected-key-rotation', '--old-key', 'old-secret', '--allow-unsafe-old-key', '--tenant', 'tenant-1'])
 
     expect(execute).not.toHaveBeenCalled()
     expect(warnSpy.mock.calls.flat().join('\n')).toContain('Skipping onboarding:onboarding_request: system-scoped entity')
