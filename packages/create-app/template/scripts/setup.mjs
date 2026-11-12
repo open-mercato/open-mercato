@@ -1,5 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { fillEmptyEnvSecrets } from './dev-env-file.mjs'
+import { fillGeneratedSecrets } from './dev-env-secrets.mjs'
 import { parseEnv } from 'node:util'
 import { collectForwardedSetupFlags, previewDatabaseNameOverride } from './dev-database-url.mjs'
 import { NO_INFRA_FLAG, formatInfraProblem, selectDefaultServiceMode } from './dev-infra-preflight.mjs'
@@ -7,8 +9,7 @@ import { ensureInfra, resolveInfraServices } from './infra.mjs'
 import { chooseServiceMode, configureServiceMode, printManualSetup } from './dev-service-modes.mjs'
 import { verifyServiceConnections } from './dev-service-connections.mjs'
 import { assertDatabaseWriteAllowed } from './dev-database-write-guard.mjs'
-import { acquireDevSession } from './dev-session-guard.mjs'
-import { createEnvFileFromExample } from './dev-env-file.mjs'
+import { acquireDevSessionWithRecovery } from './dev-session-recovery.mjs'
 
 const argv = process.argv.slice(2)
 const verbose = argv.includes('--verbose')
@@ -56,7 +57,7 @@ function selectConfiguredServices() {
 }
 
 try {
-  session = acquireDevSession({ workspaceRoot: process.cwd(), mode: 'setup', role: 'setup' })
+  session = await acquireDevSessionWithRecovery({ workspaceRoot: process.cwd(), mode: 'setup', role: 'setup' })
 } catch (error) {
   console.error(`\n❌ ${error.message}`)
   console.error('[setup] No service configuration, .env file or container was changed.')
@@ -65,8 +66,8 @@ try {
 
 try {
   if (!existsSync('.env') && existsSync('.env.example')) {
-    createEnvFileFromExample('.env.example', '.env')
-    console.log('[setup] Copied .env.example to .env')
+    writeFileSync('.env', fillEmptyEnvSecrets(fillGeneratedSecrets(readFileSync('.env.example', 'utf8'))))
+    console.log('[setup] Copied .env.example to .env (generated JWT_SECRET, AUTH_SECRET, LOOKUP_HASH_PEPPER)')
   }
   let mode
   try {

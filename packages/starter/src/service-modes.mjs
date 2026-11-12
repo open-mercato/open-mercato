@@ -332,7 +332,7 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
 
 export function printManualSetup({ log = console.error, monorepo = false } = {}) {
   log('')
-  log('🛠️  Setup did not complete. Manual setup:')
+  log('🔨 Setup did not complete. Manual setup:')
   log('')
   log('  1. Configure PostgreSQL, Redis and Meilisearch in your .env file:')
   log(monorepo ? '     apps/mercato/.env' : '     .env')

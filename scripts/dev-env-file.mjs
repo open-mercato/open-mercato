@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
+import { parseEnv } from 'node:util'
 
 // .env.example ships no tenant encryption key (#7231). A .env materialized from
 // it gets a unique machine-local key once, so fresh installs encrypt tenant data
@@ -7,6 +8,12 @@ import fs from 'node:fs'
 const GENERATED_SECRET_KEYS = ['TENANT_DATA_ENCRYPTION_FALLBACK_KEY']
 
 export function fillEmptyEnvSecrets(content, randomSource = randomBytes) {
+  const example = parseEnv(content)
+  const keyNames = ['TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'TENANT_DATA_ENCRYPTION_KEY']
+  const configured = keyNames.some((key) =>
+    [process.env[key], example[key]].some((value) =>
+      (value ?? '').trim().replace(/^['"]|['"]$/g, '').trim().length > 0))
+  if (configured) return content
   let next = content
   for (const key of GENERATED_SECRET_KEYS) {
     const pattern = new RegExp(`^(${key}=)[ \\t]*(\\r?)$`, 'm')

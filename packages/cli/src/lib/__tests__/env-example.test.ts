@@ -32,3 +32,27 @@ describe('env-example', () => {
     }
   })
 })
+
+describe('operator key selection', () => {
+  it.each(['TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'TENANT_DATA_ENCRYPTION_KEY'])('preserves %s from either source', (key) => {
+    const blank = 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=\nTENANT_DATA_ENCRYPTION_KEY=\n'
+    const supplied = blank.replace(`${key}=\n`, `${key}="operator-selected-root"\n`)
+    const unexpectedRandom = () => { throw new Error('must preserve selected root') }
+    expect(fillEmptyEnvSecrets(supplied, unexpectedRandom)).toBe(supplied)
+    const previous = process.env[key]
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'om-cli-legacy-env-'))
+    try {
+      process.env[key] = 'operator-selected-root'
+      expect(fillEmptyEnvSecrets(blank, unexpectedRandom)).toBe(blank)
+      const examplePath = path.join(directory, '.env.example')
+      const envPath = path.join(directory, '.env')
+      fs.writeFileSync(examplePath, blank)
+      createEnvFileFromExample(examplePath, envPath)
+      expect(fs.readFileSync(envPath, 'utf8')).toBe(blank)
+    } finally {
+      if (previous === undefined) delete process.env[key]
+      else process.env[key] = previous
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
+  })
+})
