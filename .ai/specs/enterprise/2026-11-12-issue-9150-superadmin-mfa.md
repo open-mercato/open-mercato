@@ -9,7 +9,7 @@ Root cause: reset/status routes invoke assertActorCanAccessSecurityUserTarget, w
 Files to change:
 - api/users/[id]/mfa/reset/route.ts — apply existing core superadmin target guard after scope guard, before sudo/dispatch.
 - api/users/[id]/mfa/status/route.ts — apply same guard after scope guard, before service read.
-- commands/resetUserMfa.ts — apply guard before service mutation for direct command invocation.
+- commands/resetUserMfa.ts — scope target first with the existing decryption-aware query helper, then apply privilege guard before service mutation for direct invocation.
 - api/users/__tests__/mfa-{reset,status}.route.test.ts — preserve existing route regressions.
 - api/users/__tests__/superadmin-mfa-entrypoints.test.ts — exercise actual shared guard at all entrypoints, direct/role target grants, ordinary targets, superadmin actors, sudo denial.
 - __integration__/TC-SEC-016-issue-9150.spec.ts — self-contained API fixtures verifying target protection and ordinary status/sudo behavior.
@@ -27,3 +27,7 @@ TC-SEC-016-issue-9150 creates security-admin and superadmin roles and three user
 
 ## Changelog
 - 2026-11-12: Reused established target guard at all three entrypoints; added route/command regressions and API integration scenario. Validation and PR outcome recorded in the issue-specific run report.
+
+## Parent review follow-up
+The parent identified a scope-ordering disclosure in direct command invocation: checking a foreign target's privilege before service scoping could distinguish superadmins (403) from missing targets (404). The command now performs the same tenant/deleted/org preflight as MfaAdminService.loadUserForScope via findOneWithDecryption before any privilege lookup. The existing private service backstop stays intact, with no new public service API or signature.
+Seven added regressions prove inaccessible/missing targets and missing actor tenant return 404 without ACL/role queries or reset mutation. They fail before the ordering correction and pass afterward.

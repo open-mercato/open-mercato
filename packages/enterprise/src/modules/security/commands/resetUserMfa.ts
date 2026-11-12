@@ -1,6 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { assertActorCanModifySuperAdminUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -39,15 +41,6 @@ registerCommand({
       throw new CrudHttpError(400, { error: 'Invalid payload', issues: parsed.error.issues })
     }
 
-    await assertActorCanModifySuperAdminUserTarget({
-      em: ctx.container.resolve<EntityManager>('em'),
-      rbacService: ctx.container.resolve<RbacService>('rbacService'),
-      requireBoundRbac: true,
-      actorUserId: ctx.auth.sub,
-      tenantId: ctx.auth.tenantId ?? null,
-      organizationId: ctx.auth.orgId ?? null,
-      targetUserId: parsed.data.userId,
-    })
     const mfaAdminService = ctx.container.resolve<MfaAdminService>('mfaAdminService')
     const isSuperAdmin = await resolveIsSuperAdmin({ auth: ctx.auth, container: ctx.container })
     const scope: MfaAdminAuthScope = {
@@ -55,6 +48,35 @@ registerCommand({
       organizationId: (ctx.auth.orgId as string | null | undefined) ?? null,
       isSuperAdmin,
     }
+    const em = ctx.container.resolve<EntityManager>('em')
+    if (!isSuperAdmin) {
+      const target = scope.tenantId
+        ? await findOneWithDecryption(
+            em,
+            User,
+            { id: parsed.data.userId, tenantId: scope.tenantId, deletedAt: null },
+            undefined,
+            { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+          )
+        : null
+      if (!target || (
+        scope.organizationId != null
+        && target.organizationId != null
+        && target.organizationId !== scope.organizationId
+      )) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(404, { error: translate('auth.users.form.errors.notFound', 'User not found') })
+      }
+    }
+    await assertActorCanModifySuperAdminUserTarget({
+      em,
+      rbacService: ctx.container.resolve<RbacService>('rbacService'),
+      requireBoundRbac: true,
+      actorUserId: ctx.auth.sub,
+      tenantId: ctx.auth.tenantId ?? null,
+      organizationId: ctx.auth.orgId ?? null,
+      targetUserId: parsed.data.userId,
+    })
     try {
       await mfaAdminService.resetUserMfa(
         ctx.auth.sub,

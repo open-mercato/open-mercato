@@ -9,7 +9,7 @@ Source commit: 92a176abbd71c0022b2270dccf85e29924b7f4a0
 
 The existing core superadmin-target guard now protects MFA status, route reset and direct reset-command entrypoints. Route scope checks still precede it, and sudo remains mandatory for route resets. The command retains the existing service scope. All calls use bound RBAC from trusted actor context. No service/route schemas, signatures, ACL identifiers, DB, startup/configuration, architecture or dependencies changed. No core/auth implementation or shared compatibility/governance files were edited.
 
-Reviewed the actual published diff against main, existing MFA cross-tenant spec and core grant-check policy, repository compatibility contract and review/security checklists. No additional production defect was found in this scoped diff. Additional SQL statement count was not measured because no runnable app was available; the new guard delegates its queries to the established core helper.
+Reviewed the actual published diff against main, existing MFA cross-tenant spec and core grant-check policy, repository compatibility contract and review/security checklists. The initial author review missed the direct-command scope ordering; the parent review caught it and the follow-up below corrects it. Additional SQL statement count was not measured because no runnable app was available; the new guard delegates its queries to the established core helper.
 
 ## Regression evidence
 
@@ -82,3 +82,21 @@ Review and QA evidence: see PR conversation and final task report.
 - git diff --check: PASS.
 - PR checks at source head: lint, ds-lint, audit-scope, CLA and CodeQL checks passing; prepare pending, no failing check reported. Branch-protection required-check read returned 404, so reported checks remain required for this run.
 - QA handoff: https://github.com/open-mercato/open-mercato/pull/9329#issuecomment-6822426743
+
+## Parent-review correction — scope before privilege
+
+Parent review confirmed a disclosure in the first version: a foreign-tenant superadmin could receive 403 from direct command invocation before MfaAdminService enforced scope, whereas missing/out-of-scope ordinary targets returned 404.
+
+The command now performs an explicit tenant/deleted filter through the existing findOneWithDecryption helper, followed by the same organization check as the service, before invoking the superadmin-target guard. Missing tenant/target, foreign tenant, deleted user and mismatched organization all yield the existing translated 404 without querying target ACLs/roles. The existing private service loader and service scope remain unchanged; no public methods/signatures or architecture were added.
+
+Seven regressions failed before this correction (7 failed / 9 passed) and now all 16 entrypoint regressions pass. Updated security suite: **42 suites / 397 tests PASS**.
+Follow-up validation (local):
+- TMPDIR=/tmp timeout 180 yarn workspace @open-mercato/enterprise test --runInBand src/modules/security: PASS, 397 tests.
+- TMPDIR=/tmp timeout 120 yarn workspace @open-mercato/enterprise build: PASS.
+- TMPDIR=/tmp timeout 120 yarn generate: PASS.
+- TMPDIR=/tmp timeout 120 yarn workspace @open-mercato/enterprise typecheck: PASS; the earlier generated-alias/record_locks errors no longer reproduce after generation.
+- git diff --check: PASS.
+
+The earlier full-gate results are historical implementation evidence; full-suite completion and live API QA remain external validation limits. No additional broad gate loop was started for this one-module follow-up. Independent GitHub approval is a normal external gate; the author COMMENT review supplies technical evidence and is not approval.
+
+Lesson recorded within scope: enforce record visibility before inspecting global privilege state, so stronger account protection cannot become an out-of-scope existence oracle. The shared lesson index was inspected; shared lesson-file edits are outside this task order.

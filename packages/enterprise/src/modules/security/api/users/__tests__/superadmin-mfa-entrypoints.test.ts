@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { UserAcl, RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { User, UserAcl, RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { resolveSecurityUsersContext } from '../_shared'
 import { requireSudo } from '../../../lib/sudo-middleware'
 import { GET } from '../[id]/mfa/status/route'
@@ -58,7 +58,7 @@ function setup(actorIsSuperAdmin: boolean, targetGrant: 'direct' | 'role' | 'ord
   mockedResolveContext.mockResolvedValue({
     auth, container, commandContext, mfaAdminService: dependencies.mfaAdminService,
   } as never)
-  jest.mocked(findOneWithDecryption).mockResolvedValue({ id: targetUserId, tenantId: 'tenant-1' } as never)
+  jest.mocked(findOneWithDecryption).mockResolvedValue({ id: targetUserId, tenantId: 'tenant-1', organizationId: 'org-1' } as never)
   jest.mocked(findWithDecryption).mockResolvedValue(targetGrant === 'role' ? [{ role: { id: 'role-1' } }] as never : [])
   return { commandContext, getUserMfaStatus, resetUserMfa, execute, em, rbacService }
 }
@@ -104,6 +104,55 @@ describe('issue 9150: effective superadmin protection at MFA entrypoints', () =>
     expect(context.rbacService.loadAclWithEntityManager).toHaveBeenCalledWith(
       context.em, actorUserId, { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
+  })
+
+  test.each([
+    ['foreign direct superadmin', 'direct', { tenantId: 'tenant-other', organizationId: 'org-1' }],
+    ['foreign role superadmin', 'role', { tenantId: 'tenant-other', organizationId: 'org-1' }],
+    ['foreign ordinary target', 'ordinary', { tenantId: 'tenant-other', organizationId: 'org-1' }],
+    ['out-of-org superadmin', 'direct', { tenantId: 'tenant-1', organizationId: 'org-other' }],
+    ['deleted superadmin', 'direct', { tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: new Date() }],
+    ['missing target', 'ordinary', null],
+  ] as const)('command keeps unified 404 for %s without inspecting target privileges', async (_label, grant, target) => {
+    const context = setup(false, grant)
+    jest.mocked(findOneWithDecryption).mockImplementation(async (_manager, _entity, where) => {
+      const filter = where as { tenantId?: string; deletedAt?: null }
+      if (target === null) return null
+      if (filter.tenantId !== undefined && filter.tenantId !== target.tenantId) return null
+      if (filter.deletedAt === null && 'deletedAt' in target) return null
+      return { id: targetUserId, ...target } as never
+    })
+
+    await expect(commandRegistry.get('security.admin.mfa.reset')!.execute(
+      { userId: targetUserId, reason: 'scope protection' }, context.commandContext as never,
+    )).rejects.toMatchObject({ status: 404, body: { error: 'User not found' } })
+
+    expect(findOneWithDecryption).toHaveBeenCalledTimes(1)
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      context.em, User,
+      { id: targetUserId, tenantId: 'tenant-1', deletedAt: null },
+      undefined, { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+    expect(context.em.findOne).not.toHaveBeenCalled()
+    expect(findWithDecryption).not.toHaveBeenCalled()
+    expect(context.rbacService.loadAclWithEntityManager).not.toHaveBeenCalled()
+    expect(context.resetUserMfa).not.toHaveBeenCalled()
+  })
+
+  test('command rejects missing actor tenant before any target or privilege lookup', async () => {
+    const context = setup(false, 'direct')
+    const commandContext = {
+      ...context.commandContext,
+      auth: { ...context.commandContext.auth, tenantId: null },
+    }
+
+    await expect(commandRegistry.get('security.admin.mfa.reset')!.execute(
+      { userId: targetUserId, reason: 'scope protection' }, commandContext as never,
+    )).rejects.toMatchObject({ status: 404 })
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(context.em.findOne).not.toHaveBeenCalled()
+    expect(findWithDecryption).not.toHaveBeenCalled()
+    expect(context.resetUserMfa).not.toHaveBeenCalled()
   })
 
   test.each([
