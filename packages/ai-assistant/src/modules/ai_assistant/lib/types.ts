@@ -213,6 +213,16 @@ export interface McpServerConfig {
   version: string
   /** Enable debug logging */
   debug?: boolean
+  /**
+   * Explicit, default-off opt-in for the legacy operator-mode fallback on the
+   * HTTP MCP transport: when a tool call omits `_sessionToken`, authorize it
+   * against the transport-level `x-api-key`'s ACL instead of failing closed.
+   * Never enable this for a chat-facing deployment — the transport key is
+   * typically provisioned from the superadmin account, so this reinstates the
+   * employee-to-superadmin confused-deputy path (#5173). Intended only for a
+   * separate, unmistakable operator/automation client that never serves chat.
+   */
+  allowApiKeyFallback?: boolean
 }
 
 /**
