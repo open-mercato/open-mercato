@@ -888,6 +888,26 @@ then re-run `yarn generate`. `apps/mercato/src/modules.ts` and the `create-app` 
 enable the full default module set, so this repo's own apps and freshly scaffolded apps are
 unaffected.
 
+### `yarn generate` reads `metadata.requires` without executing module code (#6239)
+
+The module dependency check described in
+[Module dependency graph](apps/docs/docs/architecture/module-dependencies.mdx) (see "`yarn generate`
+now enforces a module's declared `requires` dependencies" in the 0.8.0 → 0.9.0 section) collected
+`metadata.requires` by importing each module's `index` with `import()` and falling back to a static
+read when the import failed, so module side effects ran at generation time. The generator now reads
+`metadata.requires` purely syntactically from the module's `index.ts` (or the compiled `index.js`
+of a packaged module): the file is parsed and never executed, and only the exported `metadata`
+object counts. The complete enforced set is the edge list in the docs page above.
+
+**Action for app authors:** if `yarn generate` now stops with `Module dependency check failed`,
+enable the listed modules in `src/modules.ts` (or disable the module that requires them). Such a
+configuration was already broken — it typically surfaced later as
+`Metadata for entity … not found` during `mercato init`.
+
+**Action for module authors:** write `requires` as an array of string literals in the exported
+`metadata` object. A dynamically built or re-exported list is no longer evaluated: it is skipped
+with a `[generate] ⚠` warning naming the file, and that module's dependency check does not run.
+
 ### Portal form submissions are limited to the caller's own `customer` subject (#7224)
 
 `POST /api/forms/form-submissions` now answers `403 { error: "SUBJECT_FORBIDDEN" }` unless
@@ -1583,6 +1603,27 @@ operations, resolve `customerCreditService` / `customerPurchaseApprovalService` 
 container — do not look for these methods on `customerGroupsService`. If you override
 `customerGroupsService` via `entry.overrides.di`, nothing changes for you: the interface you are
 implementing against has not grown.
+
+### Time tracking: a new built-in setting key `defaults.entryMode` (#6989)
+
+The staff time-tracking settings gain a new built-in key, `defaults.entryMode`
+(`'task' | 'project'`, default `'task'`). It switches the time entry dialog between logging
+time against a task (today's behaviour) and against a project with an optional task. Tenants
+that never change it see no difference.
+
+**Action for module authors:** none, unless your module already contributes a key with the
+same id through `registerTimeTrackingSettingKey({ group: 'defaults', key: 'entryMode', … })`.
+A contribution cannot replace a built-in, so that registration now throws at load; rename
+your key. Code that asserted the exact `defaults` group shape or counted
+`TIME_TRACKING_SETTING_KEYS` should expect the extra key, and an exhaustive
+`Record<TimeTrackingSettingKey, …>` needs an entry for `'defaults.entryMode'`. Payloads sent to
+`PUT /api/staff/timesheets/settings` and `writeTimeTrackingSettings` may still omit it — the
+registry fills in the default.
+
+The time entry dialog's `propsSchema` is now a named export,
+`timeEntryDialogPropsSchema` from
+`@open-mercato/core/modules/staff/lib/time-tracking-ui/TimeEntryDialog`. A replacement can
+import its contract instead of copying it.
 
 ### `TimeReportingSettings.lastProjectId` deprecated in favour of a shared staff timesheet preference (#3750)
 
