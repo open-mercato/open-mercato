@@ -195,19 +195,22 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
         .toEqual([hiddenNotificationId, tenantWideNotificationId].sort((left, right) => left.localeCompare(right)))
       expect(await listNotificationIds(request, session, { type, status: 'unread' })).toEqual([hiddenNotificationId])
     } finally {
-      if (superadminToken && roleId && homeOrganizationId && visibleOrganizationId) {
-        await setRoleAclFeatures(request, superadminToken, {
-          roleId,
-          features: ['notifications.view'],
-          organizations: [homeOrganizationId, visibleOrganizationId],
-        }).catch(() => undefined)
+      try {
+        if (superadminToken && roleId && homeOrganizationId && visibleOrganizationId) {
+          await setRoleAclFeatures(request, superadminToken, {
+            roleId,
+            features: ['notifications.view'],
+            organizations: [homeOrganizationId, visibleOrganizationId],
+          })
+        }
+      } finally {
+        await dismissNotificationIfExists(request, userToken, hiddenNotificationId)
+        await dismissNotificationIfExists(request, userToken, tenantWideNotificationId)
+        await deleteUserIfExists(request, superadminToken, userId)
+        await deleteRoleIfExists(request, superadminToken, roleId)
+        await deleteOrganizationIfExists(request, superadminToken, visibleOrganizationId)
+        await deleteOrganizationIfExists(request, superadminToken, homeOrganizationId)
       }
-      await dismissNotificationIfExists(request, userToken, hiddenNotificationId)
-      await dismissNotificationIfExists(request, userToken, tenantWideNotificationId)
-      await deleteUserIfExists(request, superadminToken, userId)
-      await deleteRoleIfExists(request, superadminToken, roleId)
-      await deleteOrganizationIfExists(request, superadminToken, visibleOrganizationId)
-      await deleteOrganizationIfExists(request, superadminToken, homeOrganizationId)
     }
   })
 })
