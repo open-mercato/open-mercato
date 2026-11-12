@@ -16,7 +16,7 @@ export function progressRenderer(mode: 'tty' | 'plain' | 'json' | 'verbose' | 'n
     const prefix = event.rowsTotalExact ? '' : '~'
     if (mode === 'tty') {
       const total = Number(event.rowsTotal), done = Number(event.rowsDone)
-      const ratio = total > 0 ? Math.min(1, done / total) : event.type === 'entity.done' ? 1 : 0
+      const ratio = total > 0 ? Math.min(1, done / total) : ['entity.done','run.finished'].includes(event.type) ? 1 : 0
       const elapsed = Math.max(0.1, (now - started) / 1000)
       const rate = Number(event.bytesDone) / elapsed
       const eta = ratio > 0 && ratio < 1 ? Math.ceil(elapsed * (1 - ratio) / ratio) : 0

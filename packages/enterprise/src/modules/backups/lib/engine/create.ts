@@ -153,6 +153,7 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
         schemaVersion: 1, backupId, identity: snapshot.identity, migrationFingerprint: snapshot.migrationFingerprint, entities: snapshot.entities, chunks: [], catalogDigest: snapshot.catalogDigest,
         evidence: snapshot.evidence, epochs: 1, consistency: options.quiesced ? 'quiesced' : 'single-snapshot', sequences: [], foreignKeys: snapshot.foreignKeys,
       } }
+      settings = settingsSchema.parse(settings)
       if (options.quiesced && snapshot.evidence.xipList.length) throw new BackupError('BACKUP_QUIESCENCE_NOT_PROVEN', 3)
       await atomicStream(join(partial, 'prepare.age'), bytes(await encryptBytes(Buffer.from(JSON.stringify(settings)), [runRecipient])))
       stateReady = true
@@ -180,7 +181,7 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
     let indexBudget = Buffer.byteLength(JSON.stringify(index))
     let cipherBytes = index.chunks.reduce((sum, chunk) => sum + Number(chunk.cipherBytes), 0)
     let allocatedOutputBytes = cipherBytes
-    const emit = (type: 'run.started' | 'entity.done' | 'phase.changed' | 'run.finished', entity?: string, rows = '0') => options.progress?.({ schemaVersion: 1, type, runId: backupId, entity, rowsDone: rows, rowsTotal: rows, rowsTotalExact: type === 'entity.done', bytesDone: String(cipherBytes), chunksDone: index.chunks.length, at: new Date().toISOString() })
+    const emit = (type: 'run.started' | 'entity.done' | 'phase.changed' | 'run.finished', entity?: string, rows = '0') => options.progress?.({ schemaVersion: 1, type, runId: backupId, entity, rowsDone: rows, rowsTotal: rows, rowsTotalExact: type === 'entity.done', phase: settings.encryption ? 'encrypted' : 'UNENCRYPTED', bytesDone: String(cipherBytes), chunksDone: index.chunks.length, at: new Date().toISOString() })
     emit('run.started')
     await mkdir(join(partial, 'schema'), { mode: 0o700, recursive: true })
     await mkdir(join(partial, 'data'), { mode: 0o700, recursive: true })
@@ -188,7 +189,7 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
       checkAbort(options.signal)
       let plainBytes = 0
       async function* counted() { for await (const chunk of stream) { plainBytes += chunk.byteLength; yield chunk } }
-      const compressed = transform(counted(), createGzip())
+      const compressed = transform(counted(), createGzip({ chunkSize: 1024 * 1024 }))
       const encoded = settings.encryption ? await encryptStream(compressed, settings.recipients) : compressed
       const destination = join(partial, path)
       await removeIfExists(destination)
@@ -252,7 +253,8 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
         for (let attempt = 0; attempt < 3; attempt++) {
           try { await processEntity(entity); break } catch (error) {
             const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
-            const transient = ['BACKUP_COPY_READ_FAILED', 'BACKUP_CONNECTION_FAILED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', '57P01', '57P02', '57P03'].includes(code) || /^08[A-Z0-9]{3}$/.test(code)
+            const connectionMessage = error instanceof Error && ['Client has encountered a connection error and is not queryable', 'Connection terminated unexpectedly'].includes(error.message)
+            const transient = connectionMessage || ['BACKUP_COPY_READ_FAILED', 'BACKUP_CONNECTION_FAILED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', '57P01', '57P02', '57P03'].includes(code) || /^08[A-Z0-9]{3}$/.test(code)
             if (!transient || attempt === 2 || options.signal?.aborted || poolFailure) { poolFailure = error; break }
           }
         }
@@ -264,19 +266,20 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
       if (classifyBoundary(snapshot, boundary, 'single-snapshot') !== 'quiesced') throw new BackupError('BACKUP_QUIESCENCE_NOT_PROVEN', 3)
     }
     index.sequences = await snapshot.sequences()
-    const plainIndex = Buffer.from(JSON.stringify(indexSchema.parse(index)))
+    const validatedIndex = indexSchema.parse(index)
+    const plainIndex = Buffer.from(JSON.stringify(validatedIndex))
     if (plainIndex.length > maximumIndexBytes) throw new BackupError('BACKUP_INDEX_LIMIT', 5, true)
     const indexPath = settings.encryption ? 'index.age' : 'index.json'
     await removeIfExists(join(partial, indexPath))
     const encodedIndex = settings.encryption ? await encryptBytes(plainIndex, settings.recipients) : plainIndex
     if (options.maxOutputBytes !== undefined && allocatedOutputBytes + encodedIndex.byteLength > options.maxOutputBytes) throw new BackupError('BACKUP_OUTPUT_LIMIT',5,true)
     const indexRecord = await atomicStream(join(partial, indexPath), bytes(encodedIndex))
-    const sourceIdentityDigest = hash(JSON.stringify(index.identity))
+    const sourceIdentityDigest = hash(JSON.stringify(validatedIndex.identity))
     const manifest: Manifest = manifestSchema.parse({ schemaVersion: 1, state: 'complete', backupId, startedAt: settings.startedAt, completedAt: new Date().toISOString(), kind: 'postgresql-logical-chunked', scope: 'whole-database', encryption: { mode: settings.encryption ? 'age-v1' : 'none', recipientSetFingerprint: settings.encryption ? recipientFingerprint(settings.recipients) : undefined }, compression: 'gzip', consistency: { mode: index.consistency, epochs: index.epochs }, sourceIdentityDigest, serverMajor: index.identity.serverMajor, encoding: index.identity.encoding, collation: index.identity.collation, index: { path: indexPath, sizeBytes: String(indexRecord.bytes), sha256: indexRecord.sha256 }, chunkCount: index.chunks.length, totalCipherBytes: String(cipherBytes), exclusions: ['external-files', 'object-stores', 'vault', 'redis', 'cluster-globals', 'wal'] })
     const manifestBytes = Buffer.from(JSON.stringify(manifest))
     if (options.maxOutputBytes !== undefined && allocatedOutputBytes + indexRecord.bytes + manifestBytes.byteLength > options.maxOutputBytes) throw new BackupError('BACKUP_OUTPUT_LIMIT',5,true)
     await removeIfExists(join(partial, 'seal.age'))
-    await atomicStream(join(partial, 'seal.age'), bytes(await encryptBytes(Buffer.from(JSON.stringify({ manifest, index, manifestSha256: hash(manifestBytes.toString()) })), [runRecipient])))
+    await atomicStream(join(partial, 'seal.age'), bytes(await encryptBytes(Buffer.from(JSON.stringify({ manifest, index: validatedIndex, manifestSha256: hash(manifestBytes.toString()) })), [runRecipient])))
     await removeIfExists(join(partial, 'manifest.json'))
     const manifestRecord = await atomicStream(join(partial, 'manifest.json'), bytes(manifestBytes))
     await snapshot.close(); snapshot = undefined

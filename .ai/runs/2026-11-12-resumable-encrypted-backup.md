@@ -45,16 +45,16 @@ PR: #9333
 
 ### Phase 1: bootstrap and encrypted backup
 
-- [ ] 1.1 Register the Enterprise backups module/bin and disabled capability flags; sync create-app template and generated registries via native commands.
+- [x] 1.1 Register the Enterprise backups module/bin and disabled capability flags; sync create-app template and generated registries via native commands.
 - [x] 1.2 Implement versioned schemas, process/resource adapters, preflight and encryption policy with B01/B03/B12/B13/B15 tests. — e5dcca649d
-- [ ] 1.3 Implement bounded snapshot/chunk pipeline, encrypted journal, sealing and per-entity progress with B01/B10/B18 tests.
-- [ ] 1.4 Implement resume epochs, conservative consistency proof, DDL restarts, sequence reconciliation and lock recovery with B04/B05/B06/B11.
+- [x] 1.3 Implement bounded snapshot/chunk pipeline, encrypted journal, sealing and per-entity progress with B01/B10/B18 tests.
+- [x] 1.4 Implement resume epochs, conservative consistency proof, DDL restarts, sequence reconciliation and lock recovery with B04/B05/B06/B11.
 
 ### Phase 2: verification and recovery
 
-- [ ] 2.1 Implement offline verify/status and bootstrap-free entry point with B09/B17 contract tests.
-- [ ] 2.2 Implement identity challenge, restore journal, chunk transactions, post-data/FKs and progress with B02/B07/B08/B10.
-- [ ] 2.3 Implement declarative exercise and synthetic escrow/canary drill with isolation assertions B14.
+- [x] 2.1 Implement offline verify/status and bootstrap-free entry point with B09/B17 contract tests.
+- [x] 2.2 Implement identity challenge, restore journal, chunk transactions, post-data/FKs and progress with B02/B07/B08/B10.
+- [x] 2.3 Implement declarative exercise and synthetic escrow/canary drill with isolation assertions B14.
 
 ### Phase 3: integration and release verification
 
@@ -64,7 +64,7 @@ PR: #9333
 
 ## Resume
 
-First remaining step: 0.1. Request approval of the concrete package/recipient policy and synthetic drill/harness proposal above, then resume this implementation PR via `om-auto-continue-pr`. Do not substitute native spec review approval for the explicit implementation security decisions.
+Current resume: Q2/Q3 are explicitly authorized below. Finish final performance evidence, configured validation, independent review and verification/report comments via `om-auto-continue-pr`; never merge.
 
 ## Authorization — resumed 2026-11-12
 
@@ -73,3 +73,9 @@ User explicitly approved all pending proposals: “yes go on, the modules go to 
 ## Implementation checkpoint — e5dcca649d
 
 Engine/native facade/CLI and14 artifact-security tests landed; independent native6-case PostgreSQL16 suite passed (generated/composite/FK/heap/JSON/LO roundtrip, COPY rollback+retry, binding refusal, staging cap, RLS rejection and LO rollback). Precommit i18n/template parity passed. Full configured validation and source acceptance/performance evidence remain pending; no ready/runtime completion claim. Runner: local; no configured compose app running for this task. Initial generate before builds refused correctly because CLI was not built; ordered full gate now starts with build:packages.
+
+## Final correctness checkpoint — 2026-11-12
+
+Implemented mandatory offline schema TOC parsing without a DB connection, cumulative restore/verify progress, complete recovery-report metadata and bound selective resume. Actual PostgreSQL tests cover read-only resume binding, stale challenge invalidation, terminal-receipt recovery, and a full encrypted restore interrupted after a committed COPY: deleting that already-loaded artifact chunk still resumes correctly with matching SQL content, resumeCount=1 and journal cleanup. Artifact tests verify separately supplied historical canary custody and truthful report outcomes. Validation currently: native25 + TOC4 passed; new focused native resume tests4 passed; artifact/progress19 passed; Enterprise TypeScript and diff checks passed. Full ordered gate, final four-state benchmark report and independent current-head review remain pending, so status remains in-progress.
+
+Known resource scope: pg-protocol delivers whole per-row COPY frames, which can exceed stream high-water marks. A separate two-row16-MiB-field probe reached ~251MiB native-only RSS at jobs1; this does not certify all legal PostgreSQL field sizes or jobs8 giant-row workloads. Operational documentation records this limitation. No deployment custody or production-data acceptance is claimed.

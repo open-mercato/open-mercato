@@ -38,6 +38,8 @@ export async function exerciseBackup(options: RestoreBackupOptions & { checksFil
         } catch { throw new BackupError('BACKUP_CANARY_FAILED',6) }
       }
     }
-    await options.afterDataVerified?.(target)
+    const additional=await options.afterDataVerified?.(target)
+    const testedCanaries=checks.filter((check)=>check.type==='encrypted-canary').length
+    return { keyRecovery:{status:testedCanaries?'passed' as const:'not-tested' as const,testedCanaries},checks:[...checks.map((check)=>({type:check.type,status:'passed' as const,...('entityKey' in check?{entityKey:check.entityKey}:{})})),...(additional?.checks??[])] }
   } })
 }

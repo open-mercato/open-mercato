@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import { encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { restoreBackup } from '../lib/engine/restore'
 import { exerciseBackup } from '../lib/engine/exercise'
 import type { RestoreTarget } from '../lib/engine/types'
 import { createBackup } from '../lib/engine/create'
-import { verifyBackup } from '../lib/engine/verify'
+import { verifyBackup as verifyNativeBackup, type VerifyBackupOptions } from '../lib/engine/verify'
 import { encryptBytes, decryptBytes, generateX25519Identity, identityToRecipient } from '../lib/engine/crypto'
 import { classifyBoundary } from '../lib/engine/snapshot'
 import { partialBackupDigest } from '../lib/engine/partial-trust'
@@ -14,6 +15,8 @@ import { BackupError } from '../lib/engine/errors'
 import { Journal } from '../lib/engine/journal'
 import type { BackupSource, Entity, Snapshot } from '../lib/engine/types'
 
+const fixtureSchemaInspector=async(source:AsyncIterable<Uint8Array>)=>{for await(const block of source){void block}}
+const verifyBackup=(options:VerifyBackupOptions)=>verifyNativeBackup({...options,schemaInspector:fixtureSchemaInspector})
 const identity = { clusterIncarnation: 'test-cluster', databaseOid: '100', serverMajor: 16, encoding: 'UTF8', collation: 'C' }
 const evidence = { xmax: '100000000000', xipList: [] as string[] }
 const entity = (key: string): Entity => ({ key, schema: 'public', table: key, columns: ['id','secret'], label: 'protected entity', estimatedRows: '2', estimatedBytes: '64', primaryKeys: ['id'] })
@@ -159,13 +162,36 @@ describe('encrypted recovery artifacts', () => {
       async identity(){return {...identity,clusterIncarnation:'target-cluster',databaseOid:'200'}},async challenge(){return 'CONFIRM'},async initialize(){},async hasStep(){return false},
       async schema(_section,stream){await drain(stream)},async chunk(_entity,stream){await drain(stream)},async sequences(){},async foreignKeys(){},async countRows(){return '2'},async finish(){},async close(){},async migrationFingerprint(){return catalogDigest},async readCanary(){return envelope},
     })
-    const shared={artifact:result.artifactPath,trustedManifestSha256:result.manifestSha256,identities:[escrow],workspace:join(root,'recover'),confirmation:'CONFIRM',checksFile,canaryKeysFile}
-    await expect(exerciseBackup({...shared,target:target()})).resolves.toHaveProperty('quarantined',true)
+    const shared={schemaInspector:fixtureSchemaInspector,artifact:result.artifactPath,trustedManifestSha256:result.manifestSha256,identities:[escrow],workspace:join(root,'recover'),confirmation:'CONFIRM',checksFile,canaryKeysFile}
+    const recovered=await exerciseBackup({...shared,target:target()})
+    const report=JSON.parse(await readFile(recovered.reportPath,'utf8'))
+    expect(report).toMatchObject({quarantined:true,promotionReady:false,keyRecovery:{status:'passed',testedCanaries:1},externalAssets:{status:'not-tested'},foreignKeys:{status:'passed',checked:0}})
+    expect(report.entities).toEqual(expect.arrayContaining([expect.objectContaining({entityKey:'e0001',expectedRows:'2',loadedRows:'2'})]))
+    expect(report.checks).toEqual(expect.arrayContaining([expect.objectContaining({type:'encrypted-canary',status:'passed'})]))
     await writeFile(canaryKeysFile,JSON.stringify({offline:randomBytes(32).toString('base64')}))
     await expect(exerciseBackup({...shared,target:target()})).rejects.toThrow('BACKUP_CANARY_FAILED')
     const absent={...target(),initialize:jest.fn(async()=>{})}
     await expect(exerciseBackup({...shared,target:absent,canaryKeysFile:undefined})).rejects.toThrow('CANARY_CUSTODY_REQUIRED')
     expect(absent.initialize).not.toHaveBeenCalled()
+  })
+  test('bound resume skips loaded artifact chunks and reports exact cumulative restored progress',async()=>{
+    const result=await createBackup(options())
+    await unlink(join(result.artifactPath,'data/e0001/0.chunk'))
+    const events:import('../lib/engine/types').ProgressEvent[]=[]
+    const drain=async(stream:AsyncIterable<Uint8Array>)=>{for await(const value of stream){void value}}
+    const inspected=jest.fn(async()=>true),loaded=jest.fn(async()=>{})
+    const target:RestoreTarget={
+      async identity(){return {...identity,databaseOid:'200'}},async challenge(){return 'CONFIRM'},inspectResume:inspected,
+      async initialize(){},async hasStep(step){return step==='chunk:e0001:0'||step.startsWith('schema:')},
+      async schema(){throw new Error('already-loaded schema')},async chunk(_entity,stream){await drain(stream);await loaded()},async sequences(){},async foreignKeys(){},
+      async countRows(){return '2'},async finish(){},async close(){},async reportState(){return {startedAt:'2026-11-12T00:00:00.000Z',resumeCount:1}},
+    }
+    const restored=await restoreBackup({schemaInspector:fixtureSchemaInspector,artifact:result.artifactPath,trustedManifestSha256:result.manifestSha256,identities:[escrow],workspace:join(root,'resume'),confirmation:'CONFIRM',resume:'11111111-1111-4111-8111-111111111111',target,progress:event=>events.push(event)})
+    expect(inspected).toHaveBeenCalledTimes(1);expect(loaded).toHaveBeenCalledTimes(1)
+    const report=JSON.parse(await readFile(restored.reportPath,'utf8'))
+    expect(report.resumeCount).toBe(1)
+    expect(report.entities[0]).toMatchObject({expectedRows:'2',loadedRows:'2',rowsLoadedThisAttempt:'0',resumedChunks:1})
+    expect(events.at(-1)).toMatchObject({type:'run.finished',rowsDone:'4',rowsTotal:'4'})
   })
   test('a bounded worker connection retry reuses the held snapshot and restarts that entity exactly once', async () => {
     const fixture=source();const open=fixture.open.bind(fixture);let attempts=0

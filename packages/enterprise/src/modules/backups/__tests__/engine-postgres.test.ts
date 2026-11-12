@@ -7,6 +7,10 @@ import { execFileSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Client, type ClientConfig } from 'pg'
+import { createBackup } from '../lib/engine/create'
+import { restoreBackup } from '../lib/engine/restore'
+import { BackupError } from '../lib/engine/errors'
+import { verifyBackup } from '../lib/engine/verify'
 import { createPostgresSource, createPostgresTarget, parsePassword, parseService } from '../lib/engine/postgres'
 import type { ByteStream, NativeOptions, Snapshot } from '../lib/engine/types'
 
@@ -143,6 +147,46 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
       expect((await targetDb.query('SELECT backup_id FROM om_backup_restore.restore_run')).rows[0].backup_id).toBe('fixture')
     } finally { await source.close(); await first.close(); await resumed?.close() }
   }, 60000)
+
+  test('readonly resume inspection binds the journal before writes and rejects changed challenge state',async()=>{
+    const source=createPostgresSource(options);const target=createPostgresTarget(options)
+    try{
+      const snapshot=await source.open();await initialize(snapshot,target)
+      const binding={backupId:'fixture',manifestSha256:'a'.repeat(64),sourceIdentity:snapshot.identity}
+      const confirmation=await target.challenge(binding)
+      expect(await target.inspectResume!({runId:'run',backupId:'fixture',manifestSha256:'a'.repeat(64),confirmation})).toBe(true)
+      expect(await target.reportState!()).toMatchObject({resumeCount:0})
+      await targetDb.query("UPDATE om_backup_restore.restore_run SET heartbeat_at=now()")
+      await expect(target.initialize({runId:'run',backupId:'fixture',manifestSha256:'a'.repeat(64),confirmation})).rejects.toThrow('BACKUP_TARGET_CONFIRMATION')
+      const fresh=await target.challenge(binding)
+      await target.initialize({runId:'run',backupId:'fixture',manifestSha256:'a'.repeat(64),confirmation:fresh})
+      expect(await target.reportState!()).toMatchObject({resumeCount:1})
+    }finally{await source.close();await target.close()}
+  })
+
+  test('real encrypted restore resumes without rereading its committed artifact chunk',async()=>{
+    const privateKey=await generateX25519Identity()
+    const backup=await createBackup({source:createPostgresSource(options),output:join(directory,'out'),workspace:join(directory,'create'),recipients:[await identityToRecipient(privateKey)],reserveBytes:0n})
+    const shared={artifact:backup.artifactPath,trustedManifestSha256:backup.manifestSha256,identities:[privateKey],workspace:directory,binariesDir:options.binariesDir}
+    const artifact=await verifyBackup(shared)
+    const binding={backupId:backup.backupId,manifestSha256:backup.manifestSha256,sourceIdentity:artifact.index.identity}
+    const initial=createPostgresTarget(options)
+    const confirmation=await initial.challenge(binding)
+    const chunk=initial.chunk.bind(initial);let interrupted=false;let resume:string|undefined
+    initial.chunk=async(...args)=>{await chunk(...args);if(!interrupted){interrupted=true;throw new Error('simulated postcommit interruption')}}
+    try{await restoreBackup({...shared,target:initial,confirmation})}catch(error){expect(error).toBeInstanceOf(BackupError);resume=(error as BackupError).context.restoreRunId}
+    expect(resume).toBeDefined()
+    const committed=artifact.index.chunks.find((entry)=>entry.entityKey)!
+    await rm(join(backup.artifactPath,committed.path))
+    const target=createPostgresTarget(options)
+    const fresh=await target.challenge(binding)
+    const restored=await restoreBackup({...shared,target,confirmation:fresh,resume})
+    const report=JSON.parse(await readFile(restored.reportPath,'utf8'))
+    expect(report).toMatchObject({status:'completed',resumeCount:1,promotionReady:false,keyRecovery:{status:'not-tested'}})
+    expect(report.entities.some((entry:{resumedChunks:number})=>entry.resumedChunks>0)).toBe(true)
+    expect((await targetDb.query('SELECT * FROM app.parents ORDER BY a,b')).rows).toEqual((await sourceDb.query('SELECT * FROM app.parents ORDER BY a,b')).rows)
+    expect((await targetDb.query("SELECT count(*)::text AS count FROM pg_namespace WHERE nspname='om_backup_restore'")).rows[0].count).toBe('0')
+  },30000)
 
   test('schema staging stops at its explicit byte budget before invoking restore SQL', async () => {
     const source = createPostgresSource(options); const target = createPostgresTarget({ ...options, maxStagingBytes: 16 })
@@ -340,8 +384,8 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
 
   test('user enum arrays preserve values when restored type OIDs differ from source history', async () => {
     await sourceDb.query(`DO $$ BEGIN FOR n IN 1..20 LOOP EXECUTE format('CREATE TYPE app.discarded_%s AS ENUM (%L)',n,'discarded'); EXECUTE format('DROP TYPE app.discarded_%s',n); END LOOP; END $$;
-      CREATE TYPE app.history_state AS ENUM ('on','off'); CREATE TABLE app.enum_arrays(id int PRIMARY KEY,states app.history_state[]);
-      INSERT INTO app.enum_arrays VALUES(1,ARRAY['on','off',NULL]::app.history_state[]),(2,ARRAY[]::app.history_state[])`)
+      CREATE TYPE app.history_state AS ENUM ('on','off'); CREATE TYPE app.history_record AS (state app.history_state,label text); CREATE TABLE app.enum_arrays(id int PRIMARY KEY,states app.history_state[],records app.history_record[]);
+      INSERT INTO app.enum_arrays VALUES(1,ARRAY['on','off',NULL]::app.history_state[],ARRAY[ROW('on','Unicode Ω')::app.history_record]),(2,ARRAY[]::app.history_state[],ARRAY[]::app.history_record[])`)
     const source=createPostgresSource(options);const target=createPostgresTarget(options)
     try {
       const snapshot=await source.open();await initialize(snapshot,target)
@@ -353,10 +397,181 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
         const contents=await collect(chunk.stream)
         await target.chunk(entity,data(contents),{runId:'run',sequence:chunk.sequence,sha256:digest(contents),rows:chunk.rows})
       }
-      const sql='SELECT id,states::text AS states FROM app.enum_arrays ORDER BY id'
+      const sql='SELECT id,states::text AS states,records::text AS records FROM app.enum_arrays ORDER BY id'
       expect((await targetDb.query(sql)).rows).toEqual((await sourceDb.query(sql)).rows)
     } finally {await source.close();await target.close()}
   },60000)
 
+  test('regclass values and arrays retain logical relation names across different restored OIDs', async () => {
+    await sourceDb.query("CREATE TABLE app.oid_aliases(id int PRIMARY KEY,relation regclass,relations regclass[]); INSERT INTO app.oid_aliases VALUES(1,'app.parents'::regclass,ARRAY['app.parents'::regclass])")
+    const source=createPostgresSource(options);const target=createPostgresTarget(options)
+    try {
+      const snapshot=await source.open();await initialize(snapshot,target)
+      expect((await sourceDb.query("SELECT 'app.parents'::regclass::oid AS oid")).rows[0].oid).not.toBe((await targetDb.query("SELECT 'app.parents'::regclass::oid AS oid")).rows[0].oid)
+      const entity=snapshot.entities.find((entry)=>entry.table==='oid_aliases')!
+      for await(const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536})) {
+        const contents=await collect(chunk.stream)
+        await target.chunk(entity,data(contents),{runId:'run',sequence:chunk.sequence,sha256:digest(contents),rows:chunk.rows})
+      }
+      const sql='SELECT id,relation::text AS relation,relations::text AS relations FROM app.oid_aliases ORDER BY id'
+      expect((await targetDb.query(sql)).rows).toEqual((await sourceDb.query(sql)).rows)
+    } finally {await source.close();await target.close()}
+  },60000)
+
+  test('late index OID aliases refuse before a falsely restorable artifact can be produced', async () => {
+    await sourceDb.query("CREATE TABLE app.late_alias(value regclass); INSERT INTO app.late_alias VALUES('app.parents_pkey'::regclass)")
+    const source=createPostgresSource(options)
+    try {await expect(source.open()).rejects.toThrow('BACKUP_LATE_REGCLASS_UNSUPPORTED')}
+    finally {await source.close()}
+  },60000)
+
+  test('unproven nested regclass paths refuse instead of preserving stale object OIDs', async () => {
+    await sourceDb.query("CREATE TYPE app.nested_alias AS (value regclass); CREATE TABLE app.nested_aliases(value app.nested_alias[])")
+    const source=createPostgresSource(options)
+    try {await expect(source.open()).rejects.toThrow('BACKUP_NESTED_REGCLASS_UNSUPPORTED')}
+    finally {await source.close()}
+  },60000)
+
+  test('one real worker-connection loss retries within the exported snapshot without duplicate chunks', async () => {
+    await sourceDb.query(`CREATE TABLE app.retry_chunks(id int PRIMARY KEY,body text); ALTER TABLE app.retry_chunks ALTER COLUMN body SET STORAGE EXTERNAL;
+      INSERT INTO app.retry_chunks SELECT n,repeat('r',65536) FROM generate_series(1,256) n; ANALYZE app.retry_chunks`)
+    const native=createPostgresSource(options)
+    let opened=0;let terminated=false
+    const source={
+      async open() {
+        opened++
+        const snapshot=await native.open()
+        const chunks=snapshot.chunks.bind(snapshot)
+        return {...snapshot,async *chunks(entity: Parameters<typeof snapshot.chunks>[0],request: Parameters<typeof snapshot.chunks>[1]) {
+          for await(const chunk of chunks(entity,request)) {
+            yield chunk
+            if(entity.table==='retry_chunks'&&!terminated) {
+              const workers=await sourceDb.query<{pid:number}>(`SELECT pid FROM pg_stat_activity WHERE datname=current_database()
+                AND application_name='mercato-backup' AND state='idle in transaction' AND query LIKE 'COPY (%' AND query LIKE '%"retry_chunks"%'`)
+              expect(workers.rows).toHaveLength(1)
+              terminated=true
+              await sourceDb.query('SELECT pg_terminate_backend($1)',[workers.rows[0].pid])
+            }
+          }
+        }}
+      },
+      close:()=>native.close(),
+    }
+    const identity=await generateX25519Identity();const recipient=await identityToRecipient(identity)
+    const result=await createBackup({source,output:join(directory,'backup'),workspace:join(directory,'workspace'),recipients:[recipient],chunkSizeBytes:8*1024*1024,reserveBytes:0n})
+    expect(terminated).toBe(true);expect(opened).toBe(1)
+    const verified=await verifyBackup({artifact:result.artifactPath,trustedManifestSha256:result.manifestSha256,identities:[identity],binariesDir:options.binariesDir,workspace:directory})
+    expect(verified.index.epochs).toBe(1)
+    expect(verified.index.consistency).toBe('single-snapshot')
+    const entity=verified.index.entities.find((entry)=>entry.table==='retry_chunks')!
+    const parts=verified.index.chunks.filter((chunk)=>chunk.entityKey===entity.key)
+    expect(parts.reduce((sum,chunk)=>sum+BigInt(chunk.rows),0n)).toBe(256n)
+    expect(new Set(parts.map((chunk)=>chunk.path)).size).toBe(parts.length)
+  },60000)
+
+  test('sensitive text primary-key cursors stay out of SQL statements', async () => {
+    const marker='private-cursor@example.test'
+    await sourceDb.query("CREATE TABLE app.private_keys(id text PRIMARY KEY,body text)")
+    await sourceDb.query("INSERT INTO app.private_keys VALUES($1,repeat('x',65536)),($2,repeat('y',65536))",[marker,'z-last@example.test'])
+    const source=createPostgresSource(options)
+    let spy:jest.SpyInstance|undefined
+    const statements:string[]=[]
+    try {
+      const snapshot=await source.open()
+      const entity=snapshot.entities.find((entry)=>entry.table==='private_keys')!
+      const original=Client.prototype.query
+      spy=jest.spyOn(Client.prototype,'query').mockImplementation(function(this:Client,...args:unknown[]):never {
+        const query=args[0]
+        if(typeof query==='string') statements.push(query)
+        else if(query&&typeof query==='object'&&'text' in query&&typeof query.text==='string') statements.push(query.text)
+        return Reflect.apply(original,this,args) as never
+      })
+      let rows=0n
+      for await(const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536})) {await collect(chunk.stream);rows+=BigInt(chunk.rows)}
+      expect(rows).toBe(2n)
+      expect(statements.join('\n')).not.toContain(marker)
+      expect(statements.some((sql)=>sql.includes("set_config('om_backup.cursor',$1,true)"))).toBe(true)
+      expect(statements.some((sql)=>sql.startsWith('COPY ')&&sql.includes("current_setting('om_backup.cursor')"))).toBe(true)
+    } finally {spy?.mockRestore();await source.close()}
+  },60000)
+
+  test('every invalid FK is durably recorded and repaired validations upgrade failed journal steps',async()=>{
+    await sourceDb.query('CREATE TABLE app.other_child(id int PRIMARY KEY,a int,b text,FOREIGN KEY(a,b) REFERENCES app.parents(a,b))')
+    const source=createPostgresSource(options);const target=createPostgresTarget(options)
+    try{
+      const snapshot=await source.open();await initialize(snapshot,target)
+      await target.schema('post-data',snapshot.schema('post-data'),'post-data')
+      await targetDb.query("INSERT INTO app.children(id,a,b) VALUES(1,999,'missing');INSERT INTO app.other_child VALUES(1,888,'missing')")
+      await expect(target.foreignKeys(snapshot.foreignKeys)).rejects.toMatchObject({code:'BACKUP_FOREIGN_KEY_VALIDATION_FAILED',exitCode:6,details:{foreignKeyFailures:expect.any(Array)}})
+      const failed=(await targetDb.query("SELECT status,detail FROM om_backup_restore.restore_steps WHERE kind='fk-validate' ORDER BY step_key")).rows
+      expect(failed).toHaveLength(2)
+      expect(failed.every((row)=>row.status==='failed'&&row.detail==='BACKUP_FOREIGN_KEY_VALIDATION_FAILED')).toBe(true)
+      await targetDb.query('DELETE FROM app.children;DELETE FROM app.other_child')
+      await target.foreignKeys(snapshot.foreignKeys)
+      const repaired=(await targetDb.query("SELECT status,detail FROM om_backup_restore.restore_steps WHERE kind='fk-validate' ORDER BY step_key")).rows
+      expect(repaired.every((row)=>row.status==='done'&&row.detail===null)).toBe(true)
+    }finally{await source.close();await target.close()}
+  },60000)
+
+  test('partitioned FK parents are restored once without duplicate inherited constraints',async()=>{
+    await sourceDb.query(`CREATE TABLE app.partitioned(id int,a int,b text,PRIMARY KEY(id,a),FOREIGN KEY(a,b) REFERENCES app.parents(a,b)) PARTITION BY RANGE(id);
+      CREATE TABLE app.partitioned_low PARTITION OF app.partitioned FOR VALUES FROM(0) TO(100);
+      INSERT INTO app.partitioned VALUES(1,1,'Ω')`)
+    const source=createPostgresSource(options);const target=createPostgresTarget(options)
+    try{
+      const snapshot=await source.open();await initialize(snapshot,target)
+      expect(snapshot.foreignKeys.filter((key)=>key.table==='partitioned_low')).toHaveLength(0)
+      for(const entity of snapshot.entities)for await(const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536})){
+        const contents=await collect(chunk.stream)
+        await target.chunk(entity,data(contents),{runId:'run',sequence:chunk.sequence,sha256:digest(contents),rows:chunk.rows})
+      }
+      await target.schema('post-data',snapshot.schema('post-data'),'post-data')
+      await target.foreignKeys(snapshot.foreignKeys)
+      expect((await targetDb.query('SELECT * FROM app.partitioned')).rows).toEqual((await sourceDb.query('SELECT * FROM app.partitioned')).rows)
+      await expect(targetDb.query("INSERT INTO app.partitioned VALUES(2,999,'missing')")).rejects.toThrow()
+    }finally{await source.close();await target.close()}
+  },60000)
+
+  test('stored generated primary keys use bounded CTID source chunks and are recomputed on restore',async()=>{
+    await sourceDb.query("CREATE TABLE app.generated_key(base int,id int GENERATED ALWAYS AS(base+100) STORED PRIMARY KEY,body text);INSERT INTO app.generated_key(base,body) VALUES(1,'first'),(2,'second')")
+    const source=createPostgresSource(options);const target=createPostgresTarget(options)
+    try{
+      const snapshot=await source.open();await initialize(snapshot,target)
+      const entity=snapshot.entities.find((entry)=>entry.table==='generated_key')!
+      for await(const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536})){
+        const contents=await collect(chunk.stream)
+        await target.chunk(entity,data(contents),{runId:'run',sequence:chunk.sequence,sha256:digest(contents),rows:chunk.rows})
+      }
+      expect((await targetDb.query('SELECT * FROM app.generated_key ORDER BY id')).rows).toEqual((await sourceDb.query('SELECT * FROM app.generated_key ORDER BY id')).rows)
+    }finally{await source.close();await target.close()}
+  },60000)
+
+  test('one non-null unique index supplies a resumable composite cursor without INCLUDE columns',async()=>{
+    await sourceDb.query(`CREATE TABLE app.unique_cursor(a int NOT NULL,b text NOT NULL,body text);
+      CREATE UNIQUE INDEX chosen_cursor ON app.unique_cursor(a,b) INCLUDE(body);
+      CREATE UNIQUE INDEX other_cursor ON app.unique_cursor(b,a);
+      CREATE TABLE app.nullable_cursor(id int UNIQUE,body text);
+      INSERT INTO app.unique_cursor SELECT g,'key-'||g,repeat('x',65536) FROM generate_series(1,4) g;
+      INSERT INTO app.nullable_cursor VALUES(NULL,'a'),(NULL,'b')`)
+    const source=createPostgresSource(options);const target=createPostgresTarget(options)
+    try{
+      const snapshot=await source.open();await initialize(snapshot,target)
+      const entity=snapshot.entities.find((entry)=>entry.table==='unique_cursor')!
+      expect(entity.primaryKeys).toEqual(['a','b'])
+      expect(snapshot.entities.find((entry)=>entry.table==='nullable_cursor')!.primaryKeys).toEqual([])
+      let tail:string[]|undefined;let copied=0
+      for await(const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536})){
+        const contents=await collect(chunk.stream)
+        await target.chunk(entity,data(contents),{runId:'run',sequence:chunk.sequence,sha256:digest(contents),rows:chunk.rows})
+        tail=chunk.keyTo;copied+=Number(chunk.rows);break
+      }
+      expect(tail).toBeDefined();expect(copied).toBe(1)
+      for await(const chunk of snapshot.chunks(entity,{chunkSizeBytes:65536,after:tail})){
+        const contents=await collect(chunk.stream)
+        await target.chunk(entity,data(contents),{runId:'run',sequence:chunk.sequence+1,sha256:digest(contents),rows:chunk.rows})
+      }
+      expect((await targetDb.query('SELECT * FROM app.unique_cursor ORDER BY a,b')).rows).toEqual((await sourceDb.query('SELECT * FROM app.unique_cursor ORDER BY a,b')).rows)
+    }finally{await source.close();await target.close()}
+  },60000)
 
 })

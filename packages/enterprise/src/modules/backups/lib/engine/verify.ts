@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { readFile, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { createGunzip } from 'node:zlib'
@@ -8,9 +9,10 @@ import type { ByteStream, EngineContext } from './types'
 import { privateDirectory, privateFile, contained, digestFile, readBoundedFile } from './artifacts'
 import { decryptBytes, decryptStream } from './crypto'
 import { transform } from './streams'
+import { createPostgresSchemaInspector } from './schema-inspection'
 import { BackupError, checkAbort } from './errors'
 
-export type VerifyBackupOptions = EngineContext & { artifact: string; trustedManifestSha256: string; identities?: string[]; metadataOnly?: boolean }
+export type VerifyBackupOptions = EngineContext & { artifact: string; trustedManifestSha256: string; identities?: string[]; workspace?: string; binariesDir?: string; maxStagingBytes?: number; schemaInspector?: (stream: ByteStream, sourceMajor: number) => Promise<void> }
 export type VerifiedBackup = { manifest: Manifest; index: BackupIndex }
 function equalDigest(actual: string, expected: string): boolean {
   return /^[a-f0-9]{64}$/.test(expected) && timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'))
@@ -38,6 +40,8 @@ async function readBackupInternal(options: VerifyBackupOptions): Promise<Verifie
     paths.add(chunk.path); return false
   })) throw new BackupError('BACKUP_DUPLICATE_CHUNK', 4)
   if (index.chunks.reduce((sum, chunk) => sum + BigInt(chunk.cipherBytes), 0n) !== BigInt(manifest.totalCipherBytes)) throw new BackupError('BACKUP_BINDING_MISMATCH', 4)
+  const sections = index.chunks.filter((chunk) => chunk.section)
+  if (sections.length !== 2 || !sections.some((chunk) => chunk.section === 'pre-data') || !sections.some((chunk) => chunk.section === 'post-data') || sections.some((chunk) => chunk.entityKey)) throw new BackupError('BACKUP_SCHEMA_CHUNKS_REQUIRED',4)
   return { manifest, index }
 }
 export async function readBackup(options: VerifyBackupOptions): Promise<VerifiedBackup> {
@@ -70,7 +74,7 @@ export async function* authenticatedChunk(options: VerifyBackupOptions, manifest
 export async function* verifiedChunk(options: VerifyBackupOptions, manifest: Manifest, chunk: Chunk): ByteStream {
   let plainBytes = 0n
   try {
-    for await (const block of transform(authenticatedChunk(options, manifest, chunk), createGunzip())) {
+    for await (const block of transform(authenticatedChunk(options, manifest, chunk), createGunzip({ chunkSize: 1024 * 1024 }))) {
       plainBytes += BigInt(block.byteLength)
       if (plainBytes > BigInt(chunk.plainBytes)) throw new BackupError('BACKUP_CHUNK_INTEGRITY_FAILED', 4)
       yield block
@@ -81,9 +85,30 @@ export async function* verifiedChunk(options: VerifyBackupOptions, manifest: Man
     throw new BackupError('BACKUP_CHUNK_AUTHENTICATION_FAILED', 4)
   }
 }
+export async function verifyBackupChunks(options: VerifyBackupOptions, artifact: VerifiedBackup, chunks: Chunk[]): Promise<void> {
+  const ownWorkspace = !options.schemaInspector && !options.workspace ? await mkdtemp(join(tmpdir(),'om-backup-verify-')) : undefined
+  const inspector = options.schemaInspector ?? createPostgresSchemaInspector({ workspace: options.workspace ?? ownWorkspace!, binariesDir: options.binariesDir ?? process.env.OM_BACKUP_BINARIES_DIR ?? '', maxStagingBytes: options.maxStagingBytes, signal: options.signal })
+  const totals = new Map<string,{rows:bigint;chunks:number}>()
+  const completed = new Map<string,{rows:bigint;bytes:bigint;chunks:number}>()
+  for(const chunk of chunks) if(chunk.entityKey){const total=totals.get(chunk.entityKey)??{rows:0n,chunks:0};total.rows+=BigInt(chunk.rows);total.chunks++;totals.set(chunk.entityKey,total)}
+  const runId=artifact.manifest.backupId
+  options.progress?.({schemaVersion:1,type:'run.started',runId,phase:'verify',rowsDone:'0',rowsTotal:'0',rowsTotalExact:true,bytesDone:'0',chunksDone:0,chunksTotal:chunks.length,at:new Date().toISOString()})
+  try {
+    for (const chunk of chunks) {
+      if(chunk.section) await inspector(verifiedChunk(options,artifact.manifest,chunk),artifact.manifest.serverMajor)
+      else for await (const block of authenticatedChunk(options, artifact.manifest, chunk)) { checkAbort(options.signal); void block }
+      if(chunk.entityKey){
+        const done=completed.get(chunk.entityKey)??{rows:0n,bytes:0n,chunks:0};done.rows+=BigInt(chunk.rows);done.bytes+=BigInt(chunk.cipherBytes);done.chunks++;completed.set(chunk.entityKey,done)
+        const total=totals.get(chunk.entityKey)!
+        options.progress?.({schemaVersion:1,type:done.chunks===total.chunks?'entity.done':'entity.progress',runId,entity:artifact.index.entities.find((entity)=>entity.key===chunk.entityKey)?.label,rowsDone:String(done.rows),rowsTotal:String(total.rows),rowsTotalExact:true,bytesDone:String(done.bytes),chunksDone:done.chunks,chunksTotal:total.chunks,at:new Date().toISOString()})
+      }
+    }
+    options.progress?.({schemaVersion:1,type:'run.finished',runId,phase:'verify',rowsDone:String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n)),rowsTotal:String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n)),rowsTotalExact:true,bytesDone:artifact.manifest.totalCipherBytes,chunksDone:chunks.length,chunksTotal:chunks.length,at:new Date().toISOString()})
+  } finally {if(ownWorkspace) await rm(ownWorkspace,{recursive:true,force:true})}
+}
+
 export async function verifyBackup(options: VerifyBackupOptions): Promise<VerifiedBackup> {
-  const artifact = await readBackup(options)
-  if (options.metadataOnly) return artifact
-  for (const chunk of artifact.index.chunks) for await (const block of chunk.section ? verifiedChunk(options, artifact.manifest, chunk) : authenticatedChunk(options, artifact.manifest, chunk)) { checkAbort(options.signal); void block }
+  const artifact=await readBackup(options)
+  await verifyBackupChunks(options,artifact,artifact.index.chunks)
   return artifact
 }

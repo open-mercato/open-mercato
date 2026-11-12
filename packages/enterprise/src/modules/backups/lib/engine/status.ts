@@ -1,7 +1,7 @@
 import { readFile, readdir, lstat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { manifestSchema } from './schemas'
-import { privateDirectory, privateFile } from './artifacts'
+import { privateDirectory, privateFile, readBoundedFile } from './artifacts'
 import { BackupError } from './errors'
 
 export async function getBackupStatus(artifact: string) {
@@ -11,7 +11,7 @@ export async function getBackupStatus(artifact: string) {
   if (info) {
     await privateFile(manifestPath)
     if (info.size > 1024 * 1024) throw new BackupError('BACKUP_MANIFEST_LIMIT', 4)
-    const manifest = manifestSchema.parse(JSON.parse(await readFile(manifestPath, 'utf8')))
+    const manifest = manifestSchema.parse(JSON.parse((await readBoundedFile(manifestPath, 1024 * 1024)).toString()))
     return { schemaVersion: 1, status: 'completed', backupId: manifest.backupId, chunkCount: manifest.chunkCount, consistency: manifest.consistency.mode, encryption: manifest.encryption.mode }
   }
   const files = await readdir(artifact)
@@ -20,7 +20,7 @@ export async function getBackupStatus(artifact: string) {
   let heartbeat: string | undefined
   try {
     await privateFile(lockPath)
-    const lock: unknown = JSON.parse(await readFile(lockPath, 'utf8'))
+    const lock: unknown = JSON.parse((await readBoundedFile(lockPath, 4096)).toString())
     if (lock && typeof lock === 'object' && 'heartbeatAt' in lock && typeof lock.heartbeatAt === 'string') heartbeat = lock.heartbeatAt
   } catch { heartbeat = undefined }
   return { schemaVersion: 1, status: 'resumable', heartbeatAt: heartbeat }

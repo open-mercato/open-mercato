@@ -8,6 +8,7 @@ export type DatabaseIdentity = {
 }
 export type SnapshotEvidence = { xmax: string; xipList: string[] }
 export type Entity = {
+  copyFormat?: 'binary' | 'text'
   kind?: 'large-object'
   largeObjectOid?: string
   key: string
@@ -44,6 +45,9 @@ export type Snapshot = {
 export type BackupSource = { open(): Promise<Snapshot>; close(): Promise<void> }
 export type RestoreRun = { runId: string; backupId: string; manifestSha256: string; confirmation: string }
 export type RestoreTarget = {
+  inspectResume?(run: RestoreRun): Promise<boolean>
+  reportState?(): Promise<{ startedAt: string; resumeCount: number }>
+  analyze?(): Promise<void>
   migrationFingerprint?(): Promise<string>
   readCanary?(entity: Entity, check: { field: string; key: Record<string, string> }): Promise<string>
   completeFromReport?(run: RestoreRun & { reportPath: string; targetIdentityDigest: string }): Promise<boolean>
