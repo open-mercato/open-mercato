@@ -118,6 +118,22 @@ A typical definition:
 
 To resume the run, add a subscriber in your module on `documents.review.cleared` that sends the `documents_review_cleared` signal to the matching run — for example by starting runs with a correlation key derived from the document id and sending the signal with `POST /api/workflows/signals`. A review with no blocking findings is cleared at ingest, before the run reaches the wait step, so let your subscriber or your workflow handle that case (for example, check `GET /api/documents/{id}/findings/summary` before waiting).
 
+## Importing Markdown files
+
+Documents you already keep as Markdown (`.md`) can be brought in with their structure intact, so the outline and the section labels on findings work straight away.
+
+1. Open **Documents** and, if you want the documents in a folder, select that folder first.
+2. Select **Import Markdown** and choose one or more `.md`, `.markdown` or plain-text `.txt` files.
+3. With one file, the new document opens when the import finishes. With several, the button shows the progress, the list refreshes, and a message summarizes how many documents were imported and which files were skipped and why.
+
+How the Markdown is converted:
+
+- `#`, `##` and `###` headings become heading 1–3 (the outline lists them); paragraphs, **bold**, *italic*, ~~strikethrough~~, links, bullet, numbered and task lists, tables, block quotes and code blocks keep their formatting.
+- The document title is the text of the first `#` heading. Without one, the file name (without the extension) is used. The heading also stays in the document body, like in the built-in templates.
+- HTML written inside the Markdown is dropped, and links with unsafe schemes (for example `javascript:`) are removed. The editor keeps only the formatting it supports.
+
+Limits: up to 20 files per import and 1 MB per file. Binary or empty files are rejected with a message. Importing needs the permissions to create and edit documents (`documents.create` and `documents.edit`) and edit access to the selected folder.
+
 ## Related
 
 - [Workflows](./workflows/index.mdx), [Activities](./workflows/activities.mdx) and [Signals](./workflows/signals.mdx).
