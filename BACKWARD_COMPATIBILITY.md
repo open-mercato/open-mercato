@@ -771,3 +771,4 @@ STABLE HTTP: private file/image bytes require `attachments.view`. A bridge keeps
 the same-scope read bypass. Public/owner policy stays. [Client/operator migration](UPGRADE_NOTES.md);
 [spec](.ai/specs/2026-11-05-private-attachment-read-permission.md).
 Named human security waiver pending; merge blocked.
+
