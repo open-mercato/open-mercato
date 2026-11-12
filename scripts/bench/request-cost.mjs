@@ -171,7 +171,7 @@ try {
       }),
     }
     const s = report.scenarios[name]
-    console.log(`${name.padEnd(10)} ${JSON.stringify(statuses)} p50=${s.latencyMs.p50.toFixed(1)}ms p95=${s.latencyMs.p95.toFixed(1)}ms queries/req=${s.queriesPerRequest.toFixed(2)} sql/req=${s.sqlMsPerRequest.toFixed(2)}ms distinct=${s.distinctStatements}`)
+    console.log(`${name.padEnd(10)} ${JSON.stringify(s.statuses)} p50=${s.latencyMs.p50.toFixed(1)}ms p95=${s.latencyMs.p95.toFixed(1)}ms queries/req=${s.queriesPerRequest.toFixed(2)} sql/req=${s.sqlMsPerRequest.toFixed(2)}ms distinct=${s.distinctStatements}`)
   }
 
   report.finishedAt = new Date().toISOString()
