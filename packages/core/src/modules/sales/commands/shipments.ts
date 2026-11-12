@@ -377,6 +377,14 @@ function assertOrderPaymentsNotFullyRefunded(
   }
 }
 
+async function lockAndReloadOrder(em: EntityManager, order: SalesOrder): Promise<SalesOrder> {
+  const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+  await lockOrderBeforeLines(em, order)
+  const locked = await findOneWithDecryption(em, SalesOrder, { id: order.id, deletedAt: null, ...scope }, { refresh: true }, scope)
+  if (!locked) throw notFound('sales.shipments.not_found')
+  return locked
+}
+
 async function loadShippedTotals(
   em: EntityManager,
   order: SalesOrder,
@@ -484,7 +492,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       // recalculates the order's fulfilled quantities, so a stale parent must 409
       // before we touch it.
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
-      assertOrderPaymentsNotFullyRefunded(order, translate)
+      assertOrderPaymentsNotFullyRefunded(await lockAndReloadOrder(tx, order), translate)
       if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
         const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
         if (isCancelledOrderStatus(requestedOrderStatus)) {
@@ -658,13 +666,9 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
     await em.transactional(async (tx) => {
-      const order = await findOneWithDecryption(
-        tx,
-        SalesOrder,
-        { id: after.orderId, tenantId: after.tenantId, organizationId: after.organizationId },
-        {},
-        { tenantId: after.tenantId, organizationId: after.organizationId },
-      )
+      const scope = { tenantId: after.tenantId, organizationId: after.organizationId }
+      await lockSalesDocumentRow(tx, 'sales_orders', after.orderId, scope)
+      const order = await findOneWithDecryption(tx, SalesOrder, { id: after.orderId, ...scope }, { refresh: true }, scope)
       if (order) assertOrderPaymentsNotFullyRefunded(order, translate)
       await restoreShipmentSnapshot(tx, after)
       await tx.flush()

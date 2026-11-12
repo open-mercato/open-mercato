@@ -70,7 +70,14 @@ function makeOrder() {
 }
 
 function buildTx() {
+  const lockQuery = {
+    select: () => lockQuery,
+    where: () => lockQuery,
+    forNoKeyUpdate: () => lockQuery,
+    executeTakeFirst: jest.fn().mockResolvedValue({ id: ORDER_ID }),
+  }
   return {
+    getKysely: () => ({ selectFrom: () => lockQuery }),
     findOne: jest.fn().mockResolvedValue(null),
     find: jest.fn().mockResolvedValue([]),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data, id: 'new-id' })),
