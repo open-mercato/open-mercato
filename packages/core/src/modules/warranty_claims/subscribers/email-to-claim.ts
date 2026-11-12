@@ -2,7 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { createOrGetClaimFromInboundMessage } from '../lib/emailIntake'
+import { readSafeDecryptedString } from '../lib/decryptionSafety'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('warranty_claims')
@@ -127,6 +131,37 @@ function readSenderName(record: Record<string, unknown>): string | null {
     ?? readNestedString(record, 'sender', 'name')
 }
 
+async function readStoredEmailBody(
+  record: Record<string, unknown>,
+  ctx: SubscriberContext,
+  scope: { tenantId: string; organizationId: string },
+): Promise<string | null> {
+  const emailId = readString(record, 'emailId')
+  const entityId = getEntityIds(false).inbox_ops?.inbox_email
+  if (!emailId || !entityId) return null
+  const queryEngine = tryResolve<QueryEngine>(ctx, 'queryEngine')
+  if (!queryEngine) return null
+
+  try {
+    const result = await queryEngine.query<Record<string, unknown>>(entityId as EntityId, {
+      ...scope,
+      filters: {
+        id: emailId,
+        tenant_id: scope.tenantId,
+        organization_id: scope.organizationId,
+        deleted_at: null,
+      },
+      fields: ['id', 'cleaned_text', 'raw_text', 'tenant_id', 'organization_id'],
+      page: { page: 1, pageSize: 1 },
+    })
+    const email = toRecord(result.items[0])
+    const body = readSafeDecryptedString(email.cleaned_text) ?? readSafeDecryptedString(email.raw_text)
+    return body?.slice(0, 8000) ?? null
+  } catch {
+    return null
+  }
+}
+
 export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
   const record = toRecord(payload)
   const tenantId = ctx.tenantId ?? null
@@ -159,6 +194,8 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
   try {
     const container = resolveContainer(ctx)
     const em = container.resolve<EntityManager>('em').fork()
+    const body = readFirstString(record, ['body', 'bodyText', 'text', 'cleanedText', 'rawText'])
+      ?? await readStoredEmailBody(record, ctx, { tenantId, organizationId })
     await createOrGetClaimFromInboundMessage({
       em,
       container,
@@ -166,10 +203,11 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       contactEmail,
       customerName: readSenderName(record),
       subject: readFirstString(record, ['subject', 'title']),
-      body: readFirstString(record, ['body', 'bodyText', 'text', 'cleanedText', 'rawText']),
+      body,
       intakeMessageRef,
     })
   } catch (err) {
     logger.warn('[warranty_claims:email-to-claim] failed to create warranty claim from inbound email', { err })
+    throw err
   }
 }

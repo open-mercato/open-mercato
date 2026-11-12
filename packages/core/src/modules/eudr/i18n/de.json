@@ -745,6 +745,7 @@
   "eudr.supplierPanel.warnings": "Mit Warnungen",
   "eudr.warnings.harvestBeforeCutoff": "Ernte vor dem EUDR-Stichtag",
   "eudr.warnings.speciesMissing": "Bei einer verknüpften Holz-Zuordnung fehlt der wissenschaftliche oder gebräuchliche Artname",
+  "notifications.categories.eudr": "EUDR",
   "search.entityType.eudr.eudr_due_diligence_statement": "DDS-Erklärung",
   "search.entityType.eudr.eudr_evidence_submission": "Nachweiseinreichung",
   "search.entityType.eudr.eudr_plot": "Parzelle"

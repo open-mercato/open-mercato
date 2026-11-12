@@ -151,6 +151,37 @@ function assertTargetTenantInScope(actorTenantScope: string | null, targetTenant
   }
 }
 
+async function assertCommandActorCanAssignUserDestination(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  destination: { destinationTenantId: string | null; destinationOrganizationId: string; roles: Role[] },
+): Promise<void> {
+  const rbacService = ctx.container.resolve('rbacService') as RbacService
+  const actorIsSuperAdmin = ctx.systemActor === true || ctx.auth?.isSuperAdmin === true
+  const organizationScope = ctx.organizationScope?.tenantId === destination.destinationTenantId
+    ? ctx.organizationScope
+    : !actorIsSuperAdmin && ctx.auth?.sub && destination.destinationTenantId
+      ? await resolveOrganizationScope({
+          em,
+          rbac: rbacService,
+          auth: ctx.auth,
+          tenantId: destination.destinationTenantId,
+        })
+      : null
+  await assertActorCanAssignUserDestination({
+    em,
+    rbacService,
+    actorUserId: ctx.auth?.sub,
+    actorIsSuperAdmin,
+    tenantId: ctx.auth?.tenantId ?? null,
+    organizationId: ctx.auth?.orgId ?? null,
+    allowedOrganizationIds: organizationScope?.allowedIds,
+    destinationTenantId: destination.destinationTenantId,
+    destinationOrganizationId: destination.destinationOrganizationId,
+    roles: destination.roles,
+  })
+}
+
 const passwordSchema = buildPasswordSchema()
 
 const displayNameSchema = z.preprocess(
@@ -283,6 +314,15 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
     const tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
     assertTargetTenantInScope(resolveActorTenantScope(ctx), tenantId, 'Organization not found')
+    await assertCommandActorCanAssignUserDestination(ctx, em, {
+      destinationTenantId: tenantId,
+      destinationOrganizationId: parsed.organizationId,
+      roles: await resolveUserDestinationRoles({
+        em,
+        destinationTenantId: tenantId,
+        roleTokens: parsed.roles ?? [],
+      }),
+    })
 
     const emailHash = computeEmailHash(parsed.email)
     // Email is unique per-tenant, not globally (see Migration20260610120000:
@@ -299,32 +339,35 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     }
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    let user: User
-    try {
-      user = await de.createOrmEntity({
-        entity: User,
-        data: {
-          email: parsed.email,
-          name: parsed.name,
-          emailHash,
-          passwordHash,
-          isConfirmed: true,
-          organizationId: parsed.organizationId,
-          tenantId,
-        },
-      })
-    } catch (error) {
-      if (isUniqueViolation(error)) await throwDuplicateEmailError()
-      throw error
-    }
-
+    let user!: User
     let assignedRoles: string[] = []
-    if (Array.isArray(parsed.roles) && parsed.roles.length) {
-      await withAtomicFlush(em, [
-        async () => syncUserRoles(em, user, parsed.roles ?? [], tenantId),
-      ], { transaction: true, label: 'auth.users.create.roles' })
-      assignedRoles = await loadUserRoleNames(em, String(user.id))
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        try {
+          user = await de.createOrmEntity({
+            entity: User,
+            data: {
+              email: parsed.email,
+              name: parsed.name,
+              emailHash,
+              passwordHash,
+              isConfirmed: true,
+              organizationId: parsed.organizationId,
+              tenantId,
+            },
+          })
+        } catch (error) {
+          if (isUniqueViolation(error)) await throwDuplicateEmailError()
+          throw error
+        }
+      },
+      async () => {
+        if (Array.isArray(parsed.roles) && parsed.roles.length) {
+          await syncUserRoles(em, user, parsed.roles, tenantId)
+          assignedRoles = await loadUserRoleNames(em, String(user.id))
+        }
+      },
+    ], { transaction: true, label: 'auth.users.create' })
 
     await setCustomFieldsIfAny({
       dataEngine: de,
@@ -691,32 +734,13 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       const currentTenantId = currentUser.tenantId ? String(currentUser.tenantId) : null
       destinationChanged = currentOrganizationId !== parsed.organizationId || currentTenantId !== tenantId
       if (destinationChanged) {
-        const rbacService = ctx.container.resolve('rbacService') as RbacService
         const destinationRoles = await resolveUserDestinationRoles({
           em,
           targetUserId: parsed.id,
           destinationTenantId: tenantId,
           roleTokens: parsed.roles,
         })
-        const actorIsSuperAdmin = ctx.systemActor === true || ctx.auth?.isSuperAdmin === true
-        const organizationScope = ctx.organizationScope?.tenantId === tenantId
-          ? ctx.organizationScope
-          : !actorIsSuperAdmin && ctx.auth?.sub
-            ? await resolveOrganizationScope({
-                em,
-                rbac: rbacService,
-                auth: ctx.auth,
-                tenantId,
-              })
-            : null
-        await assertActorCanAssignUserDestination({
-          em,
-          rbacService,
-          actorUserId: ctx.auth?.sub,
-          actorIsSuperAdmin,
-          tenantId: ctx.auth?.tenantId ?? null,
-          organizationId: ctx.auth?.orgId ?? null,
-          allowedOrganizationIds: organizationScope?.allowedIds,
+        await assertCommandActorCanAssignUserDestination(ctx, em, {
           destinationTenantId: tenantId,
           destinationOrganizationId: parsed.organizationId,
           roles: destinationRoles,
@@ -1619,6 +1643,11 @@ async function resolveRole(
   return findOneWithDecryption(em, Role, { name: value, tenantId: normalizedTenantId }, {}, { tenantId: normalizedTenantId, organizationId: null })
 }
 
+function throwRolesNotFound(values: string[]): never {
+  const labels = values.map((n) => `"${n}"`).join(', ')
+  throw new CrudHttpError(400, { error: `Role(s) not found: ${labels}` })
+}
+
 async function syncUserRoles(
   em: EntityManager,
   user: User,
@@ -1631,6 +1660,7 @@ async function syncUserRoles(
   const normalizedTenantId = normalizeTenantId(tenantId ?? null) ?? null
 
   const resolvedRoles: Role[] = []
+  const resolvedValues = new Map<string, string>()
   const missingRoles: string[] = []
   for (const value of unique) {
     const role = await resolveRole(em, value, normalizedTenantId)
@@ -1638,13 +1668,11 @@ async function syncUserRoles(
       missingRoles.push(value)
     } else {
       resolvedRoles.push(role)
+      resolvedValues.set(String(role.id), value)
     }
   }
 
-  if (missingRoles.length) {
-    const labels = missingRoles.map((n) => `"${n}"`).join(', ')
-    throw new CrudHttpError(400, { error: `Role(s) not found: ${labels}` })
-  }
+  if (missingRoles.length) throwRolesNotFound(missingRoles)
 
   const discoveredLinks = await findWithDecryption(
     em,
@@ -1663,10 +1691,29 @@ async function syncUserRoles(
       roleIds: [...desiredIds, ...discoveredRoleIds],
     })
   }
+  if (desiredIds.size) {
+    const lockedRoles = await findWithDecryption(
+      em,
+      Role,
+      { id: { $in: [...desiredIds] } } as FilterQuery<Role>,
+      { refresh: true },
+      { tenantId: null, organizationId: null },
+    )
+    const validRoleIds = new Set(
+      lockedRoles
+        .filter((role) => role.deletedAt == null)
+        .filter((role) => normalizedTenantId === null || normalizeTenantId(role.tenantId ?? null) === normalizedTenantId)
+        .map((role) => String(role.id)),
+    )
+    const driftedRoleIds = [...desiredIds].filter((roleId) => !validRoleIds.has(roleId))
+    if (driftedRoleIds.length) {
+      throwRolesNotFound(driftedRoleIds.map((roleId) => resolvedValues.get(roleId) ?? roleId))
+    }
+  }
   const currentLinks = await findWithDecryption(
     em,
     UserRole,
-    { user },
+    { user, deletedAt: null, role: { deletedAt: null } } as FilterQuery<UserRole>,
     { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
     { tenantId: null, organizationId: null },
   )
@@ -1696,7 +1743,11 @@ async function loadUserRoleNames(em: EntityManager, userId: string): Promise<str
   const links = await findWithDecryption(
     em,
     UserRole,
-    { user: userId as unknown as User },
+    {
+      user: userId as unknown as User,
+      deletedAt: null,
+      role: { deletedAt: null },
+    } as FilterQuery<UserRole>,
     { populate: ['role'] },
     { tenantId: null, organizationId: null },
   )
@@ -1743,7 +1794,7 @@ function captureUserSnapshots(
 }
 
 async function loadUserAclSnapshots(em: EntityManager, userId: string): Promise<UserAclSnapshot[]> {
-  const list = await findWithDecryption(em, UserAcl, { user: userId as unknown as User }, {}, { tenantId: null, organizationId: null })
+  const list = await findWithDecryption(em, UserAcl, { user: userId as unknown as User, deletedAt: null }, {}, { tenantId: null, organizationId: null })
   return list.map((acl) => ({
     tenantId: String(acl.tenantId),
     features: Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : null,

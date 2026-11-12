@@ -158,6 +158,11 @@ Use the official [Standard Webhooks libraries](https://github.com/standard-webho
 
 ## Retry Behavior
 
+Each attempt is sent by one worker: before sending, the worker claims the delivery (`pending` once its
+retry is due, or `sending` left over by a worker that stopped more than the webhook timeout + 15 s ago),
+and jobs for deliveries that already finished are ignored. Receivers should still deduplicate on the
+`webhook-id` header, because delivery is at-least-once.
+
 Failed deliveries are retried with exponential backoff. The delay before attempt *n* is
 `1s × 2^(n-2)` plus up to 1s of jitter (`calculateNextRetry` in `lib/delivery.ts`):
 
@@ -190,7 +195,7 @@ an expired delivery.
 
 **Non-retryable responses**: HTTP 4xx (except 408 and 429) are not retried.
 
-**Auto-disable**: After a configurable number of consecutive failures (default: 100), the webhook is automatically disabled. HTTP 410 (Gone) responses immediately disable the webhook.
+**Auto-disable**: After a configurable number of consecutive failures (default: 100), the webhook is automatically disabled. HTTP 410 (Gone) responses immediately disable the webhook. Re-activating a disabled webhook resets its consecutive-failure counter, so it gets the full threshold again.
 
 ## Key Rotation
 

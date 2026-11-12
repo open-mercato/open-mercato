@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
@@ -227,9 +228,10 @@ const createDistributionCommand: CommandHandler<FormDistributionCreateCommandInp
     return distribution ? serializeDistributionSnapshot(distribution) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const after = snapshots.after as FormDistributionSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.distribution.create',
+      actionLabel: translate('forms.audit.distribution.create', 'Create distribution'),
       resourceKind: FORM_DISTRIBUTION_RESOURCE_KIND,
       resourceId: result.distributionId,
       tenantId: after?.tenantId ?? null,
@@ -362,10 +364,11 @@ const updateDistributionCommand: CommandHandler<FormDistributionUpdateCommandInp
     return distribution ? serializeDistributionSnapshot(distribution) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormDistributionSnapshot | undefined
     const after = snapshots.after as FormDistributionSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.distribution.update',
+      actionLabel: translate('forms.audit.distribution.update', 'Update distribution'),
       resourceKind: FORM_DISTRIBUTION_RESOURCE_KIND,
       resourceId: result.distributionId,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
@@ -458,10 +461,11 @@ const closeDistributionCommand: CommandHandler<FormDistributionCloseCommandInput
     return distribution ? serializeDistributionSnapshot(distribution) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormDistributionSnapshot | undefined
     const after = snapshots.after as FormDistributionSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.distribution.close',
+      actionLabel: translate('forms.audit.distribution.close', 'Close distribution'),
       resourceKind: FORM_DISTRIBUTION_RESOURCE_KIND,
       resourceId: result.distributionId,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
