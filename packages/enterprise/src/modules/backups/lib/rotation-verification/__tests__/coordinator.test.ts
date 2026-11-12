@@ -222,3 +222,28 @@ test('failure reports include only authenticated aggregates from the current ver
   await expect(createEnterpriseRotationProtection(early.options).protect(early.context, async () => {})).rejects.toThrow('fence lost')
   expect(earlyReport.mock.calls[0]![4]).toEqual({ elapsedMs: expect.any(Number) })
 })
+
+
+test.each(['run identity', 'database binding'])('an unadmitted resume with a different %s cannot rewrite trusted state or publish a failed run', async mismatch => {
+  const { options, context } = fixture()
+  await createEnterpriseRotationProtection(options).protect(context, async () => {})
+  const record = (await readdir(options.trustRoot)).find(name => name.endsWith('.json'))!
+  const id = record.slice(0, -5); const statePath = join(options.trustRoot, record)
+  if (mismatch === 'run identity') {
+    const candidate = JSON.parse(await readFile(statePath, 'utf8'))
+    candidate.id = '00000000-0000-4000-8000-000000000001'
+    await writeFile(statePath, JSON.stringify(candidate), { mode: 0o600 })
+  } else {
+    const dataset = options.dataset
+    options.dataset = async (...args) => {
+      const original = await dataset(...args)
+      return { ...original, async binding() { return { ...await original.binding(), database: 'different-database' } } }
+    }
+  }
+  const before = await readFile(statePath)
+  const reportFailure = jest.fn(); const operation = jest.fn()
+  await expect(createEnterpriseRotationProtection({ ...options, resumeId: id, reportFailure }).protect(context, operation)).rejects.toThrow('ROTATION_RESUME_INVALID')
+  expect(await readFile(statePath)).toEqual(before)
+  expect(operation).not.toHaveBeenCalled()
+  expect(reportFailure).not.toHaveBeenCalled()
+})

@@ -86,9 +86,13 @@ export async function assertPostgresRotationAdmission(context: RotationProtectio
     if (!Array.isArray(result)) throw new Error('[internal] ROTATION_DATABASE_INVALID')
     return result as Row[]
   }
+    const catalog = await query<{ first: boolean }>("SELECT (pg_catalog.current_schemas(true))[1] OPERATOR(pg_catalog.=) 'pg_catalog'::pg_catalog.name AS first")
+    if (catalog[0]?.first !== true) throw new Error('[internal] ROTATION_CATALOG_RESOLUTION_UNSUPPORTED')
     const role = await query<{ visible: boolean; superuser: boolean }>('SELECT rolsuper AS superuser, (rolsuper OR rolbypassrls) AS visible FROM pg_roles WHERE rolname = current_user')
     if (role[0]?.visible !== true) throw new Error('[internal] ROTATION_RLS_VISIBILITY_UNPROVEN')
     if (role[0]?.superuser !== true) throw new Error('[internal] ROTATION_SUPERUSER_MAINTENANCE_REQUIRED')
+    const shadowed = await query("SELECT 1 FROM (VALUES ('encryption_maps'),('custom_field_defs'),('custom_entities_storage')) relations(name) WHERE to_regclass(name) IS DISTINCT FROM to_regclass('public.' || name) LIMIT 1")
+    if (shadowed.length) throw new Error('[internal] ROTATION_RELATION_RESOLUTION_UNSUPPORTED')
     const admission = await query<{ connection_limit: string }>("SELECT datconnlimit::text AS connection_limit FROM pg_database WHERE datname=current_database()")
     if (admission[0]?.connection_limit !== '0') throw new Error('[internal] ROTATION_DATABASE_ADMISSION_FENCE_REQUIRED')
     const subscriptions = await query("SELECT 1 FROM pg_subscription WHERE subdbid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND subenabled LIMIT 1")

@@ -183,4 +183,40 @@ native('real Core CLI handler with Enterprise DI and native PostgreSQL', () => {
     expect(files.some(name => /[.]failure[.].+[.]json$/.test(name))).toBe(true)
   }, 60000)
 
+  test('protected default-schema Core mapping ignores a search-path shadow and verifies the public relation', async () => {
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const source = (await createDerivedKeyKmsService(sourceSecret).getTenantDek(tenantId))!.key
+    const target = (await createDerivedKeyKmsService(targetSecret).getTenantDek(tenantId))!.key
+    const em = orm.em.fork()
+    const recordId = randomUUID()
+    const publicCiphertext = encryptWithAesGcm('public-already-target', target).value
+    const shadowCiphertext = encryptWithAesGcm('shadow-must-stay-untouched', source).value
+    const metadata = orm.getMetadata().get(CliFixtureRecord)
+    expect(metadata.schema).toBeUndefined()
+    await em.execute('INSERT INTO public.cli_fixture_records VALUES(?,?,?,?,NULL,?::jsonb)', [recordId, tenantId, organizationId, publicCiphertext, '{}'])
+    await em.execute('CREATE SCHEMA rotation_shadow')
+    await em.execute('CREATE TABLE rotation_shadow.cli_fixture_records (LIKE public.cli_fixture_records INCLUDING ALL)')
+    await em.execute('INSERT INTO rotation_shadow.cli_fixture_records VALUES(?,?,?,?,NULL,?::jsonb)', [recordId, tenantId, organizationId, shadowCiphertext, '{}'])
+    em.persist(em.create(EncryptionMap, { id: randomUUID(), createdAt: new Date(), updatedAt: new Date(), entityId: 'test:cli_record', tenantId, organizationId, fieldsJson: [{ field: 'secret' }], isActive: true }))
+    await em.flush()
+    await em.execute('SET search_path TO rotation_shadow, public')
+    // Prove the same session would select the shadow without qualification.
+    expect((await em.execute('SELECT secret FROM cli_fixture_records WHERE id=?', [recordId]))[0].secret).toBe(shadowCiphertext)
+    Object.assign(process.env, await runtimeEnvironment(), { TENANT_DATA_ENCRYPTION: 'yes', TENANT_DATA_ENCRYPTION_OLD_KEY: sourceSecret, TENANT_DATA_ENCRYPTION_KEY: targetSecret, OM_ROTATION_PROGRESS: 'none' })
+    delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+    mockContainer = createContainer()
+    mockContainer.register({ em: asValue(em) }); register(mockContainer)
+    const cli = require('@open-mercato/core/modules/entities/cli').default as Array<{ command: string; run(args: string[]): Promise<void> }>
+    await cli.find(command => command.command === 'rotate-encryption-key')!.run(['--tenant', tenantId, '--org', organizationId])
+    expect((await em.execute('SELECT secret FROM public.cli_fixture_records WHERE id=?', [recordId]))[0].secret).toBe(publicCiphertext)
+    expect((await em.execute('SELECT secret FROM rotation_shadow.cli_fixture_records WHERE id=?', [recordId]))[0].secret).toBe(shadowCiphertext)
+    const files = await readdir(process.env.OM_ROTATION_TRUST_ROOT!)
+    const reports = files.filter(name => name.endsWith('.report.json'))
+    expect(reports).toHaveLength(1)
+    const report = JSON.parse(await readFile(join(process.env.OM_ROTATION_TRUST_ROOT!, reports[0]!), 'utf8'))
+    expect(report).toMatchObject({ status: 'passed', expectedRows: '1', comparedRows: '1' })
+    expect(files.some(name => /[.]failure[.].+[.]json$/.test(name))).toBe(false)
+  }, 60000)
+
 })

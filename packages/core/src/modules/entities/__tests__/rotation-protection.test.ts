@@ -45,4 +45,30 @@ describe('rotation protection preflight', () => {
     expect(service.protect).not.toHaveBeenCalled();expect(operation).not.toHaveBeenCalled()
   })
 
+  test.each([
+    { label: 'empty NO_COLOR', tty: true, noColor: '', term: 'xterm', colored: false },
+    { label: 'nonempty NO_COLOR', tty: true, noColor: '1', term: 'xterm', colored: false },
+    { label: 'dumb terminal', tty: true, noColor: undefined, term: 'dumb', colored: false },
+    { label: 'non-terminal', tty: false, noColor: undefined, term: 'xterm', colored: false },
+    { label: 'ordinary terminal', tty: true, noColor: undefined, term: 'xterm', colored: true },
+  ])('formats the refusal correctly for $label', async setting => {
+    const previousNoColor = process.env.NO_COLOR; const previousTerm = process.env.TERM
+    const descriptor = Object.getOwnPropertyDescriptor(process.stderr, 'isTTY')
+    Object.defineProperty(process.stderr, 'isTTY', { configurable: true, value: setting.tty })
+    if (setting.noColor === undefined) delete process.env.NO_COLOR
+    else process.env.NO_COLOR = setting.noColor
+    process.env.TERM = setting.term
+    try {
+      await expect(protectKeyRotation(context, undefined, undefined, jest.fn())).rejects.toThrow('acknowledgmentRequired')
+      expect(String(error.mock.calls[0][0]).includes('\u001b[31m')).toBe(setting.colored)
+    } finally {
+      if (descriptor) Object.defineProperty(process.stderr, 'isTTY', descriptor)
+      else delete (process.stderr as { isTTY?: boolean }).isTTY
+      if (previousNoColor === undefined) delete process.env.NO_COLOR
+      else process.env.NO_COLOR = previousNoColor
+      if (previousTerm === undefined) delete process.env.TERM
+      else process.env.TERM = previousTerm
+    }
+  })
+
 })

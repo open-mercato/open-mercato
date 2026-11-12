@@ -6,6 +6,8 @@ import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createDerivedKeyKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { readMaintenanceBatches, writeMaintenanceRow, verifyMaintenanceBatch } from '@open-mercato/core/modules/entities/lib/rotation-maintenance'
+import type { RotationKeyProviders } from '@open-mercato/shared/lib/encryption/rotationProtection'
 import { rotateCustomEntityDocuments } from '@open-mercato/core/modules/entities/lib/rotate-custom-entity-documents'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createConfiguredRotationProtection } from '../runtime'
@@ -60,8 +62,8 @@ native('native PostgreSQL persisted verification', () => {
     await administrator.end()
     await rm(directory, { recursive: true, force: true })
   })
-  test('installed ORM cancels an in-flight statement and releases its connection within fifteen seconds', async () => {
-    const orm = await MikroORM.init({ clientUrl: base.toString(), entities: [], discovery: { warnWhenNoEntities: false }, pool: { min: 0, max: 2 } })
+  test.each([1, 2])('installed ORM cancels an in-flight statement and releases its connection within fifteen seconds with pool maximum %i', async poolMaximum => {
+    const orm = await MikroORM.init({ clientUrl: base.toString(), entities: [], discovery: { warnWhenNoEntities: false }, pool: { min: 0, max: poolMaximum } })
     const controller = new AbortController(); const started = Date.now()
     const timer = setTimeout(() => controller.abort(), 250)
     try {
@@ -181,6 +183,34 @@ native('native PostgreSQL persisted verification', () => {
     expect(frontier['Node Type']).toBe('Limit')
     expect(frontier['Actual Rows']).toBe(8)
   })
+  test.each(['late pg_catalog', 'temporary schema'])('catalog %s shadowing refuses before any fence proof is trusted', async kind => {
+    if (kind === 'late pg_catalog') await client.query('CREATE SCHEMA rotation_catalog_shadow; CREATE VIEW rotation_catalog_shadow.pg_roles AS SELECT * FROM pg_catalog.pg_roles; SET search_path=rotation_catalog_shadow,pg_catalog,public')
+    else await client.query('CREATE TEMP TABLE pg_roles (rolsuper boolean)')
+    const context = await inputContext(); const original = context.entityManager.getConnection()
+    const queries: string[] = []
+    context.entityManager.getConnection = () => ({ execute: async (sql: string, parameters: unknown[]) => {
+      queries.push(sql); return original.execute(sql, parameters)
+    } }) as ReturnType<EntityManager['getConnection']>
+    await expect(createPostgresRotationDataset({ context, providers: { previousKms: createDerivedKeyKmsService(sourceSecret), kms: createDerivedKeyKmsService(targetSecret) }, provider: 'explicit', backupDigest: 'a'.repeat(64) })).rejects.toThrow('ROTATION_CATALOG_RESOLUTION_UNSUPPORTED')
+    expect(queries).toHaveLength(1)
+    expect(queries[0]).toContain('pg_catalog.current_schemas(true)')
+    expect(queries[0]).not.toContain('FROM pg_roles')
+  })
+  test('search-path shadow control/storage relations refuse before backup or mutation', async () => {
+    await customFixture(false)
+    await client.query('CREATE SCHEMA rotation_shadow; CREATE TABLE rotation_shadow.custom_entities_storage (LIKE public.custom_entities_storage INCLUDING ALL); CREATE TABLE rotation_shadow.custom_field_defs (LIKE public.custom_field_defs INCLUDING ALL); INSERT INTO rotation_shadow.custom_entities_storage SELECT * FROM public.custom_entities_storage; INSERT INTO rotation_shadow.custom_field_defs SELECT * FROM public.custom_field_defs')
+    await client.query("UPDATE public.custom_entities_storage SET doc=jsonb_set(doc,'{secret}',to_jsonb($1::text))", [encryptWithAesGcm('dynamic-secret', target).value])
+    await client.query('SET search_path=rotation_shadow,public')
+    const environment = await runtimeEnvironment(); const context = await inputContext()
+    const operation = jest.fn(async (providers) => {
+      await rotate()
+      await rotateCustomEntityDocuments(context.entityManager, { tenantId, organizationId: null, dryRun: false, oldKms: providers.previousKms, encryptionService: new TenantDataEncryptionService(context.entityManager, { kms: providers.kms }), timestampForBatchWrite: providers.timestampForBatchWrite, resumeCursor: providers.resumeCursor, checkpointBatch: providers.checkpointBatch })
+    })
+    await expect(createConfiguredRotationProtection(environment).protect(context, operation)).rejects.toThrow('ROTATION_RELATION_RESOLUTION_UNSUPPORTED')
+    expect(operation).not.toHaveBeenCalled()
+    const shadow = (await client.query("SELECT doc->>'secret' AS secret FROM rotation_shadow.custom_entities_storage")).rows[0].secret
+    expect(decryptWithAesGcm(shadow, source)).toBe('dynamic-secret')
+  }, 60000)
   test('production protection covers custom JSON and exact authenticated timestamp batches through the real Core helper', async () => {
     await customFixture()
     const environment = await runtimeEnvironment(); const context = await inputContext()
@@ -411,8 +441,9 @@ native('native PostgreSQL persisted verification', () => {
     const execute = jest.spyOn(context.entityManager, 'execute'); const mutate = jest.fn()
     await expect(createConfiguredRotationProtection(environment).protect(context, mutate)).rejects.toThrow('ADMISSION_FENCE_REQUIRED')
     const queries = execute.mock.calls.map(call => String(call[0]))
-    expect(queries[0]).toContain('FROM pg_roles')
-    expect(queries.some(query => /encryption_maps|custom_entities_storage|custom_field_defs/.test(query))).toBe(false)
+    expect(queries[0]).toContain('pg_catalog.current_schemas(true)')
+    expect(queries[1]).toContain('FROM pg_roles')
+    expect(queries.some(query => /\b(?:FROM|JOIN)\s+(?:public\.)?(?:encryption_maps|custom_entities_storage|custom_field_defs)\b/i.test(query))).toBe(false)
     expect(mutate).not.toHaveBeenCalled()
   })
   test('refuses an enabled logical-replication subscription before probing or mutating rows', async () => {
@@ -473,6 +504,87 @@ native('native PostgreSQL persisted verification', () => {
       await expect(dataset(restricted)).rejects.toThrow('ROTATION_RLS_VISIBILITY_UNPROVEN')
     } finally { await restricted.end(); await client.query(`DROP OWNED BY "${role}"; DROP ROLE "${role}"`) }
   })
+  async function compositeCodecFixture() {
+    await client.query(`DROP TABLE fixture_records;
+      CREATE TABLE fixture_records(bucket text NOT NULL, ordinal bigint NOT NULL, tenant_id uuid NOT NULL, organization_id uuid,
+        secret text, payload bytea, labels text[], stamp timestamptz, wall timestamp, exact numeric, deleted_at timestamptz,
+        PRIMARY KEY(bucket,ordinal))`)
+    for (const bucket of ['a', 'z']) for (let index = 0; index < 11; index++) {
+      const ordinal = (9007199254740993n + BigInt(index)).toString()
+      await client.query('INSERT INTO fixture_records VALUES($1,$2,$3,NULL,$4,$5,$6,$7,$8,$9,$10)', [
+        bucket, ordinal, tenantId, encryptWithAesGcm(`codec-${bucket}-${ordinal}`, source).value,
+        Buffer.from([0, 255, 34, 92, index]), ['comma,value', 'quote"slash\\', null, '日本語', String(index)],
+        '2026-01-02 03:04:05.123456+01', '2026-02-03 04:05:06.654321', '9007199254740993.123456789000000001',
+        bucket === 'z' && index === 10 ? '2026-03-04 05:06:07.987654+00' : null,
+      ])
+    }
+    await client.query("SET TIME ZONE 'UTC'")
+    const context = await inputContext()
+    context.entityManager.getMetadata = (() => ({ getAll: () => [{ className: 'FixtureRecord', tableName: 'fixture_records', schema: 'public', primaryKeys: ['bucket', 'ordinal'], properties: {
+      bucket: { name: 'bucket', fieldNames: ['bucket'] }, ordinal: { name: 'ordinal', fieldNames: ['ordinal'] }, secret: { name: 'secret', fieldNames: ['secret'] },
+    } }] })) as unknown as EntityManager['getMetadata']
+    return context
+  }
+  const codecProjection = `SELECT bucket, ordinal::text, encode(payload,'hex') AS payload, array_to_json(labels)::text AS labels,
+    stamp::text, wall::text, exact::text, deleted_at::text FROM fixture_records ORDER BY bucket,ordinal`
+  async function rotateCompositeCodec(context: Awaited<ReturnType<typeof inputContext>>, providers: RotationKeyProviders) {
+    const previous = await providers.previousKms?.getTenantDek(tenantId)
+    const current = await providers.kms.getTenantDek(tenantId)
+    if (!previous || !current) throw new Error('Missing pinned fixture key')
+    const connection = context.entityManager.getConnection()
+    const scope = { tenantId, organizationId: null }
+    const batches: number[] = []; const identities: string[][] = []
+    for await (const batch of readMaintenanceBatches(connection, '"public"."fixture_records"', ['secret'], ['bucket', 'ordinal'], scope, 8)) {
+      batches.push(batch.length)
+      const writes = []
+      for (const row of batch) {
+        identities.push([String(row.bucket), String(row.ordinal)])
+        const plaintext = decryptWithAesGcm(String(row.secret), previous.key)
+        if (plaintext === null) throw new Error('Missing synthetic source key')
+        const updates = { secret: encryptWithAesGcm(plaintext, current.key).value }
+        await writeMaintenanceRow(connection, '"public"."fixture_records"', ['bucket', 'ordinal'], row, updates, scope)
+        writes.push({ row, updates })
+      }
+      await verifyMaintenanceBatch(connection, '"public"."fixture_records"', ['bucket', 'ordinal'], writes, scope)
+    }
+    expect(batches).toEqual([8, 8, 6])
+    expect(new Set(identities.map(value => JSON.stringify(value))).size).toBe(22)
+    expect(identities).toEqual(['a', 'z'].flatMap(bucket => Array.from({ length: 11 }, (_, index) => [bucket, (9007199254740993n + BigInt(index)).toString()])))
+  }
+  test('protected native composite PK and bytea/array/microsecond codecs survive real maintenance batches and final scan', async () => {
+    const context = await compositeCodecFixture()
+    const expected = (await client.query(codecProjection)).rows
+    const environment = await runtimeEnvironment()
+    await createConfiguredRotationProtection(environment).protect(context, async providers => { if (!providers) throw new Error('Expected pinned protection'); await rotateCompositeCodec(context, providers) })
+    expect((await client.query(codecProjection)).rows).toEqual(expected)
+    const rows = (await client.query('SELECT bucket,ordinal::text,secret FROM fixture_records ORDER BY bucket,ordinal')).rows
+    for (const row of rows) {
+      expect(decryptWithAesGcm(row.secret, target)).toBe(`codec-${row.bucket}-${row.ordinal}`)
+      expect(decryptWithAesGcm(row.secret, source)).toBeNull()
+    }
+    const names = await readdir(environment.OM_ROTATION_TRUST_ROOT!)
+    const report = JSON.parse(await readFile(join(environment.OM_ROTATION_TRUST_ROOT!, names.find(name => name.endsWith('.report.json'))!), 'utf8'))
+    expect(report).toMatchObject({ status: 'passed', comparedRows: '22' })
+    expect(names).not.toContain('rotation.lock')
+  }, 60000)
+  test.each(['bytea', 'array', 'timestamp', 'missing-row', 'unavailable-key'] as const)('protected native composite late %s corruption refuses a success report', async corruption => {
+    const context = await compositeCodecFixture()
+    const environment = await runtimeEnvironment()
+    await expect(createConfiguredRotationProtection(environment).protect(context, async providers => {
+      if (!providers) throw new Error('Expected pinned protection')
+      await rotateCompositeCodec(context, providers)
+      const identity = ['z', '9007199254741003']
+      if (corruption === 'bytea') await client.query("UPDATE fixture_records SET payload=decode('00deadff','hex') WHERE bucket=$1 AND ordinal=$2", identity)
+      if (corruption === 'array') await client.query('UPDATE fixture_records SET labels=$3 WHERE bucket=$1 AND ordinal=$2', [...identity, ['changed', null]])
+      if (corruption === 'timestamp') await client.query("UPDATE fixture_records SET stamp=stamp+interval '1 microsecond' WHERE bucket=$1 AND ordinal=$2", identity)
+      if (corruption === 'missing-row') await client.query('DELETE FROM fixture_records WHERE bucket=$1 AND ordinal=$2', identity)
+      if (corruption === 'unavailable-key') await client.query('UPDATE fixture_records SET secret=$3 WHERE bucket=$1 AND ordinal=$2', [...identity, encryptWithAesGcm('unavailable-key-value', randomBytes(32).toString('base64')).value])
+    })).rejects.toThrow('ROTATION_DATA_MISMATCH')
+    const names = await readdir(environment.OM_ROTATION_TRUST_ROOT!)
+    expect(names.some(name => name.endsWith('.report.json'))).toBe(false)
+    const failure = JSON.parse(await readFile(join(environment.OM_ROTATION_TRUST_ROOT!, names.find(name => name.includes('.failure.'))!), 'utf8'))
+    expect(failure).toMatchObject({ status: 'failed', errorCode: 'ROTATION_DATA_MISMATCH' })
+  }, 60000)
 })
 
 test('timestamp canonicalization preserves microseconds and timezone equivalence', () => {

@@ -697,7 +697,7 @@ const rotateEncryptionKey: ModuleCli = {
       if (!columnList.length) return 0
       const tableName = meta?.tableName
       if (!tableName) return 0
-      const schema = meta?.schema
+      const schema = meta?.schema ?? (providers ? 'public' : undefined)
       const qualifiedTable = schema
         ? `${quoteMaintenanceIdentifier(schema)}.${quoteMaintenanceIdentifier(tableName)}`
         : quoteMaintenanceIdentifier(tableName)

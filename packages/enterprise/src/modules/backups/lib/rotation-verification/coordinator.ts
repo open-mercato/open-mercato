@@ -189,8 +189,11 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         if (initial.maintenanceBatchRows) providers.batchSize = initial.maintenanceBatchRows
         const databaseBinding = (await initial.binding()).database
         if (options.resumeId) {
-          state = await loadState(trustPath)
-          if (state.id !== id || state.recovery.databaseBinding !== databaseBinding || state.status === 'passed') throw new Error('[internal] ROTATION_RESUME_INVALID')
+          const candidate = await loadState(trustPath)
+          if (candidate.id !== id || candidate.recovery.databaseBinding !== databaseBinding) throw new Error('[internal] ROTATION_RESUME_INVALID')
+          if (candidate.status === 'passed') throw new Error('[internal] ROTATION_ALREADY_COMPLETED')
+          // Invalid or completed resumes must never become mutable run state.
+          state = candidate
           await options.recovery.verify(state.recovery, context)
         } else {
           const recovery = recoverySchema.parse(await options.recovery.create(context, databaseBinding))
@@ -274,7 +277,7 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         const details: RotationFailureDetails = { elapsedMs: Math.max(0, Date.now() - startedAt) }
         if (verified) { const { expectedRows, comparedRows, expectedFields, comparedFields, expectedBytes, comparedBytes, durationMs } = verified; Object.assign(details, { expectedRows, comparedRows, expectedFields, comparedFields, expectedBytes, comparedBytes, verificationDurationMs: durationMs }) }
         else if (state && runKey && verificationAttemptId && failureStore) { try { Object.assign(details, await readVerificationFailureAggregates(state.prepared, failureStore, runKey, verificationAttemptId)) } catch { /* Unknown aggregates stay absent. */ } }
-        await options.reportFailure?.(code, state?.recovery ?? pendingRecovery, id, options.signal?.aborted ? 'interrupted' : 'failed', details).catch(() => undefined)
+        if (!options.resumeId || state) await options.reportFailure?.(code, state?.recovery ?? pendingRecovery, id, options.signal?.aborted ? 'interrupted' : 'failed', details).catch(() => undefined)
         if (state) {
           state.status = options.signal?.aborted ? 'interrupted' : 'failed'
           await journal?.append({ kind: 'phase', status: state.status, code }).catch(() => undefined)

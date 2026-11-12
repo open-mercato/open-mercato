@@ -23,7 +23,7 @@ export async function protectKeyRotation(
   }
   const { translate } = await resolveTranslations()
   const message = translate('entities.rotation.unprotectedWarning', 'Enterprise resumable encrypted backup and post-rotation verification are unavailable. Interrupted or incorrect rotation can make data unrecoverable. Keep a tested independent backup and all previous keys. To accept this risk, rerun the same command with --acknowledge-unprotected-key-rotation.')
-  const color = process.stderr.isTTY && !process.env.NO_COLOR
+  const color = process.stderr.isTTY && process.env.NO_COLOR === undefined && process.env.TERM !== 'dumb'
   console.error(color ? `\u001b[31mERROR: ${message}\u001b[0m` : `ERROR: ${message}`)
   if (acknowledgment !== true && acknowledgment !== 'true') {
     throw new Error(translate('entities.rotation.acknowledgmentRequired', 'Key rotation refused. Rerun with --acknowledge-unprotected-key-rotation to explicitly accept unprotected rotation.'))
