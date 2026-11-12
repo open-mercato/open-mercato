@@ -246,12 +246,15 @@ test.describe('CRM deal owner assignment — browser UI', () => {
     const ownerField = page.locator(OWNER_FIELD);
     await expect(ownerField).toBeVisible({ timeout: 120_000 });
 
-    const card = page.locator('section').filter({ has: page.locator('[data-crud-field-id="title"]') }).first();
-    const heading = card.locator('p').first();
+    // The page keeps one pinned action bar (#5109): the back link is the bar's text anchor
+    // and the actions (Cancel link, Create deal button) must not sit on top of it.
+    const bar = page.locator('div.sticky').filter({ has: page.getByRole('heading', { level: 1 }) }).first();
+    const heading = bar.getByRole('link').first();
     const headingBox = await heading.boundingBox();
-    expect(headingBox, 'The card heading must be laid out').not.toBeNull();
+    expect(headingBox, 'The bar heading must be laid out').not.toBeNull();
 
-    for (const button of await card.locator('button').all()) {
+    for (const button of await bar.locator('button, a').all()) {
+      if ((await button.evaluate((node, anchor) => node === anchor, await heading.elementHandle()))) continue;
       const box = await button.boundingBox();
       if (!box || !headingBox) continue;
       const overlaps =
@@ -259,7 +262,7 @@ test.describe('CRM deal owner assignment — browser UI', () => {
         box.x < headingBox.x + headingBox.width &&
         headingBox.y < box.y + box.height &&
         box.y < headingBox.y + headingBox.height;
-      expect(overlaps, 'No header action may sit on top of the card heading').toBe(false);
+      expect(overlaps, 'No bar action may sit on top of the back link').toBe(false);
     }
 
     // The heading collapsing to a sliver is what forced the word-by-word wrap.

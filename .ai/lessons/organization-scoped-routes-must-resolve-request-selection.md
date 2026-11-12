@@ -1,8 +1,8 @@
 ---
 title: "Organization-scoped routes must resolve request selection and reject invalid explicit writes"
-modules: ["entities","directory","auth"]
+modules: ["entities","directory","auth","customer_accounts"]
 areas: ["module-data","integration","debugging"]
-topics: ["data-scoping","access-control","route-coverage"]
+topics: ["data-scoping","access-control","route-coverage","backward-compatibility"]
 ---
 
 # Organization-scoped routes must resolve request selection and reject invalid explicit writes
@@ -14,3 +14,5 @@ topics: ["data-scoping","access-control","route-coverage"]
 **Rule**: Custom organization-scoped routes must call `resolveOrganizationScopeForRequest` and use its validated `tenantId` and `selectedId` for reads, writes, guards, and cache invalidation. A write must reject `selectionRejected` before repository access; `selectedId` may be a safe fallback for reads, but it must never silently redirect an explicitly selected write. Treat token scope as identity context, not as a substitute for request scope.
 
 **Applies to**: custom APIs, configuration records, cache keys, mutation guards, and integration fixtures that exercise organization selection.
+
+**Compatibility boundary**: A new method on an existing route must keep the same organization contract as its sibling methods unless a route-wide migration is explicitly approved. The staff invitation GET/POST route uses authenticated `tenantId`/`orgId`; its additive cancellation DELETE, guard, command, event and audit must use that same scope. A selected-organization cookie must not retarget only cancellation while listing and resend still use the authenticated organization. Cover a real differing selection cookie and direct command context overrides; keep generic selected-scope resolution for routes that already expose that contract.

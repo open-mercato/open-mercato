@@ -20,9 +20,9 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 | --- | --- | --- |
 | `--org`, `--orgName` | Name of the organization that will be created. | `Acme Corp` |
 | `--email` | Superadmin login email. Companion `admin@…` and `employee@…` accounts are also provisioned. | `superadmin@acme.com` |
-| `--password` | Password applied to all seeded accounts. | `secret` |
+| `--password` | Password applied to all seeded accounts. | `secret` outside production; required in production |
 | `--roles` | Comma-separated list of roles ensured before user creation. | `superadmin,admin,employee` |
-| `--skip-password-policy` | Skip password policy validation during `auth setup` (useful for demo defaults like `secret`). | off |
+| `--skip-password-policy` | Skip password policy validation outside production (useful for demo defaults like `secret`). Ignored in production. | on outside production |
 | `--no-examples` | Skip demo CRM seeders (companies, people, deals, activities, todos). Alias: `--no-exampls`. | off |
 | `--no-demo-users` | Skip seeding the derived `admin@…`/`employee@…` demo accounts — only the `--email` superadmin account is created. | off |
 | `--stresstest` | Generate a high-volume synthetic CRM dataset (contacts, companies, deals, activities, notes) in addition to the curated examples. | off |
@@ -38,7 +38,7 @@ When you omit CLI flags, the init flow will read environment defaults for the se
 | Variable | Description | Default |
 | --- | --- | --- |
 | `OM_INIT_SUPERADMIN_EMAIL` | Superadmin login email used when `--email` is not provided. | `superadmin@acme.com` |
-| `OM_INIT_SUPERADMIN_PASSWORD` | Superadmin password used when `--password` is not provided. | `secret` |
+| `OM_INIT_SUPERADMIN_PASSWORD` | Superadmin password used when `--password` is not provided. | `secret` outside production; required in production |
 | `OM_INIT_ADMIN_EMAIL` | Derived admin account email override. | `admin@<superadmin-domain>` |
 | `OM_INIT_EMPLOYEE_EMAIL` | Derived employee account email override. | `employee@<superadmin-domain>` |
 | `OM_INIT_ADMIN_PASSWORD` | Admin account password override. When unset, a random 16-char base64url password is generated and surfaced in the init summary. | _(randomly generated)_ |
@@ -46,6 +46,10 @@ When you omit CLI flags, the init flow will read environment defaults for the se
 | `OM_INIT_GENERATE_RANDOM_PASSWORD` | **Deprecated, no-op.** Random derived passwords are now the unconditional default when overrides are unset; setting the flag prints a one-time deprecation warning and is otherwise ignored. | _(unused)_ |
 
 `yarn initialize` passes `--include-demo-users` to `mercato auth setup` so the derived `admin@…` / `employee@…` demo accounts are seeded as part of the dev/demo bootstrap. Standalone callers of `mercato auth setup` must opt in themselves; without that flag, no demo accounts are seeded. Pass `--no-demo-users` to `mercato init`/`yarn initialize` to skip them too — for example on a production bootstrap where only the `--email` superadmin account should exist.
+
+When `NODE_ENV=production` (case-insensitive, surrounding whitespace ignored), set a unique `OM_INIT_SUPERADMIN_PASSWORD` or pass `--password` before initialization. Missing, blank, and built-in placeholder passwords are rejected before initialization writes, including table drops during `--reinstall`. With `--skip-if-initialized`, the database preflight runs first so an existing initialized database needs no bootstrap credential; an empty database may be created during that preflight. Operator-provided passwords must satisfy the configured `OM_PASSWORD_*` policy; `--skip-password-policy` and `--allow-weak-password` cannot bypass it in production. Non-production defaults are unchanged.
+
+The starter and generated-app full-app Compose files default to production. Their `password` fallback supports non-production overrides only and is rejected during production initialization. Configure the secret in the deployment environment before the first boot. This does not rotate credentials in an existing database; rotate any previously deployed default passwords separately.
 
 ## What the Command Does
 

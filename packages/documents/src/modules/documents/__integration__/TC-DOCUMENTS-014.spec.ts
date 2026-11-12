@@ -44,6 +44,26 @@ async function deleteDocument(request: APIRequestContext, token: string | null, 
   }).catch(() => undefined)
 }
 
+/**
+ * The canonical CRM detail pages mount the panel as a tab of their related-content
+ * workspace (#7488); the person page folds extra tabs into a More menu. Legacy CRM,
+ * sales and catalog hosts still render the inline stack. The tab is injected after the
+ * built-in ones, so keep looking until it shows up inline or in the menu.
+ */
+const TAB_HOSTS = [/\/backend\/customers\/people-v2\//, /\/backend\/customers\/companies-v2\//, /\/backend\/customers\/deals\//]
+
+async function openRelatedDocumentsTab(page: import('@playwright/test').Page): Promise<void> {
+  await expect(async () => {
+    const tab = page.getByRole('tab', { name: /^Related documents/ })
+    if (await tab.isVisible()) {
+      await tab.click()
+      return
+    }
+    await page.getByTestId('detail-tabs-more').click({ timeout: 2_000 })
+    await page.getByRole('menuitem', { name: /^Related documents/ }).click({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
+}
+
 async function deleteTemplate(request: APIRequestContext, token: string | null, template: Created | null): Promise<void> {
   if (!token || !template) return
   await request.fetch('/api/documents/templates', {
@@ -126,15 +146,22 @@ test.describe('TC-DOCUMENTS-014: UMES related documents across host records', ()
         ]
         for (const route of routes.slice(scenario.start, scenario.end)) {
           await page.goto(route, { waitUntil: 'domcontentloaded' })
+          if (TAB_HOSTS.some((host) => host.test(route))) {
+            await expect(page.getByRole('tab', { name: /^activit/i }), `workspace on ${route}`).toBeVisible({ timeout: 30_000 })
+            await expect(page.getByRole('heading', { name: 'Related documents' }), `no detached panel on ${route}`).toHaveCount(0)
+            await openRelatedDocumentsTab(page)
+            await expect(page.getByRole('heading', { name: 'Related documents' }), `only the tab panel on ${route}`).toHaveCount(1, { timeout: 30_000 })
+          }
           await expect(page.getByRole('heading', { name: 'Related documents' }).first(), `widget on ${route}`).toBeVisible({ timeout: 30_000 })
           const titleLink = page.getByRole('link', { name: linkedTitle }).first()
           await expect(titleLink).toBeVisible()
           await expect(titleLink).toHaveAttribute('href', `/backend/documents/${linkedDocument.id}`)
-          await expect(page).toHaveURL(new RegExp(`${route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`))
+          await expect(page).toHaveURL(new RegExp(`${route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\?tab=related-documents)?$`))
         }
 
         if (!scenario.interactive) return
         await page.goto(`/backend/customers/people-v2/${personId}`, { waitUntil: 'domcontentloaded' })
+        await openRelatedDocumentsTab(page)
         await page.getByRole('button', { name: 'Link existing' }).click()
         const linkDialog = page.getByRole('dialog', { name: 'Link existing document' })
         await linkDialog.getByLabel('Document title').fill(searchableTitle)
@@ -167,6 +194,7 @@ test.describe('TC-DOCUMENTS-014: UMES related documents across host records', ()
         })
         await page.goto(`/backend/customers/people-v2/${personId}`, { waitUntil: 'domcontentloaded' })
         await expect(page).toHaveURL(new RegExp(`/backend/customers/people-v2/${personId}$`))
+        await openRelatedDocumentsTab(page)
         await expect(page.getByRole('heading', { name: 'Related documents' })).toHaveCount(0)
         await page.unroute('**/api/documents?entityType=*')
       } finally {

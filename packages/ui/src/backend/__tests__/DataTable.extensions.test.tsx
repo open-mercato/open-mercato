@@ -144,6 +144,30 @@ describe('DataTable extensions', () => {
     view.cleanupQueryClient()
   })
 
+  // With no widgets registered, the header/footer injection spots render
+  // nothing; their wrappers must collapse instead of leaving an empty gap
+  // under the filter bar and an empty bordered strip above the pagination.
+  it.each([false, true])('collapses empty header and footer injection spot wrappers (embedded: %s)', async (embedded) => {
+    const view = renderTable({
+      title: 'People',
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      extensionTableId: 'tests.empty-slots',
+      embedded,
+    })
+
+    await waitFor(() => expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument())
+    const slotWrappers = Array.from(view.container.querySelectorAll('div.empty\\:hidden'))
+    expect(slotWrappers).toHaveLength(2)
+    slotWrappers.forEach((wrapper) => expect(wrapper).toBeEmptyDOMElement())
+
+    const widget = document.createElement('div')
+    widget.textContent = 'Injected footer widget'
+    slotWrappers[1].appendChild(widget)
+    expect(slotWrappers[1]).not.toBeEmptyDOMElement()
+    view.cleanupQueryClient()
+  })
+
   it('executes transforms and wrappers at the derived DataTable handle', () => {
     registerComponentOverrides([
       {

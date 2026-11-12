@@ -110,3 +110,29 @@ test('production Docker stage includes the telemetry workspace before focusing d
   assert.ok(telemetryManifestIndex >= 0, 'expected telemetry workspace manifest in the production stage')
   assert.ok(productionFocusIndex > telemetryManifestIndex, 'expected telemetry manifest before production focus')
 })
+
+test('preview build stages provide the upstream guides required by package builds', async () => {
+  const dockerfile = await readFile(new URL('../../docker/preview/Dockerfile', import.meta.url), 'utf8')
+  const requiredGuides = new Set()
+  for (const packageName of ['cli', 'create-app']) {
+    const buildScript = await readFile(new URL(`../../packages/${packageName}/build.mjs`, import.meta.url), 'utf8')
+    const guideLoop = buildScript.match(/for \(const file of (\[[^\]]+\])\)/)
+    assert.ok(guideLoop, `${packageName} must declare its upstream guide inputs`)
+    for (const guide of guideLoop[1].matchAll(/'([^']+)'/g)) requiredGuides.add(guide[1])
+  }
+
+  const stages = dockerfile.split(/^FROM /m).slice(1)
+  assert.equal(stages.length, 2)
+  for (const stage of stages) {
+    const buildIndex = stage.search(/^RUN yarn build(?:\s|:)/m)
+    assert.ok(buildIndex >= 0, 'expected a package build in each preview stage')
+    const availableFiles = new Set()
+    for (const copy of stage.slice(0, buildIndex).matchAll(/^COPY (.+) \.\/$/gm)) {
+      for (const source of copy[1].split(/\s+/)) availableFiles.add(source)
+    }
+    for (const guide of requiredGuides) {
+      assert.ok(availableFiles.has(guide), `${stage.split('\n')[0]} must copy ${guide} before building packages`)
+      assert.ok((await readFile(path.join(repoRoot, guide))).length > 0)
+    }
+  }
+})

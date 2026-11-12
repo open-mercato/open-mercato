@@ -12,6 +12,7 @@ import { AvailabilityRulesEditor, type AvailabilityScheduleItemBuilder } from '@
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { AvailabilityRuleSetForm, buildAvailabilityRuleSetPayload, type AvailabilityRuleSetFormValues } from '@open-mercato/core/modules/planner/components/AvailabilityRuleSetForm'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -45,6 +46,29 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
+  const [canManageAvailability, setCanManageAvailability] = React.useState(false)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function checkAvailabilityPermission() {
+      try {
+        const result = await readApiResultOrThrow<{ ok?: boolean }>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ features: ['planner.manage_availability'] }),
+          },
+        )
+        if (!cancelled) setCanManageAvailability(result.ok === true)
+      } catch (error) {
+        getTelemetryRuntime()?.reportError(error, { module: 'planner', code: 'planner.availability_permission_check_failed' })
+        if (!cancelled) setCanManageAvailability(false)
+      }
+    }
+    void checkAvailabilityPermission()
+    return () => { cancelled = true }
+  }, [])
 
   React.useEffect(() => {
     if (!rulesetId) return
@@ -226,6 +250,7 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
             />
           ) : (
             <AvailabilityRulesEditor
+              readOnly={!canManageAvailability}
               subjectType="ruleset"
               subjectId={rulesetId ?? ''}
               initialTimezone={typeof initialValues?.timezone === 'string' ? initialValues.timezone : undefined}

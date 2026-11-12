@@ -32,6 +32,7 @@ import {
   actionConflictResponseSchema,
   buildNotificationsCrudOpenApi,
   createPagedListResponseSchema,
+  errorResponseSchema,
   notificationItemSchema,
   scopeErrorResponseSchema,
 } from './openapi'
@@ -104,7 +105,11 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   const queryParams = Object.fromEntries(url.searchParams.entries())
-  const input = listNotificationsSchema.parse(queryParams)
+  const parsed = listNotificationsSchema.safeParse(queryParams)
+  if (!parsed.success) {
+    return notificationValidationErrorResponse(parsed.error)
+  }
+  const input = parsed.data
   const userId = scope.userId
   // Mirrors api/unread-count/route.ts: unrestricted and omitted legacy organization
   // scopes cannot be safely tagged for invalidation, because organization-specific
@@ -269,6 +274,7 @@ export const openApi: OpenApiRouteDoc = {
       ...notificationsCrudGet,
       errors: [
         ...(notificationsCrudGet.errors ?? []),
+        { status: 400, description: 'Invalid query parameters', schema: errorResponseSchema },
         {
           status: 403,
           description: `Request could not be resolved to a tenant scope (code: ${TENANT_SCOPE_REQUIRED_ERROR_CODE})`,

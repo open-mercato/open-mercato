@@ -181,6 +181,7 @@ export default async function handle(
       const page = await adapter.importHistory!({
         credentials,
         scope: { tenantId: scope.tenantId, organizationId: scope.organizationId },
+        conversationId: channel.externalIdentifier ?? channel.id,
         sinceDays,
         contactEmails,
         maxMessages,

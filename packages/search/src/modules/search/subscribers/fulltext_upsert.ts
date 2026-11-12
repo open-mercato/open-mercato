@@ -1,7 +1,6 @@
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { loadEntityRecordScope } from '@open-mercato/shared/lib/db/recordScope'
 import type { Queue } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from '../../../queue/fulltext-indexing'
-import { resolveAutoIndexingEnabled } from '../lib/auto-indexing'
 import { searchDebugWarn, searchError } from '../../../lib/debug'
 
 export const metadata = { event: 'search.index_record', persistent: false }
@@ -38,15 +37,9 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
   if ((organizationId == null || tenantId == null) && em) {
     try {
       const lookupEm = typeof em.fork === 'function' ? em.fork() : em
-      const db = lookupEm.getKysely()
-      const table = resolveEntityTableName(em, entityType)
-      const row = await db
-        .selectFrom(table as any)
-        .select(['organization_id' as any, 'tenant_id' as any])
-        .where('id' as any, '=', recordId)
-        .executeTakeFirst() as { organization_id?: string | null; tenant_id?: string | null } | undefined
-      if (organizationId == null) organizationId = row?.organization_id ?? organizationId
-      if (tenantId == null) tenantId = row?.tenant_id ?? tenantId
+      const scope = await loadEntityRecordScope(lookupEm, entityType, recordId)
+      if (organizationId == null) organizationId = scope?.organizationId ?? organizationId
+      if (tenantId == null) tenantId = scope?.tenantId ?? tenantId
     } catch {
       // Ignore lookup errors
     }
@@ -56,11 +49,8 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
     return
   }
 
-  const autoIndexingEnabled = await resolveAutoIndexingEnabled(ctx, { defaultValue: true })
-  if (!autoIndexingEnabled) {
-    return
-  }
-
+  // The auto-indexing switch (OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING and its tenant setting)
+  // is vector-only, so it must not stop full-text records from being queued.
   let queue: Queue<FulltextIndexJobPayload>
   try {
     queue = ctx.resolve<Queue<FulltextIndexJobPayload>>('fulltextIndexQueue')

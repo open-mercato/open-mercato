@@ -9,7 +9,7 @@ import {
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -192,13 +192,25 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       throw new CrudHttpError(400, { error: 'tenantId is required — global roles are not supported' })
     }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const role = await de.createOrmEntity({
-      entity: Role,
-      data: {
-        name: parsed.name,
-        tenantId: resolvedTenantId,
-      },
-    })
+    let role: Role
+    try {
+      role = await de.createOrmEntity({
+        entity: Role,
+        data: {
+          name: parsed.name,
+          tenantId: resolvedTenantId,
+        },
+      })
+    } catch (error) {
+      if (!isUniqueViolation(error, 'roles_tenant_id_name_unique')) throw error
+      const { translate } = await resolveTranslations()
+      const message = translate('auth.roles.errors.nameExists', 'A role with this name already exists')
+      throw new CrudHttpError(400, {
+        error: message,
+        fieldErrors: { name: message },
+        details: [{ path: ['name'], message, code: 'duplicate', origin: 'validation' }],
+      })
+    }
 
     await setCustomFieldsIfAny({
       dataEngine: de,
@@ -380,64 +392,75 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
     const actorTenantScope = resolveActorTenantScope(ctx)
     assertRoleTenantInScope(actorTenantScope, current.tenantId)
-    if (parsed.name !== undefined) {
-      const nextName = parsed.name
-      if (nextName !== current.name) assertRoleNameAllowed(nextName)
-      if (nextName !== current.name) {
-        const assignments = await em.count(UserRole, { role: current, deletedAt: null })
-        if (assignments > 0) {
-          throw new CrudHttpError(400, { error: 'Role name cannot be changed while users are assigned' })
-        }
-      }
-    }
-    const wantsTenantChange = parsed.tenantId !== undefined && parsed.tenantId !== current.tenantId
-    if (wantsTenantChange) {
-      if (!scope.isSuperAdmin) {
-        throw new CrudHttpError(403, { error: 'Not authorized to target this tenant.' })
-      }
-      const assignments = await em.count(UserRole, { role: current, deletedAt: null })
-      if (assignments > 0) {
-        throw new CrudHttpError(400, { error: 'Role cannot be moved to another tenant while users are assigned' })
-      }
-    }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const redoLogEntry = (ctx as RoleReplayRuntimeContext)[ROLE_REDO_LOG]
     let role: Role | null = null
-    await withAtomicFlush(em, [async () => {
-      if (redoLogEntry) {
-        await authorizeRoleReplayAtMutation('update', {
-          operation: 'redo',
-          input: rawInput,
-          ctx,
-          logEntry: redoLogEntry,
+    try {
+      await withAtomicFlush(em, [async () => {
+        if (redoLogEntry) {
+          await authorizeRoleReplayAtMutation('update', {
+            operation: 'redo',
+            input: rawInput,
+            ctx,
+            logEntry: redoLogEntry,
+          })
+        }
+        await lockRoleWriterAuthorizationState(em, [parsed.id])
+        if (parsed.name !== undefined) {
+          const nextName = parsed.name
+          if (nextName !== current.name) assertRoleNameAllowed(nextName)
+          if (nextName !== current.name) {
+            const assignments = await em.count(UserRole, { role: current, deletedAt: null })
+            if (assignments > 0) {
+              throw new CrudHttpError(400, { error: 'Role name cannot be changed while users are assigned' })
+            }
+          }
+        }
+        const wantsTenantChange = parsed.tenantId !== undefined && parsed.tenantId !== current.tenantId
+        if (wantsTenantChange) {
+          if (!scope.isSuperAdmin) {
+            throw new CrudHttpError(403, { error: 'Not authorized to target this tenant.' })
+          }
+          const assignments = await em.count(UserRole, { role: current, deletedAt: null })
+          if (assignments > 0) {
+            throw new CrudHttpError(400, { error: 'Role cannot be moved to another tenant while users are assigned' })
+          }
+        }
+        if (wantsTenantChange) {
+          await em.nativeDelete(RoleAcl, { role: parsed.id as unknown as Role })
+        }
+        role = await de.updateOrmEntity({
+          entity: Role,
+          where: buildScopedRoleFilter(parsed.id, scope),
+          apply: (entity) => {
+            if (parsed.name !== undefined) entity.name = parsed.name
+            if (parsed.tenantId !== undefined && scope.isSuperAdmin) entity.tenantId = parsed.tenantId
+          },
         })
-      }
-      await lockRoleWriterAuthorizationState(em, [parsed.id])
-      if (wantsTenantChange) {
-        await em.nativeDelete(RoleAcl, { role: parsed.id as unknown as Role })
-      }
-      role = await de.updateOrmEntity({
-        entity: Role,
-        where: buildScopedRoleFilter(parsed.id, scope),
-        apply: (entity) => {
-          if (parsed.name !== undefined) entity.name = parsed.name
-          if (parsed.tenantId !== undefined && scope.isSuperAdmin) entity.tenantId = parsed.tenantId
-        },
-      })
-      if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
+        if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
 
-      await setCustomFieldsIfAny({
-        dataEngine: de,
-        entityId: E.auth.role,
-        recordId: String(role.id),
-        organizationId: null,
-        tenantId: role.tenantId ? String(role.tenantId) : null,
-        values: custom,
+        await setCustomFieldsIfAny({
+          dataEngine: de,
+          entityId: E.auth.role,
+          recordId: String(role.id),
+          organizationId: null,
+          tenantId: role.tenantId ? String(role.tenantId) : null,
+          values: custom,
+        })
+      }], {
+        transaction: true,
+        label: redoLogEntry ? 'auth.roles.update.redo' : 'auth.roles.update',
       })
-    }], {
-      transaction: true,
-      label: redoLogEntry ? 'auth.roles.update.redo' : 'auth.roles.update',
-    })
+    } catch (error) {
+      if (!isUniqueViolation(error, 'roles_tenant_id_name_unique')) throw error
+      const { translate } = await resolveTranslations()
+      const message = translate('auth.roles.errors.nameExists', 'A role with this name already exists')
+      throw new CrudHttpError(400, {
+        error: message,
+        fieldErrors: { name: message },
+        details: [{ path: ['name'], message, code: 'duplicate', origin: 'validation' }],
+      })
+    }
     const updatedRole = role as Role | null
     if (!updatedRole) throw new CrudHttpError(404, { error: 'Role not found' })
 
@@ -519,6 +542,28 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
         ctx,
         logEntry,
       })
+      const liveRole = await findOneWithDecryption(
+        em,
+        Role,
+        { id: before.id, deletedAt: null } as FilterQuery<Role>,
+        {},
+        { tenantId: null, organizationId: null },
+      )
+      if (liveRole) {
+        const revertsName = 'name' in replayInput && liveRole.name !== before.name
+        const revertsTenant = 'tenantId' in replayInput && String(liveRole.tenantId) !== before.tenantId
+        if (revertsName || revertsTenant) {
+          const assignments = await em.count(UserRole, { role: liveRole, deletedAt: null })
+          if (assignments > 0) {
+            const { translate } = await resolveTranslations()
+            throw new CrudHttpError(409, {
+              error: revertsTenant
+                ? translate('auth.roles.errors.tenantMoveBlockedByAssignments', 'Role cannot be moved to another tenant while users are assigned')
+                : translate('auth.roles.errors.nameChangeBlockedByAssignments', 'Role name cannot be changed while users are assigned'),
+            })
+          }
+        }
+      }
       updated = await de.updateOrmEntity({
         entity: Role,
         where: { id: before.id, deletedAt: null } as FilterQuery<Role>,

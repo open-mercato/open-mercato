@@ -16,6 +16,27 @@ const monorepoOverrideDirectory = fileURLToPath(
 const preparer = path.join(standaloneSkillDirectory, 'scripts', 'prepare-share-bundle.mjs')
 const codexExporter = path.join(standaloneSkillDirectory, 'scripts', 'export-codex-session.mjs')
 
+function readArchivedFile(archivePath: string, entry: string, env: NodeJS.ProcessEnv = process.env): string {
+  const result = spawnSync('unzip', ['-p', archivePath, entry], { encoding: 'utf8', env, timeout: 10_000 })
+  if (result.error) {
+    assert.fail(`ZIP inspection could not run unzip: ${result.error.message}. Install Info-ZIP unzip and make it available on PATH; see packages/create-app/src/lib/share-session-zip-validation.md.`)
+  }
+  assert.equal(result.status, 0, result.stderr)
+  return result.stdout
+}
+
+test('ZIP inspection reports the required tool when unzip is unavailable', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'om-missing-unzip-'))
+  try {
+    assert.throws(
+      () => readArchivedFile(path.join(root, 'generated-files.zip'), 'src/generated.ts', { ...process.env, PATH: root }),
+      /ZIP inspection could not run unzip:.*ENOENT.*Install Info-ZIP unzip.*share-session-zip-validation\.md/,
+    )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 function createFixture(): {
   root: string
   sessionPath: string
@@ -256,15 +277,10 @@ test('session-share preparer preserves turns, sanitizes content, and creates a v
     assert.ok(privacyReport.redactions.pii >= 2)
     assert.ok(privacyReport.redactions.custom >= 2)
 
-    const unzipResult = spawnSync(
-      'unzip',
-      ['-p', path.join(fixture.outputPath, 'generated-files.zip'), 'src/generated.ts'],
-      { encoding: 'utf8' },
-    )
-    assert.equal(unzipResult.status, 0, unzipResult.stderr)
-    assert.doesNotMatch(unzipResult.stdout, /alice@example\.com|github_pat_|Customer Alpha/)
+    const archivedFile = readArchivedFile(path.join(fixture.outputPath, 'generated-files.zip'), 'src/generated.ts')
+    assert.doesNotMatch(archivedFile, /alice@example\.com|github_pat_|Customer Alpha/)
     assert.equal(
-      unzipResult.stdout,
+      archivedFile,
       fs.readFileSync(path.join(fixture.outputPath, 'review', 'generated-files', 'src', 'generated.ts'), 'utf8'),
       'local review tree must match the archived sanitized file',
     )

@@ -8,6 +8,7 @@ import {
   type IngestInboundMessageInput,
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
+import { sameSyncState, syncState, withLockedChannel } from '../lib/channel-state-write'
 import { preservePushState } from '../lib/push-state'
 import { isHubPolledChannel } from '../lib/polling-eligibility'
 import { writeIngestDeadLetter } from '../lib/dead-letter'
@@ -135,6 +136,13 @@ export default async function handle(
     return
   }
 
+  const startingProgress: PollProgress = {
+    cursor: structuredClone(syncState(channel.channelState)),
+    lastPolledAt: channel.lastPolledAt?.getTime() ?? null,
+    status: channel.status,
+    lastError: channel.lastError,
+  }
+
   // Credentials.
   let credentialsService: CredentialsServiceLike | null = null
   try {
@@ -227,7 +235,7 @@ export default async function handle(
     nextCursor = result?.nextCursor
     hasMore = result?.hasMore === true
   } catch (err) {
-    await handlePollError(err, em, channel, scope, attempt, job.payload)
+    await handlePollError(err, em, channel, scope, attempt, job.payload, startingProgress)
     return
   }
 
@@ -292,8 +300,9 @@ export default async function handle(
   // Transient abort: keep prior cursor + lastPolledAt so the next tick
   // re-fetches the same page (idempotent at the DB layer).
   if (transientIngestAbort) {
-    channel.lastError = 'transient_ingest_failure'
-    await em.flush()
+    await writePollFailure(em, channel, scope, startingProgress, (current) => {
+      current.lastError = 'transient_ingest_failure'
+    })
     return
   }
 
@@ -373,13 +382,16 @@ async function handlePollError(
   scope: PollChannelJobPayload['scope'],
   attempt: number,
   payload: PollChannelJobPayload,
+  startingProgress: PollProgress,
 ): Promise<void> {
   const classification = classifyOutboundError(err)
-  channel.lastError = classification.message
 
   if (isReauthError(classification)) {
-    channel.status = 'requires_reauth'
-    await em.flush()
+    const committed = await writePollFailure(em, channel, scope, startingProgress, (current) => {
+      current.lastError = classification.message
+      current.status = 'requires_reauth'
+    })
+    if (!committed) return
     await emitCommunicationChannelsEvent(
       'communication_channels.channel.requires_reauth',
       {
@@ -398,7 +410,10 @@ async function handlePollError(
   if (classification.transient && attempt < POLL_CHANNEL_MAX_ATTEMPTS) {
     // Transient error — re-enqueue with backoff. Channel status stays
     // `connected` so the scheduler keeps it in rotation.
-    await em.flush()
+    const committed = await writePollFailure(em, channel, scope, startingProgress, (current) => {
+      current.lastError = classification.message
+    })
+    if (!committed) return
     const next: PollChannelJobPayload = { ...payload, attempt: attempt + 1 }
     const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.poll)
     await queue.enqueue(next as unknown as Record<string, unknown>, {
@@ -408,6 +423,34 @@ async function handlePollError(
   }
 
   // Permanent or attempts exhausted — mark channel as error and stop the loop.
-  channel.status = 'error'
-  await em.flush()
+  await writePollFailure(em, channel, scope, startingProgress, (current) => {
+    current.lastError = classification.message
+    current.status = 'error'
+  })
+}
+
+type PollProgress = {
+  cursor: Record<string, unknown>
+  lastPolledAt: number | null
+  status: CommunicationChannel['status']
+  lastError: CommunicationChannel['lastError']
+}
+
+async function writePollFailure(
+  em: EntityManager,
+  channel: CommunicationChannel,
+  scope: PollChannelJobPayload['scope'],
+  startingProgress: PollProgress,
+  update: (current: CommunicationChannel) => void,
+): Promise<boolean> {
+  const committed = await withLockedChannel(em, { ...channel, ...scope }, async (current, transaction) => {
+    if (!current.isActive || current.status !== startingProgress.status ||
+      current.lastError !== startingProgress.lastError ||
+      (current.lastPolledAt?.getTime() ?? null) !== startingProgress.lastPolledAt ||
+      !sameSyncState(startingProgress.cursor, current.channelState)) return false
+    update(current)
+    await transaction.flush()
+    return true
+  })
+  return committed === true
 }

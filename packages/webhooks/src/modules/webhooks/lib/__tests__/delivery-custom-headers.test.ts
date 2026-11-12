@@ -117,6 +117,7 @@ describe('processWebhookDeliveryJob — custom headers cannot override signed he
   function buildEm(delivery: Record<string, unknown>) {
     return {
       findOne: jest.fn(async () => delivery),
+      nativeUpdate: jest.fn(async () => 1),
       flush: jest.fn(async () => undefined),
     } as unknown as EntityManager
   }

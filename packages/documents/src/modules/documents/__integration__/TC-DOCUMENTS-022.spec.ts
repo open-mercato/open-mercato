@@ -81,8 +81,8 @@ function countByType(items: NotificationItem[], type: string): number {
 }
 
 test.describe('TC-DOCUMENTS-022 document watch subscriptions', () => {
-  for (const principalType of ['user', 'role'] as const) {
-    test(`stops watch and mention delivery after documents.view revocation with a retained ${principalType} share`, async ({ request }) => {
+  for (const principalType of ['user', 'role', 'owner', 'none'] as const) {
+    test(`stops watch and mention delivery and ineffective sharing offers after documents.view revocation with ${principalType} access`, async ({ request }) => {
       const adminToken = await getAuthToken(request)
       const scope = getTokenScope(adminToken)
       const cleanup: Array<() => Promise<void>> = []
@@ -92,7 +92,7 @@ test.describe('TC-DOCUMENTS-022 document watch subscriptions', () => {
           tenantId: scope.tenantId,
         })
         cleanup.push(async () => { await deleteRoleIfExists(request, adminToken, roleId) })
-        await setRoleAclFeatures(request, adminToken, { roleId, features: ['documents.view', 'notifications.view'] })
+        await setRoleAclFeatures(request, adminToken, { roleId, features: ['documents.view', 'documents.create', 'notifications.view'] })
         const email = `${RUN_TAG}.revoked-${principalType}@example.com`
         const password = policyPassword('Revoked')
         const userId = await createUserFixture(request, adminToken, {
@@ -101,21 +101,42 @@ test.describe('TC-DOCUMENTS-022 document watch subscriptions', () => {
         })
         cleanup.push(async () => { await deleteUserIfExists(request, adminToken, userId) })
         const recipientToken = await getAuthToken(request, email, password)
-        const document = await createDocument(request, adminToken, `${RUN_TAG} before revocation ${principalType}`)
+        const document = await createDocument(request, principalType === 'owner' ? recipientToken : adminToken, `${RUN_TAG} before revocation ${principalType}`)
         cleanup.push(async () => { await deleteDocumentBestEffort(request, adminToken, document.id) })
-        const shareResponse = await apiRequest(request, 'POST', `/api/documents/${document.id}/shares`, {
-          token: adminToken,
-          data: { principalType, principalId: principalType === 'user' ? userId : roleId, permission: 'editor' },
+        if (principalType === 'user' || principalType === 'role') {
+          const shareResponse = await apiRequest(request, 'POST', `/api/documents/${document.id}/shares`, {
+            token: adminToken,
+            data: { principalType, principalId: principalType === 'user' ? userId : roleId, permission: 'editor' },
+          })
+          expect(shareResponse.status()).toBe(201)
+        }
+        const initialCheckResponse = await apiRequest(request, 'POST', `/api/documents/${document.id}/comments/access-check`, {
+          token: adminToken, data: { userIds: [userId] },
         })
-        expect(shareResponse.status()).toBe(201)
-        const watchResponse = await apiRequest(request, 'POST', `/api/documents/${document.id}/watch`, { token: recipientToken })
-        expect(watchResponse.status()).toBe(200)
-        const before = await createComment(request, adminToken, document.id, `${RUN_TAG} authorized update`)
-        expect(countByType(await listNotificationsBySource(request, recipientToken, before.id), 'documents.watch.commented')).toBe(1)
+        expect(initialCheckResponse.status()).toBe(200)
+        expect(await readJsonSafe(initialCheckResponse)).toMatchObject({
+          withoutAccess: principalType === 'none' ? [userId] : [],
+          shareableUserIds: principalType === 'none' ? [userId] : [],
+        })
+        if (principalType !== 'none') {
+          const watchResponse = await apiRequest(request, 'POST', `/api/documents/${document.id}/watch`, { token: recipientToken })
+          expect(watchResponse.status()).toBe(200)
+          const before = await createComment(request, adminToken, document.id, `${RUN_TAG} authorized update`)
+          expect(countByType(await listNotificationsBySource(request, recipientToken, before.id), 'documents.watch.commented')).toBe(1)
+        }
 
         await setRoleAclFeatures(request, adminToken, { roleId, features: ['notifications.view'] })
         const forbiddenDetail = await apiRequest(request, 'GET', `/api/documents/${document.id}`, { token: recipientToken })
         expect(forbiddenDetail.status(), 'revocation must deny document access with the retained share').toBe(403)
+        const accessCheckResponse = await apiRequest(request, 'POST', `/api/documents/${document.id}/comments/access-check`, {
+          token: adminToken, data: { userIds: [userId] },
+        })
+        expect(accessCheckResponse.status()).toBe(200)
+        expect(await readJsonSafe(accessCheckResponse)).toEqual({
+          withoutAccess: [userId],
+          withoutAccessUsers: [{ userId, label: null, secondary: null }],
+          shareableUserIds: [],
+        })
         const detailResponse = await apiRequest(request, 'GET', `/api/documents/${document.id}`, { token: adminToken })
         const detail = await readJsonSafe<Mutation>(detailResponse)
         expect(detailResponse.status()).toBe(200)
@@ -129,15 +150,15 @@ test.describe('TC-DOCUMENTS-022 document watch subscriptions', () => {
         })
         expect(renameResponse.status()).toBe(200)
         const plain = await createComment(request, adminToken, document.id, `${RUN_TAG} private update`)
-        const mention = await createComment(request, adminToken, document.id, `${RUN_TAG} private ping @[${userId}]`, [userId])
+        const mention = await createComment(request, adminToken, document.id, `${RUN_TAG} private ping @[${userId}]`, principalType === 'none' ? [] : [userId])
         expect(await listNotificationsBySource(request, recipientToken, plain.id)).toEqual([])
         expect(await listNotificationsBySource(request, recipientToken, mention.id)).toEqual([])
         const sharesResponse = await apiRequest(request, 'GET', `/api/documents/${document.id}/shares`, { token: adminToken })
         const shares = await readJsonSafe<{ items?: Array<{ principalType?: string; principalId?: string; permission?: string }> }>(sharesResponse)
         expect(sharesResponse.status()).toBe(200)
-        expect(shares?.items).toEqual([expect.objectContaining({
+        expect(shares?.items).toEqual(principalType === 'user' || principalType === 'role' ? [expect.objectContaining({
           principalType, principalId: principalType === 'user' ? userId : roleId, permission: 'editor',
-        })])
+        })] : [])
       } finally {
         for (const step of cleanup.reverse()) {
           await step().catch(() => undefined)

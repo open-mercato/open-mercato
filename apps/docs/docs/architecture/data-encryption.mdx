@@ -247,7 +247,7 @@ order matters:
 ```bash
 # 1. While encryption is still ON — this needs the DEK.
 yarn mercato entities decrypt-database --tenant <uuid> --confirm <uuid> --dry-run
-yarn mercato entities decrypt-database --tenant <uuid> --confirm <uuid> --deactivate-maps
+yarn mercato entities decrypt-database --tenant <uuid> --confirm <uuid> --confirm-offline-maintenance <uuid> --deactivate-maps
 
 # 2. Only now flip the flag, and restart every replica (DEK and map caches are in-process).
 #    TENANT_DATA_ENCRYPTION=no

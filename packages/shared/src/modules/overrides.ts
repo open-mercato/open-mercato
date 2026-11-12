@@ -104,6 +104,7 @@ export interface SetupOverridesShape {
   seedDefaults?: false
   seedExamples?: false
   onTenantCreated?: false
+  onOrganizationCreated?: false
 }
 
 /** Phase 16 — ACL features (per-feature override). */
@@ -1496,6 +1497,7 @@ function applySetupOverride(setup: ModuleSetupConfig | undefined, override: Setu
   if (override.seedDefaults === false) delete next.seedDefaults
   if (override.seedExamples === false) delete next.seedExamples
   if (override.onTenantCreated === false) delete next.onTenantCreated
+  if (override.onOrganizationCreated === false) delete next.onOrganizationCreated
   return next
 }
 

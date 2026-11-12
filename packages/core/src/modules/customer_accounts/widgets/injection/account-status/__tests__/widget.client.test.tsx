@@ -7,18 +7,32 @@
  */
 import * as React from 'react'
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import AccountStatusWidget from '../widget.client'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+
+let mockGrantedFeatures = ['customer_accounts.invite']
+let mockChromeReady = true
 
 const flashMock = jest.fn()
 const mockInvalidateQueries = jest.fn()
 const mockRunMutation = jest.fn(
-  async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
+  async ({ operation }: { operation: () => Promise<unknown>; context: { entityType: string }; mutationPayload: Record<string, unknown> }) => operation(),
 )
+const mockRetryLastMutation = jest.fn(async () => true)
+
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures }, isReady: mockChromeReady }),
+}))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (_key: string, fallback: string) => fallback || _key,
+  useT: () => (_key: string, fallback: string, values?: Record<string, string>) => {
+    let text = fallback || _key
+    for (const [name, value] of Object.entries(values ?? {})) {
+      text = text.replace(`{${name}}`, value)
+    }
+    return text
+  },
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -26,7 +40,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
-  useGuardedMutation: jest.fn(() => ({ runMutation: mockRunMutation })),
+  useGuardedMutation: jest.fn(() => ({ runMutation: mockRunMutation, retryLastMutation: mockRetryLastMutation })),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
@@ -62,14 +76,24 @@ const personFixture = {
 
 describe('customer_accounts AccountStatusWidget invite form', () => {
   beforeEach(() => {
+    mockGrantedFeatures = ['customer_accounts.invite']
+    mockChromeReady = true
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+      configurable: true,
+      value(this: HTMLDialogElement) { this.setAttribute('open', '') },
+    })
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+      configurable: true,
+      value(this: HTMLDialogElement) { this.removeAttribute('open') },
+    })
     flashMock.mockClear()
-    mockInvalidateQueries.mockClear()
+    mockInvalidateQueries.mockReset()
     mockRunMutation.mockClear()
     mockQueryData.clear()
     mockQueryCalls.length = 0
     mockQueryData.set('customer-account-person', personFixture)
     mockApiCall.mockReset()
-    mockApiCall.mockImplementation(async (url: string, options?: RequestInit) => {
+    mockApiCall.mockImplementation(async (url, options) => {
       if (typeof url === 'string' && url.includes('/api/customers/people/')) {
         return {
           ok: true,
@@ -137,10 +161,7 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
       expect(mockRunMutation).toHaveBeenCalledTimes(1)
     })
 
-    const runArgs = mockRunMutation.mock.calls[0][0] as {
-      context: { entityType: string }
-      mutationPayload: Record<string, unknown>
-    }
+    const runArgs = mockRunMutation.mock.calls[0][0]
     expect(runArgs.context.entityType).toBe('customer_accounts:user')
     expect(runArgs.mutationPayload.personEntityId).toBe('person-entity-1')
     expect(runArgs.mutationPayload.customerEntityId).toBeUndefined()
@@ -244,7 +265,7 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
   // predating the entity-ownership guard) is only reachable by the recipient
   // address, so the widget must fall back to it before reporting "no account".
   it('falls back to the recipient email when no invitation carries the person link', async () => {
-    mockApiCall.mockImplementation(async (url: string) => {
+    mockApiCall.mockImplementation(async (url) => {
       if (typeof url === 'string' && url.includes('personEntityId=person-entity-1')) {
         return { ok: true, status: 200, result: { items: [], total: 0 } } as never
       }
@@ -293,6 +314,148 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
       ([url]) => typeof url === 'string' && url.includes('email='),
     )
     expect(emailCall).toBeFalsy()
+  })
+
+  function renderPendingInvitation() {
+    mockQueryData.set('customer-account-pending-invitation', {
+      id: 'invitation-1',
+      email: 'buyer@example.test',
+      expiresAt: '2026-06-18T12:00:00.000Z',
+    })
+    return render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+  }
+
+  it.each(['customer_accounts.invite', 'customer_accounts.*', '*'])('shows Cancel for the effective grant %s', (feature) => {
+    mockGrantedFeatures = [feature]
+    renderPendingInvitation()
+    expect(screen.getByRole('button', { name: 'Cancel invitation' })).toBeInTheDocument()
+  })
+
+  it.each([{ features: [] }, { features: ['customer_accounts.view'] }, { features: ['customer_accounts.invite.other'] }])('keeps pending details but hides Cancel without invite permission: $features', ({ features }) => {
+    mockGrantedFeatures = features
+    renderPendingInvitation()
+    expect(screen.getByText('Invitation pending')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel invitation' })).not.toBeInTheDocument()
+    expect(mockRunMutation).not.toHaveBeenCalled()
+  })
+
+  it('keeps pending details but hides Cancel until effective capabilities are ready', () => {
+    mockChromeReady = false
+    renderPendingInvitation()
+    expect(screen.getByText('Invitation pending')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel invitation' })).not.toBeInTheDocument()
+  })
+
+  it('names the recipient in cancellation confirmation and dismisses with Escape without a mutation', async () => {
+    renderPendingInvitation()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel invitation' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel invitation?' })
+    expect(within(dialog).getByText('Cancel the invitation for buyer@example.test? The invitation link will stop working.')).toBeInTheDocument()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(mockRunMutation).not.toHaveBeenCalled()
+    expect(mockApiCall).not.toHaveBeenCalled()
+    expect(screen.getByText('Invitation pending')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel invitation' })).not.toBeDisabled())
+  })
+
+  it.each(['ctrlKey', 'metaKey'] as const)('confirms cancellation with %s+Enter, blocks duplicate actions, and refreshes the pending state', async (modifier) => {
+    let resolveDelete!: (value: Awaited<ReturnType<typeof apiCall>>) => void
+    const deleteResult = new Promise<Awaited<ReturnType<typeof apiCall>>>((resolve) => { resolveDelete = resolve })
+    mockApiCall.mockImplementation(() => deleteResult)
+    mockInvalidateQueries.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => {
+      if (queryKey[0] === 'customer-account-pending-invitation') {
+        mockQueryData.delete('customer-account-pending-invitation')
+      }
+      return Promise.resolve()
+    })
+    renderPendingInvitation()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel invitation' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel invitation?' })
+    fireEvent.keyDown(dialog, { key: 'Enter', [modifier]: true })
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledWith(
+      '/api/customer_accounts/admin/users-invite?id=invitation-1',
+      { method: 'DELETE' },
+    ))
+    expect(screen.getByRole('button', { name: 'Resend invitation' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Cancel invitation' })).toBeDisabled()
+    expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({
+      context: {
+        entityType: 'customer_accounts:customer_user_invitation',
+        invitationId: 'invitation-1',
+        retryLastMutation: mockRetryLastMutation,
+      },
+      mutationPayload: { id: 'invitation-1' },
+    }))
+
+    await act(async () => { resolveDelete({ ok: true, status: 200, result: { ok: true } } as never) })
+
+    await screen.findByText('No portal account linked')
+    expect(screen.queryByText('Invitation pending')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel invitation' })).not.toBeInTheDocument()
+    expect(flashMock).toHaveBeenCalledWith('Invitation cancelled', 'success')
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['customer-account-status', 'person-entity-1'] })
+  })
+
+  it('keeps a failed cancellation visible and allows retry', async () => {
+    mockApiCall.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      result: { error: 'unavailable' },
+      response: new Response(JSON.stringify({ error: 'unavailable' }), { status: 500 }),
+    } as never)
+    mockApiCall.mockResolvedValueOnce({ ok: true, status: 200, result: { ok: true } } as never)
+    renderPendingInvitation()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel invitation' }))
+    let dialog = await screen.findByRole('alertdialog', { name: 'Cancel invitation?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel invitation' }))
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Failed to cancel invitation', 'error'))
+    expect(screen.getByText('Invitation pending')).toBeInTheDocument()
+    expect(mockInvalidateQueries).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Cancel invitation' })).not.toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel invitation' }))
+    dialog = await screen.findByRole('alertdialog', { name: 'Cancel invitation?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel invitation' }))
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Invitation cancelled', 'success'))
+    expect(mockApiCall).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves a cancellation conflict response for guarded mutation conflict handling', async () => {
+    const conflict = {
+      error: 'The invitation changed. Reload and try again.',
+      code: 'optimistic_lock_conflict',
+      entityId: 'customer_accounts:customer_user_invitation',
+      recordId: 'invitation-1',
+      actualUpdatedAt: '2026-10-29T15:00:00.000Z',
+    }
+    mockApiCall.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      result: conflict,
+      response: new Response(JSON.stringify(conflict), { status: 409 }),
+    } as never)
+    renderPendingInvitation()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel invitation' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel invitation?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel invitation' }))
+
+    await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
+    await expect(mockRunMutation.mock.results[0].value).rejects.toMatchObject({
+      ...conflict,
+      status: 409,
+      raw: JSON.stringify(conflict),
+    })
+    expect(mockInvalidateQueries).not.toHaveBeenCalled()
+    expect(flashMock).not.toHaveBeenCalledWith('Invitation cancelled', 'success')
+    expect(screen.getByText('Invitation pending')).toBeInTheDocument()
   })
 })
 

@@ -11,6 +11,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTeamMember, StaffTimeProject, StaffTimeTask } from '../../../../data/entities'
 import {
@@ -37,6 +38,7 @@ import {
 import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
 import { emitStaffEvent } from '../../../../events'
 import { invalidateStaffTimeEntryCache } from '../../../../lib/timesheets/timeEntryCacheInvalidation'
+import { findLiveSegmentsForEntries, markSegmentsDeleted } from '../../../../lib/timesheets/timeEntrySegmentCascade'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
   runStaffMutationGuardAfterSuccess,
@@ -427,17 +429,34 @@ export async function POST(req: Request) {
       let deleted = 0
       const changes: PendingChange[] = []
 
+      // Locked, and re-read live, before any zeroed row's segments are loaded below:
+      // the segment create route inserts under a PESSIMISTIC_WRITE lock on the same
+      // live parent, so a segment either commits first and is cascaded here, or
+      // waits and then finds its parent deleted. Ordered by id so two batches
+      // touching the same rows always queue on them in the same order.
       const existingEntries = existingIds.length > 0
         ? await findWithDecryption(
             trx,
             StaffTimeEntry,
             { id: { $in: existingIds }, tenantId, organizationId, staffMemberId, deletedAt: null },
-            {},
+            { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } },
             scopeCtx,
           )
         : []
 
       const existingMap = new Map(existingEntries.map((entry) => [entry.id, entry]))
+
+      // Zeroing a cell cascades to the entry's segments. Their read happens here,
+      // once for every zeroed row, because the loop below dirties entries as it
+      // goes and no query may follow a pending scalar change on this manager.
+      const zeroedEntryIds = resolvedRows
+        .filter(({ entry }) => entry.durationMinutes === 0 && entry.id && existingMap.has(entry.id))
+        .map(({ entry }) => entry.id as string)
+      const segmentsByZeroedEntry = await findLiveSegmentsForEntries(
+        trx,
+        zeroedEntryIds,
+        { tenantId, organizationId },
+      )
 
       for (const { entry, task, timeProjectId } of resolvedRows) {
         const project = projectsById.get(timeProjectId) ?? null
@@ -448,7 +467,12 @@ export async function POST(req: Request) {
         if (entry.id && existingMap.has(entry.id)) {
           const existing = existingMap.get(entry.id)!
           if (entry.durationMinutes === 0) {
-            existing.deletedAt = new Date()
+            // Zeroing a grid cell soft-deletes the entry, so it carries the same
+            // cascade obligation as the delete command — a timer-created entry can
+            // own segments, and this route does not filter them out.
+            const deletedAt = new Date()
+            existing.deletedAt = deletedAt
+            markSegmentsDeleted(segmentsByZeroedEntry.get(existing.id) ?? [], deletedAt)
             deleted++
             changes.push({ action: 'deleted', entity: existing })
           } else {
@@ -502,6 +526,23 @@ export async function POST(req: Request) {
             updated++
             changes.push({ action: 'updated', entity: existing })
           }
+        } else if (entry.id) {
+          // Passed the pre-check, then deleted before the row lock was taken. A
+          // zeroed cell already has what it asked for; any other value would
+          // otherwise fall through to the create branch and save onto a new
+          // entry the user never asked for (a 0-minute one for a zeroed cell).
+          if (entry.durationMinutes === 0) continue
+          throw new CrudHttpError(422, {
+            ok: false,
+            errors: [{
+              path: 'entries[].id',
+              message: translate(
+                'staff.timesheets.errors.entryNotFound',
+                'Time entry not found, deleted, or not owned by you.',
+              ),
+              value: entry.id,
+            }],
+          })
         } else {
           const now = new Date()
           const newEntry = trx.create(StaffTimeEntry, {

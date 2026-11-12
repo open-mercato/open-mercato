@@ -123,8 +123,6 @@ describe('TimeReportingWidget guarded mutations', () => {
     await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
     expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({
-        resourceKind: 'staff.timesheets.time_entry',
-        resourceId: 'staff-1',
         staffMemberId: 'staff-1',
         action: 'timer-start',
         retryLastMutation: mockRetryLastMutation,
@@ -135,6 +133,9 @@ describe('TimeReportingWidget guarded mutations', () => {
         notes: 'Build task',
       }),
     }))
+    const startContext = (mockRunMutation.mock.calls[0] as unknown as [{ context: Record<string, unknown> }])[0].context
+    expect(startContext).not.toHaveProperty('resourceKind')
+    expect(startContext).not.toHaveProperty('resourceId')
     expect(mockApiCallOrThrow).toHaveBeenCalledWith(
       '/api/staff/timesheets/time-entries/start-timer',
       expect.objectContaining({ method: 'POST' }),
@@ -150,8 +151,6 @@ describe('TimeReportingWidget guarded mutations', () => {
     await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
     expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({
-        resourceKind: 'staff.timesheets.time_entry',
-        resourceId: 'entry-1',
         staffMemberId: 'staff-1',
         retryLastMutation: mockRetryLastMutation,
       }),
@@ -161,5 +160,8 @@ describe('TimeReportingWidget guarded mutations', () => {
         staffMemberId: 'staff-1',
       },
     }))
+    const stopContext = (mockRunMutation.mock.calls[0] as unknown as [{ context: Record<string, unknown> }])[0].context
+    expect(stopContext).not.toHaveProperty('resourceKind')
+    expect(stopContext).not.toHaveProperty('resourceId')
   })
 })

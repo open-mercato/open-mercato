@@ -109,7 +109,7 @@ export function computeHierarchyForCategories(categories: CatalogProductCategory
       .sort((a, b) => {
         const an = nodes.get(a)!.category.name.toLowerCase()
         const bn = nodes.get(b)!.category.name.toLowerCase()
-        return an === bn ? a.localeCompare(b) : an.localeCompare(b)
+        return an === bn ? a.localeCompare(b) : an.localeCompare(bn)
       })
 
     const descendantIds: string[] = []

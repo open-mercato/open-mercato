@@ -4,21 +4,21 @@ import * as React from 'react'
 import { format } from 'date-fns/format'
 import { parseISO } from 'date-fns/parseISO'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
-import { DictionarySelectField } from '../../formConfig'
-import { createDictionarySelectLabels } from '../utils'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Label } from '@open-mercato/ui/primitives/label'
+import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
+import { DealSectionCard } from './DealSectionCard'
 import { DealFormField } from './DealFormField'
 import { PipelineSelect } from './PipelineSelect'
-import { PipelineStageSelect } from './PipelineStageSelect'
+import { DealStagePath } from './DealStagePath'
 import { SuffixInput } from './SuffixInput'
 import { DealCurrencyField } from './DealCurrencyField'
 import { DealOwnerSelect, type DealOwnerOption } from '../DealOwnerSelect'
-import { sanitizeAmount, sanitizeProbability } from './dealNumericInput'
-import type { BaseValues } from './dealFormTypes'
+import { sanitizeAmount } from './dealNumericInput'
+import type { BaseValues, Translate } from './dealFormTypes'
 import type { PipelineOption, PipelineStageOption } from './useDealPipelines'
-
-type Translate = (key: string, fallback: string, params?: Record<string, string | number>) => string
 
 export type DealDetailsFieldsProps = {
   values: BaseValues
@@ -28,7 +28,9 @@ export type DealDetailsFieldsProps = {
   onPipelineChange: (id: string) => void
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
-  statusLabels: ReturnType<typeof createDictionarySelectLabels>
+  pipelineName?: string | null
+  stagesFailed?: boolean
+  onRetryStages?: () => void
   /** Seeds the owner picker so a self-assigned user outside the roster still renders by name. */
   ownerInitialOption?: DealOwnerOption | null
   tr: Translate
@@ -40,6 +42,11 @@ function toDate(value: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
+/**
+ * The fields every new deal needs, in the order a rep thinks about them: what it is, where
+ * it sits in the pipeline, then the numbers. Status, probability, notes and custom
+ * attributes live under "More details" on the create page (#5109).
+ */
 export function DealDetailsFields({
   values,
   errors,
@@ -48,134 +55,116 @@ export function DealDetailsFields({
   onPipelineChange,
   pipelines,
   stages,
-  statusLabels,
+  pipelineName = null,
+  stagesFailed = false,
+  onRetryStages,
   ownerInitialOption,
   tr,
 }: DealDetailsFieldsProps) {
+  const locale = useOptionalLocale()
   return (
     <>
-      <DealFormField
-        fieldId="title"
-        label={tr('customers.deals.create.fields.title', 'Deal title')}
-        required
-        hint={tr('customers.deals.create.hints.title', 'Short, descriptive name shown on pipeline cards')}
-        error={errors.title}
-      >
-        <Input
-          value={values.title}
-          onChange={(event) => patch({ title: event.target.value })}
-          aria-invalid={errors.title ? true : undefined}
-          disabled={isSubmitting}
-        />
-      </DealFormField>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <DealFormField fieldId="status" label={tr('customers.people.detail.deals.fields.status', 'Status')}>
-          <DictionarySelectField
-            kind="deal-statuses"
-            value={values.status || undefined}
-            onChange={(next) => patch({ status: next ?? '' })}
-            labels={statusLabels}
-            selectClassName="w-full"
-            showActiveAppearance={false}
-          />
-        </DealFormField>
-        <DealFormField fieldId="pipelineId" label={tr('customers.people.detail.deals.fields.pipeline', 'Pipeline')}>
-          <PipelineSelect
-            pipelines={pipelines}
-            value={values.pipelineId}
-            onChange={onPipelineChange}
-            disabled={isSubmitting}
-            placeholder={tr('customers.deals.form.pipeline.placeholder', 'Select pipeline…')}
-          />
-        </DealFormField>
-      </div>
-
-      <DealFormField
-        fieldId="pipelineStageId"
-        label={tr('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage')}
-        hint={tr('customers.deals.create.hints.pipelineStage', 'Stages depend on the selected pipeline')}
-      >
-        <PipelineStageSelect
-          stages={stages}
-          value={values.pipelineStageId}
-          onChange={(id) => patch({ pipelineStageId: id })}
-          disabled={isSubmitting || !values.pipelineId}
-          placeholder={tr('customers.deals.form.pipelineStage.placeholder', 'Select stage…')}
-          formatCount={(position, total) =>
-            tr('customers.deals.create.fields.stageOf', '· stage {position} of {total}', { position, total })
-          }
-        />
-      </DealFormField>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <DealSectionCard>
         <DealFormField
-          fieldId="valueAmount"
-          label={tr('customers.deals.create.fields.valueAmount', 'Deal value')}
-          hint={tr('customers.deals.create.hints.valueAmount', 'Potential revenue from this opportunity')}
-          error={errors.valueAmount}
+          fieldId="title"
+          label={tr('customers.deals.create.fields.title', 'Deal title')}
+          required
+          error={errors.title}
         >
-          <SuffixInput
-            suffix={values.valueCurrency}
-            inputMode="decimal"
-            value={values.valueAmount}
-            onChange={(event) => patch({ valueAmount: sanitizeAmount(event.target.value) })}
-            placeholder="0"
-            aria-invalid={errors.valueAmount ? true : undefined}
+          <Input
+            size={40}
+            className="text-lg"
+            value={values.title}
+            onChange={(event) => patch({ title: event.target.value })}
+            aria-invalid={errors.title ? true : undefined}
             disabled={isSubmitting}
           />
         </DealFormField>
-        <DealFormField fieldId="valueCurrency" label={tr('customers.people.detail.deals.fields.valueCurrency', 'Currency')}>
-          <DealCurrencyField
-            value={values.valueCurrency}
-            onChange={(code) => patch({ valueCurrency: code })}
-            disabled={isSubmitting}
+        <div className="md:max-w-sm">
+          <DealFormField fieldId="pipelineId" label={tr('customers.people.detail.deals.fields.pipeline', 'Pipeline')}>
+            <PipelineSelect
+              pipelines={pipelines}
+              value={values.pipelineId}
+              onChange={onPipelineChange}
+              disabled={isSubmitting}
+              placeholder={tr('customers.deals.form.pipeline.placeholder', 'Select pipeline…')}
+            />
+          </DealFormField>
+        </div>
+        {values.pipelineId && stagesFailed ? (
+          <ErrorMessage
+            label={tr('customers.deals.create.stagesLoadFailed', 'Could not load the stages of this pipeline.')}
+            action={(
+              <Button type="button" variant="outline" size="sm" onClick={onRetryStages}>
+                {tr('customers.deals.create.stagesRetry', 'Try again')}
+              </Button>
+            )}
           />
-        </DealFormField>
-      </div>
+        ) : null}
+        {values.pipelineId && stages.length ? (
+          <div className="space-y-2" data-crud-field-id="pipelineStageId">
+            <Label>{tr('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage')}</Label>
+            <DealStagePath
+              stages={stages}
+              value={values.pipelineStageId || null}
+              onChange={(id) => patch({ pipelineStageId: id })}
+              disabled={isSubmitting}
+              label={pipelineName ?? tr('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage')}
+            />
+          </div>
+        ) : null}
+      </DealSectionCard>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <DealFormField
-          fieldId="probability"
-          label={tr('customers.deals.create.fields.probability', 'Probability')}
-          hint={tr('customers.deals.create.hints.probability', '0 – 100%, used for weighted pipeline value')}
-          error={errors.probability}
-        >
-          <SuffixInput
-            suffix="%"
-            inputMode="numeric"
-            value={values.probability}
-            onChange={(event) => patch({ probability: sanitizeProbability(event.target.value) })}
-            placeholder="0"
-            aria-invalid={errors.probability ? true : undefined}
-            disabled={isSubmitting}
-          />
-        </DealFormField>
-        <DealFormField fieldId="expectedCloseAt" label={tr('customers.deals.create.fields.expectedCloseAt', 'Expected close date')}>
-          <DatePicker
-            value={toDate(values.expectedCloseAt)}
-            onChange={(date) => patch({ expectedCloseAt: date ? format(date, 'yyyy-MM-dd') : '' })}
-            disabled={isSubmitting}
-            placeholder={tr('customers.deals.create.fields.datePlaceholder', 'Pick a date')}
-          />
-        </DealFormField>
-        <DealFormField fieldId="ownerUserId" label={tr('customers.deals.fields.owner', 'Owner')}>
-          <DealOwnerSelect
-            value={values.ownerUserId ? values.ownerUserId : null}
-            onChange={(next) => patch({ ownerUserId: next ?? '' })}
-            initialOption={ownerInitialOption ?? null}
-            disabled={isSubmitting}
-          />
-        </DealFormField>
-      </div>
-
-      <DealFormField fieldId="description" label={tr('customers.people.detail.deals.fields.description', 'Description')}>
-        <Textarea
-          value={values.description}
-          onChange={(event) => patch({ description: event.target.value })}
-          disabled={isSubmitting}
-        />
-      </DealFormField>
+      <DealSectionCard title={tr('customers.deals.create.sections.details.title', 'Details')}>
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+          <DealFormField
+            fieldId="valueAmount"
+            controlId="valueAmount"
+            label={tr('customers.deals.create.fields.valueAmount', 'Deal value')}
+            error={errors.valueAmount}
+          >
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <SuffixInput
+                id="valueAmount"
+                suffix={values.valueCurrency}
+                inputMode="decimal"
+                value={values.valueAmount}
+                onChange={(event) => patch({ valueAmount: sanitizeAmount(event.target.value, locale) })}
+                placeholder="0"
+                aria-invalid={errors.valueAmount ? true : undefined}
+                disabled={isSubmitting}
+              />
+              <div data-crud-field-id="valueCurrency" className="w-28">
+                <Label htmlFor="valueCurrency" className="sr-only">
+                  {tr('customers.people.detail.deals.fields.valueCurrency', 'Currency')}
+                </Label>
+                <DealCurrencyField
+                  id="valueCurrency"
+                  value={values.valueCurrency}
+                  onChange={(code) => patch({ valueCurrency: code })}
+                  disabled={isSubmitting}
+                />
+              </div>
+            </div>
+          </DealFormField>
+          <DealFormField fieldId="expectedCloseAt" label={tr('customers.deals.create.fields.expectedCloseAt', 'Expected close date')}>
+            <DatePicker
+              value={toDate(values.expectedCloseAt)}
+              onChange={(date) => patch({ expectedCloseAt: date ? format(date, 'yyyy-MM-dd') : '' })}
+              disabled={isSubmitting}
+              placeholder={tr('customers.deals.create.fields.datePlaceholder', 'Pick a date')}
+            />
+          </DealFormField>
+          <DealFormField fieldId="ownerUserId" label={tr('customers.deals.fields.owner', 'Owner')}>
+            <DealOwnerSelect
+              value={values.ownerUserId ? values.ownerUserId : null}
+              onChange={(next) => patch({ ownerUserId: next ?? '' })}
+              initialOption={ownerInitialOption ?? null}
+              disabled={isSubmitting}
+            />
+          </DealFormField>
+        </div>
+      </DealSectionCard>
     </>
   )
 }

@@ -105,10 +105,13 @@ for (const theme of ['light', 'dark'] as const) {
         await expectMatchingSurfaces(page, cells, testInfo, `${theme}-policy-rest`)
         await row.hover()
         await expectMatchingSurfaces(page, cells, testInfo, `${theme}-policy-hover`)
+        const pinnedColumns = table.locator('thead th[class*=sticky], tbody td[class*=sticky]')
+        await expect(pinnedColumns).toHaveCount(4)
         await page.setViewportSize({ width: 600, height: 900 })
-        await expect.poll(() => table.locator('[class*=sticky]').evaluateAll((elements) =>
+        await expect.poll(() => pinnedColumns.evaluateAll((elements) =>
           elements.every((element) => getComputedStyle(element).position !== 'sticky'),
         )).toBe(true)
+        await expect(table.locator('thead')).toHaveCSS('position', 'sticky')
       } finally {
         await deleteWarrantyVendorPolicyIfExists(request, token, policyId)
       }

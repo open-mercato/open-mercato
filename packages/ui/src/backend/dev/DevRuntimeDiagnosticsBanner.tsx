@@ -149,15 +149,6 @@ const OUTSIDE_DISMISS_SHIELD = {
   onFocusCapture: stopOutsideDismiss,
 }
 
-function reloadPage(): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.location.reload()
-  } catch {
-    // Reload is a convenience affordance; ignore hosts that block it.
-  }
-}
-
 /**
  * Dev-only, in-app counterpart to the standalone startup splash. It reports the
  * supervisor's runtime state on an already-open page so a post-ready failure is
@@ -330,7 +321,8 @@ export function DevRuntimeDiagnosticsBanner() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={reloadPage}
+              disabled={pendingAction !== null}
+              onClick={() => { void runRecoveryAction('restart') }}
               className={`whitespace-nowrap ${TONE_ACTION_CLASSES[tone]}`}
             >
               <RefreshCw className="mr-1 size-4" aria-hidden="true" />

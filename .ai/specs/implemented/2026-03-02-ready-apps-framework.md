@@ -340,6 +340,9 @@ None.
 
 ## Changelog
 
+### 2026-11-04
+- Amended by `.ai/specs/2026-11-04-create-app-template-flag.md` (Templates Phase 4) for `--template` only: slug lookup through `templates.json`, the `package.json` `name` rewrite (opt out with `--keep-name`), the `openMercatoTemplate` provenance field, removal of `mercato-template.json` and cleanup of the target directory on a failed import. Its archive limits apply to the shared fetch, so they also narrow `--app` and `--app-url`. Everything else in this spec is unchanged.
+
 ### 2026-04-01
 - Reworked the distribution model from one centralized official repo to one official repo per ready app under the `open-mercato` organization.
 - Introduced the official repository naming convention `ready-app-<appname>`.

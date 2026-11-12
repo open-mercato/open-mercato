@@ -192,11 +192,20 @@ export async function resolveLoadedDocumentUserAccess(
   userId: string,
   container?: DocumentsServiceContainer | null,
 ): Promise<DocumentTier | null> {
+  if (!await hasUserDocumentViewPermission(scope, userId, container)) return null
+  return resolveLoadedDocumentUserTier(em, document, scope, userId, container)
+}
+
+export async function hasUserDocumentViewPermission(
+  scope: { tenantId: string; organizationId: string },
+  userId: string,
+  container?: DocumentsServiceContainer | null,
+): Promise<boolean> {
   const rbacService = resolveDocumentsRbacService(container)
-  if (!rbacService) return null
+  if (!rbacService) return false
   if (!await rbacService.userHasAllFeatures(userId, ['documents.view'], scope)) {
     const organizationScopeService = resolveOrganizationScopeService(container)
-    if (!organizationScopeService) return null
+    if (!organizationScopeService) return false
     const authorization = await organizationScopeService.resolveFresh({
       auth: { sub: userId, userId, tenantId: scope.tenantId, orgId: scope.organizationId, isSuperAdmin: false },
       selectedId: scope.organizationId,
@@ -208,9 +217,9 @@ export async function resolveLoadedDocumentUserAccess(
       scopeAllowed: authorization.scope.tenantId === scope.tenantId
         && !authorization.scope.selectionRejected
         && hasResolvedDocumentsOrganizationAccess(authorization.acl, scope.organizationId, authorization.scope),
-    })) return null
+    })) return false
   }
-  return resolveLoadedDocumentUserTier(em, document, scope, userId, container)
+  return true
 }
 
 async function resolveLoadedDocumentUserTier(

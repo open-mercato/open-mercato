@@ -89,6 +89,19 @@ export async function requireTimelineParentEntity(
   throw notFound('Customer not found')
 }
 
+// Profile columns, custom fields, and tags all live outside CustomerEntity, so a
+// save that only touches one of them never dirties the entity and its `updated_at`
+// (the optimistic-lock version) would stay put — letting a stale second tab
+// overwrite the change without a 409 (#7033, #8643). Bump it explicitly whenever
+// any sub-collection changed.
+export function shouldBumpOptimisticLockVersion(
+  profileFieldsUpdated: boolean,
+  custom: Record<string, unknown>,
+  tags: string[] | undefined | null
+): boolean {
+  return profileFieldsUpdated || Object.keys(custom).length > 0 || tags !== undefined
+}
+
 export async function syncEntityTags(
   em: EntityManager,
   entity: CustomerEntity,

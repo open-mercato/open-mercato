@@ -1484,6 +1484,7 @@ No existing spec contracts are broken. The updates are additive cross-references
 | 2026-03-18 | Packaging, queue dispatch, retries, migration, inbound/events/test/retry APIs, and locale coverage completed for shippable rollout |
 | 2026-03-19 | Added pay-links alignment note: outbound webhooks must support checkout lifecycle automation through stable post-commit events |
 | 2026-07-10 | Bounded public webhook request bodies before signature verification with a configurable 1 MiB default and streamed-byte enforcement |
+| 2026-11-07 | Outbound delivery worker ignores jobs for finished deliveries and claims a delivery (`pending` once its retry is due, or `sending` past webhook timeout + 15 s) with one conditional update before sending; a job that loses the claim schedules one re-check, and a throw after the claim returns the delivery to `pending` |
 
 ---
 

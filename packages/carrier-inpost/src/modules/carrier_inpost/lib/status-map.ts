@@ -51,13 +51,13 @@ const INPOST_STATUS_MAP: Record<string, UnifiedShipmentStatus> = {
   undelivered_wrong_address: 'failed_delivery',
   undelivered_cod_cash_receiver: 'failed_delivery',
   rejected_by_receiver: 'failed_delivery',
+  claimed: 'failed_delivery',
 
   // Returned
   returned_to_sender: 'returned',
 
   // Cancelled
   canceled: 'cancelled',
-  claimed: 'cancelled',
 }
 
 export function mapInpostStatus(inpostStatus: string): UnifiedShipmentStatus {

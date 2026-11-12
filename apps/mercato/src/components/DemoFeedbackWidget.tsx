@@ -246,7 +246,9 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
 
   if (otherModalOpen && !open) return null
 
-  // Brand-gradient floating CTA. Uses brand CSS vars (no hardcoded hex) +
+  // Brand-gradient floating CTA, collapsed to an icon-only circle that widens
+  // to show the rotating caption on hover or keyboard focus, so the resting
+  // button covers as little of the page corner as possible. Uses brand CSS vars (no hardcoded hex) +
   // z-sticky so it stays DS-compliant while keeping the bespoke 135deg /
   // 0-50-100 gradient that the marketing visual depends on. `z-sticky` (10)
   // is the layer for viewport-pinned chrome: it floats over page content but
@@ -267,16 +269,16 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
-      className="om-demo-feedback-floating fixed bottom-6 right-6 z-sticky flex max-w-[calc(100vw-3rem)] items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-black shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
+      className="om-demo-feedback-floating group fixed bottom-6 right-6 z-sticky flex h-11 min-w-11 max-w-[calc(100vw-3rem)] items-center justify-center rounded-full px-3 text-sm font-semibold text-black shadow-xl transition-all duration-200 hover:px-5 hover:shadow-2xl focus-visible:px-5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
       style={{
         backgroundImage: 'linear-gradient(135deg, var(--brand-lime, #B4F372) 0%, #EEFB63 50%, var(--brand-violet, #BC9AFF) 100%)',
       }}
       aria-label={t('demoFeedback.button.ariaLabel', 'Open feedback form')}
     >
-      <MessageCircle className="size-4" />
+      <MessageCircle className="size-5 shrink-0" />
       <span
         key={captionIndex}
-        className="inline-block min-w-[90px] text-center animate-[caption-slide_0.3s_ease-out]"
+        className="inline-block max-w-0 overflow-hidden whitespace-nowrap text-center opacity-0 transition-all duration-200 group-hover:ml-2 group-hover:max-w-40 group-hover:opacity-100 group-focus-visible:ml-2 group-focus-visible:max-w-40 group-focus-visible:opacity-100 animate-[caption-slide_0.3s_ease-out]"
       >
         {currentCaption}
       </span>

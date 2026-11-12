@@ -1,0 +1,4 @@
+{
+  "cli.init.errors.superadminPasswordPolicy": "Hasło superadministratora w środowisku produkcyjnym nie spełnia skonfigurowanej polityki haseł. Flagi pomijające politykę haseł działają tylko poza środowiskiem produkcyjnym.",
+  "cli.init.errors.superadminPasswordRequired": "Inicjalizacja produkcyjna wymaga unikalnego hasła superadministratora podanego przez OM_INIT_SUPERADMIN_PASSWORD lub --password; wbudowane hasła przykładowe są niedozwolone."
+}

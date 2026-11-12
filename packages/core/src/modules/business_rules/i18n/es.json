@@ -240,7 +240,7 @@
   "business_rules.rules.form.placeholders.entityType": "Empiece a escribir para ver sugerencias",
   "business_rules.rules.form.placeholders.eventType": "Empiece a escribir para ver sugerencias",
   "business_rules.rules.form.placeholders.ruleCategory": "ej. Precios, Flujo de trabajo, Calidad de datos",
-  "business_rules.rules.form.placeholders.ruleId": "ID_AUTO_GENERADO",
+  "business_rules.rules.form.placeholders.ruleId": "ORDER_APPROVAL_CHECK",
   "business_rules.rules.form.placeholders.ruleName": "Ingrese un nombre descriptivo para la regla",
   "business_rules.rules.form.priority": "Prioridad",
   "business_rules.rules.form.ruleCategory": "Categoría",

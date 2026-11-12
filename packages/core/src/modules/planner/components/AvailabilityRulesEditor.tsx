@@ -538,8 +538,8 @@ export function AvailabilityRulesEditor({
       ruleSetDeleteSubmit: t(`${labelPrefix}.availability.ruleset.deleteSubmit`, 'Delete'),
       ruleSetDeleteSuccess: t(`${labelPrefix}.availability.ruleset.deleteSuccess`, 'Schedule deleted.'),
       ruleSetDeleteError: t(`${labelPrefix}.availability.ruleset.deleteError`, 'Failed to delete schedule.'),
-      editTitle: t(`${modeBase}.form.title.edit`, 'Edit availability'),
-      addTitle: t(`${modeBase}.form.title.create`, 'Add availability'),
+      editTitle: t(`${modeBase}.form.title.edit`, t('planner.availabilityRuleSets.availability.form.title.edit', 'Edit availability')),
+      addTitle: t(`${modeBase}.form.title.create`, t('planner.availabilityRuleSets.availability.form.title.create', 'Add availability')),
       applyLabel: t(`${labelPrefix}.availability.actions.apply`, 'Apply'),
       cancelLabel: t('ui.forms.actions.cancel', 'Cancel'),
       applyScopeLabel: t(`${labelPrefix}.availability.scope.label`, 'Apply to'),
@@ -581,7 +581,7 @@ export function AvailabilityRulesEditor({
       customizePrompt: t(`${labelPrefix}.availability.ruleset.customizePrompt`, 'This schedule is based on a shared ruleset. Customize it to make changes.'),
       calendarLabel: t(`${labelPrefix}.availability.view.calendar`, 'Calendar'),
       listLabel: t(`${labelPrefix}.availability.view.list`, 'List'),
-      editAllLabel: t(`${labelPrefix}.availability.scope.weekdayShort`, 'All {{weekday}}s', { weekday: DAY_LABELS[editorWeekday].fallback }),
+      editAllLabel: t(`${labelPrefix}.availability.scope.weekdayShort`, 'All {{weekday}}s', { weekday: t(DAY_LABELS[editorWeekday].nameKey, DAY_LABELS[editorWeekday].fallback) }),
       addDateLabel: t(`${labelPrefix}.availability.dateSpecific.addDate`, 'Add date'),
     }
   }, [editorWeekday, labelPrefix, t])

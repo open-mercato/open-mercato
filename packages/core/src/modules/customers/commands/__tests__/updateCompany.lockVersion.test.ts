@@ -130,6 +130,12 @@ describe('customers.companies.update — optimistic-lock version (#7033)', () =>
     expect(company.updatedAt.getTime()).toBeGreaterThan(LOADED_VERSION.getTime())
   })
 
+  it('advances updatedAt when only tags change (#8643)', async () => {
+    const { company } = await runUpdate({ tags: [] })
+
+    expect(company.updatedAt.getTime()).toBeGreaterThan(LOADED_VERSION.getTime())
+  })
+
   it('leaves updatedAt alone when no profile or custom field is submitted', async () => {
     const { company } = await runUpdate({})
 

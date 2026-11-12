@@ -14,6 +14,7 @@ RUN corepack enable
 # Copy workspace configuration files
 COPY package.json yarn.lock .yarnrc.yml turbo.json ./
 COPY tsconfig.base.json tsconfig.json ./
+COPY AGENTS.md BACKWARD_COMPATIBILITY.md ./
 
 # Copy all packages and apps (including package.json files for dependency installation)
 COPY packages/ ./packages/
@@ -45,6 +46,7 @@ RUN corepack enable
 
 COPY package.json yarn.lock .yarnrc.yml turbo.json ./
 COPY tsconfig.base.json tsconfig.json ./
+COPY AGENTS.md BACKWARD_COMPATIBILITY.md ./
 COPY packages/ ./packages/
 COPY apps/ ./apps/
 COPY scripts/ ./scripts/

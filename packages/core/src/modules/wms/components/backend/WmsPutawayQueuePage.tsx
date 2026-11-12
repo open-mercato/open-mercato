@@ -609,7 +609,7 @@ export default function WmsPutawayQueuePage() {
               embedded
               columns={columns}
               data={tasksQuery.data.items}
-              isLoading={tasksQuery.isFetching}
+              isLoading={tasksQuery.isLoading}
               entityId={E.wms.putaway_task}
               sortable
               manualSorting

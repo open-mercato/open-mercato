@@ -349,6 +349,10 @@ services:
       OPENCODE_URL: ${OPENCODE_URL:-http://opencode:4096}
       MCP_URL: ${MCP_URL:-http://mcp:3001}
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
+      # The dedicated mcp service provisions the key and serves MCP; without this
+      # `yarn dev` would start a second MCP runtime and try to write the key into
+      # the read-only shared volume (EROFS, retried every 30s).
+      OM_DEV_WITH_MCP: "0"
     depends_on:
       file-watch-limits:
         condition: service_completed_successfully
@@ -462,8 +466,8 @@ services:
     restart: unless-stopped
     command: start-dev
     environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     ports:
       - "${KEYCLOAK_PORT:-8080}:8080"
     healthcheck:

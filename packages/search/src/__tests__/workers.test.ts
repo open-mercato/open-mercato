@@ -441,6 +441,9 @@ describe('Fulltext Index Worker', () => {
       select: jest.fn(() => chain),
       selectAll: jest.fn(() => chain),
       from: jest.fn(() => chain),
+      orderBy: jest.fn(() => chain),
+      offset: jest.fn(() => chain),
+      limit: jest.fn(() => chain),
       execute: jest.fn().mockResolvedValue([]),
       executeTakeFirst: jest.fn().mockResolvedValue(undefined),
     }
@@ -800,11 +803,7 @@ describe('Fulltext Index Worker', () => {
     )
   })
 
-  // The guard's outcome is static for the lifetime of the process - searchStrategies and
-  // searchIndexer are registered in one call - so rows 2..N carry exactly the information
-  // of row 1. The operator surface is the newest 100 rows across ALL sources, so a row per
-  // job would saturate it under ordinary write traffic.
-  it('reports the same skip once per process, not once per job', async () => {
+  it('reports the same skip once inside the cooldown, not once per job', async () => {
     const containerWithoutStrategy: HandlerContext = {
       resolve: jest.fn((name: string) => {
         if (name === 'searchStrategies') return []
@@ -859,6 +858,150 @@ describe('Fulltext Index Worker', () => {
 
     // Three distinct (tenant, jobType) pairs; the repeat of the first is suppressed.
     expect(recordIndexerLog).toHaveBeenCalledTimes(3)
+  })
+
+  describe('skipped diagnostic cooldown', () => {
+    const cooldownMs = 5 * 60 * 1000
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'index',
+      tenantId: 'tenant-a',
+      organizationId: null,
+      entityType: 'test:entity',
+      recordId: 'rec-1',
+    })
+    const skipContainer = (options: { missingStrategies?: boolean; missingDb?: boolean } = {}): HandlerContext => ({
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies' && !options.missingStrategies) return []
+        if (name === 'em' && !options.missingDb) return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    })
+    const runSkippedJob = (container: HandlerContext = skipContainer()) =>
+      handleFulltextIndexJob(job, createMockJobContext(), container)
+
+    beforeEach(() => {
+      jest.useFakeTimers({ now: 0 })
+      jest.mocked(recordIndexerLog).mockResolvedValue(undefined)
+    })
+
+    afterEach(() => {
+      jest.useRealTimers()
+      jest.mocked(recordIndexerLog).mockReset().mockResolvedValue(undefined)
+    })
+
+    it.each([false, true])('renews at each boundary without extending suppression (missingStrategies: %s)', async (missingStrategies) => {
+      const container = skipContainer({ missingStrategies })
+
+      await expect(runSkippedJob(container)).resolves.toBeUndefined()
+      jest.setSystemTime(cooldownMs - 1)
+      await expect(runSkippedJob(container)).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+      expect(searchLoggerWarn).toHaveBeenCalledTimes(1)
+
+      jest.setSystemTime(cooldownMs)
+      await expect(runSkippedJob(container)).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(2)
+      jest.setSystemTime(2 * cooldownMs - 1)
+      await expect(runSkippedJob(container)).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(2)
+      jest.setSystemTime(2 * cooldownMs)
+      await expect(runSkippedJob(container)).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(3)
+      expect(searchLoggerWarn).toHaveBeenCalledTimes(3)
+      expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
+    })
+
+    it('keeps reasons independent for the same tenant and job type', async () => {
+      const configuredContainer = skipContainer()
+      const missingContainer = skipContainer({ missingStrategies: true })
+      for (const container of [configuredContainer, missingContainer, configuredContainer, missingContainer]) {
+        await runSkippedJob(container)
+      }
+      expect(recordIndexerLog).toHaveBeenCalledTimes(2)
+      expect(jest.mocked(recordIndexerLog).mock.calls.map(([, input]) => input.message)).toEqual([
+        'Fulltext strategy not configured (MEILISEARCH_HOST unset?); job skipped without indexing',
+        'searchStrategies not available; job skipped without indexing',
+      ])
+    })
+
+    it('does not renew other tenant or job-type keys prematurely', async () => {
+      const container = skipContainer()
+      const otherTenantJob = createMockJob<FulltextIndexJobPayload>({ ...job.payload, tenantId: 'tenant-b' })
+      const otherTypeJob = createMockJob<FulltextIndexJobPayload>({
+        jobType: 'purge',
+        tenantId: 'tenant-a',
+        entityId: 'test:entity',
+      })
+      await runSkippedJob(container)
+      jest.setSystemTime(cooldownMs - 1)
+      await handleFulltextIndexJob(otherTenantJob, createMockJobContext(), container)
+      await handleFulltextIndexJob(otherTypeJob, createMockJobContext(), container)
+      expect(recordIndexerLog).toHaveBeenCalledTimes(3)
+
+      jest.setSystemTime(cooldownMs)
+      await runSkippedJob(container)
+      await handleFulltextIndexJob(otherTenantJob, createMockJobContext(), container)
+      await handleFulltextIndexJob(otherTypeJob, createMockJobContext(), container)
+      expect(recordIndexerLog).toHaveBeenCalledTimes(4)
+    })
+
+    it('reserves the cooldown before a concurrent status write completes', async () => {
+      let releaseWrite: () => void = () => undefined
+      jest.mocked(recordIndexerLog).mockImplementationOnce(() => new Promise<void>((resolve) => {
+        releaseWrite = resolve
+      }))
+      const firstJob = runSkippedJob()
+      try {
+        await expect(runSkippedJob()).resolves.toBeUndefined()
+        expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+      } finally {
+        releaseWrite()
+        await firstJob
+      }
+    })
+
+    it('renews after a failed status write without rejecting or retrying the skipped job', async () => {
+      const actualStatusLog = jest.requireActual<typeof import('@open-mercato/shared/lib/indexers/status-log')>(
+        '@open-mercato/shared/lib/indexers/status-log',
+      )
+      jest.mocked(recordIndexerLog).mockImplementation(actualStatusLog.recordIndexerLog)
+      const execute = jest.fn().mockRejectedValueOnce(new Error('database unavailable')).mockResolvedValue([])
+      const values = jest.fn().mockReturnValue({ execute })
+      mockDb.insertInto.mockReturnValueOnce({ ...createKyselyChain(), values })
+
+      await expect(runSkippedJob()).resolves.toBeUndefined()
+      expect(execute).toHaveBeenCalledTimes(1)
+      jest.setSystemTime(cooldownMs - 1)
+      await expect(runSkippedJob()).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+
+      jest.setSystemTime(cooldownMs)
+      await expect(runSkippedJob()).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(2)
+      expect(mockDb.insertInto).toHaveBeenCalledTimes(2)
+      expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
+    })
+
+    it('renews after a missing DB becomes available without rejecting the skipped job', async () => {
+      const actualStatusLog = jest.requireActual<typeof import('@open-mercato/shared/lib/indexers/status-log')>(
+        '@open-mercato/shared/lib/indexers/status-log',
+      )
+      jest.mocked(recordIndexerLog).mockImplementation(actualStatusLog.recordIndexerLog)
+      await expect(runSkippedJob(skipContainer({ missingDb: true }))).resolves.toBeUndefined()
+      expect(mockDb.insertInto).not.toHaveBeenCalled()
+
+      jest.setSystemTime(cooldownMs - 1)
+      await expect(runSkippedJob()).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+      expect(mockDb.insertInto).not.toHaveBeenCalled()
+
+      jest.setSystemTime(cooldownMs)
+      await expect(runSkippedJob()).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(2)
+      expect(mockDb.insertInto).toHaveBeenCalledTimes(1)
+      expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
+    })
   })
 
   it('should throw when fulltext search is not available', async () => {

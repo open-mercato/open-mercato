@@ -3,7 +3,9 @@ import {
   combineDateAndClock,
   createIntervalState,
   describeTaskOption,
+  mergeProjectOptions,
   reduceIntervalState,
+  resolveTimeEntryDialogMode,
   shiftIsoDate,
   toTaskOption,
   toTimeEntryRecord,
@@ -169,5 +171,58 @@ describe('task option references', () => {
   it('falls back to the plain label when a task has no reference', () => {
     const option = toTaskOption({ id: 't1', title: 'Untracked' })!
     expect(describeTaskOption(option, null)).toBe('Untracked')
+  })
+})
+
+describe('resolveTimeEntryDialogMode', () => {
+  const projectOnly = { taskId: null, timeProjectId: 'project-1' }
+  const withTask = { taskId: 'task-1', timeProjectId: 'project-1' }
+
+  it('opens a project-only entry in project mode whatever the prop or setting says', () => {
+    expect(resolveTimeEntryDialogMode({ entry: projectOnly, propMode: 'task', settingMode: 'task' })).toBe('project')
+  })
+
+  it('lets the prop override the tenant setting', () => {
+    expect(resolveTimeEntryDialogMode({ entry: withTask, propMode: 'task', settingMode: 'project' })).toBe('task')
+    expect(resolveTimeEntryDialogMode({ entry: null, propMode: 'project', settingMode: 'task' })).toBe('project')
+  })
+
+  it('follows the tenant setting when no prop is passed', () => {
+    expect(resolveTimeEntryDialogMode({ entry: null, propMode: undefined, settingMode: 'project' })).toBe('project')
+    expect(resolveTimeEntryDialogMode({ entry: withTask, propMode: null, settingMode: 'project' })).toBe('project')
+  })
+
+  it('falls back to task mode while the setting is unknown', () => {
+    expect(resolveTimeEntryDialogMode({ entry: null, propMode: undefined, settingMode: null })).toBe('task')
+    expect(resolveTimeEntryDialogMode({ entry: { taskId: null, timeProjectId: null }, propMode: undefined, settingMode: undefined })).toBe('task')
+  })
+})
+
+describe('resolveTimeEntryDialogMode with a settings object from before #6989', () => {
+  it('treats an absent entryMode as task mode', () => {
+    const legacyDefaults: { entryMode?: 'task' | 'project' } = {}
+    expect(resolveTimeEntryDialogMode({ entry: null, propMode: undefined, settingMode: legacyDefaults.entryMode })).toBe(
+      'task',
+    )
+  })
+})
+
+describe('mergeProjectOptions', () => {
+  const alpha = { id: 'p-alpha', name: 'Alpha', customerName: null, hourlyRate: null, currencyCode: null, billableByDefault: null }
+  const beta = { id: 'p-beta', name: 'Beta', customerName: 'Acme', hourlyRate: 120, currencyCode: 'EUR', billableByDefault: true }
+
+  it('returns the same map when nothing new was found', () => {
+    const current = new Map([[alpha.id, alpha]])
+    expect(mergeProjectOptions(current, [])).toBe(current)
+    expect(mergeProjectOptions(current, [{ ...alpha, name: 'Alpha renamed' }])).toBe(current)
+  })
+
+  it('adds new projects and keeps the first copy of a known one', () => {
+    const current = new Map([[alpha.id, alpha]])
+    const merged = mergeProjectOptions(current, [{ ...alpha, name: 'Alpha renamed' }, beta, { ...beta, name: 'Beta 2' }])
+    expect(merged).not.toBe(current)
+    expect(merged.get(alpha.id)?.name).toBe('Alpha')
+    expect(merged.get(beta.id)?.name).toBe('Beta')
+    expect(merged.size).toBe(2)
   })
 })

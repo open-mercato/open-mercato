@@ -1,0 +1,4 @@
+{
+  "cli.init.errors.superadminPasswordPolicy": "La contraseña de superadministrador en producción no cumple la política de contraseñas configurada. Las opciones para omitir la política solo se aplican fuera de producción.",
+  "cli.init.errors.superadminPasswordRequired": "La inicialización en producción requiere una contraseña única de superadministrador mediante OM_INIT_SUPERADMIN_PASSWORD o --password; no se permiten los valores predeterminados de ejemplo."
+}

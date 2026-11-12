@@ -66,6 +66,8 @@ export const STAFF_TIME_TRACKING_RESOURCE_KINDS = {
   settings: 'staff.timesheets.settings',
   /** `access-requests` */
   accessRequest: 'staff.timesheets.access_request',
+  /** `my-preferences` */
+  timesheetPreference: 'staff.timesheets.preference',
 } as const
 
 export type StaffTimeTrackingResourceKind =

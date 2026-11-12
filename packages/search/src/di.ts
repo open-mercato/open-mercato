@@ -228,6 +228,7 @@ export function registerSearchModule(
   // Create search service
   const searchService = new SearchService({
     strategies,
+    resolveEntityStrategies: (entityId) => entityConfigMap.get(entityId)?.strategies,
     defaultStrategies,
     fallbackStrategy: 'tokens',
     mergeConfig: options?.mergeConfig ?? {

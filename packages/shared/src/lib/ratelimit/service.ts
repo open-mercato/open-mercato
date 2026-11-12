@@ -16,10 +16,12 @@ export class RateLimiterService {
   private redisClient: RedisClient | null = null
 
   readonly trustProxyDepth: number
+  readonly sharedEnabled: boolean
 
   constructor(globalConfig: RateLimitGlobalConfig) {
     this.globalConfig = globalConfig
     this.trustProxyDepth = globalConfig.trustProxyDepth ?? 0
+    this.sharedEnabled = globalConfig.enabled && globalConfig.strategy === 'redis' && !!globalConfig.redisUrl
   }
 
   async initialize(): Promise<void> {
@@ -34,6 +36,7 @@ export class RateLimiterService {
   }
 
   async consume(key: string, config: RateLimitConfig): Promise<RateLimitResult> {
+    if (config.requireShared && (!this.sharedEnabled || !this.redisClient)) return this.degradedResult(config)
     if (!this.globalConfig.enabled) {
       return this.disabledResult(config)
     }
@@ -110,7 +113,7 @@ export class RateLimiterService {
   }
 
   private getOrCreateLimiter(config: RateLimitConfig): RateLimiterMemory | RateLimiterRedis {
-    const cacheKey = `${config.keyPrefix ?? 'default'}:${config.points}:${config.duration}:${config.blockDuration ?? 0}`
+    const cacheKey = `${config.keyPrefix ?? 'default'}:${config.points}:${config.duration}:${config.blockDuration ?? 0}:${!!config.requireShared}`
 
     let limiter = this.limiters.get(cacheKey)
     if (limiter) return limiter
@@ -125,12 +128,11 @@ export class RateLimiterService {
     }
 
     if (this.globalConfig.strategy === 'redis' && this.redisClient) {
-      const insuranceLimiter = new RateLimiterMemory(baseOpts)
       limiter = new RateLimiterRedis({
         ...baseOpts,
         storeClient: this.redisClient,
-        insuranceLimiter,
-        rejectIfRedisNotReady: false,
+        ...(config.requireShared ? {} : { insuranceLimiter: new RateLimiterMemory(baseOpts) }),
+        rejectIfRedisNotReady: !!config.requireShared,
       })
     } else {
       limiter = new RateLimiterMemory(baseOpts)

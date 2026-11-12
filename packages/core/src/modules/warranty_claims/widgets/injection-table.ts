@@ -14,7 +14,8 @@ export const injectionTable: ModuleInjectionTable = {
       widgetId: 'warranty_claims.injection.customer-claims-tab',
       kind: 'tab',
       groupLabel: 'warranty_claims.customerTab.title',
-      priority: 40,
+      icon: 'shield-check',
+      priority: -40,
     },
   ],
   'detail:customers.company:tabs': [
@@ -22,7 +23,8 @@ export const injectionTable: ModuleInjectionTable = {
       widgetId: 'warranty_claims.injection.customer-claims-tab',
       kind: 'tab',
       groupLabel: 'warranty_claims.customerTab.title',
-      priority: 40,
+      icon: 'shield-check',
+      priority: -40,
     },
   ],
   'data-table:warranty_claims.claims.list:search-trailing': [

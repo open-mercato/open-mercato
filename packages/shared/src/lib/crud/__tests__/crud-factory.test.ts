@@ -1810,6 +1810,85 @@ describe('CRUD Factory', () => {
     })
   })
 
+  describe('generic error bodies follow the request locale', () => {
+    const germanErrors: Record<string, string> = {
+      'errors.invalid_input': 'Ungültige Eingabe',
+      'api.errors.databaseUnavailable': 'Dienst vorübergehend nicht verfügbar',
+      'api.errors.foreignKeyViolation': 'Der Datensatz wird noch von anderen Daten referenziert oder verweist auf einen nicht vorhandenen Datensatz',
+      'api.errors.internal': 'Interner Serverfehler',
+      'api.errors.internalMessage': 'Etwas ist schiefgelaufen. Bitte versuchen Sie es später erneut.',
+    }
+
+    beforeEach(() => {
+      mockTranslate.mockImplementation((key: string, fallback?: string) => germanErrors[key] ?? fallback ?? key)
+    })
+
+    afterEach(() => {
+      mockTranslate.mockImplementation((key: string, fallback?: string) => fallback ?? key)
+    })
+
+    it('translates the 400 validation error', async () => {
+      const res = await interceptorErrorRoute().POST(new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify({ title: '' }),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      expect(body.error).toBe('Ungültige Eingabe')
+      expect(Array.isArray(body.details)).toBe(true)
+      expect(mockTranslate).toHaveBeenCalledWith('errors.invalid_input', 'Invalid input')
+    })
+
+    it('translates the 503 transient database error', async () => {
+      commandBus.execute.mockRejectedValue(Object.assign(new Error('sorry, too many clients already'), { code: '53300' }))
+
+      const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+      expect(res.status).toBe(503)
+      await expect(res.json()).resolves.toEqual({
+        error: 'Dienst vorübergehend nicht verfügbar',
+        code: 'DATABASE_UNAVAILABLE',
+        requestId: expect.any(String),
+      })
+      expect(mockTranslate).toHaveBeenCalledWith('api.errors.databaseUnavailable', 'Service temporarily unavailable')
+    })
+
+    it('translates the 409 foreign key violation', async () => {
+      commandBus.execute.mockRejectedValue(Object.assign(new Error('violates foreign key constraint'), { code: '23503' }))
+
+      const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+      expect(res.status).toBe(409)
+      await expect(res.json()).resolves.toEqual({
+        error: 'Der Datensatz wird noch von anderen Daten referenziert oder verweist auf einen nicht vorhandenen Datensatz',
+        code: 'FOREIGN_KEY_VIOLATION',
+        requestId: expect.any(String),
+      })
+      expect(mockTranslate).toHaveBeenCalledWith(
+        'api.errors.foreignKeyViolation',
+        'The record is still referenced by other data, or references a record that does not exist',
+      )
+    })
+
+    it('translates the generic 500 error and message', async () => {
+      commandBus.execute.mockRejectedValue(new Error('boom'))
+
+      const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+      expect(res.status).toBe(500)
+      await expect(res.json()).resolves.toEqual({
+        error: 'Interner Serverfehler',
+        message: 'Etwas ist schiefgelaufen. Bitte versuchen Sie es später erneut.',
+        requestId: expect.any(String),
+        code: 'INTERNAL_ERROR',
+      })
+      expect(mockTranslate).toHaveBeenCalledWith('api.errors.internal', 'Internal server error')
+      expect(mockTranslate).toHaveBeenCalledWith('api.errors.internalMessage', 'Something went wrong. Please try again later.')
+    })
+  })
+
   // Issue #5608 — a generic 500 must carry a requestId the client/support can cite, and
   // that same id must appear on the server log line so the two can be correlated.
   describe('generic 500 requestId correlation', () => {

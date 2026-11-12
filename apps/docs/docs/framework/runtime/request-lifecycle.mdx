@@ -52,6 +52,8 @@ Callers may supply their own id with an inbound `x-request-id` request header, s
 
 This applies to the generic-500 and `503` transient-database branches only. The `400` validation, `CrudHttpError`, and command-interceptor-rejection responses are unchanged and carry no `requestId`/`code`.
 
+The `error` and `message` texts shown above are the English defaults; they follow the request locale like any other translated response, so match on the status and, where present, `code`, never on the text.
+
 ## Bootstrap Lifecycle Events
 
 App startup exposes bootstrap lifecycle hooks that can be consumed by modules without coupling to core internals:

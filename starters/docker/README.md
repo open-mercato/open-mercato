@@ -31,6 +31,14 @@ external proxies or deliberate direct access. Existing installations must
 recreate affected containers and migrate direct-port probes/collaboration
 URLs. See [private ports, overrides, WSS, and deployment checks](../../docker/traefik/README.md#private-application-ports-and-migration).
 
+## Production encryption configuration
+
+Production full-app stacks require an operator-supplied unique encryption key or
+configured HashiCorp Vault before app initialization or sidecars start. Env examples
+contain no reusable key. Keep existing keys unchanged until ciphertext and keyed
+lookup hashes are migrated. Read the [configuration, migration and rollback guide](encryption-migration.md)
+before upgrading an existing database; it explains the current rotation CLI's gaps.
+
 ## Root duplicates (temporary backwards compatibility)
 
 Deployments that predate this directory invoke the compose files by their old repo-root names (`docker-compose.yml`, `docker-compose.fullapp*.yml`, `docker-compose.preview.yaml`). Those names exist again at the repo root as byte-identical duplicates of the files here (plus a header pointing back). The files in this directory stay canonical — edit them, then copy the change into the root duplicate; `scripts/__tests__/root-compose-backcompat.test.mjs` fails CI on any drift. The duplicates (and the test) go away once existing deployments migrate to the `starters/docker/` paths.

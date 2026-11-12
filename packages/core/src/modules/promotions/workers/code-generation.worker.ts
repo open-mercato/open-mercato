@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto'
 import type { AwilixContainer } from 'awilix'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -44,7 +45,7 @@ const MAX_COLLISION_RETRIES = 25
 function randomCodeBody(length: number): string {
   let out = ''
   for (let i = 0; i < length; i += 1) {
-    out += CODE_CHARSET[Math.floor(Math.random() * CODE_CHARSET.length)]
+    out += CODE_CHARSET[randomInt(CODE_CHARSET.length)]
   }
   return out
 }

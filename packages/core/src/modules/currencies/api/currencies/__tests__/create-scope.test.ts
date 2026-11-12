@@ -81,11 +81,22 @@ describe.each(routes)('$name create route scope', ({ commandId, fields, schema }
   it.each([
     { tenantId },
     { organizationId: explicitOrganizationId },
-    { organizationId: explicitOrganizationId, tenantId: explicitTenantId },
   ])('preserves explicit IDs for the existing authorization guards: %j', async (explicitScope) => {
     const input = await mapCreateInput({ ...fields, ...explicitScope })
     expect(input).toEqual({ ...fields, tenantId, organizationId: selectedOrganizationId, ...explicitScope })
     expect(schema.safeParse(input).success).toBe(true)
+  })
+
+  // withScopedPayload now rejects a non-superadmin's foreign tenantId unconditionally
+  // (issue #7877) — this is the universal backstop the explicit-tenantId path converges
+  // on, so it fires here before `ensureCurrencyCommandScope`'s own command-level check
+  // ever runs.
+  it('rejects an explicit foreign tenantId before it reaches the command-level guard', async () => {
+    const result = mapCreateInput({ ...fields, organizationId: explicitOrganizationId, tenantId: explicitTenantId })
+    await expect(result).rejects.toBeInstanceOf(CrudHttpError)
+    await expect(result).rejects.toMatchObject({
+      status: 403, body: { error: 'translated:errors.tenant_forbidden' },
+    })
   })
 
   it('returns a translated error when there is no authenticated tenant', async () => {

@@ -3,6 +3,15 @@ import { fieldsetCodeRegex } from '@open-mercato/shared/modules/entities/validat
 
 const customFieldsetCodeSchema = z.string().trim().regex(fieldsetCodeRegex).max(100)
 
+const RESOURCE_CAPACITY_INVALID_MESSAGE = 'resources.resources.validation.capacityInvalid'
+
+const capacitySchema = z.coerce
+  .number({ error: RESOURCE_CAPACITY_INVALID_MESSAGE })
+  .int({ error: RESOURCE_CAPACITY_INVALID_MESSAGE })
+  .positive({ error: RESOURCE_CAPACITY_INVALID_MESSAGE })
+  .optional()
+  .nullable()
+
 const scopedCreateFields = {
   tenantId: z.string().uuid(),
   organizationId: z.string().uuid(),
@@ -43,7 +52,7 @@ export const resourcesResourceCreateSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional().nullable(),
   resourceTypeId: z.string().uuid().optional().nullable(),
-  capacity: z.coerce.number().int().positive().optional().nullable(),
+  capacity: capacitySchema,
   capacityUnitValue: z.string().min(1).optional().nullable(),
   tags: z.array(z.string().uuid()).optional(),
   appearanceIcon: z.string().trim().max(100).optional().nullable(),
@@ -63,7 +72,7 @@ export const resourcesResourceUpdateSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
   resourceTypeId: z.string().uuid().optional().nullable(),
-  capacity: z.coerce.number().int().positive().optional().nullable(),
+  capacity: capacitySchema,
   capacityUnitValue: z.string().min(1).optional().nullable(),
   tags: z.array(z.string().uuid()).optional(),
   appearanceIcon: z.string().trim().max(100).optional().nullable(),

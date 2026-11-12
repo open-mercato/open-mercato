@@ -904,6 +904,67 @@ export const createDisplayNameSection = (t: Translator) =>
     )
   }
 
+/**
+ * Display name input for the person detail form, where the header shows the name read-only.
+ * Follows the same rule as `createDisplayNameSection` and the update command: a name derived
+ * from first + last follows them, and a custom one stays until the user resets it.
+ */
+function PersonDisplayNameInput({
+  id,
+  value,
+  values,
+  error,
+  disabled,
+  setValue,
+  t,
+}: CrudCustomFieldRenderProps & { t: Translator }) {
+  const first = typeof values?.firstName === 'string' ? values.firstName : ''
+  const last = typeof values?.lastName === 'string' ? values.lastName : ''
+  const current = typeof value === 'string' ? value : ''
+  const previousNamesRef = React.useRef({ first, last })
+
+  React.useEffect(() => {
+    const previous = previousNamesRef.current
+    if (previous.first === first && previous.last === last) return
+    previousNamesRef.current = { first, last }
+    if (!isDerivedDisplayName(current, previous.first, previous.last)) return
+    const derived = deriveDisplayName(first, last)
+    if (derived !== current) setValue(derived)
+  }, [current, first, last, setValue])
+
+  return (
+    <div className="space-y-2">
+      <Input
+        id={id}
+        value={current}
+        onChange={(event) => setValue(event.target.value)}
+        placeholder={t('customers.people.form.displayName.placeholder')}
+        aria-invalid={error ? true : undefined}
+        disabled={disabled}
+      />
+      {isDerivedDisplayName(current, first, last) ? null : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={disabled || !deriveDisplayName(first, last)}
+          onClick={() => setValue(deriveDisplayName(first, last))}
+        >
+          {t('customers.people.form.displayName.reset')}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+const createPersonDisplayNameField = (t: Translator): CrudField => ({
+  id: 'displayName',
+  label: t('customers.people.form.displayName.label'),
+  type: 'custom',
+  required: true,
+  component: (props: CrudCustomFieldRenderProps) => <PersonDisplayNameInput {...props} t={t} />,
+})
+
 export const createPersonFormFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const defaultCountryIso2 = options?.defaultCountryIso2
   const phoneCountries = options?.phoneCountries
@@ -1725,7 +1786,9 @@ export const createCompanyEditFields = (t: Translator, options?: CustomerFormFie
 }
 
 export const createPersonEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
-  const baseFields = createPersonFormFields(t, options)
+  const baseFields = createPersonFormFields(t, options).map((field) =>
+    field.id === 'displayName' ? createPersonDisplayNameField(t) : field,
+  )
   return [
     ...baseFields,
     {
@@ -1912,13 +1975,13 @@ export const createPersonPersonalDataGroups = (
       title: t('customers.people.form.groups.displayName', 'Display name'),
       column: 1,
       bare: true,
-      component: createDisplayNameSection(t),
+      component: () => null,
     },
     {
       id: 'personalData',
       title: t('customers.people.form.groups.personalData', 'Personal data'),
       column: 1,
-      fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
+      fields: ['firstName', 'lastName', 'displayName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
     },
     {
       id: 'companyRole',
