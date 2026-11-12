@@ -21,6 +21,89 @@ test.each([
 function row(value: LogicalValue): VerificationRow {
   return { entity: 'public.fixture', tenantId: 'tenant', organizationId: null, identity: ['1'], columns: [{ name: 'value', type: 'jsonb', value }] }
 }
+
+// Independent prior codec: recursive framing/concatenation is intentionally kept
+// here so production encoder refactors cannot redefine their own expected bytes.
+function oldCanonical(value: LogicalValue): Buffer {
+  const frame = (tag: string, payload: Buffer) => {
+    const length = Buffer.alloc(4); length.writeUInt32BE(payload.length)
+    return Buffer.concat([Buffer.from(tag), length, payload])
+  }
+  if (value instanceof ExactJsonNumber) return frame('j', Buffer.from(value.canonical))
+  if (value === null) return frame('0', Buffer.alloc(0))
+  if (typeof value === 'boolean') return frame('b', Buffer.from(value ? '1' : '0'))
+  if (typeof value === 'string') {
+    if (!value.isWellFormed()) throw new Error('ROTATION_COVERAGE_UNSUPPORTED')
+    return frame('s', Buffer.from(value))
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) throw new Error('ROTATION_COVERAGE_UNSUPPORTED')
+    return frame('n', Buffer.from(Object.is(value, -0) ? '-0' : String(value)))
+  }
+  if (Array.isArray(value)) return frame('a', Buffer.concat(value.map(oldCanonical)))
+  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) throw new Error('ROTATION_COVERAGE_UNSUPPORTED')
+  return frame('o', Buffer.concat(Object.keys(value).sort((left, right) => left < right ? -1 : left > right ? 1 : 0).map(name => Buffer.concat([oldCanonical(name), oldCanonical(value[name])]))))
+}
+function oldRow(candidate: VerificationRow): Buffer {
+  if (new Set(candidate.columns.map(column => column.name)).size !== candidate.columns.length) throw new Error('ROTATION_COVERAGE_UNSUPPORTED')
+  return oldCanonical([
+    'rotation-row-v1', candidate.entity, candidate.tenantId, candidate.organizationId, candidate.identity,
+    [...candidate.columns].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0).map(column => [column.name, column.type, column.value]),
+  ])
+}
+test('single-allocation values preserve independent prior frames across nested typed metadata and Unicode', () => {
+  const special = Object.assign(Object.create(null), { constructor: 'value', ['__proto__']: null, '日本語😀': [true, -0, new ExactJsonNumber('1.0000000000000000001')] }) as LogicalValue
+  const values: LogicalValue[] = [null, false, true, '', '\u0000\n\"\\日本語😀\ufffd', -0, 0, 0.125, Number.MAX_SAFE_INTEGER, new ExactJsonNumber('-2.50e-12'), special,
+    { z: [null, [false, { '\uffff': 'last', '\u{10000}': 'supplementary', a: ['nested', 3] }]], before: { updated_at: null }, after: { updated_at: '2026-01-01T00:00:00.123456Z' } },
+  ]
+  for (const value of values) expect(canonicalValue(value)).toEqual(oldCanonical(value))
+  let nested: LogicalValue = special
+  for (let depth = 0; depth < 24; depth++) nested = { z: depth, a: [nested, null] }
+  expect(canonicalValue(nested)).toEqual(oldCanonical(nested))
+})
+test('generic canonical values retain prior admissible sizes above the row-only one-MiB cap', () => {
+  const value = '日本語'.repeat(120000)
+  const expected = oldCanonical(value)
+  expect(expected.length).toBeGreaterThan(1024 * 1024)
+  expect(canonicalValue(value)).toEqual(expected)
+  expect(() => keyedRowDigest(key, row(value))).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+})
+test.each([NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1])('both codecs reject unsupported numeric value %s', value => {
+  expect(() => oldCanonical({ value })).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+  expect(() => canonicalValue({ value })).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+  expect(() => keyedRowDigest(key, row(value))).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+})
+test('single allocation retains non-plain-prototype rejection', () => {
+  for (const value of [new Date(), Buffer.from('bytes'), Object.create({ inherited: true })] as unknown as LogicalValue[]) {
+    expect(() => oldCanonical(value)).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+    expect(() => canonicalValue(value)).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+    expect(() => keyedRowDigest(key, row(value))).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+  }
+})
+test('strictly ordered and unsorted columns preserve prior row frames without modifying caller arrays', () => {
+  const columns = Object.freeze([
+    Object.freeze({ name: '', type: 'text', value: 'empty name' }),
+    Object.freeze({ name: 'a', type: 'jsonb', value: { nested: [new ExactJsonNumber('1e0'), null] } }),
+    Object.freeze({ name: '日本語', type: 'text', value: '😀' }),
+  ])
+  for (const order of [[...columns], [columns[2], columns[0], columns[1]]]) {
+    const original = [...order]
+    const candidate = { ...row(null), columns: order }
+    const expected = oldRow(candidate)
+    expect(canonicalRow(candidate)).toEqual(expected)
+    expect(keyedRowDigest(key, candidate)).toBe(keyedDigest(key, 'row-v1', expected))
+    expect(candidate.columns).toEqual(original)
+  }
+})
+test('adjacent and unsorted repeated column names cannot enter the strict-order fast path', () => {
+  const column = { name: 'a', type: 'text', value: 'value' }
+  for (const columns of [[column, { ...column }], [column, { ...column, name: 'z' }, { ...column }]]) {
+    const candidate = { ...row(null), columns }
+    expect(() => oldRow(candidate)).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+    expect(() => canonicalRow(candidate)).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+    expect(() => keyedRowDigest(key, candidate)).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+  }
+})
 test('single-pass payload backfilling preserves frames for nested large multibyte values', () => {
   let value: LogicalValue = '日本語😀'.repeat(8192)
   for (let depth = 0; depth < 16; depth++) value = { null: null, array: [false, -0, value], z: depth }

@@ -48,23 +48,11 @@ function wellFormedText(value: string): string {
 }
 
 export function canonicalValue(value: LogicalValue): Buffer {
-  if (value instanceof ExactJsonNumber) return frame('j', Buffer.from(value.canonical))
-  if (value === null) return frame('0', Buffer.alloc(0))
-  if (typeof value === 'boolean') return frame('b', Buffer.from(value ? '1' : '0'))
-  if (typeof value === 'string') return frame('s', Buffer.from(wellFormedText(value)))
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) {
-      throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-    }
-    return frame('n', Buffer.from(Object.is(value, -0) ? '-0' : String(value)))
-  }
-  if (Array.isArray(value)) return frame('a', Buffer.concat(value.map(canonicalValue)))
-  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
-    throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-  }
-  return frame('o', Buffer.concat(Object.keys(value).sort((left, right) => left < right ? -1 : left > right ? 1 : 0).map((key) => Buffer.concat([
-    canonicalValue(key), canonicalValue(value[key]),
-  ]))))
+  // Metadata/intents use the same frames as rows, without the row-specific cap.
+  const size = encodedSize(value)
+  const encoded = Buffer.allocUnsafe(size)
+  if (writeCanonical(value, encoded, 0) !== size) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+  return encoded
 }
 
 export function rowIdentity(row: VerificationRow): string {
@@ -73,11 +61,20 @@ export function rowIdentity(row: VerificationRow): string {
 
 function rowValue(row: VerificationRow): LogicalValue {
   if (!row.identity.length || !row.entity || !row.tenantId) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-  const names = row.columns.map((column) => column.name)
-  if (new Set(names).size !== names.length) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+  let columns = row.columns
+  let previous: string | undefined
+  for (const column of columns) {
+    if (typeof column.name !== 'string' || (previous !== undefined && previous >= column.name)) {
+      const names = columns.map((entry) => entry.name)
+      if (new Set(names).size !== names.length) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+      columns = [...columns].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+      break
+    }
+    previous = column.name
+  }
   return [
     'rotation-row-v1', row.entity, row.tenantId, row.organizationId, row.identity,
-    [...row.columns].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0).map((column) => [column.name, column.type, column.value]),
+    columns.map((column) => [column.name, column.type, column.value]),
   ]
 }
 

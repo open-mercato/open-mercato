@@ -217,6 +217,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
   // Budget current + prefetched wire pages and conservative text-decoding headroom.
   const verificationBatchRows = rowsForBudget(Math.max(maximumSourceBudget, maximumProjectedBudget) + 128)
   const orderedTables = [...tables.values()].sort((left, right) => left.name < right.name ? -1 : 1)
+  const canonicalColumns = new Map(orderedTables.map(table => [table, [...table.columns].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)] as const))
   const tenants = await query<{ tenant_id: string }>(`SELECT DISTINCT tenant_id::text AS tenant_id FROM (${orderedTables.map((table) => `SELECT tenant_id FROM ${tableSql(table)} WHERE ${scopeSql}`).join(' UNION ALL ')}) selected ORDER BY tenant_id LIMIT 1001`, orderedTables.flatMap(() => scopeParameters()))
   if (tenants.length > 1000) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   const selectedTenants = tenants.map((entry) => entry.tenant_id)
@@ -302,10 +303,11 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
       const ordinal = internalName('__rotation_ordinal')
       const rowValid = internalName('__rotation_row_valid')
       const rowBytes = internalName('__rotation_row_bytes')
+      const protocolHeadroom = 7 + 4 * (table.columns.length + 1) + 32
       const fetchBatch = async (cursor: string[] | null): Promise<SqlRow[]> => {
         const predicate = cursor ? ` AND (${primary.join(', ')}) > (${primary.map(() => '?').join(', ')})` : ''
         const columnNames = table.columns.map(column => quote(column.name))
-        const wireBytes = [`${7 + 4 * (table.columns.length + 1) + 32}::bigint`, ...columnNames.map(name => `coalesce(octet_length(persisted.${name})::bigint,0)`)].join(' + ')
+        const wireBytes = [`${protocolHeadroom}::bigint`, ...columnNames.map(name => `coalesce(octet_length(persisted.${name})::bigint,0)`)].join(' + ')
         const perRowLimit = Math.min(MAX_ROW_BYTES, Math.floor((8 * 1024 * 1024 / 4) / verificationBatchRows) - columnHeadroom(table) - 32)
         // First limit native keys, then project exactly those rows once. The
         // materialized aggregate withholds the ENTIRE page on either row or
@@ -320,9 +322,9 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
         ), budget AS MATERIALIZED (
           SELECT coalesce(bool_and(${quote(rowValid)}),true)
             AND coalesce(sum(${quote(rowBytes)} + ${columnHeadroom(table) + 32}),0) <= ${8 * 1024 * 1024 / 4} AS ok FROM projected
-        ) SELECT ${quote(marker)},${columnNames.join(',')} FROM (
-          SELECT 'ok'::text AS ${quote(marker)},${columnNames.map(name => `projected.${name}`).join(',')},projected.${quote(ordinal)} FROM projected CROSS JOIN budget WHERE budget.ok
-          UNION ALL SELECT 'oversized'::text,${columnNames.map(() => 'NULL::text').join(',')},0::bigint FROM budget WHERE NOT budget.ok
+        ) SELECT ${quote(marker)},${columnNames.join(',')},${quote(rowBytes)} FROM (
+          SELECT 'ok'::text AS ${quote(marker)},${columnNames.map(name => `projected.${name}`).join(',')},projected.${quote(rowBytes)}::text AS ${quote(rowBytes)},projected.${quote(ordinal)} FROM projected CROSS JOIN budget WHERE budget.ok
+          UNION ALL SELECT 'oversized'::text,${columnNames.map(() => 'NULL::text').join(',')},NULL::text,0::bigint FROM budget WHERE NOT budget.ok
         ) guarded_page ORDER BY ${quote(ordinal)}`, [...scopeParameters(), ...(cursor ?? [])])
         if (selected.some(row => row[marker] !== 'ok')) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
         for (const row of selected) delete row[marker]
@@ -339,6 +341,8 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
         pending = result.length < verificationBatchRows ? Promise.resolve([]) : fetchBatch(cursor)
         void pending.catch(() => undefined)
         for (const raw of result) {
+          const wireSize = raw[rowBytes]
+          delete raw[rowBytes]
           const tenantId = raw.tenant_id
           if (!tenantId) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
           const organizationId = raw.organization_id ?? null
@@ -407,7 +411,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
             }
             values.set('doc', transformed)
           }
-          const row: VerificationRow = { entity: table.name, tenantId, organizationId, identity, columns: table.columns.map((entry) => ({ name: entry.name, type: entry.type, value: values.get(entry.name) ?? null })) }
+          const row: VerificationRow = { entity: table.name, tenantId, organizationId, identity, columns: canonicalColumns.get(table)!.map((entry) => ({ name: entry.name, type: entry.type, value: values.get(entry.name) ?? null })) }
           if (table.custom && 'updated_at' in raw) {
             row.metadata = { updated_at: canonicalRotationTimestamp(raw.updated_at ?? null) }
             const timestamp = row.columns.find((entry) => entry.name === 'updated_at')
@@ -415,7 +419,12 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
             if (includeIntents && phase === 'after') row.metadataIntent = await options.intents?.load(rowIdentity(row))
           }
           yieldedRows++
-          if (options.progress) bytesDone += BigInt(Object.values(raw).reduce((bytes, value) => bytes + (value === null ? 0 : Buffer.byteLength(value)), 0))
+          if (options.progress) {
+            if (typeof wireSize !== 'string' || !/^\d+$/.test(wireSize)) throw new Error('[internal] ROTATION_DATABASE_INVALID')
+            const payloadBytes = BigInt(wireSize) - BigInt(protocolHeadroom)
+            if (payloadBytes < 0n || payloadBytes > BigInt(MAX_ROW_BYTES)) throw new Error('[internal] ROTATION_DATABASE_INVALID')
+            bytesDone += payloadBytes
+          }
           yield row
         }
         chunksDone++; progress('entity.progress')

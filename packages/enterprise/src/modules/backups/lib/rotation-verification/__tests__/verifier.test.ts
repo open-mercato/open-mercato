@@ -55,6 +55,30 @@ test('streams a full multi-chunk roundtrip and writes no plaintext baseline to d
   }
 })
 
+test('absent metadata retains the empty-object MAC while nonempty changes require a run-bound intent', async () => {
+  const { dataset, store } = fixture(1)
+  let afterMetadata: VerificationRow['metadata'] = {}
+  let intent: VerificationRow['metadataIntent']
+  dataset.rows = async function* (phase) {
+    yield { ...row(0), ...(phase === 'after' ? { metadata: afterMetadata, metadataIntent: intent } : {}) }
+  }
+  const prepared = await prepareRotationVerification(dataset, store)
+  const runKey = await store.read('run-key')
+  try {
+    const [expected] = JSON.parse((await store.read('chunk-000000000000')).toString())
+    expect(expected.metadata).toBe(keyedDigest(runKey, 'metadata-v1', canonicalValue({})))
+    // Explicit empty metadata remains equivalent to the original absent value.
+    await expect(verifyRotationData(prepared, dataset, store)).resolves.toMatchObject({ status: 'passed' })
+    afterMetadata = { updated_at: '2026-11-12T00:00:00.123456Z' }
+    await expect(verifyRotationData(prepared, dataset, store)).rejects.toThrow('ROTATION_METADATA_MISMATCH')
+    intent = { before: {}, after: afterMetadata, mac: keyedDigest(runKey, 'metadata-intent-v1', canonicalValue([expected.identity, {}, afterMetadata])) }
+    await expect(verifyRotationData(prepared, dataset, store)).resolves.toMatchObject({ status: 'passed' })
+    // A different run key cannot authorize even the same public transition.
+    intent.mac = keyedDigest(Buffer.alloc(32), 'metadata-intent-v1', canonicalValue([expected.identity, {}, afterMetadata]))
+    await expect(verifyRotationData(prepared, dataset, store)).rejects.toThrow('ROTATION_METADATA_MISMATCH')
+  } finally { runKey.fill(0) }
+})
+
 test.each([0, 500, 1000])('rejects valid-but-wrong logical data at row %s', async (corruption) => {
   const { state, dataset, store } = fixture()
   const prepared = await prepareRotationVerification(dataset, store)

@@ -648,6 +648,26 @@ native('native PostgreSQL persisted verification', () => {
     await client.query("UPDATE fixture_records SET __rotation_guard='corrupt' WHERE id=(SELECT id FROM fixture_records ORDER BY id DESC LIMIT 1)")
     await expect(verifyRotationData(prepared, data, artifacts)).rejects.toThrow('ROTATION_DATA_MISMATCH')
   })
+  test('progress reuses exact UTF8 payload bytes without leaking hidden metadata into canonical columns', async () => {
+    await client.query(`ALTER TABLE fixture_records ADD COLUMN __rotation_row_bytes text DEFAULT '混合🙂',ADD COLUMN __rotation_guard text DEFAULT '名字'`)
+    const names: string[] = (await client.query("SELECT attname FROM pg_attribute WHERE attrelid='fixture_records'::regclass AND attnum>0 AND NOT attisdropped ORDER BY attnum")).rows.map(row => row.attname)
+    const expression = names.map(name => `coalesce(octet_length("${name.replaceAll('"','""')}"::text)::bigint,0)`).join('+')
+    const expected = (await client.query(`SELECT sum(${expression})::text AS bytes FROM fixture_records`)).rows[0].bytes
+    const completed: Array<{ bytesDone?: string }> = []
+    const data = await createPostgresRotationDataset({ context: await inputContext(), backupDigest: 'a'.repeat(64), provider: 'pinned',
+      providers: { previousKms: createDerivedKeyKmsService(sourceSecret), kms: createDerivedKeyKmsService(targetSecret) },
+      progress: event => { if (event.type === 'entity.done') completed.push({ bytesDone: event.bytesDone }) },
+    })
+    let rows = 0
+    const ordered = [...names].sort((left,right) => left < right ? -1 : left > right ? 1 : 0)
+    for await (const row of data.rows('before')) {
+      rows++
+      expect(row.columns.map(column => column.name)).toEqual(ordered)
+      expect(row.columns.find(column => column.name === '__rotation_row_bytes')?.value).toBe('混合🙂')
+      expect(row.columns.find(column => column.name === '__rotation_guard')?.value).toBe('名字')
+    }
+    expect(rows).toBe(19); expect(completed).toEqual([{ bytesDone: expected }])
+  })
   test('fused scanner limits native keys before window ordering and projected payload work', async () => {
     await client.query('ALTER TABLE fixture_records DROP CONSTRAINT fixture_records_pkey; ALTER TABLE fixture_records DROP COLUMN id; ALTER TABLE fixture_records ADD COLUMN id bigserial PRIMARY KEY')
     await client.query("INSERT INTO fixture_records(tenant_id,secret,exact,other) SELECT $1,$2,1,'{}'::jsonb FROM generate_series(1,10000)", [tenantId, encryptWithAesGcm('bounded-frontier', source).value])
