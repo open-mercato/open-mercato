@@ -310,16 +310,32 @@ const joinThreadCommand: CommandHandler<AssistedSellingThreadJoinInput, Assisted
       const now = new Date()
       thread.lastActivityAt = now
       thread.updatedAt = now
-      await withAtomicFlush(
-        em,
-        [
-          async () => {
-            em.persist(participant)
-            em.persist(thread)
-          },
-        ],
-        { transaction: true, label: 'assisted_selling.thread.join' },
-      )
+      try {
+        await withAtomicFlush(
+          em,
+          [
+            async () => {
+              em.persist(participant)
+              em.persist(thread)
+            },
+          ],
+          { transaction: true, label: 'assisted_selling.thread.join' },
+        )
+      } catch (error) {
+        // §5.2's `(thread_id, actor_type, actor_id)` unique index is the race backstop for two
+        // concurrent first joins by the same rep (a double click): the loser answers as the
+        // idempotent "already joined" a sequential second call gets, never a 500.
+        if (!isNew || !isUniqueViolation(error)) throw error
+        const winner = await (ctx.container.resolve('em') as EntityManager).fork().findOne(AssistedSellingParticipant, {
+          tenantId: thread.tenantId,
+          threadId: thread.id,
+          actorType: 'rep',
+          actorId,
+          deletedAt: null,
+        })
+        if (!winner) throw error
+        return { threadId: thread.id, participantId: winner.id, alreadyJoined: true }
+      }
       // §8.3/R3: "A rep joining appears in the buyer's next thread read, with no store
       // setting able to suppress it" — the event this module's own text names for exactly
       // that disclosure.

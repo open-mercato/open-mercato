@@ -173,6 +173,48 @@ describe('assisted_selling.thread.join', () => {
     expect(emitMock).not.toHaveBeenCalled()
   })
 
+  test('a concurrent first join that loses the participant unique-index race answers alreadyJoined, never a 500 (#8268 QA E02)', async () => {
+    const { em, stores } = makeFakeEm({ threads: [makeThreadRow()], users: [{ id: REP_USER_ID, name: 'Rep One', email: 'rep@example.com' }] })
+    const winner: Row = {
+      id: 'winner-participant',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      threadId: THREAD_ID,
+      actorType: 'rep',
+      actorId: REP_USER_ID,
+      displayName: 'Rep One',
+      leftAt: null,
+      __key: 'participants',
+    }
+    em.flush.mockImplementationOnce(async () => {
+      stores.participants.splice(0, stores.participants.length, winner)
+      throw Object.assign(new Error('duplicate key value violates unique constraint "assisted_selling_participants_thread_actor_unique_idx"'), {
+        code: '23505',
+      })
+    })
+    const rbac = makeRbac(['assisted_selling.threads.participate'])
+    const ctx = makeCtx({ em, rbac, organizationIds: [ORG_ID] })
+
+    const result = await joinThreadCommand.execute({ tenantId: TENANT_ID, organizationIds: [ORG_ID], threadId: THREAD_ID }, ctx)
+
+    expect(result).toEqual({ threadId: THREAD_ID, participantId: 'winner-participant', alreadyJoined: true })
+    expect(emitMock).not.toHaveBeenCalled()
+  })
+
+  test('a join flush failure that is not a unique violation still propagates', async () => {
+    const { em } = makeFakeEm({ threads: [makeThreadRow()], users: [{ id: REP_USER_ID, name: 'Rep One', email: 'rep@example.com' }] })
+    em.flush.mockImplementationOnce(async () => {
+      throw new Error('connection terminated')
+    })
+    const rbac = makeRbac(['assisted_selling.threads.participate'])
+    const ctx = makeCtx({ em, rbac, organizationIds: [ORG_ID] })
+
+    await expect(
+      joinThreadCommand.execute({ tenantId: TENANT_ID, organizationIds: [ORG_ID], threadId: THREAD_ID }, ctx),
+    ).rejects.toThrow('connection terminated')
+    expect(emitMock).not.toHaveBeenCalled()
+  })
+
   test('rejoining after leaving re-emits .participant.joined (a left rep is not "already joined")', async () => {
     const { em } = makeFakeEm({ threads: [makeThreadRow()], users: [{ id: REP_USER_ID, name: 'Rep One', email: 'rep@example.com' }] })
     const rbac = makeRbac(['assisted_selling.threads.participate'])
