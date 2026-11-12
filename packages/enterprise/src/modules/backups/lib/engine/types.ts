@@ -38,13 +38,16 @@ export type Snapshot = {
   foreignKeys: ForeignKey[]
   boundary(): Promise<{ identity: DatabaseIdentity; evidence: SnapshotEvidence }>
   schema(section: 'pre-data' | 'post-data'): ByteStream
-  chunks(entity: Entity, options: { chunkSizeBytes: number; after?: string[] }): AsyncIterable<SourceChunk>
+  chunks(entity: Entity, options: { chunkSizeBytes: number; after?: string[]; retainedRows?: string }): AsyncIterable<SourceChunk>
   sequences(): Promise<SequenceState[]>
   close(): Promise<void>
 }
 export type BackupSource = { open(): Promise<Snapshot>; close(): Promise<void> }
 export type RestoreRun = { runId: string; backupId: string; manifestSha256: string; confirmation: string }
+export type RestoreChunkWorker = Pick<RestoreTarget, 'chunk' | 'close'>
 export type RestoreTarget = {
+  preflightWorkers?(count: number): Promise<void>
+  chunkWorkers?(count: number): Promise<RestoreChunkWorker[]>
   inspectResume?(run: RestoreRun): Promise<boolean>
   reportState?(): Promise<{ startedAt: string; resumeCount: number; resumeTimestamps?: string[] }>
   analyze?(): Promise<void>
@@ -80,6 +83,9 @@ export type ProgressEvent = {
   type: 'run.started' | 'entity.progress' | 'entity.done' | 'entity.failed' | 'phase.changed' | 'run.finished'
   runId: string
   entity?: string
+  overallRowsDone?: string
+  overallRowsTotal?: string
+  overallRowsTotalExact?: boolean
   rowsDone: string
   rowsTotal: string
   rowsTotalExact: boolean

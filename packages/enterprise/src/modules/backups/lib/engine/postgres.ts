@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { privateDirectory, readBoundedFile } from './artifacts'
 import { BackupError } from './errors'
+import { samePhysicalDatabase } from './snapshot'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createWriteStream } from 'node:fs'
@@ -25,7 +26,7 @@ const failure = (code: string): BackupError => {
   return new BackupError(code, invalid.has(code) ? 2 : 3)
 }
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
-const limits = { highWaterMark: 1024 * 1024 }
+const limits = { highWaterMark: 256 * 1024 }
 
 type Wire = {
   stream: NodeJS.ReadWriteStream & { pause(): void; resume(): void; writableLength: number }
@@ -51,20 +52,37 @@ class ExportQuery extends Query<Record<string, unknown>> {
 
 class ImportQuery extends Query<Record<string, unknown>> {
   inputFailure?: BackupError
+  private stopped=false
+  private readonly abort=new AbortController()
+  private pump?:Promise<void>
   constructor(sql: string, private readonly input: ByteStream) { super(sql) }
+  cancel(){this.stopped=true;this.abort.abort()}
+  async stop(){this.cancel();await this.pump}
   handleCopyInResponse(connection: Wire) {
-    void (async () => {
-      try {
-        for await (const bytes of this.input) {
-          for (let offset = 0; offset < bytes.byteLength; offset += 65536) {
-            connection.sendCopyFromChunk(Buffer.from(bytes.subarray(offset, offset + 65536)))
-            if (connection.stream.writableLength >= limits.highWaterMark) await once(connection.stream, 'drain')
+    if(this.stopped)return
+    const iterator=this.input[Symbol.asyncIterator]()
+    const closed=()=>this.cancel()
+    connection.stream.once('close',closed)
+    this.pump=(async()=>{
+      try{
+        while(!this.stopped){
+          const item=await iterator.next()
+          if(item.done||this.stopped)break
+          const bytes=item.value
+          for(let offset=0;offset<bytes.byteLength&&!this.stopped;offset+=65536){
+            connection.sendCopyFromChunk(Buffer.from(bytes.subarray(offset,offset+65536)))
+            if(connection.stream.writableLength>=limits.highWaterMark)await once(connection.stream,'drain',{signal:this.abort.signal})
           }
         }
-        connection.endCopyFrom()
-      } catch (error) {
-        if (error instanceof BackupError) this.inputFailure = error
-        connection.sendCopyFail('Backup stream failed integrity or resource checks')
+        if(!this.stopped)connection.endCopyFrom()
+      }catch(error){
+        if(!this.stopped){
+          if(error instanceof BackupError)this.inputFailure=error
+          try{connection.sendCopyFail('Backup stream failed integrity or resource checks')}catch{this.cancel()}
+        }
+      }finally{
+        connection.stream.removeListener('close',closed)
+        try{await iterator.return?.()}catch{ /* The original COPY/input failure remains authoritative. */ }
       }
     })()
   }
@@ -75,7 +93,7 @@ async function* exportCopy(client: Client, sql: string): ByteStream {
   query.on('error', () => { query.resumeSocket(); query.output.destroy(failure('BACKUP_COPY_READ_FAILED')) })
   query.on('end', () => { query.resumeSocket(); query.output.end() })
   client.query(query)
-  try { for await (const bytes of query.output) yield Buffer.from(bytes as Uint8Array) }
+  try { for await (const bytes of query.output) yield bytes as Uint8Array }
   finally { query.resumeSocket(); if (!query.output.readableEnded) await client.end() }
 }
 
@@ -83,10 +101,10 @@ async function importCopy(client: Client, sql: string, input: ByteStream) {
   const query = new ImportQuery(sql, input)
   const done = new Promise<void>((resolve, reject) => {
     query.on('end', () => resolve())
-    query.on('error', () => reject(query.inputFailure ?? failure('BACKUP_COPY_WRITE_FAILED')))
+    query.on('error', () => {query.cancel();reject(query.inputFailure ?? failure('BACKUP_COPY_WRITE_FAILED'))})
   })
   client.query(query)
-  await done
+  try{await done}finally{await query.stop()}
 }
 
 async function privateFile(path: string) {
@@ -168,15 +186,16 @@ async function connect(options: NativeOptions, service: string) {
 }
 
 async function databaseIdentity(client: Client): Promise<DatabaseIdentity> {
-  const result = await client.query<{ oid: string; major: string; encoding: string; collation: string; system_id: string; timeline: string; recovery: boolean }>(`
+  const result = await client.query<{ oid: string; major: string; encoding: string; collation: string; system_id: string; timeline: string; recovery: boolean;postmaster_start_us:string }>(`
     SELECT d.oid::text, (current_setting('server_version_num')::int / 10000)::text AS major,
       pg_encoding_to_char(d.encoding) AS encoding, d.datcollate AS collation,
-      c.system_identifier::text AS system_id, p.timeline_id::text AS timeline, pg_is_in_recovery() AS recovery
+      c.system_identifier::text AS system_id, p.timeline_id::text AS timeline, pg_is_in_recovery() AS recovery,
+      (extract(epoch from pg_postmaster_start_time())*1000000)::bigint::text AS postmaster_start_us
     FROM pg_database d CROSS JOIN pg_control_system() c CROSS JOIN pg_control_checkpoint() p
     WHERE d.datname = current_database()`)
   const row = result.rows[0]
   if (!row || !['16', '17', '18'].includes(row.major)) throw failure('BACKUP_POSTGRES_VERSION_OR_IDENTITY')
-  return { clusterIncarnation: `${row.system_id}:${row.timeline}:${row.recovery ? 'recovery' : 'primary'}`, databaseOid: row.oid,
+  return { clusterIncarnation: `${row.system_id}:${row.timeline}:${row.recovery ? 'recovery' : 'primary'}:${row.postmaster_start_us}`, databaseOid: row.oid,
     serverMajor: Number(row.major), encoding: row.encoding, collation: row.collation }
 }
 
@@ -445,8 +464,13 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
             if (request.after) await bindCursor(request.after)
             const initialPredicate = request.after ? ` WHERE (${keys.map(identifier).join(',')}) > (${cursor})` : ''
             const expectedRows = BigInt((await client.query<{ count: string }>(`SELECT count(*)::text AS count FROM ONLY ${relation(entity)}${initialPredicate}`)).rows[0].count)
+            if(request.retainedRows!==undefined){
+              if(!request.after||!/^(0|[1-9][0-9]*)$/.test(request.retainedRows))throw failure('BACKUP_SOURCE_CURSOR_BINDING')
+              const fullRows=BigInt((await client.query<{count:string}>(`SELECT count(*)::text AS count FROM ONLY ${relation(entity)}`)).rows[0].count)
+              if(fullRows!==BigInt(request.retainedRows)+expectedRows)throw failure('BACKUP_SOURCE_COVERAGE_MISMATCH')
+            }
             let copiedRows = 0n
-            const sampleSelection = `SELECT ${columnSql} FROM ONLY ${relation(entity)} ${keys.length ? `ORDER BY ${keys.map(identifier).join(',')}` : 'ORDER BY ctid'} LIMIT 128`
+            const sampleSelection = `SELECT ${columnSql} FROM ONLY ${relation(entity)}${initialPredicate} ${keys.length ? `ORDER BY ${keys.map(identifier).join(',')}` : 'ORDER BY ctid'} LIMIT 128`
             const sampleRows = Number((await client.query<{ count: string }>(`SELECT count(*)::text AS count FROM (${sampleSelection}) sample`)).rows[0].count)
             let sampleBytes = 0
             if (sampleRows) for await (const bytes of exportCopy(client, `COPY (${sampleSelection}) TO STDOUT (FORMAT ${copyFormat})`)) sampleBytes += bytes.byteLength
@@ -521,9 +545,12 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
   }
 }
 
-export function createPostgresTarget(options: NativeOptions): RestoreTarget {
-  let client: Client | undefined
-  let runId: string | undefined
+export function createPostgresTarget(options: NativeOptions): RestoreTarget { return postgresTarget(options) }
+function postgresTarget(options: NativeOptions, bound?: { client: Client; runId: string }): RestoreTarget {
+  let client: Client | undefined = bound?.client
+  let runId: string | undefined = bound?.runId
+  let activeRun: RestoreRun | undefined
+  let lookupQueue:Promise<void>=Promise.resolve()
   let lockId: string | undefined
   let expected: { challenge: string; digest: string; baseline: string; expires: number } | undefined
   const current = async () => { if (!client) { if (!options.targetService) throw failure('BACKUP_TARGET_SERVICE_REQUIRED'); client = await connect(options, options.targetService) } return client }
@@ -540,6 +567,11 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
     const chunks=(await connection.query("SELECT count(*)::text AS count,max(restored_at)::text AS newest FROM om_backup_restore.restore_chunks")).rows[0]
     const steps=(await connection.query("SELECT status,count(*)::text AS count,max(finished_at)::text AS newest FROM om_backup_restore.restore_steps GROUP BY status ORDER BY status")).rows
     return digest(JSON.stringify({catalog,run,chunks,steps}))
+  }
+  const capacity=async(count:number,resumable=false)=>{
+    if(!Number.isInteger(count)||count<1||count>8)throw failure('BACKUP_INVALID_RESOURCE_OPTION')
+    const record=(await (await current()).query<{capacity:number;used:number}>("SELECT current_setting('max_connections')::int AS capacity,(SELECT count(*)::int FROM pg_stat_activity) AS used")).rows[0]
+    if(record.capacity-record.used<count+7)throw new BackupError('BACKUP_CONNECTION_BUDGET',resumable?5:3,resumable)
   }
   const validateChallenge=async(connection:Client,run:RestoreRun)=>{
     const identityDigest=digest(JSON.stringify(await databaseIdentity(connection)))
@@ -562,6 +594,24 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
     })
   }
   return {
+    async preflightWorkers(count) { await capacity(count) },
+    async chunkWorkers(count) {
+      if (!activeRun || !expected || !lockId || !Number.isInteger(count) || count < 1 || count > 8) throw failure('BACKUP_RESTORE_WORKER_BINDING')
+      await capacity(count,true)
+      const workers: RestoreTarget[] = []
+      try {
+        for (let index=0;index<count;index++) {
+          if(!options.targetService)throw failure('BACKUP_TARGET_SERVICE_REQUIRED')
+          const connection=await connect(options,options.targetService)
+          try {
+            if(digest(JSON.stringify(await databaseIdentity(connection)))!==expected.digest)throw failure('BACKUP_RESTORE_WORKER_BINDING')
+            await validateRun(connection,activeRun)
+            workers.push(postgresTarget(options,{client:connection,runId:activeRun.runId}))
+          }catch(error){await connection.end().catch(()=>undefined);throw error}
+        }
+        return workers.map(worker=>({chunk:worker.chunk.bind(worker),close:worker.close.bind(worker)}))
+      }catch(error){await Promise.allSettled(workers.map(worker=>worker.close()));throw error}
+    },
     async inspectResume(run) {
       const connection=await current();await acquireLock(connection);await validateChallenge(connection,run)
       if(!(await connection.query("SELECT 1 FROM pg_namespace WHERE nspname='om_backup_restore'")).rowCount)return false
@@ -611,7 +661,7 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
     async identity() { const connection = await current(); const identity = await databaseIdentity(connection); await verifyTools(options, identity.serverMajor); return identity },
     async challenge(binding) {
       const identity = await databaseIdentity(await current())
-      if (identity.clusterIncarnation === binding.sourceIdentity.clusterIncarnation && identity.databaseOid === binding.sourceIdentity.databaseOid) throw failure('BACKUP_TARGET_IS_SOURCE')
+      if (samePhysicalDatabase(identity,binding.sourceIdentity)) throw failure('BACKUP_TARGET_IS_SOURCE')
       if (identity.serverMajor !== binding.sourceIdentity.serverMajor || identity.encoding !== binding.sourceIdentity.encoding || identity.collation !== binding.sourceIdentity.collation) throw failure('BACKUP_TARGET_INCOMPATIBLE')
       const currentBaseline=await baseline(await current())
       const challenge = `RESTORE-${digest(JSON.stringify({ binding, identity, baseline:currentBaseline, timeWindow: Math.floor(Date.now() / 600000) })).slice(0, 20)}`
@@ -645,11 +695,16 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
         }
       })
       runId = run.runId
+      activeRun = run
     },
     async hasStep(stepId) {
-      const chunk=/^chunk:(e[0-9]+):([0-9]+)$/.exec(stepId)
-      if(chunk)return Boolean((await (await current()).query('SELECT 1 FROM om_backup_restore.restore_chunks WHERE entity_key=$1 AND seq=$2',[chunk[1],Number(chunk[2])])).rowCount)
-      return Boolean((await (await current()).query("SELECT 1 FROM om_backup_restore.restore_steps WHERE step_key=$1 AND status='done'",[stepId])).rowCount)
+      const lookup=lookupQueue.then(async()=>{
+        const chunk=/^chunk:(e[0-9]+):([0-9]+)$/.exec(stepId)
+        if(chunk)return Boolean((await (await current()).query('SELECT 1 FROM om_backup_restore.restore_chunks WHERE entity_key=$1 AND seq=$2',[chunk[1],Number(chunk[2])])).rowCount)
+        return Boolean((await (await current()).query("SELECT 1 FROM om_backup_restore.restore_steps WHERE step_key=$1 AND status='done'",[stepId])).rowCount)
+      })
+      lookupQueue=lookup.then(()=>undefined,()=>undefined)
+      return lookup
     },
     async schema(section, stream, stepId, workspace) {
       if (!runId) throw failure('BACKUP_RESTORE_NOT_INITIALIZED')

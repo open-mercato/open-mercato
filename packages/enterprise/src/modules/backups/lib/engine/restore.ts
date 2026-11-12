@@ -7,6 +7,7 @@ import type { EngineContext, RestoreTarget } from './types'
 import { readBackup, verifiedChunk, verifyBackup, verifyBackupChunks, type VerifyBackupOptions } from './verify'
 import { privateDirectory, atomicStream, readBoundedFile } from './artifacts'
 import { bytes } from './streams'
+import { samePhysicalDatabase } from './snapshot'
 import { BackupError, checkAbort, shellQuote } from './errors'
 
 export type RecoveryEvidence = {
@@ -18,6 +19,7 @@ export type RestoreBackupOptions = VerifyBackupOptions & EngineContext & {
   confirmation: string
   workspace: string
   resume?: string
+  jobs?: number
   verifyMode?: 'full' | 'streaming'
   maxStagingBytes?: number
   reportPath?: string
@@ -30,6 +32,8 @@ export type RestoreResult = {
 }
 async function restoreBackupInternal(options: RestoreBackupOptions): Promise<RestoreResult> {
   checkAbort(options.signal)
+  const jobs=options.jobs??2
+  if(!Number.isInteger(jobs)||jobs<1||jobs>8)throw new BackupError('BACKUP_INVALID_RESOURCE_OPTION',2)
   const attemptStartedAt=new Date().toISOString()
   const phaseDurationsMs:Record<string,number>={}
   let phaseStarted=performance.now()
@@ -39,8 +43,9 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
   phase('artifact-verification')
   const {manifest,index}=loaded
   const targetIdentity=await options.target.identity()
-  if(targetIdentity.clusterIncarnation===index.identity.clusterIncarnation&&targetIdentity.databaseOid===index.identity.databaseOid)throw new BackupError('BACKUP_SOURCE_TARGET_COLLISION',3)
+  if(samePhysicalDatabase(targetIdentity,index.identity))throw new BackupError('BACKUP_SOURCE_TARGET_COLLISION',3)
   if(targetIdentity.serverMajor!==index.identity.serverMajor||targetIdentity.encoding!==index.identity.encoding||targetIdentity.collation!==index.identity.collation)throw new BackupError('BACKUP_TARGET_INCOMPATIBLE',3)
+  await options.target.preflightWorkers?.(jobs)
   const expected=await options.target.challenge({backupId:manifest.backupId,manifestSha256:options.trustedManifestSha256,sourceIdentity:index.identity})
   if(options.confirmation!==expected)throw new BackupError('BACKUP_TARGET_CONFIRMATION_REQUIRED',3)
   const runId=options.resume?z.string().uuid().parse(options.resume):randomUUID()
@@ -69,30 +74,45 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
   }
   phase('target-preflight')
   const totals=new Map<string,{rows:bigint;bytes:bigint;chunks:number}>()
+  const entityChunks=new Map<string,typeof index.chunks>()
+  for(const chunk of index.chunks)if(chunk.entityKey){const existing=entityChunks.get(chunk.entityKey)??[];existing.push(chunk);entityChunks.set(chunk.entityKey,existing)}
   const progress=new Map<string,{rows:bigint;bytes:bigint;chunks:number;resumedChunks:number;newRows:bigint}>()
   for(const chunk of index.chunks)if(chunk.entityKey){const total=totals.get(chunk.entityKey)??{rows:0n,bytes:0n,chunks:0};total.rows+=BigInt(chunk.rows);total.bytes+=BigInt(chunk.plainBytes);total.chunks++;totals.set(chunk.entityKey,total)}
+  const overallTotal=String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n))
+  let overallDone=0n
   let initialized=false
   try{
-    options.progress?.({schemaVersion:1,type:'run.started',runId,phase:manifest.encryption.mode==='none'?'UNENCRYPTED':'encrypted',rowsDone:'0',rowsTotal:'0',rowsTotalExact:true,bytesDone:'0',chunksDone:0,chunksTotal:index.chunks.length,at:new Date().toISOString()})
+    options.progress?.({schemaVersion:1,type:'run.started',runId,overallRowsDone:'0',overallRowsTotal:overallTotal,overallRowsTotalExact:true,phase:manifest.encryption.mode==='none'?'UNENCRYPTED':'encrypted',rowsDone:'0',rowsTotal:'0',rowsTotalExact:true,bytesDone:'0',chunksDone:0,chunksTotal:index.chunks.length,at:new Date().toISOString()})
     await options.target.initialize(run);initialized=true;phase('journal-initialization')
     for(const chunk of index.chunks.filter((entry)=>entry.section==='pre-data')){
       const step=`schema:pre-data:${chunk.sequence}`
       if(!await options.target.hasStep(step))await options.target.schema('pre-data',verifiedChunk(options,manifest,chunk),step,options.workspace)
     }
     phase('pre-data')
-    for(const chunk of index.chunks.filter((entry)=>entry.entityKey)){
+    const restoreEntity=async(entity:typeof index.entities[number],writer:Pick<RestoreTarget,'chunk'>)=>{
+    for(const chunk of entityChunks.get(entity.key)??[]){
+      if(failed)return
       checkAbort(options.signal)
-      const entity=index.entities.find((entry)=>entry.key===chunk.entityKey)
-      if(!entity)throw new BackupError('BACKUP_UNKNOWN_ENTITY',4)
       const applied=await options.target.hasStep(`chunk:${entity.key}:${chunk.sequence}`)
-      if(!applied)await options.target.chunk(entity,verifiedChunk(options,manifest,chunk),{runId,sequence:chunk.sequence,sha256:chunk.sha256,rows:chunk.rows})
+      if(!applied)await writer.chunk(entity,verifiedChunk(options,manifest,chunk),{runId,sequence:chunk.sequence,sha256:chunk.sha256,rows:chunk.rows})
       const total=totals.get(entity.key)!
       const current=progress.get(entity.key)??{rows:0n,bytes:0n,chunks:0,resumedChunks:0,newRows:0n}
       current.rows+=BigInt(chunk.rows);current.bytes+=BigInt(chunk.plainBytes);current.chunks++
       if(applied)current.resumedChunks++;else current.newRows+=BigInt(chunk.rows)
       progress.set(entity.key,current)
-      options.progress?.({schemaVersion:1,type:current.chunks===total.chunks?'entity.done':'entity.progress',runId,entity:entity.label,rowsDone:String(current.rows),rowsTotal:String(total.rows),rowsTotalExact:true,bytesDone:String(current.bytes),chunksDone:current.chunks,chunksTotal:total.chunks,at:new Date().toISOString()})
+      overallDone+=BigInt(chunk.rows)
+      options.progress?.({schemaVersion:1,type:current.chunks===total.chunks?'entity.done':'entity.progress',runId,overallRowsDone:String(overallDone),overallRowsTotal:overallTotal,overallRowsTotalExact:true,entity:entity.label,rowsDone:String(current.rows),rowsTotal:String(total.rows),rowsTotalExact:true,bytesDone:String(current.bytes),chunksDone:current.chunks,chunksTotal:total.chunks,at:new Date().toISOString()})
     }
+    }
+    const workers=options.target.chunkWorkers?await options.target.chunkWorkers(Math.min(jobs,Math.max(1,index.entities.length))):[options.target]
+    let nextEntity=0,failed=false,firstFailure:unknown
+    try{
+      const outcomes=await Promise.allSettled(workers.map(async(worker)=>{
+        while(!failed){const entity=index.entities[nextEntity++];if(!entity)return;try{await restoreEntity(entity,worker)}catch(error){if(!failed)firstFailure=error;failed=true;throw error}}
+      }))
+      const rejected=outcomes.find((outcome):outcome is PromiseRejectedResult=>outcome.status==='rejected')
+      if(rejected)throw firstFailure??rejected.reason
+    }finally{await Promise.allSettled(workers.filter(worker=>worker!==options.target).map(worker=>worker.close()))}
     phase('data')
     await options.target.sequences(index.sequences);phase('sequences')
     for(const chunk of index.chunks.filter((entry)=>entry.section==='post-data')){
@@ -109,7 +129,7 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
     await atomicStream(reportPath,bytes(Buffer.from(JSON.stringify(report))))
     await options.target.finish(reportPath)
     const rows=String([...totals.values()].reduce((sum,total)=>sum+total.rows,0n))
-    options.progress?.({schemaVersion:1,type:'run.finished',runId,rowsDone:rows,rowsTotal:rows,rowsTotalExact:true,bytesDone:String([...totals.values()].reduce((sum,total)=>sum+total.bytes,0n)),chunksDone:index.chunks.length,chunksTotal:index.chunks.length,at:new Date().toISOString()})
+    options.progress?.({schemaVersion:1,type:'run.finished',runId,overallRowsDone:overallTotal,overallRowsTotal:overallTotal,overallRowsTotalExact:true,rowsDone:rows,rowsTotal:rows,rowsTotalExact:true,bytesDone:String([...totals.values()].reduce((sum,total)=>sum+total.bytes,0n)),chunksDone:index.chunks.length,chunksTotal:index.chunks.length,at:new Date().toISOString()})
     return result
   }catch(error){
     const failure=error instanceof BackupError?error:new BackupError('BACKUP_RESTORE_FAILED',5,true)

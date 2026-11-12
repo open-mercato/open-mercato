@@ -41,7 +41,7 @@ describe('recovery security boundary', () => {
   test('standalone JSON refusal is one object without secrets or application bootstrap',async () => {
     const stdout:string[]=[];const stderr:string[]=[]
     const code=await runBackupCli(['verify','--json','--artifact',root],{stdout:(text)=>stdout.push(text),stderr:(text)=>stderr.push(text)})
-    expect(code).toBe(3);expect(stdout).toHaveLength(1);expect(JSON.parse(stdout[0])).toMatchObject({status:'refused',error:{code:'BACKUP_ENTERPRISE_RIGHTS_REQUIRED'}})
+    expect(code).toBe(3);expect(stdout).toHaveLength(1);expect(JSON.parse(stdout[0])).toMatchObject({command:'verify',runId:expect.stringMatching(/^[a-f0-9-]{36}$/),status:'refused',error:{code:'BACKUP_ENTERPRISE_RIGHTS_REQUIRED'}})
     expect(stderr).toEqual([])
   })
   test('environment enablement alone never establishes commercial rights',async () => {
@@ -68,6 +68,7 @@ describe('recovery security boundary', () => {
     const output:string[]=[]
     const exit=await runBackupCli(['create','--json','--progress','none','--source-service','fixture','--recipients-file',recipientsPath,'--output',join(root,'out'),'--workspace',join(root,'workspace')],{stdout:(text)=>output.push(text),stderr:()=>{},signal:controller.signal,sourceFactory:()=>source})
     const result=JSON.parse(output[0])
+    expect(result.command).toBe('create');expect(result.runId).toBe(result.backupId)
     expect(exit).toBe(143);expect(result.status).toBe('interrupted');expect(result.backupId).toMatch(/^[a-f0-9-]{36}$/)
     expect(result.resumeCommand).toContain("'--source-service' 'fixture'")
     expect(result.resumeCommand).toContain("'--trusted-partial-sha256'")
@@ -76,7 +77,13 @@ describe('recovery security boundary', () => {
   test('invalid options preserve the requested single-object JSON error protocol',async()=>{
     const output:string[]=[]
     expect(await runBackupCli(['create','--json','--not-an-option'],{stdout:(text)=>output.push(text),stderr:()=>{}})).toBe(2)
-    expect(output).toHaveLength(1);expect(JSON.parse(output[0]).error.code).toBe('BACKUP_INVALID_INPUT')
+    expect(output).toHaveLength(1);expect(JSON.parse(output[0])).toMatchObject({command:'create',runId:expect.stringMatching(/^[a-f0-9-]{36}$/)});expect(JSON.parse(output[0]).error.code).toBe('BACKUP_INVALID_INPUT')
+  })
+  test('successful standalone JSON stages have a command and operation run id',async()=>{
+    const output:string[]=[]
+    expect(await runBackupCli(['--help','--json'],{stdout:text=>output.push(text),stderr:()=>{}})).toBe(0)
+    expect(output).toHaveLength(1)
+    expect(JSON.parse(output[0])).toMatchObject({command:'help',runId:expect.stringMatching(/^[a-f0-9-]{36}$/),status:'completed'})
   })
   test('app wrapper refuses JSON rather than corrupting the standalone machine protocol',async () => {
     const output:string[]=[]

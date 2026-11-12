@@ -8,6 +8,9 @@ if(process.env.OM_BACKUP_BENCHMARK_ISOLATED!=='true')throw new Error('Disposable
 const root='/bench/jobs',sourceDatabase='om_backup_jobs_source',targetDatabase='om_backup_jobs_target'
 const configuration={host:'127.0.0.1',port:5432,user:'postgres',password:process.env.POSTGRES_PASSWORD}
 const childJobs=process.argv.find(argument=>argument.startsWith('--jobs='))
+const argumentNumber=(name:string,fallback:number)=>Number(process.argv.find(argument=>argument.startsWith(`--${name}=`))?.split('=')[1]??fallback)
+const gib=argumentNumber('gib',1),startJobs=argumentNumber('start-jobs',1),endJobs=argumentNumber('end-jobs',8)
+if(![1,20].includes(gib)||!Number.isInteger(startJobs)||!Number.isInteger(endJobs)||startJobs<1||endJobs>8||startJobs>endJobs)throw new Error('Invalid benchmark scale or jobs range')
 const serviceFile=root+'/services.conf'
 const native={sourceService:'source',targetService:'target',binariesDir:'/usr/lib/postgresql/16/bin',serviceFile,passwordFile:'/bench/password'}
 const fingerprint=async(connection:Client)=>{
@@ -29,23 +32,27 @@ async function runChild(jobs:number){
  try{await admin.query(`DROP DATABASE IF EXISTS ${targetDatabase} WITH (FORCE)`);await admin.query(`CREATE DATABASE ${targetDatabase} TEMPLATE template0`)}finally{await admin.end()}
  const workspace=`${root}/run-${jobs}`;await mkdir(workspace,{recursive:true,mode:0o700})
  const identity=await generateX25519Identity(),source=createPostgresSource({...native,workspace,jobs}),open=source.open.bind(source)
- let active=0,maxActive=0,peakNode=process.memoryUsage().rss,peakTree=0,measuring=false
- const measure=async()=>{if(measuring)return;measuring=true;try{peakNode=Math.max(peakNode,process.memoryUsage().rss);peakTree=Math.max(peakTree,await treeRss(process.pid))}finally{measuring=false}}
+ let active=0,maxActive=0,activeRestore=0,maxRestore=0,peakNode=process.memoryUsage().rss,peakTree=0,measuring=false
+ let phase='backup',peakMemory={phase,...process.memoryUsage()}
+ const measure=async()=>{if(measuring)return;measuring=true;try{const memory=process.memoryUsage();if(memory.rss>=peakNode)peakMemory={phase,...memory};peakNode=Math.max(peakNode,memory.rss);peakTree=Math.max(peakTree,await treeRss(process.pid))}finally{measuring=false}}
  const sampler=setInterval(()=>{void measure()},10)
  source.open=async()=>{const snapshot=await open(),chunks=snapshot.chunks.bind(snapshot);snapshot.chunks=async function*(entity,options){active++;maxActive=Math.max(active,maxActive);try{yield*chunks(entity,options)}finally{active--}};return snapshot}
  try{
   const backup=await createBackup({source,workspace,output:`${workspace}/output`,recipients:[await identityToRecipient(identity)],jobs,chunkSizeBytes:64*1024*1024,quiesced:true,reserveBytes:0n})
   const verify={artifact:backup.artifactPath,trustedManifestSha256:backup.manifestSha256,identities:[identity],workspace,binariesDir:native.binariesDir}
   const metadata=await readBackup(verify),target=createPostgresTarget({...native,workspace})
+  const writers=target.chunkWorkers!.bind(target)
+  target.chunkWorkers=async(count)=>(await writers(count)).map(worker=>({...worker,async chunk(...args){activeRestore++;maxRestore=Math.max(maxRestore,activeRestore);try{await worker.chunk(...args)}finally{activeRestore--}}}))
   const confirmation=await target.challenge({backupId:backup.backupId,manifestSha256:backup.manifestSha256,sourceIdentity:metadata.index.identity})
-  await restoreBackup({...verify,target,confirmation})
+  phase='restore'
+  await restoreBackup({...verify,target,confirmation,jobs})
   const targetConnection=new Client({...configuration,database:targetDatabase});await targetConnection.connect()
   let actual;try{actual=await fingerprint(targetConnection)}finally{await targetConnection.end()}
   const expected=JSON.parse(await readFile(root+'/expected.json','utf8')),equal=JSON.stringify(actual)===JSON.stringify(expected)
   await measure()
-  const result={jobs,entityCount:8,logicalBytes:'1073741824',observedConcurrentEntityStreams:maxActive,completeOrderedContentDigestsEqual:equal,peakCoordinatorRssMiB:peakNode/1048576,peakCoordinatorAndNativeChildRssMiB:peakTree/1048576,rssBudgetPass:peakNode<=256*1048576,measurementScope:'fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child'}
+  const result={jobs,entityCount:8,logicalBytes:String(BigInt(gib)*1073741824n),observedConcurrentEntityStreams:maxActive,observedConcurrentRestoreTransactions:maxRestore,completeOrderedContentDigestsEqual:equal,peakCoordinatorRssMiB:peakNode/1048576,peakMemory,peakCoordinatorAndNativeChildRssMiB:peakTree/1048576,rssBudgetPass:peakNode<=256*1048576,measurementScope:'fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child'}
   await writeFile(`${root}/jobs-${jobs}.json`,JSON.stringify(result,null,2),{mode:0o600});console.log(JSON.stringify(result))
-  if(!equal||maxActive!==jobs||!result.rssBudgetPass)process.exitCode=1
+  if(!equal||maxActive!==jobs||maxRestore!==jobs||!result.rssBudgetPass)process.exitCode=1
  }finally{clearInterval(sampler);await source.close()}
 }
 async function main(){
@@ -56,13 +63,13 @@ async function main(){
  try{
   await admin.query(`DROP DATABASE IF EXISTS ${sourceDatabase} WITH (FORCE)`);await admin.query(`CREATE DATABASE ${sourceDatabase} TEMPLATE template0`)
   const source=new Client({...configuration,database:sourceDatabase});await source.connect()
-  try{for(let table=1;table<=8;table++)await source.query(`CREATE TABLE fixture_${table}(id int PRIMARY KEY,payload text);ALTER TABLE fixture_${table} ALTER COLUMN payload SET STORAGE EXTERNAL;INSERT INTO fixture_${table} SELECT g,repeat(md5(g::text || ':${table}'),2048) FROM generate_series(1,2048) g;ANALYZE fixture_${table}`);await writeFile(root+'/expected.json',JSON.stringify(await fingerprint(source)),{mode:0o600})}finally{await source.end()}
+  try{for(let table=1;table<=8;table++)await source.query(`CREATE TABLE fixture_${table}(id int PRIMARY KEY,payload text);ALTER TABLE fixture_${table} ALTER COLUMN payload SET STORAGE EXTERNAL;INSERT INTO fixture_${table} SELECT g,repeat(md5(g::text || ':${table}'),2048) FROM generate_series(1,${gib*2048}) g;ANALYZE fixture_${table}`);await writeFile(root+'/expected.json',JSON.stringify(await fingerprint(source)),{mode:0o600})}finally{await source.end()}
   const results=[]
-  for(let jobs=1;jobs<=8;jobs++){
-   await new Promise<void>((resolve,reject)=>{const child=spawn(process.execPath,[process.argv[1],`--jobs=${jobs}`],{env:process.env,stdio:'inherit'});child.once('error',reject);child.once('exit',code=>code===0?resolve():reject(new Error(`jobs=${jobs} failed`)))})
+  for(let jobs=startJobs;jobs<=endJobs;jobs++){
+   await new Promise<void>((resolve,reject)=>{const child=spawn(process.execPath,[process.argv[1],`--jobs=${jobs}`,`--gib=${gib}`],{env:process.env,stdio:'inherit'});child.once('error',reject);child.once('exit',code=>code===0?resolve():reject(new Error(`jobs=${jobs} failed`)))})
    results.push(JSON.parse(await readFile(`${root}/jobs-${jobs}.json`,'utf8')))
   }
-  await writeFile(root+'/report.json',JSON.stringify({schemaVersion:1,runner:'documented4vCPU8GiBNode24PG16 fixture',results},null,2),{mode:0o600})
+  await writeFile(root+'/report.json',JSON.stringify({schemaVersion:1,gib,runner:'documented4vCPU8GiBNode24PG16 fixture',results},null,2),{mode:0o600})
  }finally{await admin.query(`DROP DATABASE IF EXISTS ${targetDatabase} WITH (FORCE)`);await admin.query(`DROP DATABASE IF EXISTS ${sourceDatabase} WITH (FORCE)`);await admin.end()}
 }
 main().catch(error=>{console.error(error instanceof Error?error.message:'Benchmark failed');process.exitCode=1})

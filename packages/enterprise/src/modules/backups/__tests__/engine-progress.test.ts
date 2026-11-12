@@ -15,6 +15,13 @@ describe('operator progress protocol',()=>{
   renderer(event);renderer(event);renderer({...event,type:'entity.done',rowsDone:'100',rowsTotalExact:true})
   expect(output.map((line)=>JSON.parse(line).type)).toEqual(['entity.progress','entity.done'])
  })
+ test('TTY renders the aggregate bar alongside the current entity and finishes without leaving the cursor above it',()=>{
+  const output:string[]=[];const render=progressRenderer('tty',{write:(text)=>{output.push(String(text));return true}})
+  render({...event,overallRowsDone:'25',overallRowsTotal:'200',overallRowsTotalExact:true})
+  expect(output[0]).toContain('Overall');expect(output[0]).toContain('25/200');expect(output[0]).toContain('25/~100');expect(output[0]).toContain('\u001b[1A')
+  render({...event,type:'run.finished',overallRowsDone:'200',overallRowsTotal:'200',overallRowsTotalExact:true})
+  expect(output[1]).toContain('100% 200/200');expect(output[1]).not.toContain('\u001b[1A')
+ })
  test('none mode produces no progress output',()=>{
   const write=jest.fn(()=>true);progressRenderer('none',{write})(event);expect(write).not.toHaveBeenCalled()
  })

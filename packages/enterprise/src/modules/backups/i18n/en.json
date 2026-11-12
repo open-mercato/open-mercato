@@ -5,6 +5,7 @@
   "backups.cli.unencryptedPrompt": "Type UNENCRYPTED to confirm readable backup: ",
   "backups.progress.bytes": "bytes",
   "backups.progress.chunks": "chunks",
+  "backups.progress.overall": "Overall",
   "backups.progress.rows": "rows",
   "backups.rotation.entitlementRequired": "Commercial rotation protection rights and module capabilities must be available.",
   "backups.rotation.failed": "Protected key rotation did not complete. Keep writers stopped, retain all previous keys and recovery artifacts, and inspect the trusted run record before resuming.",

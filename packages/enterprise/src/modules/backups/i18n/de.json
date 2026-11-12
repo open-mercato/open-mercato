@@ -5,6 +5,7 @@
   "backups.cli.unencryptedPrompt": "Zur Bestätigung der lesbaren Sicherung UNENCRYPTED eingeben: ",
   "backups.progress.bytes": "Bytes",
   "backups.progress.chunks": "Blöcke",
+  "backups.progress.overall": "Gesamt",
   "backups.progress.rows": "Zeilen",
   "backups.rotation.entitlementRequired": "Kommerzielle Rechte und verfügbare Module sind für den Rotationsschutz erforderlich.",
   "backups.rotation.failed": "Die geschützte Schlüsselrotation wurde nicht abgeschlossen. Schreibzugriffe gestoppt lassen, vorherige Schlüssel und Sicherungen behalten und vor dem Fortsetzen den vertrauenswürdigen Laufdatensatz prüfen.",

@@ -5,6 +5,7 @@
   "backups.cli.unencryptedPrompt": "Wpisz UNENCRYPTED, aby potwierdzić czytelną kopię: ",
   "backups.progress.bytes": "bajtów",
   "backups.progress.chunks": "fragmentów",
+  "backups.progress.overall": "Łącznie",
   "backups.progress.rows": "wierszy",
   "backups.rotation.entitlementRequired": "Ochrona rotacji wymaga uprawnień komercyjnych i dostępnych modułów.",
   "backups.rotation.failed": "Chroniona rotacja kluczy nie została zakończona. Wstrzymaj zapis, zachowaj poprzednie klucze i kopie oraz sprawdź zaufany zapis operacji przed wznowieniem.",
