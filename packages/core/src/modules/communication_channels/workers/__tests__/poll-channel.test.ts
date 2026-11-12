@@ -69,8 +69,6 @@ describe('poll-channel worker behaviour', () => {
     deadLetterLookup: jest.Mock = jest.fn(async () => null),
   ) {
     const em = {
-      fork: jest.fn(),
-      transactional: jest.fn(),
       // The channel load resolves to `channel`; the dead-letter dedup pre-check
       // (writeIngestDeadLetter → em.findOne(ChannelIngestDeadLetter, ...)) uses
       // the injectable `deadLetterLookup` (defaults to "no existing row").
