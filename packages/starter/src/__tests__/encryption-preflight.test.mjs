@@ -239,6 +239,10 @@ test('supplied root, ambient and company key/KMS settings survive missing app en
     { root: 'TENANT_DATA_ENCRYPTION_KEY=root-fixture-key\n', env: {}, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'root-fixture-key'] },
     { root: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=user-original\n', env: {}, extraDefaults: { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'company-default' }, expected: ['TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'user-original'] },
     { env: { TENANT_DATA_ENCRYPTION_KEY: 'ambient-fixture-key' }, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'ambient-fixture-key'] },
+    { env: { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ambient-fallback-fixture' }, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'ambient-fallback-fixture'] },
+    { env: {}, extraDefaults: { TENANT_DATA_ENCRYPTION_KEY: 'company-fixture-key' }, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'company-fixture-key'] },
+    { root: 'VAULT_ADDR=https://root-vault.fixture\nVAULT_TOKEN=root-token-fixture\n', env: {}, extraDefaults: {}, expected: ['VAULT_ADDR', 'https://root-vault.fixture'] },
+    { env: { VAULT_ADDR: 'https://ambient-vault.fixture', VAULT_TOKEN: 'ambient-token-fixture' }, extraDefaults: {}, expected: ['VAULT_ADDR', 'https://ambient-vault.fixture'] },
     { env: { VAULT_ADDR: '' }, extraDefaults: { VAULT_ADDR: 'https://vault.fixture', VAULT_TOKEN: 'fixture-token', POSTGRES_PASSWORD: 'private-fixture-password' }, expected: ['VAULT_ADDR', 'https://vault.fixture'] },
   ]
   for (const configuration of cases) {
