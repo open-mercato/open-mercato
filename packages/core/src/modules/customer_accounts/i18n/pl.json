@@ -382,6 +382,7 @@
   "customer_accounts.widgets.invite.cancel.error": "Nie udało się anulować zaproszenia",
   "customer_accounts.widgets.invite.cancel.success": "Zaproszenie anulowane",
   "customer_accounts.widgets.invite.cancel.title": "Anulować zaproszenie?",
+  "customer_accounts.widgets.invite.cancel.unknown": "Żądanie anulowania zaproszenia zostało wysłane — nie udało się zweryfikować stanu konta",
   "customer_accounts.widgets.invite.displayName": "Nazwa wyświetlana",
   "customer_accounts.widgets.invite.error.emailRequired": "Adres e-mail jest wymagany",
   "customer_accounts.widgets.invite.error.failed": "Nie udało się wysłać zaproszenia",

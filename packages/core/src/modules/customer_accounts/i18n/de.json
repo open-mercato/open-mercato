@@ -382,6 +382,7 @@
   "customer_accounts.widgets.invite.cancel.error": "Einladung konnte nicht widerrufen werden",
   "customer_accounts.widgets.invite.cancel.success": "Einladung widerrufen",
   "customer_accounts.widgets.invite.cancel.title": "Einladung widerrufen?",
+  "customer_accounts.widgets.invite.cancel.unknown": "Widerruf der Einladung angefordert — der Kontostatus konnte nicht überprüft werden",
   "customer_accounts.widgets.invite.displayName": "Anzeigename",
   "customer_accounts.widgets.invite.error.emailRequired": "E-Mail-Adresse ist erforderlich",
   "customer_accounts.widgets.invite.error.failed": "Einladung konnte nicht gesendet werden",

@@ -382,6 +382,7 @@
   "customer_accounts.widgets.invite.cancel.error": "초대를 취소하지 못했습니다",
   "customer_accounts.widgets.invite.cancel.success": "초대가 취소되었습니다",
   "customer_accounts.widgets.invite.cancel.title": "초대를 취소할까요?",
+  "customer_accounts.widgets.invite.cancel.unknown": "초대 취소를 요청했습니다 — 계정 상태를 확인할 수 없습니다",
   "customer_accounts.widgets.invite.displayName": "표시 이름",
   "customer_accounts.widgets.invite.error.emailRequired": "이메일은 필수입니다",
   "customer_accounts.widgets.invite.error.failed": "초대 전송에 실패했습니다",

@@ -60,12 +60,19 @@ async function fetchPendingInvitation(filter: string): Promise<PendingInvitation
   return items?.[0] || null
 }
 
-async function fetchAccountStatus(personEntityId: string): Promise<AccountStatusData | null> {
+// A failed request and a confirmed-empty account are different outcomes: the
+// caller must not treat "the lookup failed" as "the account is gone" (#9167).
+type AccountStatusLookup =
+  | { ok: true; account: AccountStatusData | null }
+  | { ok: false }
+
+async function fetchAccountStatus(personEntityId: string): Promise<AccountStatusLookup> {
   const result = await apiCall(`/api/customer_accounts/admin/users?personEntityId=${encodeURIComponent(personEntityId)}&pageSize=1`)
-  if (!result.ok) return null
+  if (!result.ok) return { ok: false }
   const json = result.result as Record<string, unknown> | null
-  const items = json?.items as AccountStatusData[] | undefined
-  return items?.[0] || null
+  if (!json || !Array.isArray(json.items)) return { ok: false }
+  const items = json.items as AccountStatusData[]
+  return { ok: true, account: items[0] || null }
 }
 
 function InviteForm({
@@ -378,12 +385,20 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
           // The DELETE response stays neutral ({ ok: true }) even when the invitation was
           // already accepted elsewhere, so the cancellation became a safe no-op (#9035).
           // Re-check the account the caller already has access to before claiming success.
-          const refreshedAccount = personEntityId ? await fetchAccountStatus(personEntityId) : null
-          if (refreshedAccount?.isActive) {
+          const verification: AccountStatusLookup = personEntityId
+            ? await fetchAccountStatus(personEntityId)
+            : { ok: true, account: null }
+          // A failed or unreadable lookup is not a confirmed empty account — asserting
+          // success here would resurrect the original false-cancellation defect (#9167).
+          if (!verification.ok) {
+            flash(t('customer_accounts.widgets.invite.cancel.unknown', 'Invitation cancellation requested — the account status could not be verified'), 'info')
+          } else if (verification.account?.isActive) {
             flash(t('customer_accounts.widgets.invite.cancel.alreadyAccepted', 'This invitation was already accepted — the account is active'), 'success')
           } else {
             flash(t('customer_accounts.widgets.invite.cancel.success', 'Invitation cancelled'), 'success')
           }
+          // Refresh regardless of verification outcome — the DELETE itself already
+          // completed, so the widget's cached state must not stay stale on a failed check.
           handleInviteSuccess()
         },
       })

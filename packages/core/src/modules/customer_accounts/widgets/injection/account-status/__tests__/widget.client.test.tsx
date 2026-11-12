@@ -364,7 +364,15 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
   it.each(['ctrlKey', 'metaKey'] as const)('confirms cancellation with %s+Enter, blocks duplicate actions, and refreshes the pending state', async (modifier) => {
     let resolveDelete!: (value: Awaited<ReturnType<typeof apiCall>>) => void
     const deleteResult = new Promise<Awaited<ReturnType<typeof apiCall>>>((resolve) => { resolveDelete = resolve })
-    mockApiCall.mockImplementation(() => deleteResult)
+    mockApiCall.mockImplementation(async (url) => {
+      // The account-status re-check that follows a successful DELETE must see a
+      // confirmed empty result here, not the DELETE's own deferred promise — it
+      // asserts a distinct outcome (#9167) and must not be conflated with it.
+      if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/users?personEntityId=')) {
+        return { ok: true, status: 200, result: { items: [], total: 0 } } as never
+      }
+      return deleteResult
+    })
     mockInvalidateQueries.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => {
       if (queryKey[0] === 'customer-account-pending-invitation') {
         mockQueryData.delete('customer-account-pending-invitation')
@@ -434,6 +442,60 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     expect(flashMock).not.toHaveBeenCalledWith('Invitation cancelled', 'success')
   })
 
+  // Review finding on PR #9167: a failed verification GET is not a confirmed
+  // empty account, so it must not resurrect the false-cancellation-success
+  // defect the PR was meant to close.
+  it('does not claim cancellation success when the status verification GET fails', async () => {
+    mockApiCall.mockImplementation(async (url, options) => {
+      if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/users-invite') && options?.method === 'DELETE') {
+        return { ok: true, status: 200, result: { ok: true } } as never
+      }
+      if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/users?personEntityId=')) {
+        return { ok: false, status: 403, result: { error: 'forbidden' } } as never
+      }
+      return { ok: false, status: 500, result: { error: 'unexpected call' } } as never
+    })
+    renderPendingInvitation()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel invitation' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel invitation?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel invitation' }))
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith(
+      'Invitation cancellation requested — the account status could not be verified',
+      'info',
+    ))
+    expect(flashMock).not.toHaveBeenCalledWith('Invitation cancelled', 'success')
+    expect(flashMock).not.toHaveBeenCalledWith('This invitation was already accepted — the account is active', 'success')
+    // The widget's state still refreshes — the DELETE itself already succeeded.
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['customer-account-status', 'person-entity-1'] })
+  })
+
+  it('does not claim cancellation success when the status verification payload is unreadable', async () => {
+    mockApiCall.mockImplementation(async (url, options) => {
+      if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/users-invite') && options?.method === 'DELETE') {
+        return { ok: true, status: 200, result: { ok: true } } as never
+      }
+      if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/users?personEntityId=')) {
+        return { ok: true, status: 200, result: { unexpected: 'shape' } } as never
+      }
+      return { ok: false, status: 500, result: { error: 'unexpected call' } } as never
+    })
+    renderPendingInvitation()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel invitation' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel invitation?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel invitation' }))
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith(
+      'Invitation cancellation requested — the account status could not be verified',
+      'info',
+    ))
+    expect(flashMock).not.toHaveBeenCalledWith('Invitation cancelled', 'success')
+    expect(flashMock).not.toHaveBeenCalledWith('This invitation was already accepted — the account is active', 'success')
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['customer-account-status', 'person-entity-1'] })
+  })
+
   it('keeps a failed cancellation visible and allows retry', async () => {
     mockApiCall.mockResolvedValueOnce({
       ok: false,
@@ -442,6 +504,10 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
       response: new Response(JSON.stringify({ error: 'unavailable' }), { status: 500 }),
     } as never)
     mockApiCall.mockResolvedValueOnce({ ok: true, status: 200, result: { ok: true } } as never)
+    // The account-status re-check after the retried DELETE: a confirmed empty
+    // result, so the retry's success flash is legitimate rather than a
+    // verification-failure fallthrough (#9167).
+    mockApiCall.mockResolvedValueOnce({ ok: true, status: 200, result: { items: [], total: 0 } } as never)
     renderPendingInvitation()
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel invitation' }))

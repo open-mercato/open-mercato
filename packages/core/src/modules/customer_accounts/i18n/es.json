@@ -382,6 +382,7 @@
   "customer_accounts.widgets.invite.cancel.error": "No se pudo cancelar la invitación",
   "customer_accounts.widgets.invite.cancel.success": "Invitación cancelada",
   "customer_accounts.widgets.invite.cancel.title": "¿Cancelar la invitación?",
+  "customer_accounts.widgets.invite.cancel.unknown": "Se solicitó la cancelación de la invitación; no se pudo verificar el estado de la cuenta",
   "customer_accounts.widgets.invite.displayName": "Nombre visible",
   "customer_accounts.widgets.invite.error.emailRequired": "El correo electrónico es obligatorio",
   "customer_accounts.widgets.invite.error.failed": "No se pudo enviar la invitación",

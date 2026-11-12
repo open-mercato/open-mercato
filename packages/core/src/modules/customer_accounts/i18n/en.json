@@ -382,6 +382,7 @@
   "customer_accounts.widgets.invite.cancel.error": "Failed to cancel invitation",
   "customer_accounts.widgets.invite.cancel.success": "Invitation cancelled",
   "customer_accounts.widgets.invite.cancel.title": "Cancel invitation?",
+  "customer_accounts.widgets.invite.cancel.unknown": "Invitation cancellation requested — the account status could not be verified",
   "customer_accounts.widgets.invite.displayName": "Display Name",
   "customer_accounts.widgets.invite.error.emailRequired": "Email is required",
   "customer_accounts.widgets.invite.error.failed": "Failed to send invitation",
