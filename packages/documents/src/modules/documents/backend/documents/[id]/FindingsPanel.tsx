@@ -42,6 +42,8 @@ type FindingGroupKey = FindingSeverity | 'decided'
 
 const FINDING_NOTE_MAX_LENGTH = 2000
 const RAIL_ASSISTANT_HEIGHT = '60vh'
+const RAIL_TAB_TRIGGER_CLASS = 'min-w-0 flex-auto shrink justify-center gap-1.5 px-2'
+const RAIL_TAB_LABEL_CLASS = 'sr-only @xs:not-sr-only'
 
 const GROUP_TITLE_KEYS: Record<FindingGroupKey, string> = {
   blocking: 'documents.findings.groups.blocking',
@@ -193,27 +195,27 @@ export function DocumentReviewRail({
   }, [onNote, selectTab])
 
   return (
-    <div data-testid="documents-review-rail">
+    <div data-testid="documents-review-rail" className="@container">
       <Tabs
         value={tab}
         onValueChange={(value) => selectTab(value === 'changes' || value === 'assistant' ? value : 'comments')}
-        variant={reviewMode ? 'pill' : 'underline'}
+        variant="pill"
       >
-        <TabsList aria-label={t('documents.findings.rail.label')} className="w-full">
+        <TabsList aria-label={t('documents.findings.rail.label')} className="flex w-full">
           <TabsTrigger
             value="changes"
+            className={RAIL_TAB_TRIGGER_CLASS}
             leading={<ListChecks className="size-4" />}
             count={findings.summaryLoaded ? openTotal : undefined}
           >
-            {t('documents.findings.tab')}
+            <span className={RAIL_TAB_LABEL_CLASS}>{t('documents.findings.tab')}</span>
           </TabsTrigger>
-          <TabsTrigger value="comments" leading={<MessageSquare className="size-4" />}>
-            {t('documents.comments.title')}
+          <TabsTrigger value="comments" className={RAIL_TAB_TRIGGER_CLASS} leading={<MessageSquare className="size-4" />}>
+            <span className={RAIL_TAB_LABEL_CLASS}>{t('documents.comments.title')}</span>
           </TabsTrigger>
           {assistantInRail ? (
-            <TabsTrigger value="assistant" leading={<AiIcon className="size-4" />}>
-              <span className="sr-only">{t('documents.reviewAssistant.tab')}</span>
-              <span aria-hidden>{t('documents.reviewAssistant.tabShort')}</span>
+            <TabsTrigger value="assistant" className={RAIL_TAB_TRIGGER_CLASS} leading={<AiIcon className="size-4" />}>
+              <span className={RAIL_TAB_LABEL_CLASS}>{t('documents.reviewAssistant.tab')}</span>
             </TabsTrigger>
           ) : null}
         </TabsList>

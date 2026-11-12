@@ -23,6 +23,7 @@ import { useDocumentEditor } from './useDocumentEditor'
 import { useFallbackContentPersistence } from './useFallbackContentPersistence'
 import { useDocumentTitle } from './useDocumentTitle'
 import { useEditorInsertions } from './useEditorInsertions'
+import { useRoomyViewport } from './useWideViewport'
 import { saveCollaborativeContent } from './saveCollaborativeContent'
 
 type Props = DocumentEditorIslandProps & {
@@ -39,11 +40,18 @@ export function DocumentEditorSurface(input: Props) {
   const nonce = useContentSecurityPolicyNonce()
   const reviewSummary = isReviewMode(input.reviewSummary ?? null) ? input.reviewSummary ?? null : null
   const hasOpenFindings = openFindingTotal(reviewSummary) > 0
-  const [outlineOpen, setOutlineOpen] = React.useState(hasOpenFindings)
+  const workspace = Boolean(input.reviewWorkspace && reviewSummary)
+  const roomyViewport = useRoomyViewport()
+  const [openFindingsSeen, setOpenFindingsSeen] = React.useState(hasOpenFindings)
+  React.useEffect(() => {
+    if (hasOpenFindings) setOpenFindingsSeen(true)
+  }, [hasOpenFindings])
+  const outlineOpenByDefault = openFindingsSeen && (!workspace || roomyViewport)
+  const [outlineOpen, setOutlineOpen] = React.useState(outlineOpenByDefault)
   const outlineToggledRef = React.useRef(false)
   React.useEffect(() => {
-    if (hasOpenFindings && !outlineToggledRef.current) setOutlineOpen(true)
-  }, [hasOpenFindings])
+    if (!outlineToggledRef.current) setOutlineOpen(outlineOpenByDefault)
+  }, [outlineOpenByDefault])
   const [suggestionRange, setSuggestionRange] = React.useState<{ from: number; to: number } | null>(null)
   const modeChangeInFlightRef = React.useRef(false)
   const effectiveReadOnly = input.readOnly || input.mode === 'preview'
@@ -107,7 +115,6 @@ export function DocumentEditorSurface(input: Props) {
       : input.mode === 'preview'
         ? t('documents.editor.mode.previewNotice')
         : null
-  const workspace = Boolean(input.reviewWorkspace && reviewSummary)
   const statusNotice = workspace && input.transport === 'fallback' ? notice : null
   const canvasNotice = statusNotice ? null : notice
   const selectionCommentHandler = canCreateSelectionComment({

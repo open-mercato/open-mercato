@@ -35,7 +35,8 @@ import { DocumentReviewRail } from './FindingsPanel'
 import type { FindingSummary } from './findingModel'
 import { ReleaseGate } from './ReleaseGate'
 import { ReviewAssistantDock, ReviewAssistantProvider } from './ReviewAssistant'
-import { isReviewMode, releaseGateState, reviewWorkspaceStyle } from './reviewModeModel'
+import { cn } from '@open-mercato/shared/lib/utils'
+import { DOCUMENT_SIDE_PANEL_WIDTH_CLASS, isReviewMode, releaseGateState, reviewWorkspaceStyle } from './reviewModeModel'
 import { useWideViewport } from './useWideViewport'
 import { extensionPoints } from '../../../extension-points'
 
@@ -493,7 +494,7 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
               </DocumentEditorErrorBoundary>
               <ReviewAssistantDock />
             </div>
-            <aside className="space-y-4 xl:sticky xl:top-[calc(var(--topbar-height,0px)+1rem)] xl:max-h-[calc(100dvh-var(--topbar-height,0px)-2rem)] xl:w-80 xl:shrink-0 xl:self-start xl:overflow-y-auto">
+            <aside className={cn('space-y-4 xl:sticky xl:top-[calc(var(--topbar-height,0px)+1rem)] xl:max-h-[calc(100dvh-var(--topbar-height,0px)-2rem)] xl:shrink-0 xl:self-start xl:overflow-y-auto', DOCUMENT_SIDE_PANEL_WIDTH_CLASS)}>
               {reviewMode ? null : documentNavigator}
               {reviewMode ? null : relatedRecords}
               {canReviewFindings ? (

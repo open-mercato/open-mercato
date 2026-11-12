@@ -87,7 +87,7 @@ export const CommentComposer = React.forwardRef<HTMLFormElement, CommentComposer
       }}
     >
       <div className="space-y-2">
-        <Label htmlFor={composerId}>{t('documents.comments.title')}</Label>
+        <Label htmlFor={composerId} className="sr-only">{t('documents.comments.title')}</Label>
         {replyToName ? (
           <p className="inline-flex items-center gap-2 rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
             <CornerDownRight className="size-3" aria-hidden="true" />

@@ -61,6 +61,13 @@ export function countSectionHeadings(nodes: Iterable<{ typeName: string; text: s
   return sections
 }
 
+/**
+ * Side panel (document navigation, related records, review rail) width for
+ * both the default layout and the review workspace: 384px from `xl`, 416px
+ * from `2xl`. Below `xl` the panel stacks under the editor at full width.
+ */
+export const DOCUMENT_SIDE_PANEL_WIDTH_CLASS = 'xl:w-96 2xl:w-104'
+
 const APP_MAIN_MAX_WIDTH = '1536px'
 const APP_MAIN_INLINE_PADDING = '3rem'
 
