@@ -12,6 +12,7 @@ import { CustomerCreditAccount, CustomerCreditLedgerEntry } from '../../data/ent
 const reserveCreditMock = jest.fn()
 const linkCreditReservationToOrderMock = jest.fn()
 jest.mock('../../services/customerCreditService', () => ({
+  ...jest.requireActual('../../services/customerCreditService'),
   createCustomerCreditService: () => ({
     reserveCredit: reserveCreditMock,
     linkCreditReservationToOrder: linkCreditReservationToOrderMock,
@@ -203,6 +204,40 @@ describe('customer_groups order-confirmed-credit-reinstate subscriber', () => {
     expect(reserveCreditMock).toHaveBeenCalledWith(
       expect.objectContaining({ idempotencyKey: `reinstate:${reserveEntry.idempotencyKey}` }),
     )
+  })
+
+  // #8268 review Major 1: a partial settlement before cancellation leaves
+  // `releaseCredit` freeing only the OPEN remainder, not the original reserved amount
+  // — reinstating the full original would overstate exposure by the already-settled
+  // slice (or wrongly refuse reinstatement against a now-tight limit).
+  it('reinstates only the amount the release actually freed, not the original reservation amount', async () => {
+    const { em, tables } = createFakeEm()
+    const { account, reserveEntry } = seedReleasedReservation(tables, {
+      amount: '100.00',
+      idempotencyKey: 'reserve-key-partial',
+    })
+    // Overwrite the auto-generated full release with a PARTIAL one (reserve 100, settle
+    // 40 beforehand, cancel releases only the remaining 60).
+    const releaseEntries = (tables.get(CustomerCreditLedgerEntry) ?? []).map((row) =>
+      row.entryType === 'release' ? { ...row, amount: '-60.00' } : row,
+    )
+    tables.set(CustomerCreditLedgerEntry, releaseEntries)
+    reserveCreditMock.mockResolvedValue({ reserved: true, released: false, entry: null, check: { reason: 'ok' } })
+
+    await handle(
+      { orderId: ORDER_ID, previousStatus: 'canceled', tenantId: TENANT, organizationId: ORG },
+      buildCtx(em),
+    )
+
+    expect(reserveCreditMock).toHaveBeenCalledWith({
+      scope: { tenantId: TENANT, organizationId: ORG },
+      buyer: { customerId: account.customerId },
+      currencyCode: account.currencyCode,
+      amount: '60.00',
+      sourceType: 'order',
+      sourceId: ORDER_ID,
+      idempotencyKey: `reinstate:${reserveEntry.idempotencyKey}`,
+    })
   })
 
   it('skips a reservation that is still active (never released)', async () => {

@@ -1,6 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerCreditAccount, CustomerCreditLedgerEntry } from '../data/entities'
-import { createCustomerCreditService, type CustomerCreditService } from '../services/customerCreditService'
+import {
+  createCustomerCreditService,
+  formatMinorUnits,
+  toMinorUnits,
+  type CustomerCreditService,
+} from '../services/customerCreditService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
@@ -173,12 +178,20 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       })
       if (!account) continue
 
+      // #8268 review Major 1: `reservation.amount` is the ORIGINAL reserved amount, not
+      // what `releaseCredit` actually freed — a partial settlement (e.g. reserve 100,
+      // settle 40) leaves only the open remainder (60) to release, recorded as
+      // `releaseEntry.amount = -60`. Reinstating the full original 100 would overstate
+      // exposure by the already-settled 40 (or wrongly refuse reinstatement on a now-tight
+      // limit). Reinstate exactly what was released: `-releaseEntry.amount`.
+      const releasedAmount = formatMinorUnits(-toMinorUnits(releaseEntry.amount))
+
       try {
         const result = await creditService.reserveCredit({
           scope,
           buyer: { customerId: account.customerId },
           currencyCode: account.currencyCode,
-          amount: reservation.amount,
+          amount: releasedAmount,
           sourceType: 'order',
           sourceId: orderId,
           idempotencyKey: reinstateKey,

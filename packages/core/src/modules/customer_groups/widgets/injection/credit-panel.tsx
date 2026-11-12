@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { CreditCard, History, Pencil, Plus, Receipt } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -23,6 +24,22 @@ const CREDIT_PANEL_RESOURCE_KINDS = new Set(['customers.person', 'customers.comp
 const CREDIT_MANAGE_FEATURE = 'customer_groups.credit.manage'
 const CREDIT_ADJUST_FEATURE = 'customer_groups.credit.adjust'
 const CREDIT_AMOUNT_PATTERN = /^-?\d{1,14}(\.\d{1,2})?$/
+
+// #8268 review N1: the raw regex above is dot-only — a Polish-locale '12,50' (the limit
+// field above already accepts locale input via CrudForm's own number-field parsing)
+// fails it outright, even though it is a perfectly good amount. Parses the user-typed
+// string under the active locale (`parseLocaleNumber` — both ',' and '.' read as the
+// decimal point, whichever the user's keyboard offers) and re-renders it as a canonical
+// dot-decimal string the SAME `CREDIT_AMOUNT_PATTERN`/nonzero check below still governs,
+// so more than 2 fraction digits (e.g. '12,505') is still rejected, never silently
+// rounded.
+function normalizeAmountInput(raw: string, locale?: string): string | null {
+  const parsed = parseLocaleNumber(raw, locale)
+  if (parsed === null || !Number.isFinite(parsed)) return null
+  const minorUnits = parsed * 100
+  if (Math.abs(minorUnits - Math.round(minorUnits)) > 1e-6) return null
+  return (Math.round(minorUnits) / 100).toFixed(2)
+}
 
 type CreditPanelContext = {
   resourceKind: string
@@ -323,7 +340,10 @@ function CreditAccountRowItem({
             </div>
           </dl>
           {row.isOnHold && row.holdReason ? (
-            <div className="text-xs text-muted-foreground">
+            // #8268 review N2: an unbroken hold-reason string (no spaces for the
+            // browser to wrap on) otherwise overflows the 390px customer page —
+            // `break-words` lets it wrap mid-word instead of forcing the row wider.
+            <div className="break-words text-xs text-muted-foreground">
               {t('customer_groups.groups.creditTab.field.holdReason', 'Hold reason')}: {row.holdReason}
             </div>
           ) : null}
@@ -377,6 +397,7 @@ function CreditAccountRowItem({
 
 export function CreditPanelWidget({ context }: InjectionWidgetComponentProps<unknown, unknown>) {
   const t = useT()
+  const locale = useLocale()
   const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
   const canManage = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, CREDIT_MANAGE_FEATURE)
   const canAdjust = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, CREDIT_ADJUST_FEATURE)
@@ -470,6 +491,16 @@ export function CreditPanelWidget({ context }: InjectionWidgetComponentProps<unk
   const handleEditSubmit = React.useCallback(
     async (values: CreditAccountFormValues) => {
       if (!editingAccount) return
+      // #8268 review Major 13: an invalid/empty limit field parses to `undefined`
+      // (CrudForm's own number-field handling) — sending that drops the key from the
+      // JSON body entirely, so the API silently leaves the OLD limit in place while
+      // still returning success. Require a finite non-negative number client-side,
+      // same check the create dialog already runs for this same field.
+      const creditLimit = Number(values.creditLimit)
+      if (!Number.isFinite(creditLimit) || creditLimit < 0) {
+        const message = t('customer_groups.groups.creditTab.errors.limitInvalid', 'Enter a limit of zero or more.')
+        throw createCrudFormError(message, { creditLimit: message })
+      }
       const holdReason = typeof values.holdReason === 'string' && values.holdReason.trim().length
         ? values.holdReason.trim()
         : null
@@ -484,7 +515,7 @@ export function CreditPanelWidget({ context }: InjectionWidgetComponentProps<unk
         'customer_groups/customer-groups/credit-accounts',
         {
           id: editingAccount.id,
-          creditLimit: values.creditLimit,
+          creditLimit,
           isOnHold: values.isOnHold,
           holdReason,
         },
@@ -544,8 +575,9 @@ export function CreditPanelWidget({ context }: InjectionWidgetComponentProps<unk
   const handleAdjustSubmit = React.useCallback(
     async (values: CreditAdjustFormValues) => {
       if (!adjustingAccount) return
-      const amount = typeof values.amount === 'string' ? values.amount.trim() : ''
-      if (!CREDIT_AMOUNT_PATTERN.test(amount) || Number(amount) === 0) {
+      const rawAmount = typeof values.amount === 'string' ? values.amount.trim() : ''
+      const amount = normalizeAmountInput(rawAmount, locale)
+      if (amount === null || !CREDIT_AMOUNT_PATTERN.test(amount) || Number(amount) === 0) {
         const message = t(
           'customer_groups.groups.creditTab.errors.amountInvalid',
           'Enter a signed amount with up to 2 decimal places (not zero).',
@@ -572,7 +604,7 @@ export function CreditPanelWidget({ context }: InjectionWidgetComponentProps<unk
       flash(t('customer_groups.groups.creditTab.adjusted', 'Adjustment posted.'), 'success')
       await load()
     },
-    [adjustingAccount, load, t],
+    [adjustingAccount, load, locale, t],
   )
 
   const submitAdjustForm = React.useCallback(

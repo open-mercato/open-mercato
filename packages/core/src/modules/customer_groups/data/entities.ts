@@ -587,17 +587,17 @@ export class CustomerPurchaseApproval {
   @Property({ name: 'expires_at', type: Date })
   expiresAt!: Date
 
-  // Release 5 Phase 4 (Step 2.7, G15/D-R5-6/D-R5-32, §10.2). The buyer-side e-mail
-  // fan-out and the single decided-email-to-requester are each sent through
-  // `sendEmail`, which has no dedup of its own (unlike the in-app staff notification,
-  // which dedupes per recipient via the notification system's own `groupKey`). A
-  // persistent subscriber redelivery (`packages/events/AGENTS.md`: "persistent
-  // subscribers MUST be idempotent — they may be retried on failure") would otherwise
-  // re-send every buyer e-mail. These two CAS markers, written with the same
-  // `nativeUpdate ... WHERE … IS NULL` guard this service already uses for every other
-  // transition, make each e-mail batch exactly-once. Not user-editable (no admin form),
-  // so no optimistic-lock header — `updated_at` stays the transition-only column it
-  // already is.
+  // Release 5 Phase 4 (Step 2.7, G15/D-R5-6/D-R5-32, §10.2). Bookkeeping only — "when
+  // did this e-mail batch finish delivering to every eligible recipient" — set by
+  // `lib/approvalEmails.ts#markEmailBatchComplete` only after
+  // `CustomerPurchaseApprovalEmailDelivery` shows every eligible recipient covered.
+  // #8268 review Major 3: these two columns used to be the exactly-once CAS gate
+  // itself, claimed BEFORE any send was attempted — a transient failure after the claim
+  // left it stuck "sent" with nothing delivered, permanently, since nothing ever
+  // unclaims it. Per-recipient delivery rows are the actual source of truth now; a
+  // redelivery re-queries those, not these two columns. Not user-editable (no admin
+  // form), so no optimistic-lock header — `updated_at` stays the transition-only
+  // column it already is.
   @Property({ name: 'requested_email_sent_at', type: Date, nullable: true })
   requestedEmailSentAt?: Date | null
 
@@ -609,4 +609,48 @@ export class CustomerPurchaseApproval {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+}
+
+export type CustomerPurchaseApprovalEmailKind = 'requested' | 'decided'
+
+// #8268 review Major 3. The old design marked a whole e-mail batch "sent" (the two CAS
+// columns above) BEFORE recipient lookup or transport delivery ran — a transient
+// failure after the CAS committed left it permanently stuck "sent" with nothing
+// actually delivered, and (since the subscriber's own retry swallows the error) a
+// forced redelivery exited early on the stale marker. One row per ACTUALLY-sent
+// recipient, written only after `sendEmail` resolves, replaces that single marker as
+// the source of truth: a redelivery re-queries this table, skips every recipient
+// already here, and only (re)sends to the rest — partial failures retry exactly the
+// unsent remainder, never a duplicate for an already-delivered one. `recipientKey` is
+// the `CustomerUser` id for `requested` (one row per eligible decider) and the
+// requester's own actor id for `decided` (always exactly one row).
+@Entity({ tableName: 'customer_purchase_approval_email_deliveries' })
+@Unique({
+  name: 'customer_purchase_approval_email_deliveries_recipient_unique',
+  properties: ['tenantId', 'approvalId', 'kind', 'recipientKey'],
+})
+export class CustomerPurchaseApprovalEmailDelivery {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'approval_id', type: 'uuid' })
+  @Index({ name: 'customer_purchase_approval_email_deliveries_approval_idx' })
+  approvalId!: string
+
+  @Property({ name: 'kind', type: 'text' })
+  kind!: CustomerPurchaseApprovalEmailKind
+
+  @Property({ name: 'recipient_key', type: 'text' })
+  recipientKey!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 }
