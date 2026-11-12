@@ -8,6 +8,7 @@ import {
   editorLocator,
   FINDINGS_UI_BASE_URL,
   findingCard,
+  isRealtimeConnected,
   openDocumentChanges,
   selectEditorText,
   TERM_FINDING,
@@ -33,6 +34,7 @@ test.describe('TC-DOC-FIND-009: Apply is disabled when the passage changed', () 
 
       await login(page, 'admin')
       await openDocumentChanges(page, documentId)
+      const realtimeConnected = await isRealtimeConnected(page)
       const termCard = findingCard(page, TERM_FINDING.title)
       await expect(termCard.getByRole('button', { name: 'Apply', exact: true })).toBeEnabled({ timeout: 15_000 })
       await expect(termCard.getByTestId('documents-finding-location-message')).toHaveCount(0)
@@ -44,7 +46,15 @@ test.describe('TC-DOC-FIND-009: Apply is disabled when the passage changed', () 
       await expect(termCard.getByTestId('documents-finding-location-message')).toHaveText('Text changed since the review.', { timeout: 15_000 })
       await expect(termCard.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled()
       await expect(termCard.getByRole('button', { name: 'Keep as is' })).toBeEnabled()
-      await expect(termCard.getByRole('button', { name: 'Show in document' })).toBeVisible()
+      if (realtimeConnected) {
+        await expect(termCard.getByRole('button', { name: 'Show in document' })).toBeVisible()
+      } else {
+        await expect(termCard.getByRole('button', { name: 'Show in document' })).toHaveCount(0)
+        test.info().annotations.push({
+          type: 'skipped-assertion',
+          description: 'Single-user fallback: the edited passage is located by quote search, which no longer matches, so there is no range to show.',
+        })
+      }
 
       const list = await listFindings(request, adminToken, documentId)
       expect(findingByTitle(list, TERM_FINDING.title).status).toBe('open')
