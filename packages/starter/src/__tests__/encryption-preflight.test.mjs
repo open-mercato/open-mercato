@@ -4,6 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { EventEmitter } from 'node:events'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { assertEncryptionCompatible, inspectEncryptionCompatibility, runEncryptionGuardedSetupCommand } from '../encryption-preflight.mjs'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 
@@ -11,6 +13,33 @@ const correct = Buffer.alloc(32, 1).toString('base64')
 const wrong = Buffer.alloc(32, 2).toString('base64')
 const tenant = 'scope-fixture'
 const sealed = encryptWithAesGcm('private-fixture', correct).raw
+
+test('symlinked helper entrypoints reject incompatible configuration instead of silently succeeding', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'om-preflight-symlink-'))
+  try {
+    const scripts = [
+      new URL('../encryption-preflight.mjs', import.meta.url),
+      new URL('../../../../scripts/dev-encryption-preflight.mjs', import.meta.url),
+      new URL('../../../create-app/template/scripts/dev-encryption-preflight.mjs', import.meta.url),
+    ]
+    for (const [index, script] of scripts.entries()) {
+      const scriptPath = fileURLToPath(script)
+      const linkedDirectory = path.join(directory, `helper-${index}`)
+      fs.symlinkSync(path.dirname(scriptPath), linkedDirectory, 'junction')
+      const link = path.join(linkedDirectory, path.basename(scriptPath))
+      for (const [mode, expectedStatus] of [['--encryption-probe', 1], ['--run-setup-command', 78]]) {
+        const result = spawnSync(process.execPath, [link, mode, 'exit 91'], {
+          cwd: directory,
+          env: { ...process.env, DATABASE_URL: '' },
+          encoding: 'utf8',
+          timeout: 10_000,
+        })
+        assert.equal(result.status, expectedStatus, result.stderr)
+        if (mode === '--run-setup-command') assert.match(result.stderr, /database writes are blocked/)
+      }
+    }
+  } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+})
 
 function fixture(records, options = {}) {
   const queries = []

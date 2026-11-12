@@ -54,3 +54,7 @@ Implementation and revised local verification complete for #8913. All eight conf
 - 2026-11-06: Addressed independent review/QA findings with bounded per-scope proof, Documents CRDT handling, canonical envelope detection, preserved optional dev behavior and secure fresh-only encryption defaults.
 
 - 2026-11-06: Completed revised full gate and expanded review/QA regressions; preserved exact supplied configuration and explicit database targeting.
+
+### 2026-11-12 resume
+
+Merged current main and updated the upstream credential-display fixture to stub only the encryption proof; real rejection coverage remains intact. Disposable PostgreSQL QA exposed helper entrypoint detection comparing a symlinked argv path with a canonical module URL. The helper now compares real filesystem paths, so symlinked workspaces and installed-script layouts execute the proof and guarded command instead of silently exiting successfully. Unit regressions exercise both CLI modes through symlinked directories in all three mirrored helpers; the live PostgreSQL positive-boot fixture also uses a symlinked installed-script directory. No public signature or configuration format changes.

@@ -91,3 +91,7 @@ Runner: local; no configured Compose app container is running. Existing develope
 - [x] 4.1 Merge current main and repair the credential-display fixture without weakening encryption enforcement. — fa78b9014c, 49db4e79f2
 - [ ] 4.2 Run configured validation, merged-result scripts and disposable PostgreSQL/standalone verification.
 - [ ] 4.3 Complete authoritative re-review, publish QA evidence, update PR and release the claim.
+
+Ephemeral QA found an additional in-scope defect: invoking the helper through a symlink skips both entrypoint branches and returns success without running proof or mutation. Reproduced on macOS /tmp -> /private/tmp and with an explicit symlink regression (old helper exit 0; fixed helper exit 78 for invalid config). Compare real paths in all mirrored helpers; cover rejection in both CLI modes and successful command execution through a linked installed-script directory. Crypto/PG suite now passes 17 tests, no skips.
+
+Initial broad script run exposed host tooling gaps (BSD grep lacks -P, GNU timeout absent, Docker CLI cannot discover Compose under a temporary HOME) and load-sensitive fixture deadlines. Test-only PATH selects GNU grep/coreutils; DOCKER_COMPOSE_BIN selects Docker Desktop’s real standalone Compose binary. Re-run the identical script set with four concurrent files to avoid fixture deadline starvation; no workflow or application dependency changes.
