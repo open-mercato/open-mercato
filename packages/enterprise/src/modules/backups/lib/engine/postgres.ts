@@ -586,7 +586,7 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
     async completeFromReport(run) {
       const receipt = z.object({ schemaVersion: z.literal(1), backupId: z.string(), restoreRunId: z.string(),
         trustedManifestSha256: z.string(), targetIdentityDigest: z.string(), status: z.literal('completed'), quarantined: z.literal(true),
-      }).parse(JSON.parse((await readBoundedFile(run.reportPath, 1024 * 1024)).toString()))
+      }).parse(JSON.parse((await readBoundedFile(run.reportPath, 64 * 1024 * 1024)).toString()))
       const connection = await current()
       const identityDigest = digest(JSON.stringify(await databaseIdentity(connection)))
       if (receipt.restoreRunId !== run.runId || receipt.backupId !== run.backupId || receipt.trustedManifestSha256 !== run.manifestSha256

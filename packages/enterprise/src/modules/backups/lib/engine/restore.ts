@@ -52,7 +52,7 @@ async function restoreBackupInternal(options: RestoreBackupOptions): Promise<Res
   if(await lstat(reportPath).catch(()=>null)){
     if(!options.resume||!options.target.completeFromReport)throw new BackupError('BACKUP_REPORT_ALREADY_EXISTS',3)
     const receiptSchema=z.object({schemaVersion:z.literal(1),backupId:z.string(),restoreRunId:z.string(),reportPath:z.string(),status:z.literal('completed'),quarantined:z.literal(true),trustedManifestSha256:z.string(),targetIdentityDigest:z.string(),completedAt:z.string()}).passthrough()
-    const receipt=receiptSchema.parse(JSON.parse((await readBoundedFile(reportPath,1024*1024)).toString()))
+    const receipt=receiptSchema.parse(JSON.parse((await readBoundedFile(reportPath,64*1024*1024)).toString()))
     if(receipt.backupId!==manifest.backupId||receipt.restoreRunId!==runId||receipt.trustedManifestSha256!==options.trustedManifestSha256||receipt.targetIdentityDigest!==targetIdentityDigest||receipt.reportPath!==reportPath)throw new BackupError('BACKUP_RECEIPT_BINDING_MISMATCH',3)
     if(!await options.target.completeFromReport({...run,reportPath,targetIdentityDigest}))throw new BackupError('BACKUP_RECEIPT_INCOMPLETE',3)
     return result
