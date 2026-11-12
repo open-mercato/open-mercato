@@ -41,9 +41,8 @@ for (const locale of ['en', 'pl'] as const) {
         await page.goto(`${detailPath}?tab=activities`)
         const activitiesTab = page.getByRole('tab', { name: locale === 'en' ? 'Activities' : 'Aktywności', exact: true })
         if (await activitiesTab.count()) await activitiesTab.click()
-        await expect(page.getByText(title, { exact: true })).toBeVisible()
-
         const entry = page.getByText(title, { exact: true }).locator('xpath=ancestor::div[contains(@class,"py-2.5")][1]')
+        await expect(entry).toBeVisible()
         for (const label of CALL_CHIP_LABELS[locale]) {
           const chip = entry.getByRole('button', { name: label, exact: true })
           await expect(chip).toBeVisible()
@@ -52,7 +51,20 @@ for (const locale of ['en', 'pl'] as const) {
           expect(box!.x, `${label} chip starts outside the viewport`).toBeGreaterThanOrEqual(0)
           expect(box!.x + box!.width, `${label} chip ends outside the viewport`).toBeLessThanOrEqual(NARROW_VIEWPORT.width)
         }
+        if (kind !== 'deal') {
+          await expect(page.getByRole('button', { name: locale === 'en' ? 'New from template' : 'Nowy z szablonu', exact: true })).toBeVisible()
+        }
         const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth)
+        if (scrollWidth > NARROW_VIEWPORT.width) {
+          const overflow = await page.evaluate(() => Array.from(document.querySelectorAll('body *'))
+            .filter((element) => {
+              const bounds = element.getBoundingClientRect()
+              return bounds.width > 0 && bounds.right > window.innerWidth && getComputedStyle(element).position !== 'fixed'
+            })
+            .map((element) => ({ tag: element.tagName, className: element.getAttribute('class'), text: element.textContent?.slice(0, 120), right: element.getBoundingClientRect().right })))
+          await test.info().attach('overflow-elements', { body: JSON.stringify(overflow, null, 2), contentType: 'application/json' })
+          await page.screenshot({ path: test.info().outputPath(`${locale}-${kind}-overflow.png`), fullPage: true })
+        }
         expect(scrollWidth).toBeLessThanOrEqual(NARROW_VIEWPORT.width)
         await page.screenshot({ path: test.info().outputPath(`${locale}-${kind}-timeline-ai-chips-390.png`), fullPage: true })
         await page.setViewportSize({ width: 1440, height: 1000 })
