@@ -19,6 +19,11 @@
 - `3b86637c0a` (3.2): admin pages `backend/documents/review-playbooks/**` (list DataTable, create + detail CrudForm, `RulesEditor.tsx` inline rule editor with Cmd/Ctrl+Enter and Escape plus the conflict bar, `GuidanceDocuments.tsx` search-and-link picker), nav entry under Documents (pageOrder 120, gated on the manage feature), Changes panel review header shows "Playbook: {name} · v{version}". i18n `documents.reviewPlaybooks.*` + `documents.audit.review*` in en/pl/de/es/ko.
 - 3.3: TC-DOC-PLAY-001..004 + `__integration__/helpers/reviewPlaybookFixtures.ts`; unit tests `__tests__/reviewPlaybookCommands.test.ts` (version bump, uniqueness, caps, undo, ingest resolution) and `__tests__/reviewPlaybookUi.test.ts`.
 
+### Phase 4 — agent and workflow integration
+- `f7dc18c3b4` (4.1): `@open-mercato/core` peer dependency (lockfile: one line under the documents workspace); `workflows.ts` registers `documents.finding.ingest` (`documents.edit`, label `documents.workflows.commands.finding.ingest` in en/pl/de/es/ko, no `defaultEnabled`); `ai-tools.ts` with `documents.get_document_for_review` + `documents.get_review_playbook` (read-only, `documents.view`, tier via `loadScopedDocument` + `resolveLoadedDocumentUserAccess`, caps `DOCUMENTS_REVIEW_TOOL_MAX_DOCUMENT_CHARS` 200 000 / `DOCUMENTS_REVIEW_TOOL_MAX_GUIDANCE_CHARS` 20 000 in `lib/resourceLimits.ts`); `lib/reviewAgentContract.ts` (`documentReviewOutcomeSchema` = `{ kind: 'researcher', data: { findings, summary } }` strict, findings = `findingIngestSchema.shape.findings` by reference; `DOCUMENT_REVIEW_TOOL_IDS`; `buildDocumentReviewInstructions`). Importable via the existing `./*/*/*/*` exports pattern. Tests: `__tests__/reviewAgentContract.test.ts`, `reviewAiTools.test.ts`, `workflowsRegistration.test.ts` (workflow-shaped ctx — `auth.sub` only — reaches `assertDocumentCommandCapability(..., 'canEdit')`; denial propagates). `yarn generate` puts the module into `ai-tools.generated.ts` and `workflows.generated.ts`.
+- 4.2 spike: **array preserved, no `findingsJson`.** `interpolateVariables` in `packages/core/src/modules/workflows/lib/activity-executor.ts` returns the typed value when the string is exactly one `{{…}}` token; UPDATE_ENTITY configs pass through `interpolateActivityConfig` (inline `executeActivityByType` and queued enqueue path) before `executeUpdateEntity`. Caveat: text around the token stringifies. Docs `apps/docs/docs/user-guide/documents-review.mdx` + sidebar entry; spec updated (phase status, R11 outcome, Consumer Guidance, changelog).
+- 4.3: `__integration__/TC-DOC-AGENT-001.spec.ts` (stubbed agent outcome in `initialContext.review`, tenant enablement through `PUT /api/workflows/command-settings` with restore in `finally`, UPDATE_ENTITY ingest, keep → audit log shows `documents.review.cleared`, test sends `documents_review_cleared` by correlation key, run completes).
+
 ## Validation (local runner)
 - Phase 3: `yarn workspace @open-mercato/documents typecheck` pass; `cd packages/documents && npx jest --config jest.config.cjs` 167 suites passed (1 skipped), 1177 tests passed (5 skipped); eslint on touched files 0 errors (2 pre-existing-style `import/no-anonymous-default-export` warnings); DS grep on new UI: no hardcoded status colours, arbitrary values or `dark:` overrides; severity badges carry icon + text; icon-only buttons have `aria-label`.
 - Phase 3 integration: one attempt `yarn mercato test:integration TC-DOC-PLAY` failed in `yarn run initialize` with an esbuild Go runtime crash (environment, unrelated to documents). TC-DOC-PLAY-001..004 are written but not executed.
@@ -30,7 +35,8 @@
 ## Next
 - Run TC-DOC-FIND-001..010 in a healthy env: `OM_OPTIMISTIC_LOCK=all yarn mercato test:integration TC-DOC-FIND` (UI specs need the collab sidecar; they call `ensureManagedCollabSidecar`).
 - Spec `.ai/specs/2026-11-11-documents-ai-review-findings.md` UI details need aligning (out of this run's file scope): see Deviations.
-- Phase 4 (step 4.1): AI tools, agent contract, `workflows.ts` registration.
+- Run TC-DOC-AGENT-001 in a healthy env (`yarn mercato test:integration TC-DOC-AGENT`).
+- Phase 5: full validation gate, draft PR.
 - Run TC-DOC-PLAY-001..004 in a healthy env (`yarn mercato test:integration TC-DOC-PLAY`).
 - Align the spec with the Phase 3 deviations below (spec file is outside this run's file scope).
 
@@ -46,6 +52,11 @@
 - Anchoring uses `@tiptap/y-tiptap`, same ProseMirror binding as the editor.
 - Below-editor tier gets 404 on findings routes.
 - Undo of a decision/ingest never emits `documents.review.cleared`.
+
+## Deviations from the spec (Phase 4)
+- Guidance items from `documents.get_review_playbook` carry `truncated` (additive); the tool returns only an active playbook and active rules.
+- A document without collaboration state is returned as one paragraph block from its stored plain text (findings on it stay unlocated until the document is opened in the editor).
+- A clean review (no blocking findings) emits `documents.review.cleared` at ingest, before a consumer run reaches its wait step — documented in the user guide and Consumer Guidance.
 
 ## Deviations from the spec (Phase 3)
 - Rule and guidance-reference changes bump the playbook `version` through a native update that leaves the playbook `updated_at` untouched, so a rule edit never invalidates an open playbook form (playbook field edits still bump both). Guidance link/unlink also bumps the version (it changes what the reviewer reads); the spec only names rule changes.

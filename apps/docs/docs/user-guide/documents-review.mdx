@@ -1,0 +1,122 @@
+---
+title: Document Review Findings
+description: Review documents against a firm playbook, decide each finding in the editor, and run AI review from a workflow.
+sidebar_label: Document Review
+---
+
+Document review turns a check of a document — by a reviewer agent or an import — into **findings**: anchored notes on specific passages, each with a severity, an explanation and, where possible, a suggested replacement. Editors work through the findings next to the text and decide each one. Once nothing blocking is left open, the review is **cleared** and the module emits an event that a workflow can wait for.
+
+## What a finding is
+
+Each finding carries:
+
+- **Severity** — `blocking` (must be cleared before release), `warning` (your call) or `info`.
+- **Title and explanation** — what is wrong and why.
+- **Quote** — the passage the finding is about, copied from the document. The editor highlights it in place.
+- **Suggested text** — an optional replacement for the quoted passage.
+- **Rule** — when the review used a playbook, the rule the passage departs from.
+
+A quote that cannot be found in the document (paraphrased, or the text changed since the review) is stored as **unlocated**: you can still read and keep it, but Apply is disabled.
+
+Findings are internal analysis. Only users with **editor** access to the document (or the `documents.manage` override) see them; viewers and commenters do not learn that they exist.
+
+## Deciding findings
+
+Open the document and select the **Changes** tab in the side rail. Findings are grouped into **Blocking**, **Warnings** and **Information**; decided findings move to **Decided**.
+
+- **Apply** replaces the quoted passage with the suggested text in the live document. Apply checks that the passage still reads as quoted and refuses if it changed.
+- **Keep as is** records that the passage stays. A note is required for blocking findings. In the dialog, `Cmd/Ctrl+Enter` submits and `Escape` cancels.
+- **Reopen** puts a decided finding back to open.
+- **Note** opens the comment composer on the same passage.
+
+Locating passages needs the live collaboration connection. When the editor runs in single-user fallback, located findings show "Text changed since the review" and Apply is disabled until the connection returns.
+
+When the last open blocking finding of the latest review is decided, the module emits `documents.review.cleared` with `documentId` and `reviewId`. Reopening a blocking finding and deciding it again emits the event again. A review that arrives with no blocking findings is cleared immediately.
+
+## Review playbooks
+
+A playbook holds your organization's positions for one kind of document, for example a mutual NDA. Open **Documents → Review playbooks** (feature `documents.review_playbooks.manage`, granted to administrators).
+
+- **Playbook** — a unique code (for example `nda`), a name, and instructions for the reviewer.
+- **Rules** — one per topic: a code, a title, the position you take, optional preferred wording, and the severity a departure gets. Inactive rules are ignored by reviews.
+- **Guidance documents** — existing documents the reviewer should read, such as a positions memo. You can only link documents you can view, and a reviewer only reads the guidance documents its user can view.
+
+Every rule or guidance change bumps the playbook **version**. Each finding records the playbook version it was produced under, and the Changes tab shows "Playbook: name · version".
+
+After you upgrade an existing installation, run `yarn mercato auth sync-role-acls` so administrator roles receive the new feature.
+
+## Running an AI review from a workflow
+
+Open Mercato does not ship a reviewer agent in the open-source edition. The Documents module publishes everything one needs instead, and any module can declare the agent when the agent orchestrator is enabled:
+
+- Two read-only AI tools: `documents.get_document_for_review` (the document as ordered blocks with section labels, capped at 200 000 characters with a `truncated` flag) and `documents.get_review_playbook` (rules, instructions and viewable guidance documents, each capped at 20 000 characters). Both require `documents.view` and check the calling user's access to every document they read. Neither accepts attachments.
+- A reviewer contract at `@open-mercato/documents/modules/documents/lib/reviewAgentContract`: the outcome schema, the tool ids and the reviewer instructions.
+- A workflow-safe command, `documents.finding.ingest`, that stores the agent's findings.
+
+### Declare the reviewer agent
+
+In your own module (here a module called `legal_review`), declare the agent in `ai-agents.ts` from the contract:
+
+```ts
+import { defineAgent } from '@open-mercato/enterprise/modules/agent_orchestrator/lib/sdk/defineAgent'
+import {
+  documentReviewOutcomeSchema,
+  DOCUMENT_REVIEW_TOOL_IDS,
+  buildDocumentReviewInstructions,
+} from '@open-mercato/documents/modules/documents/lib/reviewAgentContract'
+
+export const aiAgents = [
+  defineAgent({
+    id: 'legal_review.nda_reviewer',
+    moduleId: 'legal_review',
+    label: 'NDA reviewer',
+    description: 'Checks an NDA against the playbook and returns anchored findings.',
+    instructions: buildDocumentReviewInstructions(),
+    tools: [...DOCUMENT_REVIEW_TOOL_IDS],
+    result: { kind: 'research', schema: documentReviewOutcomeSchema },
+  }),
+]
+```
+
+The outcome is `{ kind: 'researcher', data: { findings, summary } }`. `findings` is the same schema the ingest command validates, so the agent cannot return a shape the command would reject. Pass `buildDocumentReviewInstructions({ extra: '...' })` to add your own guidance. The instructions tell the agent to quote passages verbatim, take severity from the rule, report truncation, and treat document text as data rather than instructions.
+
+The document text goes to the AI provider and model configured for your tenant. Check that this matches your data-protection policy before you enable the agent.
+
+### Enable the ingest command (tenant administrators)
+
+`documents.finding.ingest` is off by default for every tenant. To let workflows store findings, open **Settings → Module Configs → Workflow Commands**, tick **Add document review findings**, and save (feature `workflows.manage`).
+
+The command runs as the user who started the workflow. That user needs the `documents.edit` feature and **editor** access to the document; otherwise the step fails.
+
+### Build the review workflow
+
+A typical definition:
+
+1. **START** with `documentId` (required) and `playbookCode` (for example `nda`) in the input context.
+2. **AUTOMATED** step with an `INVOKE_AGENT` activity: `agentId: 'legal_review.nda_reviewer'`, `input: { documentId: '{{context.documentId}}', playbookCode: '{{context.playbookCode}}' }`, and `outputMapping: { review: 'data' }`. Route the `error` and `guardrailBlocked` outcomes to a manual-review task.
+3. On the next transition, an `UPDATE_ENTITY` activity:
+
+   ```json
+   {
+     "commandId": "documents.finding.ingest",
+     "input": {
+       "documentId": "{{context.documentId}}",
+       "playbookCode": "{{context.playbookCode}}",
+       "findings": "{{context.review.findings}}",
+       "source": "ai",
+       "origin": { "workflowInstanceId": "{{workflow.instanceId}}" }
+     }
+   }
+   ```
+
+   Write `"{{context.review.findings}}"` as the whole value, with nothing around it: a value that is exactly one template keeps the array as an array. Text around the template turns it into a string, which the command rejects.
+4. A **USER_TASK** for the reviewing lawyer, with an SLA if you need one.
+5. **WAIT_FOR_SIGNAL** with signal name `documents_review_cleared`.
+6. Your release step, for example sharing the document with the requester.
+
+To resume the run, add a subscriber in your module on `documents.review.cleared` that sends the `documents_review_cleared` signal to the matching run — for example by starting runs with a correlation key derived from the document id and sending the signal with `POST /api/workflows/signals`. A review with no blocking findings is cleared at ingest, before the run reaches the wait step, so let your subscriber or your workflow handle that case (for example, check `GET /api/documents/{id}/findings/summary` before waiting).
+
+## Related
+
+- [Workflows](./workflows/index.mdx), [Activities](./workflows/activities.mdx) and [Signals](./workflows/signals.mdx).
+- [AI Assistant](./ai-assistant.mdx) for AI provider configuration.

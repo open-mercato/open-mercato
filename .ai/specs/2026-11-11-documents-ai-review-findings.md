@@ -314,9 +314,9 @@ The HTTP route takes `documentId` from the path. The command input is `findingIn
 | Tool | Features | Input | Output |
 |------|----------|-------|--------|
 | `documents.get_document_for_review` | `documents.view` + view tier for the principal | `{ documentId }` | `{ documentId, title, updatedAt, truncated, blocks: [{ index, kind: 'heading'\|'paragraph'\|'listItem'\|'tableCell', level?, sectionLabel, text }] }`, text capped at 200 000 chars |
-| `documents.get_review_playbook` | `documents.view` | `{ code }` | `{ code, name, version, instructions, rules: [{ code, title, topic, position, preferredWording, severity }], guidance: [{ documentId, title, text }] }`; guidance includes only documents the principal can view, each capped at 20 000 chars |
+| `documents.get_review_playbook` | `documents.view` | `{ code }` | `{ code, name, version, instructions, rules: [{ code, title, topic, position, preferredWording, severity }], guidance: [{ documentId, title, text, truncated }] }`; active playbook and active rules only; guidance includes only documents the principal can view, each capped at 20 000 chars |
 
-Both tools resolve tenant/org/user from the tool context and use `resolveUserAccess` for the tier check. Neither accepts attachment ids, and the agent declares no file inputs, so the orchestrator's attachment stager is never involved.
+Both tools resolve tenant/org/user from the tool context and use `resolveUserAccess` semantics (`loadScopedDocument` + `resolveLoadedDocumentUserAccess`) for the tier check; a document outside the caller's organization or without a tier answers "not found". When a document has no collaboration state yet, its stored plain text is returned as one paragraph block. Neither accepts attachment ids, and the agent declares no file inputs, so the orchestrator's attachment stager is never involved.
 
 ### Reviewer agent contract (`lib/reviewAgentContract.ts`)
 
@@ -349,7 +349,7 @@ export const aiAgents = [
 ]
 ```
 
-Exact `defineAgent` option names are verified against `packages/enterprise/src/modules/agent_orchestrator/lib/sdk/defineAgent.ts` during Phase 4; the contract module itself has no enterprise import.
+`defineAgent` option names (`id`, `moduleId`, `label`, `description`, `instructions`, `tools`, `result`) were verified against `packages/enterprise/src/modules/agent_orchestrator/lib/sdk/defineAgent.ts` in Phase 4, and the `kind: 'researcher'` literal matches the native research agents in `apps/mercato/src/modules/agent_examples`. The contract module has no enterprise import; its schemas are `.strict()` at every level.
 
 ### Productization (follow-up, separate enterprise spec)
 
@@ -371,10 +371,12 @@ A consumer workflow definition for NDA review:
 
 1. `START` with `contextSchema.input`: `documentId` (required), `playbookCode` (default `nda`).
 2. `AUTOMATED` step, activity `INVOKE_AGENT` `{ agentId: 'legal_review.nda_reviewer', input: { documentId: '{{context.documentId}}', playbookCode: '{{context.playbookCode}}' }, outputMapping: { review: 'data' } }`. Wire the `error` and `guardrailBlocked` outcome routes to a manual-review task.
-3. Transition activity `UPDATE_ENTITY` `{ commandId: 'documents.finding.ingest', input: { documentId, playbookCode, findings: '{{context.review.findings}}', source: 'ai', origin: { workflowInstanceId: '{{workflow.instanceId}}' } } }` (validated by `findingIngestCommandSchema`).
+3. Transition activity `UPDATE_ENTITY` `{ commandId: 'documents.finding.ingest', input: { documentId, playbookCode, findings: '{{context.review.findings}}', source: 'ai', origin: { workflowInstanceId: '{{workflow.instanceId}}' } } }` (validated by `findingIngestCommandSchema`). `findings` must be the whole value `'{{context.review.findings}}'` with no surrounding text: a whole-value template keeps the array type, mixed text stringifies it (R11 spike).
 4. `USER_TASK` for the lawyer with SLA.
 5. `WAIT_FOR_SIGNAL` `documents_review_cleared`, sent by a consumer subscriber on `documents.review.cleared` matching `documentId`.
 6. Consumer release step (for example `documents.share.create` for the requester).
+
+A review with no blocking findings emits `documents.review.cleared` at ingest, before the run reaches the wait step; the consumer subscriber or workflow must handle that case (for example by reading `/findings/summary` first).
 
 ## Frontend Architecture Contract
 
@@ -423,6 +425,8 @@ New feature in `acl.ts`: `documents.review_playbooks.manage` (dependsOn `documen
 
 ### Phase 1 — Findings core
 
+Status: done (`523b1ddce3`…`3ec9c8063e`).
+
 1. Entities `DocumentFinding` + migration + snapshot; validators; resource caps.
 2. `lib/reviewContent.ts` and `lib/findingAnchors.ts` with unit tests (headings, lists, tables, repeated quotes, whitespace/quote normalization, missing quote → unlocated, anchors round-trip through `relativePositionToAbsolutePosition`).
 3. Commands `ingest / apply / keep / reopen` with undo; events; `lib/findingSummary.ts` and `review.cleared` transition logic.
@@ -432,6 +436,8 @@ New feature in `acl.ts`: `documents.review_playbooks.manage` (dependsOn `documen
 Result: findings can be created and decided over HTTP; nothing visible in the editor yet.
 
 ### Phase 2 — Editor UI
+
+Status: done (`374dfff616`, `18c423fc40`, `a839f2534b`).
 
 1. `useDocumentFindings` + `FindingsPanel` + `FindingCard`; Changes tab in the side rail.
 2. `findingDecorations.ts` plugin; card ↔ range focus.
@@ -444,6 +450,8 @@ Result: a lawyer can work through findings ingested over the API.
 
 ### Phase 3 — Review playbooks
 
+Status: done (`e67509452c`, `3b86637c0a`, `041dc9c3d2`).
+
 1. Entities `DocumentReviewPlaybook`, `DocumentReviewRule`, `DocumentReviewPlaybookReference` + migration.
 2. CRUD commands with undo, `makeCrudRoute` routes, version bump on rule change.
 3. ACL feature + setup + sync note.
@@ -454,6 +462,8 @@ Result: a lawyer can work through findings ingested over the API.
 Result: firm positions are maintained in the product; findings link to rules.
 
 ### Phase 4 — Agent and workflow integration
+
+Status: done (`f7dc18c3b4` tools + contract + registration; spike, docs and TC-DOC-AGENT-001 follow in the same run). TC-DOC-AGENT-001 stubs the agent by starting the run with a contract-shaped `context.review` and plays the consumer subscriber itself (audit-log check for `documents.review.cleared`, then `POST /api/workflows/signals` by correlation key).
 
 1. (After dependency approval) `workflows.ts` registration.
 2. `ai-tools.ts` with both tools + unit tests for tier filtering and caps.
@@ -502,7 +512,7 @@ All tests create their own documents, users and playbooks through API fixtures a
 | R8 | Document text sent to an external model provider | Medium | Data protection | Provider and model are tenant AI configuration; documented in the user guide; no attachment staging | Policy-dependent |
 | R9 | `review.cleared` emitted twice or never | Medium | Consumer gates | Emitted only on the transition, inside the decision command after commit; consumer can always poll `/summary` | Low |
 | R10 | Orchestrator not enabled or no module declares the agent | Low | Availability | Workflow step fails visibly; findings, playbooks and UI work without the agent | Low |
-| R11 | Array interpolation in `UPDATE_ENTITY` stringifies findings | Medium | Integration | Phase 4 spike; additive `findingsJson` fallback | Low |
+| R11 | Array interpolation in `UPDATE_ENTITY` stringifies findings | Medium | Integration | Phase 4 spike — **resolved, no fallback needed**: `interpolateVariables` (`packages/core/src/modules/workflows/lib/activity-executor.ts`) returns the resolved value with its original type when a string is exactly one `{{…}}` token (`/^\{\{([^}]+)\}\}$/`), and UPDATE_ENTITY config is interpolated through it before the command bus (inline and queued paths); covered upstream by `activity-executor.test.ts` "should preserve array type for single variable interpolation". `findingsJson` was not added. Residual: mixed text around the token stringifies it; the docs and Consumer Guidance require the whole-value form | Low |
 
 **Blast radius:** additive tables, routes, events and UI inside Documents; no change to existing tables, commands or routes. **Detection:** command log entries for every ingest/decision; `documents.finding.ingested` carries `unlocatedCount` for monitoring anchor quality; agent runs and traces in the orchestrator.
 
@@ -528,7 +538,7 @@ Purely additive: new tables, new routes, new events, new ACL feature, new option
 | `pageSize ≤ 100` | Pass |
 | Integration coverage listed for all API and key UI paths | Pass |
 | Enterprise isolation (no enterprise import in OSS package) | Pass (contract only; `defineAgent` lives in the consumer) |
-| New dependency approval | Pending (peer `@open-mercato/core`) |
+| New dependency approval | Pass (peer `@open-mercato/core`, approved 2026-11-11) |
 
 ## Changelog
 
@@ -542,3 +552,4 @@ Purely additive: new tables, new routes, new events, new ACL feature, new option
 - 2026-11-12 — Phase 1 implemented. Aligned with implementation: anchoring via `@tiptap/y-tiptap`; undo does not emit `review.cleared`; 404 for findings is a deliberate exception to the module's 403 tier denials; apply refused on unlocated findings.
 - 2026-11-12 — Phase 2 implemented. UI details aligned: rail tabs Changes | Comments (Versions stays a header toggle), locating needs the live collaboration binding, review header wording.
 - 2026-11-12 — Phase 3 implemented. Aligned: version bumps skip the playbook's `updated_at`, guidance link changes bump `version`, undo re-bumps `version`; duplicate codes 409, caps 422.
+- 2026-11-12 — Phase 4 implemented. R11 spike: whole-value `{{context.review.findings}}` keeps the array, so no `findingsJson` input. Guidance items carry `truncated`; tools return only the active playbook and active rules; documents without collaboration state fall back to stored plain text. Consumer Guidance notes the whole-value rule and the clean-review-at-ingest case. Docs page `apps/docs/docs/user-guide/documents-review.mdx`.
