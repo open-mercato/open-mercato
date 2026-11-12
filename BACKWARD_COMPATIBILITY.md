@@ -432,31 +432,11 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 ## Passkey MFA Verification Payload (2026-08-14)
 
-Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
+#3852 deliberately breaks STABLE API request shapes (category 7) and exported `MfaProviderInterface.verifySchema` for passkeys: `POST /api/security/mfa/verify` and `/api/security/sudo/verify` accept only `payload: { response }` carrying a signed WebAuthn assertion; legacy `{ credentialId, challenge }` returns 401. That legacy shape was publicly supported and test-pinned, not an undocumented accident. Both compared values were server-disclosed, so retaining it as a bridge preserves the bypass. The Emergency Security Exception applies, with `security` and named human approval required.
 
-**Classification.** The removed shape was a *publicly supported* surface, not an undocumented accident: it was part of the exported `MfaProviderInterface.verifySchema` union that a third-party client could validate against, and the enterprise test suite pinned it in a case named *"supports legacy verification payload for backward compatibility"*. It is therefore a genuine STABLE-surface break, and the exception — not a claim that no contract existed — is what authorizes it.
+Clients send `startAuthentication()` output as `payload.response`; the first-party component already does. Verification failures return false/401 and count toward lockout instead of throwing 500. Challenge TTL and signature counters remain enforced; routes, response schemas, persistence and events are unchanged. Existing enrollment's separate client-supplied public-key shortcut is NOT repaired: such rows may contain an unusable key or an attacker-controlled keypair that still passes signatures (#5296). Operators follow the upgrade-note remediation.
 
-**Exception requirements, as met by this change:**
-
-|Requirement|How it is satisfied|
-|---|---|
-|1. Qualifying condition argued|See *Why the deprecation protocol does not apply* below — both values the removed shape compared are disclosed by the server, so accepting it *is* the bypass|
-|2. Narrowest removal, no retained vulnerable branch|Only `verifyPayloadSchema` and the two non-cryptographic acceptance paths are deleted. The `{ response }` path, the challenge TTL check and the signature-counter update are untouched, and **no flag, config toggle or opt-in keeps the old shape reachable**|
-|3. Steps 4 and 5|[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.6.7 → 0.7.0` (client *and* operator actions); spec [`.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md`](.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md) § Migration & Backward Compatibility|
-|4. Dated entry|This section|
-|5. Maintainer sign-off|PR carries the `security` label; the waiver is called out in the PR body for explicit human approval|
-
-|Surface|Change|Classification|
-|---|---|---|
-|API request shape (`POST /api/security/mfa/verify`, `POST /api/security/sudo/verify`, `methodType: 'passkey'`)|`payload` must be `{ response }` carrying a WebAuthn assertion. The `{ credentialId, challenge }` alternative is removed and now answers `401`|✗ BREAKING (deliberate — see rationale)|
-|Provider contract (`MfaProviderInterface.verifySchema` for `passkey`)|`verifyPayloadSchema` narrows from a union to a single object requiring `response`|✗ BREAKING for a caller that validated against the exported schema|
-|Verification behavior|A verified `verifyAuthenticationResponse` is the only route to a positive verdict; an absent verify context is a rejection rather than a `credentialId` comparison|✗ BREAKING for a client that skipped `/api/security/mfa/prepare`|
-|Failure mode|A payload that fails the schema, and an assertion the verifier throws on, return `false` instead of throwing — so they answer the documented `401` and count toward the challenge attempt limit instead of logging a `500` that skipped lockout|✓ Strictly safer (no verdict flips from negative to positive)|
-|API route URLs, HTTP methods, response schemas, database schema, event IDs, ACL features, DI names, CLI commands|No change|✓ n/a|
-
-**Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
-
-**Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
+[Full original exception record, contract table, approval requirements and migration details](.ai/docs/compatibility/passkey-mfa-verification-2026-08-14.md).
 
 ## Query-index scope (2026-08-28)
 
@@ -656,7 +636,7 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 
 ## Staff report-history metadata (2026-11-12)
 
-**Status: proposed emergency security exception; named human maintainer approval is pending.** This entry documents the requested waiver and does not itself grant one. PR #9362 carries the implementation replacing #8595.
+**Maintainer acknowledgement:** Piotr Karwatka (@pkarw) explicitly approved this narrow exception in the operator session on 2026-11-12. [Session approval transcription](https://github.com/open-mercato/open-mercato/pull/9362#issuecomment-6829104942). This records human authorization, not an automated waiver or a native GitHub review. PR #9362 carries the implementation replacing #8595.
 
 **Surface and classification.** `GET /api/staff/timesheets/reports/{id}/sheet`, `events[].metadata`, is a STABLE HTTP response surface (category 7). For readers without `staff.timesheets.rates.view`, the response no longer includes `totalAmount`, `frozenTotalAmount`, `currencyCode`, unrecognized keys, or structurally invalid values. This is a deliberate breaking restriction for consumers relying on those fields. Authorized readers receive the original metadata unchanged.
 
@@ -666,4 +646,4 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 
 **Operator migration.** Deploy the server repair to every replica, invalidate any cached report-sheet responses, and update custom clients as above. Review logs/exports or stored responses collected by unauthorized readers as potentially containing disclosed totals; assess access and retention under the deployment's incident procedure. Stored report events remain valid and need no rewrite or database migration. A rollback restoring the old response reopens the disclosure.
 
-**Specification and disclosure.** See `.ai/specs/2026-08-12-time-tracking-consulting-suite.md` § Migration & Backward Compatibility and `UPGRADE_NOTES.md` § Staff report history: rate permission. The PR must carry `security` and a human maintainer approval explicitly acknowledging this narrow waiver before merge. Automated review and the request to rewrite the PR are not recorded as that approval.
+**Specification and disclosure.** See `.ai/specs/2026-08-12-time-tracking-consulting-suite.md` § Migration & Backward Compatibility and `UPGRADE_NOTES.md` § Staff report history: rate permission. The PR carries `security`; the named human acknowledgement is linked above. Protected financial QA and required hosted checks remain separate merge gates. Automated review does not grant a human waiver.

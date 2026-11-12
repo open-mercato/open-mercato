@@ -2,7 +2,7 @@
 
 ## Staff report history: rate permission
 
-The report-sheet API now omits financial event metadata when the caller lacks `staff.timesheets.rates.view`. Only recognized nonfinancial counts, rounding settings and export fields with valid primitive types remain. Authorized readers retain the original metadata. Consumers must accept unavailable monetary fields. This deliberately restricts the STABLE response under the proposed Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`; named human maintainer sign-off is required before merge.
+The report-sheet API now omits financial event metadata when the caller lacks `staff.timesheets.rates.view`. Only recognized nonfinancial counts, rounding settings and export fields with valid primitive types remain. Authorized readers retain the original metadata. Consumers must accept unavailable monetary fields. This deliberately restricts the STABLE response under the Emergency Security Exception documented in `BACKWARD_COMPATIBILITY.md`, including Piotr Karwatka’s (@pkarw) explicit session acknowledgement and its provenance. Protected financial QA remains required before merge.
 
 **Client authors:** custom history renderers must tolerate missing fields and display unavailable money rather than zero. Existing rates-authorized clients retain their metadata.
 

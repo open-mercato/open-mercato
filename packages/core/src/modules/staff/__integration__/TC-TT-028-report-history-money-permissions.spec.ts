@@ -54,6 +54,14 @@ const test = base.extend<{ reportFixture: ReportFixture }>({
   reportFixture: async ({ request }, use) => {
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
+    const adminFeatures = ['staff.timesheets.reports.view', 'staff.timesheets.rates.view', 'staff.timesheets.projects.manage']
+    const adminGrantsResponse = await apiRequest(request, 'POST', '/api/auth/feature-check', {
+      token: adminToken,
+      data: { features: adminFeatures },
+    })
+    expect(adminGrantsResponse.status()).toBe(200)
+    const adminGrants = await readJsonSafe<{ granted: string[] }>(adminGrantsResponse)
+    expect(adminGrants?.granted.slice().sort(), 'The seeded admin@acme.com account must inherit report and rate access from its admin role').toEqual(adminFeatures.slice().sort())
     const { tenantId, organizationId } = getTokenContext(adminToken)
     const stamp = randomUUID().slice(0, 8)
     const projectName = `QATT28 project ${stamp}`
