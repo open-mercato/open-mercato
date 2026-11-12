@@ -6,13 +6,14 @@ import {
   deleteAttachmentIfExists,
   uploadAttachmentFixture,
 } from '@open-mercato/core/modules/core/__integration__/helpers/attachmentsFixtures'
+import { ATTACHMENT_TRANSFER_MAX_IDS } from '@open-mercato/core/modules/attachments/lib/transferLimits'
 
 /**
  * TC-ATT-013: Transfer API — payload and matching validation
  * Source: GitHub issue #2488 (attachments integration coverage)
  * Surface: /api/attachments/transfer (POST)
  *
- * Empty attachmentIds or a missing toRecordId fail schema validation (400). A valid
+ * Empty or more than ATTACHMENT_TRANSFER_MAX_IDS (100) attachmentIds, or a missing toRecordId, fail schema validation (400). A valid
  * UUID that matches no record, or a mismatched entityId, yields 404. A valid transfer
  * moves recordId and rewrites the matching assignment to the new record.
  */
@@ -49,6 +50,20 @@ test.describe('TC-ATT-013: Attachment transfer validation', () => {
         data: { entityId, attachmentIds: [attachmentId] },
       })
       expect(missingTargetResponse.status(), 'missing toRecordId should be 400').toBe(400)
+
+      // More than ATTACHMENT_TRANSFER_MAX_IDS attachmentIds → 400 (schema caps the array).
+      const oversizedResponse = await apiRequest(request, 'POST', '/api/attachments/transfer', {
+        token,
+        data: { entityId, attachmentIds: Array.from({ length: ATTACHMENT_TRANSFER_MAX_IDS + 1 }, () => randomUUID()), toRecordId },
+      })
+      expect(oversizedResponse.status(), 'more than the max attachmentIds should be 400').toBe(400)
+
+      // Exactly ATTACHMENT_TRANSFER_MAX_IDS attachmentIds pass the schema; none match a record → 404.
+      const maxSizedResponse = await apiRequest(request, 'POST', '/api/attachments/transfer', {
+        token,
+        data: { entityId, attachmentIds: Array.from({ length: ATTACHMENT_TRANSFER_MAX_IDS }, () => randomUUID()), toRecordId },
+      })
+      expect(maxSizedResponse.status(), 'the max attachmentIds should pass validation').toBe(404)
 
       // Valid UUID that matches no attachment → 404.
       const missingRecordResponse = await apiRequest(request, 'POST', '/api/attachments/transfer', {
