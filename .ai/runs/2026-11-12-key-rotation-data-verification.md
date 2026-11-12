@@ -26,7 +26,7 @@ This branch owns Core rotation safety preflight/neutral bounded maintenance adap
 
 1. **Entitlement:** retain the commercially licensed package boundary, explicit operator confirmation of rights for the installed version and DI capability availability. Do not invent a license server or treat module flags as licensing. Confirm that this is the supported Phase-0 policy; if a supported entitlement resolver already exists, supply that resolver instead. Subscription expiration alone does not revoke perpetual rights to an installed version.
 2. **Fence:** v1 requires operator-provisioned dedicated maintenance credentials and an already stopped writer fleet. Preflight proves all relevant writer grants/access are denied, no in-flight/prepared writer transactions remain, and the reader has complete visibility including FORCE RLS; it refuses otherwise. The engine does not kill sessions or revoke production privileges automatically. Recheck role/policy/schema evidence before each phase and after reconnection; unexpected access or fence loss invalidates completion. Confirm this offline-only deployment contract.
-3. **CLI compatibility:** the user-requested immediate mandatory `--acknowledge-unprotected-key-rotation` changes existing automation. Proposed route is the repository's named-human Emergency Security Exception, recorded with affected command/flag, upgrade/rerun instructions and retained old behavior only through explicit risk acknowledgment. If that exception is not approved, follow the standard at-least-one-minor deprecation/bridge and defer mandatory enforcement until its deadline. This run cannot grant the exception to itself.
+3. **CLI compatibility:** the user-requested immediate mandatory `--acknowledge-unprotected-key-rotation` changes existing automation. Recommended compatible route is a first release with the red warning and explicit acknowledgment option while retaining existing invocation compatibility, followed by mandatory enforcement after at least one minor release, with dated upgrade/deprecation instructions. This changes the requested immediate refusal timing and therefore needs a specification decision before code. If immediate mandatory enforcement is required, a named maintainer must authorize a specific specification/compatibility amendment; the existing Emergency Security Exception is not assumed to cover this usage-risk tightening. This run cannot grant that amendment or exception to itself.
 4. **Shared backup security:** Q2 requires security-owner approval of the exact age tool/library version/packaging and recipient custody; Q3 requires the data-key/escrow inventory and isolated drill criteria. The sibling backup run prepares that concrete decision packet. No production verifier implementation proceeds until the source spec's prerequisite is satisfied.
 
 ## Implementation Plan
@@ -60,11 +60,13 @@ The main false-pass risks are shared codec errors, invisible RLS rows, fallback 
 
 ## Progress
 
+PR: #9334
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 0: prerequisites and feasibility
 
-- [ ] 0.1 Resolve source, audit duplicates/code reality, and publish implementation plan/gate report.
+- [x] 0.1 Resolve source, audit duplicates/code reality, and publish implementation plan/gate report. — 8cdd245377
 - [ ] 0.2 Record security/custody/entitlement/fence/CLI decisions and backup adapter contract.
 - [ ] 0.3 Run isolated bounded-scan performance/codec spike.
 
