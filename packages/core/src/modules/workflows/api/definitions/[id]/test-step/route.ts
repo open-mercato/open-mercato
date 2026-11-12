@@ -36,7 +36,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowDefinition, type WorkflowInstance } from '../../../../data/entities'
 import { testWorkflowStepInputSchema } from '../../../../data/validators'
 import { getActivityType } from '../../../../lib/activity-registry'
@@ -58,6 +58,7 @@ import {
   workflowTestStepResponseSchema,
 } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -102,7 +103,7 @@ export async function POST(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
 
     if (!tenantId) {
       return NextResponse.json({ error: 'Missing tenant context' }, { status: 400 })
@@ -238,6 +239,7 @@ export async function POST(
       interpolatedConfig,
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error running workflow test step', { err: error })
     return NextResponse.json(
       { error: 'Failed to run workflow test step' },

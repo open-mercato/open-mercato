@@ -9,6 +9,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/custom-route-interceptor'
 import { E } from '#generated/entities.ids.generated'
 import { CatalogProductCategory } from '../../data/entities'
 import { categoryCreateSchema, categoryUpdateSchema } from '../../data/validators'
@@ -129,6 +130,51 @@ function parseIds(raw?: string | null): string[] | null {
   return parts.length ? Array.from(new Set(parts)) : null
 }
 
+function headersToObject(headers: Headers): Record<string, string> {
+  return Object.fromEntries(headers.entries())
+}
+
+function queryToObject(url: URL): Record<string, string> {
+  return Object.fromEntries(url.searchParams.entries())
+}
+
+async function categoriesResponse(args: {
+  req: Request
+  auth: Awaited<ReturnType<typeof getAuthFromRequest>> & {}
+  container: Awaited<ReturnType<typeof createRequestContainer>>
+  em: EntityManager
+  tenantId: string
+  organizationId: string | null
+  body: Record<string, unknown>
+}) {
+  const intercepted = await runCustomRouteAfterInterceptors({
+    routePath: 'catalog/categories',
+    method: 'GET',
+    request: {
+      method: 'GET',
+      url: args.req.url,
+      headers: headersToObject(args.req.headers),
+      query: queryToObject(new URL(args.req.url)),
+    },
+    response: { statusCode: 200, body: args.body, headers: {} },
+    context: {
+      em: args.em,
+      container: args.container,
+      userId: args.auth.sub,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+      userFeatures: Array.isArray(args.auth.features)
+        ? args.auth.features.filter((feature): feature is string => typeof feature === 'string')
+        : [],
+    },
+  })
+
+  return NextResponse.json(intercepted.body, {
+    status: intercepted.statusCode,
+    headers: intercepted.headers,
+  })
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ items: [] }, { status: 401 })
@@ -199,7 +245,15 @@ export async function GET(req: Request) {
         roots.push(node)
       }
     }
-    return NextResponse.json({ items: roots })
+    return categoriesResponse({
+      req,
+      auth,
+      container,
+      em,
+      tenantId,
+      organizationId: responseOrganizationId,
+      body: { items: roots },
+    })
   }
 
   const status = query.status ?? 'all'
@@ -269,14 +323,22 @@ export async function GET(req: Request) {
   })
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  return NextResponse.json({
-    items,
-    total,
-    page,
-    pageSize,
-    totalPages,
-    organizationId: responseOrganizationId,
+  return categoriesResponse({
+    req,
+    auth,
+    container,
+    em,
     tenantId,
+    organizationId: responseOrganizationId,
+    body: {
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages,
+      organizationId: responseOrganizationId,
+      tenantId,
+    },
   })
 }
 

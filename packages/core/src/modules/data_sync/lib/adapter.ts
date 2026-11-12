@@ -215,6 +215,17 @@ export interface RunParameter {
  */
 export type DataSyncStartControl = 'fullSync' | 'batchSize'
 
+/**
+ * How the progress job a run creates should read, as declared by
+ * {@link DataSyncAdapter.describeProgressJob}. Every field is optional; a field
+ * that the adapter leaves out keeps the core default.
+ */
+export type DataSyncProgressJobDescription = {
+  name?: string
+  description?: string
+  meta?: Record<string, unknown>
+}
+
 export interface DataSyncAdapter {
   readonly providerKey: string
   readonly direction: 'import' | 'export' | 'bidirectional'
@@ -311,6 +322,32 @@ export interface DataSyncAdapter {
    * them has a beginning to restart from.
    */
   supportsStartControl?(control: DataSyncStartControl, entityType: string): boolean
+  /**
+   * Describes the progress job a run of this entity type creates.
+   *
+   * Consulted once per run by `startDataSyncRun`, the helper every start path
+   * funnels through — the run route, Retry, the scheduled worker and any
+   * provider-owned route — so a start path without a `progressJob` of its own
+   * still gets the adapter's answer. Not consulted when the caller asks for no
+   * progress job at all.
+   *
+   * The typical use is `meta: { hiddenFromTopBar: true }` for an entity type
+   * whose run is long-lived — a continuously running feed never reaches 100%,
+   * so the top bar would otherwise show it as running forever to every user,
+   * with a Cancel button that stops the feed.
+   *
+   * Precedence is core default < adapter < the caller's own `progressJob`, and
+   * `meta` merges key by key in that order — except `integrationId`,
+   * `entityType` and `direction`, which identify the run and which an adapter
+   * cannot overwrite. An answer that throws or is not a
+   * {@link DataSyncProgressJobDescription} is ignored with a warning: an
+   * adapter must not be able to make itself unstartable over how its progress
+   * job reads.
+   */
+  describeProgressJob?(input: {
+    entityType: string
+    direction: 'import' | 'export'
+  }): DataSyncProgressJobDescription | undefined
   getInitialCursor?(input: { entityType: string; scope: TenantScope }): Promise<string | null>
   getMapping(input: { entityType: string; scope: TenantScope }): Promise<DataMapping>
   validateConnection?(input: {

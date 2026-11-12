@@ -257,9 +257,6 @@ const createFolderCommand: CommandHandler<FolderCreateCommandInput, FolderComman
       if (existing && !existing.deletedAt) {
         throw new CrudHttpError(409, { error: 'Record changed by another user' })
       }
-      // Reviving a soft-deleted row adds an active folder just like a fresh
-      // insert, so both paths answer to the same organization-wide cap. Undo
-      // stays exempt: it only restores state the organization already held.
       await assertOrganizationFolderCapacity(em, scope)
       await assertWritableParent(em, input.parentFolderId ?? null, scope, actorUserId, features)
       await assertValidPlacement(em, scope, null, input.parentFolderId ?? null)
@@ -486,6 +483,7 @@ const deleteFolderCommand: CommandHandler<FolderDeleteCommandInput, FolderComman
       assertCommandFeature(features, 'documents.edit')
       await assertFolderOwnerOrManager(undo.before!.ownerUserId, actorUserId, features)
       assertVersionedSnapshot(folder, undo.after, DOCUMENTS_ENTITY_IDS.documentFolder)
+      await assertOrganizationFolderCapacity(em, scope)
       await assertWritableParent(em, undo.before!.parentFolderId, scope, actorUserId, features)
       await assertValidPlacement(em, scope, input.id, undo.before!.parentFolderId)
       if (folder) {

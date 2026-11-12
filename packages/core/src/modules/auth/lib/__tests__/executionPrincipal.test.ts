@@ -6,6 +6,7 @@ import type { AwilixContainer } from 'awilix'
 type Row = Record<string, unknown>
 
 const stores = new Map<string, Row[]>()
+const authorizationLockOrder: string[] = []
 
 function storeFor(entity: unknown): Row[] {
   const name = typeof entity === 'function' ? entity.name : String(entity)
@@ -32,6 +33,13 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('../emailHash', () => ({
   computeEmailHash: (email: string) => `hash:${email}`,
+}))
+
+jest.mock('@open-mercato/core/modules/auth/lib/authorizationStateLocks', () => ({
+  lockAuthorizationState: jest.fn(async (_em: unknown, targets: { userIds?: string[]; roleIds?: string[] }) => {
+    if (targets.userIds?.length) authorizationLockOrder.push('user')
+    if (targets.roleIds?.length) authorizationLockOrder.push('role')
+  }),
 }))
 
 jest.mock('../../data/entities', () => ({
@@ -86,6 +94,7 @@ const container = {
 
 beforeEach(() => {
   stores.clear()
+  authorizationLockOrder.length = 0
   idSeq = 0
 })
 
@@ -134,6 +143,7 @@ describe('provisionExecutionPrincipal', () => {
     expect(acl.isSuperAdmin).toBe(false)
     expect(acl.organizationsJson).toEqual([ORG])
     expect(storeFor('UserRole')).toHaveLength(1)
+    expect(authorizationLockOrder).toEqual(['user', 'role'])
   })
 
   it('is idempotent: re-provisioning resolves the same rows', async () => {
@@ -152,6 +162,29 @@ describe('provisionExecutionPrincipal', () => {
     expect(storeFor('Role')).toHaveLength(1)
     expect(storeFor('RoleAcl')).toHaveLength(1)
     expect(storeFor('UserRole')).toHaveLength(1)
+  })
+
+  it('creates live ACL and membership rows without reviving revoked history', async () => {
+    const input = { principalKey: 'workflow:def-1', features: ['a.view'] }
+    const first = await provisionExecutionPrincipal(container, SCOPE, input)
+    const revokedAcl = storeFor('RoleAcl')[0]
+    const revokedLink = storeFor('UserRole')[0]
+    const revokedAt = new Date()
+    revokedAcl.deletedAt = revokedAt
+    revokedLink.deletedAt = revokedAt
+    revokedAcl.featuresJson = ['revoked.secret']
+
+    const second = await provisionExecutionPrincipal(container, SCOPE, input)
+
+    expect(second).toEqual(first)
+    expect(storeFor('RoleAcl')).toHaveLength(2)
+    expect(storeFor('UserRole')).toHaveLength(2)
+    expect(revokedAcl.deletedAt).toBe(revokedAt)
+    expect(revokedAcl.featuresJson).toEqual(['revoked.secret'])
+    expect(revokedLink.deletedAt).toBe(revokedAt)
+    expect(storeFor('RoleAcl')[1].featuresJson).toEqual(['a.view'])
+    expect(storeFor('RoleAcl')[1].deletedAt ?? null).toBeNull()
+    expect(storeFor('UserRole')[1].deletedAt ?? null).toBeNull()
   })
 
   it('REPLACES the role ACL so a grant can be narrowed, and clears a stale super-admin flag', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/storage-s3",
-  "version": "0.8.0",
+  "version": "0.10.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -78,15 +78,23 @@
     "@open-mercato/queue": "workspace:*"
   },
   "peerDependencies": {
-    "@mikro-orm/postgresql": "^6.6.10",
-    "@open-mercato/shared": "workspace:*"
+    "@mikro-orm/postgresql": "^7.0.14",
+    "@open-mercato/ai-assistant": "workspace:*",
+    "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
     "@types/jest": "^30.0.0",
     "esbuild": "^0.28.2",
-    "glob": "^13.0.6",
+    "glob": "^14.0.4",
     "jest": "^30.4.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },

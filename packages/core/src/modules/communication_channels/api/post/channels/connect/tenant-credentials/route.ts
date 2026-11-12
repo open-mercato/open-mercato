@@ -33,16 +33,14 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  let body: z.infer<typeof bodySchema>
-  try {
-    const json = await readJsonSafe(req, null)
-    body = bodySchema.parse(json)
-  } catch (err) {
+  const parsed = bodySchema.safeParse(await readJsonSafe(req, null))
+  if (!parsed.success) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Invalid request body' },
+      { error: 'Invalid request body', details: parsed.error.issues },
       { status: 422 },
     )
   }
+  const body = parsed.data
 
   const container = await createRequestContainer()
 

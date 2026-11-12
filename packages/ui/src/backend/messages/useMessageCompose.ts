@@ -8,6 +8,7 @@ import { surfaceRecordConflict } from '../conflicts'
 import type {
   AttachmentListResponse,
   MessageComposerProps,
+  MessageSenderOption,
   MessageTypeItem,
   UserListItem,
 } from './message-composer.types'
@@ -21,6 +22,8 @@ import {
   useSendDraftOperation,
   useUpdateDraftOperation,
 } from './useMessageComposeOperations'
+
+const ATTACHMENT_LIST_PAGE_SIZE = 100
 
 function toErrorMessage(payload: unknown): string | null {
   if (!payload) return null
@@ -43,6 +46,20 @@ function toErrorMessage(payload: unknown): string | null {
     )
   }
   return null
+}
+
+/**
+ * Field-level errors a route returns alongside `error`, e.g. the send-as-user
+ * facade's 422 for a mailbox that needs reconnecting. Read defensively: the
+ * key is optional and any non-string value is dropped rather than rendered.
+ */
+function readFieldErrors(payload: unknown): Record<string, string> | null {
+  if (!payload || typeof payload !== 'object') return null
+  const raw = (payload as Record<string, unknown>).fieldErrors
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const entries = Object.entries(raw as Record<string, unknown>)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  return entries.length ? Object.fromEntries(entries) : null
 }
 
 function createTemporaryAttachmentRecordId(): string {
@@ -87,6 +104,9 @@ export type UseMessageComposeResult = {
   setVisibility: React.Dispatch<React.SetStateAction<'public' | 'internal'>>
   externalEmail: string
   setExternalEmail: React.Dispatch<React.SetStateAction<string>>
+  senderOptions: MessageSenderOption[]
+  senderChannelId: string
+  setSenderChannelId: React.Dispatch<React.SetStateAction<string>>
   sendViaEmail: boolean
   setSendViaEmail: React.Dispatch<React.SetStateAction<boolean>>
   contextActionRequired: boolean
@@ -100,6 +120,7 @@ export type UseMessageComposeResult = {
   submitting: boolean
   submitMode: 'send' | 'draft'
   submitError: string | null
+  submitFieldErrors: Record<string, string> | null
   composerTitle: string
   submitLabel: string
   selectedRecipientOptions: TagsInputOption[]
@@ -128,6 +149,7 @@ export function useMessageCompose({
   contextObject = null,
   requiredActionConfig = null,
   contextPreview = null,
+  senderOptions,
   defaultValues,
   expectedUpdatedAt = null,
   onSuccess,
@@ -159,6 +181,9 @@ export function useMessageCompose({
   const [submitting, setSubmitting] = React.useState(false)
   const [submitMode, setSubmitMode] = React.useState<'send' | 'draft'>('send')
   const [submitError, setSubmitError] = React.useState<string | null>(null)
+  const [submitFieldErrors, setSubmitFieldErrors] = React.useState<Record<string, string> | null>(null)
+  // Empty means the platform sender: the default the composer has always used.
+  const [senderChannelId, setSenderChannelId] = React.useState('')
   // Tracks whether the composer is currently in the "open" lifecycle so the init
   // effect below only runs on the closed → open transition, not on every parent
   // re-render that produces a new `defaultValues` / `contextObject` reference
@@ -214,23 +239,42 @@ export function useMessageCompose({
   const attachmentRecordId = variant === 'compose' && messageId ? messageId : temporaryAttachmentRecordId
 
   const loadAttachmentIds = React.useCallback(async (): Promise<string[]> => {
-    const params = new URLSearchParams()
-    params.set('entityId', attachmentEntityId)
-    params.set('recordId', attachmentRecordId)
+    const collectedIds = new Set<string>()
+    let expectedTotal: number | null = null
+    let page = 1
+    let hasMorePages = true
 
-    const call = await apiCall<AttachmentListResponse>(`/api/attachments?${params.toString()}`)
-    if (!call.ok) {
-      throw new Error(
-        toErrorMessage(call.result)
-        ?? t('messages.errors.loadAttachmentOptionsFailed', 'Failed to load attachments.'),
-      )
+    while (hasMorePages) {
+      const params = new URLSearchParams()
+      params.set('entityId', attachmentEntityId)
+      params.set('recordId', attachmentRecordId)
+      params.set('page', String(page))
+      params.set('pageSize', String(ATTACHMENT_LIST_PAGE_SIZE))
+
+      const call = await apiCall<AttachmentListResponse>(`/api/attachments?${params.toString()}`)
+      if (!call.ok) {
+        throw new Error(
+          toErrorMessage(call.result)
+          ?? t('messages.errors.loadAttachmentOptionsFailed', 'Failed to load attachments.'),
+        )
+      }
+
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      for (const item of items) {
+        if (typeof item?.id === 'string' && item.id.length > 0) collectedIds.add(item.id)
+      }
+
+      if (page === 1 && typeof call.result?.total === 'number') expectedTotal = call.result.total
+      const totalPages = typeof call.result?.totalPages === 'number' ? call.result.totalPages : page
+      hasMorePages = items.length === ATTACHMENT_LIST_PAGE_SIZE && page < totalPages
+      page += 1
     }
 
-    const items = Array.isArray(call.result?.items) ? call.result.items : []
-    const nextIds = items
-      .map((item) => (typeof item?.id === 'string' ? item.id : ''))
-      .filter((id) => id.length > 0)
+    if (expectedTotal !== null && collectedIds.size < expectedTotal) {
+      throw new Error(t('messages.errors.loadAttachmentOptionsFailed', 'Failed to load attachments.'))
+    }
 
+    const nextIds = Array.from(collectedIds)
     setAttachmentIds(nextIds)
     return nextIds
   }, [attachmentEntityId, attachmentRecordId, t])
@@ -473,7 +517,19 @@ export function useMessageCompose({
     onCancel?.()
   }, [inline, onCancel, onOpenChange, submitting])
 
+  // The "Send from" control only exists for a compose addressing an external
+  // recipient, so a selection made before the mode changed must not survive into
+  // a payload the control is no longer shown for.
+  const resolvedSenderOptions = React.useMemo(
+    () => (isComposePublicVisibility ? senderOptions ?? [] : []),
+    [isComposePublicVisibility, senderOptions],
+  )
+  const effectiveSenderChannelId = resolvedSenderOptions.some((option) => option.id === senderChannelId)
+    ? senderChannelId
+    : ''
+
   const composeSendOperation = useComposeSendOperation({
+    senderChannelId: effectiveSenderChannelId,
     t,
     messageType,
     createableMessageTypes,
@@ -496,6 +552,7 @@ export function useMessageCompose({
 
   const composeDraftOperation = useComposeDraftOperation({
     t,
+    senderChannelId: effectiveSenderChannelId,
     messageId,
     messageType,
     priority,
@@ -536,6 +593,7 @@ export function useMessageCompose({
 
   const sendDraftOperation = useSendDraftOperation({
     t,
+    senderChannelId: effectiveSenderChannelId,
     messageId: messageId ?? '',
     messageType,
     priority,
@@ -557,6 +615,7 @@ export function useMessageCompose({
 
   const updateDraftOperation = useUpdateDraftOperation({
     t,
+    senderChannelId: effectiveSenderChannelId,
     messageId: messageId ?? '',
     messageType,
     priority,
@@ -580,6 +639,7 @@ export function useMessageCompose({
     if (submitting) return false
 
     setSubmitError(null)
+    setSubmitFieldErrors(null)
 
     const isEditingExistingDraft = variant === 'compose' && Boolean(messageId)
     const isComposeDraftSubmit = saveAsDraft && variant === 'compose'
@@ -650,6 +710,7 @@ export function useMessageCompose({
           } else {
             const message = toErrorMessage(call.result) ?? t('messages.errors.sendFailed', 'Failed to send message.')
             setSubmitError(message)
+            setSubmitFieldErrors(readFieldErrors(call.result))
             flash(message, 'error')
           }
           shouldReturnFalse = true
@@ -734,6 +795,8 @@ export function useMessageCompose({
     }
 
     if (event.key === 'Escape') {
+      if (event.defaultPrevented) return
+      if (event.target instanceof Node && !event.currentTarget.contains(event.target)) return
       event.preventDefault()
       handleCancel()
     }
@@ -787,6 +850,9 @@ export function useMessageCompose({
     setVisibility,
     externalEmail,
     setExternalEmail,
+    senderOptions: resolvedSenderOptions,
+    senderChannelId: effectiveSenderChannelId,
+    setSenderChannelId,
     sendViaEmail,
     setSendViaEmail,
     contextActionRequired,
@@ -800,6 +866,7 @@ export function useMessageCompose({
     submitting,
     submitMode,
     submitError,
+    submitFieldErrors,
     composerTitle,
     submitLabel,
     selectedRecipientOptions,

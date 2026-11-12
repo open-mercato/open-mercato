@@ -759,6 +759,11 @@ export function DealsSection({
           probability: typeof base.probability === 'number' ? base.probability : undefined,
           expectedCloseAt: base.expectedCloseAt ?? undefined,
           description: base.description ?? undefined,
+          // This payload is an explicit allow-list, so an omitted field never reaches the API.
+          // `base.ownerUserId` is `null` when the picker is empty and a uuid otherwise; both are
+          // valid on `dealCreateSchema` (validators.ts:183) and `createDealCommand` maps null to
+          // null. Leaving it out created every deal from this flow unowned, silently.
+          ownerUserId: base.ownerUserId ?? null,
           personIds,
           companyIds,
         }
@@ -896,20 +901,9 @@ export function DealsSection({
   )
 
   React.useEffect(() => {
-    if (!onActionChange) return
-    const disabled = !scope || isLoading || pendingAction !== null
-    const action: SectionAction = {
-      label: addActionLabel,
-      onClick: () => {
-        if (!disabled) openCreateDialog()
-      },
-      disabled,
-    }
-    onActionChange(action)
-    return () => {
-      onActionChange(null)
-    }
-  }, [addActionLabel, isLoading, onActionChange, openCreateDialog, pendingAction, scope])
+    onActionChange?.(null)
+    return () => onActionChange?.(null)
+  }, [onActionChange])
 
   const isFormPending = pendingAction?.kind === 'create'
 

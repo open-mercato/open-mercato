@@ -9,7 +9,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flashMutationError } from '../../lib/flashMutationError'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { raiseCrudError, readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -33,7 +33,7 @@ import {
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
+import { formatLocaleNumberInput, parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { buildInventoryMutationReferenceId } from '../../lib/inventoryMutationUi'
 import {
@@ -154,7 +154,7 @@ export function AdjustInventoryDialog({
   // drops an in-progress decimal separator the instant it's typed (`2,5` collapses to `2`
   // then the next digit appends, producing `25`). Synced from `form.delta` only while the
   // field is not focused, mirroring `CrudForm.NumberInput`'s buffer.
-  const [deltaInputText, setDeltaInputText] = React.useState<string>(String(EMPTY_FORM.delta))
+  const [deltaInputText, setDeltaInputText] = React.useState<string>(() => formatLocaleNumberInput(EMPTY_FORM.delta, locale))
   const deltaInputFocusedRef = React.useRef(false)
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({})
   const [onHand, setOnHand] = React.useState<number | null>(null)
@@ -204,7 +204,7 @@ export function AdjustInventoryDialog({
 
   const resetDialog = React.useCallback(() => {
     setForm(EMPTY_FORM)
-    setDeltaInputText(String(EMPTY_FORM.delta))
+    setDeltaInputText(formatLocaleNumberInput(EMPTY_FORM.delta, locale))
     setFieldErrors({})
     setOnHand(null)
     setPreviewError(null)
@@ -212,7 +212,7 @@ export function AdjustInventoryDialog({
     setLoadingPreview(false)
     setSubmitting(false)
     setOptionLabelByValue({})
-  }, [])
+  }, [locale])
 
   const closeDialog = React.useCallback(() => {
     onOpenChange(false)
@@ -225,8 +225,8 @@ export function AdjustInventoryDialog({
   }, [])
 
   React.useEffect(() => {
-    if (!deltaInputFocusedRef.current) setDeltaInputText(String(form.delta))
-  }, [form.delta])
+    if (!deltaInputFocusedRef.current) setDeltaInputText(formatLocaleNumberInput(form.delta, locale))
+  }, [form.delta, locale])
 
   React.useEffect(() => {
     if (!open) return
@@ -469,6 +469,15 @@ export function AdjustInventoryDialog({
               },
             )
             if (!call.ok) {
+              const errorBody = await readJsonSafe<{ error?: string }>(call.response.clone(), null)
+              if (errorBody?.error === 'insufficient_stock') {
+                throw new Error(
+                  t(
+                    'wms.backend.inventory.adjust.errors.insufficientStock',
+                    'The adjustment is larger than the available quantity in this location.',
+                  ),
+                )
+              }
               await raiseCrudError(
                 call.response,
                 t('wms.backend.inventory.adjust.errors.submit', 'Failed to adjust inventory.'),
@@ -721,7 +730,7 @@ export function AdjustInventoryDialog({
                   }}
                   onBlur={() => {
                     deltaInputFocusedRef.current = false
-                    setDeltaInputText(String(form.delta))
+                    setDeltaInputText(formatLocaleNumberInput(form.delta, locale))
                   }}
                   className="h-8 w-auto min-w-0 flex-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
                   inputClassName="text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"

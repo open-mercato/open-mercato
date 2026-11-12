@@ -14,6 +14,7 @@ import { ensureTestSeedAdapterRegistered } from './lib/test-seed'
 import { sendAsUser } from './lib/send-as-user'
 import { isSystemEmailTransportConfigured, sendSystemEmail } from './lib/system-email'
 import { resolveChannelTypeSafely } from './lib/resolve-channel-type'
+import { resolveChannelThreadAccessSafely } from './lib/channel-thread-access'
 
 export function register(container: AppContainer) {
   // Test-only: register the network-free stub channel adapter when
@@ -51,5 +52,13 @@ export function register(container: AppContainer) {
     // (#4975); absent module or failed lookup reads as "unknown", which the
     // messages validator handles fail-closed.
     communicationChannelsResolveChannelType: asValue(resolveChannelTypeSafely),
+
+    // Cross-module channel-thread authorization. An inbound channel message has
+    // no platform sender and no recipients, so the messages module's
+    // sender-or-recipient reply guard denies every operator (#5535); it resolves
+    // this facade to fall back on the channel's own access rule for threads this
+    // module owns. Absent module or failed lookup reads as "internal thread",
+    // which leaves the participant rule in force.
+    communicationChannelsResolveChannelThreadAccess: asValue(resolveChannelThreadAccessSafely),
   })
 }

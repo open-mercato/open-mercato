@@ -82,6 +82,22 @@ export const extensionPoints = defineModuleExtensionPoints({
       tableId: 'staff.time_reports.list',
       source: 'backend/staff/time-tracking/reports/page.tsx',
     }),
+    myWorkTodayEntriesTable: dataTableExtensionHost({
+      tableId: 'staff.my_work.today_entries.list',
+      source: 'backend/staff/time-tracking/page.tsx',
+    }),
+    projectDetailTimeEntriesTable: dataTableExtensionHost({
+      tableId: 'staff.time_project_detail.entries.list',
+      source: 'backend/staff/time-tracking/projects/[id]/page.tsx',
+    }),
+    reportDetailLockedEntriesTable: dataTableExtensionHost({
+      tableId: 'staff.time_report_detail.locked_entries.list',
+      source: 'backend/staff/time-tracking/reports/[id]/page.tsx',
+    }),
+    taskBoardListViewTable: dataTableExtensionHost({
+      tableId: 'staff.time_task_board.list_view',
+      source: 'lib/time-tracking-ui/TaskListView.tsx',
+    }),
 
     projectForm: crudFormExtensionHost({
       entityId: 'staff.staff_time_project',
@@ -136,6 +152,7 @@ export const extensionPoints = defineModuleExtensionPoints({
     myWorkAfterSections: pageHost('staff.my_work:after-sections', 'backend/staff/time-tracking/page.tsx'),
 
     timeTrackingSettingsSections: pageHost('staff.time_tracking.settings:sections', 'backend/staff/time-tracking/settings/page.tsx'),
+    timeTrackingSettingsTabs: pageHost('staff.time_tracking.settings:tabs', 'backend/staff/time-tracking/settings/page.tsx'),
 
     timerBarActions: pageHost('staff.timesheets.timer-bar:actions', 'lib/timesheets-ui/TimerBar.tsx'),
 

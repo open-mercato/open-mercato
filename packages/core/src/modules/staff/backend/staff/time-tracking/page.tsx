@@ -31,11 +31,13 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { CalendarDays, Copy, Lock, Pencil, Plus } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Progress } from '@open-mercato/ui/primitives/progress'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import {
   Select,
   SelectContent,
@@ -335,6 +337,89 @@ export default function TimeTrackingMyWorkPage() {
 
   const todayTotal = data.entries.reduce((sum, entry) => sum + entry.durationMinutes, 0)
 
+  const todayEntriesColumns = React.useMemo<ColumnDef<MyWorkEntry>[]>(
+    () => [
+      {
+        id: 'task',
+        header: t('staff.time_tracking.myWork.today.columns.task', 'Task'),
+        cell: ({ row }) => {
+          const entry = row.original
+          return (
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">
+                  {entry.taskTitle ??
+                    entry.description ??
+                    t('staff.time_tracking.entries.table.noTask', 'No task')}
+                </span>
+                {entry.isBillable ? null : (
+                  <StatusBadge variant="neutral">
+                    {t('staff.time_tracking.entries.badges.nonBillable', 'non-billable')}
+                  </StatusBadge>
+                )}
+                {entry.isLocked ? (
+                  <StatusBadge variant="neutral">
+                    <Lock className="size-3" aria-hidden="true" />
+                    {t('staff.time_tracking.entries.badges.locked', 'locked')}
+                  </StatusBadge>
+                ) : null}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {[entry.projectName, entry.taskTitle ? entry.description : null]
+                  .filter((part): part is string => Boolean(part))
+                  .join(' · ')}
+              </div>
+            </div>
+          )
+        },
+      },
+      {
+        id: 'clock',
+        header: t('staff.time_tracking.myWork.today.columns.time', 'Time'),
+        meta: { maxWidth: '8rem' },
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">{formatClockRange(row.original) ?? '—'}</span>
+        ),
+      },
+      {
+        id: 'duration',
+        header: () => (
+          <span className="block text-right">
+            {t('staff.time_tracking.myWork.today.columns.duration', 'Duration')}
+          </span>
+        ),
+        meta: { maxWidth: '6rem' },
+        cell: ({ row }) => (
+          <span className="block text-right font-mono font-semibold tabular-nums">
+            {formatDuration(row.original.durationMinutes, 'clock')}
+          </span>
+        ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        meta: { maxWidth: '3rem' },
+        cell: ({ row }) => {
+          const entry = row.original
+          return canManageOwn && !entry.isLocked ? (
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="ghost"
+                size="2xs"
+                aria-label={t('staff.time_tracking.timesheet.list.edit', 'Edit')}
+                onClick={() => setDialog({ open: true, entryId: entry.id })}
+              >
+                <Pencil className="size-3.5" aria-hidden="true" />
+              </Button>
+            </div>
+          ) : null
+        },
+      },
+    ],
+    [canManageOwn, t],
+  )
+
   const submitQuickEntry = React.useCallback(async () => {
     if (!quickTargetKey || quickMinutes === null || quickMinutes <= 0 || quickSaving) return
     const target = parseTargetKey(quickTargetKey)
@@ -568,136 +653,82 @@ export default function TimeTrackingMyWorkPage() {
                     {t('staff.time_tracking.myWork.today.empty', 'Nothing logged today yet.')}
                   </p>
                 ) : (
-                  <table className="w-full text-sm">
-                    <tbody>
-                      {data.entries.map((entry) => (
-                        <tr key={entry.id} className="border-b last:border-0">
-                          <td className="p-3 align-top">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium">
-                                {entry.taskTitle ??
-                                  entry.description ??
-                                  t('staff.time_tracking.entries.table.noTask', 'No task')}
-                              </span>
-                              {entry.isBillable ? null : (
-                                <StatusBadge variant="neutral">
-                                  {t('staff.time_tracking.entries.badges.nonBillable', 'non-billable')}
-                                </StatusBadge>
-                              )}
-                              {entry.isLocked ? (
-                                <StatusBadge variant="neutral">
-                                  <Lock className="size-3" aria-hidden="true" />
-                                  {t('staff.time_tracking.entries.badges.locked', 'locked')}
-                                </StatusBadge>
-                              ) : null}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {[entry.projectName, entry.taskTitle ? entry.description : null]
-                                .filter((part): part is string => Boolean(part))
-                                .join(' · ')}
-                            </div>
-                          </td>
-                          <td className="w-32 p-3 align-top text-xs text-muted-foreground">
-                            {formatClockRange(entry) ?? '—'}
-                          </td>
-                          <td className="w-20 p-3 text-right align-top font-mono font-semibold tabular-nums">
-                            {formatDuration(entry.durationMinutes, 'clock')}
-                          </td>
-                          <td className="w-16 p-3 text-right align-top">
-                            {canManageOwn && !entry.isLocked ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="2xs"
-                                aria-label={t('staff.time_tracking.timesheet.list.edit', 'Edit')}
-                                onClick={() => setDialog({ open: true, entryId: entry.id })}
-                              >
-                                <Pencil className="size-3.5" aria-hidden="true" />
-                              </Button>
-                            ) : null}
-                          </td>
-                        </tr>
-                      ))}
-                      {canManageOwn && quickTargets.length > 0 ? (
-                        <tr>
-                          <td colSpan={4} className="p-3">
-                            <div
-                              className="flex flex-wrap items-start gap-2"
-                              onKeyDown={(event) => {
-                                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                                  event.preventDefault()
-                                  void submitQuickEntry()
-                                }
-                              }}
-                            >
-                              <Select value={quickTargetKey} onValueChange={setQuickTargetKey}>
-                                <SelectTrigger
-                                  className="w-72"
-                                  aria-label={t('staff.time_tracking.myWork.quickEntry.target', 'Project or task')}
-                                >
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {quickTargets.map((target) => (
-                                    <SelectItem key={target.key} value={target.key}>
-                                      {targetLabel(target)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <div className="w-32">
-                                <DurationInput
-                                  key={quickEpoch}
-                                  variant="compact"
-                                  value={quickMinutes}
-                                  onChange={(minutes) => setQuickMinutes(minutes)}
-                                  ariaLabel={t('staff.time_tracking.myWork.quickEntry.duration', 'Duration')}
-                                />
-                              </div>
-                              <Button
-                                type="button"
-                                size="sm"
-                                disabled={quickSaving || quickMinutes === null || quickMinutes <= 0}
-                                onClick={() => void submitQuickEntry()}
-                              >
-                                {t('staff.time_tracking.myWork.quickEntry.save', 'Save')}
-                              </Button>
-                              <span className="self-center text-xs text-muted-foreground">
-                                {t('staff.time_tracking.entryDialog.shortcutSave', '⌘↵ to save')}
-                              </span>
-                              {/*
-                                * The same block the task drawer offers, from the same
-                                * component: a row that can log an hour but not say what
-                                * it was for, or when, sends people to the full dialog
-                                * for the one field they were missing.
-                                */}
-                              <div className="w-full">
-                                <EntryDetailsFields
-                                  idPrefix="my-work-quick"
-                                  value={quickDetails}
-                                  onChange={setQuickDetails}
-                                  tagOptions={tagOptions}
-                                  onCreateTag={createTag}
-                                  disabled={quickSaving}
-                                />
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      ) : null}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t bg-muted/40 font-medium">
-                        <td className="p-3" colSpan={2}>
-                          {t('staff.time_tracking.myWork.today.total', 'Total today')}
-                        </td>
-                        <td className="p-3 text-right font-mono tabular-nums">
-                          {formatDuration(todayTotal, 'clock')}
-                        </td>
-                        <td />
-                      </tr>
-                    </tfoot>
-                  </table>
+                  <>
+                    <DataTable<MyWorkEntry>
+                      embedded
+                      extensionTableId={extensionPoints.hosts.myWorkTodayEntriesTable.tableId}
+                      disableRowClick
+                      columns={todayEntriesColumns}
+                      data={data.entries}
+                    />
+                    {canManageOwn && quickTargets.length > 0 ? (
+                      <div
+                        className="flex flex-wrap items-start gap-2 border-t p-3"
+                        onKeyDown={(event) => {
+                          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                            event.preventDefault()
+                            void submitQuickEntry()
+                          }
+                        }}
+                      >
+                        <Select value={quickTargetKey} onValueChange={setQuickTargetKey}>
+                          <SelectTrigger
+                            className="w-72"
+                            aria-label={t('staff.time_tracking.myWork.quickEntry.target', 'Project or task')}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {quickTargets.map((target) => (
+                              <SelectItem key={target.key} value={target.key}>
+                                {targetLabel(target)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="w-32">
+                          <DurationInput
+                            key={quickEpoch}
+                            variant="compact"
+                            value={quickMinutes}
+                            onChange={(minutes) => setQuickMinutes(minutes)}
+                            ariaLabel={t('staff.time_tracking.myWork.quickEntry.duration', 'Duration')}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={quickSaving || quickMinutes === null || quickMinutes <= 0}
+                          onClick={() => void submitQuickEntry()}
+                        >
+                          {t('staff.time_tracking.myWork.quickEntry.save', 'Save')}
+                        </Button>
+                        <span className="self-center text-xs text-muted-foreground">
+                          {t('staff.time_tracking.entryDialog.shortcutSave', '⌘↵ to save')}
+                        </span>
+                        {/*
+                          * The same block the task drawer offers, from the same
+                          * component: a row that can log an hour but not say what
+                          * it was for, or when, sends people to the full dialog
+                          * for the one field they were missing.
+                          */}
+                        <div className="w-full">
+                          <EntryDetailsFields
+                            idPrefix="my-work-quick"
+                            value={quickDetails}
+                            onChange={setQuickDetails}
+                            tagOptions={tagOptions}
+                            onCreateTag={createTag}
+                            disabled={quickSaving}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="flex items-center justify-between border-t bg-muted/40 p-3 text-sm font-medium">
+                      <span>{t('staff.time_tracking.myWork.today.total', 'Total today')}</span>
+                      <span className="font-mono tabular-nums">{formatDuration(todayTotal, 'clock')}</span>
+                    </div>
+                  </>
                 )}
               </section>
 

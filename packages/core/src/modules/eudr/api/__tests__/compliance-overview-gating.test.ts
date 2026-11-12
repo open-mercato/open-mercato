@@ -1,11 +1,13 @@
 /** @jest-environment node */
 
 const mockGrantedFeatures = new Set<string>()
+const mockExecute = jest.fn(async (): Promise<Record<string, unknown>[]> => [])
+const mockResolveOrganizationScopeForRequest = jest.fn()
 
 const mockEm = {
   count: jest.fn(async () => 0),
   find: jest.fn(async () => []),
-  getConnection: () => ({ execute: async (): Promise<Record<string, unknown>[]> => [] }),
+  getConnection: () => ({ execute: mockExecute }),
 }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -34,7 +36,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: jest.fn(async () => ({ selectedId: 'org-1' })),
+  resolveOrganizationScopeForRequest: (...args: unknown[]) => mockResolveOrganizationScopeForRequest(...args),
 }))
 
 import { GET } from '../dashboard/widgets/compliance-overview/route'
@@ -47,7 +49,31 @@ async function fetchOverview(): Promise<Record<string, unknown>> {
 
 describe('eudr compliance overview queue feature gating', () => {
   beforeEach(() => {
+    jest.clearAllMocks()
     mockGrantedFeatures.clear()
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: 'org-1',
+      filterIds: ['org-1'],
+      allowedIds: ['org-1'],
+      tenantId: 'tenant-1',
+    })
+  })
+
+  it('denies an explicit empty scope before any compliance data call', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId: 'tenant-1',
+    })
+
+    const response = await GET(new Request('http://localhost/api/eudr/dashboard/widgets/compliance-overview'))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: 'Forbidden' })
+    expect(mockEm.count).not.toHaveBeenCalled()
+    expect(mockEm.find).not.toHaveBeenCalled()
+    expect(mockExecute).not.toHaveBeenCalled()
   })
 
   it('omits queue keys and rollups for missing features while returning granted blocks', async () => {

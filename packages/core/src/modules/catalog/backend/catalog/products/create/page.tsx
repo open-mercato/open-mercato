@@ -87,6 +87,7 @@ import {
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
 import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
+import { validateCatalogPriceAmountInput } from "@open-mercato/core/modules/catalog/lib/priceValidation";
 import {
   UNIT_PRICE_REFERENCE_UNITS,
   toTrimmedOrNull,
@@ -97,6 +98,7 @@ import {
   type ProductUnitConversionInput,
 } from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { transferDraftMedia } from "@open-mercato/core/modules/catalog/components/products/mediaTransfer";
 
 const logger = createLogger('catalog')
 
@@ -244,6 +246,10 @@ export default function CreateCatalogProductPage() {
   }, [fromInboxAction]);
 
   const initialValuesRef = React.useRef<ProductFormValues | null>(null);
+  const mediaUploadingRef = React.useRef(false);
+  const handleMediaUploadingChange = React.useCallback((isUploading: boolean) => {
+    mediaUploadingRef.current = isUploading;
+  }, []);
   if (!initialValuesRef.current) {
     const initial = createInitialProductFormValues();
     if (inboxDraft?.payload) {
@@ -347,6 +353,7 @@ export default function CreateCatalogProductPage() {
             priceKinds={priceKinds}
             taxRates={taxRates}
             requiredFieldIds={requiredFieldIds}
+            onMediaUploadingChange={handleMediaUploadingChange}
           />
         ),
       },
@@ -372,7 +379,7 @@ export default function CreateCatalogProductPage() {
         ),
       },
     ],
-    [priceKinds, taxRates, t],
+    [handleMediaUploadingChange, priceKinds, taxRates, t],
   );
 
   return (
@@ -384,6 +391,7 @@ export default function CreateCatalogProductPage() {
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
+          entityId={E.catalog.catalog_product}
           injectionSpotId={extensionPoints.hosts.productForm.spotId}
           initialValues={
             initialValuesRef.current ?? createInitialProductFormValues()
@@ -392,6 +400,11 @@ export default function CreateCatalogProductPage() {
           submitLabel={t("catalog.products.create.submit", "Create")}
           cancelHref="/backend/catalog/products"
           onSubmit={async (formValues) => {
+            if (mediaUploadingRef.current) {
+              throw createCrudFormError(
+                t("catalog.products.media.uploading", "Uploading…"),
+              );
+            }
             const title = formValues.title?.trim();
             if (!title) {
               throw createCrudFormError(
@@ -417,9 +430,6 @@ export default function CreateCatalogProductPage() {
             const mediaItems = Array.isArray(formValues.mediaItems)
               ? formValues.mediaItems
               : [];
-            const attachmentIds = mediaItems
-              .map((item) => (typeof item.id === "string" ? item.id : null))
-              .filter((value): value is string => !!value);
             const mediaDraftId =
               typeof formValues.mediaDraftId === "string"
                 ? formValues.mediaDraftId
@@ -632,19 +642,23 @@ export default function CreateCatalogProductPage() {
               for (const priceKind of priceKinds) {
                 const value = variant.prices?.[priceKind.id]?.amount?.trim();
                 if (!value) continue;
-                const numeric = Number(value);
-                if (
-                  Number.isNaN(numeric) ||
-                  !Number.isFinite(numeric) ||
-                  numeric < 0
-                ) {
+                const amountValidation = validateCatalogPriceAmountInput(
+                  Number(value),
+                );
+                if (!amountValidation.ok) {
                   throw createCrudFormError(
-                    t(
-                      "catalog.products.create.errors.priceNonNegative",
-                      "Prices must be zero or greater.",
-                    ),
+                    amountValidation.reason === "negative"
+                      ? t(
+                          "catalog.products.create.errors.priceNonNegative",
+                          "Prices must be zero or greater.",
+                        )
+                      : t(
+                          "catalog.variants.form.errors.invalidPrice",
+                          "Provide a valid non-negative price.",
+                        ),
                   );
                 }
+                const numeric = amountValidation.numeric;
                 const currencyCode =
                   typeof priceKind.currencyCode === "string" &&
                   priceKind.currencyCode.trim().length
@@ -762,27 +776,18 @@ export default function CreateCatalogProductPage() {
                 await createCrud("catalog/prices", pricePayload);
               }
 
-              if (mediaDraftId && attachmentIds.length) {
-                const transfer = await apiCall<{
-                  ok?: boolean;
-                  error?: string;
-                }>(
-                  "/api/attachments/transfer",
-                  {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({
-                      entityId: E.catalog.catalog_product,
-                      attachmentIds,
-                      fromRecordId: mediaDraftId,
-                      toRecordId: productId,
-                    }),
-                  },
-                  { fallback: null },
-                );
-                if (!transfer.ok) {
-                  logger.error("attachments.transfer.failed", { err: transfer.result?.error });
-                }
+              const mediaTransfer = await transferDraftMedia({
+                entityId: E.catalog.catalog_product,
+                draftId: mediaDraftId,
+                recordId: productId,
+                mediaItems,
+              });
+              if (mediaTransfer.failedCount > 0) {
+                logger.error("attachments.transfer.failed", {
+                  failed: mediaTransfer.failedCount,
+                  requested: mediaTransfer.requestedCount,
+                  errors: mediaTransfer.errors,
+                });
               }
 
               if (inboxDraft) {
@@ -811,10 +816,24 @@ export default function CreateCatalogProductPage() {
                 }
               }
 
-              flash(
-                t("catalog.products.create.success", "Product created."),
-                "success",
-              );
+              if (mediaTransfer.failedCount > 0) {
+                flash(
+                  t(
+                    "catalog.products.create.mediaTransferIncomplete",
+                    "Product created, but {failed} of {total} media files could not be attached.",
+                    {
+                      failed: mediaTransfer.failedCount,
+                      total: mediaTransfer.requestedCount,
+                    },
+                  ),
+                  "warning",
+                );
+              } else {
+                flash(
+                  t("catalog.products.create.success", "Product created."),
+                  "success",
+                );
+              }
               if (inboxDraft) {
                 router.push(
                   `/backend/inbox-ops/proposals/${encodeURIComponent(inboxDraft.proposalId)}`,
@@ -863,6 +882,7 @@ type ProductBuilderProps = {
   priceKinds: PriceKindSummary[];
   taxRates: TaxRateSummary[];
   requiredFieldIds?: ReadonlySet<string>;
+  onMediaUploadingChange: (isUploading: boolean) => void;
 };
 
 type ProductMetaSectionProps = {
@@ -1021,6 +1041,7 @@ function ProductBuilder({
   priceKinds,
   taxRates,
   requiredFieldIds,
+  onMediaUploadingChange,
 }: ProductBuilderProps) {
   const t = useT();
   const steps = PRODUCT_FORM_STEPS;
@@ -1443,6 +1464,7 @@ function ProductBuilder({
             defaultMediaId={values.defaultMediaId ?? null}
             onItemsChange={handleMediaItemsChange}
             onDefaultChange={handleDefaultMediaChange}
+            onUploadingChange={onMediaUploadingChange}
           />
 
           <ProductDimensionsFields
@@ -1786,6 +1808,7 @@ function ProductBuilder({
                               }
                               placeholder="0.00"
                               min={0}
+                              step="any"
                             />
                           </div>
                         </td>

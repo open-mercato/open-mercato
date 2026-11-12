@@ -1,0 +1,56 @@
+criterionId,level,surfaceFamily,normativeReference,evaluationTopic,plannedMethods
+1.1.1,A,Images/icons/charts,https://www.w3.org/TR/WCAG22/#non-text-content,Text alternatives,automated+browser+manual_at
+1.2.1,A,Audio/video media,https://www.w3.org/TR/WCAG22/#audio-only-and-video-only-prerecorded,Media alternative,manual
+1.2.2,A,Prerecorded video,https://www.w3.org/TR/WCAG22/#captions-prerecorded,Captions,manual
+1.2.3,A,Prerecorded video,https://www.w3.org/TR/WCAG22/#audio-description-or-media-alternative-prerecorded,Audio description or media alternative,manual
+1.2.4,AA,Live video,https://www.w3.org/TR/WCAG22/#captions-live,Live captions,manual
+1.2.5,AA,Prerecorded video,https://www.w3.org/TR/WCAG22/#audio-description-prerecorded,Audio description,manual
+1.3.1,A,Fields/tables/groups,https://www.w3.org/TR/WCAG22/#info-and-relationships,Info and relationships,automated+browser+manual_at
+1.3.2,A,Layout/DOM,https://www.w3.org/TR/WCAG22/#meaningful-sequence,Content order,browser+manual_at
+1.3.3,A,Instructions,https://www.w3.org/TR/WCAG22/#sensory-characteristics,Instructions without sensory dependence,manual
+1.3.4,AA,Mobile,https://www.w3.org/TR/WCAG22/#orientation,Orientation,browser
+1.3.5,AA,Personal-data form fields,https://www.w3.org/TR/WCAG22/#identify-input-purpose,Input purpose/autofill,automated+browser
+1.4.1,A,Statuses/charts,https://www.w3.org/TR/WCAG22/#use-of-color,Meaning beyond color,manual
+1.4.2,A,Auto-playing audio,https://www.w3.org/TR/WCAG22/#audio-control,Audio control,browser
+1.4.3,AA,Text/all themes,https://www.w3.org/TR/WCAG22/#contrast-minimum,Text contrast,automated+measurement
+1.4.4,AA,Pages and overlays,https://www.w3.org/TR/WCAG22/#resize-text,Text resize,automated+browser
+1.4.5,AA,Assets/content,https://www.w3.org/TR/WCAG22/#images-of-text,Text instead of images of text,manual
+1.4.10,AA,Pages and overlays,https://www.w3.org/TR/WCAG22/#reflow,Reflow,browser
+1.4.11,AA,Controls/states/graphics,https://www.w3.org/TR/WCAG22/#non-text-contrast,Non-text contrast,measurement
+1.4.12,AA,Text/fields/navigation,https://www.w3.org/TR/WCAG22/#text-spacing,Text-spacing override,automated+browser
+1.4.13,AA,Tooltip/popover,https://www.w3.org/TR/WCAG22/#content-on-hover-or-focus,Hover/focus content,browser
+2.1.1,A,All actions,https://www.w3.org/TR/WCAG22/#keyboard,Keyboard,automated+browser+manual_at
+2.1.2,A,Overlays/composites,https://www.w3.org/TR/WCAG22/#no-keyboard-trap,No keyboard trap,browser
+2.1.4,A,Shortcuts,https://www.w3.org/TR/WCAG22/#character-key-shortcuts,Character key shortcuts,browser
+2.2.1,A,Sessions/limits/forms,https://www.w3.org/TR/WCAG22/#timing-adjustable,Timing and limits,browser+manual
+2.2.2,A,Auto motion/updates,https://www.w3.org/TR/WCAG22/#pause-stop-hide,Motion/update control,browser
+2.3.1,A,Animations/media,https://www.w3.org/TR/WCAG22/#three-flashes-or-below-threshold,Flashes,manual+measurement
+2.4.1,A,Shell/navigation,https://www.w3.org/TR/WCAG22/#bypass-blocks,Bypass repeated blocks,automated+browser+manual_at
+2.4.2,A,Routes,https://www.w3.org/TR/WCAG22/#page-titled,Page titles,automated+browser
+2.4.3,A,Form/route/overlay,https://www.w3.org/TR/WCAG22/#focus-order,Focus order,browser+manual_at
+2.4.4,A,Links/actions,https://www.w3.org/TR/WCAG22/#link-purpose-in-context,Link purpose,automated+manual_at
+2.4.5,AA,Routes/navigation,https://www.w3.org/TR/WCAG22/#multiple-ways,Multiple ways,manual
+2.4.6,AA,Headings/fields,https://www.w3.org/TR/WCAG22/#headings-and-labels,Headings and labels,manual_at
+2.4.7,AA,Controls/themes,https://www.w3.org/TR/WCAG22/#focus-visible,Visible focus,browser
+2.4.11,AA,Sticky/overlay,https://www.w3.org/TR/WCAG22/#focus-not-obscured-minimum,Focus not entirely obscured,browser
+2.5.1,A,Gestures/slider/canvas,https://www.w3.org/TR/WCAG22/#pointer-gestures,Gesture alternatives,browser
+2.5.2,A,Pointer actions,https://www.w3.org/TR/WCAG22/#pointer-cancellation,Pointer cancellation,browser
+2.5.3,A,Controls/locale,https://www.w3.org/TR/WCAG22/#label-in-name,Visible label in accessible name,browser+manual_at
+2.5.4,A,Device motion,https://www.w3.org/TR/WCAG22/#motion-actuation,Device-motion alternative,browser
+2.5.7,AA,DnD/reorder/schedule,https://www.w3.org/TR/WCAG22/#dragging-movements,Non-drag alternative,browser
+2.5.8,AA,Pointer targets/mobile,https://www.w3.org/TR/WCAG22/#target-size-minimum,Target/spacing/exception,automated+browser+measurement
+3.1.1,A,Document/locale,https://www.w3.org/TR/WCAG22/#language-of-page,Page language,automated+browser+manual_at
+3.1.2,AA,Multilingual content,https://www.w3.org/TR/WCAG22/#language-of-parts,Language of parts,automated+browser+manual_at
+3.2.1,A,Focus handlers,https://www.w3.org/TR/WCAG22/#on-focus,Change on focus,browser
+3.2.2,A,Input handlers,https://www.w3.org/TR/WCAG22/#on-input,Change on input,browser
+3.2.3,AA,Shell/portal,https://www.w3.org/TR/WCAG22/#consistent-navigation,Consistent navigation,manual
+3.2.4,AA,Repeated actions,https://www.w3.org/TR/WCAG22/#consistent-identification,Consistent identification,manual
+3.2.6,A,Help/support,https://www.w3.org/TR/WCAG22/#consistent-help,Consistent help location,manual
+3.3.1,A,Validation,https://www.w3.org/TR/WCAG22/#error-identification,Error identification,browser+manual_at
+3.3.2,A,Forms,https://www.w3.org/TR/WCAG22/#labels-or-instructions,Labels or instructions,browser+manual_at
+3.3.3,AA,Validation,https://www.w3.org/TR/WCAG22/#error-suggestion,Error suggestion,manual_at
+3.3.4,AA,Finance/deletion/legal,https://www.w3.org/TR/WCAG22/#error-prevention-legal-financial-data,Error prevention,browser
+3.3.7,A,Multi-step processes,https://www.w3.org/TR/WCAG22/#redundant-entry,Redundant entry,browser
+3.3.8,AA,Auth/MFA/SSO,https://www.w3.org/TR/WCAG22/#accessible-authentication-minimum,Accessible authentication,browser+manual_at
+4.1.2,A,Controls/composites,https://www.w3.org/TR/WCAG22/#name-role-value,Name/role/value,automated+browser+manual_at
+4.1.3,AA,Async/status/chat,https://www.w3.org/TR/WCAG22/#status-messages,Status messages,browser+manual_at

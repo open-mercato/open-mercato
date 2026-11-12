@@ -244,6 +244,7 @@ api/
 │   └── portal/notifications/mark-all-read.ts # Portal: mark all read
 └── delete/
     ├── admin/users/[id].ts              # Admin: soft-delete user
+    ├── admin/users/[id]/sessions/[sessionId].ts # Admin: revoke a customer session
     ├── admin/roles/[id].ts              # Admin: delete role
     ├── portal/users/[id].ts             # Portal admin: remove user
     └── portal/sessions/[id].ts          # Portal: revoke session
@@ -254,6 +255,7 @@ api/
 - **Public** (`/api/login`, `/api/signup`, `/api/password/*`, `/api/magic-link/*`, `/api/email/*`, `/api/invitations/*`) — unauthenticated, rate-limited
 - **Admin** (`/api/admin/*`) — requires staff auth + `customer_accounts.view` / `customer_accounts.manage` features
 - **Portal** (`/api/portal/*`) — requires customer auth (JWT), some endpoints require `isPortalAdmin`
+- **Portal SSE** (`/api/portal/events/stream`) — re-checks the customer session via `getCustomerAuthFromRequest` every `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` and closes after the jittered `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS`, so revoked sessions stop receiving events; never cache auth on a long-lived connection without the same revalidation
 
 ## Events
 
@@ -318,9 +320,9 @@ Both link to `/backend/customer_accounts/{sourceEntityId}` for staff review.
 | Spot ID | Widget | Purpose |
 |---------|--------|---------|
 | `customers.person` | `account-status` | Alias for hosts requesting the bare `customers.person` entity spot |
-| `crud-form:customers.person` | `account-status` | Shows portal account status on the person v2 detail page (`people-v2/[id]`) |
+| `crud-form:customers.person` | `account-status` | Person detail/create, company/sales dialogs; hidden without `recordId` |
 | `customers.company` | `company-users` | Alias for hosts requesting the bare `customers.company` entity spot |
-| `crud-form:customers.company` | `company-users` | Shows portal users on the company v2 detail page (`companies-v2/[id]`) |
+| `crud-form:customers.company` | `company-users` | Shows portal users on every company surface that publishes the host — the company v2 detail page (`companies-v2/[id]`), the company create page (`companies/create`), and the sales document "Create company" quick dialog — where it has no `recordId` and renders its empty state |
 
 Both inject as column 2 groups with priority 200, gated by `customer_accounts.view` feature.
 
