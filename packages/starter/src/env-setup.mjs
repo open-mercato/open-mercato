@@ -76,6 +76,13 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
       content = renderEncryptionValues(content, suppliedSettings)
       content = replaceEnvLine(content, 'AUTH_SECRET', secretHex(32))
       content = replaceEnvLine(content, 'LOOKUP_HASH_PEPPER', secretHex(16))
+      // .env.example ships no tenant encryption key (#7231); reuse the compose
+      // key so the host app and containers encrypt with the same root secret.
+      content = replaceEnvLine(
+        content,
+        'TENANT_DATA_ENCRYPTION_FALLBACK_KEY',
+        readEnvValue(rootEnv, 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY')?.trim() || secretHex(32),
+      )
       // 127.0.0.1, never `localhost`: on modern Windows localhost resolves
       // to ::1 first while the published container ports listen on IPv4.
       content = replaceEnvLine(
