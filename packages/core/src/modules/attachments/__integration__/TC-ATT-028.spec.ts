@@ -49,10 +49,12 @@ test.describe('TC-ATT-028: private byte routes enforce current read capability (
         ]
         const warm = await apiRequest(request, 'GET', paths[2], { token: adminToken })
         expect(warm.status()).toBe(200)
+        expect(warm.headers()['cache-control']).toBe('private, no-store')
         for (const path of paths) {
           const response = await apiRequest(request, 'GET', path, { token })
           expect(response.status(), path).toBe(scenario.status)
           if (scenario.status === 200) {
+            expect(response.headers()['cache-control'], path).toBe('private, no-store')
             const body = await response.body()
             expect(body.length).toBeGreaterThan(0)
             if (!path.includes('/image/')) expect(body).toEqual(buffer)

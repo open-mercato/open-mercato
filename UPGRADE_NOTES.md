@@ -3,7 +3,8 @@
 ## Private attachment reads require the read capability (#8760)
 
 Private original files, forced downloads, inline content and derived images now
-require current `attachments.view` permission.
+require current `attachments.view` permission. Successful private byte responses
+use `Cache-Control: private, no-store`, including cached thumbnails.
 Same-scope authentication or knowing an attachment ID no longer suffices;
 `attachments.manage` alone does not grant read access. Existing covering wildcards
 and live superadmin grants follow the consolidated feature policy. Owner-policy

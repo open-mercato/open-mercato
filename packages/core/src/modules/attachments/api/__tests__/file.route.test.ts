@@ -92,10 +92,10 @@ describe('attachments file route', () => {
 
   it.each([
     { name: 'scoped public', tenantId: 'tenant-1', organizationId: 'org-1', isPublic: true, anonymous: false, expected: 'private, max-age=60' },
-    { name: 'scoped private', tenantId: 'tenant-1', organizationId: 'org-1', isPublic: false, anonymous: false, expected: 'private, max-age=60' },
+    { name: 'scoped private', tenantId: 'tenant-1', organizationId: 'org-1', isPublic: false, anonymous: false, expected: 'private, no-store' },
     { name: 'global public anonymous', tenantId: null, organizationId: null, isPublic: true, anonymous: true, expected: 'public, max-age=86400' },
     { name: 'global public authenticated', tenantId: null, organizationId: null, isPublic: true, anonymous: false, expected: 'public, max-age=86400' },
-    { name: 'global private', tenantId: null, organizationId: null, isPublic: false, anonymous: false, expected: 'private, max-age=60' },
+    { name: 'global private', tenantId: null, organizationId: null, isPublic: false, anonymous: false, expected: 'private, no-store' },
     { name: 'tenant-only public', tenantId: 'tenant-1', organizationId: null, isPublic: true, anonymous: false, expected: 'private, max-age=60' },
     { name: 'organization-only public', tenantId: null, organizationId: 'org-1', isPublic: true, anonymous: false, expected: 'private, max-age=60' },
   ])('sets safe caching for $name bytes', async ({ tenantId, organizationId, isPublic, anonymous, expected }) => {
