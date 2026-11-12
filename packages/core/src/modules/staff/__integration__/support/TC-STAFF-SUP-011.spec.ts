@@ -15,6 +15,7 @@ import {
   PORTAL_VIEW,
   adminToken,
   createCategory,
+  createCustomerFreeProject,
   createPortalCustomer,
   createProject,
   createRoutingRule,
@@ -24,10 +25,10 @@ import {
   fileTicket,
   getPortalTicket,
   getStaffTask,
+  listProjectStatuses,
   pointFallbackAt,
   portalRequest,
   routingPreview,
-  setProjectFields,
 } from './fixtures'
 
 test.describe('TC-STAFF-SUP-011: Support ticket routing variants', () => {
@@ -54,26 +55,30 @@ test.describe('TC-STAFF-SUP-011: Support ticket routing variants', () => {
     }
   })
 
-  test('all categories land in a project that has no customer', async ({ request }) => {
+  test('all categories land in an owned project that has no customer', async ({ request }) => {
     const cleanup = new Cleanup()
     try {
       const admin = await adminToken(request)
-      const customerlessProject = await createProject(request, admin, cleanup, 'nocustomer')
-      const clearCustomer = await setProjectFields(request, admin, customerlessProject.id, { customerId: null })
-      expect(clearCustomer.ok()).toBeTruthy()
-      await pointFallbackAt(request, admin, cleanup, customerlessProject.id)
+      const fallbackProject = await createCustomerFreeProject(request, admin, cleanup)
+      await pointFallbackAt(request, admin, cleanup, fallbackProject.id)
+      const statuses = await listProjectStatuses(request, admin, fallbackProject.id)
+      expect(statuses.some((status) => status.is_default === true || status.isDefault === true)).toBe(true)
+      expect(statuses.some((status) => status.is_done === true || status.isDone === true)).toBe(true)
       const category = await createCategory(request, admin, cleanup, 'nocustomer')
       const customer = await createPortalCustomer(request, admin, cleanup, { features: [PORTAL_VIEW, PORTAL_MANAGE], label: 'nocustomer' })
 
       const ticket = await fileTicket(request, customer, { categoryValue: category.value })
       cleanup.add(() => deleteTask(request, admin, ticket.id))
       const task = await getStaffTask(request, admin, ticket.id)
-      expect(task?.time_project_id).toBe(customerlessProject.id)
-      const project = await apiRequest(request, 'GET', `/api/staff/timesheets/time-projects?ids=${customerlessProject.id}&pageSize=100`, { token: admin })
-      const projectBody = (await project.json()) as { items?: Array<{ id?: string; customer_id?: string | null }> }
-      const persistedProject = projectBody.items?.find((item) => item.id === customerlessProject.id)
-      expect(persistedProject, 'the customerless project should be listed').toBeTruthy()
-      expect(persistedProject?.customer_id ?? null).toBeNull()
+      expect(task?.time_project_id).toBe(fallbackProject.id)
+      expect(task?._staffSupport?.ticket?.routedVia).toBe('fallback')
+      expect(task?.customer_id).toBe(customer.companyId)
+      const project = await apiRequest(request, 'GET', `/api/staff/timesheets/time-projects?ids=${fallbackProject.id}&pageSize=100`, { token: admin })
+      const projectBody = (await project.json()) as { items?: Array<{ id?: string; project_type?: string; customer_id?: string | null }> }
+      const ownedProject = projectBody.items?.find((item) => item.id === fallbackProject.id)
+      expect(ownedProject, 'the owned fallback project should be listed').toBeTruthy()
+      expect(ownedProject?.project_type).toBe('internal')
+      expect(ownedProject?.customer_id).toBeNull()
       const portal = await getPortalTicket(request, customer, ticket.id)
       expect(portal.status).toBe(200)
       expect(portal.body?.portalStatus).toBe('received')
