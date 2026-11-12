@@ -57,9 +57,9 @@ PR: #9320
 
 ### Phase 2: Stabilize and validate
 
-- [ ] 2.1 Resolve any demonstrated failures and verify the dedicated PR runs the full suite
+- [x] 2.1 Resolve any demonstrated failures and verify the dedicated PR runs the full suite — cded001695
 
 ### Phase 3: Review and handoff
 
 - [x] 3.1 Dispatch exactly one final independent review task — ed93c71813
-- [ ] 3.2 Publish verification evidence and request automerge after all checks pass
+- [x] 3.2 Publish verification evidence and request automerge after all checks pass — cded001695
