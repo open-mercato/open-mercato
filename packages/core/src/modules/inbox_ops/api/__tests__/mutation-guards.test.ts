@@ -16,7 +16,11 @@ const ctx = {
   tenantId,
   organizationId,
   scope: { tenantId, organizationId },
-  em: { flush: flushMock, nativeUpdate: nativeUpdateMock },
+  em: {
+    flush: flushMock,
+    nativeUpdate: nativeUpdateMock,
+    transactional: async (fn: (tx: unknown) => Promise<unknown>) => fn(ctx.em),
+  },
   container,
   eventBus: null,
 }
@@ -230,6 +234,10 @@ describe('inbox_ops custom write routes wire the mutation guard', () => {
   })
 
   describe('delete email', () => {
+    beforeEach(() => {
+      findOneWithDecryptionMock.mockResolvedValue({ id: emailId, updatedAt: new Date('2026-11-08T10:00:00.000Z') })
+    })
+
     it('validates the guard before deleting and runs the after-success hook', async () => {
       const response = await emailDelete(
         jsonRequest(`http://localhost/api/inbox_ops/emails/${emailId}`, 'DELETE'),
@@ -263,6 +271,7 @@ describe('inbox_ops custom write routes wire the mutation guard', () => {
     })
 
     it('does not run the after-success hook when the email was already deleted', async () => {
+      findOneWithDecryptionMock.mockResolvedValue(null)
       nativeUpdateMock.mockResolvedValue(0)
 
       const response = await emailDelete(

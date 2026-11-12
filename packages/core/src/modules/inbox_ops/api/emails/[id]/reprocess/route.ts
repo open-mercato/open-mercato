@@ -10,7 +10,19 @@ import {
   extractPathSegment,
   UnauthorizedError,
 } from '../../../routeHelpers'
+import { resolveErrorTranslate } from '../../../../lib/errorTranslate'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  reenqueueInboundAttachmentIngest,
+  reportInboundAttachmentError,
+  type InboundAttachmentEmailRef,
+} from '../../../../lib/inboundAttachments'
+import {
+  clearInboundAttachmentFirstFailure,
+  isLiveInboxEmail,
+  planInboundAttachmentReprocess,
+  resetFinalizedInboundAttachmentIngest,
+} from '../../../../lib/inboundAttachmentReprocess'
 
 const logger = createLogger('inbox_ops').child({ component: 'email-reprocess' })
 
@@ -19,6 +31,45 @@ export const metadata = {
 }
 
 class ReprocessConflictError extends Error {}
+
+class AttachmentIngestResetMissedError extends Error {}
+
+type Translate = Awaited<ReturnType<typeof resolveErrorTranslate>>
+
+function notFound(translate: Translate): NextResponse {
+  return NextResponse.json({ error: translate('inbox_ops.errors.emailNotFound', 'Email not found') }, { status: 404 })
+}
+
+/**
+ * Re-enqueues the ingest after the route's own writes; answers like the route: 409 when the email
+ * completed or was deleted concurrently, 500 when the enqueue failed (the email is then stranded and
+ * recovered by the catch-up, a further retry or the sweep).
+ */
+async function reenqueueIngestForRetry(
+  em: EntityManager,
+  ref: InboundAttachmentEmailRef,
+  translate: Translate,
+  body: { ok: true; retiredProposalCount: number; retiredActionCount: number },
+): Promise<NextResponse> {
+  const requeued = await reenqueueInboundAttachmentIngest({ em, email: ref })
+  if (requeued.kind === 'not_reserved') {
+    return NextResponse.json({
+      error: translate('inbox_ops.errors.attachmentIngestNotRetryable', 'The attachments of this email can no longer be retried.'),
+    }, { status: 409 })
+  }
+  if (requeued.kind === 'enqueue_failed') {
+    logger.error('Failed to re-enqueue an inbound attachment ingest on manual retry', { emailId: ref.id })
+    reportInboundAttachmentError(requeued.error, 'inbox_ops.attachment_requeue_failed', {
+      emailId: ref.id,
+      tenantId: ref.tenantId,
+      step: 'reprocess',
+    })
+    return NextResponse.json({
+      error: translate('inbox_ops.errors.attachmentIngestEnqueueFailed', 'Could not queue the attachments of this email. Try again.'),
+    }, { status: 500 })
+  }
+  return NextResponse.json(body)
+}
 
 export async function POST(req: Request) {
   try {
@@ -30,6 +81,7 @@ export async function POST(req: Request) {
     }
 
     const ctx = await resolveRequestContext(req)
+    const translate = await resolveErrorTranslate()
 
     const email = await findOneWithDecryption(
       ctx.em,
@@ -45,14 +97,66 @@ export async function POST(req: Request) {
     )
 
     if (!email) {
-      return NextResponse.json({ error: 'Email not found' }, { status: 404 })
+      return notFound(translate)
+    }
+
+    const ref = { id: email.id, tenantId: email.tenantId, organizationId: email.organizationId }
+    const attachmentPlan = await planInboundAttachmentReprocess(ctx.em, email)
+
+    if (attachmentPlan === 'live_lease') {
+      return NextResponse.json({
+        error: translate('inbox_ops.errors.attachmentIngestInProgress', 'The attachments of this email are being processed. Try again later.'),
+      }, { status: 409 })
+    }
+
+    if (attachmentPlan === 'requeue_ingest') {
+      if (!(await clearInboundAttachmentFirstFailure(ctx.em, ref))) {
+        return notFound(translate)
+      }
+      return reenqueueIngestForRetry(ctx.em, ref, translate, { ok: true, retiredProposalCount: 0, retiredActionCount: 0 })
     }
 
     if (email.status === 'received' || email.status === 'processing') {
-      return NextResponse.json({ error: 'Email is already queued for processing' }, { status: 409 })
+      return NextResponse.json({
+        error: translate('inbox_ops.errors.alreadyQueued', 'Email is already queued for processing'),
+      }, { status: 409 })
     }
 
     let retiredCounts = { retiredProposalCount: 0, retiredActionCount: 0 }
+
+    if (attachmentPlan === 'retry_failed_parts') {
+      try {
+        await withAtomicFlush(ctx.em, [
+          async () => {
+            if (!(await resetFinalizedInboundAttachmentIngest(ctx.em, ref, new Date()))) {
+              throw new AttachmentIngestResetMissedError()
+            }
+          },
+          async () => {
+            retiredCounts = await retireActiveProposalsForEmail(ctx.em, email.id, ctx.userId, ctx.scope)
+          },
+        ], { transaction: true, label: 'inbox_ops.email.reprocessAttachments' })
+      } catch (resetError) {
+        if (!(resetError instanceof AttachmentIngestResetMissedError)) throw resetError
+        if (!(await isLiveInboxEmail(ctx.em, ref))) return notFound(translate)
+        return NextResponse.json({
+          error: translate('inbox_ops.errors.reprocessAlreadyRequested', 'This email was already reset for reprocessing.'),
+        }, { status: 409 })
+      }
+
+      try {
+        await emitInboxOpsEvent('inbox_ops.email.reprocessed', {
+          emailId: email.id,
+          tenantId: email.tenantId,
+          organizationId: email.organizationId,
+        })
+      } catch (eventError) {
+        logger.error('Failed to emit events', { err: eventError })
+      }
+
+      return reenqueueIngestForRetry(ctx.em, ref, translate, { ok: true, ...retiredCounts })
+    }
+
     await withAtomicFlush(ctx.em, [
       async () => {
         retiredCounts = await retireActiveProposalsForEmail(ctx.em, email.id, ctx.userId, ctx.scope)
@@ -90,11 +194,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     if (err instanceof ReprocessConflictError) {
-      return NextResponse.json({ error: err.message }, { status: 409 })
+      const translate = await resolveErrorTranslate()
+      return NextResponse.json({
+        error: translate('inbox_ops.errors.actionsAlreadyExecuted', err.message),
+      }, { status: 409 })
     }
 
     logger.error('Reprocess failed', { err })
-    return NextResponse.json({ error: 'Failed to reprocess email' }, { status: 500 })
+    const translate = await resolveErrorTranslate()
+    return NextResponse.json({
+      error: translate('inbox_ops.errors.reprocessFailed', 'Failed to reprocess email'),
+    }, { status: 500 })
   }
 }
 
@@ -197,10 +307,12 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Re-trigger LLM extraction on a failed or low-confidence email',
+      description: 'For an email whose attachments are pending, or processing with an expired lease, re-enqueues the attachment ingest without retiring proposals or emitting events. For an email whose attachment ingest finished with parts failed for an operator-fixable reason (ingest_timeout, quota_exceeded, partition_unavailable), resets those parts and lets the ingest worker emit inbox_ops.email.received once they are processed.',
       responses: [
         { status: 200, description: 'Email queued for reprocessing' },
         { status: 404, description: 'Email not found' },
-        { status: 409, description: 'Email is already processing or proposal cannot be superseded safely' },
+        { status: 409, description: 'Email is already processing, its attachments are being processed, or proposal cannot be superseded safely' },
+        { status: 500, description: 'The attachment ingest could not be queued' },
       ],
     },
   },

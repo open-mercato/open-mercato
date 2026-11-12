@@ -61,13 +61,15 @@ export class InProcessMcpClient implements McpClientInterface {
   private toolContext: McpToolContext
   private toolsLoaded = false
 
-  private constructor(auth: McpAuthSuccess, container: AwilixContainer) {
+  private constructor(auth: McpAuthSuccess, container: AwilixContainer, keyAuthenticated = false) {
     this.auth = auth
     this.container = container
     this.toolContext = {
       tenantId: auth.tenantId,
       organizationId: auth.organizationId,
       userId: auth.userId,
+      ...(keyAuthenticated ? { apiKeyId: auth.keyId } : {}),
+      ...(keyAuthenticated && auth.apiKeyUserId ? { apiKeyUserId: auth.apiKeyUserId } : {}),
       container,
       userFeatures: auth.features,
       isSuperAdmin: auth.isSuperAdmin,
@@ -85,7 +87,7 @@ export class InProcessMcpClient implements McpClientInterface {
       throw new Error(`Authentication failed: ${authResult.error}`)
     }
 
-    return new InProcessMcpClient(authResult, container)
+    return new InProcessMcpClient(authResult, container, true)
   }
 
   /**

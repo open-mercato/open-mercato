@@ -56,6 +56,33 @@ export type InboxActionType =
   | 'log_activity'
   | 'draft_reply'
 export type InboxActionStatus = 'pending' | 'processing' | 'accepted' | 'rejected' | 'executed' | 'failed'
+export type InboxEmailAttachmentsStatus = 'pending' | 'processing' | 'completed'
+export type InboxEmailAttachmentDisposition = 'attachment' | 'inline'
+export type InboxEmailAttachmentStatus = 'pending' | 'stored' | 'skipped' | 'failed' | 'released'
+export type InboxEmailAttachmentReason =
+  | 'inline_decoration'
+  | 'too_many'
+  | 'too_large'
+  | 'total_too_large'
+  | 'dangerous_executable'
+  | 'active_content'
+  | 'unguarded_reader'
+  | 'quota_exceeded'
+  | 'partition_unavailable'
+  | 'fetch_failed'
+  | 'store_failed'
+  | 'processing_failed'
+  | 'ingest_timeout'
+
+export interface InboxProposalActionSourceRef {
+  kind: 'email_body' | 'attachment'
+  attachmentId?: string
+  fileName?: string
+  page?: number
+  sheet?: string
+  row?: number
+  snippet: string
+}
 export type InboxDiscrepancyType =
   | 'price_mismatch'
   | 'quantity_mismatch'
@@ -127,8 +154,20 @@ export class InboxSettings {
   properties: ['organizationId', 'tenantId', 'contentHash'],
   options: { where: 'content_hash IS NOT NULL' },
 })
+// Stranded-ingest lookups of the webhook catch-up and the maintenance sweep.
+@Index({ properties: ['attachmentsStatus', 'attachmentsNextRunAt'] })
+@Index({ properties: ['attachmentsStatus', 'attachmentsClaimedAt'] })
+// Deleted emails whose attachments still await release, for the release sweep
+// (the `inbox_ops.email-attachments` access resolver checks the same predicate
+// for the requested ids by primary key). Emails deleted before attachment
+// ingestion existed have neither column set and never enter it.
+@Index({
+  name: 'inbox_emails_attachments_release_pending_idx',
+  expression:
+    `create index "inbox_emails_attachments_release_pending_idx" on "inbox_emails" ("tenant_id", "organization_id") where deleted_at is not null and attachments_released_at is null and (attachments_status is not null or attachments_release_requested_at is not null)`,
+})
 export class InboxEmail {
-  [OptionalProps]?: 'status' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'status' | 'isActive' | 'attachmentsIngestGeneration' | 'attachmentsCurrentGeneration' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -192,6 +231,124 @@ export class InboxEmail {
 
   @Property({ name: 'metadata', type: 'json', nullable: true })
   metadata?: Record<string, unknown> | null
+
+  // Attachment ingestion state. `null` for emails without ingested attachments
+  // and for emails received before ingestion existed. Everything below except
+  // `attachmentsStatus` is internal and never serialized (`api/emails/response.ts`).
+  @Property({ name: 'attachments_status', type: 'text', nullable: true })
+  attachmentsStatus?: InboxEmailAttachmentsStatus | null
+
+  @Property({ name: 'attachments_claim_token', type: 'uuid', nullable: true })
+  attachmentsClaimToken?: string | null
+
+  @Property({ name: 'attachments_claimed_at', type: Date, nullable: true })
+  attachmentsClaimedAt?: Date | null
+
+  @Property({ name: 'attachments_first_failure_at', type: Date, nullable: true })
+  attachmentsFirstFailureAt?: Date | null
+
+  @Property({ name: 'attachments_release_requested_at', type: Date, nullable: true })
+  attachmentsReleaseRequestedAt?: Date | null
+
+  @Property({ name: 'attachments_released_at', type: Date, nullable: true })
+  attachmentsReleasedAt?: Date | null
+
+  // Reserved by every ingest enqueue.
+  @Property({ name: 'attachments_ingest_generation', type: 'integer', nullable: true, default: 0 })
+  attachmentsIngestGeneration: number | null = 0
+
+  // Confirmed once an enqueue succeeded; only the job carrying it may run.
+  @Property({ name: 'attachments_current_generation', type: 'integer', nullable: true, default: 0 })
+  attachmentsCurrentGeneration: number | null = 0
+
+  // When the current ingest job is due to start.
+  @Property({ name: 'attachments_next_run_at', type: Date, nullable: true })
+  attachmentsNextRunAt?: Date | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+// ---------------------------------------------------------------------------
+// InboxEmailAttachment — per-part ingestion ledger of an InboxEmail
+// ---------------------------------------------------------------------------
+
+@Entity({ tableName: 'inbox_email_attachments' })
+@Index({ name: 'inbox_email_attachments_scope_email_idx', properties: ['organizationId', 'tenantId', 'inboxEmailId'] })
+// Live stored parts: the "any stored row exists" check of the unguarded-reader warning
+// (`lib/inboundAttachments.ts`) filters on exactly this predicate.
+@Index({
+  name: 'inbox_email_attachments_stored_idx',
+  expression:
+    `create index "inbox_email_attachments_stored_idx" on "inbox_email_attachments" ("inbox_email_id") where status = 'stored' and deleted_at is null`,
+})
+@Unique({ name: 'inbox_email_attachments_email_part_key_unique', properties: ['inboxEmailId', 'partKey'] })
+export class InboxEmailAttachment {
+  [OptionalProps]?: 'attempts' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'inbox_email_id', type: 'uuid' })
+  inboxEmailId!: string
+
+  // `resend:<attachment id>`
+  @Property({ name: 'part_key', type: 'text' })
+  partKey!: string
+
+  // Original name for display (encrypted); cleared on release.
+  @Property({ name: 'file_name', type: 'text', nullable: true })
+  fileName?: string | null
+
+  @Property({ name: 'declared_mime_type', type: 'text', nullable: true })
+  declaredMimeType?: string | null
+
+  // Sniffed type returned by `attachmentService.createScoped`.
+  @Property({ name: 'mime_type', type: 'text', nullable: true })
+  mimeType?: string | null
+
+  @Property({ name: 'size_bytes', type: 'integer', nullable: true })
+  sizeBytes?: number | null
+
+  @Property({ name: 'content_id', type: 'text', nullable: true })
+  contentId?: string | null
+
+  // Acquisitions of the part interrupted by a crash.
+  @Property({ name: 'attempts', type: 'integer', default: 0 })
+  attempts: number = 0
+
+  // Set before the first provider call for the part, cleared when its attempt ends.
+  @Property({ name: 'in_flight_at', type: Date, nullable: true })
+  inFlightAt?: Date | null
+
+  @Property({ name: 'disposition', type: 'text' })
+  disposition!: InboxEmailAttachmentDisposition
+
+  @Property({ name: 'status', type: 'text' })
+  status!: InboxEmailAttachmentStatus
+
+  @Property({ name: 'reason', type: 'text', nullable: true })
+  reason?: InboxEmailAttachmentReason | null
+
+  // Id of the stored `attachments` row (no ORM relation across modules).
+  @Property({ name: 'attachment_id', type: 'uuid', nullable: true })
+  attachmentId?: string | null
+
+  // Text extracted at upload (encrypted); cleared on release.
+  @Property({ name: 'extracted_text', type: 'text', nullable: true })
+  extractedText?: string | null
 
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
@@ -315,6 +472,10 @@ export class InboxProposalAction {
 
   @Property({ name: 'payload', type: 'json' })
   payload!: Record<string, unknown>
+
+  // Field-level provenance of the proposed values (encrypted; quotes mail content).
+  @Property({ name: 'source_refs', type: 'json', nullable: true })
+  sourceRefs?: InboxProposalActionSourceRef[] | null
 
   @Property({ name: 'status', type: 'text' })
   status: InboxActionStatus = 'pending'

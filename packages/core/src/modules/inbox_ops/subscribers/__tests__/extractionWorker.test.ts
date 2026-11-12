@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import handle from '../extractionWorker'
-import { InboxEmail, InboxProposal, InboxProposalAction, InboxDiscrepancy, InboxSettings } from '../../data/entities'
+import { InboxEmail, InboxEmailAttachment, InboxProposal, InboxProposalAction, InboxDiscrepancy, InboxSettings } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -44,13 +44,19 @@ jest.mock('@open-mercato/core/modules/inbox_ops/lib/priceValidator', () => ({
 }))
 
 const mockFindOneWithDecryption = jest.fn()
+const mockFindWithDecryption = jest.fn()
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt', () => ({
   buildExtractionSystemPrompt: jest.fn(() => Promise.resolve('mock system prompt')),
-  buildExtractionUserPrompt: jest.fn(() => 'mock user prompt'),
+  // The real builder, spied: the worker decides on its `attachmentTextEmitted` report.
+  composeExtractionUserPrompt: jest.fn(
+    jest.requireActual('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt').composeExtractionUserPrompt,
+  ),
+  hasVisiblePromptText: jest.requireActual('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt').hasVisiblePromptText,
 }))
 
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/constants', () => ({
@@ -191,6 +197,7 @@ describe('extractionWorker', () => {
     mockFetchCatalog.mockResolvedValue([])
     mockValidatePrices.mockResolvedValue([])
     mockFindOneWithDecryption.mockResolvedValue(null)
+    mockFindWithDecryption.mockResolvedValue([])
   })
 
   describe('race condition handling', () => {
@@ -903,6 +910,320 @@ describe('extractionWorker', () => {
       )
 
       consoleSpy.mockRestore()
+    })
+  })
+
+  describe('attachments (Phase 2)', () => {
+    const PDF_ID = '11111111-1111-4111-8111-111111111111'
+    const IMAGE_ID = '22222222-2222-4222-8222-222222222222'
+    const FOREIGN_ID = '33333333-3333-4333-8333-333333333333'
+    const mockedPrompt = jest.requireMock('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt') as {
+      composeExtractionUserPrompt: jest.Mock
+    }
+
+    function ledgerRow(overrides: Record<string, unknown>) {
+      return {
+        id: `row-${Math.random().toString(16).slice(2)}`,
+        inboxEmailId: 'email-1',
+        fileName: 'order.pdf',
+        declaredMimeType: 'application/pdf',
+        mimeType: 'application/pdf',
+        disposition: 'attachment',
+        status: 'stored',
+        reason: null,
+        attachmentId: PDF_ID,
+        extractedText: '20 x Widget Alpha at 12.50 EUR',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        ...overrides,
+      }
+    }
+
+    function extractionWithRefs(sourceRefs: unknown[]) {
+      return makeExtractionResult({
+        proposedActions: [
+          {
+            actionType: 'create_order',
+            description: 'Create order for 20 widgets',
+            confidence: 0.9,
+            payloadJson: VALID_ORDER_PAYLOAD,
+            sourceRefs,
+          },
+        ],
+      })
+    }
+
+    it('does not query the ledger and passes only the body budget to the prompt for emails without attachmentsStatus', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: null }))
+      mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockFindWithDecryption).not.toHaveBeenCalled()
+      expect(mockedPrompt.composeExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 204800 })
+    })
+
+    it.each(['abc', '0', '-5', ''])('falls back to the 204800 body budget for INBOX_OPS_MAX_TEXT_SIZE=%p', async (value) => {
+      const saved = process.env.INBOX_OPS_MAX_TEXT_SIZE
+      process.env.INBOX_OPS_MAX_TEXT_SIZE = value
+      try {
+        mockNativeUpdate.mockResolvedValue(1)
+        mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: null }))
+        mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+        await handle(basePayload, mockCtx as any)
+
+        expect(mockedPrompt.composeExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 204800 })
+      } finally {
+        if (saved === undefined) delete process.env.INBOX_OPS_MAX_TEXT_SIZE
+        else process.env.INBOX_OPS_MAX_TEXT_SIZE = saved
+      }
+    })
+
+    it('passes a valid INBOX_OPS_MAX_TEXT_SIZE through as the body budget', async () => {
+      const saved = process.env.INBOX_OPS_MAX_TEXT_SIZE
+      process.env.INBOX_OPS_MAX_TEXT_SIZE = '5000'
+      try {
+        mockNativeUpdate.mockResolvedValue(1)
+        mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: null }))
+        mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+        await handle(basePayload, mockCtx as any)
+
+        expect(mockedPrompt.composeExtractionUserPrompt).toHaveBeenCalledWith(expect.any(String), { maxBodyChars: 5000 })
+      } finally {
+        if (saved === undefined) delete process.env.INBOX_OPS_MAX_TEXT_SIZE
+        else process.env.INBOX_OPS_MAX_TEXT_SIZE = saved
+      }
+    })
+
+    it('loads the ledger scoped to tenant and organization and passes listed rows to the prompt', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: 'completed' }))
+      mockFindWithDecryption.mockResolvedValueOnce([
+        ledgerRow({}),
+        ledgerRow({ fileName: 'setup.exe', mimeType: null, declaredMimeType: 'application/x-msdownload', status: 'skipped', reason: 'dangerous_executable', attachmentId: null, extractedText: null }),
+      ])
+      mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+      await handle(basePayload, mockCtx as any)
+
+      // Released and decorative parts are filtered in SQL.
+      expect(mockFindWithDecryption).toHaveBeenCalledWith(
+        mockEm,
+        InboxEmailAttachment,
+        {
+          inboxEmailId: 'email-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          deletedAt: null,
+          status: { $ne: 'released' },
+          $or: [{ reason: null }, { reason: { $ne: 'inline_decoration' } }],
+        },
+        expect.anything(),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
+      )
+      const [, options] = mockedPrompt.composeExtractionUserPrompt.mock.calls[0]
+      expect(options.attachments).toEqual([
+        { attachmentId: PDF_ID, fileName: 'order.pdf', mimeType: 'application/pdf', status: 'stored', reason: null, extractedText: '20 x Widget Alpha at 12.50 EUR' },
+        { attachmentId: null, fileName: 'setup.exe', mimeType: 'application/x-msdownload', status: 'skipped', reason: 'dangerous_executable', extractedText: null },
+      ])
+      expect(options.maxAttachmentTextChars).toBe(60000)
+      expect(options.maxAttachmentTextCharsPerFile).toBe(20000)
+    })
+
+    it('falls back to the default text budgets when the attachment configuration is invalid', async () => {
+      const saved = {
+        lease: process.env.INBOX_OPS_ATTACHMENT_LEASE_MS,
+        total: process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS,
+      }
+      // A lease below the fetch timeouts fails validation of the whole configuration.
+      process.env.INBOX_OPS_ATTACHMENT_LEASE_MS = '1'
+      process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS = '5'
+      try {
+        mockNativeUpdate.mockResolvedValue(1)
+        const email = makeEmail({ attachmentsStatus: 'completed' })
+        mockFindOneWithDecryption.mockResolvedValueOnce(email)
+        mockFindWithDecryption.mockResolvedValueOnce([ledgerRow({})])
+        mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+        await handle(basePayload, mockCtx as any)
+
+        const [, options] = mockedPrompt.composeExtractionUserPrompt.mock.calls[0]
+        expect(options.maxAttachmentTextChars).toBe(60000)
+        expect(options.maxAttachmentTextCharsPerFile).toBe(20000)
+        expect(mockRunExtraction).toHaveBeenCalledTimes(1)
+        expect(email.status).toBe('processed')
+      } finally {
+        for (const [key, value] of [['INBOX_OPS_ATTACHMENT_LEASE_MS', saved.lease], ['INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS', saved.total]] as const) {
+          if (value === undefined) delete process.env[key]
+          else process.env[key] = value
+        }
+      }
+    })
+
+    it('runs extraction for an empty body when an attachment has text', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail({ rawText: '', rawHtml: null, cleanedText: '', attachmentsStatus: 'completed' })
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindWithDecryption.mockResolvedValueOnce([ledgerRow({})])
+      mockRunExtraction.mockResolvedValueOnce({ object: makeExtractionResult(), totalTokens: 1, modelWithProvider: 'm' })
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockRunExtraction).toHaveBeenCalledTimes(1)
+      expect(email.status).toBe('processed')
+    })
+
+    it('skips the LLM and sets needs_review for an empty body whose stored files have no text', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail({ rawText: '', rawHtml: null, cleanedText: '', attachmentsStatus: 'completed' })
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindWithDecryption.mockResolvedValueOnce([
+        ledgerRow({ fileName: 'scan.jpg', mimeType: 'image/jpeg', attachmentId: IMAGE_ID, extractedText: null }),
+        ledgerRow({ fileName: 'blank.pdf', extractedText: '   ' }),
+      ])
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockRunExtraction).not.toHaveBeenCalled()
+      expect(email.status).toBe('needs_review')
+      expect(email.processingError).toContain('No text content')
+      expect(mockFlush).toHaveBeenCalled()
+      expect(mockCreate).not.toHaveBeenCalledWith(InboxProposal, expect.anything())
+    })
+
+    it('counts text made only of invisible characters as no text, in the body and in stored files', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const invisible = '\u200B\u2060\u00AD\u202E\u{E0041} \uFEFF'
+      const email = makeEmail({ rawText: invisible, rawHtml: null, cleanedText: invisible, attachmentsStatus: 'completed' })
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindWithDecryption.mockResolvedValueOnce([ledgerRow({ fileName: 'blank.pdf', extractedText: invisible })])
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockRunExtraction).not.toHaveBeenCalled()
+      expect(email.status).toBe('needs_review')
+      expect(email.processingError).toContain('No text content')
+    })
+
+    it('skips the LLM and sets needs_review for an empty body whose attachment text is all past the text budget', async () => {
+      const saved = process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS
+      // Too small for any block's tag lines, so every stored file is listed as text="omitted_budget".
+      process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS = '10'
+      try {
+        mockNativeUpdate.mockResolvedValue(1)
+        const email = makeEmail({ rawText: '', rawHtml: null, cleanedText: '', attachmentsStatus: 'completed' })
+        mockFindOneWithDecryption.mockResolvedValueOnce(email)
+        mockFindWithDecryption.mockResolvedValueOnce([ledgerRow({})])
+
+        await handle(basePayload, mockCtx as any)
+
+        const [, options] = mockedPrompt.composeExtractionUserPrompt.mock.calls[0]
+        expect(options.maxAttachmentTextChars).toBe(10)
+        expect(mockedPrompt.composeExtractionUserPrompt.mock.results[0].value).toMatchObject({ attachmentTextEmitted: false })
+        expect(mockedPrompt.composeExtractionUserPrompt.mock.results[0].value.prompt).toContain('text="omitted_budget"')
+        expect(mockRunExtraction).not.toHaveBeenCalled()
+        expect(email.status).toBe('needs_review')
+        expect(email.processingError).toContain('No text content')
+        expect(mockCreate).not.toHaveBeenCalledWith(InboxProposal, expect.anything())
+      } finally {
+        if (saved === undefined) delete process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS
+        else process.env.INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS = saved
+      }
+    })
+
+    it('still fails an empty body when no part was stored', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail({ rawText: '', rawHtml: null, cleanedText: '', attachmentsStatus: 'completed' })
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+      mockFindWithDecryption.mockResolvedValueOnce([
+        ledgerRow({ status: 'skipped', reason: 'too_large', attachmentId: null, extractedText: null }),
+      ])
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockRunExtraction).not.toHaveBeenCalled()
+      expect(email.status).toBe('failed')
+    })
+
+    it('persists sourceRefs that cite stored parts and drops refs to foreign ids', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: 'completed' }))
+      mockFindWithDecryption.mockResolvedValueOnce([
+        ledgerRow({}),
+        ledgerRow({ fileName: 'failed.pdf', status: 'failed', reason: 'fetch_failed', attachmentId: FOREIGN_ID, extractedText: null }),
+      ])
+      mockRunExtraction.mockResolvedValueOnce({
+        object: extractionWithRefs([
+          { kind: 'attachment', attachmentId: PDF_ID, fileName: 'renamed-by-model.pdf', page: 1, snippet: '20 x Widget Alpha' },
+          { kind: 'attachment', attachmentId: FOREIGN_ID, snippet: 'not a stored part' },
+          { kind: 'attachment', attachmentId: '44444444-4444-4444-8444-444444444444', snippet: 'unknown id' },
+          { kind: 'email_body', attachmentId: PDF_ID, snippet: 'please see the attached order' },
+        ]),
+        totalTokens: 1,
+        modelWithProvider: 'm',
+      })
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        InboxProposalAction,
+        expect.objectContaining({
+          actionType: 'create_order',
+          sourceRefs: [
+            { kind: 'attachment', attachmentId: PDF_ID, fileName: 'order.pdf', page: 1, snippet: '20 x Widget Alpha' },
+            { kind: 'email_body', snippet: 'please see the attached order' },
+          ],
+        }),
+      )
+    })
+
+    it('succeeds and drops a malformed ref the lenient model-output schema let through', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: 'completed' }))
+      mockFindWithDecryption.mockResolvedValueOnce([ledgerRow({})])
+      // generateObject validates the model output with extractionOutputSchema; replay that here.
+      const { extractionOutputSchema } = jest.requireActual('@open-mercato/core/modules/inbox_ops/data/validators') as typeof import('../../data/validators')
+      const parsed = extractionOutputSchema.parse(
+        extractionWithRefs([
+          { kind: 'website', snippet: 'unknown kind' },
+          { kind: 'attachment', attachmentId: PDF_ID },
+          'not an object',
+          { kind: 'attachment', attachmentId: PDF_ID, page: 'one', snippet: '20 x Widget Alpha' },
+        ]),
+      )
+      mockRunExtraction.mockResolvedValueOnce({ object: parsed, totalTokens: 1, modelWithProvider: 'm' })
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        InboxProposalAction,
+        expect.objectContaining({
+          actionType: 'create_order',
+          sourceRefs: [{ kind: 'attachment', attachmentId: PDF_ID, fileName: 'order.pdf', snippet: '20 x Widget Alpha' }],
+        }),
+      )
+    })
+
+    it('stores null sourceRefs when every ref is dropped and on auto-generated actions', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      mockFindOneWithDecryption.mockResolvedValueOnce(makeEmail({ attachmentsStatus: null }))
+      mockRunExtraction.mockResolvedValueOnce({
+        object: extractionWithRefs([{ kind: 'attachment', attachmentId: PDF_ID, snippet: 'no ledger' }]),
+        totalTokens: 1,
+        modelWithProvider: 'm',
+      })
+
+      await handle(basePayload, mockCtx as any)
+
+      const actionCalls = mockCreate.mock.calls.filter(([entity]) => entity === InboxProposalAction)
+      expect(actionCalls.length).toBeGreaterThan(0)
+      for (const [, data] of actionCalls) {
+        if ((data as { actionType: string }).actionType === 'draft_reply') continue
+        expect((data as { sourceRefs: unknown }).sourceRefs).toBeNull()
+      }
     })
   })
 })

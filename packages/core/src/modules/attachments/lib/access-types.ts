@@ -16,6 +16,17 @@ export type AttachmentAccessRequirement = Readonly<{
 
 export type ProtectedAttachmentTarget = AttachmentAccessRequirement & Readonly<{
   targetPartition: string
+  /**
+   * `false` keeps rows whose primary owner is `targetEntity` out of the shared
+   * `GET /api/attachments/library` listing (records, count and facets). The
+   * exclusion is persisted on matching partitions, so it outlives the declaring
+   * module. Requires an exact `targetEntity` (no wildcard): rows are matched by
+   * their exact primary `entity_id`, never by an assignment. The exclusion is
+   * global: once any partition (or the registry) lists the entity, its rows are
+   * left out of the library in every partition, not only in `targetPartition`.
+   * Omitted or `true` keeps today's behavior.
+   */
+  listInLibrary?: boolean
 }>
 
 export type AttachmentAccessRecord = {
@@ -75,4 +86,6 @@ export type AttachmentAccessResolverEntry = {
   moduleId: string
   resolvers: readonly unknown[]
   protectedTargets?: readonly unknown[]
+  /** The module's direct attachment readers evaluate owner access through `evaluateAttachmentRowAccess`. */
+  enforcesOwnerAccessOnDirectReads?: boolean
 }

@@ -15,6 +15,7 @@ const EMAIL_CONTENT_FIELDS = [
   'threadMessages',
   'detectedLanguage',
   'attachmentIds',
+  'attachmentsStatus',
   'isActive',
   'metadata',
   'organizationId',
@@ -22,7 +23,25 @@ const EMAIL_CONTENT_FIELDS = [
   'createdAt',
   'updatedAt',
   'deletedAt',
-] as const
+] as const satisfies readonly (keyof InboxEmail)[]
+
+// Computed list fields that are email content too: `null` for callers without
+// `inbox_ops.proposals.view`, like `EMAIL_CONTENT_FIELDS`.
+export const EMAIL_LIST_CONTENT_FIELDS = ['attachmentsRetryable'] as const
+
+// Attachment ingest, claim and release bookkeeping. Never serialized, whatever the
+// caller's features: they are worker coordination state, not email data.
+export const EMAIL_INTERNAL_FIELDS = [
+  'attachmentsClaimToken',
+  'attachmentsClaimedAt',
+  'attachmentsFirstFailureAt',
+  'attachmentsReleaseRequestedAt',
+  'attachmentsReleasedAt',
+  'attachmentsIngestGeneration',
+  'attachmentsCurrentGeneration',
+  'attachmentsNextRunAt',
+] as const satisfies readonly (keyof InboxEmail)[]
+
 
 export async function canViewEmailContent(ctx: RequestContext): Promise<boolean> {
   try {
@@ -40,12 +59,29 @@ export async function canViewEmailContent(ctx: RequestContext): Promise<boolean>
 export function serializeInboxEmail(
   email: InboxEmail,
   includeContent: boolean,
-): InboxEmail | Record<string, unknown> {
-  if (includeContent) return email
-
-  const redacted: Record<string, unknown> = { ...email }
-  for (const field of EMAIL_CONTENT_FIELDS) {
-    redacted[field] = null
+): Record<string, unknown> {
+  const serialized: Record<string, unknown> = { ...email }
+  for (const field of EMAIL_INTERNAL_FIELDS) {
+    delete serialized[field]
   }
-  return redacted
+  if (includeContent) return serialized
+
+  for (const field of EMAIL_CONTENT_FIELDS) {
+    serialized[field] = null
+  }
+  return serialized
+}
+
+/** A processing-log row: the email plus the computed `attachmentsRetryable`, redacted like the content. */
+export function serializeInboxEmailListItem(
+  email: InboxEmail,
+  includeContent: boolean,
+  computed: { attachmentsRetryable: boolean },
+): Record<string, unknown> {
+  const serialized = serializeInboxEmail(email, includeContent)
+  serialized.attachmentsRetryable = computed.attachmentsRetryable
+  if (!includeContent) {
+    for (const field of EMAIL_LIST_CONTENT_FIELDS) serialized[field] = null
+  }
+  return serialized
 }

@@ -1,3 +1,4 @@
+import { didBootstrapRegistrationsFail } from '@open-mercato/shared/lib/bootstrap/bootstrapRegistrations'
 import { matchesEntity } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { attachmentAccessResolverSchema, protectedAttachmentTargetSchema } from '../data/validators'
 import type {
@@ -20,19 +21,28 @@ type Registry = {
   invalid: boolean
   resolvers: readonly RegisteredResolver[]
   protectedTargets: readonly ProtectedAttachmentTarget[]
+  ownerAccessEnforcingModules: readonly string[]
 }
 
-const emptyRegistry: Registry = Object.freeze({ invalid: false, resolvers: [], protectedTargets: [] })
+const emptyRegistry: Registry = Object.freeze({
+  invalid: false, resolvers: [], protectedTargets: [], ownerAccessEnforcingModules: [],
+})
+
+const invalidRegistry: Registry = Object.freeze({ ...emptyRegistry, invalid: true })
 
 export function getAttachmentAccessRegistry(): Registry {
+  if (didBootstrapRegistrationsFail()) return invalidRegistry
   return (globalThis as Record<string, unknown>)[GLOBAL_KEY] as Registry | undefined ?? emptyRegistry
 }
 
 export function registerAttachmentAccessResolvers(entries: readonly AttachmentAccessResolverEntry[]): void {
   const globalState = globalThis as Record<string, unknown>
-  globalState[GLOBAL_KEY] = { invalid: true, resolvers: [], protectedTargets: [] } satisfies Registry
+  globalState[GLOBAL_KEY] = {
+    invalid: true, resolvers: [], protectedTargets: [], ownerAccessEnforcingModules: [],
+  } satisfies Registry
   const resolvers: RegisteredResolver[] = []
   const protectedTargets: ProtectedAttachmentTarget[] = []
+  const ownerAccessEnforcingModules: string[] = []
   const ids = new Set<string>()
   for (const [moduleOrder, entry] of entries.entries()) {
     if (typeof entry.moduleId !== 'string' || !entry.moduleId || !Array.isArray(entry.resolvers)) {
@@ -58,6 +68,7 @@ export function registerAttachmentAccessResolvers(entries: readonly AttachmentAc
       }
       protectedTargets.push(Object.freeze(target))
     }
+    if (entry.enforcesOwnerAccessOnDirectReads === true) ownerAccessEnforcingModules.push(entry.moduleId)
   }
   resolvers.sort((left, right) => (
     (left.priority ?? 50) - (right.priority ?? 50)
@@ -68,6 +79,7 @@ export function registerAttachmentAccessResolvers(entries: readonly AttachmentAc
     invalid: false,
     resolvers: Object.freeze(resolvers),
     protectedTargets: Object.freeze(protectedTargets),
+    ownerAccessEnforcingModules: Object.freeze(ownerAccessEnforcingModules),
   }) satisfies Registry
 }
 

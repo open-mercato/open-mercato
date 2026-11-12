@@ -96,10 +96,25 @@ function normalizeText(text: string): string {
     .trim()
 }
 
-function generateContentHash(subject: string, from: string, text: string): string {
+const ATTACHMENT_FINGERPRINT_HASH_PREFIX = 'inbox_ops.content_hash.v2\n'
+
+/**
+ * Without attachment ids the hash is exactly the original one, so deduplication of existing mail
+ * and of mail whose only parts are inline logos is unchanged. With them, the sorted, distinct
+ * provider attachment ids are hashed together with the normalized envelope (spec D13). The
+ * normalized envelope never contains a newline, so the prefixed form cannot collide with it.
+ */
+function generateContentHash(subject: string, from: string, text: string, attachmentIds?: readonly string[]): string {
   const input = `${subject}|${from}|${text.slice(0, 500)}`
   const normalized = input.toLowerCase().replace(/\s+/g, ' ').trim()
-  return createHash('sha256').update(normalized).digest('hex')
+  const fingerprints = Array.from(new Set((attachmentIds ?? []).filter((id) => id.length > 0))).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+  if (fingerprints.length === 0) {
+    return createHash('sha256').update(normalized).digest('hex')
+  }
+  return createHash('sha256')
+    .update(ATTACHMENT_FINGERPRINT_HASH_PREFIX)
+    .update(JSON.stringify([normalized, fingerprints]))
+    .digest('hex')
 }
 
 function parseAddressField(value: string | undefined | null): { name?: string; email: string } {
@@ -225,6 +240,9 @@ export function parseInboundEmail(payload: {
   replyTo?: string
   inReplyTo?: string
   references?: string | string[]
+}, options?: {
+  /** Provider attachment ids of the email's non-decorative parts (`lib/inboundAttachments.ts`). */
+  attachmentIds?: readonly string[]
 }): ParsedEmail {
   const fromParsed = parseAddressField(payload.from)
   const toParsed = parseAddressListField(payload.to)
@@ -253,6 +271,7 @@ export function parseInboundEmail(payload: {
     subject,
     fromParsed.email,
     textContent,
+    options?.attachmentIds,
   )
 
   const references = payload.references

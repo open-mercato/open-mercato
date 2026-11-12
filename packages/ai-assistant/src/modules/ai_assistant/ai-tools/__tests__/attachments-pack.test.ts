@@ -9,12 +9,15 @@ const findWithDecryptionMock = jest.fn()
 const findOneWithDecryptionMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
+  findWithDecryption: (em: unknown, entity: unknown, ...rest: unknown[]) => (
+    (entity as { name?: string } | undefined)?.name === 'AttachmentPartition' ? Promise.resolve([]) : findWithDecryptionMock(em, entity, ...rest)
+  ),
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   Attachment: class AttachmentStub {},
+  AttachmentPartition: class AttachmentPartition {},
 }))
 
 jest.mock('@open-mercato/core/modules/attachments/lib/metadata', () => ({
@@ -54,13 +57,15 @@ type Ctx = {
 
 function makeCtx(overrides: Partial<Ctx> = {}): {
   ctx: Ctx
-  em: { persist: jest.Mock; flush: jest.Mock }
+  em: { persist: jest.Mock; flush: jest.Mock; transactional: jest.Mock }
 } {
   const em: any = {
     persist: jest.fn(function (this: any) {
       return em
     }),
     flush: jest.fn().mockResolvedValue(undefined),
+    find: jest.fn().mockResolvedValue([]),
+    transactional: jest.fn(async (work: (manager: unknown) => unknown) => work(em)),
   }
   const container = {
     resolve: jest.fn((name: string) => {
@@ -249,6 +254,14 @@ describe('attachments.transfer_record_attachments', () => {
     })
     expect(em.persist).toHaveBeenCalledWith([row])
     expect(em.flush).toHaveBeenCalled()
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(findWithDecryptionMock).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ refresh: true, lockMode: expect.anything() }),
+      expect.anything(),
+    )
   })
 
   it('returns transferred: 0 when no matching attachments exist', async () => {

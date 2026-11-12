@@ -180,7 +180,7 @@ Send a test email to verify everything works end-to-end:
 2. Resend sends a webhook (`email.received` event) with Svix signature headers
 3. Open Mercato verifies the Svix signature using your `RESEND_WEBHOOK_SIGNING_SECRET`
 4. The handler fetches the full email content via Resend's API (using `RESEND_API_KEY`)
-5. The email is parsed and queued for AI extraction
+5. The email is parsed and queued for AI extraction. When it carries attachments, the attachment-ingest worker first stores them (see [Email Attachments](#email-attachments)) and queues the extraction afterwards
 6. A proposal is created with extracted actions
 
 ### Troubleshooting
@@ -195,6 +195,80 @@ Send a test email to verify everything works end-to-end:
 | Proposal created but no products matched | Your catalog is empty or product names differ | Add products to the catalog; the system does fuzzy matching on names and SKUs |
 | HTTP 429 from webhook | Rate limit exceeded | Default limits: 10/min, 100/hour, 1000/day per inbox address |
 | Same email not processed twice | Deduplication by message ID or content hash | This is intentional — each unique email is only processed once |
+| HTTP 500 from webhook for an email with attachments | The attachment-ingest job could not be queued | Check the queue backend; Resend redelivers the webhook and the email is stored once |
+| Attachments stay `pending` | No worker processes `inbox-ops-attachment-ingest`, or Resend is unreachable | Run the queue workers (`AUTO_SPAWN_WORKERS=true` or `yarn mercato queue worker --all`); after fixing the cause, click **Retry** on the email's row in the Processing Log |
+| Attachments stay `pending`; errors `inbox_ops.attachment_store_failed` with code `access_registry_invalid` | The worker's attachments access registry is invalid (its bootstrap registrations failed to load), so it cannot check for unguarded readers and stores nothing | Fix the bootstrap error in the worker logs and restart the workers. The parts are retried meanwhile; after 6 hours they are marked `ingest_timeout`, which **Retry** re-fetches |
+| Every part `skipped` with `unguarded_reader` | An enabled module reads attachment rows without owner checks (enterprise `agent_orchestrator`) | Expected: ingestion stays off while such a module is enabled; see [Email Attachments](#email-attachments) |
+
+## Email Attachments
+
+Attachments of mail received through Resend are stored with the email, so reviewers can open the supplier's offer or the customer's purchase order next to the proposal. Mail received through the custom HMAC webhook carries no attachments.
+
+**What happens to an attachment**
+
+1. The webhook stores the email with its attachments `pending` and queues the `inbox_ops:attachment-ingest` worker. Small inline images with a Content-ID (signature logos, tracking pixels, below `INBOX_OPS_INLINE_IMAGE_MIN_BYTES`) are recorded as decoration and never fetched.
+2. The worker downloads each part from Resend and stores it as a private attachment owned by the email. Text is extracted from PDF, Word (`.docx`) and plain-text files and kept encrypted with the email; it is never copied into the attachment record and never sent to OCR.
+3. Only then is `inbox_ops.email.received` emitted, so the AI extraction and the warranty-claim intake run once the files are in place. Emails without attachments are processed exactly as before.
+
+A part that cannot be stored never loses the email. It is recorded with a status and a reason:
+
+| Status | Reasons |
+|--------|---------|
+| `skipped` | `inline_decoration`, `too_many`, `too_large`, `total_too_large`, `dangerous_executable`, `active_content`, `unguarded_reader` |
+| `failed` | `quota_exceeded`, `partition_unavailable`, `fetch_failed`, `store_failed`, `processing_failed`, `ingest_timeout` |
+| `released` | The email was deleted and its files freed |
+
+XML and HTML files, including XML e-invoices, are refused by the attachments module as active content.
+
+Deduplication of an email with attachments also compares Resend's attachment ids, so two attachment-only emails with the same sender and subject are kept apart. A webhook redelivery is still recognised as a duplicate; the same message forwarded twice gets new ids from Resend and is stored twice.
+
+**Who can read the files.** Exactly the users who may read the email: `inbox_ops.proposals.view` is required on every attachment route (download, image, record list, transfer), in the AI attachment tools and AI chat, and in Messages linking. Inbound files never appear in the shared attachments library, and nobody can move or delete them by hand; deleting the email releases them and their quota.
+
+**In the backend.**
+
+- **Processing Log** (`/backend/inbox-ops/log`): an email received with attachments has a **Show attachments** row action that opens a dialog listing every part with its name, type and size, a **Download** button for stored files, and a status badge with the reason for parts that were skipped or failed (for example "Executable files are not stored"). **Delete email** (`inbox_ops.proposals.manage`) asks for confirmation (`Cmd/Ctrl+Enter` confirms, `Escape` cancels), deletes the email and releases its files and quota; if someone else changed the email after you opened the log, a conflict message asks you to reload instead. **Retry** appears for failed emails, emails that need review and emails whose attachments can be fetched again (still `pending`, `processing` with a claim past `INBOX_OPS_ATTACHMENT_LEASE_MS` (a stranded ingest; one a worker is still fetching shows no Retry), or finished with `ingest_timeout`, `quota_exceeded` or `partition_unavailable` parts); on an already processed email it first confirms that the current proposals are retired.
+- **Proposal page**: the left column shows an **Attachments** section under the email thread with the same list and downloads, and a **Delete email** button in the header. Proposed actions show **Sources** chips, one per place the AI took values from ("Email body", or the file name with page, sheet or row); hovering or focusing a chip shows the quoted snippet.
+- **Messages**: the mirrored inbox message shows an **Attachments** section with the email's files to readers who may read the email; for readers who may not read the email (including signed-out readers of a public message link), the section is hidden.
+
+**Listing an email's attachments.** `GET /api/inbox_ops/emails/{id}/attachments` (`inbox_ops.proposals.view`) returns every part with its status, reason and, for stored files, a download `url`. `GET /api/inbox_ops/emails/{id}` fills `attachmentIds` and `attachmentsStatus` (`pending`, `processing`, `completed`).
+
+**Attachments in extraction.** The AI extraction reads the text of the stored files next to the email body, one delimited block per file, within `INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS` in total and `INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS_PER_FILE` per file. Files without text (images, scans, archives) are listed by name and type only, skipped and failed parts with their reason, and inline decorations not at all. Attachment text is treated as untrusted data, like the body. An email with an empty body is extracted from its attachments; when none of its stored files has text (or all of it falls outside the text budget), the AI call is skipped and the email is set to `needs_review` instead of `failed`. Each proposed action can carry `sourceRefs` (`kind` `email_body` or `attachment`, with `attachmentId`, `fileName` and a short `snippet`), returned with the actions by `GET /api/inbox_ops/proposals/{id}`; a reference to a file that is not a stored part of the email is dropped. Page and sheet numbers are best-effort.
+
+**Retries.** Provider and network errors (including a download URL that is not `https:`, after redirects) are retried automatically, first by the queue and then every `INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS`, for up to 6 hours after the first failure; parts still missing after that are marked `ingest_timeout` and the email continues to extraction. An email whose attachments are `pending` or stranded in `processing` (claim older than `INBOX_OPS_ATTACHMENT_LEASE_MS`), or that finished with `ingest_timeout`, `quota_exceeded` or `partition_unavailable` parts, can be retried with `POST /api/inbox_ops/emails/{id}/reprocess` (`inbox_ops.proposals.manage`; the **Retry** button in the Processing Log), which starts a fresh 6-hour window and re-fetches only those parts. The next webhook for the same inbox also picks up emails whose job was lost.
+
+**Scheduler.** With the scheduler module installed, a system schedule runs `inbox_ops:attachment-maintenance` every 15 minutes: it re-queues stranded ingests and retries releases of deleted emails that failed. Without the scheduler, stranded ingests recover through the next webhook or a manual retry, and a release that failed waits until the scheduler is enabled; the files stay unreadable in the meantime.
+
+**Quota.** Stored files count against the tenant attachment quota (512 MB by default). Deleting an email frees its files.
+
+**Enterprise builds.** While an enabled module reads attachment rows without owner checks (today the enterprise `agent_orchestrator`), no inbound file is stored: parts are recorded as `skipped` with `unguarded_reader` and the email is processed at once. Do not enable such a module in an instance that already holds inbound attachments.
+
+**Configuration**
+
+```env
+# Kill switch for new mail (default: true); emails already pending still finish
+# INBOX_OPS_ATTACHMENTS_ENABLED=true
+# Parts stored per email (default: 20)
+# INBOX_OPS_MAX_ATTACHMENTS=20
+# Total stored bytes per email (default: 26214400 = 25 MiB); the per-file cap is OM_ATTACHMENT_MAX_UPLOAD_MB
+# INBOX_OPS_MAX_ATTACHMENTS_TOTAL_BYTES=26214400
+# Inline images with a Content-ID below this size count as decoration (default: 16384)
+# INBOX_OPS_INLINE_IMAGE_MIN_BYTES=16384
+# Timeout per Resend API call and per download (default: 30000 ms)
+# INBOX_OPS_ATTACHMENT_FETCH_TIMEOUT_MS=30000
+# Ingest claim lease; must exceed 4x the fetch timeout and not exceed 1800000 (default: 1800000 ms)
+# INBOX_OPS_ATTACHMENT_LEASE_MS=1800000
+# Delay before the next automatic retry after the queue's attempts; at least 60000 (default: 900000 ms)
+# INBOX_OPS_ATTACHMENT_RETRY_DELAY_MS=900000
+# Crash-interrupted attempts per part; the last one stores the file without text (default: 3)
+# INBOX_OPS_ATTACHMENT_MAX_PART_ATTEMPTS=3
+# Attachment text budget for extraction, in total and per file (defaults: 60000 / 20000)
+# INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS=60000
+# INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS_PER_FILE=20000
+```
+
+A malformed value falls back to its default and is reported once per process (error code `inbox_ops.attachment_config_invalid`), so a typo never fails the webhook or stops the maintenance sweep. Two fallbacks favor safety: a malformed `INBOX_OPS_ATTACHMENTS_ENABLED` turns ingestion off, and an invalid lease or fetch timeout (malformed, or a lease outside the allowed range) resets both to their defaults.
+
+An email records at most 100 attachment parts beyond the ones it stores (at most `INBOX_OPS_MAX_ATTACHMENTS`); further decorative or skipped parts are only counted. The extraction prompt lists at most 25 files without text and summarizes the rest in one line.
 
 ## Local Development Setup
 
@@ -435,3 +509,5 @@ RESEND_WEBHOOK_SIGNING_SECRET=whsec_...         # for real Resend webhooks
 ```
 
 At least one of these must be configured for the webhook endpoint to be active.
+
+The integration harness replaces Resend with a test-only stub in the `example` module (`/api/example/resend-stub/*`), enabled by `OM_ENABLE_RESEND_STUB=true` together with a `re_stub_` API key and `RESEND_BASE_URL` pointing at the stub. `INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS=true` lets the attachment specs store files while enterprise modules are enabled, and is honored only together with the stub flag and a `re_stub_` API key. Never set either flag outside a test environment.

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { InboxProposalActionSourceRef } from './entities'
 
 const uuid = () => z.string().uuid()
 const coerceNumericString = z.preprocess(
@@ -179,6 +180,58 @@ export const extractedParticipantSchema = z.object({
   role: z.enum(['buyer', 'seller', 'logistics', 'finance', 'other']),
 })
 
+/**
+ * Field provenance as the LLM returns it. Deliberately lenient: a model that overshoots a bound or
+ * returns a malformed ref must not fail the whole `generateObject` extraction. A bad optional field
+ * is dropped (`.catch(undefined)`); a ref whose `kind`/`snippet` is unusable, or that is not an object,
+ * parses to `undefined` and is dropped by the worker's normalizer (`lib/sourceRefs.ts`), which turns
+ * the survivors into {@link inboxProposalActionSourceRefSchema} before persisting. `.catch` is
+ * transparent to the JSON-schema conversion, so the model still sees the full ref shape.
+ */
+export const extractedSourceRefSchema = z
+  .object({
+    kind: z.enum(['email_body', 'attachment']),
+    attachmentId: z.string().optional().catch(undefined).describe('attachmentId attribute of the cited <attachment> block'),
+    fileName: z.string().optional().catch(undefined),
+    page: z.number().optional().catch(undefined),
+    sheet: z.string().optional().catch(undefined),
+    row: z.number().optional().catch(undefined),
+    snippet: z.string().describe('Short verbatim quote of the source text'),
+  })
+  .optional()
+  .catch(undefined)
+
+export const INBOX_SOURCE_REFS_MAX_PER_ACTION = 10
+export const INBOX_SOURCE_REF_SNIPPET_MAX_CHARS = 500
+export const INBOX_SOURCE_REF_FILE_NAME_MAX_CHARS = 255
+export const INBOX_SOURCE_REF_SHEET_MAX_CHARS = 100
+
+/** Stored shape of `inbox_proposal_actions.source_refs` entries (bounded). */
+export const inboxProposalActionSourceRefSchema = z.object({
+  kind: z.enum(['email_body', 'attachment']),
+  attachmentId: z.guid().optional(),
+  fileName: z.string().min(1).max(INBOX_SOURCE_REF_FILE_NAME_MAX_CHARS).optional(),
+  page: z.number().int().positive().optional(),
+  sheet: z.string().min(1).max(INBOX_SOURCE_REF_SHEET_MAX_CHARS).optional(),
+  row: z.number().int().positive().optional(),
+  snippet: z.string().min(1).max(INBOX_SOURCE_REF_SNIPPET_MAX_CHARS),
+})
+
+export const inboxProposalActionSourceRefsSchema = z
+  .array(inboxProposalActionSourceRefSchema)
+  .max(INBOX_SOURCE_REFS_MAX_PER_ACTION)
+
+export type InboxProposalActionSourceRefInput = z.infer<typeof inboxProposalActionSourceRefSchema>
+
+/** Type-level only: `true` when `A` and `B` are the same type, else `false`. */
+type IsSameType<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
+type AssertTrue<T extends true> = T
+/**
+ * Compile-time check, no runtime code: `tsc` fails here when the entity's hand-written
+ * `InboxProposalActionSourceRef` drifts from the type of `inboxProposalActionSourceRefSchema`.
+ */
+export type InboxProposalActionSourceRefMatchesSchema = AssertTrue<IsSameType<InboxProposalActionSourceRef, InboxProposalActionSourceRefInput>>
+
 export const extractedActionSchema = z.object({
   actionType: z.enum([
     'create_order',
@@ -195,6 +248,11 @@ export const extractedActionSchema = z.object({
   confidence: z.number(),
   requiredFeature: z.string().optional(),
   payloadJson: z.string().describe('JSON-encoded payload object for this action'),
+  sourceRefs: z
+    .array(extractedSourceRefSchema)
+    .optional()
+    .catch(undefined)
+    .describe('Where the proposed values were found: the email body or an attachment'),
 })
 
 export const extractedDiscrepancySchema = z.object({
@@ -259,6 +317,110 @@ export const updateSettingsSchema = z.object({
   // this inbox to this secret; null/empty clears it and reverts to the global key.
   webhookSecret: z.string().trim().min(16).max(256).nullable().optional(),
 })
+
+// ---------------------------------------------------------------------------
+// Inbound attachment metadata (Resend `receiving.get()` → `attachments[]`)
+// ---------------------------------------------------------------------------
+
+/** Largest `inbox_email_attachments.size_bytes` (a Postgres `int`). */
+export const INBOUND_ATTACHMENT_SIZE_MAX = 2_147_483_647
+
+/** A well-formed metadata entry. */
+export const resendInboundAttachmentStrictSchema = z.object({
+  id: z.string().trim().min(1),
+  filename: z.string().nullish(),
+  size: z.number().int().nonnegative().max(INBOUND_ATTACHMENT_SIZE_MAX),
+  content_type: z.string().nullish(),
+  content_id: z.string().nullish(),
+  content_disposition: z.string().nullish(),
+})
+
+/**
+ * A metadata entry as the webhook reads it: only the provider `id` is required, because it names
+ * the part to fetch and enters the content hash (D13). Any other malformed field degrades to
+ * `null` (an unknown `size` is reserved at the per-file maximum against the total limit). A `size`
+ * past the `int` column degrades too, so it cannot fail the ledger insert; the per-file limit then
+ * applies to the downloaded bytes.
+ */
+export const resendInboundAttachmentSchema = z.object({
+  id: z.string().trim().min(1),
+  filename: z.string().nullish().catch(null),
+  size: z.number().int().nonnegative().max(INBOUND_ATTACHMENT_SIZE_MAX).nullable().catch(null),
+  content_type: z.string().nullish().catch(null),
+  content_id: z.string().nullish().catch(null),
+  content_disposition: z.string().nullish().catch(null),
+})
+
+export type ResendInboundAttachment = z.infer<typeof resendInboundAttachmentSchema>
+
+/** `inbox_emails.metadata.attachmentIngest`: where the ingest worker fetches the parts from. */
+export const inboxEmailAttachmentIngestMetadataSchema = z.object({
+  provider: z.literal('resend'),
+  providerEmailId: z.string().trim().min(1),
+  /** Metadata entries past the per-email ledger cap, not recorded as ledger rows. */
+  omittedParts: z.number().int().positive().optional(),
+})
+
+export type InboxEmailAttachmentIngestMetadata = z.infer<typeof inboxEmailAttachmentIngestMetadataSchema>
+
+/** Payload of an `inbox-ops-attachment-ingest` job: ids and the ingest generation, nothing else. */
+export const inboundAttachmentIngestJobSchema = z.object({
+  emailId: z.guid(),
+  tenantId: z.guid(),
+  organizationId: z.guid(),
+  generation: z.number().int().positive(),
+})
+
+export type InboundAttachmentIngestJob = z.infer<typeof inboundAttachmentIngestJobSchema>
+
+// ---------------------------------------------------------------------------
+// Attachment list API (`GET /api/inbox_ops/emails/[id]/attachments`)
+// ---------------------------------------------------------------------------
+
+export const inboxEmailIdParamsSchema = z.object({
+  id: z.guid(),
+})
+
+export const inboxEmailAttachmentDispositionSchema = z.enum(['attachment', 'inline'])
+
+export const inboxEmailAttachmentStatusSchema = z.enum(['pending', 'stored', 'skipped', 'failed', 'released'])
+
+export const inboxEmailAttachmentReasonSchema = z.enum([
+  'inline_decoration',
+  'too_many',
+  'too_large',
+  'total_too_large',
+  'dangerous_executable',
+  'active_content',
+  'unguarded_reader',
+  'quota_exceeded',
+  'partition_unavailable',
+  'fetch_failed',
+  'store_failed',
+  'processing_failed',
+  'ingest_timeout',
+])
+
+export const inboxEmailAttachmentListItemSchema = z.object({
+  id: z.guid(),
+  partKey: z.string(),
+  fileName: z.string().nullable(),
+  mimeType: z.string().nullable(),
+  sizeBytes: z.number().int().nonnegative().nullable(),
+  disposition: inboxEmailAttachmentDispositionSchema,
+  status: inboxEmailAttachmentStatusSchema,
+  reason: inboxEmailAttachmentReasonSchema.nullable(),
+  attachmentId: z.guid().nullable(),
+  url: z.string().nullable(),
+})
+
+export type InboxEmailAttachmentListItem = z.infer<typeof inboxEmailAttachmentListItemSchema>
+
+export const inboxEmailAttachmentListResponseSchema = z.object({
+  items: z.array(inboxEmailAttachmentListItemSchema),
+})
+
+export type InboxEmailAttachmentListResponse = z.infer<typeof inboxEmailAttachmentListResponseSchema>
 
 // ---------------------------------------------------------------------------
 // API Query Schemas

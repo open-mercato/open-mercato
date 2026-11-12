@@ -42,6 +42,15 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 
 jest.mock('../ocrQueue', () => ({ requestOcrProcessing: jest.fn(async () => undefined) }))
 
+const mockClearThumbnailCache = jest.fn(async (_partitionCode: string, _attachmentId: string) => undefined)
+jest.mock('../thumbnailCache', () => ({
+  clearAttachmentThumbnailCache: (partitionCode: string, attachmentId: string) => mockClearThumbnailCache(partitionCode, attachmentId),
+}))
+
+jest.mock('../textExtraction', () => ({
+  extractAttachmentContent: jest.fn(async () => 'delegated extracted text'),
+}))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) =>
     em.findOne(...args),
@@ -181,6 +190,7 @@ function createDelegatingHarness() {
     store: jest.fn(async () => ({ storagePath: 'tenant-1/org-1/upload.txt' })),
     deleteStrict: jest.fn(async () => undefined),
     delete: jest.fn(async () => undefined),
+    toLocalPath: jest.fn(async () => ({ filePath: '/tmp/upload.txt', cleanup: async () => undefined })),
   }
   const transactionEm = {
     create: jest.fn((_entity: unknown, values: Record<string, unknown>) => values),
@@ -293,6 +303,114 @@ describe('DefaultAttachmentService', () => {
     const { service } = createHarness({ uploadError })
 
     await expectStatus(service.createScoped(createInput()), status)
+  })
+
+  it.each([
+    ['dangerous_executable', 400, 'Executable file types are not allowed as attachments.'],
+    ['max_upload_size', 413, 'Attachment exceeds the maximum upload size.'],
+    ['active_content', 400, 'Active content uploads are not allowed.'],
+    ['partition_unavailable', 403, 'Attachment partition is not available for this scope.'],
+    ['quota_exceeded', 413, 'Attachment storage quota exceeded for this tenant.'],
+    ['quota_target_exists', 409, 'The target storage path already exists.'],
+    ['quota_unavailable', 500, 'Storage quota accounting is unavailable.'],
+    ['quota_recovery_unsupported', 500, 'Storage driver cannot participate in quota recovery.'],
+    ['storage_failed', 500, 'Failed to store the attachment file.'],
+    ['persistence_failed', 500, 'Failed to persist attachment.'],
+  ] as const)('puts the %s code next to the translated error', async (code, status, message) => {
+    const uploadError = Object.assign(new Error(code), {
+      code,
+      status,
+      [Symbol.for('@open-mercato/ScopedAttachmentUploadError')]: true,
+    })
+    const { service } = createHarness({ uploadError })
+
+    await expect(service.createScoped(createInput())).rejects.toMatchObject({
+      status,
+      body: { error: message, code },
+    })
+  })
+
+  it('puts dangerous_executable and max_upload_size codes on validateUpload failures', () => {
+    const { service } = createHarness()
+    const capture = (input: Parameters<typeof service.validateUpload>[0]) => {
+      try {
+        service.validateUpload(input)
+      } catch (error) {
+        return error as CrudHttpError
+      }
+      throw new Error('validateUpload accepted the input')
+    }
+    expect(capture({ fileName: 'invoice.pdf.exe' })).toMatchObject({
+      status: 400, body: { error: 'Executable file types are not allowed as attachments.', code: 'dangerous_executable' },
+    })
+    process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = '1'
+    expect(capture({ fileSize: 2 * 1024 * 1024 })).toMatchObject({
+      status: 413, body: { error: 'Attachment exceeds the maximum upload size.', code: 'max_upload_size' },
+    })
+    expect(capture({ contentLength: String(1024 * 1024 * 1024) })).toMatchObject({
+      status: 413, body: { code: 'max_upload_size' },
+    })
+  })
+
+  it('reports the code from the createScoped pre-upload validation too', async () => {
+    const { service, scopedUpload } = createHarness()
+
+    await expect(service.createScoped(createInput({ fileName: 'tool.exe' }))).rejects.toMatchObject({
+      status: 400, body: { code: 'dangerous_executable' },
+    })
+    expect(scopedUpload.upload).not.toHaveBeenCalled()
+  })
+
+  it('leaves the default text-extraction mode to the upload service and returns no content', async () => {
+    const { service, scopedUpload } = createHarness()
+
+    const created = await service.createScoped(createInput())
+
+    expect(scopedUpload.upload).toHaveBeenCalledWith(expect.objectContaining({ textExtraction: undefined }))
+    expect(created).not.toHaveProperty('content')
+  })
+
+  it('passes a null text-extraction mode through, so the upload service rejects it instead of defaulting', async () => {
+    const { service } = createDelegatingHarness()
+
+    await expect(
+      service.createScoped(createInput({ textExtraction: null as unknown as 'partition' })),
+    ).rejects.toThrow(TypeError)
+  })
+
+  it('returns the extracted text in return mode and still hands it to the caller persistLink', async () => {
+    const { service, scopedUpload, em } = createHarness()
+    scopedUpload.upload.mockImplementation(async (uploadInput: Record<string, unknown>) => {
+      const link = uploadInput.persistLink as (tx: unknown, id: string, extras?: { content: string | null }) => Promise<void>
+      await link(em, 'attachment-1', { content: 'invoice total 42' })
+      return attachment({ content: null })
+    })
+    const persistLink = jest.fn(async () => undefined)
+
+    const created = await service.createScoped(createInput({ textExtraction: 'return', persistLink }))
+
+    expect(scopedUpload.upload).toHaveBeenCalledWith(expect.objectContaining({ textExtraction: 'return' }))
+    expect(persistLink).toHaveBeenCalledWith(em, 'attachment-1', { content: 'invoice total 42' })
+    expect(created.content).toBe('invoice total 42')
+  })
+
+  it('returns content in return mode without a caller persistLink, through the real upload service', async () => {
+    const { service, em } = createDelegatingHarness()
+
+    const created = await service.createScoped(createInput({ textExtraction: 'return' }))
+
+    expect(created.content).toBe('delegated extracted text')
+    const transactional = (em as unknown as { transactional: jest.Mock }).transactional
+    expect(transactional).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns no content in none mode', async () => {
+    const { service, scopedUpload } = createHarness()
+
+    const created = await service.createScoped(createInput({ textExtraction: 'none' }))
+
+    expect(scopedUpload.upload).toHaveBeenCalledWith(expect.objectContaining({ textExtraction: 'none' }))
+    expect(created).not.toHaveProperty('content')
   })
 
   it('rethrows a non-upload error unchanged', async () => {
@@ -526,6 +644,54 @@ describe('DefaultAttachmentService', () => {
     expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(driver.delete.mock.invocationCallOrder[0])
+  })
+
+  it('clears cached thumbnails of a released attachment, also when the bytes stay', async () => {
+    mockClearThumbnailCache.mockClear()
+    const { service, em } = createHarness({ storageReferenceIds: ['attachment-1', 'attachment-copy'] })
+
+    await service.releaseScoped({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      expectedAssignment: { type: 'documents:document', id: 'document-1' },
+    })
+
+    expect(mockClearThumbnailCache).toHaveBeenCalledWith('privateAttachments', 'attachment-1')
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(mockClearThumbnailCache.mock.invocationCallOrder[0])
+  })
+
+  it('clears cached thumbnails in the deferred release as well', async () => {
+    mockClearThumbnailCache.mockClear()
+    const { service, em } = createHarness()
+
+    await withAtomicFlush(em, [async () => {
+      await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false })
+    }], { transaction: true, label: 'attachments.release' })
+
+    expect(mockClearThumbnailCache).toHaveBeenCalledWith('privateAttachments', 'attachment-1')
+  })
+
+  it('does not clear thumbnails when a release is refused', async () => {
+    mockClearThumbnailCache.mockClear()
+    const { service } = createHarness({ storageReferenceIds: [] })
+
+    await expectStatus(service.releaseScoped({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      expectedAssignment: { type: 'documents:document', id: 'document-1' },
+    }), 404)
+
+    expect(mockClearThumbnailCache).not.toHaveBeenCalled()
   })
 
   it('keeps provider bytes another attachment row still references', async () => {

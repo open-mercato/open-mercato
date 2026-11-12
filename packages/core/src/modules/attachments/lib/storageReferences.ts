@@ -52,9 +52,11 @@ export async function lockAttachmentStorageReferences(
 /**
  * Returns the ids of every attachment row that points at the same stored object, without locking.
  *
- * Only for the deprecated `releaseScoped(…, { flush: false })` call made outside a transaction,
- * where no lock could be held until commit. Concurrent deletions of rows sharing the object are
- * not serialized, so when they race the object is kept rather than deleted.
+ * For the deprecated `releaseScoped(…, { flush: false })` call made outside a transaction, where
+ * no lock could be held until commit: concurrent deletions of rows sharing the object are not
+ * serialized, so when they race the object is kept rather than deleted. Also for
+ * `releaseOwnedScoped`, which has already locked the row (and its known siblings) and only needs a
+ * fresh read to see a sibling committed after that lock.
  */
 export async function listAttachmentStorageReferences(
   em: EntityManager,

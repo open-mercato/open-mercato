@@ -8,6 +8,7 @@ import {
   handleRouteError,
   isErrorResponse,
 } from '../../routeHelpers'
+import { serializeInboxEmail } from '../../emails/response'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -55,7 +56,9 @@ export async function GET(req: Request) {
       },
       actions,
       discrepancies,
-      email,
+      // The route requires `inbox_ops.proposals.view`, so email content is included;
+      // the serializer still strips the internal attachment-ingest columns.
+      email: email ? serializeInboxEmail(email, true) : null,
     })
   } catch (err) {
     return handleRouteError(err, 'load proposal')
@@ -68,7 +71,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get proposal detail',
-      description: 'Returns proposal with actions, discrepancies, and source email',
+      description: 'Returns proposal with actions (including their decrypted `sourceRefs` provenance, when the extraction cited the email body or a stored attachment), discrepancies, and source email',
       responses: [
         { status: 200, description: 'Full proposal detail' },
         { status: 404, description: 'Proposal not found' },

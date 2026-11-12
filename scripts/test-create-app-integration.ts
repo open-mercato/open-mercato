@@ -33,6 +33,12 @@ const yellow = (value: string) => `\x1b[33m${value}\x1b[0m`
 const red = (value: string) => `\x1b[31m${value}\x1b[0m`
 
 const STANDALONE_BUILD_NODE_OPTIONS = '--max-old-space-size=8192'
+const RESEND_STUB_STATIC_ENV: ReadonlyArray<readonly [string, string]> = [
+  ['OM_ENABLE_RESEND_STUB', 'true'],
+  ['INBOX_OPS_ATTACHMENTS_ALLOW_UNGUARDED_READERS', 'true'],
+  ['RESEND_API_KEY', 're_stub_open-mercato-integration'],
+  ['RESEND_WEBHOOK_SIGNING_SECRET', 'whsec_b3Blbi1tZXJjYXRvLWludGVncmF0aW9uLXJlc2VuZC13ZWJob29rLXNlY3JldA=='],
+]
 
 type EphemeralEnvState = {
   status?: string
@@ -121,6 +127,15 @@ function writeStandaloneEnv(appDir: string): void {
     'ENABLE_CRUD_API_CACHE=true',
     'MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret',
     'MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret',
+    // Test-only Resend stub of the example module (inbox_ops inbound attachments). The app's
+    // `mercato test:ephemeral` also sets RESEND_BASE_URL to its own port; the Playwright process
+    // gets it from the test run below. Values mirror `buildResendStubEnvironment` in
+    // packages/cli/src/lib/testing/integration.ts.
+    ...RESEND_STUB_STATIC_ENV.map(([key, value]) => `${key}=${value}`),
+    // With RESEND_API_KEY set and the default `resend` provider, initialization would seed
+    // channel_resend from the stub key (applyResendEnvPreset); the ephemeral harness selects the
+    // test-seed provider instead (SYSTEM_EMAIL_PROVIDER in integration.ts), mirrored here.
+    'SYSTEM_EMAIL_PROVIDER=__test_seed__',
     'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true',
     'OM_ENABLE_ENTERPRISE_MODULES=true',
     'OM_ENABLE_ENTERPRISE_MODULES_SSO=true',
@@ -460,6 +475,9 @@ async function main(): Promise<void> {
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
+    // With AUTO_SPAWN_WORKERS=false the inbox_ops attachment-ingest job runs in a drain child of
+    // the Playwright process, which never reads the app's .env.
+    ...Object.fromEntries(RESEND_STUB_STATIC_ENV),
     NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: 'true',
     OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true',
@@ -540,6 +558,7 @@ async function main(): Promise<void> {
         APP_URL: standalone.baseUrl,
         NEXT_PUBLIC_APP_URL: standalone.baseUrl,
         DATABASE_URL: standalone.databaseUrl,
+        RESEND_BASE_URL: `${standalone.baseUrl}/api/example/resend-stub`,
         OM_TEST_APP_ROOT: appDir,
       },
     })

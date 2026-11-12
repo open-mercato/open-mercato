@@ -45,6 +45,17 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'description' },
       { field: 'payload' },
       { field: 'execution_error' },
+      // Field provenance quotes mail and attachment content (file names, snippets).
+      { field: 'source_refs' },
+    ],
+  },
+  {
+    // Ledger of inbound email parts: the original file name and the text
+    // extracted at upload are mail content. Both are cleared on release.
+    entityId: 'inbox_ops:inbox_email_attachment',
+    fields: [
+      { field: 'file_name' },
+      { field: 'extracted_text' },
     ],
   },
   {

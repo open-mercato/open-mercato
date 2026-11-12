@@ -113,6 +113,7 @@
   "messages.email.viewCta": "View message",
   "messages.errors.actionFailed": "Failed to execute action.",
   "messages.errors.archiveSenderMessageUnsupported": "You cannot archive messages you sent.",
+  "messages.errors.attachmentAccessDenied": "You cannot attach one or more of these files.",
   "messages.errors.conversationActionFailed": "Failed to update conversation.",
   "messages.errors.conversationHasNoChannelThread": "Conversation has no channel thread to deliver into",
   "messages.errors.deleteFailed": "Failed to delete message.",

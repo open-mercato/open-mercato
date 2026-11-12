@@ -46,6 +46,48 @@ write time.
   an ambient transaction pass `{ flush: false }`, commit the returned database
   removal first, and invoke the returned provider cleanup only after commit;
   never delete provider bytes before a transaction can still roll back.
+- To drop **every** reference an owner record holds (as primary owner or as an
+  assignment), for example when the owner is deleted, use
+  `attachmentService.releaseOwnedScoped({ owner, tenantId, organizationId })`. Contract:
+  a row owned by `owner` with no other assignment is deleted (its bytes only once no
+  other row shares the stored object); a row owned by `owner` with other assignments is
+  re-pointed to the first remaining assignment in stored order; a row owned by
+  something else only loses `owner`'s assignment (array and legacy single-object
+  `storage_metadata.assignments` shapes); a re-pointed or detached row's `storage_metadata`
+  is written back normalized (`assignments` and `tags` in their canonical shape). Only rows
+  of the given tenant and organization change. It commits its own transaction (it refuses an ambient one), locks the owner's
+  rows together with every row sharing their stored objects in one id-ordered statement
+  (so only a concurrent single-object `releaseScoped` is guaranteed not to deadlock with it;
+  other writers can still abort it with 40P01 or a serialization failure, which it throws
+  with nothing committed, so callers MUST report it and retry later), and is idempotent (a
+  retry returns zeros). It handles all of one owner's rows in that
+  single transaction (plus one storage-reference read per deleted row), so it is meant for
+  owners with a bounded number of rows (an inbound email holds at most its ledger's parts);
+  do not use it for an owner whose row count is unbounded. Storage drivers are resolved
+  before the transaction from a non-locking read of the owner's partitions; only a partition
+  first seen under the lock is resolved while the rows are locked. A row created for or assigned to
+  `owner` by a transaction that commits concurrently with the lock statement may be missed, so
+  callers MUST fence new writes for the owner (commit a change that makes every later write for it
+  fail) before releasing. Provider byte cleanup runs after commit and
+  is best-effort: failures are logged and reported as `attachments.release_cleanup_failed`,
+  never thrown. It emits no CRUD events and does not update the query index (same as
+  `releaseScoped`).
+- `createScoped` takes `textExtraction`: `'partition'` (default; the partition's OCR
+  settings decide and the text lands in `Attachment.content`), `'return'` (the pure-JS
+  extractor always runs, LLM OCR is never queued, `Attachment.content` stays empty and
+  the text reaches the caller only through `persistLink`'s third argument and the
+  result's `content`; use it when the owner stores the text itself, e.g. encrypted), or
+  `'none'` (nothing is extracted). Any other value is a caller bug and throws before quota or
+  storage work.
+- A protected target declared with `listInLibrary: false` keeps rows whose **exact
+  primary** `entity_id` equals its `targetEntity` (no wildcards; assignments do not
+  count) out of `GET /api/attachments/library` (records, count, tag facets). The
+  exclusion is persisted on partitions (`library_excluded_entities`, union-merged, never
+  removed) and applied globally across all partitions, so it survives disabling the
+  declaring module. Record-scoped `GET /api/attachments` is unaffected. Like
+  `access_resolver_requirements`, a malformed `library_excluded_entities` on a partition with
+  declared protection fails uploads to it closed (the protection check parses it strictly);
+  only the library listing reads it leniently.
 - Rows MAY share a stored object (`partition_code` + `storage_path`). Any other
   code deleting a row with its bytes MUST use `removeAttachmentRecord`
   (`lib/storageReferences.ts`, outside a transaction) and delete the bytes only
@@ -56,6 +98,18 @@ write time.
   attachments upload route (`api/route.ts`) already guards its creation site.
 - **MUST gate every attachment read through `checkAttachmentAccess`** (`lib/access.ts`)
   so tenant scoping and partition visibility are enforced consistently.
+- Code that loads attachment rows directly (outside the attachment routes and
+  `attachmentService`), for example an AI tool or a link into another record,
+  **MUST filter them with `evaluateAttachmentRowAccess`** (exported from the module
+  index) for the acting principal, so owner access policies apply. When moving rows to
+  another owner, pass a `destination`, load them with `ATTACHMENT_ROW_WRITE_LOCK`
+  (`lib/access-rows`) and evaluate and write in one transaction; build key-authenticated
+  principals with `buildAttachmentAccessAuth` so the key, not its creator, is evaluated.
+- A module that reads attachment rows by caller-supplied id outside the helper
+  **MUST be listed in `KNOWN_DIRECT_ATTACHMENT_READER_MODULES`** (`lib/access-readers.ts`)
+  until it is fixed; it then exports `enforcesOwnerAccessOnDirectReads = true` from its
+  `data/attachment-access.ts`. A CLI, worker or MCP process that cannot load the generated bootstrap registrations treats the access registry as invalid. Owner modules whose files must never reach such a reader
+  check `listUnguardedAttachmentReaders()` before storing them.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.

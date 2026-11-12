@@ -17,8 +17,15 @@ export {
   type CreateScopedAttachmentInput,
   type ReadScopedAttachmentInput,
   type ReadScopedAttachmentResult,
+  type ReleaseOwnedScopedAttachmentsInput,
+  type ReleaseOwnedScopedAttachmentsResult,
   type ReleaseScopedAttachmentInput,
 } from './lib/attachment-service'
+export type {
+  AttachmentPersistLink,
+  AttachmentPersistLinkExtras,
+  AttachmentTextExtractionMode,
+} from './lib/scoped-upload-service'
 
 export {
   AttachmentStorageConfigurationError,
@@ -46,6 +53,22 @@ export type {
   ProtectedAttachmentTarget,
 } from './lib/access-types'
 export { registerAttachmentAccessResolvers } from './lib/access-registry'
-export { syncAttachmentAccessProtection } from './lib/access-protection'
+export {
+  ATTACHMENT_ACCESS_REGISTRY_INVALID_MESSAGE,
+  isAttachmentAccessRegistryInvalidError,
+  syncAttachmentAccessProtection,
+} from './lib/access-protection'
 export { createAttachmentAccessContext, evaluateAttachmentAccess } from './lib/access-runner'
 export type { AttachmentAccessContext, AttachmentAccessResult } from './lib/access-runner'
+export { buildAttachmentAccessAuth, evaluateAttachmentRowAccess } from './lib/access-rows'
+export {
+  isAttachmentAccessRegistryInvalid,
+  KNOWN_DIRECT_ATTACHMENT_READER_MODULES,
+  listUnguardedAttachmentReaders,
+} from './lib/access-readers'
+export type {
+  AttachmentAccessDestination,
+  AttachmentAccessPrincipal,
+  EvaluateAttachmentRowAccessInput,
+  EvaluateAttachmentRowAccessResult,
+} from './lib/access-rows'

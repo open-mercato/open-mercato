@@ -1,3 +1,4 @@
+import { BOOTSTRAP_REGISTRATIONS_FAILED_KEY, markBootstrapRegistrationsFailed } from '@open-mercato/shared/lib/bootstrap/bootstrapRegistrations'
 import {
   collectAttachmentAccessTargets,
   getAttachmentAccessRegistry,
@@ -18,6 +19,17 @@ const record: AttachmentAccessRecord = {
 
 beforeEach(() => registerAttachmentAccessResolvers([]))
 afterEach(() => registerAttachmentAccessResolvers([]))
+
+describe('failed bootstrap registrations', () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>)[BOOTSTRAP_REGISTRATIONS_FAILED_KEY]
+  })
+
+  it('treats the registry as invalid even when nothing was registered', () => {
+    markBootstrapRegistrationsFailed()
+    expect(getAttachmentAccessRegistry()).toMatchObject({ invalid: true, resolvers: [], protectedTargets: [] })
+  })
+})
 
 describe('attachment access registry', () => {
   it('orders by priority, then module and declaration order without replacing matched policies', () => {
@@ -48,6 +60,37 @@ describe('attachment access registry', () => {
     expect(getAttachmentAccessRegistry().protectedTargets).toHaveLength(1)
   })
 
+  it('keeps the registry valid with listInLibrary declared on an exact owner', () => {
+    registerAttachmentAccessResolvers([{
+      moduleId: 'inbox_ops', resolvers: [resolver('inbox_ops.email-attachments', { targetEntity: 'inbox_ops:inbox_email' })],
+      protectedTargets: [
+        { resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity: 'inbox_ops:inbox_email', listInLibrary: false },
+        { resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity: 'inbox_ops.*', listInLibrary: true },
+      ],
+    }])
+    const registry = getAttachmentAccessRegistry()
+    expect(registry.invalid).toBe(false)
+    expect(registry.protectedTargets).toEqual([
+      { resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity: 'inbox_ops:inbox_email', listInLibrary: false },
+      { resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity: 'inbox_ops.*', listInLibrary: true },
+    ])
+  })
+
+  it.each(['*', 'inbox_ops.*'])('rejects listInLibrary: false with the wildcard owner %s and fails closed', (targetEntity) => {
+    expect(() => registerAttachmentAccessResolvers([{
+      moduleId: 'inbox_ops', resolvers: [],
+      protectedTargets: [{ resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity, listInLibrary: false }],
+    }])).toThrow()
+    expect(getAttachmentAccessRegistry().invalid).toBe(true)
+  })
+
+  it('rejects a non-boolean listInLibrary', () => {
+    expect(() => registerAttachmentAccessResolvers([{
+      moduleId: 'inbox_ops', resolvers: [],
+      protectedTargets: [{ resolverId: 'inbox_ops.email-attachments', targetPartition: '*', targetEntity: 'inbox_ops:inbox_email', listInLibrary: 'no' }],
+    }])).toThrow()
+  })
+
   it.each([
     [{ moduleId: 'documents', resolvers: [resolver('documents.same'), resolver('documents.same')] }],
     [{ moduleId: 'other', resolvers: [resolver('documents.files')] }],
@@ -58,7 +101,9 @@ describe('attachment access registry', () => {
   ])('fails closed on invalid/duplicate registration %#', (entry) => {
     registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [resolver('documents.previous')] }])
     expect(() => registerAttachmentAccessResolvers([entry])).toThrow()
-    expect(getAttachmentAccessRegistry()).toEqual({ invalid: true, resolvers: [], protectedTargets: [] })
+    expect(getAttachmentAccessRegistry()).toEqual({
+      invalid: true, resolvers: [], protectedTargets: [], ownerAccessEnforcingModules: [],
+    })
   })
 })
 
