@@ -186,12 +186,29 @@ describe('encrypted recovery artifacts', () => {
       async schema(){throw new Error('already-loaded schema')},async chunk(_entity,stream){await drain(stream);await loaded()},async sequences(){},async foreignKeys(){},
       async countRows(){return '2'},async finish(){},async close(){},async reportState(){return {startedAt:'2026-11-12T00:00:00.000Z',resumeCount:1}},
     }
+    target.preflightWorkers=jest.fn(async()=>{throw new BackupError('BACKUP_CONNECTION_BUDGET',3)})
+    await expect(restoreBackup({schemaInspector:fixtureSchemaInspector,artifact:result.artifactPath,trustedManifestSha256:result.manifestSha256,identities:[escrow],workspace:join(root,'resume'),confirmation:'CONFIRM',resume:'11111111-1111-4111-8111-111111111111',target})).rejects.toThrow('BACKUP_CONNECTION_BUDGET')
+    expect(inspected).not.toHaveBeenCalled()
+    delete target.preflightWorkers
     const restored=await restoreBackup({schemaInspector:fixtureSchemaInspector,artifact:result.artifactPath,trustedManifestSha256:result.manifestSha256,identities:[escrow],workspace:join(root,'resume'),confirmation:'CONFIRM',resume:'11111111-1111-4111-8111-111111111111',target,progress:event=>events.push(event)})
     expect(inspected).toHaveBeenCalledTimes(1);expect(loaded).toHaveBeenCalledTimes(1)
     const report=JSON.parse(await readFile(restored.reportPath,'utf8'))
     expect(report.resumeCount).toBe(1)
     expect(report.entities[0]).toMatchObject({expectedRows:'2',loadedRows:'2',rowsLoadedThisAttempt:'0',resumedChunks:1})
     expect(events.at(-1)).toMatchObject({type:'run.finished',rowsDone:'4',rowsTotal:'4'})
+  })
+  test('a failed restore worker stops peers after their in-flight chunk and joins before returning',async()=>{
+    const fixture=source(),open=fixture.open.bind(fixture)
+    fixture.open=async()=>{const snapshot=await open(),chunks=snapshot.chunks.bind(snapshot);snapshot.chunks=async function*(entity,settings){for await(const chunk of chunks(entity,settings)){yield chunk;yield {...chunk,sequence:1,stream:(async function*(){yield Buffer.from('second chunk')})()}}};return snapshot}
+    const backup=await createBackup({...options(),source:fixture})
+    let started!:()=>void;const peerStarted=new Promise<void>(resolve=>{started=resolve}),closed=jest.fn(async()=>{}),peerChunks=jest.fn(),foreignKeys=jest.fn(async()=>{})
+    const drain=async(stream:AsyncIterable<Uint8Array>)=>{for await(const bytes of stream){void bytes}}
+    const target:RestoreTarget={async identity(){return {...identity,databaseOid:'200'}},async challenge(){return 'CONFIRM'},async initialize(){},async hasStep(){return false},async schema(_section,stream){await drain(stream)},async chunk(){throw new Error('worker required')},async sequences(){},foreignKeys,async countRows(){return '2'},async finish(){},async close(){},async chunkWorkers(){return [
+      {async chunk(){await peerStarted;throw new BackupError('BACKUP_TEST_INTEGRITY',4)},close:closed},
+      {async chunk(_entity,stream){peerChunks();started();await new Promise(resolve=>setTimeout(resolve,10));await drain(stream)},close:closed},
+    ]}}
+    await expect(restoreBackup({schemaInspector:fixtureSchemaInspector,artifact:backup.artifactPath,trustedManifestSha256:backup.manifestSha256,identities:[escrow],workspace:join(root,'worker-failure'),confirmation:'CONFIRM',target,jobs:2})).rejects.toThrow('BACKUP_TEST_INTEGRITY')
+    expect(peerChunks).toHaveBeenCalledTimes(1);expect(closed).toHaveBeenCalledTimes(2);expect(foreignKeys).not.toHaveBeenCalled()
   })
   test('a bounded worker connection retry reuses the held snapshot and restarts that entity exactly once', async () => {
     const fixture=source();const open=fixture.open.bind(fixture);let attempts=0

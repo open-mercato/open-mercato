@@ -181,7 +181,14 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
     let indexBudget = Buffer.byteLength(JSON.stringify(index))
     let cipherBytes = index.chunks.reduce((sum, chunk) => sum + Number(chunk.cipherBytes), 0)
     let allocatedOutputBytes = cipherBytes
-    const emit = (type: 'run.started' | 'entity.done' | 'phase.changed' | 'run.finished', entity?: string, rows = '0') => options.progress?.({ schemaVersion: 1, type, runId: backupId, entity, rowsDone: rows, rowsTotal: rows, rowsTotalExact: type === 'entity.done', phase: settings.encryption ? 'encrypted' : 'UNENCRYPTED', bytesDone: String(cipherBytes), chunksDone: index.chunks.length, at: new Date().toISOString() })
+    const entityRows=new Map<string,bigint>()
+    let overallRows=0n
+    const estimatedRows=snapshot.entities.reduce((sum,entity)=>sum+BigInt(entity.estimatedRows),0n)
+    const aggregate=(entityKey?:string,rows='0',finished=false)=>{
+      if(entityKey){const count=BigInt(rows);overallRows+=count-(entityRows.get(entityKey)??0n);entityRows.set(entityKey,count)}
+      return {overallRowsDone:String(overallRows),overallRowsTotal:String(finished?overallRows:estimatedRows),overallRowsTotalExact:finished}
+    }
+    const emit = (type: 'run.started' | 'entity.done' | 'phase.changed' | 'run.finished', entity?: string, rows = '0', entityKey?:string) => options.progress?.({ schemaVersion: 1, type, runId: backupId, entity, ...aggregate(entityKey,rows,type==='run.finished'), rowsDone: rows, rowsTotal: rows, rowsTotalExact: type === 'entity.done', phase: settings.encryption ? 'encrypted' : 'UNENCRYPTED', bytesDone: String(cipherBytes), chunksDone: index.chunks.length, at: new Date().toISOString() })
     emit('run.started')
     await mkdir(join(partial, 'schema'), { mode: 0o700, recursive: true })
     await mkdir(join(partial, 'data'), { mode: 0o700, recursive: true })
@@ -223,7 +230,7 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
     let poolFailure: unknown
     let cursor = 0
     const processEntity = async (entity: Snapshot['entities'][number]) => {
-      if (completed.has(entity.key)) { emit('entity.done', entity.label); return }
+      if (completed.has(entity.key)) { emit('entity.done', entity.label,String(index.chunks.filter(chunk=>chunk.entityKey===entity.key).reduce((sum,chunk)=>sum+BigInt(chunk.rows),0n)),entity.key); return }
       const previous = index.chunks.filter((chunk) => chunk.entityKey === entity.key)
       if (previous.length) {
         await journal.append({ kind: 'restart', entityKey: entity.key })
@@ -242,10 +249,10 @@ export async function createBackup(options: CreateBackupOptions): Promise<Backup
         const written = await write(`data/${entity.key}/${chunk.sequence}.chunk`, chunk.stream, { sequence: chunk.sequence, rows: chunk.rows, entityKey: entity.key, keyFrom: chunk.keyFrom, keyTo: chunk.keyTo })
         rows += BigInt(chunk.rows)
         entityBytes += BigInt(written.plainBytes)
-        options.progress?.({ schemaVersion: 1, type: 'entity.progress', runId: backupId, entity: entity.label, rowsDone: String(rows), rowsTotal: entity.estimatedRows, rowsTotalExact: false, bytesDone: String(entityBytes), chunksDone: chunk.sequence + 1, at: new Date().toISOString() })
+        options.progress?.({ schemaVersion: 1, type: 'entity.progress', runId: backupId, entity: entity.label, ...aggregate(entity.key,String(rows)), rowsDone: String(rows), rowsTotal: entity.estimatedRows, rowsTotalExact: false, bytesDone: String(entityBytes), chunksDone: chunk.sequence + 1, at: new Date().toISOString() })
       }
       await journal.append({ kind: 'entity-complete', entityKey: entity.key })
-      emit('entity.done', entity.label, String(rows))
+      emit('entity.done', entity.label, String(rows),entity.key)
     }
     await Promise.all(Array.from({ length: Math.min(jobs, Math.max(1, index.entities.length)) }, async () => {
       while (cursor < index.entities.length && !poolFailure) {

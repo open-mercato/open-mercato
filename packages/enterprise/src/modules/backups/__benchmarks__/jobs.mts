@@ -29,7 +29,7 @@ async function runChild(jobs:number){
  try{await admin.query(`DROP DATABASE IF EXISTS ${targetDatabase} WITH (FORCE)`);await admin.query(`CREATE DATABASE ${targetDatabase} TEMPLATE template0`)}finally{await admin.end()}
  const workspace=`${root}/run-${jobs}`;await mkdir(workspace,{recursive:true,mode:0o700})
  const identity=await generateX25519Identity(),source=createPostgresSource({...native,workspace,jobs}),open=source.open.bind(source)
- let active=0,maxActive=0,peakNode=process.memoryUsage().rss,peakTree=0,measuring=false
+ let active=0,maxActive=0,activeRestore=0,maxRestore=0,peakNode=process.memoryUsage().rss,peakTree=0,measuring=false
  const measure=async()=>{if(measuring)return;measuring=true;try{peakNode=Math.max(peakNode,process.memoryUsage().rss);peakTree=Math.max(peakTree,await treeRss(process.pid))}finally{measuring=false}}
  const sampler=setInterval(()=>{void measure()},10)
  source.open=async()=>{const snapshot=await open(),chunks=snapshot.chunks.bind(snapshot);snapshot.chunks=async function*(entity,options){active++;maxActive=Math.max(active,maxActive);try{yield*chunks(entity,options)}finally{active--}};return snapshot}
@@ -37,15 +37,17 @@ async function runChild(jobs:number){
   const backup=await createBackup({source,workspace,output:`${workspace}/output`,recipients:[await identityToRecipient(identity)],jobs,chunkSizeBytes:64*1024*1024,quiesced:true,reserveBytes:0n})
   const verify={artifact:backup.artifactPath,trustedManifestSha256:backup.manifestSha256,identities:[identity],workspace,binariesDir:native.binariesDir}
   const metadata=await readBackup(verify),target=createPostgresTarget({...native,workspace})
+  const writers=target.chunkWorkers!.bind(target)
+  target.chunkWorkers=async(count)=>(await writers(count)).map(worker=>({...worker,async chunk(...args){activeRestore++;maxRestore=Math.max(maxRestore,activeRestore);try{await worker.chunk(...args)}finally{activeRestore--}}}))
   const confirmation=await target.challenge({backupId:backup.backupId,manifestSha256:backup.manifestSha256,sourceIdentity:metadata.index.identity})
-  await restoreBackup({...verify,target,confirmation})
+  await restoreBackup({...verify,target,confirmation,jobs})
   const targetConnection=new Client({...configuration,database:targetDatabase});await targetConnection.connect()
   let actual;try{actual=await fingerprint(targetConnection)}finally{await targetConnection.end()}
   const expected=JSON.parse(await readFile(root+'/expected.json','utf8')),equal=JSON.stringify(actual)===JSON.stringify(expected)
   await measure()
-  const result={jobs,entityCount:8,logicalBytes:'1073741824',observedConcurrentEntityStreams:maxActive,completeOrderedContentDigestsEqual:equal,peakCoordinatorRssMiB:peakNode/1048576,peakCoordinatorAndNativeChildRssMiB:peakTree/1048576,rssBudgetPass:peakNode<=256*1048576,measurementScope:'fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child'}
+  const result={jobs,entityCount:8,logicalBytes:'1073741824',observedConcurrentEntityStreams:maxActive,observedConcurrentRestoreTransactions:maxRestore,completeOrderedContentDigestsEqual:equal,peakCoordinatorRssMiB:peakNode/1048576,peakCoordinatorAndNativeChildRssMiB:peakTree/1048576,rssBudgetPass:peakNode<=256*1048576,measurementScope:'fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child'}
   await writeFile(`${root}/jobs-${jobs}.json`,JSON.stringify(result,null,2),{mode:0o600});console.log(JSON.stringify(result))
-  if(!equal||maxActive!==jobs||!result.rssBudgetPass)process.exitCode=1
+  if(!equal||maxActive!==jobs||maxRestore!==jobs||!result.rssBudgetPass)process.exitCode=1
  }finally{clearInterval(sampler);await source.close()}
 }
 async function main(){

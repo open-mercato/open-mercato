@@ -44,7 +44,10 @@ export type Snapshot = {
 }
 export type BackupSource = { open(): Promise<Snapshot>; close(): Promise<void> }
 export type RestoreRun = { runId: string; backupId: string; manifestSha256: string; confirmation: string }
+export type RestoreChunkWorker = Pick<RestoreTarget, 'chunk' | 'close'>
 export type RestoreTarget = {
+  preflightWorkers?(count: number): Promise<void>
+  chunkWorkers?(count: number): Promise<RestoreChunkWorker[]>
   inspectResume?(run: RestoreRun): Promise<boolean>
   reportState?(): Promise<{ startedAt: string; resumeCount: number; resumeTimestamps?: string[] }>
   analyze?(): Promise<void>
@@ -80,6 +83,9 @@ export type ProgressEvent = {
   type: 'run.started' | 'entity.progress' | 'entity.done' | 'entity.failed' | 'phase.changed' | 'run.finished'
   runId: string
   entity?: string
+  overallRowsDone?: string
+  overallRowsTotal?: string
+  overallRowsTotalExact?: boolean
   rowsDone: string
   rowsTotal: string
   rowsTotalExact: boolean

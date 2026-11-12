@@ -22,7 +22,14 @@ export function progressRenderer(mode: 'tty' | 'plain' | 'json' | 'verbose' | 'n
       const eta = ratio > 0 && ratio < 1 ? Math.ceil(elapsed * (1 - ratio) / ratio) : 0
       const bar = '█'.repeat(Math.floor(ratio * 16)) + '░'.repeat(16 - Math.floor(ratio * 16))
       const text = `${label} ${bar} ${Math.floor(ratio * 100)}% ${event.rowsDone}/${prefix}${event.rowsTotal} ${backupTranslation('backups.progress.rows')} ${Math.round(rate / 1048576)}MiB/s ETA ${eta}s`
-      output.write(`\r\u001b[2K${text}${event.type === 'entity.done' || event.type === 'run.finished' ? '\n' : ''}`)
+      if(event.overallRowsDone!==undefined&&event.overallRowsTotal!==undefined){
+        const total=Number(event.overallRowsTotal),done=Number(event.overallRowsDone)
+        const ratio=total>0?Math.min(1,done/total):event.type==='run.finished'?1:0
+        const bar='█'.repeat(Math.floor(ratio*16))+'░'.repeat(16-Math.floor(ratio*16))
+        const estimate=event.overallRowsTotalExact?'':'~'
+        const overall=`${backupTranslation('backups.progress.overall')} ${bar} ${Math.floor(ratio*100)}% ${event.overallRowsDone}/${estimate}${event.overallRowsTotal}`
+        output.write(`\r\u001b[2K${overall}\n\u001b[2K${text}${event.type==='run.finished'?'\n':'\u001b[1A'}`)
+      }else output.write(`\r\u001b[2K${text}${event.type === 'entity.done' || event.type === 'run.finished' ? '\n' : ''}`)
     } else {
       if (mode === 'plain' && event.type === 'entity.progress' && now - lastOverall < 10000) return
       lastOverall = now

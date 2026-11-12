@@ -172,11 +172,11 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
     const binding={backupId:backup.backupId,manifestSha256:backup.manifestSha256,sourceIdentity:artifact.index.identity}
     const initial=createPostgresTarget(options)
     const confirmation=await initial.challenge(binding)
-    const chunk=initial.chunk.bind(initial);let interrupted=false;let resume:string|undefined
-    initial.chunk=async(...args)=>{await chunk(...args);if(!interrupted){interrupted=true;throw new Error('simulated postcommit interruption')}}
+    const factory=initial.chunkWorkers!.bind(initial);let interrupted=false;let resume:string|undefined;let committedKey:string|undefined
+    initial.chunkWorkers=async(count)=>(await factory(count)).map(worker=>({...worker,async chunk(...args){await worker.chunk(...args);if(!interrupted){interrupted=true;committedKey=args[0].key;throw new Error('simulated postcommit interruption')}}}))
     try{await restoreBackup({...shared,target:initial,confirmation})}catch(error){expect(error).toBeInstanceOf(BackupError);resume=(error as BackupError).context.restoreRunId}
     expect(resume).toBeDefined()
-    const committed=artifact.index.chunks.find((entry)=>entry.entityKey)!
+    const committed=artifact.index.chunks.find((entry)=>entry.entityKey===committedKey)!
     await rm(join(backup.artifactPath,committed.path))
     const target=createPostgresTarget(options)
     const fresh=await target.challenge(binding)
@@ -202,6 +202,23 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
     const connections=(await admin.query<{count:string}>("SELECT count(*)::text AS count FROM pg_stat_activity WHERE datname=$1 AND pid<>$2",[sourceName,sourceDb.processID])).rows[0].count
     expect(connections).toBe('0')
   },20000)
+
+  test('eight native restore workers load independent entities and close before post-data validation',async()=>{
+    for(let table=1;table<=8;table++)await sourceDb.query(`CREATE TABLE app.concurrent_${table}(id int PRIMARY KEY,body text);INSERT INTO app.concurrent_${table} SELECT g,repeat(md5(g::text),256) FROM generate_series(1,32) g`)
+    const key=await generateX25519Identity()
+    const backup=await createBackup({source:createPostgresSource(options),output:join(directory,'parallel-out'),workspace:join(directory,'parallel-create'),recipients:[await identityToRecipient(key)],jobs:8,reserveBytes:0n})
+    const shared={artifact:backup.artifactPath,trustedManifestSha256:backup.manifestSha256,identities:[key],workspace:directory,binariesDir:options.binariesDir}
+    const metadata=await verifyBackup(shared),target=createPostgresTarget(options)
+    await expect(target.chunkWorkers!(8)).rejects.toThrow('BACKUP_RESTORE_WORKER_BINDING')
+    const confirmation=await target.challenge({backupId:backup.backupId,manifestSha256:backup.manifestSha256,sourceIdentity:metadata.index.identity})
+    const factory=target.chunkWorkers!.bind(target),foreignKeys=target.foreignKeys.bind(target)
+    let active=0,peak=0,closed=0
+    target.chunkWorkers=async(count)=>(await factory(count)).map(worker=>({async chunk(...args){active++;peak=Math.max(peak,active);try{await worker.chunk(...args)}finally{active--}},async close(){await worker.close();closed++}}))
+    target.foreignKeys=async(keys)=>{expect(closed).toBe(8);expect(active).toBe(0);await foreignKeys(keys)}
+    await restoreBackup({...shared,target,confirmation,jobs:8})
+    expect(peak).toBe(8);expect(closed).toBe(8)
+    for(let table=1;table<=8;table++)expect((await targetDb.query(`SELECT * FROM app.concurrent_${table} ORDER BY id`)).rows).toEqual((await sourceDb.query(`SELECT * FROM app.concurrent_${table} ORDER BY id`)).rows)
+  },30000)
 
   test('schema staging stops at its explicit byte budget before invoking restore SQL', async () => {
     const source = createPostgresSource(options); const target = createPostgresTarget({ ...options, maxStagingBytes: 16 })

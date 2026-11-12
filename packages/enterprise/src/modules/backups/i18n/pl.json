@@ -5,5 +5,6 @@
   "backups.cli.unencryptedPrompt": "Wpisz UNENCRYPTED, aby potwierdzić czytelną kopię: ",
   "backups.progress.bytes": "bajtów",
   "backups.progress.chunks": "fragmentów",
+  "backups.progress.overall": "Łącznie",
   "backups.progress.rows": "wierszy"
 }

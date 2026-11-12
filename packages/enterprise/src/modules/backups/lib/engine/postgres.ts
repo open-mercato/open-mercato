@@ -521,9 +521,12 @@ export function createPostgresSource(options: NativeOptions): BackupSource {
   }
 }
 
-export function createPostgresTarget(options: NativeOptions): RestoreTarget {
-  let client: Client | undefined
-  let runId: string | undefined
+export function createPostgresTarget(options: NativeOptions): RestoreTarget { return postgresTarget(options) }
+function postgresTarget(options: NativeOptions, bound?: { client: Client; runId: string }): RestoreTarget {
+  let client: Client | undefined = bound?.client
+  let runId: string | undefined = bound?.runId
+  let activeRun: RestoreRun | undefined
+  let lookupQueue:Promise<void>=Promise.resolve()
   let lockId: string | undefined
   let expected: { challenge: string; digest: string; baseline: string; expires: number } | undefined
   const current = async () => { if (!client) { if (!options.targetService) throw failure('BACKUP_TARGET_SERVICE_REQUIRED'); client = await connect(options, options.targetService) } return client }
@@ -540,6 +543,11 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
     const chunks=(await connection.query("SELECT count(*)::text AS count,max(restored_at)::text AS newest FROM om_backup_restore.restore_chunks")).rows[0]
     const steps=(await connection.query("SELECT status,count(*)::text AS count,max(finished_at)::text AS newest FROM om_backup_restore.restore_steps GROUP BY status ORDER BY status")).rows
     return digest(JSON.stringify({catalog,run,chunks,steps}))
+  }
+  const capacity=async(count:number,resumable=false)=>{
+    if(!Number.isInteger(count)||count<1||count>8)throw failure('BACKUP_INVALID_RESOURCE_OPTION')
+    const record=(await (await current()).query<{capacity:number;used:number}>("SELECT current_setting('max_connections')::int AS capacity,(SELECT count(*)::int FROM pg_stat_activity) AS used")).rows[0]
+    if(record.capacity-record.used<count+7)throw new BackupError('BACKUP_CONNECTION_BUDGET',resumable?5:3,resumable)
   }
   const validateChallenge=async(connection:Client,run:RestoreRun)=>{
     const identityDigest=digest(JSON.stringify(await databaseIdentity(connection)))
@@ -562,6 +570,24 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
     })
   }
   return {
+    async preflightWorkers(count) { await capacity(count) },
+    async chunkWorkers(count) {
+      if (!activeRun || !expected || !lockId || !Number.isInteger(count) || count < 1 || count > 8) throw failure('BACKUP_RESTORE_WORKER_BINDING')
+      await capacity(count,true)
+      const workers: RestoreTarget[] = []
+      try {
+        for (let index=0;index<count;index++) {
+          if(!options.targetService)throw failure('BACKUP_TARGET_SERVICE_REQUIRED')
+          const connection=await connect(options,options.targetService)
+          try {
+            if(digest(JSON.stringify(await databaseIdentity(connection)))!==expected.digest)throw failure('BACKUP_RESTORE_WORKER_BINDING')
+            await validateRun(connection,activeRun)
+            workers.push(postgresTarget(options,{client:connection,runId:activeRun.runId}))
+          }catch(error){await connection.end().catch(()=>undefined);throw error}
+        }
+        return workers.map(worker=>({chunk:worker.chunk.bind(worker),close:worker.close.bind(worker)}))
+      }catch(error){await Promise.allSettled(workers.map(worker=>worker.close()));throw error}
+    },
     async inspectResume(run) {
       const connection=await current();await acquireLock(connection);await validateChallenge(connection,run)
       if(!(await connection.query("SELECT 1 FROM pg_namespace WHERE nspname='om_backup_restore'")).rowCount)return false
@@ -645,11 +671,16 @@ export function createPostgresTarget(options: NativeOptions): RestoreTarget {
         }
       })
       runId = run.runId
+      activeRun = run
     },
     async hasStep(stepId) {
-      const chunk=/^chunk:(e[0-9]+):([0-9]+)$/.exec(stepId)
-      if(chunk)return Boolean((await (await current()).query('SELECT 1 FROM om_backup_restore.restore_chunks WHERE entity_key=$1 AND seq=$2',[chunk[1],Number(chunk[2])])).rowCount)
-      return Boolean((await (await current()).query("SELECT 1 FROM om_backup_restore.restore_steps WHERE step_key=$1 AND status='done'",[stepId])).rowCount)
+      const lookup=lookupQueue.then(async()=>{
+        const chunk=/^chunk:(e[0-9]+):([0-9]+)$/.exec(stepId)
+        if(chunk)return Boolean((await (await current()).query('SELECT 1 FROM om_backup_restore.restore_chunks WHERE entity_key=$1 AND seq=$2',[chunk[1],Number(chunk[2])])).rowCount)
+        return Boolean((await (await current()).query("SELECT 1 FROM om_backup_restore.restore_steps WHERE step_key=$1 AND status='done'",[stepId])).rowCount)
+      })
+      lookupQueue=lookup.then(()=>undefined,()=>undefined)
+      return lookup
     },
     async schema(section, stream, stepId, workspace) {
       if (!runId) throw failure('BACKUP_RESTORE_NOT_INITIALIZED')
