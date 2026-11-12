@@ -31,6 +31,14 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    locale: 'en',
+    t: (key: string, fallback?: string) => fallback ?? key,
+    translate: (key: string, fallback?: string) => fallback ?? key,
+  })),
+}))
+
 import PUT from '../locales'
 
 const makeRequest = () =>
@@ -88,5 +96,31 @@ describe('translations locales route mutation guard', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Conflict' })
     expect(setValueMock).not.toHaveBeenCalled()
     expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 503 without running the guard or persisting when the configs module is disabled', async () => {
+    container.resolve.mockImplementationOnce((name: string) => {
+      throw new Error(`[internal] Could not resolve '${name}'`)
+    })
+
+    const response = await PUT(makeRequest())
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({ error: 'Settings storage unavailable' })
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(setValueMock).not.toHaveBeenCalled()
+    expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+  })
+
+  it('still rejects an invalid body with 400 before checking settings storage', async () => {
+    const response = await PUT(new Request('http://localhost/api/translations/locales', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ locales: [] }),
+    }))
+
+    expect(response.status).toBe(400)
+    expect(container.resolve).not.toHaveBeenCalled()
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
   })
 })

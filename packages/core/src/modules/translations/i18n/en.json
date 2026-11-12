@@ -6,6 +6,7 @@
   "translations.locales.contentOnly": "Content only",
   "translations.locales.contentOnlyHint": "The application ships no interface for this language, so it is available for content translations only.",
   "translations.locales.description": "Which languages content can be translated into. A language the application ships an interface for is also offered in the admin language switcher; the rest are available for content only.",
+  "translations.locales.errors.storageUnavailable": "Settings storage unavailable",
   "translations.locales.flash.error": "Failed to update locales",
   "translations.locales.flash.saved": "Locales updated",
   "translations.locales.loading": "Loading locales...",
