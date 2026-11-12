@@ -43,6 +43,13 @@ function readString(row: Record<string, unknown>, ...keys: string[]): string | n
   return null
 }
 
+export function readTimestamp(row: Record<string, unknown>, ...keys: string[]): string | null {
+  const value = readString(row, ...keys)
+  if (value === null) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString()
+}
+
 function readNumber(row: Record<string, unknown>, ...keys: string[]): number | null {
   for (const key of keys) {
     const value = row[key]
@@ -98,8 +105,8 @@ export function toReviewPlaybookItem(row: Record<string, unknown>): z.infer<type
     instructions: readString(row, 'instructions'),
     version: readNumber(row, 'version') ?? 1,
     isActive: readBoolean(row, 'is_active', 'isActive'),
-    createdAt: readString(row, 'created_at', 'createdAt'),
-    updatedAt: readString(row, 'updated_at', 'updatedAt'),
+    createdAt: readTimestamp(row, 'created_at', 'createdAt'),
+    updatedAt: readTimestamp(row, 'updated_at', 'updatedAt'),
   }
 }
 
@@ -116,8 +123,8 @@ export function toReviewRuleItem(row: Record<string, unknown>): z.infer<typeof r
     severity: severity.success ? severity.data : 'warning',
     sortOrder: readNumber(row, 'sort_order', 'sortOrder') ?? 0,
     isActive: readBoolean(row, 'is_active', 'isActive'),
-    createdAt: readString(row, 'created_at', 'createdAt'),
-    updatedAt: readString(row, 'updated_at', 'updatedAt'),
+    createdAt: readTimestamp(row, 'created_at', 'createdAt'),
+    updatedAt: readTimestamp(row, 'updated_at', 'updatedAt'),
   }
 }
 
