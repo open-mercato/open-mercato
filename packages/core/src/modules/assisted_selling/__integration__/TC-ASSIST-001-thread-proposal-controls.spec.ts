@@ -98,8 +98,8 @@ async function authorProposal(
     data: { lines: [{ productId, quantity: '2' }], idempotencyKey: idempotencyKey() },
   });
   expect(response.status(), `proposal author should be 201 (${await response.text()})`).toBe(201);
-  const body = await readJsonSafe<{ result?: { proposalId?: string } }>(response);
-  return expectId(body?.result?.proposalId, 'proposal author should return a proposalId');
+  const body = await readJsonSafe<{ proposalId?: string }>(response);
+  return expectId(body?.proposalId, 'proposal author should return a proposalId');
 }
 
 async function readThreadProposals(request: APIRequestContext, adminToken: string, threadId: string): Promise<ThreadProposal[]> {
