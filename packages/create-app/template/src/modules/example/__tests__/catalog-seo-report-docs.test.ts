@@ -1,8 +1,8 @@
-import en from '../en.json'
-import pl from '../pl.json'
-import de from '../de.json'
-import es from '../es.json'
-import ko from '../ko.json'
+import en from '../../../i18n/en.json'
+import pl from '../../../i18n/pl.json'
+import de from '../../../i18n/de.json'
+import es from '../../../i18n/es.json'
+import ko from '../../../i18n/ko.json'
 
 const KEY = 'example.widgets.catalogSeoReport.docs'
 
