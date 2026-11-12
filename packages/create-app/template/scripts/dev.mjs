@@ -81,6 +81,7 @@ import {
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
 import { assertDatabaseWriteAllowed } from './dev-database-write-guard.mjs'
+import { assertEncryptionCompatible } from './dev-encryption-preflight.mjs'
 import { acquireDevSessionWithRecovery as acquireDevSession } from './dev-session-recovery.mjs'
 import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
@@ -994,7 +995,7 @@ function resolveDatabaseEnvFilePath() {
 }
 
 async function guardDatabaseMutation(commandArgs, env = {}) {
-  if (!['db:migrate', 'initialize'].includes(commandArgs?.[0])) return
+  if (!['db:migrate', 'initialize', 'mcp:ensure-api-key'].includes(commandArgs?.[0])) return
   const result = await assertDatabaseWriteAllowed({
     projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
     env: { ...process.env, ...env },
@@ -1002,6 +1003,13 @@ async function guardDatabaseMutation(commandArgs, env = {}) {
   })
   if (result?.connectionEnv) { Object.assign(process.env, result.connectionEnv); Object.assign(env, result.connectionEnv) }
   if (result?.argument && !args.includes(result.argument)) args.push(result.argument)
+  const compatibility = await assertEncryptionCompatible({
+    projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
+    env: { ...process.env, ...env },
+  })
+  console.log(`[setup] encryption preflight: ${compatibility.status}`)
+  Object.assign(process.env, compatibility.settings)
+  Object.assign(env, compatibility.settings)
 }
 
 async function applyDatabaseNameOverrideIfRequested() {
@@ -2395,6 +2403,7 @@ function spawnMcpCommand(subcommandArgs, label, onLine) {
 }
 
 async function provisionMcpApiKey() {
+  await guardDatabaseMutation(['mcp:ensure-api-key'])
   try {
     fs.mkdirSync(path.dirname(mcpKeyFilePath), { recursive: true })
   } catch (error) {
@@ -2719,6 +2728,7 @@ function startMcpRuntime() {
 }
 
 async function applyPendingMigrationsBestEffort() {
+  try {
   if (!shouldAutoMigrateOnDev()) return
   await guardDatabaseMutation(['db:migrate'])
   console.log('💾 Applying database migrations...')
@@ -2733,6 +2743,10 @@ async function applyPendingMigrationsBestEffort() {
   if (resolveChildExitCode(result) !== 0) {
     console.warn('❗ Database migrations were not applied (database unreachable or migration failed).')
     console.warn('   ↳ start the infra containers with `yarn infra:up`, then run `yarn db:migrate` (opt out of this check with OM_DEV_AUTO_MIGRATE=0)')
+  }
+  } catch (error) {
+    if (error?.name !== 'EncryptionCompatibilityError') throw error
+    console.warn('[setup] Automatic migrations were skipped because encryption compatibility could not be verified. Restore the configured encryption keys and service access before running setup.')
   }
 }
 
