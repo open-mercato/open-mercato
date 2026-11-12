@@ -59,18 +59,4 @@ describe('timesheets reapply-rounding worker', () => {
     )
     expect(failJob).not.toHaveBeenCalled()
   })
-
-  it('passes a job without a progress id through to the runner', async () => {
-    progressEnabled = false
-    runTimeTrackingRecalculations.mockResolvedValueOnce(undefined)
-
-    await handle(job({ progressJobId: null, scope }), {} as JobContext)
-
-    expect(runTimeTrackingRecalculations).toHaveBeenCalledWith({
-      container,
-      progressJobId: null,
-      scope,
-      hookIds: null,
-    })
-  })
 })

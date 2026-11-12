@@ -10,7 +10,8 @@
  *
  * It enqueues; it does not do the work. Restating a tenant's entries is exactly the
  * long-running job the progress module exists for, so the response is a `202` with
- * a `progressJobId` that the top bar picks up on its own.
+ * a `progressJobId` that the top bar picks up on its own. Without the progress
+ * module the job is still queued and `progressJobId` is null.
  *
  * Locked entries are never touched — the candidate query excludes them and the
  * command excludes them again, independently.
@@ -194,7 +195,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Queue a retroactive rounding job',
       description:
-        'Enqueues a `ProgressJob` that recomputes `rounded_minutes` on existing time entries under the tenant’s current rounding rule. Entries locked into a closed report are excluded — a billed amount is never restated. Returns `202` with `progressJobId`, or `200` with a null job id when there is nothing to restate.',
+        'Enqueues a `ProgressJob` that recomputes `rounded_minutes` on existing time entries under the tenant’s current rounding rule. Entries locked into a closed report are excluded — a billed amount is never restated. Returns `202` with `progressJobId` (null when the progress module is disabled), or `200` with a null job id when there is nothing to restate.',
       responses: [
         { status: 200, description: 'Nothing to restate', schema: responseSchema },
         { status: 202, description: 'Job queued', schema: responseSchema },
