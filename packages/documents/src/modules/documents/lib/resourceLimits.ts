@@ -17,6 +17,10 @@ export const DOCUMENTS_FINDING_LIST_MAX_PAGE_SIZE = 100
 export const DOCUMENTS_MAX_ACTIVE_RULES_PER_PLAYBOOK = 200
 export const DOCUMENTS_MAX_REFERENCES_PER_PLAYBOOK = 20
 
+/** Bound what the review AI tools hand to a model in one call. */
+export const DOCUMENTS_REVIEW_TOOL_MAX_DOCUMENT_CHARS = 200_000
+export const DOCUMENTS_REVIEW_TOOL_MAX_GUIDANCE_CHARS = 20_000
+
 /** WebSocket messages include a small Hocuspocus/Yjs protocol envelope. */
 export const DOCUMENTS_COLLAB_MAX_PAYLOAD_BYTES = DOCUMENTS_MAX_YJS_STATE_BYTES + 64 * 1024
 

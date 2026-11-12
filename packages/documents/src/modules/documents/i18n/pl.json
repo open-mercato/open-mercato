@@ -692,6 +692,7 @@
   "documents.versions.snapshot.labelPlaceholder": "Etykieta (opcjonalnie)",
   "documents.versions.snapshotTooLarge": "Ta wersja jest zbyt duża, aby można ją było bezpiecznie przetworzyć.",
   "documents.versions.title": "Historia wersji",
+  "documents.workflows.commands.finding.ingest": "Dodaj uwagi z przeglądu dokumentu",
   "notifications.categories.documents": "Dokumenty",
   "search.entityType.documents.document": "Dokument"
 }

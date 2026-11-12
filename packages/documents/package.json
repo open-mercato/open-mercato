@@ -112,6 +112,7 @@
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
+    "@open-mercato/core": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
