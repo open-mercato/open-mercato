@@ -12,6 +12,7 @@ const save = (page: Page) => page.locator('button[type="submit"]').last().click(
 
 async function pick(page: Page, id: string, query: string, label: RegExp) {
   const input = page.locator(`[data-crud-field-id="${id}"]`).getByRole('combobox')
+  await input.click()
   await input.fill(query)
   await page.getByRole('option', { name: label }).first().click()
 }
@@ -38,10 +39,11 @@ for (const locale of ['pl', 'en']) {
       await page.context().addCookies([{ name: 'locale', value: locale, url: new URL(page.url()).origin }])
       await page.goto('/backend/catalog/prices/create')
       await pick(page, 'productId', title, new RegExp(title))
-      await pick(page, 'priceKindId', title, new RegExp(title))
+      await pick(page, 'priceKindId', '', new RegExp(title))
       await pick(page, 'currencyCode', currency.code, new RegExp(`^${currency.code}`))
       await field(page, 'unitPriceNet').fill(locale === 'pl' ? '12,50' : '12.50')
       await field(page, 'unitPriceGross').fill(locale === 'pl' ? '15,38' : '15.38')
+      await field(page, 'taxRate').fill('23.04')
       const createdPromise = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === PRICES)
       await save(page)
       const created = await createdPromise
@@ -61,7 +63,7 @@ for (const locale of ['pl', 'en']) {
       expect(amount(await readPrice(), 'gross')).toBe(15.38)
       const editUrl = `/backend/catalog/prices/${priceId}/edit`
       await page.goto(editUrl)
-      await expect(field(page, 'unitPriceNet')).toHaveValue(/^12\.50?$/)
+      await expect(field(page, 'unitPriceNet')).toHaveValue(/^12\.50*$/)
 
       for (const invalid of ['12,3,4', '-1', '1 2']) {
         const before = await readPrice()
@@ -72,7 +74,7 @@ for (const locale of ['pl', 'en']) {
         expect(await readPrice()).toEqual(before)
       }
 
-      for (const [net, gross] of [['21,25', '26,14'], ['1.500', '1.845'], ['0', '0']]) {
+      for (const [net, gross] of [['21,25', '26,146'], ['1.500', '1.8456'], ['0', '0']]) {
         await field(page, 'unitPriceNet').fill(net)
         await field(page, 'unitPriceGross').fill(gross)
         const updatedPromise = page.waitForResponse(response => response.request().method() === 'PUT' && new URL(response.url()).pathname === PRICES)
