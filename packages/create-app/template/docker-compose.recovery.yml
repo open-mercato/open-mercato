@@ -1,5 +1,5 @@
 # Opt-in maintenance, merged with exactly one fullapp compose file.
-# Select a prebuilt matching runner image and private container-path env file.
+# Select a prebuilt matching maintenance image and private container-path env file.
 services:
   maintenance:
     profiles: [recovery]

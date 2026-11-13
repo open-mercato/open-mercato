@@ -21,12 +21,12 @@ function fixture(t, wrapper) {
       process.stdout.write('ready\\n')
       setInterval(() => {}, 1000)
     } else {
-      process.stdout.write(JSON.stringify({ options: process.env.NODE_OPTIONS, args: process.argv.slice(2) }) + '\\n')
+      process.stdout.write(JSON.stringify({ options: process.env.NODE_OPTIONS, nodeEnv: process.env.NODE_ENV, args: process.argv.slice(2) }) + '\\n')
       process.stderr.write('child stderr\\n')
       process.exitCode = Number(process.env.STUB_EXIT_CODE || 0)
     }
   `)
-  const env = { ...process.env, NODE_OPTIONS: '--max-old-space-size=512' }
+  const env = { ...process.env, NODE_ENV: 'development', NODE_OPTIONS: '--max-old-space-size=512' }
   delete env.OM_BUILD_NODE_OPTIONS
   delete env.WAIT_FOR_SIGNAL
   delete env.STUB_EXIT_CODE
@@ -39,7 +39,7 @@ for (const wrapper of wrappers) {
       const env = { ...f.env, ...(options === undefined ? {} : { OM_BUILD_NODE_OPTIONS: options }) }
       const r = spawnSync(process.execPath, [f.script, '--webpack', 'path with spaces', '$literal'], { cwd: f.dir, env, encoding: 'utf8' })
       assert.equal(r.status, 0, r.stderr)
-      assert.deepEqual(JSON.parse(r.stdout), { options: options ?? '--max-old-space-size=8192', args: ['build', '--webpack', 'path with spaces', '$literal'] })
+      assert.deepEqual(JSON.parse(r.stdout), { options: options ?? '--max-old-space-size=8192', nodeEnv: 'production', args: ['build', '--webpack', 'path with spaces', '$literal'] })
       assert.equal(r.stderr, 'child stderr\n')
     }
   })
