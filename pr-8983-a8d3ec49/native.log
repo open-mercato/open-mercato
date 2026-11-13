@@ -1,0 +1,45 @@
+◇ injected env (119) from apps/mercato/.env // tip: ⌁ auth for agents [www.vestauth.com]
+╔═══════════════════════╗
+║  🧩 Open Mercato CLI  ║
+╚═══════════════════════╝
+
+🚀 Running test:integration TC-(FORMS-(UI-009|UI-010|LOCK-001|ACL-005|TEN-008)|WC-(003-lifecycle|002-lines-partials|007-tenant-isolation|036-line-undo-stale-state|039-receiving-redo|040-replacement-order-undo|030-sales-return-bridge|034-credit-memo-bridge))
+[integration] Running Playwright suite...
+[integration] Checking whether an existing ephemeral environment can be reused...
+[integration] Reusing existing ephemeral environment at http://127.0.0.1:33267.
+[integration] Ignoring the inherited JWT_SECRET: it is a placeholder or too short and the ephemeral app runs with NODE_ENV=production. Using the ephemeral default instead.
+[integration] Ensuring Playwright Chromium is installed...
+
+Running 26 tests using 1 worker
+
+  ✓   1 packages/core/src/modules/forms/__integration__/TC-FORMS-ACL-005.spec.ts:25:3 › TC-FORMS-ACL-005: forms.view cannot create or edit › grants the list read and denies create and patch (1.4s)
+  ✓   2 packages/core/src/modules/forms/__integration__/TC-FORMS-LOCK-001.spec.ts:14:3 › TC-FORMS-LOCK-001: form metadata optimistic locking › rejects a stale form edit with the unified 409 payload (200ms)
+  ✓   3 packages/core/src/modules/forms/__integration__/TC-FORMS-TEN-008.spec.ts:30:3 › TC-FORMS-TEN-008: cross-organization form read › answers 404 for a foreign form id and stays indistinguishable from a missing one (233ms)
+  ✓   4 packages/core/src/modules/forms/__integration__/TC-FORMS-UI-009-header-wrap.spec.ts:9:3 › TC-FORMS-UI-009: narrow studio header › keeps translated actions and long metadata inside the viewport (6.1s)
+  ✓   5 packages/core/src/modules/forms/__integration__/TC-FORMS-UI-010-metadata-autosave.spec.ts:9:3 › TC-FORMS-UI-010: en metadata refusals never report saved (6.7s)
+  ✓   6 packages/core/src/modules/forms/__integration__/TC-FORMS-UI-010-metadata-autosave.spec.ts:9:3 › TC-FORMS-UI-010: pl metadata refusals never report saved (6.2s)
+  ✓   7 packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts:23:5 › TC-WC-002: warranty claim line partial approvals › admin can cancel then confirm removing a line from the desk (#8012) (3.0s)
+  ✓   8 packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts:23:5 › TC-WC-002: warranty claim line partial approvals › employee can cancel then confirm removing a line from the desk (#8012) (3.5s)
+  ✓   9 packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts:76:3 › TC-WC-002: warranty claim line partial approvals › validates partial quantities, recomputes header totals, and locks closed claims (5.7s)
+  ✓  10 packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts:211:3 › TC-WC-002: warranty claim line partial approvals › refuses a stale per-line optimistic-lock update with HTTP 409 (373ms)
+  ✓  11 packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts:279:3 › TC-WC-002: warranty claim line partial approvals › auto-assigns the next line number when creating an additional line without lineNo (368ms)
+  ✓  12 packages/core/src/modules/warranty_claims/__integration__/TC-WC-003-lifecycle.spec.ts:21:3 › TC-WC-003: warranty claim lifecycle commands › covers lifecycle happy path, invalid transitions, rejection reason, credit-only skip, and stale locks (9.3s)
+  ✓  13 packages/core/src/modules/warranty_claims/__integration__/TC-WC-007-tenant-isolation.spec.ts:21:3 › TC-WC-007: warranty claims tenant isolation › hides org-A claims from a user authenticated in a second organization of the same tenant (1.2s)
+  ✓  14 packages/core/src/modules/warranty_claims/__integration__/TC-WC-030-sales-return-bridge.spec.ts:85:3 › TC-WC-030: sales-return execution bridge › rejects unauthenticated callers (13ms)
+  ✓  15 packages/core/src/modules/warranty_claims/__integration__/TC-WC-030-sales-return-bridge.spec.ts:93:3 › TC-WC-030: sales-return execution bridge › creates and links a sales return from approved lines, then blocks duplicates (4.0s)
+  ✓  16 packages/core/src/modules/warranty_claims/__integration__/TC-WC-030-sales-return-bridge.spec.ts:153:3 › TC-WC-030: sales-return execution bridge › translates the shipped-quantity cap and reports skipped lines (5.2s)
+  ✓  17 packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts:112:3 › TC-WC-034: credit-memo execution bridge › rejects unauthenticated callers (9ms)
+  ✓  18 packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts:120:3 › TC-WC-034: credit-memo execution bridge › mints a receipt-capped, discount-aware credit memo at a 23% tax rate and blocks duplicates (3.8s)
+  ✓  19 packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts:208:3 › TC-WC-034: credit-memo execution bridge › deducts restocking fees, enforces receipt evidence and status gates, and validates manual links (8.2s)
+  ✓  20 packages/core/src/modules/warranty_claims/__integration__/TC-WC-036-line-undo-stale-state.spec.ts:108:3 › TC-WC-036: claim-line undo refuses stale state and keeps header totals consistent › undo of a line update is refused after another user quarantines the line (2.7s)
+  ✓  21 packages/core/src/modules/warranty_claims/__integration__/TC-WC-036-line-undo-stale-state.spec.ts:174:3 › TC-WC-036: claim-line undo refuses stale state and keeps header totals consistent › undo of a line credit edit restores the line and header totals, and redo re-applies it (675ms)
+  ✓  22 packages/core/src/modules/warranty_claims/__integration__/TC-WC-036-line-undo-stale-state.spec.ts:221:3 › TC-WC-036: claim-line undo refuses stale state and keeps header totals consistent › undo of a line update is refused with lineLocked once the claim is closed (3.0s)
+  ✓  23 packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts:53:5 › TC-WC-039: receiving and quarantine release redo › redoes receive after undo when the original body included updatedAt (4.9s)
+  ✓  24 packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts:53:5 › TC-WC-039: receiving and quarantine release redo › redoes release after undo when the original body included updatedAt (4.1s)
+  ✓  25 packages/core/src/modules/warranty_claims/__integration__/TC-WC-040-replacement-order-undo.spec.ts:31:5 › TC-WC-040: replacement-order undo after approval initialization › undoes and redoes a replacement order initialized by the stock approval workflow (4.1s)
+  ✓  26 packages/core/src/modules/warranty_claims/__integration__/TC-WC-040-replacement-order-undo.spec.ts:31:5 › TC-WC-040: replacement-order undo after approval initialization › preserves a replacement order edited by a user and translates the refusal (3.4s)
+
+  26 passed (1.7m)
+[integration] Attached to an already running ephemeral environment from .ai/qa/ephemeral-env.json.
+[integration] Screenshot capture is enabled (override with --screenshots / --no-screenshots)
+⏱️ Done in 108387ms
