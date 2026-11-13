@@ -46,6 +46,15 @@ type WidgetContext = Record<string, unknown> & {
 }
 
 type UserOption = { id: string; label: string }
+type UserLookup = { id: string; email?: string | null; name?: string | null }
+
+function userLabel(user: UserLookup): string {
+  return (
+    (typeof user.name === 'string' && user.name.trim()) ||
+    (typeof user.email === 'string' && user.email.trim()) ||
+    user.id
+  )
+}
 
 const FEATURE_GATE = 'communication_channels.assign'
 const CHANNEL_INFO_MUTATION_CONTEXT_ID = 'communication-channels-info-panel'
@@ -80,6 +89,8 @@ export default function ChannelInfoPanelWidget({
   const [users, setUsers] = React.useState<UserOption[]>([])
   const [usersLoaded, setUsersLoaded] = React.useState(false)
   const usersRequestedRef = React.useRef(false)
+  const [assigneeLabels, setAssigneeLabels] = React.useState<Record<string, string>>({})
+  const requestedAssigneeIdsRef = React.useRef(new Set<string>())
 
   React.useEffect(
     () => setAssignedUserId(contact?.assignedUserId ?? null),
@@ -90,7 +101,7 @@ export default function ChannelInfoPanelWidget({
     if (usersLoaded || usersRequestedRef.current || !canReassign) return
     usersRequestedRef.current = true
     const response = await apiCall<{
-      items?: Array<{ id: string; email?: string | null; name?: string | null }>
+      items?: UserLookup[]
     }>('/api/auth/users?page=1&pageSize=50', {
       // Opportunistic dropdown-options fetch: a user may hold
       // `communication_channels.assign` without `auth.users.list`. Suppress the
@@ -102,13 +113,9 @@ export default function ChannelInfoPanelWidget({
       setUsersLoaded(true)
       return
     }
-    const items = (response.result?.items ?? []).flatMap<UserOption>((u) => {
-      if (!u?.id) return []
-      const label =
-        (typeof u.name === 'string' && u.name.trim().length > 0 && u.name.trim()) ||
-        (typeof u.email === 'string' && u.email.trim().length > 0 && u.email.trim()) ||
-        u.id
-      return [{ id: u.id, label }]
+    const items = (response.result?.items ?? []).flatMap<UserOption>((user) => {
+      if (!user?.id) return []
+      return [{ id: user.id, label: userLabel(user) }]
     })
     setUsers(items)
     setUsersLoaded(true)
@@ -117,6 +124,25 @@ export default function ChannelInfoPanelWidget({
   React.useEffect(() => {
     if (assignedUserId) void loadUsers()
   }, [assignedUserId, loadUsers])
+
+  React.useEffect(() => {
+    if (!canReassign || !usersLoaded || !assignedUserId) return
+    if (users.some((user) => user.id === assignedUserId)) return
+    if (requestedAssigneeIdsRef.current.has(assignedUserId)) return
+    requestedAssigneeIdsRef.current.add(assignedUserId)
+    const selectedId = assignedUserId
+    const loadSelectedAssignee = async () => {
+      const response = await apiCall<{ items?: UserLookup[] }>(
+        `/api/auth/users?ids=${encodeURIComponent(selectedId)}&pageSize=1`,
+        { headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
+      ).catch(() => null)
+      if (!response?.ok) return
+      const user = response.result?.items?.find((item) => item.id === selectedId)
+      if (!user) return
+      setAssigneeLabels((current) => ({ ...current, [selectedId]: userLabel(user) }))
+    }
+    void loadSelectedAssignee()
+  }, [assignedUserId, canReassign, users, usersLoaded])
 
   const reassign = React.useCallback(
     async (nextAssignedUserId: string | null) => {
@@ -263,7 +289,9 @@ export default function ChannelInfoPanelWidget({
                   {t('communication_channels.infoPanel.unassigned', 'Unassigned')}
                 </SelectItem>
                 {assignedUserId && !users.some((u) => u.id === assignedUserId) ? (
-                  <SelectItem value={assignedUserId}>{assignedUserId}</SelectItem>
+                  <SelectItem value={assignedUserId}>
+                    {assigneeLabels[assignedUserId] ?? assignedUserId}
+                  </SelectItem>
                 ) : null}
                 {users.map((user) => (
                   <SelectItem key={user.id} value={user.id}>

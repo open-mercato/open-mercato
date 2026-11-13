@@ -110,4 +110,47 @@ describe('ChannelInfoPanelWidget assignee label', () => {
     await waitFor(() => expect(screen.getByText(ASSIGNEE_ID)).toBeTruthy())
     expect(apiCall).not.toHaveBeenCalled()
   })
+
+  it('resolves the selected assignee when the first page does not include them', async () => {
+    ;(apiCall as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        result: { items: [{ id: 'user-2', email: 'employee@acme.com' }] },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: { items: [{ id: ASSIGNEE_ID, name: 'Selected colleague', email: 'admin@acme.com' }] },
+      })
+    renderPanel(['communication_channels.assign'])
+
+    const trigger = screen.getByRole('combobox', { name: 'Assigned to' })
+    await waitFor(() => expect(trigger.textContent).toContain('Selected colleague'))
+    expect(trigger.textContent).not.toContain(ASSIGNEE_ID)
+    expect(apiCall).toHaveBeenCalledTimes(2)
+    expect((apiCall as jest.Mock).mock.calls[1]).toEqual([
+      `/api/auth/users?ids=${ASSIGNEE_ID}&pageSize=1`,
+      { headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
+    ])
+  })
+
+  it('retains the ID fallback when the selected-user lookup is refused', async () => {
+    ;(apiCall as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, result: { items: [] } })
+      .mockResolvedValueOnce({ ok: false, status: 403 })
+    renderPanel(['communication_channels.*'])
+
+    await waitFor(() => expect(apiCall).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('combobox', { name: 'Assigned to' }).textContent).toContain(ASSIGNEE_ID)
+  })
+
+  it('ignores a selected-user response for a different ID', async () => {
+    ;(apiCall as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, result: { items: [] } })
+      .mockResolvedValueOnce({ ok: true, result: { items: [{ id: 'another-user', name: 'Unexpected colleague' }] } })
+    renderPanel(['communication_channels.assign'])
+
+    await waitFor(() => expect(apiCall).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('combobox', { name: 'Assigned to' }).textContent).toContain(ASSIGNEE_ID)
+    expect(screen.queryByText('Unexpected colleague')).toBeNull()
+  })
 })
