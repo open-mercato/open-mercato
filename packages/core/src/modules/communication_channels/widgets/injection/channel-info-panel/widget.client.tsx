@@ -79,6 +79,7 @@ export default function ChannelInfoPanelWidget({
   const [savingAssignee, setSavingAssignee] = React.useState(false)
   const [users, setUsers] = React.useState<UserOption[]>([])
   const [usersLoaded, setUsersLoaded] = React.useState(false)
+  const usersRequestedRef = React.useRef(false)
 
   React.useEffect(
     () => setAssignedUserId(contact?.assignedUserId ?? null),
@@ -86,7 +87,8 @@ export default function ChannelInfoPanelWidget({
   )
 
   const loadUsers = React.useCallback(async () => {
-    if (usersLoaded || !canReassign) return
+    if (usersLoaded || usersRequestedRef.current || !canReassign) return
+    usersRequestedRef.current = true
     const response = await apiCall<{
       items?: Array<{ id: string; email?: string | null; name?: string | null }>
     }>('/api/auth/users?page=1&pageSize=50', {

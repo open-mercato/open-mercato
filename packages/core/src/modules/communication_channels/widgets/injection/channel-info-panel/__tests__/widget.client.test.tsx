@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import ChannelInfoPanelWidget from '../widget.client'
 
@@ -56,6 +56,10 @@ function renderPanel(userFeatures: string[]) {
 }
 
 describe('ChannelInfoPanelWidget assignee label', () => {
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = jest.fn()
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
     ;(apiCall as jest.Mock).mockResolvedValue({
@@ -77,6 +81,27 @@ describe('ChannelInfoPanelWidget assignee label', () => {
     expect(trigger.textContent).not.toContain(ASSIGNEE_ID)
     expect(apiCall).toHaveBeenCalledTimes(1)
     expect((apiCall as jest.Mock).mock.calls[0][0]).toBe('/api/auth/users?page=1&pageSize=50')
+  })
+
+  it('does not refetch users when the dropdown opens while the mount request is pending', async () => {
+    let resolveUsers: (value: unknown) => void = () => {}
+    ;(apiCall as jest.Mock).mockReturnValue(
+      new Promise((resolve) => {
+        resolveUsers = resolve
+      }),
+    )
+    renderPanel(['communication_channels.assign'])
+
+    const trigger = screen.getByRole('combobox', { name: 'Assigned to' })
+    fireEvent.keyDown(trigger, { key: 'Enter' })
+    await waitFor(() => expect(trigger.getAttribute('aria-expanded')).toBe('true'))
+    resolveUsers({
+      ok: true,
+      result: { items: [{ id: ASSIGNEE_ID, email: 'admin@acme.com', name: null }] },
+    })
+
+    await waitFor(() => expect(trigger.textContent).toContain('admin@acme.com'))
+    expect(apiCall).toHaveBeenCalledTimes(1)
   })
 
   it('does not fetch users when the viewer cannot reassign', async () => {
