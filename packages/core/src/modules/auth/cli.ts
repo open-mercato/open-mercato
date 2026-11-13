@@ -230,8 +230,11 @@ const rotateEncryptionKey: ModuleCli = {
     const args = parseArgs(rest)
     const tenantId = (args.tenantId as string) ?? (args.tenant as string) ?? (args.tenant_id as string) ?? null
     const organizationId = (args.organizationId as string) ?? (args.orgId as string) ?? (args.org as string) ?? null
-    const rawOldKeyArgument = args['old-key'] ?? args.oldKey
-    const oldKeyArgument = typeof rawOldKeyArgument === 'string' && rawOldKeyArgument ? rawOldKeyArgument : null
+    const rawOldKeyArgument = args['old-key'] || args.oldKey || null
+    if (rawOldKeyArgument === true) {
+      failCli(`--old-key requires a value. Use ${OLD_ENCRYPTION_KEY_ENV} instead.`)
+    }
+    const oldKeyArgument = typeof rawOldKeyArgument === 'string' ? rawOldKeyArgument : null
     const oldKeyEnvironment = process.env[OLD_ENCRYPTION_KEY_ENV]
       ? normalizeKeyInput(process.env[OLD_ENCRYPTION_KEY_ENV]!)
       : null

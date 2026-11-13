@@ -120,6 +120,17 @@ describe('auth rotate-encryption-key CLI', () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it('rejects a bare --old-key flag without a value', async () => {
+    const rotate = cli.find((c) => c.command === 'rotate-encryption-key')!
+
+    await expect(
+      rotate.run(['--allow-unsafe-old-key', '--old-key', '--tenant', 'tenant-1', '--org', 'org-1']),
+    ).rejects.toThrow('--old-key requires a value')
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(persist).not.toHaveBeenCalled()
+  })
+
   it('accepts an --old-key equal to TENANT_DATA_ENCRYPTION_OLD_KEY through the bridge', async () => {
     const rotate = cli.find((c) => c.command === 'rotate-encryption-key')!
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
