@@ -10,6 +10,7 @@ import {
   createCartProductFixture,
   createCartStorefrontFixture,
   createStorefrontCart,
+  deleteCartRowIfExists,
   updateChannelBindingAssortmentScope,
   uniqueStamp,
   type CartProductFixture,
@@ -45,6 +46,7 @@ test.describe('TC-CART-FLAG-01: a re-visible flagged line is cleared by lines.up
     let store: CartStorefrontFixture | null = null;
     let product: CartProductFixture | null = null;
     let otherProduct: CartProductFixture | null = null;
+    const cartIds: string[] = [];
     try {
       store = await createCartStorefrontFixture(request, token, {});
       product = await createCartProductFixture(request, token, { stamp, label: 'flag', salesChannelId: store.salesChannelId });
@@ -52,7 +54,9 @@ test.describe('TC-CART-FLAG-01: a re-visible flagged line is cleared by lines.up
       await updateChannelBindingAssortmentScope(request, token, store.channelBindingId, { categoryIds: [product.categoryId] });
 
       const updateCart = await createStorefrontCart(store.hostname);
+      cartIds.push(updateCart.cartId);
       const mergeCart = await createStorefrontCart(store.hostname);
+      cartIds.push(mergeCart.cartId);
       const updateAdd = await addLine(store.hostname, updateCart.token, product.productId, '1');
       expect(updateAdd.status, updateAdd.text).toBe(201);
       const updateLineId = (updateAdd.body as CartEnvelope).cart.lines[0].id;
@@ -91,6 +95,7 @@ test.describe('TC-CART-FLAG-01: a re-visible flagged line is cleared by lines.up
       expect(mergedBody.cart.itemCount).toBe(2);
       expect(Number(mergedBody.cart.totals?.grandTotalGrossAmount ?? 0)).toBeGreaterThan(0);
     } finally {
+      for (const cartId of cartIds) await deleteCartRowIfExists(cartId);
       await cleanupCartProductFixture(request, token, product);
       await cleanupCartProductFixture(request, token, otherProduct);
       if (store) await cleanupCartStorefrontFixture(request, token, store);

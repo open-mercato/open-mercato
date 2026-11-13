@@ -1463,6 +1463,19 @@ describe('cart promotions + totals recompute (Step 8.2, QA F12)', () => {
     expect(seededCarts[0].totals).toMatchObject({ grandTotalNetAmount: 50, grandTotalGrossAmount: 60 })
   })
 
+  it('cart.lines.add merging into a product_unavailable line keeps the flag when no assortment scope is enforced', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 3, addedByActorType: 'rep' },
+      makeCtx({ em: makeEm() }),
+    )
+
+    expect(result.status).toBe('merged')
+    expect(seededCartLines[0].flagState).toBe('product_unavailable')
+  })
+
   it('cart.lines.bulkAdd merging into a stale product_unavailable line clears the flag and counts it in Cart.totals', async () => {
     seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
     const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
