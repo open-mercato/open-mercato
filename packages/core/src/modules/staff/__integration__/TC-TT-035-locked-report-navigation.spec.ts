@@ -62,7 +62,7 @@ test('TC-TT-035: locked-entry report navigation matches report permission', asyn
       roles.push(roleId)
       await setRoleAclFeatures(request, admin, {
         roleId, organizations: [organizationId],
-        features: ['staff.timesheets.view', 'staff.timesheets.manage_own', 'staff.timesheets.manage_all',
+        features: ['staff.view', 'staff.timesheets.view', 'staff.timesheets.manage_own', 'staff.timesheets.manage_all', 'staff.timesheets.projects.manage',
           ...(canViewReports ? ['staff.timesheets.reports.view'] : [])],
       })
       const email = `qa-tt35-${stamp}-${canViewReports}@example.com`
@@ -78,7 +78,7 @@ test('TC-TT-035: locked-entry report navigation matches report permission', asyn
       const auth = await readJsonSafe<{ token?: string }>(login)
       const viewerToken = auth?.token
       if (!viewerToken) throw new Error('[internal] Fixture login omitted token')
-      const report = await apiRequest(page.request, 'GET', `${REPORTS}/${reportId}`, { token: viewerToken })
+      const report = await apiRequest(page.request, 'GET', `${REPORTS}/${reportId}/sheet`, { token: viewerToken })
       expect(report.status()).toBe(canViewReports ? 200 : 403)
       await page.goto(`/backend/staff/time-tracking/entries?ids=${entryId}`)
       const row = page.getByRole('row').filter({ hasText: description })
