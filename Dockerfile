@@ -1,4 +1,40 @@
+# Shared actual runtime stage: corporate trust, supported native clients and private recovery storage.
+FROM node:24-alpine AS recovery-tools
+WORKDIR /app
+COPY docker/README.md docker/cert[s] /tmp/om-certs/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
+        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
+    done; \
+    rm -rf /tmp/om-certs
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+ARG ALPINE_MIRROR=""
+RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
+ARG POSTGRES_CLIENT_MAJOR=17
+COPY docker/scripts/install-postgres-clients.sh /usr/local/libexec/om-install-postgres-clients
+RUN sh /usr/local/libexec/om-install-postgres-clients "$POSTGRES_CLIENT_MAJOR" \
+ && mkdir -p /var/lib/open-mercato/recovery \
+ && printf '%s\n' 'Open Mercato private recovery volume' > /var/lib/open-mercato/recovery/.volume-origin \
+ && chmod 0700 /var/lib/open-mercato/recovery \
+ && chmod 0600 /var/lib/open-mercato/recovery/.volume-origin \
+ && chown -R 1001:1001 /var/lib/open-mercato/recovery
+ENV OM_BACKUP_BINARIES_DIR=/usr/libexec/postgresql${POSTGRES_CLIENT_MAJOR} \
+    OM_RECOVERY_ROOT=/var/lib/open-mercato/recovery
+COPY docker/scripts/recovery-entrypoint.sh /usr/local/bin/om-recovery
+RUN chmod 0755 /usr/local/bin/om-recovery
+
 FROM node:24-alpine AS builder
+
+# Module registration is generated at build time; keep OSS defaults disabled.
+ARG OM_ENABLE_ENTERPRISE_MODULES=false
+ARG OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=false
+ENV OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES} \
+    OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS}
 
 ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL
 
@@ -130,6 +166,12 @@ RUN yarn build
 # the seeded volume and `yarn build:packages` at boot becomes cache hits.
 FROM node:24-alpine AS dev-build
 
+# Module registration is generated at build time; keep OSS defaults disabled.
+ARG OM_ENABLE_ENTERPRISE_MODULES=false
+ARG OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=false
+ENV OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES} \
+    OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS}
+
 ENV NODE_ENV=development     NEXT_TELEMETRY_DISABLED=1     TURBO_CACHE_DIR=/app/node_modules/.cache/turbo
 
 WORKDIR /app
@@ -231,36 +273,19 @@ RUN yarn build:packages && yarn generate && yarn build:packages
 # Dev stage: lean runtime + /opt/prebuilt artifacts for volume seeding.
 # Stage-to-stage COPY keeps a SINGLE copy of node_modules in the final image
 # (moving it within one stage would double the layer size).
-FROM node:24-alpine AS dev
+FROM recovery-tools AS dev
+
+# Module registration is generated at build time; keep OSS defaults disabled.
+ARG OM_ENABLE_ENTERPRISE_MODULES=false
+ARG OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=false
+ENV OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES} \
+    OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS}
 
 ENV NODE_ENV=development     NEXT_TELEMETRY_DISABLED=1     TURBO_CACHE_DIR=/app/node_modules/.cache/turbo
 
 WORKDIR /app
 
-# Corporate proxy CA trust - see the builder stage comment / docker/certs/README.md.
-# Baked into the runtime stage too: the entrypoint's fallback `yarn install`
-# and any in-container downloads hit the same intercepting proxy.
-# cert[s] is a glob + docker/README.md an always-present anchor: the COPY then
-# succeeds even when docker/certs/ is missing from a partial checkout.
-# The anchor MUST live inside docker/: BuildKit only transfers the paths a
-# COPY names, so anchoring outside it leaves the whole docker/ directory out
-# of the filtered context and the unmatched glob fails on `lstat /docker`.
-COPY docker/README.md docker/cert[s] /tmp/om-certs/
-RUN set -eu; \
-    mkdir -p /usr/local/share/ca-certificates; \
-    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
-        [ -f "$cert" ] || continue; \
-        name="$(basename "$cert")"; \
-        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
-        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
-        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
-    done; \
-    rm -rf /tmp/om-certs
-ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
-
-# Optional internal Alpine mirror - see the builder stage comment.
-ARG ALPINE_MIRROR=""
-RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
+# Corporate CA trust and Alpine mirror selection are inherited from recovery-tools.
 
 # Build toolchain kept: the entrypoint's fallback `yarn install` (stale
 # lockfile vs prebuilt image) still compiles native modules.
@@ -303,7 +328,7 @@ EXPOSE 3000 4101
 CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
 
 # Production stage
-FROM node:24-alpine AS runner
+FROM recovery-tools AS runner
 
 ARG CONTAINER_PORT=3000
 ARG DOCUMENTS_COLLAB_PORT=4101
@@ -318,28 +343,7 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# Corporate proxy CA trust - see the builder stage comment / docker/certs/README.md.
-# cert[s] is a glob + docker/README.md an always-present anchor: the COPY then
-# succeeds even when docker/certs/ is missing from a partial checkout.
-# The anchor MUST live inside docker/: BuildKit only transfers the paths a
-# COPY names, so anchoring outside it leaves the whole docker/ directory out
-# of the filtered context and the unmatched glob fails on `lstat /docker`.
-COPY docker/README.md docker/cert[s] /tmp/om-certs/
-RUN set -eu; \
-    mkdir -p /usr/local/share/ca-certificates; \
-    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
-        [ -f "$cert" ] || continue; \
-        name="$(basename "$cert")"; \
-        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
-        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
-        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
-    done; \
-    rm -rf /tmp/om-certs
-ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
-
-# Optional internal Alpine mirror - see the builder stage comment.
-ARG ALPINE_MIRROR=""
-RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
+# Corporate CA trust and Alpine mirror selection are inherited from recovery-tools.
 
 # Install only production system dependencies (Alpine uses apk)
 # sudo runs only the fixed, root-owned storage mount initializer.

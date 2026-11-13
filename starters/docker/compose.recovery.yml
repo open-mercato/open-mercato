@@ -1,0 +1,24 @@
+# Opt-in maintenance, merged with exactly one fullapp compose file.
+# Select a prebuilt matching runner image and private container-path env file.
+services:
+  maintenance:
+    profiles: [recovery]
+    image: ${OM_RECOVERY_IMAGE:?set OM_RECOVERY_IMAGE to the reviewed prebuilt runtime image}
+    pull_policy: never
+    user: "1001:1001"
+    entrypoint: ["/usr/local/bin/om-recovery"]
+    command: ["node", "/app/packages/enterprise/bin/mercato-backup.mjs", "help"]
+    working_dir: /app/apps/mercato
+    network_mode: service:postgres
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    env_file:
+      - ${OM_RECOVERY_ENV_FILE:-.env.recovery}
+    environment:
+      AUTO_SPAWN_WORKERS: "false"
+      AUTO_SPAWN_SCHEDULER: "false"
+    volumes:
+      - recovery_data:/var/lib/open-mercato/recovery

@@ -46,6 +46,9 @@ services:
     build:
       context: .
       args:
+        - OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES:-false}
+        - OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
+        - POSTGRES_CLIENT_MAJOR=${POSTGRES_CLIENT_MAJOR:-17}
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
         - INSTALL_CHROMIUM=${INSTALL_CHROMIUM:-0}
         # Optional: browser-reachable ws(s):// endpoint baked in at build time.
@@ -71,12 +74,15 @@ services:
         yarn start
     working_dir: /app
     volumes:
+      - recovery_data:/var/lib/open-mercato/recovery
       - init_marker:/tmp/init-marker
       - attachments_storage:/app/storage
     ports:
       - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
     environment:
       <<: *tenant-encryption-environment
+      OM_ENABLE_ENTERPRISE_MODULES: ${OM_ENABLE_ENTERPRISE_MODULES:-false}
+      OM_ENABLE_ENTERPRISE_MODULES_BACKUPS: ${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
       # The image is a production build installed with `yarn workspaces focus --production`. The
       # Next server child is insulated (the CLI forces NODE_ENV=production for it), but pinning
       # `development` here still leaked into `mercato init`, migrations, workers, and the scheduler.
@@ -462,6 +468,7 @@ services:
       - mercato-network-fullapp
 
 volumes:
+  recovery_data:
   postgres_data:
   # Shared MCP API key file: the mcp service provisions it, opencode reads it.
   mcp_shared:
