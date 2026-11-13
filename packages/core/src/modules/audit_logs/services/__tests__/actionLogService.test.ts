@@ -534,7 +534,8 @@ describe('ActionLogService.backfillProjections - correlation keys', () => {
       select: () => selectBuilder,
       where: () => selectBuilder,
       orderBy: () => selectBuilder,
-      limit: async () => {
+      limit: () => selectBuilder,
+      execute: async () => {
         if (served) return []
         served = true
         return rows
@@ -611,6 +612,142 @@ describe('ActionLogService.backfillProjections - correlation keys', () => {
 
     expect(result).toEqual({ errors: 0, scanned: 2, skipped: 2, updated: 0 })
     expect(updates).toHaveLength(0)
+  })
+})
+
+describe('ActionLogService.backfillProjections - query scoping and cursor', () => {
+  type Pred = (row: Record<string, unknown>) => boolean
+
+  function compare(cell: unknown, op: string, value: unknown): boolean {
+    const left = cell instanceof Date ? cell.getTime() : cell
+    const right = value instanceof Date ? value.getTime() : value
+    if (op === 'is') return cell === null || cell === undefined
+    if (op === '=') return left === right
+    if (op === '>') return (left as number | string) > (right as number | string)
+    throw new Error(`[internal] unsupported operator ${op}`)
+  }
+
+  function columnPred(column: string, op: string, value: unknown): Pred {
+    const key = column.replace('action_logs.', '')
+    return (row) => compare(row[key], op, value)
+  }
+
+  function buildImmutableKysely(rows: Record<string, unknown>[]) {
+    const selectCalls: number[] = []
+    const updates: Array<{ values: Record<string, unknown>; id: unknown }> = []
+    const expressionBuilder = Object.assign(
+      (column: string, op: string, value: unknown) => columnPred(column, op, value),
+      {
+        or: (list: Pred[]): Pred => (row) => list.some((fn) => fn(row)),
+        and: (list: Pred[]): Pred => (row) => list.every((fn) => fn(row)),
+      },
+    )
+    const makeBuilder = (preds: Pred[], limit: number | null): Record<string, unknown> => ({
+      select: () => makeBuilder(preds, limit),
+      where: (arg: unknown, op?: string, value?: unknown) => {
+        const pred = typeof arg === 'function'
+          ? (arg as (eb: typeof expressionBuilder) => Pred)(expressionBuilder)
+          : columnPred(arg as string, op as string, value)
+        return makeBuilder([...preds, pred], limit)
+      },
+      orderBy: () => makeBuilder(preds, limit),
+      limit: (next: number) => makeBuilder(preds, next),
+      execute: async () => {
+        const matched = rows
+          .filter((row) => preds.every((fn) => fn(row)))
+          .sort((left, right) => {
+            const byDate = (left.created_at as Date).getTime() - (right.created_at as Date).getTime()
+            return byDate !== 0 ? byDate : String(left.id).localeCompare(String(right.id))
+          })
+        selectCalls.push(matched.length)
+        if (selectCalls.length > 50) throw new Error('[internal] backfill did not terminate')
+        return limit === null ? matched : matched.slice(0, limit)
+      },
+    })
+    const fakeKysely = {
+      selectFrom: () => makeBuilder([], null),
+      updateTable: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (_column: string, _operator: string, id: unknown) => ({
+            execute: async () => {
+              updates.push({ values, id })
+            },
+          }),
+        }),
+      }),
+    }
+    const service = new ActionLogService(
+      { getKysely: () => fakeKysely } as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+    return { service, updates, selectCalls }
+  }
+
+  const completeRow = {
+    tenant_id: 'tenant-1',
+    organization_id: 'org-1',
+    actor_user_id: null,
+    command_id: 'customers.deals.update',
+    action_label: null,
+    snapshot_before: null,
+    changes_json: null,
+    action_type: 'edit',
+    source_key: 'agent',
+    changed_fields: [],
+    primary_changed_field: null,
+    correlation_keys: ['agentRunId:run-1'],
+    context_json: { source: 'agent', correlation: { agentRunId: 'run-1' } },
+    deleted_at: null,
+  }
+
+  function rowAt(id: string, minute: number, overrides: Record<string, unknown> = {}) {
+    return {
+      ...completeRow,
+      id,
+      created_at: new Date(Date.UTC(2026, 9, 1, 0, minute)),
+      ...overrides,
+    }
+  }
+
+  it('applies tenant and organization scope filters', async () => {
+    const { service, updates } = buildImmutableKysely([
+      rowAt('in-scope', 1, { correlation_keys: null }),
+      rowAt('other-tenant', 2, { tenant_id: 'tenant-2', correlation_keys: null }),
+      rowAt('other-org', 3, { organization_id: 'org-2', correlation_keys: null }),
+      rowAt('deleted', 4, { correlation_keys: null, deleted_at: new Date() }),
+    ])
+
+    const result = await service.backfillProjections({ tenantId: 'tenant-1', organizationId: 'org-1' })
+
+    expect(result).toEqual({ errors: 0, scanned: 1, skipped: 0, updated: 1 })
+    expect(updates.map((update) => update.id)).toEqual(['in-scope'])
+  })
+
+  it('only scans rows with missing projections when not forced', async () => {
+    const { service, updates } = buildImmutableKysely([
+      rowAt('complete', 1),
+      rowAt('missing-correlation', 2, { correlation_keys: null }),
+      rowAt('missing-type', 3, { action_type: null }),
+    ])
+
+    const result = await service.backfillProjections()
+
+    expect(result.scanned).toBe(2)
+    expect(updates.map((update) => update.id)).toEqual(['missing-correlation', 'missing-type'])
+  })
+
+  it('advances the cursor so a forced run processes each row once and terminates', async () => {
+    const { service, updates, selectCalls } = buildImmutableKysely([
+      rowAt('log-c', 2),
+      rowAt('log-a', 1),
+      rowAt('log-b', 1),
+      rowAt('log-d', 3),
+    ])
+
+    const result = await service.backfillProjections({ force: true, batchSize: 2 })
+
+    expect(result).toEqual({ errors: 0, scanned: 4, skipped: 0, updated: 4 })
+    expect(updates.map((update) => update.id)).toEqual(['log-a', 'log-b', 'log-c', 'log-d'])
+    expect(selectCalls).toEqual([4, 2, 0])
   })
 })
 

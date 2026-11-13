@@ -884,7 +884,7 @@ export class ActionLogService {
     let cursorId: string | null = null
 
     while (true) {
-      const rowsQuery = (this.em.getKysely<any>() as any)
+      let rowsQuery = (this.em.getKysely<any>() as any)
         .selectFrom('action_logs')
         .select([
           'action_logs.id',
@@ -905,21 +905,22 @@ export class ActionLogService {
         ])
         .where('action_logs.deleted_at', 'is', null) as any
 
-      if (options.tenantId) rowsQuery.where('action_logs.tenant_id', '=', options.tenantId)
-      if (options.organizationId) rowsQuery.where('action_logs.organization_id', '=', options.organizationId)
+      if (options.tenantId) rowsQuery = rowsQuery.where('action_logs.tenant_id', '=', options.tenantId)
+      if (options.organizationId) rowsQuery = rowsQuery.where('action_logs.organization_id', '=', options.organizationId)
 
       if (!options.force) {
-        rowsQuery.where((eb: any) =>
+        rowsQuery = rowsQuery.where((eb: any) =>
           eb.or([
             eb('action_logs.action_type', 'is', null),
             eb('action_logs.source_key', 'is', null),
             eb('action_logs.changed_fields', 'is', null),
+            eb('action_logs.correlation_keys', 'is', null),
           ])
         )
       }
 
       if (cursorCreatedAt && cursorId) {
-        rowsQuery.where((eb: any) =>
+        rowsQuery = rowsQuery.where((eb: any) =>
           eb.or([
             eb('action_logs.created_at', '>', cursorCreatedAt),
             eb.and([
@@ -930,10 +931,11 @@ export class ActionLogService {
         )
       }
 
-      const rows = await rowsQuery
-        .orderBy('created_at', 'asc')
-        .orderBy('id', 'asc')
+      const rows: BackfillRow[] = await rowsQuery
+        .orderBy('action_logs.created_at', 'asc')
+        .orderBy('action_logs.id', 'asc')
         .limit(batchSize)
+        .execute()
 
       if (rows.length === 0) break
 

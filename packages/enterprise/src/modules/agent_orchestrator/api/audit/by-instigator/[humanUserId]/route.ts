@@ -4,6 +4,8 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   PROPOSAL_CORRELATION_KEY,
   RUN_CORRELATION_KEY,
@@ -19,6 +21,9 @@ import {
  * through the audited Command path — there is no parallel audit store. Org-scoped:
  * every row is filtered by the caller's `organization_id`, so org B can never read
  * org A's chain. RBAC-gated by `agent_orchestrator.identity.read`.
+ *
+ * The filter runs through Kysely, but `command_id` / `action_label` are encrypted
+ * columns, so their values are re-read via `findWithDecryption` before responding.
  */
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.identity.read'] },
@@ -105,15 +110,30 @@ export async function GET(req: Request, ctx: RouteContext) {
     .limit(parsedQuery.data.limit)
     .execute()
 
-  const items = (rows as Array<Record<string, unknown>>).map((row) => {
+  const typedRows = rows as Array<Record<string, unknown>>
+  const decryptedById = new Map<string, ActionLog>()
+  const ids = typedRows.map((row) => String(row.id))
+  if (ids.length > 0) {
+    const entries = await findWithDecryption(
+      em,
+      ActionLog,
+      { id: { $in: ids }, tenantId: auth.tenantId },
+      undefined,
+      { tenantId: auth.tenantId, organizationId },
+    )
+    for (const entry of entries) decryptedById.set(entry.id, entry)
+  }
+
+  const items = typedRows.map((row) => {
+    const decrypted = decryptedById.get(String(row.id))
     const onBehalfOf = (row.onBehalfOfUserId as string | null) ?? null
     const createdAt = row.createdAt
     const correlationKeys = Array.isArray(row.correlationKeys) ? (row.correlationKeys as string[]) : null
     return {
       id: String(row.id),
-      commandId: (row.commandId as string | null) ?? null,
+      commandId: decrypted ? decrypted.commandId : (row.commandId as string | null) ?? null,
       actionType: (row.actionType as string | null) ?? null,
-      actionLabel: (row.actionLabel as string | null) ?? null,
+      actionLabel: decrypted ? decrypted.actionLabel ?? null : (row.actionLabel as string | null) ?? null,
       sourceKey: (row.sourceKey as string | null) ?? null,
       resourceKind: (row.resourceKind as string | null) ?? null,
       resourceId: (row.resourceId as string | null) ?? null,

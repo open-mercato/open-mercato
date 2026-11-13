@@ -9,6 +9,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: jest.fn(),
+}))
+
 const TENANT_A = '11111111-1111-4111-8111-111111111111'
 const ORG_A = '22222222-2222-4222-8222-222222222222'
 const ORG_B = '33333333-3333-4333-8333-333333333333'
@@ -126,8 +130,18 @@ function seedRow(overrides: Partial<Row>): Row {
   }
 }
 
-async function setup(rows: Row[]) {
+async function setup(rows: Row[], decrypt: (row: Row) => Partial<Row> = () => ({})) {
   const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+  const { findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+  ;(findWithDecryption as jest.Mock).mockImplementation(
+    async (_em: unknown, _entity: unknown, where: { id: { $in: string[] } }) =>
+      rows
+        .filter((row) => where.id.$in.includes(row.id))
+        .map((row) => {
+          const plain = { ...row, ...decrypt(row) }
+          return { id: plain.id, commandId: plain.command_id, actionLabel: plain.action_label }
+        }),
+  )
   const kysely = createKyselyFake(rows)
   ;(createRequestContainer as jest.Mock).mockResolvedValue({
     resolve: (token: string) => {
@@ -222,6 +236,29 @@ describe('GET /api/agent_orchestrator/audit/by-instigator/:humanUserId', () => {
     const body = await res.json()
     const ids = body.items.map((i: { id: string }) => i.id)
     expect(ids).toEqual(['orgA-direct'])
+  })
+
+  it('returns decrypted command id and label instead of the raw encrypted columns', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: HUMAN, tenantId: TENANT_A, orgId: ORG_A })
+    const { findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+
+    await setup(
+      [seedRow({ id: 'enc-1', command_id: 'iv:tag:cipher:v1', action_label: 'iv2:tag2:cipher2:v1' })],
+      () => ({ command_id: 'customers.update_deal', action_label: 'Update deal' }),
+    )
+
+    const res = await GET(makeRequest(), { params })
+    const body = await res.json()
+
+    expect(body.items[0]).toMatchObject({ commandId: 'customers.update_deal', actionLabel: 'Update deal' })
+    expect(findWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { id: { $in: ['enc-1'] }, tenantId: TENANT_A },
+      undefined,
+      { tenantId: TENANT_A, organizationId: ORG_A },
+    )
   })
 
   it('returns 401 when unauthenticated', async () => {
