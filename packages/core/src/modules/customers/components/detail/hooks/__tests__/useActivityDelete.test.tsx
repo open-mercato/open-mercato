@@ -10,6 +10,7 @@ const scopedHeadersMock = jest.fn()
 const confirmMock = jest.fn<Promise<boolean>, unknown[]>(async () => true)
 const flashMock = jest.fn()
 const surfaceRecordConflictMock = jest.fn<boolean, unknown[]>(() => false)
+const reportErrorMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback?: string) => fallback ?? _key,
@@ -34,6 +35,10 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: (...args: unknown[]) => flashMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
+}))
+
 jest.mock('@open-mercato/ui/backend/conflicts', () => ({
   surfaceRecordConflict: (...args: unknown[]) => surfaceRecordConflictMock(...args),
 }))
@@ -42,6 +47,14 @@ const activity = {
   id: 'interaction-1',
   interactionType: 'call',
   updatedAt: '2026-07-10T08:30:00.000Z',
+} as InteractionSummary
+
+const legacyOnlyActivity = {
+  id: 'legacy-activity-1',
+  interactionType: 'call',
+  source: 'legacy-activity',
+  createdAt: '2025-01-15T09:00:00.000Z',
+  updatedAt: '2025-01-15T09:00:00.000Z',
 } as InteractionSummary
 
 describe('useActivityDelete', () => {
@@ -54,6 +67,26 @@ describe('useActivityDelete', () => {
     flashMock.mockClear()
     surfaceRecordConflictMock.mockReset()
     surfaceRecordConflictMock.mockReturnValue(false)
+    reportErrorMock.mockReset()
+  })
+
+  it('deletes a legacy-only row through the activities adapter without a placeholder version', async () => {
+    const runMutation = jest.fn(async (operation: () => Promise<unknown>) => operation())
+    const onAfterDelete = jest.fn()
+    const { result } = renderHook(() => useActivityDelete({ runMutation, onAfterDelete }))
+
+    await act(async () => {
+      await result.current.deleteActivity(legacyOnlyActivity)
+    })
+
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+      '/api/customers/activities',
+      expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ id: 'legacy-activity-1' }) }),
+    )
+    expect(scopedHeadersMock).toHaveBeenCalledWith({})
+    expect(flashMock).toHaveBeenCalledWith('Activity deleted', 'success')
+    expect(onAfterDelete).toHaveBeenCalledTimes(1)
   })
 
   it('sends the record version, routes through the guarded mutation and refreshes', async () => {
@@ -115,13 +148,15 @@ describe('useActivityDelete', () => {
 
     expect(surfaceRecordConflictMock).toHaveBeenCalledWith(conflict, expect.any(Function))
     expect(flashMock).not.toHaveBeenCalled()
+    expect(reportErrorMock).not.toHaveBeenCalled()
     expect(onAfterDelete).toHaveBeenCalledTimes(1)
   })
 
   it('reports a failed delete and keeps the list as it was', async () => {
-    apiCallOrThrowMock.mockRejectedValue(new Error('[internal] delete failed'))
+    const failure = new Error('[internal] delete failed')
+    apiCallOrThrowMock.mockRejectedValue(failure)
     const onAfterDelete = jest.fn()
-    const { result } = renderHook(() => useActivityDelete({ onAfterDelete }))
+    const { result } = renderHook(() => useActivityDelete({ onAfterDelete, logContext: 'ActivitiesSection' }))
 
     await act(async () => {
       await result.current.deleteActivity(activity)
@@ -129,6 +164,25 @@ describe('useActivityDelete', () => {
 
     expect(flashMock).toHaveBeenCalledWith('Could not delete activity', 'error')
     expect(onAfterDelete).not.toHaveBeenCalled()
+    expect(reportErrorMock).toHaveBeenCalledWith(failure, {
+      module: 'customers',
+      code: 'customers.activity_delete_failed',
+      attributes: { component: 'ActivitiesSection', activityId: 'interaction-1' },
+    })
+  })
+
+  it('still tells the user when the failed delete cannot be reported', async () => {
+    apiCallOrThrowMock.mockRejectedValue(new Error('[internal] delete failed'))
+    reportErrorMock.mockImplementation(() => {
+      throw new Error('[internal] telemetry sink unavailable')
+    })
+    const { result } = renderHook(() => useActivityDelete({}))
+
+    await act(async () => {
+      await result.current.deleteActivity(activity)
+    })
+
+    expect(flashMock).toHaveBeenCalledWith('Could not delete activity', 'error')
   })
 
   it('keeps the deleted state when the refresh callback throws', async () => {
@@ -143,5 +197,9 @@ describe('useActivityDelete', () => {
 
     expect(flashMock).toHaveBeenCalledWith('Activity deleted', 'success')
     expect(flashMock).not.toHaveBeenCalledWith('Could not delete activity', 'error')
+    expect(reportErrorMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ code: 'customers.activity_delete_refresh_failed' }),
+    )
   })
 })

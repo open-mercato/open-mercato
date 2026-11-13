@@ -507,6 +507,55 @@ describe('Customer ActivitiesSection wrapper', () => {
     await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalled())
   })
 
+  it('deletes a legacy-only activity through the activities adapter when canonical mode is off', async () => {
+    readApiResultOrThrowMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/activities?')) {
+        return Promise.resolve({
+          items: [
+            {
+              id: 'legacy-only-7',
+              activityType: 'call',
+              subject: 'Historical call',
+              occurredAt: '2025-01-15T09:00:00.000Z',
+              createdAt: '2025-01-15T09:00:00.000Z',
+              entityId: 'company-123',
+            },
+          ],
+          totalPages: 1,
+        })
+      }
+      return Promise.resolve({ items: [] })
+    })
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+
+    renderWithProviders(
+      <CustomerActivitiesSection
+        entityId="company-123"
+        useCanonicalInteractions={false}
+        addActionLabel="Log activity"
+        emptyState={{ title: 'No activities logged yet', actionLabel: 'Log activity' }}
+      />,
+    )
+
+    type TimelineProps = {
+      activities: Array<Record<string, unknown>>
+      onDelete?: (item: Record<string, unknown>) => Promise<void>
+    }
+    const latestTimelineProps = () => activityTimelineMock.mock.calls.at(-1)?.[0] as TimelineProps
+    await waitFor(() => expect(latestTimelineProps()?.activities).toHaveLength(1))
+    const legacyRow = latestTimelineProps().activities[0]!
+    expect(legacyRow).toMatchObject({ id: 'legacy-only-7', source: 'legacy-activity' })
+
+    await latestTimelineProps().onDelete?.(legacyRow)
+
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+      '/api/customers/activities',
+      expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ id: 'legacy-only-7' }) }),
+    )
+    expect(scopedHeadersMock).toHaveBeenLastCalledWith({})
+  })
+
   it('does not delete when the confirmation is dismissed', async () => {
     const activity = sampleActivity({ id: 'interaction-9', interactionType: 'call' })
     readApiResultOrThrowMock.mockResolvedValue({ items: [activity] })
