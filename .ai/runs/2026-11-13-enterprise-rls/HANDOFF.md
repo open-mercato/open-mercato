@@ -2,7 +2,7 @@
 
 Branch: cez/82462d87
 PR: https://github.com/open-mercato/open-mercato/pull/9424
-Current phase/step: Phase 1 Step 1.5
+Current phase/step: Phase 2 Step 2.1
 
 ## Completed
 
@@ -10,7 +10,7 @@ Design readiness re-review approved after exact lifetime and recovery contracts.
 
 ## Next concrete action
 
-Register the enterprise tenant_boundaries adapter through existing GeneratorPlugin.bootstrapRegistration before ORM initialization. Add off/on/bootstrap tests and run generation. Context phases 2.x still pending; do not claim application activation ready.
+Enterprise bootstrap adapter is committed762a2d0ccc and verified (checkpoint2). Next wrap canonical JWT/API-key DB lookups in narrow identity scopes, then scope the dispatcher continuation before authorization and handlers. Preserve canonical actor validation before selected tenant, and attach only already-resolved auth to the Request to avoid recanonicalizing inside the selected scope.
 
 ## Remaining
 

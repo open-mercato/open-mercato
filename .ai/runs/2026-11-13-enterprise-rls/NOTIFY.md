@@ -13,3 +13,6 @@ Independent review10382a6c returned no-go for missing exact neutral contracts an
 
 ## 2026-11-13T10:30:00Z — checkpoint 1
 Steps1.1 through1.4 verified: 33 shared/73 enterprise tests, both typechecks, enterprise build, offline342-table inventory and PostgreSQL16/17/18 each3 integration tests (13+16+21 checks), no skips. No UI changes in this window; actual app screenshots remain Step3.4. Next1.5 bootstrap registration, then trusted production execution contexts. Full scope remains in progress.
+
+## 2026-11-13T10:45:00Z — checkpoint 2 / Phase 1 closed
+Step1.5 committed762a2d0ccc; startup registration and real guarded readiness verified. Enterprise79 tests, shared bootstrap5, CLI generator7, typechecks/build/generation/template pass; PG16–18 each3live tests including23 catalog checks pass. No UI changed. Next2.1 trusted API identity and continuation.
