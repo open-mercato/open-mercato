@@ -200,6 +200,9 @@ services:
     build:
       context: .
       args:
+        - OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES:-false}
+        - OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
+        - POSTGRES_CLIENT_MAJOR=${POSTGRES_CLIENT_MAJOR:-17}
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
         # Optional internal Alpine mirror for proxy-blocked corporate networks
         # (empty = official CDN; see the Dockerfile builder stage comment).
@@ -226,6 +229,7 @@ services:
         INIT_COMMAND='yarn mercato init' sh /app/docker/scripts/init-or-migrate.sh
         yarn start
     volumes:
+      - recovery_data:/var/lib/open-mercato/recovery
       - init_marker:/tmp/init-marker
       - attachments_storage:/app/apps/mercato/storage
       - mcp_shared:/run/mcp-shared:ro
@@ -237,6 +241,8 @@ services:
     # socket don't accidentally pick them up.
     environment:
       <<: *tenant-encryption-environment
+      OM_ENABLE_ENTERPRISE_MODULES: ${OM_ENABLE_ENTERPRISE_MODULES:-false}
+      OM_ENABLE_ENTERPRISE_MODULES_BACKUPS: ${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
       # The image (Dockerfile `runner` stage) is a production build installed with
       # `yarn workspaces focus --production`. The Next server child is insulated (the CLI forces
       # NODE_ENV=production for it), but pinning `development` here still leaked into every other
@@ -513,6 +519,8 @@ services:
       - mercato-network-fullapp
 
 volumes:
+  recovery_data:
+    name: mercato-recovery-data-${DEPLOY_ENV:-local}
   postgres_data:
     name: mercato-postgres-data-${DEPLOY_ENV:-local}
   redis_data:

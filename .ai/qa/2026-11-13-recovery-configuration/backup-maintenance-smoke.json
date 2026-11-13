@@ -1,0 +1,81 @@
+{
+  "sourceHead": "f1d35059067402206b1d24631d6f2a56dfdf6026",
+  "image": "om-recovery-maintenance:backup-f1d-20261113",
+  "status": "passed",
+  "network": "none",
+  "applicationServerStarted": false,
+  "databaseContacted": false,
+  "runtime": {
+    "node": "v24.22.3",
+    "uid": 1001,
+    "arch": "arm64",
+    "clients": [
+      "pg_dump (PostgreSQL) 17.12",
+      "pg_restore (PostgreSQL) 17.12",
+      "psql (PostgreSQL) 17.12"
+    ],
+    "recoveryRoot": "/var/lib/open-mercato/recovery"
+  },
+  "configuration": {
+    "assurance": "configuration-plan-only",
+    "persistentMount": true,
+    "durablePaths": {
+      "base": true,
+      "backupOutput": true,
+      "backupWorkspace": true,
+      "rotationArtifacts": true,
+      "rotationTrust": true,
+      "custody": true
+    },
+    "missingPrerequisiteFields": [
+      "serviceFile",
+      "passwordFile",
+      "recipientsFile",
+      "identityFile"
+    ],
+    "noCustodyCreated": true
+  },
+  "checks": [
+    {
+      "name": "runtime",
+      "exitCode": 0
+    },
+    {
+      "name": "default-help",
+      "exitCode": 0
+    },
+    {
+      "name": "help",
+      "exitCode": 0
+    },
+    {
+      "name": "configure",
+      "exitCode": 0
+    },
+    {
+      "name": "configure-no-writes",
+      "exitCode": 0
+    },
+    {
+      "name": "app-help",
+      "exitCode": 0
+    },
+    {
+      "name": "registry",
+      "exitCode": 0
+    }
+  ],
+  "limits": "Safe CLI/configuration and generated registry smoke only; no production startup or migration/data operation.",
+  "imageId": "sha256:06413141462ecddbdb1567181c7ffe35ed584e0880410c510637d367b3900fd1",
+  "imageConfigId": "sha256:e86726efb17b2f316eb5791170b850ffa98070c51fdfc4c281b7207a1d2fe73a",
+  "imageIndexDigest": "sha256:06413141462ecddbdb1567181c7ffe35ed584e0880410c510637d367b3900fd1",
+  "buildTarget": "maintenance",
+  "buildArgs": {
+    "OM_ENABLE_ENTERPRISE_MODULES": "true",
+    "OM_ENABLE_ENTERPRISE_MODULES_BACKUPS": "true",
+    "POSTGRES_CLIENT_MAJOR": "17"
+  },
+  "platform": "linux/arm64",
+  "imageUser": "1001:1001",
+  "imageConfigIdProvenance": "BuildKit immutable OCI config digest; Docker inspect imageId independently matches exported image-index digest"
+}

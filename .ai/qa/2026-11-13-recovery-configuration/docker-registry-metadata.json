@@ -1,0 +1,50 @@
+[
+  {
+    "source": "apps/mercato/src/modules.ts",
+    "umbrella": "false",
+    "backups": "false",
+    "backupsRegistered": false
+  },
+  {
+    "source": "apps/mercato/src/modules.ts",
+    "umbrella": "true",
+    "backups": "false",
+    "backupsRegistered": false
+  },
+  {
+    "source": "apps/mercato/src/modules.ts",
+    "umbrella": "false",
+    "backups": "true",
+    "backupsRegistered": false
+  },
+  {
+    "source": "apps/mercato/src/modules.ts",
+    "umbrella": "true",
+    "backups": "true",
+    "backupsRegistered": true
+  },
+  {
+    "source": "packages/create-app/template/src/modules.ts",
+    "umbrella": "false",
+    "backups": "false",
+    "backupsRegistered": false
+  },
+  {
+    "source": "packages/create-app/template/src/modules.ts",
+    "umbrella": "true",
+    "backups": "false",
+    "backupsRegistered": false
+  },
+  {
+    "source": "packages/create-app/template/src/modules.ts",
+    "umbrella": "false",
+    "backups": "true",
+    "backupsRegistered": false
+  },
+  {
+    "source": "packages/create-app/template/src/modules.ts",
+    "umbrella": "true",
+    "backups": "true",
+    "backupsRegistered": true
+  }
+]

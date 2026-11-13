@@ -84,7 +84,12 @@
     },
     "infra": {
       "description": "Rare, special-case skills.",
-      "skills": ["om-dev-container-maintenance", "om-integration-builder"]
+      "skills": [
+        "om-dev-container-maintenance",
+        "om-integration-builder",
+        "om-backup-database",
+        "om-rotate-encryption-keys"
+      ]
     }
   }
 }

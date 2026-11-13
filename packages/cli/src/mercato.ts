@@ -2868,7 +2868,24 @@ export async function run(argv = process.argv) {
     }
     return commandExitCode
   } catch (e: any) {
-    console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)
+    const message = formatCliFailureMessage(modName, cmdName, e)
+    if (modName === 'entities' && cmdName === 'rotate-encryption-key' && process.env.OM_ROTATION_PROGRESS === 'json') {
+      process.stderr.write(JSON.stringify({
+        schemaVersion: 1,
+        type: 'phase.changed',
+        runId: 'rotation',
+        phase: 'rotation.failed',
+        entity: message,
+        rowsDone: '0',
+        rowsTotal: '0',
+        rowsTotalExact: false,
+        bytesDone: '0',
+        chunksDone: 0,
+        at: new Date().toISOString(),
+      }) + '\n')
+    } else {
+      console.error(`💥 Failed: ${message}`)
+    }
     return 1
   }
 }

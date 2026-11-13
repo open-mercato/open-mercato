@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { isUtf8 } from 'node:buffer'
 import { isEncryptionDebugEnabled } from './toggles'
 import { createLogger } from '../logger'
 
@@ -131,13 +132,21 @@ export function isEncryptedPayloadShape(value: unknown): value is string {
   }
 }
 
-function runAesGcmDecrypt(dek: Buffer, iv: Buffer, ciphertext: Buffer, tag: Buffer): string {
+function runAesGcmDecrypt(dek: Buffer, iv: Buffer, ciphertext: Buffer, tag: Buffer, requireValidUtf8 = false): string {
   const decipher = crypto.createDecipheriv('aes-256-gcm', dek, iv)
   decipher.setAuthTag(tag)
-  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
+  if (requireValidUtf8 && !isUtf8(plaintext)) throw new Error('Invalid encrypted UTF-8 text')
+  return plaintext.toString('utf8')
 }
 
-export function decryptWithAesGcm(payload: string, dekBase64: string): string | null {
+/** Maintenance shape includes empty ciphertext; callers must still authenticate with the DEK. */
+export function isRotationCiphertextShape(value: unknown): value is string {
+  return isEncryptedPayloadShape(value) || (typeof value === 'string' && /^[A-Za-z0-9+/]{16}::[A-Za-z0-9+/]{22}==:v1$/.test(value))
+}
+
+/** Protected maintenance can reject lossy text decoding without changing legacy callers. */
+export function decryptWithAesGcm(payload: string, dekBase64: string, options?: { requireValidUtf8?: boolean }): string | null {
   if (!payload) return null
   const parts = payload.split(':')
   if (parts.length !== 4) return null
@@ -148,7 +157,7 @@ export function decryptWithAesGcm(payload: string, dekBase64: string): string | 
   const ciphertext = Buffer.from(ciphertextB64, 'base64')
   const tag = Buffer.from(tagB64, 'base64')
   try {
-    const result = runAesGcmDecrypt(dek, iv, ciphertext, tag)
+    const result = runAesGcmDecrypt(dek, iv, ciphertext, tag, options?.requireValidUtf8)
     logDebug('decrypt', { iv: ivB64, tag: tagB64 })
     return result
   } catch (err) {

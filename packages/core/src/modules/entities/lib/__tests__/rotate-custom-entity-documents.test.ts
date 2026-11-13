@@ -19,6 +19,7 @@ type Row = {
   tenant_id: string | null
   organization_id: string | null
   doc: Record<string, unknown>
+  updated_at?: string
 }
 
 function definition(key: string, kind = 'text', overrides: Partial<CustomFieldDef> = {}): CustomFieldDef {
@@ -49,6 +50,13 @@ function fixture(definitions: CustomFieldDef[], batches: Row[][], key: string | 
   const pending = batches.slice()
   const updates: Array<{ query: string; parameters: unknown[]; doc: Record<string, unknown> }> = []
   const execute = jest.fn(async (query: string, parameters: unknown[]) => {
+    if (query.startsWith('select 1 as oversized')) {
+      expect(query).toContain('order by id asc limit 8')
+      expect(query).toContain('frontier as materialized')
+      expect(query).toContain('offset 0')
+      return []
+    }
+    if (query.includes('select count(*)::text as verified from custom_maintenance_readback')) return [{ verified: String(parameters.length / 7) }]
     if (query.startsWith('select ')) return pending.shift() ?? []
     updates.push({ query, parameters, doc: JSON.parse(String(parameters[0])) as Record<string, unknown> })
     return [{ id: parameters[1] }]
@@ -215,7 +223,7 @@ describe('custom entity document encryption rotation', () => {
     expect(setup.updates[0]!.doc['cf:code']).toBe(forgedEnvelope)
     expect(decryptWithAesGcm(String(setup.updates[0]!.doc['cf:secret']), currentKey)).toBe('protected')
     expect(setup.execute.mock.calls[0]![0]).toContain('tenant_id = ? and organization_id = ?')
-    expect(setup.execute.mock.calls[0]![1]).toEqual([entityId, tenantId, organizationId])
+    expect(setup.execute.mock.calls.find(([query]) => query.startsWith('select id'))![1]).toEqual([tenantId, organizationId])
   })
 
   test.each([
@@ -400,17 +408,125 @@ describe('custom entity document encryption rotation', () => {
   })
 
   test('keyset pages through all selected documents', async () => {
-    const firstPage = Array.from({ length: 100 }, (_, index) => row({}, { id: `row-${String(index).padStart(3, '0')}` }))
-    const setup = fixture([definition('code')], [firstPage, [row({ 'cf:code': 'legacy' }, { id: 'row-100' })]])
+    const firstPage = Array.from({ length: 8 }, (_, index) => row({}, { id: `row-${String(index).padStart(3, '0')}` }))
+    const setup = fixture([definition('code')], [firstPage, [row({ 'cf:code': 'legacy' }, { id: 'row-008' })]])
     await expect(rotateCustomEntityDocuments(setup.em, setup.options)).resolves.toBe(1)
-    expect(setup.execute.mock.calls[1]![0]).toContain('id > ? order by id asc limit 100')
-    expect(setup.execute.mock.calls[1]![1]).toEqual([entityId, tenantId, organizationId, 'row-099'])
+    const selections = setup.execute.mock.calls.filter(([query]) => query.startsWith('select id'))
+    expect(selections[1]![0]).toContain('id > ? order by id asc limit 8')
+    expect(selections[1]![1]).toEqual([tenantId, organizationId, 'row-007'])
+  })
+
+  test('advances a full ineligible PK frontier before rotating a later eligible document', async () => {
+    const skipped = Array.from({ length: 8 }, (_, index) => ({ ...row({}, { id: `row-${index}` }), doc: null, rotation_eligible: false }))
+    const setup = fixture([definition('code')], [skipped as unknown as Row[], [row({ 'cf:code': 'legacy' }, { id: 'row-8' })]])
+    const checkpointBatch = jest.fn()
+    await expect(rotateCustomEntityDocuments(setup.em, { ...setup.options, checkpointBatch })).resolves.toBe(1)
+    expect(checkpointBatch.mock.calls[0]![0]).toMatchObject({ cursor: ['row-7'], readRows: 8, writtenRows: 0 })
+    expect(setup.updates).toHaveLength(1)
+    const query = setup.execute.mock.calls.find(([sql]) => sql.startsWith('select id'))![0]
+    expect(query.indexOf('limit 8')).toBeLessThan(query.indexOf('exists (select'))
+    expect(query).toContain('left join lateral')
+    expect(query).toContain('s.id = e.id and e.rotation_eligible offset 0')
   })
 
   test('refuses to overwrite a document changed during rotation', async () => {
     const setup = fixture([definition('code')], [[row({ 'cf:code': 'legacy' })]])
+    setup.execute.mockImplementationOnce(async () => [])
     setup.execute.mockImplementationOnce(async () => [row({ 'cf:code': 'legacy' })])
     setup.execute.mockImplementationOnce(async () => [])
     await expect(rotateCustomEntityDocuments(setup.em, setup.options)).rejects.toThrow('document changed during encryption')
   })
+  test('persists the exact protected timestamp after the durable intent callback', async () => {
+    const original = '2026-11-12 10:11:12.123456+00'
+    const timestamp = new Date('2026-11-12T11:22:33.444Z')
+    const setup = fixture([definition('code')], [[row({ 'cf:code': 'legacy' }, { updated_at: original })]])
+    const intent = jest.fn(async () => {
+      expect(setup.updates).toHaveLength(0)
+      return timestamp
+    })
+    setup.options.timestampForWrite = intent
+    await expect(rotateCustomEntityDocuments(setup.em, setup.options)).resolves.toBe(1)
+    expect(intent).toHaveBeenCalledWith({ table: 'custom_entities_storage', identity: 'row-001', tenantId, organizationId, previousTimestamp: original })
+    expect(setup.updates[0]!.query).toContain('updated_at = ?')
+    expect(setup.updates[0]!.parameters[1]).toBe(timestamp)
+  })
+
+  test('timestamp-intent failure prevents mutation', async () => {
+    const setup = fixture([definition('code')], [[row({ 'cf:code': 'legacy' })]])
+    setup.options.timestampForWrite = async () => { throw new Error('intent not durable') }
+    await expect(rotateCustomEntityDocuments(setup.em, setup.options)).rejects.toThrow('intent not durable')
+    expect(setup.updates).toHaveLength(0)
+  })
+
+  test('unsupported definition inventory refuses before document contents are fetched', async () => {
+    const setup = fixture(Array.from({ length: 501 }, (_, n) => definition(`field_${n}`)), [])
+    await expect(rotateCustomEntityDocuments(setup.em, setup.options)).rejects.toThrow('inventory exceeds')
+    expect(setup.getConnection).not.toHaveBeenCalled()
+  })
+
+  test('oversized document preflight prevents fetching and mutating its contents', async () => {
+    const setup = fixture([definition('code')], [])
+    setup.execute.mockResolvedValueOnce([{ oversized: 1 }] as never)
+    await expect(rotateCustomEntityDocuments(setup.em, setup.options)).rejects.toThrow('supported maintenance size')
+    expect(setup.execute).toHaveBeenCalledTimes(1)
+    expect(setup.updates).toHaveLength(0)
+  })
+
+  test('resumes from a committed cursor and checkpoints only after persisted batch readback',async()=>{
+    const setup=fixture([definition('code')],[[row({'cf:code':'legacy'},{id:'row-002'})]])
+    setup.options.resumeCursor=jest.fn(async()=>['row-001'])
+    setup.options.timestampForWrite=async()=>new Date('2026-01-02T00:00:00Z')
+    const checkpoint=jest.fn(async()=>{
+      const calls=setup.execute.mock.calls
+      expect(calls[calls.length-1]![0]).toContain('select count(*)::text as verified')
+    })
+    setup.options.checkpointBatch=checkpoint
+    await rotateCustomEntityDocuments(setup.em,setup.options)
+    expect(setup.execute.mock.calls.find(([sql])=>sql.startsWith('select id'))![1]).toContain('row-001')
+    expect(checkpoint).toHaveBeenCalledWith({operationId:JSON.stringify(['custom-documents-v1',tenantId,organizationId]),cursor:['row-002'],readRows:1,writtenRows:1})
+  })
+  test('failed persisted readback never advances the durable custom cursor',async()=>{
+    const setup=fixture([definition('code')],[[row({'cf:code':'legacy'})]])
+    const original=setup.execute.getMockImplementation()!
+    setup.execute.mockImplementation(async(sql,params)=>sql.includes('select count(*)::text as verified')?[{verified:'0'}]:original(sql,params))
+    setup.options.timestampForWrite=async()=>new Date('2026-01-02T00:00:00Z')
+    setup.options.checkpointBatch=jest.fn()
+    await expect(rotateCustomEntityDocuments(setup.em,setup.options)).rejects.toThrow('Persisted custom document batch')
+    expect(setup.options.checkpointBatch).not.toHaveBeenCalled()
+  })
+
+  test('timestamp batch intents cover actual writes and never authorize an unchanged current-key row',async()=>{
+    const current=encryptWithAesGcm('already-current',currentKey).value!
+    const setup=fixture([definition('code')],[[row({'cf:code':current},{id:'row-001'}),row({'cf:code':'legacy'},{id:'row-002'})]])
+    const timestamp=new Date('2026-01-02T00:00:00Z')
+    setup.options.timestampForBatchWrite=jest.fn(async intents=>{
+      expect(setup.updates).toHaveLength(0)
+      expect(intents.map(intent=>intent.identity)).toEqual(['row-002'])
+      return [timestamp]
+    })
+    await expect(rotateCustomEntityDocuments(setup.em,setup.options)).resolves.toBe(1)
+    expect(setup.options.timestampForBatchWrite).toHaveBeenCalledTimes(1)
+    expect(setup.updates[0]!.query).toContain('updated_at is not distinct from ?')
+  })
+
+  test('an ambiguous committed write replays from the old cursor without rewriting current ciphertext',async()=>{
+    const first=fixture([definition('code')],[[row({'cf:code':'legacy'})]])
+    const original=first.execute.getMockImplementation()!
+    first.execute.mockImplementation(async(sql,parameters)=>{
+      if(sql.includes('select count(*)::text as verified'))throw new Error('connection lost after commit')
+      return original(sql,parameters)
+    })
+    first.options.timestampForWrite=async()=>new Date('2026-01-02T00:00:00Z')
+    first.options.checkpointBatch=jest.fn()
+    await expect(rotateCustomEntityDocuments(first.em,first.options)).rejects.toThrow('after commit')
+    expect(first.updates).toHaveLength(1);expect(first.options.checkpointBatch).not.toHaveBeenCalled()
+    const resumed=fixture([definition('code')],[[row(first.updates[0]!.doc)]])
+    resumed.options.resumeCursor=async()=>['row-000']
+    resumed.options.timestampForBatchWrite=jest.fn()
+    resumed.options.checkpointBatch=jest.fn()
+    await expect(rotateCustomEntityDocuments(resumed.em,resumed.options)).resolves.toBe(0)
+    expect(resumed.updates).toHaveLength(0);expect(resumed.options.timestampForBatchWrite).not.toHaveBeenCalled()
+    expect(resumed.options.checkpointBatch).toHaveBeenCalledWith(expect.objectContaining({cursor:['row-001'],writtenRows:0,readRows:1}))
+  })
+
 })

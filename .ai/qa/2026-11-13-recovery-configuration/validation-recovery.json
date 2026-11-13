@@ -1,0 +1,31 @@
+{
+  "initialFailuresRetainedAsNonAcceptanceEvidence": true,
+  "checks": [
+    {
+      "check": "private-custody fixture under Turbo strict env",
+      "observed": "temporary root refused before intended permission assertion",
+      "disposition": "fixture moved to private persistent home directory; guards/assertions unchanged; 15 security tests pass with TMPDIR absent"
+    },
+    {
+      "check": "standalone backup documentation build",
+      "observed": "relative link targeted rotation page supplied only by companion PR",
+      "disposition": "backup-only branch links to companion PR; local link remains in rotation branch where page exists"
+    },
+    {
+      "check": "template build-memory contract",
+      "observed": "literal inline heap assertions did not recognize delegated build wrapper",
+      "disposition": "tests execute actual wrapper children; preserve 8192 default, explicit4096 override, typecheck headroom and production mode; no assertion waiver"
+    },
+    {
+      "check": "explicit canonical sort guard",
+      "observed": "bare UUID sort",
+      "disposition": "explicit binary lexical comparator; unchanged ordering; six sort audit and19provider/key cases pass"
+    },
+    {
+      "check": "unrelated attachment module-decoupling fixture",
+      "observed": "one whole-workspace case returned productsMedia where privateAttachments expected",
+      "disposition": "attachments production source/fixture unchanged; independent read-only review confirms preexisting isolation; focused13pass and final full8 recheck passes unchanged; no source/assertion/timeout change"
+    }
+  ],
+  "noPerformanceThresholdOrTimeoutWeakened": true
+}

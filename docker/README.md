@@ -372,3 +372,7 @@ automatically.
 Run `node docker/tests/storage-init-smoke.mjs` with Docker available. The test builds an isolated runtime fixture using the production Dockerfile's package installation and user/sudo configuration plus the real storage and Railway scripts. Yarn is stubbed, so no database is migrated and no application dependencies are installed.
 
 The only runtime sudo command is the root-owned `/usr/local/sbin/om-init-storage`, with no arguments. It changes ownership of the storage mount directory alone. Existing data must already be provisioned for UID/GID `1001:1001`; see the Railway deployment documentation for backup migration. Deployment maintainer review is required before releasing this startup change.
+
+## Enterprise recovery maintenance
+
+See [RECOVERY.md](RECOVERY.md) for the opt-in non-root maintenance profile, supported PostgreSQL clients and owner-private persistent recovery volume. It does not start application writers, weaken database TLS, repair volume ownership or grant commercial rights.

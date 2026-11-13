@@ -74,7 +74,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | `automation` | opt-in | 2 | PR/issue automation and experiment operation skills. Opt-in; agent-driven workflows. |
 | `analysis` | opt-in | 1 | Draft accessibility review (WCAG 2.2 AA). Opt-in. |
 | `migration` | opt-in | 5 | One-shot, version-pinned migrations. Install only when needed. |
-| `infra` | opt-in | 2 | Rare, special-case skills. |
+| `infra` | opt-in | 4 | Rare, special-case skills. |
 | external | always | 39 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
 
 Run `yarn install-skills --list` at any time to see tier definitions, current memberships, and which tiers are installed locally.
@@ -241,6 +241,8 @@ These skills are installed from [open-mercato/skills](https://github.com/open-me
 |-------|-------------|
 | `om-dev-container-maintenance` | Maintain the VS Code Dev Container setup for Open Mercato. MUST use for ANY change to `.devcontainer/` files. Also use when the container fails to build/start, services inside misbehave, or "works locally but not in dev container". Triggers on "dev container", "devcontainer", ".devcontainer". |
 | `om-integration-builder` | Build integration provider packages for the Open Mercato Integration Marketplace (payment, shipping, data-sync, webhook). Scaffolds the npm package, adapter, credentials, widget injection, webhook processing, health checks, i18n, tests. Triggers on "build integration", "add provider", "integrate with stripe/paypal/dhl". |
+| `om-backup-database` | Operate Open Mercato Enterprise encrypted PostgreSQL backups and isolated recovery with the installed CLI. Use for "back up the database", "verify a backup", "resume backup or restore", "rehearse recovery", "zrób kopię bazy", or "zweryfikuj i odtwórz kopię". Preserve explicit target authorization, key custody and quarantine. |
+| `om-rotate-encryption-keys` | Prepare, preview, execute, resume, or inspect Open Mercato encryption-key rotation for one or all explicitly selected tenants, using derived or version-pinned Vault source and target providers. Use for "rotate encryption keys", "migrate fallback to Vault", "migrate Vault to fallback", "rotate Vault DEKs", "resume key rotation", "check rotation report", or "rotacja kluczy szyfrowania". Never treats a generic rotation request as consent to unprotected Core mutation. |
 
 ---
 

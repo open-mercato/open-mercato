@@ -5411,6 +5411,12 @@ Operators using starter or generated-app full-app Compose deployments must set a
 
 This does not rotate existing credentials. If a deployment previously initialized with a predictable password, rotate the superadmin credential and review account access separately. No schema migration is needed. See [the specification](.ai/specs/2026-11-06-production-bootstrap-credentials.md#migration--backward-compatibility). Maintainer @pkarw approved the production-only emergency security exception on 2026-11-06; see the specification for the approval record. QA and validation remain required.
 
+### Explicit acknowledgment for unprotected key rotation
+
+`mercato entities rotate-encryption-key` now stops before mutation when Enterprise resumable encrypted recovery and correctness verification are unavailable. Operators must retain a tested independent backup and all prior keys, then rerun with `--acknowledge-unprotected-key-rotation` if accepting unprotected rotation. Automation must provide that exact flag on every mutating invocation; `--yes`, `--force`, environment toggles and saved preferences do not substitute. `--dry-run` remains read-only and needs no acknowledgment. The warning remains visible after acknowledgment. Licensed deployments can instead configure the protection service, which blocks success if recovery or verification fails and never silently falls back. No keys are automatically retired; existing scopes, old-key handling and CAS protections remain required.
+
+**Authorization (2026-11-12):** The owner approved this immediate CLI safety amendment for specs #8910/#9328 and confirmed Enterprise/commercial implementation rights. It applies specifically to the rotation acknowledgment and protection gate; it grants no blanket Emergency Security Exception waiver. See [specification #9328](https://github.com/open-mercato/open-mercato/pull/9328).
+
 ## Setup verifies encryption before database reuse (#8913)
 
 Setup migrations, initialization, reinstall and development recovery migrations now inspect existing database ciphertext with the configured tenant KMS and Forms key adapter before writes. Correct PostgreSQL credentials alone no longer permit reuse. Both monorepo and refreshed standalone setup scripts include this guard, including container initialization, migrations and role-ACL synchronization.

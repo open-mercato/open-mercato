@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "base": "227e93ae4c3311d840b01e71bbd7bc0c76382dc0",
+  "files": [
+    {
+      "file": "starters/docker/compose.fullapp.yml",
+      "parsedComposeBeforeAfterEqual": true,
+      "onlyExistingCapabilitiesReordered": true
+    },
+    {
+      "file": "packages/create-app/template/docker-compose.fullapp.yml",
+      "parsedComposeBeforeAfterEqual": true,
+      "onlyExistingCapabilitiesReordered": true
+    }
+  ],
+  "noServiceStarted": true,
+  "sourceHead": "724b6cb37eb98fcf5ce472b1b2090fdb5f704897",
+  "syntheticMergeClean": true
+}

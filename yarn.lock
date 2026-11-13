@@ -8355,6 +8355,31 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@noble/ciphers@npm:^2.1.1":
+  version: 2.4.0
+  resolution: "@noble/ciphers@npm:2.4.0"
+  checksum: 10/7ab9e5d892293d047232b4340956d93b022e6cf8cc2fd547df9cd4be5d286cd962d69947bcc99a2d99db02098225c4627cfd26ae78517f17a7bcfbc077ab1c6d
+  languageName: node
+  linkType: hard
+
+"@noble/curves@npm:^2.0.1":
+  version: 2.4.0
+  resolution: "@noble/curves@npm:2.4.0"
+  dependencies:
+    "@noble/hashes": "npm:2.4.0"
+  checksum: 10/9d9c592c500a6248068200ce46e1bde5e4df03c4162a528397f7a5f02c885a0408dc20d365e6224b63efef3fc3ea26fc1c9c8338d602fc78991feadb2e425968
+  languageName: node
+  linkType: hard
+
+"@noble/curves@npm:~2.0.0":
+  version: 2.0.1
+  resolution: "@noble/curves@npm:2.0.1"
+  dependencies:
+    "@noble/hashes": "npm:2.0.1"
+  checksum: 10/e826af523f40a671601a6d07f98df16c3afe1cbd0349c3ba4d7b31f6dba7dc743822719f260bd291716b6b42b8dc327f94a76b4852359aa85f79df461eb22bfc
+  languageName: node
+  linkType: hard
+
 "@noble/hashes@npm:1.4.0":
   version: 1.4.0
   resolution: "@noble/hashes@npm:1.4.0"
@@ -8362,10 +8387,34 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@noble/hashes@npm:2.0.1, @noble/hashes@npm:~2.0.0":
+  version: 2.0.1
+  resolution: "@noble/hashes@npm:2.0.1"
+  checksum: 10/f4d00e7564eb4ff4e6d16be151dd0e404aede35f91e4372b0a8a6ec888379c1dd1e02c721b480af8e7853bea9637185b5cb9533970c5b77d60c254ead0cfd8f7
+  languageName: node
+  linkType: hard
+
 "@noble/hashes@npm:2.2.0":
   version: 2.2.0
   resolution: "@noble/hashes@npm:2.2.0"
   checksum: 10/b1b78bedc2a01394be047429f3d888905015fe8a09f1b7e43e0b5736b54133df62f73dcc73ede43af38e96e86156afb45b86973fdeaa95d9f0880333c3fc0907
+  languageName: node
+  linkType: hard
+
+"@noble/hashes@npm:2.4.0, @noble/hashes@npm:^2.0.1":
+  version: 2.4.0
+  resolution: "@noble/hashes@npm:2.4.0"
+  checksum: 10/88d4cdd6cef00f412a39f65bda1d24cba2264c6cacdd1c6c48d7ed66fd9be865ffb7231024fb81177975c684b8a463879b89c5ae6960370b05a546c0fd8afa2c
+  languageName: node
+  linkType: hard
+
+"@noble/post-quantum@npm:^0.5.3":
+  version: 0.5.4
+  resolution: "@noble/post-quantum@npm:0.5.4"
+  dependencies:
+    "@noble/curves": "npm:~2.0.0"
+    "@noble/hashes": "npm:~2.0.0"
+  checksum: 10/9849fbc36c05fde8b1786d4ff94314c39cdeb3c4313945d86f3f0fdc3aa71447c0bf406106d2479afffc137cbc2e1aeebe4af8eb37aaf81625d7f6c22c3a6356
   languageName: node
   linkType: hard
 
@@ -9271,19 +9320,23 @@ __metadata:
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/scheduler": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/telemetry": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     "@open-mercato/web-research": "workspace:*"
     "@simplewebauthn/browser": "npm:^13.3.0"
     "@simplewebauthn/server": "npm:^13.3.2"
     "@simplewebauthn/types": "npm:^12.0.0"
     "@types/jest": "npm:^30.0.0"
+    "@types/pg": "npm:^8.23.1"
     "@types/qrcode": "npm:^1.5.5"
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
+    age-encryption: "npm:0.3.1"
     ai: "npm:^7.0.4"
     jest: "npm:^30.4.2"
     openid-client: "npm:^6.8.4"
     otpauth: "npm:9.5.1"
+    pg: "npm:8.23.0"
     qrcode: "npm:^1.5.4"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
@@ -9297,6 +9350,8 @@ __metadata:
     react-dom: ^19.0.0
     react-is: ">=18.0.0"
     zod: ">=3.23.0"
+  bin:
+    mercato-backup: ./bin/mercato-backup.mjs
   languageName: unknown
   linkType: soft
 
@@ -13051,6 +13106,13 @@ __metadata:
   version: 1.1.0
   resolution: "@rtsao/scc@npm:1.1.0"
   checksum: 10/17d04adf404e04c1e61391ed97bca5117d4c2767a76ae3e879390d6dec7b317fcae68afbf9e98badee075d0b64fa60f287729c4942021b4d19cd01db77385c01
+  languageName: node
+  linkType: hard
+
+"@scure/base@npm:^2.0.0":
+  version: 2.4.0
+  resolution: "@scure/base@npm:2.4.0"
+  checksum: 10/acf3f04119fdba33365e387110edc01585616fe81e96b1b9685fc2e3970736c204613f94614d7b8f4a63d1d31b8b155405eed0ac7afb27d57cdaaf5ea76eb857
   languageName: node
   linkType: hard
 
@@ -16886,6 +16948,19 @@ __metadata:
   version: 2.0.3
   resolution: "address@npm:2.0.3"
   checksum: 10/b367b0166fc3b295f742a71989f333c62f2b6a1e0ad30355e8d003fd6ed034792c353a6edf28b279c2d9eba992931c4f6c9e4f0b5ebca7b924e04689326f6faa
+  languageName: node
+  linkType: hard
+
+"age-encryption@npm:0.3.1":
+  version: 0.3.1
+  resolution: "age-encryption@npm:0.3.1"
+  dependencies:
+    "@noble/ciphers": "npm:^2.1.1"
+    "@noble/curves": "npm:^2.0.1"
+    "@noble/hashes": "npm:^2.0.1"
+    "@noble/post-quantum": "npm:^0.5.3"
+    "@scure/base": "npm:^2.0.0"
+  checksum: 10/f04ba3a4188660d06334071d33836946d8b28c555a0807a08a115ec8d4be460f332454ce76e3920c5b19bfb79f37f51a7fc44fecd1f71deabb63549209aeb9a6
   languageName: node
   linkType: hard
 

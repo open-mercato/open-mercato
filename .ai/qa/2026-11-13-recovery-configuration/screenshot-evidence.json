@@ -1,0 +1,16 @@
+{
+  "images": [
+    {
+      "name": "docker-maintenance-verify-f1d.png",
+      "bytes": 153474,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/1a6b147cecf1decc21f8dcb4e298e1d1f9d4aff5/pr-9334/docker-maintenance-verify-f1d.png"
+    },
+    {
+      "name": "vault-key-rotation-all-tenants.png",
+      "bytes": 189061,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/58a17db7a1a12a078a4bdd063709f46a4d4ad635/pr-9334/vault-key-rotation-all-tenants.png"
+    }
+  ],
+  "privacy": "Only reviewed actual-output PNGs; no archives, keys, raw logs or private inputs.",
+  "captureSourceBoundaries": "Docker f1d full maintenance result excerpt and fc34 real Vault all-tenant CLI handler with fixture-provided app factory; captions state limits."
+}

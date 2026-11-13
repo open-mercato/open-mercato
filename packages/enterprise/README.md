@@ -45,7 +45,7 @@ Three tiers scale the level of service with company size. Every tier includes th
 | Capability | Basic | Medium | Enterprise |
 |---|---|---|---|
 | Company revenue band | below $25M | $25M–$250M | above $250M |
-| Enterprise software modules (MFA, SSO & Directory Sync, Record Locking) | Included | Included | Included |
+| Enterprise software modules (MFA, SSO & Directory Sync, Record Locking, encrypted backup and recovery, protected key rotation and data verification) | Included | Included | Included |
 | Unlimited users & servers (per project / monorepo) | Included | Included | Included |
 | Project sandboxes — *time-limited offer* (dev/staging + prod env, CI/CD, AI SDLC pipeline, 7-day restore) | 1 active project | 3 active projects | 10 active projects |
 | Priority support (AI-assisted helpdesk, issue triage) | up to 5 accounts | up to 10 accounts, Discord | unlimited accounts, Discord |
@@ -88,6 +88,8 @@ The `@open-mercato/enterprise` package delivers the proprietary modules included
 - **SSO & Directory Sync** — SAML/OIDC single sign-on with SCIM directory provisioning, per-org IdP configuration, and JIT user provisioning
 - **Record Locking** — optimistic and pessimistic mutation protection with participant presence, conflict detection/resolution, and force release
 - **Auth Login Interceptors** — MFA login gating via UMES extension points with zero core modifications
+- **Encrypted Backup and Recovery** — standalone PostgreSQL backup, authenticated encrypted artifacts, resumable execution and isolated restore/exercise with retained application keys. Commercial `backups` module; enable `OM_ENABLE_ENTERPRISE_MODULES` + `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS` and attest commercial rights. See the [operator guide](../../apps/docs/docs/deployment/enterprise-backup-recovery.mdx). Backup artifacts and custody keys stay in operator-controlled storage.
+- **Protected Key Rotation and Data Verification** — the commercial `backups` module adds a verified quiesced encrypted recovery backup and a complete persisted-data correctness comparison to Core tenant key rotation. It supports derived-root rotation, derived↔Vault migration and exact-version Vault→Vault DEK rotation for a selected tenant or an explicitly selected all-tenant scope. Explicit commercial rights and module capability are required; failed protection never downgrades to unprotected execution. See the [rotation operator guide](../../apps/docs/docs/user-guide/key-rotation-protection.mdx). Keep previous keys and recovery artifacts after a successful scoped result.
 - **System Status Overlays** — enterprise overlays and injected widgets for system status pages
 - **Agent Orchestrator** — propose-only AI agent runtime (in-process + OpenCode file-defined agents), proposal/disposition workflow integration, trace · eval · correction capture, and the operator/engineer cockpit. Enabled with `OM_ENABLE_ENTERPRISE_MODULES` + `OM_ENABLE_ENTERPRISE_MODULES_AGENTS`
 

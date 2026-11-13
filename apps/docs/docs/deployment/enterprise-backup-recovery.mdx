@@ -1,0 +1,310 @@
+---
+title: Enterprise encrypted backup and recovery
+description: Configure commercial PostgreSQL backups, authenticate recovery artifacts, and rehearse an isolated restore with retained keys.
+---
+
+The commercial `backups` module provides `mercato-backup`, a standalone PostgreSQL recovery command that works without application bootstrap. `mercato backups` is the application convenience wrapper; use the standalone command for JSON output or recovery when the original application is unavailable.
+
+## Provision the operator environment
+
+Use the commercially licensed Enterprise package, Node 24 or later, and matching PostgreSQL 16, 17 or 18 client/server majors. Enable `OM_ENABLE_ENTERPRISE_MODULES` and `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS`. An operator with the required commercial rights must also set `OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED=true`; these settings are capability/rights attestations, not a license purchase or a runtime license-key validator.
+
+The CLI discovers a trusted matching `pg_dump`, `pg_restore` and `psql` installation for PostgreSQL 16, 17 or 18. Set `OM_BACKUP_BINARIES_DIR` or `--binaries-dir` when selecting a particular installation. Configure named libpq services in a private `PGSERVICEFILE` and credentials in a private `PGPASSFILE` (both owner-only, mode 0600). There is no `DATABASE_URL` fallback and passwords never belong in command arguments. Remote connections require verified TLS; plaintext connections are limited to loopback or local sockets.
+
+Provision private output/workspace directories with mode 0700. The workspace stores sensitive run identities and temporary recovery files. Keep it on an appropriately sized protected volume. Stop application replicas, workers, schedulers, integrations and other writers before a protected rotation/recovery drill. A quiesced backup conservatively examines the whole cluster transaction horizon: unrelated writers can cause refusal.
+
+For an application wrapper, enable the module before running the normal generation/build workflow. `mercato backups labels --output /srv/recovery/private/labels.json` exports metadata labels without opening a database. The standalone create command accepts that file through `--labels-file` and otherwise uses table names.
+
+## Inspect automatic OS and container configuration
+
+Run this read-only command first; it works without a database connection, application bootstrap or rights attestation:
+
+```sh
+mercato-backup configure --json --progress json
+# Already built checkout alternative:
+node packages/enterprise/bin/mercato-backup.mjs configure --json --progress json
+```
+
+Its `configuration-plan-only` result lists resolved **nonsecret paths**, their provenance and `missingPrerequisites`. A completed plan is not a successful backup, license validation or database readiness. It never installs clients, creates keys/credentials, chooses a source/target service, or changes permissions. Missing prerequisites must be provisioned separately by the authorized operator.
+
+| Runtime | Default persistent recovery root | Default libpq files |
+| --- | --- | --- |
+| macOS ARM or Intel | `~/Library/Application Support/Open Mercato/recovery` | `~/.pg_service.conf`, `~/.pgpass` |
+| Native Linux | `$XDG_STATE_HOME/open-mercato/recovery`, or `~/.local/state/open-mercato/recovery` | `~/.pg_service.conf`, `~/.pgpass` |
+| Linux container | `/var/lib/open-mercato/recovery` | `custody/pg_service.conf`, `custody/pgpass` below that root |
+
+The root contains separate `backups`, `workspace`, `rotation-artifacts`, `rotation-trust` and `custody` directories. Set `OM_RECOVERY_ROOT` for a different persistent root. In Docker these directories must be on durable named volumes/bind mounts; overlay/tmpfs storage fails the operation guard. Resolve paths **inside** the container and follow [the Docker recovery guide](https://github.com/open-mercato/open-mercato/blob/main/docker/RECOVERY.md); host Homebrew paths cannot be used by Linux clients. Client discovery covers macOS Homebrew ARM/Intel, Debian, RHEL and Alpine layouts and requires one safe matching native trio. Existing server-major checks still apply.
+
+Explicit CLI paths take priority over their environment equivalents, then safe defaults. `PGSERVICEFILE`, `PGPASSFILE`, `OM_BACKUP_BINARIES_DIR`, `OM_BACKUP_RECIPIENTS_FILE` and `OM_BACKUP_IDENTITY_FILE` keep existing selections. An explicit empty, missing or incompatible path does not silently select a different installation. Existing custody files must be owner-only (0600) with secure used recovery/custody ancestors; private directories must be 0700. The authorized operation may create its artifact/workspace directories; configuration inspection never does.
+
+## Configure without exposing secrets
+
+Inject credentials through the deployment secret manager. The capability flags still require an appropriately licensed operator; automatic paths never enable them:
+
+```sh
+export OM_ENABLE_ENTERPRISE_MODULES=true
+export OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=true
+export OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED=true
+export OM_BACKUP_REQUIRE_ENCRYPTION=true
+```
+
+Provision named libpq service entries `source` and `scratch` with distinct database identities; `scratch` must never point at the source. Retain both private libpq files at the plan's paths, or explicitly override their paths. There is no automatic database selection. Keep passwords, private identities and application keys out of shell history and reports.
+
+Provision public archive recipients at the plan's `custody/recipients.txt` and an existing recovery identity at `custody/identity.txt`, or pass explicit custody-file paths. The CLI only auto-consumes those exact validated files; it never scans for custody or generates it. New encrypted creation uses public recipients; verification, decrypted status, recovery and resume may use the private archive identity. Keep application-key escrow separate: an archive identity cannot decrypt application field ciphertext. Preserve all historical archive/application keys and provider versions needed by retained backups. Successful verification never authorizes retirement.
+
+The examples below show explicit paths for portability. They can be omitted when the displayed plan's defaults are the intended authorized paths. Replace identifiers/digests/challenges with independently checked values. Generated resume commands carry the effective original paths and libpq bindings, so another working directory/container cannot silently choose different defaults.
+
+## Operator-only archive key provisioning
+
+Perform this once as a separately authorized custody task. An installed external [`age-keygen`](https://github.com/FiloSottile/age/blob/main/doc/age-keygen.1) is required for these setup commands; it is **not** a runtime dependency of `mercato-backup` and the CLI/agent never installs it. Use native X25519 identities (`AGE-SECRET-KEY-1…`/`age1…`), without `-pq`; other age key types are not supported by this backup implementation.
+
+On the operator's protected machine, select the exact custody directory displayed by `configure` (replace the example path), verify its ancestors/ownership, and create a **new** identity. Never overwrite an existing deployment identity:
+
+```sh
+# Operator machine only; do not run this on the database server by default.
+recovery_custody_dir='/absolute/approved/recovery/custody'
+(
+  umask 077
+  set -C
+  mkdir -p "$recovery_custody_dir"
+  chmod 700 "$recovery_custody_dir"
+  age-keygen -o "$recovery_custody_dir/identity.txt"
+  chmod 600 "$recovery_custody_dir/identity.txt"
+  age-keygen -y "$recovery_custody_dir/identity.txt" > "$recovery_custody_dir/operator-recipient.txt"
+)
+```
+
+On a **separate offline escrow machine**, the escrow owner independently creates its own private identity and exports only its public recipient:
+
+```sh
+# Offline escrow machine only; use a new protected directory.
+escrow_custody_dir='/absolute/offline/escrow/new-backup-key'
+(
+  umask 077
+  set -C
+  mkdir -p "$escrow_custody_dir"
+  chmod 700 "$escrow_custody_dir"
+  age-keygen -o "$escrow_custody_dir/identity.txt"
+  chmod 600 "$escrow_custody_dir/identity.txt"
+  age-keygen -y "$escrow_custody_dir/identity.txt" > "$escrow_custody_dir/escrow-recipient.txt"
+)
+```
+
+Exchange **public recipients only**, using an authenticated channel. On the operator machine, create a new mode 0600 `recipients.txt` containing the operator and escrow public lines, one per line; never copy the escrow private identity to the backup producer. The CLI accepts one to ten recipients. Keep a retained record of each original recipient set and its matching archive identities; recovery exercises use separately authorized escrow custody.
+
+Changing recipients affects new backups; it does not re-encrypt old archives. Resume uses the original authenticated recipient set. Retain old archive identities and historic application DEKs/provider versions independently for every retained recovery point. Neither new archive keys nor a successful backup rotate application encryption keys or authorize retiring old keys. Follow the [protected-rotation guide](../user-guide/key-rotation-protection) for application-key changes.
+
+## Scenario index and runbooks
+
+These procedures keep artifact authenticity, archive identity custody, application
+keys and target authorization separate. Use the existing command examples linked
+below; copy the exact resume command emitted for your own interrupted run rather
+than inventing a run ID, target, digest or confirmation.
+
+| Scenario | Procedure and success boundary |
+|---|---|
+| Prepare an encrypted backup | [Preflight, create and verify](#create-and-verify); retain the creation digest independently. |
+| Inspect a completed or partial run | [Status and create resume](#status-and-create-resume-runbook); display counts are advisory. |
+| Resume an interrupted backup | Authenticate the original preparation/workspace and retain its original source, recipients and chunk bindings. |
+| Recover into a separate target | [Restore/exercise and resume](#restore-exercise-and-resume-runbook); obtain a fresh target challenge. |
+| Rehearse data and application-key recovery | [Recovery rehearsal](#rehearse-recovery-before-relying-on-it); include separately held historical test DEKs and canaries. |
+| Replace archive recipients | [Recipient change](#archive-recipient-change-runbook); create new archives, retain old identities. |
+| Artifact, key or recovery validation fails | [Failure/quarantine decisions](#failure-and-quarantine-runbook); no automatic promotion or fallback. |
+| Rotate/migrate application roots or Vault DEKs | Follow [protected application-key rotation](../user-guide/key-rotation-protection); archive recipient changes do not rotate application data. |
+
+### Preflight, create and verify runbook
+
+1. Review the detected private persistent paths, matching PostgreSQL clients,
+   source service and custody files. Explicitly authorize the source and output.
+   Establish the declared consistency/maintenance conditions yourself; preflight
+   does not stop writers or create a maintenance fence.
+2. Use `preflight --operation create` against that source, then follow
+   [Create and verify](#create-and-verify) to produce the encrypted artifact.
+   Retain `backupId`, artifact location and `manifestSha256` independently.
+3. Run full artifact `verify` with the independently trusted digest and retained
+   archive identity. Successful creation or decryption alone is not authenticity
+   proof. Retain historical application keys: verification does not decrypt every
+   application's field ciphertext or prove historical key recovery.
+4. Keep a separately rehearsed recovery plan and retain the archive/custody.
+   A backup does not authorize source mutation, target promotion or key retirement.
+
+### Status and create resume runbook
+
+1. Use the [status example](#resume-safely) for the original artifact/workspace.
+   Aggregate counts are advisory; they do not verify the artifact or authorize
+   resume. Use the original private workspace or reviewed recovery identity for
+   authenticated/decrypted details.
+2. For an interrupted create, preserve the emitted run ID/resume command, source
+   service, workspace, output, recipients and chunk settings. Follow
+   [Resume safely](#resume-safely); do not replace the recipient set, reset a
+   journal or bypass a live lock. Resume uses authenticated original preparation.
+3. Cross-host partial recovery needs the independently transported trusted partial
+   digest plus escrow identity when the original workspace identity is unavailable.
+   If the required trust is lost, start a fresh backup rather than adopt the partial.
+4. Quiesced keyset continuation also requires the original PostgreSQL postmaster
+   lifetime. A restart/replacement invalidates that proof; preserve the old partial
+   and start a fresh backup. Inspect the resulting consistency label without
+   upgrading it, then fully verify the completed artifact.
+
+### Restore, exercise and resume runbook {#restore-exercise-and-resume-runbook}
+
+1. Explicitly authorize and provision a separate empty, isolated target as described
+   in [Isolated recovery](#isolated-recovery). Never use the source or a live target.
+2. Run preflight with the correct `--operation restore` or `--operation exercise`,
+   original artifact/digest, identity, workspace and exact target service. Inspect
+   its target identity and obtain a fresh challenge before the corresponding write.
+3. Supply that challenge using `--confirm-target` for restore/exercise. Prefer full
+   verification before writes; streaming verification can discover later corruption
+   after earlier target chunks loaded and does not make a failed target releasable.
+4. After interruption, keep the same artifact, target, workspace and authenticated
+   journal. Repeat the operation's preflight for a **fresh** challenge and use the
+   exact emitted resume instructions; never reuse an expired confirmation or clear
+   committed markers. Matching committed chunks are not applied twice.
+5. Require durable reports and the intended checks. Use the
+   [exercise procedure](#rehearse-recovery-before-relying-on-it) for row counts,
+   migrations and independently held historical-key canaries; `keyRecovery: not-tested`
+   does not prove application-key recovery. `promotionReady` remains false even
+   after successful checks. Any production cutover is a separate reviewed decision.
+
+### Archive recipient change runbook
+
+1. Provision and authenticate the reviewed new public recipient set using the
+   [archive-key procedure](#operator-only-archive-key-provisioning). Keep private
+   identities in separate custody; never include them in command arguments/logs.
+2. Use the new set for a **new** encrypted backup. Do not edit/relabel existing
+   archives or swap the original set for an interrupted create/resume.
+3. Fully verify and rehearse the new artifact with its independent digest and
+   appropriate recovery identity. Retain old archive identities and historical
+   application roots/DEKs/provider versions for every retained older archive.
+4. For application-key changes, use [protected application-key rotation](../user-guide/key-rotation-protection) separately. Neither operation
+   retires old keys or proves recovery of the other's custody domain.
+
+### Failure and quarantine runbook
+
+| Failure | Safe next step |
+|---|---|
+| Missing/wrong identity or missing historical application key | Restore reviewed custody/access without substituting keys. Archive verification alone cannot prove application-key recovery. |
+| Untrusted digest, damaged chunk/schema or conflicting artifact metadata | Refuse recovery writes; preserve the original artifact/digest and investigate a separately controlled copy. Never generate a new trusted digest from the suspect artifact. |
+| Source identity, original preparation or resume binding mismatch | Stop; do not repoint the existing run or reset its journal. Use a separately reviewed fresh backup or recovery plan. |
+| Target identity/challenge mismatch or expired challenge | Stop writes; run the correct operation's preflight and independently inspect the intended target before supplying a fresh challenge. |
+| Interrupted restore/exercise or failed checks after some target writes | Keep the target quarantined and its journal/report intact. Resume only the matching run after review; never promote or overwrite production to retry. |
+| Canary/key-recovery, FK, migration or row-count validation fails | Keep quarantine, inspect the durable failure report and correct the reviewed recovery cause. Do not turn partial success or `keyRecovery: not-tested` into release approval. |
+
+Keep backups, workspaces, journals and key files in operator-controlled storage.
+Publish only small redacted reports/screenshots. Neither status, checksums, a restore
+success nor a passing rehearsal automatically promotes a target or retires custody.
+
+## Create and verify
+
+Put one to ten age X25519 public recipients in a recipients file. Include an independently controlled offline escrow recipient. Private identities and application DEKs belong in separate custody domains; an archive identity cannot decrypt tenant field ciphertext.
+
+```sh
+mercato-backup preflight --source-service source
+mercato-backup create --source-service source --output /srv/recovery/output --workspace /srv/recovery/private --recipients-file /srv/recovery/private/recipients --quiesced --json
+```
+
+Retain the returned `backupId`, artifact path and `manifestSha256` through an independent trusted channel. A readable file or a successful decrypt does not authenticate the artifact's producer; age recipients are public. Verification requires the independently trusted manifest digest:
+
+```sh
+mercato-backup verify --artifact /srv/recovery/output/BACKUP_ID --trusted-manifest-sha256 TRUSTED_DIGEST --identity-file /srv/recovery/private/escrow.identity --json
+```
+
+Backup chunks, schema and index are encrypted independently of application field-encryption maps. The database values are copied as stored ciphertext, so historic application keys must remain retrievable. File names do not include entity names. Whole-database coverage does not include attachments/object-store files, Vault state, Redis, WAL or cluster-global roles. Unsupported external/foreign relation kinds refuse rather than imply complete coverage.
+
+`--no-encryption` deliberately removes archive confidentiality. It requires typed `UNENCRYPTED` confirmation on an interactive terminal or `--confirm-unencrypted` for unattended use and displays an explicit warning. Set `OM_BACKUP_REQUIRE_ENCRYPTION=true` to forbid that option; invalid policy values fail closed.
+
+## Resume safely
+
+Interrupted commands report a non-zero status, the durable run identifier and a resume command. Reuse the same source, private workspace, output, recipients and chunk settings. A resume against another database/cluster refuses. Interrupted entities are restarted within the retained snapshot when possible or in a new epoch after process loss; completed entities are reused. DDL changes restart the affected artifact plan. Consistency labels never upgrade after a multi-snapshot boundary.
+
+```sh
+mercato-backup status /srv/recovery/output/.BACKUP_ID.partial --workspace /srv/recovery/private --json
+```
+
+The original protected workspace identity is sufficient for same-host resume. Before moving partial state to a new host, obtain `partialStateSha256` from status while the original trusted workspace identity is available and transport it independently. Artifact-only cross-host resume additionally requires `--trusted-partial-sha256` plus an escrow identity. This binds the run-key envelope, preparation and encrypted checkpoint bytes; public-recipient encryption alone does not authenticate a checkpoint. Preserve newly recovered workspace identities privately for later retries. If the original trusted identity and an independent partial-state digest are both lost, start a fresh backup.
+
+Do not bypass live locks. Explicit `--take-over-lock RUN_ID` is an operator decision that can disrupt a live run. Automatic takeover is limited to stale local locks whose process is no longer alive.
+
+## Isolated recovery
+
+Provision an empty target from `template0`, with the matching PostgreSQL major, encoding/collation and required extensions. Keep it isolated from production queues, object stores, SMTP, callbacks and workers at the network/credential layer. No automatic promotion or production overwrite is provided.
+
+```sh
+mercato-backup preflight --target-service scratch --artifact /srv/recovery/output/BACKUP_ID --trusted-manifest-sha256 TRUSTED_DIGEST --identity-file /srv/recovery/private/escrow.identity --workspace /srv/recovery/private --json
+mercato-backup restore --target-service scratch --confirm-target FRESH_CHALLENGE --artifact /srv/recovery/output/BACKUP_ID --trusted-manifest-sha256 TRUSTED_DIGEST --identity-file /srv/recovery/private/escrow.identity --workspace /srv/recovery/private --max-staging-bytes 1073741824 --json
+```
+
+The challenge binds the target and artifact and expires; obtain a fresh challenge on resume. Default `full` verification authenticates every artifact chunk before any target write; data is authenticated and hashed again while each load transaction runs. `--verify-mode streaming` saves the initial full pass but may discover a damaged later chunk after earlier chunks are loaded; the target stays quarantined. Chunk data and its journal marker commit together, so retry does not double-apply committed chunks. Reports are durable before journal cleanup, and a bound terminal receipt makes cleanup retryable.
+
+An `exercise` adds declarative checks from an owner-only JSON checks file: `artifact-integrity`, `row-count`, `migration-fingerprint` and `encrypted-canary`. Checks are bounded, not SQL/shell execution. Encrypted-canary checks name an entity key, a whitelisted field, exact primary-key values, a custody handle and the expected SHA-256 of a synthetic canary. Supply the historic test DEKs through a separate owner-only `--canary-keys-file` mapping custody handles to base64 keys; do not put key bytes in arguments, artifacts or reports. The implementation uses the platform's authenticated decryption helper. Never substitute synthetic test custody for a deployment's real escrow acceptance.
+
+## Rotation and retirement
+
+Protected Enterprise rotation requires both a verified quiesced recovery artifact and the separate full data-correctness verifier. Core rotation remains available only through its explicit per-invocation unprotected-risk acknowledgment when Enterprise protection is unavailable. A failed protected operation never silently downgrades.
+
+Retain old keys, backup recipients and pre-rotation artifacts until every consumer and historical recovery requirement has been independently inventoried and tested. Successful backup creation, restore, or scoped verification does not authorize deleting keys. Investigate failed or incomplete runs with writers stopped; perform any recovery cutover as a separate operator decision.
+
+Native COPY transport receives one PostgreSQL protocol frame per row. The one-MiB stream buffer bounds queued frames, but does not split a single giant field. The measured memory envelope covers the documented synthetic fixtures and jobs settings; it does not certify arbitrary PostgreSQL one-GiB fields or eight simultaneous giant rows. Size rows and concurrency for the available memory, and run an isolated rehearsal on representative data before deployment.
+
+Offline verification checks both custom-archive schema TOCs using the matching `pg_restore` binary without opening a database connection. Configure the private native-tool directory through `OM_BACKUP_BINARIES_DIR`. A bound restore resume authenticates the target journal and verifies only unfinished artifact chunks; completed COPY chunks stay bound to the trusted manifest in the same transaction as their data. Obtain a fresh challenge after each interrupted attempt. Success reports include consistency, per-entity expected/loaded rows, resume count, attempt phase timings, FK and recovery-check results; `promotionReady` remains false. Failed validations produce a separate durable quarantine report and retain the restore journal for repair/retry.
+
+Quiesced keyset resume reuses a committed prefix only after authenticating every retained ciphertext file and re-proving the exact source database, catalog and continuous PostgreSQL postmaster lifetime. It starts after the encrypted last key, keeps contiguous chunk sequences and independently checks retained rows plus the remaining snapshot count. Restarting/replacing PostgreSQL invalidates that lifetime proof and refuses partial-backup reuse; start a fresh backup. Restore source-collision checks compare the stable physical origin and database OID, so a server restart cannot make an old archive safe to restore into its source database.
+
+Sequence recovery compares the captured counter state with the integer values actually restored, using MAX for ascending and MIN for descending allocation while preserving non-unit increments and bigint precision. Empty sequences keep their original is_called state. All plans are validated before nontransactional setval calls; an interrupted apply can be replayed. Owned cyclic sequences and ownership of non-integer/domain columns are refused before export instead of applying lexical or ambiguous counter ordering.
+
+Status exposes an owner-private, unencrypted aggregate checkpoint without entity names. These display counts are advisory and never authorize resume. Providing a recovery identity or the original workspace enables decrypted per-entity status. Status and checkpoint export do not repair/truncate a torn journal; repair belongs to an explicitly resumed writer. Preflight accepts --operation create, restore or exercise; its database/baseline checks are read-only. Generic command reports use exclusive private paths. Resume derives its original encryption/recipient/chunk settings from authenticated preparation unless an explicit compatible option is provided.
+
+
+## Operate backups with an AI agent
+
+The `om-backup-database` skill bundles the operator procedures for creation, inspection, artifact verification, isolated restore/exercise and matching-run resume. Its source is `.ai/skills/om-backup-database/`. After installing the skill in your agent, invoke it with the selected deployment, action and private **file paths**, without pasting credentials or keys. It works with an installed standalone CLI or an already built checkout; it never installs, builds, migrates or provisions a database automatically.
+
+Start with read-only discovery when the operator environment is not yet established:
+
+```text
+$om-backup-database inspect the installed backup CLI and preflight the configured source service. Do not create a backup or write to a target yet.
+```
+
+For an authorized encrypted backup and verification, identify the actual custody paths and writer window:
+
+```text
+$om-backup-database create an encrypted backup from service source into /srv/recovery/output using /srv/recovery/private as workspace and /srv/recovery/private/recipients. The stable maintenance window is already enforced. Verify it using /srv/recovery/private/escrow.identity and retain the creation digest independently. Keep all prior keys and recovery material.
+```
+
+Do not claim that a maintenance window exists merely to make that example runnable: the skill must establish the real writer state before passing `--quiesced`. If the requested window, installation, commercial rights or custody is missing, the agent reports that prerequisite instead of weakening the operation.
+
+Inspection and recovery are separate requests:
+
+```text
+$om-backup-database inspect the partial artifact /srv/recovery/output/.BACKUP_ID.partial using its original /srv/recovery/private workspace. Report status only; do not resume or remove locks.
+
+$om-backup-database restore the artifact from the preceding verified run into the specifically authorized isolated scratch target. Use the independently retained creation digest and /srv/recovery/private/escrow.identity, obtain a fresh target challenge, and keep the restored database quarantined. Do not promote it or retire any keys.
+```
+
+Replace example paths, service names and identifiers with the actual authorized values. A generic backup/verification request never authorizes recovery writes. When the exact target/action was already authorized, the agent reuses that authorization while still obtaining the CLI's fresh confirmation and enforcing matching journal/target bindings. To resume, identify the interrupted run and its exact emitted command; do not ask the agent to invent a target or reset a journal. Archive identities and application-key custody remain separate, and the skill does not automatically accept Core's unprotected key-rotation risk.
+
+The agent reports command results, actual verification coverage, retained recovery material and any remaining prerequisite. AI instructions do not upgrade a created archive to a verified restore or application-key recovery test. Share only small sanitized aggregate reports or reviewed screenshots; never upload backup files, dumps, keys or private workspaces.
+
+## Rehearse recovery before relying on it
+
+Use a disposable, network-isolated environment and representative synthetic records, including encrypted scalar fields, custom documents and sequences. Do not run a rehearsal against a production target.
+
+1. Create and verify an encrypted artifact as above, retaining its trusted digest independently. Confirm command exit status and the returned consistency label; an interrupted or multi-snapshot run is not a quiesced recovery point.
+2. Provision a fresh empty scratch target and obtain its fresh challenge through `preflight --operation exercise`. Prepare an owner-only checks file. A minimal integrity/migration example is:
+
+   ```json
+   [{ "type": "artifact-integrity" }, { "type": "migration-fingerprint" }]
+   ```
+
+3. Run the restore exercise, using that fresh challenge and a new private report path:
+
+   ```sh
+   mercato-backup preflight --operation exercise --target-service scratch --artifact /srv/recovery/output/BACKUP_ID --trusted-manifest-sha256 TRUSTED_DIGEST --identity-file /srv/recovery/private/escrow.identity --workspace /srv/recovery/private --json
+   mercato-backup exercise --target-service scratch --confirm-target FRESH_CHALLENGE --artifact /srv/recovery/output/BACKUP_ID --trusted-manifest-sha256 TRUSTED_DIGEST --identity-file /srv/recovery/private/escrow.identity --workspace /srv/recovery/private --checks-file /srv/recovery/private/checks.json --report /srv/recovery/private/exercise-report.json --json
+   ```
+
+4. Inspect the durable report, loaded counts, sequence allocation and application-level behavior against retained key custody. The minimal checks above do not exercise application-key recovery: add encrypted-canary checks and their separate `--canary-keys-file` to establish that part of the drill. `keyRecovery: not-tested` is not a passing key-recovery rehearsal. `promotionReady` remains false even after successful checks.
+5. In a separate disposable drill, interrupt a run and use its explicit resume command and fresh target challenge; check that committed chunks are not duplicated. Test a deliberately damaged copy of an artifact and confirm verification refuses. Preserve the original artifact and trusted digest unchanged.
+6. Record the tested application version, PostgreSQL versions, consistency, elapsed time and outcomes in a small sanitized operator report. Keep backup files, dumps, database volumes, private workspaces, raw logs and keys out of GitHub issues, PR comments and attachments. Share only redacted aggregate reports and output screenshots. Delete disposable targets and test custody only after the rehearsal is reviewed; production retention remains a separate policy decision.
+
+No published throughput or memory guarantee applies to arbitrary deployments. Rehearse with your actual row sizes, extensions, concurrency and available disk; successful archive verification alone does not prove an application can recover.

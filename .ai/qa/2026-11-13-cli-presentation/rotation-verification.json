@@ -1,0 +1,159 @@
+{
+  "schemaVersion": 1,
+  "pr": 9334,
+  "sourceCommit": "c69d4f6ee37458cdacba98b26d5c5aaa1b5410a1",
+  "amendment": "Owner-approved setup-style CLI presentation, official operator docs and Enterprise feature listings.",
+  "configuredValidation": {
+    "runner": "local",
+    "node": "24.22.2",
+    "results": [
+      {
+        "command": "yarn build:packages",
+        "exitCode": 0,
+        "seconds": 7.893
+      },
+      {
+        "command": "yarn generate",
+        "exitCode": 0,
+        "seconds": 7.621
+      },
+      {
+        "command": "yarn build:packages",
+        "exitCode": 0,
+        "seconds": 0.646
+      },
+      {
+        "command": "yarn i18n:check-sync",
+        "exitCode": 0,
+        "seconds": 0.89
+      },
+      {
+        "command": "yarn i18n:check-usage",
+        "exitCode": 0,
+        "seconds": 2.622
+      },
+      {
+        "command": "yarn typecheck",
+        "exitCode": 0,
+        "seconds": 2.035
+      },
+      {
+        "command": "yarn test",
+        "exitCode": 0,
+        "seconds": 315.566
+      },
+      {
+        "command": "yarn build:app",
+        "exitCode": 0,
+        "seconds": 52.21
+      }
+    ]
+  },
+  "functionalVerification": {
+    "schemaVersion": 1,
+    "sourceCommit": "c69d4f6ee37458cdacba98b26d5c5aaa1b5410a1",
+    "nodeVersion": "24.22.2",
+    "scope": "Actual Core CLI handler and registered Enterprise DI/ORM/native PostgreSQL; application container factory supplied by integration harness. TTY proof advertises100x30 stderr and captures production ANSI verbatim. Core guard proof uses actual guard and a synthetic callback, no database. Not whole-application bootstrap or resource acceptance.",
+    "sourceSha256": {
+      "packages/enterprise/src/modules/backups/lib/rotation-verification/runtime.ts": "b22a5e88c7d7cbb1cd6e2edc238a92fad45930d7d8911aa48f314dac25806456",
+      "packages/enterprise/src/modules/backups/lib/rotation-verification/presentation.ts": "690f77551765aad8f4a1634799d95466bbf7f0c770768a0c340912bdbb92d0d3",
+      "packages/enterprise/src/modules/backups/lib/rotation-verification/coordinator.ts": "24feeec9e6afdd9a48377baf600dbedfb7aa084b2ec63756222ffaed327800a0",
+      "packages/core/src/modules/entities/lib/rotation-protection.ts": "0eeafdb8a123021d63b9e23f941df13684d809cf068cb9d5bb343a036a165d0e",
+      "packages/core/src/modules/entities/cli.ts": "cf9a6625c7211622f3d86404ea2c174213b1a3070110ed1595c07ebc21b0501d",
+      "packages/enterprise/src/modules/backups/lib/engine/cli-presentation.ts": "48fdb49111dabe3b384dba826b8676cf530aaf82c369cf1e8e4d1d9025a07731",
+      "packages/enterprise/src/modules/backups/lib/engine/progress.ts": "3d6b099d064b3354f1a221138100ecc646c1ecb555f87eb494adf09c88a220c9"
+    },
+    "focusedChecks": {
+      "coreGuardAndActualHandlerTests": {
+        "passed": 47,
+        "seconds": 0.858
+      },
+      "enterprisePresentationRuntimeCoordinatorTests": {
+        "passed": 35,
+        "seconds": 4.51
+      },
+      "inclusiveStrictTypeScript": "PASS",
+      "independentSourceReview": "PASS on full packet and final c69 JSON-only prefix cleanup; no unresolved blocker/major. Parent full gate is separate."
+    },
+    "actualCliTty": {
+      "passed": 3,
+      "seconds": 9.119,
+      "receiptMs": 150,
+      "comparedRows": "2",
+      "comparedFields": "12",
+      "comparedBytes": "1251",
+      "stepHeadings": 6,
+      "ansiEscapes": 395,
+      "terminal": "Harness advertises100x30 stderr TTY; actual presenter output"
+    },
+    "actualCliJson": {
+      "passed": 3,
+      "seconds": 8.753,
+      "events": 32,
+      "allLinesExistingSchema": true,
+      "noAnsi": true,
+      "receiptMs": 137
+    },
+    "actualGuard": {
+      "terminal": "Real PTY100x30",
+      "redErrorCards": 2,
+      "mutationCallbacksBeforeAcknowledgment": 0,
+      "mutationCallbacksAfterExactAcknowledgment": 1,
+      "noColorEmpty": {
+        "noAnsi": true,
+        "noIcons": true
+      },
+      "termDumb": {
+        "noAnsi": true,
+        "noIcons": true
+      }
+    },
+    "compatibility": {
+      "legacyStdout": "Preserved; native assertions PASS",
+      "ndjson": "Existing ProgressEvent fields and allowed types only; known leading decorative warning prefix removed in JSON-only Core warning path, actual-handler assertion PASS.",
+      "exitCodes": "Unchanged",
+      "lateDurabilityFailure": "Focused regression publishes receipt then rejects coordinator; no final success card",
+      "keyRetirement": "Not performed or claimed"
+    },
+    "performanceAcceptance": "NOT RUN; fresh consistent matrix still required. Separate isolated CI approval remains pending."
+  },
+  "additionalFocusedChecks": {
+    "sharedScopedLogger": 3,
+    "telemetryFunnel": 10,
+    "cliDispatcher": 5
+  },
+  "sourceReview": {
+    "reviewer": "separate coding agent; source review independent of the source authors",
+    "result": "No unresolved blocker or major findings",
+    "limits": "Same GitHub account as author; no native approving review or manual QA sign-off is claimed."
+  },
+  "documentationChecks": [
+    "MDX compilation",
+    "sidebar TypeScript syntax",
+    "relative Markdown links",
+    "Enterprise feature-list links and preservation",
+    "git diff --check"
+  ],
+  "screenshots": [
+    {
+      "name": "rotation-format-protected.png",
+      "bytes": 307759,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/9c6032a7998cd2a913e42015463cf815a9303120/pr-9334/rotation-format-protected.png"
+    },
+    {
+      "name": "rotation-format-core-warning.png",
+      "bytes": 289456,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/05e8f98f6d4b6368954b865e4807e7119daa4cc1/pr-9334/rotation-format-core-warning.png"
+    }
+  ],
+  "uploadsExcluded": [
+    "backup archives",
+    "database dumps",
+    "database volumes",
+    "keys and identities",
+    "raw fixture inputs",
+    "private workspaces",
+    "raw logs"
+  ],
+  "releaseStatus": "Presentation amendment complete; existing owner-selected ready-for-review state preserved. Fresh final-source performance/resource matrix and concluding release review remain pending. No benchmark waiver or CI automation approval implied."
+}

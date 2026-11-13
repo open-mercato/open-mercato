@@ -1,0 +1,32 @@
+{
+  "sourceHead": "f1d35059067402206b1d24631d6f2a56dfdf6026",
+  "image": "om-recovery-maintenance:backup-f1d-20261113",
+  "imageId": "sha256:06413141462ecddbdb1567181c7ffe35ed584e0880410c510637d367b3900fd1",
+  "imageConfigId": "sha256:e86726efb17b2f316eb5791170b850ffa98070c51fdfc4c281b7207a1d2fe73a",
+  "imageIndexDigest": "sha256:06413141462ecddbdb1567181c7ffe35ed584e0880410c510637d367b3900fd1",
+  "buildTarget": "maintenance",
+  "buildArgs": {
+    "OM_ENABLE_ENTERPRISE_MODULES": "true",
+    "OM_ENABLE_ENTERPRISE_MODULES_BACKUPS": "true",
+    "POSTGRES_CLIENT_MAJOR": "17"
+  },
+  "platform": "linux/arm64",
+  "imageUser": "1001:1001",
+  "imageConfigIdProvenance": "BuildKit immutable OCI config digest; Docker inspect imageId independently matches exported image-index digest",
+  "status": "passed",
+  "readOnlySmokeChecks": 7,
+  "actualInterruptedRestoreResume": {
+    "exitCode": 130,
+    "sameRunId": true,
+    "freshTargetPreflight": true,
+    "newMaintenanceContainer": true,
+    "orderedSyntheticFingerprintsEqual": true,
+    "rows": 143
+  },
+  "resourcesRemoved": true,
+  "limits": "Maintenance CLI runtime verified; separate web runner attempts failed VM memory allocation, with no web image success claimed",
+  "evidence": [
+    "backup-f1d-smoke.json",
+    "resume-proof/summary.json"
+  ]
+}

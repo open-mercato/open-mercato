@@ -1,0 +1,241 @@
+{
+  "acceptance": false,
+  "scope": "Diagnostic-only sourcebundle memory events; fixed literal labels + aggregate numeric process stats/resourceLimits only; no heap snapshot or values",
+  "runtimeCommit": "3ae3af3535817cf5c3daf4484193851e808782d4",
+  "benchmarkCommit": "73d3ec7a2cdd1812e85e9b33556b36a974406260",
+  "events": [
+    {
+      "kind": "diagnostic-memory",
+      "event": "protection-before",
+      "pid": 51169,
+      "at": 173.736042,
+      "rss": 77950976,
+      "heapTotal": 19714048,
+      "heapUsed": 10677264,
+      "external": 7817853,
+      "arrayBuffers": 265148
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "fingerprints-start",
+      "pid": 51169,
+      "at": 16182.144841,
+      "rss": 109613056,
+      "heapTotal": 18665472,
+      "heapUsed": 13410720,
+      "external": 8832311,
+      "arrayBuffers": 1062730
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "worker-constructor-before",
+      "pid": 51169,
+      "at": 16194.676008,
+      "rss": 114774016,
+      "heapTotal": 24956928,
+      "heapUsed": 18576104,
+      "external": 15530834,
+      "arrayBuffers": 7761317
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "worker-constructor-after",
+      "pid": 51169,
+      "at": 16195.424008,
+      "rss": 114774016,
+      "heapTotal": 24956928,
+      "heapUsed": 18589816,
+      "external": 15530877,
+      "arrayBuffers": 7761403,
+      "resourceLimits": {
+        "maxYoungGenerationSizeMb": 4,
+        "maxOldGenerationSizeMb": 16,
+        "codeRangeSizeMb": -1,
+        "stackSizeMb": 2
+      }
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "worker-ready",
+      "pid": 51169,
+      "at": 16213.508216,
+      "rss": 135241728,
+      "heapTotal": 33607680,
+      "heapUsed": 23006568,
+      "external": 26368092,
+      "arrayBuffers": 18598618,
+      "resourceLimits": {
+        "maxYoungGenerationSizeMb": 4,
+        "maxOldGenerationSizeMb": 16,
+        "codeRangeSizeMb": 0,
+        "stackSizeMb": 2
+      }
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "worker-close-start",
+      "pid": 51169,
+      "at": 19657.012676,
+      "rss": 285114368,
+      "heapTotal": 35704832,
+      "heapUsed": 21133384,
+      "external": 25223768,
+      "arrayBuffers": 15829038
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "worker-close-joined",
+      "pid": 51169,
+      "at": 19657.972176,
+      "rss": 281849856,
+      "heapTotal": 35704832,
+      "heapUsed": 21155440,
+      "external": 25223768,
+      "arrayBuffers": 6575275
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "fingerprints-finally-joined",
+      "pid": 51169,
+      "at": 19658.027468,
+      "rss": 281849856,
+      "heapTotal": 35704832,
+      "heapUsed": 21157656,
+      "external": 25223768,
+      "arrayBuffers": 6575275
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "core-before",
+      "pid": 51169,
+      "at": 19757.092051,
+      "rss": 276520960,
+      "heapTotal": 26300416,
+      "heapUsed": 16859488,
+      "external": 12432169,
+      "arrayBuffers": 4662396
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "core-after",
+      "pid": 51169,
+      "at": 52892.8959,
+      "rss": 274808832,
+      "heapTotal": 31117312,
+      "heapUsed": 17459256,
+      "external": 33415424,
+      "arrayBuffers": 411251
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "fingerprints-start",
+      "pid": 51169,
+      "at": 52937.019192,
+      "rss": 275103744,
+      "heapTotal": 31780864,
+      "heapUsed": 19962784,
+      "external": 9571928,
+      "arrayBuffers": 1802091
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "worker-constructor-before",
+      "pid": 51169,
+      "at": 52957.173067,
+      "rss": 275103744,
+      "heapTotal": 34140160,
+      "heapUsed": 23066184,
+      "external": 11663489,
+      "arrayBuffers": 3893972
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "worker-constructor-after",
+      "pid": 51169,
+      "at": 52957.802108,
+      "rss": 275103744,
+      "heapTotal": 34140160,
+      "heapUsed": 23122584,
+      "external": 11663532,
+      "arrayBuffers": 3894058,
+      "resourceLimits": {
+        "maxYoungGenerationSizeMb": 4,
+        "maxOldGenerationSizeMb": 16,
+        "codeRangeSizeMb": -1,
+        "stackSizeMb": 2
+      }
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "worker-ready",
+      "pid": 51169,
+      "at": 52974.088025,
+      "rss": 279326720,
+      "heapTotal": 35188736,
+      "heapUsed": 24464896,
+      "external": 24999125,
+      "arrayBuffers": 17229651,
+      "resourceLimits": {
+        "maxYoungGenerationSizeMb": 4,
+        "maxOldGenerationSizeMb": 16,
+        "codeRangeSizeMb": 0,
+        "stackSizeMb": 2
+      }
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "worker-close-start",
+      "pid": 51169,
+      "at": 57149.570694,
+      "rss": 302084096,
+      "heapTotal": 48107520,
+      "heapUsed": 38691528,
+      "external": 27790830,
+      "arrayBuffers": 83938122
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "worker-close-joined",
+      "pid": 51169,
+      "at": 57151.642985,
+      "rss": 297603072,
+      "heapTotal": 48107520,
+      "heapUsed": 38717344,
+      "external": 27790830,
+      "arrayBuffers": 20021313
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "fingerprints-finally-joined",
+      "pid": 51169,
+      "at": 57151.71186,
+      "rss": 297603072,
+      "heapTotal": 48107520,
+      "heapUsed": 38719368,
+      "external": 27790830,
+      "arrayBuffers": 20021313
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "protection-after",
+      "pid": 51169,
+      "at": 57174.859694,
+      "rss": 281436160,
+      "heapTotal": 27709440,
+      "heapUsed": 15520280,
+      "external": 8458585,
+      "arrayBuffers": 688940
+    },
+    {
+      "kind": "diagnostic-memory",
+      "event": "reference-after",
+      "pid": 51169,
+      "at": 60357.057237,
+      "rss": 290631680,
+      "heapTotal": 39227392,
+      "heapUsed": 29340280,
+      "external": 24437268,
+      "arrayBuffers": 16667751
+    }
+  ]
+}

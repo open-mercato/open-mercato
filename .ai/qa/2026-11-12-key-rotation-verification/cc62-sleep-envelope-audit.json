@@ -1,0 +1,54 @@
+{
+  "auditedUtc": "2026-11-13T08:39:50.605436+00:00",
+  "source": "actual pmset -g log timestamped events; UTC-normalized envelopes, not inferred from lease",
+  "reports": [
+    {
+      "case": "1g-warm",
+      "measurementStartUtc": "2026-11-12T22:12:04.154453+00:00",
+      "measurementEndUtc": "2026-11-12T22:12:55.197646+00:00",
+      "eventsWithinEnvelope": [],
+      "noSleepOrWakeWithinEnvelope": true,
+      "precedingEvent": {
+        "atUtc": "2026-11-12T21:17:20+00:00",
+        "event": "DarkWake            \tDarkWake from Deep Idle [CDNPB] : due to NUB.SPMI0Sw3IRQ nub-spmi0.0x02 rtc/Maintenance Using AC (Charge:100%)           "
+      },
+      "followingEvent": {
+        "atUtc": "2026-11-13T01:27:19+00:00",
+        "event": "Sleep               \tEntering Sleep state due to 'Maintenance Sleep':TCPKeepAlive=active Using AC (Charge:100%) 951 secs  "
+      },
+      "performanceDisposition": "pass currentcc62 priorruntime only"
+    },
+    {
+      "case": "1g-cold",
+      "measurementStartUtc": "2026-11-12T22:28:18.803126+00:00",
+      "measurementEndUtc": "2026-11-12T22:29:09.186195+00:00",
+      "eventsWithinEnvelope": [],
+      "noSleepOrWakeWithinEnvelope": true,
+      "precedingEvent": {
+        "atUtc": "2026-11-12T21:17:20+00:00",
+        "event": "DarkWake            \tDarkWake from Deep Idle [CDNPB] : due to NUB.SPMI0Sw3IRQ nub-spmi0.0x02 rtc/Maintenance Using AC (Charge:100%)           "
+      },
+      "followingEvent": {
+        "atUtc": "2026-11-13T01:27:19+00:00",
+        "event": "Sleep               \tEntering Sleep state due to 'Maintenance Sleep':TCPKeepAlive=active Using AC (Charge:100%) 951 secs  "
+      },
+      "performanceDisposition": "pass currentcc62 priorruntime only"
+    },
+    {
+      "case": "20g-warm",
+      "measurementStartUtc": "2026-11-12T22:34:34.635781+00:00",
+      "measurementEndUtc": "2026-11-12T22:52:40.146919+00:00",
+      "eventsWithinEnvelope": [],
+      "noSleepOrWakeWithinEnvelope": true,
+      "precedingEvent": {
+        "atUtc": "2026-11-12T21:17:20+00:00",
+        "event": "DarkWake            \tDarkWake from Deep Idle [CDNPB] : due to NUB.SPMI0Sw3IRQ nub-spmi0.0x02 rtc/Maintenance Using AC (Charge:100%)           "
+      },
+      "followingEvent": {
+        "atUtc": "2026-11-13T01:27:19+00:00",
+        "event": "Sleep               \tEntering Sleep state due to 'Maintenance Sleep':TCPKeepAlive=active Using AC (Charge:100%) 951 secs  "
+      },
+      "performanceDisposition": "fail retained unchanged"
+    }
+  ]
+}

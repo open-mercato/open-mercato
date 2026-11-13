@@ -7,6 +7,9 @@
   },
   "files": {
     "packages/*/src/**/cli.ts": "Module CLI command output (mercato <module> <cmd>) \u2014 user-facing stdout/stderr, same category as @open-mercato/cli",
-    "packages/core/src/modules/api_docs/frontend/docs/api/Explorer.tsx": "console.log appears only inside a generated code sample string shown to API-docs users, not as a call"
+    "packages/core/src/modules/api_docs/frontend/docs/api/Explorer.tsx": "console.log appears only inside a generated code sample string shown to API-docs users, not as a call",
+    "packages/core/src/modules/entities/lib/rotation-protection.ts": "Core CLI safety status and per-invocation risk acknowledgment are intentional user-facing stdout/stderr, including red terminal errors.",
+    "packages/enterprise/src/modules/backups/lib/rotation-verification/runtime.ts": "Enterprise rotation CLI adapter emits localized operator progress/errors and receipt paths on stderr while preserving the existing Core stdout contract.",
+    "packages/enterprise/src/modules/backups/lib/rotation-verification/__benchmarks__/rotation.ts": "Explicitly isolated benchmark executable prints phase measurements and machine-readable acceptance results; it is not application telemetry."
   }
 }
