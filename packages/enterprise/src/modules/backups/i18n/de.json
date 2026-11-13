@@ -1,6 +1,6 @@
 {
   "backups.cli.error": "FEHLER: Wiederherstellung abgelehnt oder unvollständig.",
-  "backups.cli.help": "Verschlüsselte Sicherung und isolierte Wiederherstellung: preflight, create, status, verify, restore, exercise.",
+  "backups.cli.help": "Verschlüsselte Sicherung und isolierte Wiederherstellung: configure, preflight, create, status, verify, restore, exercise.",
   "backups.cli.unencrypted": "UNENCRYPTED: Die Sicherung enthält lesbare Daten aller Mandanten.",
   "backups.cli.unencryptedPrompt": "Zur Bestätigung der lesbaren Sicherung UNENCRYPTED eingeben: ",
   "backups.presentation.assurance.created": "Nur erstellt: Prüfung und Wiederherstellung wurden nicht durchgeführt.",
@@ -10,6 +10,7 @@
   "backups.presentation.assurance.quarantined": "In Quarantäne wiederhergestellt. Die Freigabe ist nicht genehmigt.",
   "backups.presentation.assurance.status": "Der Status dient nur zur Information und begründet kein Vertrauen für Fortsetzung oder Prüfung.",
   "backups.presentation.assurance.verified": "Vollständige Artefaktintegrität geprüft; keine Wiederherstellung durchgeführt.",
+  "backups.presentation.command.configure": "Wiederherstellungskonfiguration",
   "backups.presentation.command.create": "Datenbanksicherung",
   "backups.presentation.command.exercise": "Wiederherstellungsprobe",
   "backups.presentation.command.preflight": "Sicherungsvorprüfung",
@@ -17,6 +18,7 @@
   "backups.presentation.command.status": "Sicherungsstatus",
   "backups.presentation.command.verify": "Sicherungsprüfung",
   "backups.presentation.completed": "Abgeschlossen",
+  "backups.presentation.configurationPlan": "Nur Konfigurationsplan; keine Datenbank, Lizenz oder Schlüsselverwahrung wurde erstellt.",
   "backups.presentation.error": "FEHLER",
   "backups.presentation.expected": "Erwartet",
   "backups.presentation.info": "INFO",

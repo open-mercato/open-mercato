@@ -1,6 +1,6 @@
 {
   "backups.cli.error": "BŁĄD: polecenie odzyskiwania odrzucone lub nieukończone.",
-  "backups.cli.help": "Szyfrowana kopia i izolowane odtwarzanie: preflight, create, status, verify, restore, exercise.",
+  "backups.cli.help": "Szyfrowana kopia i izolowane odtwarzanie: configure, preflight, create, status, verify, restore, exercise.",
   "backups.cli.unencrypted": "UNENCRYPTED: kopia zawiera czytelne dane wszystkich dzierżawców.",
   "backups.cli.unencryptedPrompt": "Wpisz UNENCRYPTED, aby potwierdzić czytelną kopię: ",
   "backups.presentation.assurance.created": "Tylko utworzono: nie wykonano weryfikacji ani odtwarzania.",
@@ -10,6 +10,7 @@
   "backups.presentation.assurance.quarantined": "Odtworzono w kwarantannie. Nie zatwierdzono udostępnienia.",
   "backups.presentation.assurance.status": "Stan ma charakter informacyjny i nie uprawnia do wznowienia ani weryfikacji.",
   "backups.presentation.assurance.verified": "Zweryfikowano pełną integralność artefaktu; nie wykonano odtwarzania.",
+  "backups.presentation.command.configure": "Konfiguracja odzyskiwania",
   "backups.presentation.command.create": "Kopia zapasowa bazy danych",
   "backups.presentation.command.exercise": "Próba odzyskiwania",
   "backups.presentation.command.preflight": "Kontrola wstępna kopii",
@@ -17,6 +18,7 @@
   "backups.presentation.command.status": "Stan kopii zapasowej",
   "backups.presentation.command.verify": "Weryfikacja kopii zapasowej",
   "backups.presentation.completed": "Zakończono",
+  "backups.presentation.configurationPlan": "Tylko plan konfiguracji; nie utworzono bazy danych, licencji ani kluczy.",
   "backups.presentation.error": "BŁĄD",
   "backups.presentation.expected": "Oczekiwane",
   "backups.presentation.info": "INFORMACJA",

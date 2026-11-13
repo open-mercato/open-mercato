@@ -1,6 +1,6 @@
 {
   "backups.cli.error": "ERROR: recuperación rechazada o incompleta.",
-  "backups.cli.help": "Copia cifrada y recuperación aislada: preflight, create, status, verify, restore, exercise.",
+  "backups.cli.help": "Copia cifrada y recuperación aislada: configure, preflight, create, status, verify, restore, exercise.",
   "backups.cli.unencrypted": "UNENCRYPTED: la copia contiene datos legibles de todos los inquilinos.",
   "backups.cli.unencryptedPrompt": "Escriba UNENCRYPTED para confirmar la copia legible: ",
   "backups.presentation.assurance.created": "Solo creada: no se ha verificado ni restaurado.",
@@ -10,6 +10,7 @@
   "backups.presentation.assurance.quarantined": "Restaurada en cuarentena. No se ha aprobado su publicación.",
   "backups.presentation.assurance.status": "El estado es informativo y no establece confianza para reanudar o verificar.",
   "backups.presentation.assurance.verified": "Integridad completa del artefacto verificada; no se ha restaurado.",
+  "backups.presentation.command.configure": "Configuración de recuperación",
   "backups.presentation.command.create": "Copia de seguridad de la base de datos",
   "backups.presentation.command.exercise": "Prueba de recuperación",
   "backups.presentation.command.preflight": "Comprobación previa de la copia",
@@ -17,6 +18,7 @@
   "backups.presentation.command.status": "Estado de la copia",
   "backups.presentation.command.verify": "Verificación de la copia",
   "backups.presentation.completed": "Completado",
+  "backups.presentation.configurationPlan": "Solo un plan de configuración; no se ha creado ninguna base de datos, licencia ni custodia de claves.",
   "backups.presentation.error": "ERROR",
   "backups.presentation.expected": "Esperado",
   "backups.presentation.info": "INFO",
