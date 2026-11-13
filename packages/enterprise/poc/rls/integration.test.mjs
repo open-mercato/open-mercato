@@ -7,14 +7,13 @@ import { test } from 'node:test'
 const execute = promisify(execFile)
 const databaseUrl = process.env.OM_RLS_POC_DATABASE_URL?.trim()
 
-test('enterprise RLS isolates real pooled database operations and removes its fixtures', {
-  skip: databaseUrl ? false : 'Set OM_RLS_POC_DATABASE_URL to an explicitly disposable PostgreSQL database',
-  timeout: 120_000,
-}, async (context) => {
+async function verifyProof(context, runtimeBoundary) {
+  const expectedChecks = runtimeBoundary ? 16 : 13
   let output
   try {
     const result = await execute(process.execPath, [
       '--import', 'tsx', fileURLToPath(new URL('./run.ts', import.meta.url)),
+      ...(runtimeBoundary ? ['--runtime'] : []),
     ], {
       cwd: fileURLToPath(new URL('../../../../', import.meta.url)),
       env: { ...process.env, OM_RLS_POC_DATABASE_URL: databaseUrl },
@@ -29,7 +28,18 @@ test('enterprise RLS isolates real pooled database operations and removes its fi
 
   const passed = output.split('\n').filter((line) => line.startsWith('PASS '))
   for (const line of passed) context.diagnostic(line)
-  assert.equal(passed.length, 13)
+  assert.equal(passed.length, expectedChecks)
   assert.ok(passed.includes('PASS disposable schema and role are removed'))
-  assert.match(output, /Enterprise RLS PoC: 13 checks passed; disposable fixtures only\./)
-})
+  assert.ok(output.includes(`${runtimeBoundary ? 'Enterprise RLS runtime proof' : 'Enterprise RLS PoC'}: ${expectedChecks} checks passed; disposable fixtures only.`))
+}
+
+const options = {
+  skip: databaseUrl ? false : 'Set OM_RLS_POC_DATABASE_URL to an explicitly disposable PostgreSQL database',
+  timeout: 120_000,
+}
+
+test('enterprise RLS prototype isolates real pooled database operations and removes its fixtures', options,
+  (context) => verifyProof(context, false))
+
+test('enterprise RLS runtime guards reject stale leases and escaped ORM transactions', options,
+  (context) => verifyProof(context, true))

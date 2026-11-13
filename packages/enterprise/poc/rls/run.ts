@@ -5,6 +5,16 @@ import { PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
 import { Pool, type PoolClient } from 'pg'
 import { attachPoolErrorHandlers, instrumentPrimaryPool, resolvePoolConfig, type ObservablePool } from '@open-mercato/shared/lib/db/mikro'
 import { installRlsPoolScope, runWithRlsTenant } from '../../src/lib/rls/poc/poolScope'
+import { installTenantPoolBoundary, type BoundaryPool } from '../../src/lib/rls/runtime/pool'
+import { runWithTenantBoundary } from '../../src/lib/rls/runtime/scope'
+
+const runtimeBoundary = process.argv.includes('--runtime')
+let failNextRuntimeClient = false
+function runTenant<Result>(tenantId: string, callback: () => Result): Result {
+  return runtimeBoundary
+    ? runWithTenantBoundary({ kind: 'tenant', source: 'worker', tenantId }, callback)
+    : runWithRlsTenant(tenantId, callback)
+}
 
 const databaseUrl = process.env.OM_RLS_POC_DATABASE_URL
 assert.ok(databaseUrl, 'Set OM_RLS_POC_DATABASE_URL to a DISPOSABLE PostgreSQL database with role/schema creation privileges')
@@ -53,7 +63,18 @@ async function openOrm(max: number, scoped = true): Promise<TestOrm> {
         pools.push(pool)
         attachPoolErrorHandlers(pool as unknown as ObservablePool)
         disposers.push(instrumentPrimaryPool(pool as unknown as ObservablePool))
-        if (scoped) disposers.push(installRlsPoolScope(pool))
+        if (scoped && runtimeBoundary) {
+          const lifecycle = installTenantPoolBoundary(pool as unknown as BoundaryPool, {
+            configurationKey: 'disposable-runtime-proof',
+            initializeClient: async () => {
+              if (failNextRuntimeClient) {
+                failNextRuntimeClient = false
+                throw new Error('[internal] deliberate setup failure')
+              }
+            },
+          })
+          disposers.push(lifecycle.dispose)
+        } else if (scoped) disposers.push(installRlsPoolScope(pool))
       },
     },
   })
@@ -84,7 +105,7 @@ try {
     assert.deepEqual(rows, [{ rolsuper: false, rolbypassrls: false, owns: false }])
   })
   await check('autocommit ORM, raw connection, and Kysely reads obey tenant scope', async () => {
-    await runWithRlsTenant(tenantA, async () => {
+    await runTenant(tenantA, async () => {
       assert.deepEqual((await fork().find(probe, {})).map((row) => row.label), ['A'])
       assert.deepEqual(await fork().getConnection().execute(`select label from ${table}`), [{ label: 'A' }])
       assert.deepEqual(await fork().getKysely<ProbeDatabase>().withSchema(schema).selectFrom('records').select('label').execute(), [{ label: 'A' }])
@@ -93,7 +114,7 @@ try {
   await check('same physical connection switches A to B and clears absent context', async () => {
     const pids: number[] = []
     for (const tenant of [tenantA, tenantB, tenantA]) {
-      await runWithRlsTenant(tenant, async () => {
+      await runTenant(tenant, async () => {
         const rows = await fork().execute<Array<{ pid: number }>>('select pg_backend_pid() as pid')
         pids.push(rows[0].pid)
         assert.deepEqual(await labels(fork()), tenant === tenantA ? ['A'] : ['B'])
@@ -104,7 +125,7 @@ try {
   })
   await check('missing context denies writes; wrong tenant insert and reassignment are rejected', async () => {
     await assert.rejects(fork().execute(`insert into ${table} values (?, ?, 'denied')`, [randomUUID(), tenantA]), /row.level security/i)
-    await runWithRlsTenant(tenantA, async () => {
+    await runTenant(tenantA, async () => {
       await assert.rejects(fork().execute(`insert into ${table} values (?, ?, 'denied')`, [randomUUID(), tenantB]), /row.level security/i)
       await assert.rejects(fork().execute(`update ${table} set tenant_id = ? where id = ?`, [tenantB, rowA]), /row.level security/i)
       const result = await fork().execute(`delete from ${table} where id = ? returning id`, [rowB])
@@ -112,7 +133,7 @@ try {
     })
   })
   await check('ORM flush, explicit transaction and Kysely share the pinned connection', async () => {
-    await runWithRlsTenant(tenantA, () => fork().transactional(async (tx) => {
+    await runTenant(tenantA, () => fork().transactional(async (tx) => {
       const id = randomUUID()
       tx.persist(tx.create(probe, { id, tenantId: tenantA, label: 'A-created' }))
       await tx.flush()
@@ -123,27 +144,33 @@ try {
     assert.deepEqual(await labels(fork()), [])
   })
   await check('rollback returns a reusable connection with no context on the next reservation', async () => {
-    await assert.rejects(runWithRlsTenant(tenantA, () => fork().transactional(async (tx) => {
+    await assert.rejects(runTenant(tenantA, () => fork().transactional(async (tx) => {
       await tx.execute(`insert into ${table} values (?, ?, 'rolled-back')`, [randomUUID(), tenantA])
       throw new Error('[internal] deliberate rollback')
     })), /deliberate rollback/)
     assert.deepEqual(await labels(fork()), [])
-    assert.deepEqual(await runWithRlsTenant(tenantA, () => labels(fork())), ['A'])
+    assert.deepEqual(await runTenant(tenantA, () => labels(fork())), ['A'])
   })
   await check('callback pool.query inherits scope and missing scope clears it', async () => {
     const pool = pools[0]
-    await runWithRlsTenant(tenantB, async () => assert.deepEqual((await pool.query(`select label from ${table}`)).rows, [{ label: 'B' }]))
+    await runTenant(tenantB, async () => assert.deepEqual((await pool.query(`select label from ${table}`)).rows, [{ label: 'B' }]))
     assert.deepEqual((await pool.query(`select label from ${table}`)).rows, [])
   })
   await check('failed setup destroys the checked-out client and max=1 recovers', async () => {
     const pool = pools[0]
     const client = await pool.connect()
-    const originalQuery = client.query
-    client.query = (() => Promise.reject(new Error('[internal] deliberate setup failure'))) as PoolClient['query']
-    client.release()
-    await assert.rejects(pool.connect(), /deliberate setup failure/)
-    client.query = originalQuery
-    assert.deepEqual(await runWithRlsTenant(tenantB, () => labels(fork())), ['B'])
+    if (runtimeBoundary) {
+      client.release(new Error('[internal] force a new physical client'))
+      failNextRuntimeClient = true
+      await assert.rejects(pool.connect(), /deliberate setup failure/)
+    } else {
+      const originalQuery = client.query
+      client.query = (() => Promise.reject(new Error('[internal] deliberate setup failure'))) as PoolClient['query']
+      client.release()
+      await assert.rejects(pool.connect(), /deliberate setup failure/)
+      client.query = originalQuery
+    }
+    assert.deepEqual(await runTenant(tenantB, () => labels(fork())), ['B'])
   })
   await check('SET LOCAL outside a transaction reproduces the previous implementation failure', async () => {
     const control = await openOrm(1, false)
@@ -155,7 +182,7 @@ try {
   await check('60 overlapping tenant requests stay isolated through a pool of 3', async () => {
     const outcomes = await Promise.allSettled(Array.from({ length: 60 }, (_, index) => {
       const tenant = index % 2 === 0 ? tenantA : tenantB
-      return runWithRlsTenant(tenant, async () => {
+      return runTenant(tenant, async () => {
         const em = parallelOrm.em.fork({ clear: true, freshEventManager: true })
         await em.execute('select pg_sleep(0.005)')
         assert.deepEqual(await labels(em), tenant === tenantA ? ['A'] : ['B'])
@@ -184,7 +211,7 @@ try {
     try {
       const outcomes = await Promise.allSettled(operations.map(async (operation, index) => {
         const rollback = new Error('[internal] deliberate concurrent rollback')
-        const transaction = runWithRlsTenant(operation.tenantId, () =>
+        const transaction = runTenant(operation.tenantId, () =>
           parallelOrm.em.fork({ clear: true, freshEventManager: true }).transactional(async (tx) => {
             activeTransactions += 1
             peakTransactions = Math.max(peakTransactions, activeTransactions)
@@ -246,8 +273,61 @@ try {
       clearTimeout(barrierTimeout)
     }
   })
+  if (runtimeBoundary) {
+    await check('released lease facades cannot inherit a reused backend under either tenant', async () => {
+      const pool = pools[0]
+      let stale: PoolClient | undefined
+      let firstPid = 0
+      await runTenant(tenantA, async () => {
+        stale = await pool.connect()
+        firstPid = (await stale.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid
+        stale.release()
+      })
+      assert.ok(stale)
+      for (const tenantId of [tenantA, tenantB]) {
+        await runTenant(tenantId, async () => {
+          const current = await pool.connect()
+          try {
+            assert.notEqual(current, stale)
+            assert.equal((await current.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid, firstPid)
+            await assert.rejects(stale!.query(`select * from ${table}`), /released/)
+            assert.throws(() => stale!.release(), /released/)
+          } finally { current.release() }
+        })
+      }
+    })
+    await check('a pinned ORM transaction rejects another tenant invocation before SQL', async () => {
+      let publishTransaction: (tx: EntityManager) => void = () => undefined
+      const transactionAvailable = new Promise<EntityManager>((resolve) => { publishTransaction = resolve })
+      let resumeTransaction: () => void = () => undefined
+      const resume = new Promise<void>((resolve) => { resumeTransaction = resolve })
+      const owner = runTenant(tenantA, () => fork().transactional(async (tx) => {
+        publishTransaction(tx)
+        await resume
+        const rows = await tx.execute<Array<{ tenant_id: string }>>(`select tenant_id from ${table}`)
+        assert.ok(rows.length > 0)
+        assert.ok(rows.every((row) => row.tenant_id === tenantA))
+      }))
+      try {
+        const borrowed = await Promise.race([
+          transactionAvailable,
+          owner.then(() => { throw new Error('[internal] Owning transaction completed before the probe acquired it') }),
+        ])
+        await runTenant(tenantB, () => assert.rejects(borrowed.execute(`select * from ${table}`), /another tenant boundary/))
+      } finally {
+        resumeTransaction()
+        await owner
+      }
+    })
+    await check('completed invocation cannot query its retained lease and max=1 recovers after cleanup', async () => {
+      const escaped = await runTenant(tenantA, () => pools[0].connect())
+      await assert.rejects(escaped.query(`select * from ${table}`), /completed/)
+      escaped.release()
+      assert.deepEqual(await runTenant(tenantB, () => fork().execute(`select label from ${table} where id = ?`, [rowB])), [{ label: 'B' }])
+    })
+  }
   await check('nested tenant switching is rejected', async () => {
-    assert.throws(() => runWithRlsTenant(tenantA, () => runWithRlsTenant(tenantB, () => undefined)), /Cannot change RLS tenant/)
+    assert.throws(() => runTenant(tenantA, () => runTenant(tenantB, () => undefined)), /Cannot change (RLS tenant|tenant boundary)/)
   })
 } finally {
   const closed = await Promise.allSettled(orms.map((orm) => orm.close(true)))
@@ -269,4 +349,4 @@ try {
     if (outcome.status === 'rejected') throw outcome.reason
   }
 }
-process.stdout.write(`Enterprise RLS PoC: ${checks} checks passed; disposable fixtures only.\n`)
+process.stdout.write(`${runtimeBoundary ? 'Enterprise RLS runtime proof' : 'Enterprise RLS PoC'}: ${checks} checks passed; disposable fixtures only.\n`)
