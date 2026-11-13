@@ -226,12 +226,28 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
             if (!state || !runKey) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
             const entries: Array<{ identity: string; record: TimestampRecord }> = []
             const seen = new Set<string>()
-            for (const intent of batch) {
+            const planned = batch.map(intent => {
               const identity = identityFor(intent)
               if (seen.has(identity)) throw new Error('[internal] ROTATION_METADATA_MISMATCH')
               seen.add(identity)
               const before = { updated_at: canonicalRotationTimestamp(intent.previousTimestamp) }
-              const existing = await intents.load(identity)
+              return { identity, before }
+            })
+            const missing = new Set<string>()
+            for (let offset = 0; offset < planned.length; offset += 8) {
+              const completed = await Promise.allSettled(planned.slice(offset, offset + 8).map(async ({ identity }) => {
+                if (cachedRecord(identity)) return
+                try { await store.fileIdentity(address(identity)) }
+                catch (error) {
+                  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+                  missing.add(identity)
+                }
+              }))
+              const failed = completed.find(result => result.status === 'rejected')
+              if (failed?.status === 'rejected') throw failed.reason
+            }
+            for (const { identity, before } of planned) {
+              const existing = cachedRecord(identity) ?? (missing.has(identity) ? undefined : await intents.load(identity))
               if (existing) {
                 if (JSON.stringify(existing.before) !== JSON.stringify(before) && JSON.stringify(existing.after) !== JSON.stringify(before)) throw new Error('[internal] ROTATION_METADATA_MISMATCH')
                 continue
