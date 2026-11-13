@@ -42,7 +42,7 @@ describe('recovery security boundary', () => {
     const stdout:string[]=[];const stderr:string[]=[]
     const code=await runBackupCli(['verify','--json','--artifact',root],{stdout:(text)=>stdout.push(text),stderr:(text)=>stderr.push(text)})
     expect(code).toBe(3);expect(stdout).toHaveLength(1);expect(JSON.parse(stdout[0])).toMatchObject({command:'verify',runId:expect.stringMatching(/^[a-f0-9-]{36}$/),status:'refused',error:{code:'BACKUP_ENTERPRISE_RIGHTS_REQUIRED'}})
-    expect(stderr).toEqual([])
+    expect(stderr).toHaveLength(2); expect(stderr.every(line => line.includes('BACKUP_ENTERPRISE_RIGHTS_REQUIRED'))).toBe(true)
   })
   test('environment enablement alone never establishes commercial rights',async () => {
     process.env.OM_ENABLE_ENTERPRISE_MODULES='true';process.env.OM_ENABLE_ENTERPRISE_MODULES_BACKUPS='true'

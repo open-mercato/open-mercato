@@ -149,7 +149,7 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
       const labels = typeof values['labels-file'] === 'string' ? JSON.parse((await readBoundedFile(values['labels-file'], 64 * 1024 * 1024)).toString()) as Record<string, string> : io.labels
       if (labels && (Object.keys(labels).length > 100000 || Object.values(labels).some((value) => typeof value !== 'string' || value.length > 4096))) throw new BackupError('BACKUP_INVALID_LABELS', 2)
       let confirmUnencrypted = Boolean(values['confirm-unencrypted'])
-      if (values['no-encryption'] && !confirmUnencrypted && process.stdin.isTTY) {
+      if (values['no-encryption'] && !confirmUnencrypted && process.stdin.isTTY && !structuredProgress) {
         render?.suspend()
         const prompt = createInterface({ input: process.stdin, output: process.stderr })
         try { confirmUnencrypted = await prompt.question(backupTranslation('backups.cli.unencryptedPrompt'), { signal: signal }) === 'UNENCRYPTED' } finally { prompt.close() }
@@ -199,9 +199,13 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     render?.suspend()
     const output = { schemaVersion: 1, command,runId:failure.context.restoreRunId??failure.context.backupId??requestId,status: [130, 143].includes(failure.exitCode) ? 'interrupted' : failure.resumable ? 'resumable' : failure.exitCode === 2 || failure.exitCode === 3 ? 'refused' : 'failed', error: { code: failure.code, messageKey: 'backups.cli.error' }, warnings: [], ...failure.context }
     const errorText = `${backupTranslation('backups.cli.error')} ${failure.code}`
-    const commandLogger = structuredProgress ? createLogger('backups', { write: () => notice(`backup.command.${output.status}`, `${errorText}${failure.context.resumeCommand ? '\n' + failure.context.resumeCommand : ''}`) }) : createLogger('backups')
+    const presentFailure = (namespace: 'backups' | 'telemetry', warning: boolean) => {
+      if (structuredProgress) notice(warning ? 'backup.telemetry.warning' : namespace === 'backups' ? `backup.command.${output.status}` : `backup.${output.status}`, `${errorText}${failure.context.resumeCommand ? '\n' + failure.context.resumeCommand : ''}`)
+      else presentation.notice(`${namespace}: ${errorText}`)
+    }
+    const commandLogger = createLogger('backups', { write: () => presentFailure('backups', false) })
     commandLogger.error('[internal] Backup command failed', { code: failure.code })
-    const telemetryLogger = structuredProgress ? createLogger('telemetry', { write: record => notice(record.level === 'warn' ? 'backup.telemetry.warning' : `backup.${output.status}`, `${errorText}${failure.context.resumeCommand ? '\n' + failure.context.resumeCommand : ''}`) }) : undefined
+    const telemetryLogger = createLogger('telemetry', { write: record => presentFailure('telemetry', record.level === 'warn') })
     reportError(new Error(`[internal] ${failure.code}`), { module: 'backups', code: 'backups.command_failed', attributes: { failure_code: failure.code }, logger: telemetryLogger })
     if (json) io.stdout(JSON.stringify(output) + '\n')
     if (!structuredProgress && !json) {
