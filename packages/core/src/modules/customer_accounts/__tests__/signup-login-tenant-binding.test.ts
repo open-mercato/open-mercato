@@ -19,7 +19,7 @@ describe('customer_accounts signup — organization lookup must bind tenantId', 
   const helperSource = readSource('lib/organizationLookup.ts')
 
   test('signup delegates the lookup to the shared helper (no raw SQL in the route)', () => {
-    expect(signupSource).toMatch(/findOrganizationInTenant\s*\(\s*em\s*,\s*organizationId\s*,\s*tenantId\s*\)/)
+    expect(signupSource).toMatch(/findOrganizationInTenant\s*\(\s*bootstrapEm\s*,\s*organizationId\s*,\s*tenantId\s*\)/)
     expect(signupSource).not.toMatch(/FROM\s+organizations\s+WHERE/i)
   })
 

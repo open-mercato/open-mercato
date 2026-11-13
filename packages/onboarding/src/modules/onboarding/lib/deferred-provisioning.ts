@@ -181,12 +181,16 @@ export async function runDeferredProvisioning(args: {
 }) {
   const verified = await runOnboardingIdentity(async () => {
     const container = await createRequestContainer()
-    const em = container.resolve('em') as EntityManager
-    const request = await new OnboardingService(em).findById(args.requestId)
-    if (!request || request.status !== 'completed' || request.preparationCompletedAt
-      || request.tenantId !== args.tenantId || request.organizationId !== args.organizationId
-      || !request.userId || !await hasPersistedWorkspace(em, request)) return false
-    return { tenantId: request.tenantId, organizationId: request.organizationId, tokenHash: request.tokenHash }
+    try {
+      const em = container.resolve('em') as EntityManager
+      const request = await new OnboardingService(em).findById(args.requestId)
+      if (!request || request.status !== 'completed' || request.preparationCompletedAt
+        || request.tenantId !== args.tenantId || request.organizationId !== args.organizationId
+        || !request.userId || !await hasPersistedWorkspace(em, request)) return false
+      return { tenantId: request.tenantId, organizationId: request.organizationId, tokenHash: request.tokenHash }
+    } finally {
+      await container.dispose()
+    }
   })
   if (!verified) return
   return runOnboardingTenant(args.tenantId, async (container) => {

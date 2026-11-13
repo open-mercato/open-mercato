@@ -20,19 +20,23 @@ export async function sendWorkspaceReadyEmail(args: {
 }) {
   return runOnboardingIdentity(async () => {
     const container = await createRequestContainer()
-    const em = container.resolve('em') as EntityManager
-    const service = new OnboardingService(em)
-    const request = await service.findById(args.requestId)
-    if (!request || request.readyEmailSentAt || request.status !== 'completed' || !request.preparationCompletedAt
-      || request.tenantId !== args.tenantId || !await hasPersistedWorkspace(em, request)) return false
-    return runOnboardingTenant(request.tenantId, async (container) => {
-      const service = new OnboardingService(container.resolve('em') as EntityManager)
-      const current = await service.findById(request.id)
-      if (!current || current.tokenHash !== request.tokenHash || current.tenantId !== args.tenantId
-        || current.organizationId !== request.organizationId || current.status !== 'completed'
-        || !current.preparationCompletedAt || current.readyEmailSentAt) return false
-      return deliver(current, service)
-    })
+    try {
+      const em = container.resolve('em') as EntityManager
+      const service = new OnboardingService(em)
+      const request = await service.findById(args.requestId)
+      if (!request || request.readyEmailSentAt || request.status !== 'completed' || !request.preparationCompletedAt
+        || request.tenantId !== args.tenantId || !await hasPersistedWorkspace(em, request)) return false
+      return await runOnboardingTenant(request.tenantId, async (container) => {
+        const service = new OnboardingService(container.resolve('em') as EntityManager)
+        const current = await service.findById(request.id)
+        if (!current || current.tokenHash !== request.tokenHash || current.tenantId !== args.tenantId
+          || current.organizationId !== request.organizationId || current.status !== 'completed'
+          || !current.preparationCompletedAt || current.readyEmailSentAt) return false
+        return deliver(current, service)
+      })
+    } finally {
+      await container.dispose()
+    }
     async function deliver(request: NonNullable<Awaited<ReturnType<OnboardingService['findById']>>>, service: OnboardingService) {
       const locale = resolveLocale(request.locale)
       const dict = await loadDictionary(locale)

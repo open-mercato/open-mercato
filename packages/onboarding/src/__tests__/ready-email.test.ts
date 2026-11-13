@@ -11,6 +11,7 @@ const workspaceReadyEmailMock = jest.fn().mockReturnValue(null)
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn().mockResolvedValue({
+    dispose: jest.fn(async () => {}),
     resolve: () => ({}),
   }),
 }))
