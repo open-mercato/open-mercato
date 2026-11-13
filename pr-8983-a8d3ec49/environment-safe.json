@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "runId": "a8d3ec49-3641-4c2d-a1fe-32a4d0853e6c",
+  "status": "running",
+  "mode": "discovered",
+  "baseUrl": "http://127.0.0.1:33267",
+  "startedByThisRepo": true,
+  "startScript": ".ai/scripts/test-env-up.sh",
+  "stopScript": ".ai/scripts/test-env-down.sh",
+  "app": {
+    "startCommand": "yarn mercato test:ephemeral --no-reuse-env --force-rebuild",
+    "port": 33267,
+    "healthPath": "/login",
+    "pid": 3719069
+  },
+  "services": [
+    {
+      "type": "postgres",
+      "host": "localhost",
+      "port": 33146
+    }
+  ],
+  "credentials": [
+    {
+      "role": "admin",
+      "username": "admin@acme.com",
+      "passwordEnv": "TEST_ADMIN_PASSWORD"
+    }
+  ],
+  "credentialsFile": ".ai/qa/test-env.env",
+  "browser": {
+    "provider": "playwright",
+    "installed": true,
+    "command": "yarn playwright",
+    "descriptor": ".ai/browsers/playwright.md"
+  },
+  "playwright": {
+    "runner": "playwright",
+    "installed": true,
+    "config": ".ai/qa/tests/playwright.config.ts",
+    "browsers": [
+      "chromium"
+    ]
+  },
+  "testRunner": {
+    "name": "playwright",
+    "config": ".ai/qa/tests/playwright.config.ts"
+  },
+  "platform": "linux",
+  "startedAt": "2026-11-13T14:28:54.768Z",
+  "builtHead": "3041b04654766bb0e5696c4c13e82b781bdcdf2e",
+  "notes": "Own isolated authoritative CLI; shell and authenticated readiness verified. Credentials are disposable test references."
+}
