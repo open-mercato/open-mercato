@@ -29,19 +29,23 @@ async function DeferredCanaryProbe({ ids, requestId, pause, scope }: {
   await delay(pause)
   try {
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
-    const metadata = em.getMetadata().get(CustomerEntity)
-    const result = await sql<ProbeRow>`
-      select id, tenant_id as "tenantId", current_setting('app.current_tenant_id', true) as "configuredTenant"
-      from ${sql.table(`${metadata.schema ?? 'public'}.${metadata.tableName}`)} where id in (${sql.join(ids)}) order by id
-    `.execute(em.getKysely())
-    const current = await resolveDatabaseExecutionContext()
-    const invocationMatches = current.status === 'resolved' && current.invocation.token === scope.invocation.token
-    if (!invocationMatches || result.rows.some((row) => row.tenantId !== scope.context.tenantId || row.configuredTenant !== scope.context.tenantId)) {
-      throw new Error('[internal] RLS integration probe detected an invalid tenant boundary')
+    try {
+      const em = container.resolve<EntityManager>('em')
+      const metadata = em.getMetadata().get(CustomerEntity)
+      const result = await sql<ProbeRow>`
+        select id, tenant_id as "tenantId", current_setting('app.current_tenant_id', true) as "configuredTenant"
+        from ${sql.table(`${metadata.schema ?? 'public'}.${metadata.tableName}`)} where id in (${sql.join(ids)}) order by id
+      `.execute(em.getKysely())
+      const current = await resolveDatabaseExecutionContext()
+      const invocationMatches = current.status === 'resolved' && current.invocation.token === scope.invocation.token
+      if (!invocationMatches || result.rows.some((row) => row.tenantId !== scope.context.tenantId || row.configuredTenant !== scope.context.tenantId)) {
+        throw new Error('[internal] RLS integration probe detected an invalid tenant boundary')
+      }
+      await recordProbe(requestId, { phase: 'queried', active: scope.invocation.isActive(), tenantId: scope.context.tenantId, invocationMatches })
+      return <pre data-testid="tenant-boundary-probe">{JSON.stringify({ tenantId: scope.context.tenantId, invocationMatches, rows: result.rows })}</pre>
+    } finally {
+      await container.dispose()
     }
-    await recordProbe(requestId, { phase: 'queried', active: scope.invocation.isActive(), tenantId: scope.context.tenantId, invocationMatches })
-    return <pre data-testid="tenant-boundary-probe">{JSON.stringify({ tenantId: scope.context.tenantId, invocationMatches, rows: result.rows })}</pre>
   } catch (error) {
     await recordProbe(requestId, { phase: 'rejected', active: scope.invocation.isActive() })
     throw error
