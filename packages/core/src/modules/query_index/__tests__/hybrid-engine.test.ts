@@ -387,6 +387,27 @@ describe('HybridQueryEngine', () => {
     })
   })
 
+  test('joins an in-flight coverage refresh for every concurrent reader', async () => {
+    process.env.QUERY_INDEX_COVERAGE_CACHE_MS = '1000'
+    process.env.OPTIMIZE_INDEX_COVERAGE_STATS = 'true'
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 4, coverageRefreshedAt: new Date(0) })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const emitEvent = jest.fn(async () => { await gate })
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as never, () => ({ emitEvent }))
+    const reader = engine as unknown as { getStoredCoverageSnapshot: (entity: string, tenant: string, org: string, deleted: boolean) => Promise<unknown> }
+    let settled = 0
+    const read = () => reader.getStoredCoverageSnapshot('example:todo', 't1', 'org1', false).then(() => { settled += 1 })
+    const first = read()
+    const second = read()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(emitEvent).toHaveBeenCalledTimes(1)
+    expect(settled).toBe(0)
+    release()
+    await Promise.all([first, second])
+    expect(settled).toBe(2)
+  })
+
   test('falls back when wantsCf but no index rows exist', async () => {
     const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
     const em = buildEm(db)

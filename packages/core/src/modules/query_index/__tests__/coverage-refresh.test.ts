@@ -63,7 +63,7 @@ describe('query_index coverage refresh subscriber', () => {
         }),
       }
 
-      await handleCoverageRefresh({
+      const completion = handleCoverageRefresh({
         entityType: 'catalog:catalog_product',
         tenantId: 'tenant-1',
         organizationId: null,
@@ -72,6 +72,7 @@ describe('query_index coverage refresh subscriber', () => {
 
       expect(sourceEm.fork).not.toHaveBeenCalled()
       await jest.advanceTimersByTimeAsync(25)
+      await completion
 
       expect(sourceEm.fork).toHaveBeenCalledTimes(1)
       expect(mockRefreshCoverageSnapshot).toHaveBeenCalledWith(forkedEm, expect.objectContaining({
@@ -80,5 +81,43 @@ describe('query_index coverage refresh subscriber', () => {
     } finally {
       jest.useRealTimers()
     }
+  })
+})
+
+describe('coverage refresh accepted lifetime', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    jest.useFakeTimers()
+  })
+
+  afterEach(() => {
+    expect(jest.getTimerCount()).toBe(0)
+    jest.useRealTimers()
+  })
+
+  it('keeps every coalesced caller pending until the latest refresh finishes', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    mockRefreshCoverageSnapshot.mockImplementationOnce(async () => { await gate })
+    const sourceEm = { fork: jest.fn(() => ({})) }
+    const ctx = { resolve: jest.fn(() => sourceEm) }
+    const payload = { entityType: 'customers:customer_person', tenantId: 'tenant-1', delayMs: 25 }
+    const settled: string[] = []
+    const first = handleCoverageRefresh(payload, ctx).then(() => { settled.push('first') })
+    await jest.advanceTimersByTimeAsync(10)
+    const second = handleCoverageRefresh(payload, ctx).then(() => { settled.push('second') })
+    await jest.advanceTimersByTimeAsync(24)
+    expect(mockRefreshCoverageSnapshot).not.toHaveBeenCalled()
+    expect(settled).toEqual([])
+    await jest.advanceTimersByTimeAsync(1)
+    expect(mockRefreshCoverageSnapshot).toHaveBeenCalledTimes(1)
+    expect(settled).toEqual([])
+    release()
+    await Promise.all([first, second])
+    expect(settled).toEqual(['first', 'second'])
+    const next = handleCoverageRefresh(payload, ctx)
+    await jest.advanceTimersByTimeAsync(25)
+    await next
+    expect(mockRefreshCoverageSnapshot).toHaveBeenCalledTimes(2)
   })
 })
