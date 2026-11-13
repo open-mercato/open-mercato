@@ -62,6 +62,27 @@ export type AclData = {
   organizations: string[] | null
 }
 
+// Lets a caller skip re-submitting an ACL mutation that would not change anything —
+// e.g. a scoped editor resubmitting a target's unrestricted/inherited ACL unchanged,
+// which would otherwise be refused by the grant-scope check after an unrelated
+// primary save already persisted (#8714).
+const compareCanonicalKey = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+
+export function isAclDataEqual(a: AclData, b: AclData): boolean {
+  if (a.isSuperAdmin !== b.isSuperAdmin) return false
+  const sortedFeaturesA = [...a.features].sort(compareCanonicalKey)
+  const sortedFeaturesB = [...b.features].sort(compareCanonicalKey)
+  if (sortedFeaturesA.length !== sortedFeaturesB.length) return false
+  if (sortedFeaturesA.some((feature, index) => feature !== sortedFeaturesB[index])) return false
+  if (a.organizations === null || b.organizations === null) {
+    return a.organizations === b.organizations
+  }
+  const sortedOrgsA = [...a.organizations].sort(compareCanonicalKey)
+  const sortedOrgsB = [...b.organizations].sort(compareCanonicalKey)
+  if (sortedOrgsA.length !== sortedOrgsB.length) return false
+  return sortedOrgsA.every((orgId, index) => orgId === sortedOrgsB[index])
+}
+
 type FeatureListResponse = { items?: Feature[]; modules?: ModuleInfo[] }
 type AclPayload = {
   hasCustomAcl?: boolean
@@ -101,6 +122,7 @@ export function AclEditor({
   value,
   onChange,
   onVersionChange,
+  onBaselineChange,
   userRoles,
   currentUserIsSuperAdmin,
   tenantId,
@@ -117,6 +139,11 @@ export function AclEditor({
    * overwrites (#2055).
    */
   onVersionChange?: (updatedAt: string | null) => void
+  /**
+   * Reports the just-loaded ACL snapshot (post sanitization), so the parent can
+   * tell an untouched save apart from an actual change on submit (#8714).
+   */
+  onBaselineChange?: (data: AclData) => void
   userRoles?: string[]
   currentUserIsSuperAdmin?: boolean
   tenantId?: string | null
@@ -171,14 +198,18 @@ export function AclEditor({
       )
       if (cancelledRef.current) return
       const customAclExists = aclJson.hasCustomAcl !== false
+      const loadedIsSuperAdmin = !!aclJson.isSuperAdmin
+      const loadedFeatures = actorSanitizeFeatures(aclJson.features)
+      const loadedOrganizations = aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? aclJson.organizations : []
       setHasCustomAcl(customAclExists)
       setOverrideEnabled(customAclExists)
-      setIsSuperAdmin(!!aclJson.isSuperAdmin)
-      setGranted(actorSanitizeFeatures(aclJson.features))
-      setOrganizations(aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? aclJson.organizations : [])
+      setIsSuperAdmin(loadedIsSuperAdmin)
+      setGranted(loadedFeatures)
+      setOrganizations(loadedOrganizations)
       onVersionChange?.(typeof aclJson.updatedAt === 'string' ? aclJson.updatedAt : null)
+      onBaselineChange?.({ isSuperAdmin: loadedIsSuperAdmin, features: loadedFeatures, organizations: loadedOrganizations })
     } catch {}
-  }, [kind, targetId, actorSanitizeFeatures, onVersionChange])
+  }, [kind, targetId, actorSanitizeFeatures, onVersionChange, onBaselineChange])
 
   React.useEffect(() => {
     const cancelled = { current: false }
