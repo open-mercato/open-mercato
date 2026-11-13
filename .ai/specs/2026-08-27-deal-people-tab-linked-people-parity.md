@@ -305,7 +305,7 @@ Each PR ships its own coverage. Nothing below is deferred to a later PR than the
 1. loads from `/api/customers/deals/{id}/people` with `page`/`pageSize`/`sort`
 2. unlink saves the remaining selection
 3. search and sort changes are forwarded to the endpoint
-4. The search box is always visible and sorting lives in the column headers (`aria-sort` on the Name header; company tabs also get a sortable Linked column) — no disclosure toggle (#7493)
+4. The search box is always visible and sorting lives in the column headers (`aria-sort` on the Name header; company tabs also get a sortable Linked column) — no disclosure toggle (#7493). Below a 576px container the Linked column collapses, so a compact sort control lists the allowed modes while that header is hidden
 5. empty state offers both link and add actions
 6. the add-person dialog opens without a company context
 7. a created person is appended to the deal selection
@@ -399,3 +399,4 @@ Applies to all three PRs. The second `yarn build:packages` rebuilds against what
 | 2026-08-28 | Spec review round 2: added the `is_primary` ordering requirement (partial unique index is immediate, and set-diffing removes the delete-everything-first protection); widened the lock-stamp rule to cover primary-flag changes and both link tables; split the `syncDealCompanies` note into its deferrable and non-deferrable halves; fixed the `data/entities.ts` line citation. |
 | 2026-08-28 | Round-3 inline review: corrected the `is_primary` rule to cover a removed displaced row (inserts commit before deletes), named the `updated_at` touch mechanism and the undo-path semantics, split the write-path fix into its own issue and PR, and enumerated the real `LinkedPeopleSection` prop surface. |
 | 2026-11-04 | #7493 compatibility: `PersonCard` and `sectionSubtitle` stay as deprecated bridges instead of changing shape or disappearing. |
+| 2026-11-13 | #7493 review follow-up: a compact sort control appears while the Linked header is hidden in a narrow container, so the recency sort stays reachable at phone width. Labels `customers.linkedPeople.sortNameAsc` / `sortNameDesc` / `sortRecent` are kept and `customers.linkedPeople.sortLabel` is added. |
