@@ -130,3 +130,31 @@ describe('CompanyKpiBar — deal status vocabulary (#4667)', () => {
     expect(within(tile(LTV)).getByText(/^4000\s+zł$/)).toBeInTheDocument()
   })
 })
+
+// Regression for issue #8242: a company with no deals showed "PLN 0" whatever the tenant's
+// currency, because the bar fell back to a hard-coded PLN when no currency was known.
+describe('CompanyKpiBar — deal currency fallback (#8242)', () => {
+  it('formats the active total in the currency the API reports when there are no deals', () => {
+    const data = buildOverview([])
+    data.kpis = {
+      activeDealsCount: 0,
+      activeDealsValue: null,
+      dealCurrency: 'USD',
+      activityCount: 0,
+      activityTrend: null,
+      ltvValue: null,
+      completedDealsCount: 0,
+      clientTenureYears: null,
+    }
+    renderWithProviders(<CompanyKpiBar data={data} />, { locale: EN })
+
+    expect(within(tile(ACTIVE_DEALS)).getByText('$0')).toBeInTheDocument()
+  })
+
+  it('does not invent a currency when none is known', () => {
+    renderBar([])
+
+    expect(within(tile(ACTIVE_DEALS)).getByText('0')).toBeInTheDocument()
+    expect(within(tile(ACTIVE_DEALS)).queryByText(/PLN/)).not.toBeInTheDocument()
+  })
+})
