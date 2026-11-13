@@ -132,3 +132,32 @@ The owner reviewed the setup-style terminal mockups and explicitly approved impl
 ### Presentation amendment verification — source 901e4a8826
 
 All eight configured commands passed in order with local Node 24.22.2, including the 51-task workspace test and production application build. Separate-agent source review found no unresolved blocker or major. Official operator guides/navigation and Enterprise overview, README and subscription feature lists pass documentation checks. Current-source actual terminal/JSON proof and immutable screenshots are recorded in `.ai/qa/2026-11-13-cli-presentation/`. Manual test instructions and the actual-output screenshots are published at https://github.com/open-mercato/open-mercato/pull/9333#issuecomment-6852294617. No archives, dumps, keys or raw private logs were uploaded. Required CI and manual QA remain separate; no merge was performed.
+
+
+## Requested AI operator skills — 2026-11-13
+
+Add an invocable operator skill for the existing CLI, bundle portable command/safety references, register it in the opt-in infra tier, install it locally, and document invocation in the official guide and PR comment. This is instruction/documentation work only; authoring does not authorize running backup, restore, key rotation or database provisioning. Preserve runtime code, machine contracts, current review state, commercial boundaries and outstanding performance acceptance.
+
+- [x] B.1 Author the operator skill and command references against the actual CLI.
+- [x] B.2 Validate registration, frontmatter, references, installation and behavioral scenarios.
+- [x] B.3 Install locally and publish invocation instructions and skill checks on the PR.
+
+
+## Owner-requested OS/Docker defaults and provider migration — 2026-11-13
+
+The owner requested automatic nonsecret operational defaults on macOS/Linux/Docker, complete official operator procedures and scenario proof in both PR comments. The owner explicitly confirmed all four source/target routes, including fallback-to-Vault, Vault-to-fallback and existing Vault key version rotation. Provider/key/custody selection and commercial rights remain explicit; no production operation, automatic key generation/retirement, fence release, remote TLS bypass or new CI job is authorized by this implementation request.
+
+- [x] C.1 Implement safe OS-aware recovery paths/client discovery and read-only configuration inspection.
+- [x] C.2 Add durable Docker maintenance/client support and validate actual runtime primitives.
+- [x] C.3 Verify native and simulated OS scenarios, precedence, permissions, custody, resume and refusal cases.
+- [x] C.4 Document default setup, custody and exact old/new provider procedures, including all tenants.
+- [x] C.5 Run source review/configured validation and publish current-source proof/manual instructions.
+
+
+### Completed configuration/operator amendment — production724b6cb37e
+
+All eight configured commands passed in order under local Node24.22.2 (full workspace tests357.621s; production app build95.692s); tracked production/generated files are unchanged after the gate. The exact724 complete maintenance image built and passed all7 read-only/network-none checks with no overlays. Config/index digests and source/build provenance are committed in the small QA report. The retained exactf1d143-row real SIGINT130/fresh-confirmation/new-container/same-run resume0 proof remains valid for the6 byte-identical engine/config/launcher/guard Git objects. Recovery stays quarantined/promotion-disabled; key recovery without canaries is not-tested. Failed web-runner attempts remain disclosed; no new performance envelope is inferred.
+
+Official scenario guides compile/link-check; portable operator skills are installed and validated. Full manual commands, actual reviewed output screenshot, automatic companion Enterprise backup confirmation and evidence scope are published at https://github.com/open-mercato/open-mercato/pull/9333#issuecomment-6856514943. Source re-review found no new blocker/major in the amendment; native review is COMMENT because the authenticated actor authors the PR. Original July/November specs are preserved.
+
+The requested amendment is complete. Required CI and independent manual QA remain separate merge gates; the existing owner-ready/pipeline state is preserved. No merge, key retirement, writer-fence release or recovery promotion occurred. Only small sanitized aggregates/reviewed screenshots were uploaded, never backups, dumps, volumes, keys, private workspaces or raw logs. Companion #9334 still has its separate original large-data performance/RSS and concluding acceptance steps open; no threshold or workflow approval is inferred.
