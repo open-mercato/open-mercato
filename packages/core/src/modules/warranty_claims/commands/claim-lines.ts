@@ -557,6 +557,7 @@ async function validateLineRestore(
   const scope = { tenantId: state.claim.tenantId, organizationId: state.claim.organizationId }
   try {
     await validateClaimReferences(ctx, scope, {
+      customerId: state.claim.customerId,
       lineOrderRefs: [{ orderLineId: before.orderLineId, orderId: state.claim.orderId ?? null }],
     })
     if (before.lineStatus === 'rejected') return
@@ -710,6 +711,7 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
         assertParentMutable(claim)
         if (input.orderLineId) {
           await validateClaimReferences(ctx, scope, {
+            customerId: claim.customerId,
             lineOrderRefs: [{ orderLineId: input.orderLineId, orderId: claim.orderId ?? null }],
           })
         }
@@ -802,8 +804,9 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
         await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
         assertParentMutable(claim)
         if (input.lineNo !== undefined) await assertClaimLineNumberAvailable(em, claim, input.lineNo, line.id)
-        if (effectiveOrderLineId && (claim.orderId || effectiveOrderLineId !== (line.orderLineId ?? null))) {
+        if (effectiveOrderLineId && (claim.orderId || claim.customerId || effectiveOrderLineId !== (line.orderLineId ?? null))) {
           await validateClaimReferences(ctx, scope, {
+            customerId: claim.customerId,
             lineOrderRefs: [{
               orderLineId: effectiveOrderLineId,
               orderId: claim.orderId ?? null,

@@ -367,6 +367,7 @@ Playwright API-first specs in `packages/core/src/modules/warranty_claims/__integ
 | TC-WC-032 | Return window: setting round-trips; out-of-window returns flagged without blocking |
 | TC-WC-033 | Replacement-order bridge: unauthenticated rejected; zero-priced replacement order created from `replace`-disposition lines, duplicates blocked; ineligible statuses and no-`replace`-line claims rejected |
 | TC-WC-034 | Credit-memo bridge: unauthenticated rejected; receipt-capped, discount-aware memo at a 23% tax rate, duplicates blocked; restocking fees deducted, receipt evidence and status gates enforced, manual links validated |
+| TC-WC-038 | Order-reference integrity: claim and line create/update reject another customer's order lines even without a header order; rejected writes preserve complete records, lines and events; matching linkage and explicit detachment remain supported |
 | TC-WC-040 | Replacement-order undo after stock approval initialization, redo with the original body version, and translated refusal after a user edits the order |
 
 Unit coverage (`__tests__/`) pins the transition matrix, line rollups, number generation, command undo snapshots, `status`/`claimType` immutability, type-config resolution, grade→disposition gating, entitlement precedence, vendor-policy matching and auto-recovery idempotency, adjudication fallback, business-hours math and pause preservation, return-label `notConfigured`, enricher batch shape, decision-tree traversal, quantity gates, return-window math, the tracking subscriber (multi-match skip, absent table, infrastructure rethrow), and all three bridges (guards, header scrubbing, lost-race compensation, double-failure orphan precedence, the four undo branches, and the full credit amount contract).
@@ -558,3 +559,9 @@ Number allocation, explicit renumbering, and line undo validation serialize on t
 - Handler regression coverage in `portal-attachment-upload-limit.test.ts` checks both write methods, early rejection without reading the body or replacing existing storage, and isolation across tenant/principal keys. `TC-WC-6323-upload-throttle.spec.ts` exercises real shared POST/PUT buckets, 429 Retry-After, and independent customer buckets.
 
 The throttle integration case runs with real counters when the isolated runner receives `OM_TEST_RATE_LIMIT_MODE=enabled`; its normal integration-mode branch also checks the existing disabled-counter policy. The opt-in requires `OM_TEST_MODE=1` and never changes production configuration.
+
+### 2026-11-08 — Imported order-line customer integrity
+
+- Validate parent-order customer ownership on claim and line writes even without a header order; rejected writes preserve the aggregate.
+- Clear imported references on customer/order changes while preserving manual-line fields and the documented missing-reference edit path.
+- Extend TC-WC-038 to cover all four claim/line create/update boundaries and add customer-observer and historical-reference regressions.

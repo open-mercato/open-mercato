@@ -35,10 +35,8 @@ import {
   computeEntitlementPreview,
   type ClaimProductPick,
 } from '../../components/productLookup'
-import {
-  loadOrderOptions as loadOrderOptionsShared,
-  resolveOrderLabel,
-} from '../../components/orderLookup'
+import { CustomerOrderPicker } from '../../components/CustomerOrderPicker'
+import { ClaimCustomerSelectionObserver } from '../../components/ClaimCustomerSelectionObserver'
 import { EntitlementLookupBadge } from '../../components/EntitlementLookupBadge'
 import { TroubleshootingWalker, type TroubleshootingWalkerGuide } from '../../components/TroubleshootingWalker'
 import { resolveClaimTypeUiConfig } from '../../../lib/claimTypeConfig'
@@ -481,20 +479,6 @@ function normalizeLinePayload(line: ClaimCreateLineValues): Record<string, unkno
   const warrantyMonths = parseWarrantyMonths(line.warrantyMonths)
   if (warrantyMonths !== null) payload.warrantyMonths = warrantyMonths
   return payload
-}
-
-function CustomerSelectionObserver({
-  value,
-  onChange,
-}: {
-  value: unknown
-  onChange: (customerId: string | null) => void
-}) {
-  const customerId = nullableText(value)
-  React.useEffect(() => {
-    onChange(customerId)
-  }, [customerId, onChange])
-  return null
 }
 
 function ClaimTypeSelectionObserver({
@@ -1176,7 +1160,6 @@ export default function CreateWarrantyClaimPage() {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [selectedCustomerId, setSelectedCustomerId] = React.useState<string | null>(null)
   const [selectedClaimType, setSelectedClaimType] = React.useState<string | null>(() => normalizeClaimType(searchParams.get('claimType')))
   const [selectedReasonCode, setSelectedReasonCode] = React.useState<string | null>(null)
   const [orderAccessDenied, setOrderAccessDenied] = React.useState(false)
@@ -1225,14 +1208,6 @@ export default function CreateWarrantyClaimPage() {
     ]
     return items.map((item) => normalizeOption(item, t)).filter((option): option is CrudFieldOption => option !== null)
   }, [t])
-
-  const loadOrderOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
-    return loadOrderOptionsShared(query, {
-      customerId: selectedCustomerId,
-      onAccessChange: setOrderAccessDenied,
-      fallbackLabel: t('warranty_claims.form.orderUnavailable', 'Order unavailable'),
-    })
-  }, [selectedCustomerId, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -1332,14 +1307,27 @@ export default function CreateWarrantyClaimPage() {
     {
       id: 'orderId',
       label: t('warranty_claims.form.orderId'),
-      type: 'combobox',
+      type: 'custom',
       layout: 'half',
-      loadOptions: loadOrderOptions,
-      allowCustomValues: false,
-      placeholder: t('warranty_claims.form.orderId.placeholder'),
+      component: ({ value, values, setValue, setFormValue, disabled, autoFocus }) => (
+        <CustomerOrderPicker
+          customerId={nullableText(values?.customerId)}
+          value={nullableText(value) ?? ''}
+          onChange={(orderId) => {
+            setValue(orderId)
+            if (orderId !== (nullableText(values?.orderId) ?? '')) {
+              const lines = Array.isArray(values?.lines) ? values.lines as ClaimCreateLineValues[] : []
+              setFormValue?.('lines', lines.filter((line) => !line.orderLineId))
+            }
+          }}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          placeholder={t('warranty_claims.form.orderId.placeholder')}
+          fallbackLabel={t('warranty_claims.form.orderUnavailable', 'Order unavailable')}
+          onAccessChange={setOrderAccessDenied}
+        />
+      ),
       description: orderAccessDenied ? t('warranty_claims.form.orderId.noAccess') : undefined,
-      seedOptions: [],
-      resolveLabel: (value: string) => resolveOrderLabel(value, t('warranty_claims.form.orderUnavailable', 'Order unavailable')),
     },
     {
       id: 'notes',
@@ -1355,7 +1343,7 @@ export default function CreateWarrantyClaimPage() {
       rows: 3,
       layout: 'full',
     },
-  ], [loadCustomerOptions, loadDictionaryOptions, loadOrderOptions, orderAccessDenied, resolveOrderLabel, t])
+  ], [loadCustomerOptions, loadDictionaryOptions, orderAccessDenied, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
@@ -1365,11 +1353,11 @@ export default function CreateWarrantyClaimPage() {
       // Render order lives here, not in the field definitions. Keep the three
       // thirds adjacent and the two halves adjacent so each grid row fills.
       fields: ['claimType', 'priority', 'customerId', 'orderId', 'reasonCode', 'notes', 'resolutionSummary'],
-      component: ({ values }) => (
+      component: ({ values, setValue }) => (
         <>
-          <CustomerSelectionObserver value={values.customerId} onChange={setSelectedCustomerId} />
           <ClaimTypeSelectionObserver value={values.claimType} onChange={setSelectedClaimType} />
           <ReasonCodeSelectionObserver value={values.reasonCode} onChange={setSelectedReasonCode} />
+          <ClaimCustomerSelectionObserver customerId={nullableText(values.customerId)} lines={Array.isArray(values.lines) ? values.lines : []} onChange={(lines) => setValue('lines', lines)} />
         </>
       ),
     },
