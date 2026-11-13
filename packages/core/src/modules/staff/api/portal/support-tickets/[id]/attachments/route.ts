@@ -220,7 +220,7 @@ export async function POST(req: Request) {
         throw error
       }
       await guarded.runAfterSuccess()
-      emitSupportAttachmentActivity(owned.task, owned.ticket, 'attachment_added', attachment.id)
+      await emitSupportAttachmentActivity(owned.task, owned.ticket, 'attachment_added', attachment.id)
       return NextResponse.json({ ok: true, item: serializePortalAttachment(api, attachment, owned.task.id, scope.auth.sub, true) }, { status: 201 })
     })
   } catch (err) {
@@ -285,7 +285,7 @@ export async function DELETE(req: Request) {
         getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_side_effects_failed' })
       }
       await guarded.runAfterSuccess()
-      emitSupportAttachmentActivity(owned.task, owned.ticket, 'attachment_removed', attachmentId)
+      await emitSupportAttachmentActivity(owned.task, owned.ticket, 'attachment_removed', attachmentId)
       return NextResponse.json({ ok: true })
     })
   } catch (err) {
