@@ -380,9 +380,6 @@ export function CalendarEventEditor({
   const { items: catalogItems, status: catalogStatus, retry: retryCatalog } = catalog
   const [selectedTypeKey, setSelectedTypeKey] = React.useState(() => isEdit && item ? item.interactionType : 'meeting')
   const catalogDisplayable = catalog.status === 'ready' || catalog.status === 'stale'
-  const autoSelectedCreateType = !isEdit && catalogDisplayable && !isSelectableEventType(catalog.items, 'meeting')
-    ? catalog.items.find((entry) => entry.selectable && !entry.historical) ?? null
-    : null
 
   // CrudForm reads initialValues once, so every dialog open gets a fresh form
   // instance keyed by the open sequence + edited record.
@@ -392,6 +389,27 @@ export function CalendarEventEditor({
     if (open && !wasOpenRef.current) setOpenSeq((seq) => seq + 1)
     wasOpenRef.current = open
   }, [open])
+
+  // The type a new event starts with is decided once per dialog opening, from the first
+  // catalog that opening can display. The catalog revalidates in the background while the
+  // form is editable: deriving the fallback from every refresh would change the form key,
+  // remount the keyed CrudForm and drop the draft. A type the refresh made unavailable is
+  // handled in place instead, by the disabled save and the type picker.
+  const createTypePinKey = `${mode}:${openSeq}`
+  const [pinnedCreateType, setPinnedCreateType] = React.useState<{
+    pinKey: string
+    type: ScopedCalendarEventType | null
+  } | null>(null)
+  const createTypePinned = pinnedCreateType?.pinKey === createTypePinKey
+  const createTypeForThisOpening = createTypePinned
+    ? pinnedCreateType.type
+    : !isEdit && catalogDisplayable && !isSelectableEventType(catalogItems, 'meeting')
+      ? catalogItems.find((entry) => entry.selectable && !entry.historical) ?? null
+      : null
+  if (!isEdit && catalogDisplayable && !createTypePinned) {
+    setPinnedCreateType({ pinKey: createTypePinKey, type: createTypeForThisOpening })
+  }
+  const autoSelectedCreateType = isEdit ? null : createTypeForThisOpening
   const formKey = `${mode}:${item?.id ?? 'new'}:${openSeq}:${autoSelectedCreateType?.key ?? 'default'}`
   const labelScopeKey = JSON.stringify([formKey, activeOrgId, item?.entityId, item?.dealId, item?.ownerUserId])
   const [resolvedLabels, setResolvedLabels] = React.useState<{

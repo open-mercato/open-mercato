@@ -148,3 +148,57 @@ describe('CalendarEventEditor when a refresh of confirmed data is rejected', () 
     expect(formMountMock).not.toHaveBeenCalled()
   })
 })
+
+describe('CalendarEventEditor when a refresh changes the type the draft was opened with', () => {
+  const offMeeting = { ...baseType, selectable: false }
+  const visit = { ...baseType, key: 'visit', label: 'Visit' }
+  const call = { ...baseType, key: 'call', label: 'Call' }
+  const callOption = () => screen.getByRole('button', { name: 'Call', exact: true })
+
+  beforeEach(() => {
+    clearEventTypeCatalogCache()
+    clearCalendarCustomFieldsCache()
+    clearScopeCookies()
+    writeScopeCookies(orgA)
+    formMountMock.mockClear()
+    readCatalogMock.mockReset()
+    readDefinitionsMock.mockReset()
+    readDefinitionsMock.mockResolvedValue(definitions)
+  })
+
+  it.each([
+    {
+      name: 'the auto-selected fallback is disabled',
+      before: { items: [offMeeting, visit, call] },
+      after: { items: [offMeeting, { ...visit, selectable: false }, call] },
+    },
+    {
+      name: 'the default type is disabled',
+      before: { items: [baseType, visit, call] },
+      after: { items: [offMeeting, visit, call] },
+    },
+  ])('keeps the typed draft mounted when $name by a delayed successful refresh', async ({ before, after }) => {
+    readCatalogMock.mockResolvedValue(before)
+    const view = renderWithProviders(editor(true))
+    await waitFor(() => expect(saveButton()).not.toBeDisabled())
+    view.rerender(editor(false))
+    await act(async () => {})
+
+    const pending = queueReads(readCatalogMock)
+    view.rerender(editor(true))
+    await waitFor(() => expect(saveButton()).not.toBeDisabled())
+    fireEvent.change(titleInput(), { target: { value: 'Typed draft' } })
+    formMountMock.mockClear()
+
+    await act(async () => { pending.shift()?.resolve(after) })
+
+    expect(titleInput()).toHaveValue('Typed draft')
+    expect(formMountMock).not.toHaveBeenCalled()
+    expect(saveButton()).toBeDisabled()
+
+    fireEvent.click(callOption())
+    await waitFor(() => expect(saveButton()).not.toBeDisabled())
+    expect(titleInput()).toHaveValue('Typed draft')
+    expect(formMountMock).not.toHaveBeenCalled()
+  })
+})
