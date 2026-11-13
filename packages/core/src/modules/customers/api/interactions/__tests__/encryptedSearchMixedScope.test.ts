@@ -45,6 +45,21 @@ function fullRow(row: StoredRow) {
   }
 }
 
+// Candidate scans name their columns, so the fake returns exactly those: a projection that
+// drops a column the route later reads must show up as a missing value, not be papered over.
+function projectedColumns(sqlText: string): string[] | null {
+  const match = /^select (.+?) from "customer_interactions"/i.exec(sqlText)
+  if (!match) return null
+  const columns = match[1]!.split(',').map((part) => part.trim())
+  if (!columns.every((column) => /^"[a-z_]+"$/.test(column))) return null
+  return columns.map((column) => column.slice(1, -1))
+}
+
+function project(row: Record<string, unknown>, columns: string[] | null): Record<string, unknown> {
+  if (!columns) return row
+  return Object.fromEntries(columns.map((column) => [column, row[column] ?? null]))
+}
+
 function createKysely(): Kysely<any> {
   const db = new Kysely<any>({
     dialect: {
@@ -68,7 +83,7 @@ function createKysely(): Kysely<any> {
     return {
       rows: Array.from(storedRows.values())
         .filter((row) => needle === null || row.title.toLowerCase().includes(needle) || row.body.toLowerCase().includes(needle))
-        .map((row) => ({ id: row.id, organization_id: row.organizationId, title: row.title, body: row.body, scheduled_at: null, ...fullRow(row) })),
+        .map((row) => project({ scheduled_at: null, ...fullRow(row) }, projectedColumns(compiled.sql))),
     }
   }
   return db
@@ -125,6 +140,16 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import { GET } from '../route'
+
+type ListPayload = { items: Array<{ id: string }>; nextCursor?: string }
+
+async function listByTitle(extra = ''): Promise<ListPayload> {
+  const res = await GET(new Request(`http://localhost/api/customers/interactions?limit=2&sortField=title&sortDir=asc${extra}`))
+  expect(res.status).toBe(200)
+  return await res.json() as ListPayload
+}
+
+const candidateScans = () => recorded.filter((query) => projectedColumns(query.sql) !== null && !/"id" in/.test(query.sql))
 
 async function searchIds(term: string): Promise<string[]> {
   const res = await GET(new Request(`http://localhost/api/customers/interactions?search=${term}&limit=50&sortField=scheduledAt&sortDir=desc`))
@@ -190,5 +215,38 @@ describe('interactions list — search across organizations with different encry
     await searchIds('renewal')
 
     expect(ilikeQueries().length).toBeGreaterThan(0)
+  })
+
+  describe('sorting by a column only the child organization encrypts, without a search', () => {
+    beforeEach(() => {
+      storedRows.clear()
+      plaintextById.clear()
+      mockGetEncryptedFieldNames.mockImplementation(
+        async (_entityId, _tenantId, organizationId) => (organizationId === childOrgId ? ['title'] : []),
+      )
+      storePlaintextRow(1, 'Bravo')
+      storePlaintextRow(2, 'Delta')
+      storeEncryptedRow(3, 'Alpha')
+      storeEncryptedRow(4, 'Charlie')
+    })
+
+    test('keeps each candidate\'s organization in the projection so child titles sort by their plaintext', async () => {
+      const first = await listByTitle()
+
+      expect(first.items.map((item) => item.id)).toEqual([rowId(3), rowId(1)])
+      const [scan] = candidateScans()
+      expect(projectedColumns(scan!.sql)).toEqual(expect.arrayContaining(['id', 'organization_id', 'title']))
+      expect(scan!.sql).not.toMatch(/\bilike\b/i)
+    })
+
+    test('pages through the mixed scope in plaintext order', async () => {
+      const first = await listByTitle()
+      expect(first.nextCursor).toBeTruthy()
+
+      const second = await listByTitle(`&cursor=${encodeURIComponent(first.nextCursor as string)}`)
+
+      expect(second.items.map((item) => item.id)).toEqual([rowId(4), rowId(2)])
+      expect(second.nextCursor).toBeUndefined()
+    })
   })
 })
