@@ -28,9 +28,15 @@ The earlier `stabilize/main-2026-11-13` branch belongs to closed PR #9425. Prese
 
 All eight configured commands pass locally, including the full 51-task unit gate and production app build. Local runner prerequisites: short TMPDIR passed through Turbo, and user-local Info-ZIP unzip (no dependency or workflow changes).
 
-PR CI 43437843458 passes builds, full unit/script/guard checks, Docker, timezone, durability, and 13 completed integration shards. Shard 7 reveals TC-CRM-7495 failing after its narrow-screen tab navigation unmounts the dialog; the correct deal was returned by search. Trace call@93 opens the modal at 656.8s; the pending `?tab=deals` RSC navigation started at 656.7s completes after the search, and the modal disappears. TC-CRM-7497 also flakes at the same tab-to-dialog transition. Both footer tests now start at `?tab=deals`; their layout and selection assertions remain intact. Managed ephemeral filtered verification passed all five TC-CRM-749* cases without retries, including both repaired footer tests (4.6s / 4.9s). The original remote run settled with all 14 other shards passing. Fresh full-suite validation follows the repair push.
+PR CI 43437843458 passes builds, full unit/script/guard checks, Docker, timezone, durability, and 13 completed integration shards. Shard 7 reveals TC-CRM-7495 failing after its narrow-screen tab navigation unmounts the dialog; the correct deal was returned by search. Trace call@93 opens the modal at 656.8s; the pending `?tab=deals` RSC navigation started at 656.7s completes after the search, and the modal disappears. TC-CRM-7497 also flakes at the same tab-to-dialog transition. Both footer tests now start at `?tab=deals`; their layout and selection assertions remain intact. Managed ephemeral filtered verification passed all five TC-CRM-749* cases without retries, including both repaired footer tests (4.6s / 4.9s). The original remote run settled with all 14 other shards passing. The repaired head d1b0ffef38 passed full CI 43445668730, including all 15 shards and coverage aggregation: 31 reported checks succeeded and four non-applicable checks skipped. Both repaired footer cases passed first attempt in shard 7 (6.4s / 8.2s); that shard passed all 243 tests.
 
 Runner: local (no configured compose app running). Immutable install completed. Combobox unit/dialog suites: 45 tests passed. Existing ci-full selection regressions: 25 tests passed. No DS token, appearance, or public contract change.
+
+## Final review and publication
+
+Independent review: https://github.com/open-mercato/open-mercato/pull/9455#issuecomment-6856517956 — approve, no findings, reviewed d1b0ffef38. The reviewer explicitly accepts clerical plan-progress/evidence updates only after that SHA; source/test/config changes require new review. GitHub rejected a native approving review because the reviewer authenticates as the authoring App. The recorded independent verdict does not replace any eligible native approval required at merge.
+
+`automerge` was applied after the repaired head passed all reported checks, as explicitly requested. This task performs no merge. The draft and owned claim remain in place during the final full-suite recheck triggered by this clerical completion record; promote/release only after that final head is green.
 
 ## Risks
 Full suite may reveal additional failures after the compile blocker. UI changes require QA evidence and retain the QA merge gate. Remote CI is authoritative for runner-dependent checks. No production or base-branch mutations are authorized or planned. Local runner selection must follow the repository probe.
@@ -49,9 +55,9 @@ PR: #9455
 
 ### Phase 2: Validate and review
 
-- [ ] 2.1 Run configured validation and obtain green full-suite PR CI
-- [ ] 2.2 Complete final independent review and address findings
+- [x] 2.1 Run configured validation and obtain green full-suite PR CI — d1b0ffef38 (CI 43445668730: all 15 shards and coverage green; 31 successful checks, 4 non-applicable skips)
+- [x] 2.2 Complete final independent review and address findings — d1b0ffef38 (independent approval without findings: PR #9455 comment 6856517956)
 
 ### Phase 3: Publish outcome
 
-- [ ] 3.1 Publish evidence and enable guarded automerge after green CI
+- [x] 3.1 Publish evidence and enable guarded automerge after green CI — d1b0ffef38 (evidence published; operator-requested label applied only after green CI)
