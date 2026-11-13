@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { render, screen, fireEvent, within, act } from '@testing-library/react'
+import { render, screen, fireEvent, within, act, waitFor } from '@testing-library/react'
 import { NotificationPanel } from '../NotificationPanel'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
@@ -100,6 +100,37 @@ describe('NotificationPanel controls use shared primitives', () => {
     })
     expect(onMarkAllRead).toHaveBeenCalledTimes(1)
   })
+
+  it.each([new TypeError('Failed to fetch'), new Error('HTTP 500')])(
+    'shows localized retry feedback after %s and permits retry',
+    async (failure) => {
+      const errorMessage = 'Nie udało się oznaczyć powiadomień jako przeczytane. Spróbuj ponownie.'
+      const translate = ((key: string, fallback?: unknown) =>
+        key === 'notifications.error.markAllRead' ? errorMessage : t(key, fallback)) as TranslateFn
+      const onMarkAllRead = jest.fn().mockRejectedValueOnce(failure).mockResolvedValueOnce(undefined)
+      render(<NotificationPanel {...buildProps({
+        unreadCount: 1,
+        notifications: [buildNotification({ title: 'Still unread' })],
+        onMarkAllRead,
+        t: translate,
+      })} />)
+      fireEvent.click(screen.getByRole('tab', { name: /Unread/i }))
+      const button = screen.getByRole('button', { name: /Mark all read/i })
+
+      fireEvent.click(button)
+      expect(button).toBeDisabled()
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(errorMessage)
+      expect(button).toBeEnabled()
+      expect(screen.getByText('Still unread')).toBeVisible()
+      expect(within(screen.getByRole('tab', { name: /Unread/i })).getByText('1')).toBeVisible()
+
+      fireEvent.click(button)
+      await waitFor(() => expect(button).toBeEnabled())
+      expect(onMarkAllRead).toHaveBeenCalledTimes(2)
+      expect(screen.queryByRole('alert')).toBeNull()
+    },
+  )
 
   it('hides Mark all read when there are no unread notifications', () => {
     render(<NotificationPanel {...buildProps({ unreadCount: 0 })} />)

@@ -17,6 +17,7 @@
   "notifications.error.actionCommandNotAllowed": "Über die API erstellte Benachrichtigungsaktionen dürfen keine Befehle ausführen",
   "notifications.error.actionForbidden": "Sie dürfen diese Benachrichtigungsaktion nicht ausführen",
   "notifications.error.load": "Benachrichtigungen konnten nicht geladen werden",
+  "notifications.error.markAllRead": "Benachrichtigungen konnten nicht als gelesen markiert werden. Bitte versuchen Sie es erneut.",
   "notifications.filters.actionRequired": "Aktion erforderlich",
   "notifications.filters.all": "Alle",
   "notifications.filters.unread": "Ungelesen",
