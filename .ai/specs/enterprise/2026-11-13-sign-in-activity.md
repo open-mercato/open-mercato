@@ -33,6 +33,13 @@ The command side already exposes request metadata through `CommandInterceptorCon
 | Q11 | Record the `requiredRoles` 403 and rate-limited 429 responses? | 403: yes — `login.ts` emits `auth.login.failed` with a new reason `role_denied` (password was correct, area not allowed). 429: no — throttled requests emit nothing, by design, so a flood cannot amplify into DB writes. | `role_denied` is an additive reason value on an existing event; 429 logging would turn the rate limiter into a write amplifier. | reversible |
 | Q12 | How do MFA-protected sign-ins look? | Success rows carry `mfa_status`: `not_required` when the user has no active MFA method, otherwise `pending`; a subscriber on the existing `security.mfa.verified` event flips the user's latest `pending` row (within 15 minutes) to `verified`. The new-device notification still fires on password success. | The MFA interceptor runs after the route (`security/api/interceptors.ts`), so the success event precedes MFA. A correct password from an unknown device is exactly what the user should hear about. | reversible |
 
+## 📝 User Stories
+
+- **US-A1** — As a security administrator, I want to list sign-in attempts in my tenant filtered by user, result, date range and IP, so I can investigate suspicious access. AC: default view = last 7 days, newest first; failed rows show an error badge and translated reason; empty and no-results states with a "Clear filters" action; users without `security.sign_ins.view` see no menu entry and get 403 from the API; organization-restricted admins see only their organizations.
+- **US-A2** — As a security administrator, I want to open one attempt in a drawer, so I can see the raw user agent, MFA state, previous successful sign-in and jump to the user's security page. AC: Escape closes; the link is hidden for unknown users; an out-of-scope id shows the not-found state.
+- **US-U1** — As a signed-in user, I want a "Recent sign-ins" section on my security profile, so I can spot sign-ins I did not make. AC: last 10 attempts in 30 days; failures and "New device" are visible; empty state for first sign-in; the hint links to change password and MFA settings.
+- **US-U2** — As a user, I want an in-app notification when my password is used from a new device, so I can react quickly. AC: not on the very first sign-in; at most one per device; "Review" opens my security profile; no email is sent.
+
 ## 📝 Proposed Solution
 
 1. **OSS seam (core `auth`)** — `login.ts` computes `ip` once per request and reads `user-agent` (truncated to 512 chars), then passes them, plus an `occurredAt` ISO timestamp, on every `auth.login.success` and `auth.login.failed` emission. Failed emissions also carry `userId`, `tenantId`, `organizationId` when a user resolved. All new fields are optional and nullable. No response, status code, timing or rate-limit change.
@@ -196,7 +203,7 @@ Same guard and scoping; 404 when out of scope. Returns one `SignInAttemptDto` pl
 
 ## 📝 UI/UX
 
-Proposed-UI mockups (illustrative, low-fi, clickable): [`assets/sign-in-activity/index.html`](assets/sign-in-activity/index.html).
+Proposed-UI prototype (illustrative, low-fi, clickable; a proposal, not accepted): [`.ai/prototypes/sign-in-activity/index.html`](../../prototypes/sign-in-activity/index.html). Screenshots: [`assets/sign-in-activity/`](assets/sign-in-activity/).
 
 ### Admin — Security › Sign-in activity (`/backend/security/sign-ins`)
 
