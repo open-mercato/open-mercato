@@ -46,6 +46,8 @@ for (const locale of ['en', 'pl'] as const) {
         for (const label of CALL_CHIP_LABELS[locale]) {
           const chip = entry.getByRole('button', { name: label, exact: true })
           await expect(chip).toBeVisible()
+          await chip.scrollIntoViewIfNeeded()
+          await expect(chip).toBeInViewport()
           const box = await chip.boundingBox()
           expect(box, `${label} chip has no layout box`).not.toBeNull()
           expect(box!.x, `${label} chip starts outside the viewport`).toBeGreaterThanOrEqual(0)
@@ -69,7 +71,9 @@ for (const locale of ['en', 'pl'] as const) {
         await page.screenshot({ path: test.info().outputPath(`${locale}-${kind}-timeline-ai-chips-390.png`), fullPage: true })
         await page.setViewportSize({ width: 1440, height: 1000 })
         for (const label of CALL_CHIP_LABELS[locale]) {
-          await expect(entry.getByRole('button', { name: label, exact: true })).toBeInViewport()
+          const chip = entry.getByRole('button', { name: label, exact: true })
+          await chip.scrollIntoViewIfNeeded()
+          await expect(chip).toBeInViewport()
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1440)
         await page.screenshot({ path: test.info().outputPath(`${locale}-${kind}-timeline-ai-chips-desktop.png`), fullPage: true })
