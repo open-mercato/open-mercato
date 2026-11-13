@@ -150,7 +150,7 @@ export async function GET(req: Request) {
         eventType: event.eventType,
         reason: event.reason ?? null,
         actorUserId: event.actorUserId ?? null,
-        metadata: event.metadata ?? null,
+        metadata: canSeeMoney ? event.metadata ?? null : publicHistoryMetadata(event.metadata),
         createdAt: event.createdAt ? event.createdAt.toISOString() : null,
       })),
     })
@@ -165,6 +165,26 @@ export async function GET(req: Request) {
       { status: 500 },
     )
   }
+}
+
+const historyMetadataSchema = z.object({
+  frozenEntryCount: z.number().optional(),
+  lockedEntryCount: z.number().optional(),
+  unlockedEntryCount: z.number().optional(),
+  transferredLockCount: z.number().optional(),
+  frozenBillableMinutes: z.number().optional(),
+  frozenNonbillableMinutes: z.number().optional(),
+  roundingUnitMinutes: z.number().optional(),
+  roundingDirection: z.string().optional(),
+  format: z.string().optional(),
+  grouping: z.string().optional(),
+  rowCount: z.number().optional(),
+})
+
+function publicHistoryMetadata(metadata: Record<string, unknown> | null | undefined) {
+  if (metadata == null) return null
+  const parsed = historyMetadataSchema.safeParse(metadata)
+  return parsed.success ? parsed.data : {}
 }
 
 type SheetGroups = Awaited<ReturnType<typeof buildReportSheet>>['totals']['groups']

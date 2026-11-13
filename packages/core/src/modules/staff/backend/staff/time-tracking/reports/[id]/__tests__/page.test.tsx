@@ -214,3 +214,14 @@ describe('report detail — locked entries table', () => {
     expect(screen.queryByText('Locked entries')).not.toBeInTheDocument()
   })
 })
+
+it('provides a focusable, named scroll region around the closed report table', async () => {
+  renderPage({ status: 'closed', features: UNLOCK_FEATURES, search: '' })
+  const region = await screen.findByRole('region', { name: 'Locked entries' })
+  expect(region).toHaveAttribute('tabindex', '0')
+  expect(region).toHaveClass('overflow-x-auto', 'max-w-full')
+  expect(region.parentElement).toHaveClass('min-w-0', 'overflow-hidden')
+  expect(region.querySelector('table')).toBeInTheDocument()
+  region.focus()
+  expect(region).toHaveFocus()
+})
