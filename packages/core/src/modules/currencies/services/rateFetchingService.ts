@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/core'
-import type { ProviderSelectionMode, RateProvider, RateProviderResult, RateType } from './providers/base'
+import { RateProviderError, type ProviderSelectionMode, type RateProvider, type RateProviderResult, type RateType } from './providers/base'
 import { Currency, ExchangeRate } from '../data/entities'
 
 export interface FetchResult {
@@ -8,10 +8,19 @@ export interface FetchResult {
   errors: string[]
 }
 
+export type FetchErrorTranslator = (
+  key: string,
+  fallback?: string,
+  params?: Record<string, string | number>
+) => string
+
 export interface FetchOptions {
   providers?: string[]
   forceUpdate?: boolean
+  translate?: FetchErrorTranslator
 }
+
+const fallbackTranslate: FetchErrorTranslator = (_key, fallback) => fallback ?? _key
 
 type ProviderFetchOutcome =
   | { kind: 'skipped'; providerSource: string; error: string }
@@ -60,6 +69,8 @@ export class RateFetchingService {
       errors: [],
     }
 
+    const translate = options.translate ?? fallbackTranslate
+
     // Get existing currencies for validation
     const existingCurrencies = await this.getExistingCurrencies(scope)
     const currencyCodeSet = new Set(existingCurrencies.map((c) => c.code))
@@ -75,7 +86,7 @@ export class RateFetchingService {
     // single failure never rejects the batch.
     const outcomes = await Promise.all(
       providerList.map((providerSource) =>
-        this.fetchFromProvider(providerSource, date, scope, currencyCodeSet)
+        this.fetchFromProvider(providerSource, date, scope, currencyCodeSet, translate)
       )
     )
 
@@ -112,16 +123,33 @@ export class RateFetchingService {
     providerSource: string,
     date: Date,
     scope: { tenantId: string; organizationId: string },
-    currencyCodeSet: Set<string>
+    currencyCodeSet: Set<string>,
+    translate: FetchErrorTranslator
   ): Promise<ProviderFetchOutcome> {
     const provider = this.providers.get(providerSource)
 
     if (!provider) {
-      return { kind: 'skipped', providerSource, error: `Unknown provider: ${providerSource}` }
+      return {
+        kind: 'skipped',
+        providerSource,
+        error: translate(
+          'currencies.fetch.error_unknown_provider',
+          `Unknown provider: ${providerSource}`,
+          { provider: providerSource }
+        ),
+      }
     }
 
     if (!provider.isAvailable()) {
-      return { kind: 'skipped', providerSource, error: `Provider not available: ${providerSource}` }
+      return {
+        kind: 'skipped',
+        providerSource,
+        error: translate(
+          'currencies.fetch.error_provider_unavailable',
+          `Provider not available: ${providerSource}`,
+          { provider: providerSource }
+        ),
+      }
     }
 
     try {
@@ -136,6 +164,13 @@ export class RateFetchingService {
 
       return { kind: 'fetched', providerSource, rates: validRates }
     } catch (err) {
+      if (err instanceof RateProviderError) {
+        return {
+          kind: 'failed',
+          providerSource,
+          error: translate(err.i18nKey, err.message, err.i18nParams),
+        }
+      }
       const message = err instanceof Error ? err.message : String(err)
       return { kind: 'failed', providerSource, error: message }
     }
@@ -160,10 +195,10 @@ export class RateFetchingService {
       const previousReference = previous.externalReference ?? null
       const reference = rate.externalReference ?? null
       if (previousType !== type) {
-        throw new Error(`Conflicting rate types for duplicate exchange rate key: ${key}`)
+        throw new Error(`[internal] Conflicting rate types for duplicate exchange rate key: ${key}`)
       }
       if (previous.rate !== rate.rate || previousReference !== reference) {
-        throw new Error(`Conflicting rates for duplicate exchange rate key: ${key}`)
+        throw new Error(`[internal] Conflicting rates for duplicate exchange rate key: ${key}`)
       }
     }
     return Array.from(deduplicated.values())

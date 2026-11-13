@@ -5,6 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { RateFetchingService } from '../../services/rateFetchingService'
 import { CurrencyFetchConfig } from '../../data/entities'
@@ -15,12 +16,18 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['currencies.fetch.manage'] },
 }
 
+// The request contract stays permissive for a bridge release: date-only strings,
+// an empty `providers` list (default-provider selection) and unknown properties
+// were all accepted before the explicit-only provider was introduced. Unknown
+// keys are stripped rather than rejected; a later release can tighten this.
 const fetchRatesRequestSchema = z.object({
-  date: z.string().datetime().optional(),
-  providers: z.array(z.string().trim().min(1).max(50)).min(1).max(20)
+  date: z.string().trim().min(1)
+    .refine((value) => Number.isFinite(new Date(value).getTime()), 'Date must be a valid date')
+    .optional(),
+  providers: z.array(z.string().trim().min(1).max(50)).max(20)
     .refine((providers) => new Set(providers).size === providers.length, 'Providers must be unique')
     .optional(),
-}).strict()
+})
 const fetchRatesGuardedRequestSchema = fetchRatesRequestSchema.strip()
 
 type FetchRatesRequest = z.infer<typeof fetchRatesRequestSchema>
@@ -31,15 +38,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { translate } = await resolveTranslations()
+  const invalidRequest = () => NextResponse.json(
+    { error: translate('currencies.fetch.error_invalid_request', 'Invalid fetch-rates request') },
+    { status: 400 }
+  )
+
   let body: unknown
   try {
     body = await req.json()
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    return invalidRequest()
   }
   const parsed = fetchRatesRequestSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid fetch-rates request' }, { status: 400 })
+    return invalidRequest()
   }
 
   const container = await createRequestContainer()
@@ -66,12 +79,12 @@ export async function POST(req: NextRequest) {
       ? fetchRatesGuardedRequestSchema.safeParse({ ...parsed.data, ...guardResult.modifiedPayload })
       : { success: true as const, data: parsed.data }
     if (!guardedInput.success) {
-      return NextResponse.json({ error: 'Invalid fetch-rates request' }, { status: 400 })
+      return invalidRequest()
     }
     const input: FetchRatesRequest = guardedInput.data
     const fetchDate = input.date ? new Date(input.date) : new Date()
     if (!Number.isFinite(fetchDate.getTime())) {
-      return NextResponse.json({ error: 'Invalid fetch-rates request' }, { status: 400 })
+      return invalidRequest()
     }
 
     const em = container.resolve<EntityManager>('em')
@@ -80,7 +93,10 @@ export async function POST(req: NextRequest) {
     const result = await fetchService.fetchRatesForDate(
       fetchDate,
       { tenantId: auth.tenantId, organizationId: auth.orgId },
-      input.providers ? { providers: input.providers } : {},
+      {
+        ...(input.providers && input.providers.length > 0 ? { providers: input.providers } : {}),
+        translate,
+      },
     )
 
     const providerSources = input.providers?.length
@@ -119,12 +135,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result)
   } catch (err) {
     logger.error('Fetch rates request failed', { err })
+    const failureMessage = translate(
+      'currencies.fetch.error_fetch_rates',
+      'Failed to fetch currency rates'
+    )
     return NextResponse.json(
       {
-        error: 'Failed to fetch currency rates',
+        error: failureMessage,
         totalFetched: 0,
         byProvider: {},
-        errors: ['Failed to fetch currency rates'],
+        errors: [failureMessage],
       },
       { status: 500 }
     )

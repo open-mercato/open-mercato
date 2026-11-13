@@ -4,6 +4,17 @@ export type { RateType } from '../../data/validators'
 
 export type ProviderSelectionMode = 'default' | 'explicit'
 
+export class RateProviderError extends Error {
+  constructor(
+    readonly i18nKey: string,
+    message: string,
+    readonly i18nParams?: Record<string, string | number>,
+  ) {
+    super(message)
+    this.name = 'RateProviderError'
+  }
+}
+
 export interface RateProviderResult {
   fromCurrencyCode: string
   toCurrencyCode: string

@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals'
 import { RateFetchingService } from '../rateFetchingService'
+import { RateProviderError } from '../providers/base'
 import {
   createMockEntityManager,
   createMockProvider,
@@ -115,5 +116,57 @@ describe('RateFetchingService explicit provider selection', () => {
     expect(result.totalFetched).toBe(0)
     expect(result.byProvider.duplicate.errors?.[0]).toContain('Conflicting rates')
     expect(em.transactional).not.toHaveBeenCalled()
+  })
+
+  it('localizes provider errors through the supplied translator', async () => {
+    const { em } = createMockEntityManager({
+      currencies: [createTestCurrency({ code: 'USD' }), createTestCurrency({ code: 'PLN' })],
+    })
+    const service = new RateFetchingService(em)
+    service.registerProvider(createMockProvider({
+      source: 'nbp_average',
+      selectionMode: 'explicit',
+      error: new RateProviderError(
+        'currencies.fetch.provider_error.table_request_failed',
+        'NBP table A request failed with status 503',
+        { table: 'A', status: 503 },
+      ),
+    }))
+    const translate = (key: string) => `translated:${key}`
+
+    const result = await service.fetchRatesForDate(TEST_DATE, TEST_SCOPE, {
+      providers: ['nbp_average'],
+      translate,
+    })
+
+    expect(result.errors).toEqual([
+      'nbp_average: translated:currencies.fetch.provider_error.table_request_failed',
+    ])
+    expect(result.byProvider.nbp_average).toEqual({
+      count: 0,
+      errors: ['translated:currencies.fetch.provider_error.table_request_failed'],
+    })
+  })
+
+  it('keeps the provider fallback message when no translator is supplied', async () => {
+    const { em } = createMockEntityManager({
+      currencies: [createTestCurrency({ code: 'USD' }), createTestCurrency({ code: 'PLN' })],
+    })
+    const service = new RateFetchingService(em)
+    service.registerProvider(createMockProvider({
+      source: 'nbp_average',
+      selectionMode: 'explicit',
+      error: new RateProviderError(
+        'currencies.fetch.provider_error.table_invalid_json',
+        'NBP table B returned invalid JSON',
+        { table: 'B' },
+      ),
+    }))
+
+    const result = await service.fetchRatesForDate(TEST_DATE, TEST_SCOPE, {
+      providers: ['nbp_average'],
+    })
+
+    expect(result.errors).toEqual(['nbp_average: NBP table B returned invalid JSON'])
   })
 })

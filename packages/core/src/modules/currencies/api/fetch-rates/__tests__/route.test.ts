@@ -35,6 +35,21 @@ jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
   runRouteMutationGuards: (...args: unknown[]) => runRouteMutationGuards(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    locale: 'en',
+    dict: {},
+    t: (key: string, fallback?: string) => fallback ?? key,
+    translate: (key: string, fallback?: string, params?: Record<string, string | number>) => {
+      const template = fallback ?? key
+      if (!params) return template
+      return template.replace(/\{\{(\w+)\}\}/g, (match, name) =>
+        params[name] === undefined ? match : String(params[name])
+      )
+    },
+  })),
+}))
+
 jest.mock('@open-mercato/core/modules/currencies/data/entities', () => ({
   CurrencyFetchConfig: class CurrencyFetchConfig {},
 }))
@@ -100,8 +115,54 @@ describe('POST /api/currencies/fetch-rates', () => {
     expect(fetchRatesForDate).toHaveBeenCalledWith(
       new Date('2026-08-24T00:00:00.000Z'),
       { tenantId, organizationId: orgId },
-      { providers: ['nbp_average'] },
+      { providers: ['nbp_average'], translate: expect.any(Function) },
     )
+  })
+
+  it('keeps accepting a date-only legacy date during the bridge release', async () => {
+    const response = await POST(request({ date: '2026-08-24' }) as never)
+
+    expect(response.status).toBe(200)
+    expect(fetchRatesForDate).toHaveBeenCalledWith(
+      new Date('2026-08-24'),
+      { tenantId, organizationId: orgId },
+      { translate: expect.any(Function) },
+    )
+  })
+
+  it('treats an empty provider list as the legacy default selection', async () => {
+    const response = await POST(request({ providers: [] }) as never)
+
+    expect(response.status).toBe(200)
+    expect(fetchRatesForDate).toHaveBeenCalledWith(
+      expect.any(Date),
+      { tenantId, organizationId: orgId },
+      { translate: expect.any(Function) },
+    )
+  })
+
+  it('strips unknown request properties instead of rejecting them', async () => {
+    const response = await POST(request({
+      providers: ['nbp_average'],
+      legacyFlag: true,
+    }) as never)
+
+    expect(response.status).toBe(200)
+    expect(runRouteMutationGuards).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({
+          mutationPayload: { providers: ['nbp_average'] },
+        }),
+      }),
+    )
+  })
+
+  it('rejects an unparseable date with a localized message', async () => {
+    const response = await POST(request({ date: 'not-a-date' }) as never)
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid fetch-rates request' })
+    expect(fetchRatesForDate).not.toHaveBeenCalled()
   })
 
   it('uses the mutation guard payload after it changes the selected provider', async () => {
@@ -117,7 +178,7 @@ describe('POST /api/currencies/fetch-rates', () => {
     expect(fetchRatesForDate).toHaveBeenCalledWith(
       expect.any(Date),
       { tenantId, organizationId: orgId },
-      { providers: ['nbp_average'] },
+      { providers: ['nbp_average'], translate: expect.any(Function) },
     )
   })
 

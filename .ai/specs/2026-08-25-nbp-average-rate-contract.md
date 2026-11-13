@@ -594,7 +594,7 @@ The type select gains Average through the shared form helper. `externalReference
 | Existing unfiltered lookups | Continue to return default-provider and manual/historical rates; registered explicit sources are excluded. |
 | Existing default fetch | Continues to fetch default providers only; new provider does not add network traffic. |
 | REST responses | Additive nullable property and additive enum member. |
-| REST writes | Existing payloads valid; no required field added. |
+| REST writes | Existing payloads valid; no required field added. `POST /api/currencies/fetch-rates` keeps the legacy date-only, empty-provider-list and unknown-property shapes during a bridge release, with strictness planned for a later release. |
 | Database | Nullable additive column; existing rows valid. |
 | Standalone apps | Receive capability in a future `@open-mercato/core` release; no eject required. |
 
@@ -749,9 +749,13 @@ Acceptance path:
 1. Sign in with currencies fetch/rates permissions.
 2. Open Fetching configuration and verify separate NBP table-C and NBP average A/B cards.
 3. Enable `nbp_average` and verify config persistence.
-4. Exercise an explicit service/API fetch using a mocked provider response or seeded test provider.
+4. Exercise an explicit service/API fetch using a mocked provider response or seeded test provider; the provider -> persistence write path (including `externalReference`) is pinned by unit coverage because the HTTP boundary would call the live NBP service.
 5. Open Exchange rates, filter type Average, and verify pair, source `nbp_average`, and publication reference.
 6. Verify another organization cannot read the row.
+7. Verify a caller without `currencies.fetch.manage` is denied before any provider runs.
+8. Verify the bridge request shapes (date-only `date`, empty `providers`, unknown properties) are still accepted and that `exchange_rates.external_reference` exists as a nullable text column.
+
+Reachability note: no shipped HTTP consumer performs a default-provider rate lookup, so the explicit/default exclusion at the consuming boundary is exercised by the `ExchangeRateService` unit tests rather than an integration request.
 
 Capture screenshots of the provider cards and the filtered exchange-rate list as QA artifacts.
 
@@ -963,6 +967,16 @@ None identified. The provider-ingestion command exception is an existing interna
 - **Verdict**: Approved
 
 ### 2026-08-25 (skeleton)
+
+### Repair — 2026-11-13
+
+- Restored the `POST /api/currencies/fetch-rates` bridge contract: date-only values, an empty
+  `providers` list and unknown properties are accepted again; strict validation is deferred and
+  documented as a future release.
+- Localized the route's invalid-request and fetch-failure messages and the newly added NBP
+  average provider errors through module locale keys in all five locales.
+- Moved the release note under the current unreleased heading and extended `TC-CUR-015` with
+  permission-denial, cross-organization isolation, selected-lookup and additive-column evidence.
 
 - Created initial problem statement and decision gate from TraceCore issue #866.
 

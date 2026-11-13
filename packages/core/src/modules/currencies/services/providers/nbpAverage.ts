@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { RateProvider, RateProviderResult } from './base'
+import { RateProviderError, type RateProvider, type RateProviderResult } from './base'
 
 export const NBP_AVERAGE_PROVIDER_SOURCE = 'nbp_average'
 
@@ -34,11 +34,11 @@ function formatDate(date: Date): string {
 
 function parseEffectiveDate(value: string, requestedDate: string): Date {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value !== requestedDate) {
-    throw new Error('NBP effective date does not match the requested date')
+    throw new RateProviderError('currencies.fetch.provider_error.effective_date_mismatch', 'NBP effective date does not match the requested date')
   }
   const parsed = new Date(`${value}T00:00:00.000Z`)
   if (Number.isNaN(parsed.getTime()) || formatDate(parsed) !== value) {
-    throw new Error('NBP effective date is invalid')
+    throw new RateProviderError('currencies.fetch.provider_error.effective_date_invalid', 'NBP effective date is invalid')
   }
   return parsed
 }
@@ -46,7 +46,7 @@ function parseEffectiveDate(value: string, requestedDate: string): Date {
 function parseReference(value: string, table: 'A' | 'B'): string {
   const reference = value.trim()
   if (!reference || reference.length > 100 || !new RegExp(`(^|/)${table}(?=/|$)`).test(reference)) {
-    throw new Error(`NBP table ${table} publication number is invalid`)
+    throw new RateProviderError('currencies.fetch.provider_error.reference_invalid', `NBP table ${table} publication number is invalid`, { table })
   }
   return reference
 }
@@ -54,7 +54,7 @@ function parseReference(value: string, table: 'A' | 'B'): string {
 function parseCurrencyCode(value: string): string {
   const code = value.trim().toUpperCase()
   if (!/^[A-Z]{3}$/.test(code)) {
-    throw new Error('NBP currency code is invalid')
+    throw new RateProviderError('currencies.fetch.provider_error.currency_code_invalid', 'NBP currency code is invalid')
   }
   return code
 }
@@ -94,10 +94,10 @@ export class NBPAverageRateProvider implements RateProvider {
       for (const row of table.rates) {
         const code = parseCurrencyCode(row.code)
         if (!Number.isFinite(row.mid) || row.mid <= 0) {
-          throw new Error(`NBP mid rate is invalid for ${code}`)
+          throw new RateProviderError('currencies.fetch.provider_error.mid_rate_invalid', `NBP mid rate is invalid for ${code}`, { code })
         }
         if (currencyCodes.has(code)) {
-          throw new Error(`NBP average-rate tables contain duplicate currency: ${code}`)
+          throw new RateProviderError('currencies.fetch.provider_error.duplicate_currency', `NBP average-rate tables contain duplicate currency: ${code}`, { code })
         }
         currencyCodes.add(code)
         results.push({
@@ -131,18 +131,18 @@ export class NBPAverageRateProvider implements RateProvider {
       return null
     }
     if (!response.ok) {
-      throw new Error(`NBP table ${table} request failed with status ${response.status}`)
+      throw new RateProviderError('currencies.fetch.provider_error.table_request_failed', `NBP table ${table} request failed with status ${response.status}`, { table, status: response.status })
     }
 
     let payload: unknown
     try {
       payload = await response.json()
     } catch {
-      throw new Error(`NBP table ${table} returned invalid JSON`)
+      throw new RateProviderError('currencies.fetch.provider_error.table_invalid_json', `NBP table ${table} returned invalid JSON`, { table })
     }
     const parsed = tableResponseSchema.safeParse(payload)
     if (!parsed.success || parsed.data[0].table !== table) {
-      throw new Error(`NBP table ${table} response is invalid`)
+      throw new RateProviderError('currencies.fetch.provider_error.table_invalid_response', `NBP table ${table} response is invalid`, { table })
     }
     return parsed.data[0]
   }
