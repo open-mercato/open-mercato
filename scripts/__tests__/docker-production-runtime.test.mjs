@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const dockerfile = fs.readFileSync(path.join(repositoryRoot, 'Dockerfile'), 'utf8')
-const runnerStage = dockerfile.slice(dockerfile.lastIndexOf('FROM node:24-alpine AS runner'))
+const runnerStage = dockerfile.slice(dockerfile.lastIndexOf('FROM recovery-tools AS runner'))
 
 test('production runner includes the app runtime CLI launcher', () => {
   const launcherPath = path.join(repositoryRoot, 'apps/mercato/scripts/mercato-cli.mjs')

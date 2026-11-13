@@ -1,7 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "concurrency": "32",
-  "globalEnv": ["NODE_ENV"],
+  "globalEnv": ["NODE_ENV", "OM_ENABLE_ENTERPRISE_MODULES", "OM_ENABLE_ENTERPRISE_MODULES_BACKUPS"],
   "globalDependencies": ["scripts/build-package.mjs", "scripts/watch.mjs", "scripts/lib/add-js-extension.mjs"],
   "tasks": {
     "build": {
