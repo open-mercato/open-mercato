@@ -1,4 +1,5 @@
 import { createLogger } from '../logger'
+import { getTelemetryRuntime } from '../telemetry/runtime'
 import { resolveDateLocaleSettings } from './resolve'
 import type { ResolvedDateLocaleSettings } from './types'
 
@@ -16,6 +17,15 @@ type ResolverGlobalScope = typeof globalThis & {
 }
 
 const logger = () => createLogger('shared').child({ component: 'date-locale-registry' })
+
+function reportResolverError(error: unknown, code: string): void {
+  logger().debug('Date/locale settings resolver failed; using env defaults', { err: error })
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'shared', code })
+  } catch {
+    logger().warn('Date/locale resolver error reporting failed')
+  }
+}
 
 /** One slot: a second registration replaces the first (and is warned about). */
 export function registerDateLocaleSettingsResolver(resolver: DateLocaleSettingsResolver | null): void {
@@ -38,7 +48,7 @@ export async function resolveDateLocaleSettingsForRequest(): Promise<ResolvedDat
       const resolved = await resolver()
       if (resolved) return resolved
     } catch (err) {
-      logger().debug('Date/locale settings resolver failed; using env defaults', { err })
+      reportResolverError(err, 'shared.date_locale_request_resolver_failed')
     }
   }
   return resolveDateLocaleSettings({})
@@ -82,7 +92,7 @@ export async function resolveDateLocaleSettingsForScope(
     try {
       return await resolver(container, { tenantId: scope.tenantId, userId: scope.userId ?? null })
     } catch (err) {
-      logger().debug('Date/locale settings scope resolver failed; using env defaults', { err })
+      reportResolverError(err, 'shared.date_locale_scope_resolver_failed')
     }
   }
   return resolveDateLocaleSettings({})

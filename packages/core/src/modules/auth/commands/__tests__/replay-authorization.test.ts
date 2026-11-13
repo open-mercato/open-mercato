@@ -1068,6 +1068,55 @@ describe('auth command replay authorization', () => {
     expect(harness.actionLogService.log).not.toHaveBeenCalled()
   })
 
+  it.each(['Asia/Tokyo', null, undefined])('restores the personal time zone %s when undoing a hard delete and permits redo', async (timezone) => {
+    const harness = makeHarness({ user: null })
+    const before = userSnapshot({ timezone })
+    const handler = commandRegistry.get('auth.users.delete') as CommandHandler
+    const logEntry = {
+      commandId: 'auth.users.delete',
+      resourceId: userId,
+      tenantId: tenantA,
+      commandPayload: { undo: { before } },
+    }
+    harness.dataEngine.createOrmEntity.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      harness.state.user = data
+      return data
+    })
+
+    await handler.undo!({ input: { id: userId }, logEntry, ctx: harness.ctx })
+
+    expect(harness.state.user?.timezone).toBe(timezone ?? null)
+    expect(harness.dataEngine.createOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ timezone: timezone ?? null }),
+    }))
+    await expect(handler.authorizeReplay!({
+      operation: 'redo',
+      input: { id: userId },
+      logEntry,
+      ctx: { ...harness.ctx, transactionalEm: harness.em as never },
+    })).resolves.toBeUndefined()
+  })
+
+  it('restores the personal time zone when redoing a user create', async () => {
+    const harness = makeHarness({ user: null })
+    const after = userSnapshot({ timezone: 'Asia/Tokyo', passwordHash: null })
+    const handler = commandRegistry.get('auth.users.create') as CommandHandler
+    const logEntry = {
+      commandId: 'auth.users.create',
+      resourceId: userId,
+      tenantId: tenantA,
+      commandPayload: { undo: { after } },
+    }
+    harness.dataEngine.createOrmEntity.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      harness.state.user = data
+      return data
+    })
+
+    await handler.redo!({ input: {}, logEntry, ctx: harness.ctx })
+
+    expect(harness.state.user?.timezone).toBe('Asia/Tokyo')
+  })
+
   it('keeps password-bearing create logs undoable while omitting every credential', async () => {
     const handler = commandRegistry.get('auth.users.create') as CommandHandler<
       Record<string, unknown>,

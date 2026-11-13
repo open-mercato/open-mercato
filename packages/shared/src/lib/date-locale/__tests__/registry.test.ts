@@ -1,3 +1,4 @@
+import { getTelemetryRuntime } from '../../telemetry/runtime'
 import {
   registerDateLocaleSettingsResolver,
   registerDateLocaleSettingsScopeResolver,
@@ -5,6 +6,10 @@ import {
   resolveDateLocaleSettingsForScope,
 } from '../registry'
 import { resolveDateLocaleSettings } from '../resolve'
+
+
+jest.mock('../../telemetry/runtime', () => ({ getTelemetryRuntime: jest.fn() }))
+const reportError = jest.fn()
 
 const configured = resolveDateLocaleSettings({
   tenant: { timeZone: 'Europe/Warsaw' },
@@ -16,6 +21,8 @@ describe('date/locale resolver registry', () => {
   const originalTimeZone = process.env.OM_DEFAULT_TIMEZONE
 
   beforeEach(() => {
+    reportError.mockReset()
+    jest.mocked(getTelemetryRuntime).mockReturnValue({ reportError } as unknown as NonNullable<ReturnType<typeof getTelemetryRuntime>>)
     registerDateLocaleSettingsResolver(null)
     registerDateLocaleSettingsScopeResolver(null)
     process.env.OM_DEFAULT_TIMEZONE = 'UTC'
@@ -45,12 +52,21 @@ describe('date/locale resolver registry', () => {
         throw new Error('database unavailable')
       })
       await expect(resolveDateLocaleSettingsForRequest()).resolves.toMatchObject({ timeZone: 'UTC' })
+      expect(reportError).toHaveBeenCalledWith(expect.any(Error), { module: 'shared', code: 'shared.date_locale_request_resolver_failed' })
     })
 
     it('returns the registered resolver result', async () => {
       registerDateLocaleSettingsResolver(async () => configured)
       expect((await resolveDateLocaleSettingsForRequest()).timeZone).toBe('Europe/Warsaw')
     })
+  })
+
+  it('preserves the fallback when telemetry throws', async () => {
+    reportError.mockImplementation(() => { throw new Error('reporter unavailable') })
+    registerDateLocaleSettingsResolver(async () => { throw new Error('lookup unavailable') })
+    registerDateLocaleSettingsScopeResolver(async () => { throw new Error('lookup unavailable') })
+    await expect(resolveDateLocaleSettingsForRequest()).resolves.toMatchObject({ timeZone: 'UTC' })
+    await expect(resolveDateLocaleSettingsForScope(container, { tenantId: 't-1' })).resolves.toMatchObject({ timeZone: 'UTC' })
   })
 
   describe('resolveDateLocaleSettingsForScope', () => {
@@ -74,6 +90,7 @@ describe('date/locale resolver registry', () => {
         throw new Error('boom')
       })
       await expect(resolveDateLocaleSettingsForScope(container, { tenantId: 't-1' })).resolves.toMatchObject({ timeZone: 'UTC' })
+      expect(reportError).toHaveBeenCalledWith(expect.any(Error), { module: 'shared', code: 'shared.date_locale_scope_resolver_failed' })
     })
   })
 })

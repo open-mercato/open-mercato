@@ -566,6 +566,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
           if ('passwordHash' in after) user.passwordHash = after.passwordHash ?? null
           user.name = after.name ?? null
           user.isConfirmed = after.isConfirmed
+          user.timezone = after.timezone ?? null
           await em.flush()
         } else {
           user = await de.createOrmEntity({
@@ -579,6 +580,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
               passwordHash: after.passwordHash ?? null,
               name: after.name ?? null,
               isConfirmed: after.isConfirmed,
+              timezone: after.timezone ?? null,
             },
           })
         }
@@ -1242,6 +1244,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           user.passwordHash = before.passwordHash ?? null
           user.name = before.name ?? null
           user.isConfirmed = before.isConfirmed
+          user.timezone = before.timezone ?? null
           await em.flush()
         } else {
           user = await de.createOrmEntity({
@@ -1254,6 +1257,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
               passwordHash: before.passwordHash ?? null,
               name: before.name ?? null,
               isConfirmed: before.isConfirmed,
+              timezone: before.timezone ?? null,
             },
           })
         }
