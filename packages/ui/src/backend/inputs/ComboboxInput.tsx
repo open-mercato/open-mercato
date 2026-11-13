@@ -85,7 +85,6 @@ export function ComboboxInput({
   allowCustomValues = true,
   clearable = false,
   clearLabel,
-  id,
   'aria-describedby': ariaDescribedBy,
   'aria-invalid': ariaInvalid,
   'aria-required': ariaRequired,
