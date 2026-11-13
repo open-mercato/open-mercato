@@ -1292,6 +1292,31 @@ describe('warranty claim commands', () => {
     expect(claim.totalClaimedAmount).toBe('30')
   })
 
+  test('line update keeps its own unchanged number despite a legacy duplicate row, but still rejects moving into it', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { totalClaimedAmount: '15' })
+    const first = makeLine(claim, { creditAmount: '10' })
+    const duplicate = makeLine(claim, { id: LINE_TWO_ID, creditAmount: '5' })
+    const third = makeLine(claim, { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', lineNo: 2, creditAmount: '1' })
+    mockClaims.push(claim)
+    mockLines.push(first, duplicate, third)
+
+    await updateClaimLineCommand.execute({ id: LINE_ID, lineNo: 1, creditAmount: 20 }, ctx)
+
+    expect(first).toMatchObject({ lineNo: 1, creditAmount: '20' })
+    expect(duplicate.lineNo).toBe(1)
+    dataEngine.markOrmEntityChange.mockClear()
+    const thirdBefore = { ...third }
+    const claimBefore = { ...claim }
+
+    await expect(updateClaimLineCommand.execute({ id: third.id, lineNo: 1, creditAmount: 99 }, ctx))
+      .rejects.toMatchObject({ status: 409, body: { code: 'warranty_claims.errors.duplicateLineNo' } })
+
+    expect(third).toEqual(thirdBefore)
+    expect(claim).toEqual(claimBefore)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
   test.each([
     { lineCount: 1, release: 'renumber' },
     { lineCount: 2, release: 'renumber' },

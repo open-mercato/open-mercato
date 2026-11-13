@@ -434,7 +434,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
 
-**Classification.** The removed shape was a *publicly supported* surface, not an undocumented accident: it was part of the exported `MfaProviderInterface.verifySchema` union that a third-party client could validate against, and the enterprise test suite pinned it in a case named *"supports legacy verification payload for backward compatibility"*. It is therefore a genuine STABLE-surface break, and the exception — not a claim that no contract existed — is what authorizes it.
+**Classification.** This public `MfaProviderInterface.verifySchema` union shape was client-validatable and covered by an enterprise legacy-compatibility test. Its removal is a STABLE break authorized by the security exception.
 
 **Exception requirements, as met by this change:**
 
@@ -646,7 +646,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
-STABLE: logout POST returns 303, even without cookies; follow Location with GET. Shared redirect default stays 307. No other contract/schema changes. [Supersedes 2026-10-13; migration](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility); see UPGRADE_NOTES.md.
+STABLE: logout POST (also cookieless) returns 303; follow Location with GET. Shared default remains 307; other contracts unchanged. [Supersedes 2026-10-13; migration](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility); see UPGRADE_NOTES.md.
 
 ## #7809 2026-11-06
 
@@ -654,4 +654,8 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 
 ## File-agent attachment read authorization (2026-11-10, #9117)
 
-STABLE: nonempty inputs require `userId`, `attachments.view` and owner access; empty inputs unchanged. Bridges retain disclosure. [Migration, data limits and spec](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117). Steps 1–3 waived by @pkarw on 2026-11-13.
+STABLE: nonempty inputs require principal/owner read access; bridges retain disclosure. [Migration/spec](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117). Steps 1–3 waived by @pkarw on 2026-11-13.
+
+## Comment authors (2026-11-12, #8759)
+
+STABLE command/API: bridges retain author forgery. @pkarw waived steps 1–3 (#8782). [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
