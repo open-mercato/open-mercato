@@ -9,27 +9,90 @@ The commercial `backups` module provides `mercato-backup`, a standalone PostgreS
 
 Use the commercially licensed Enterprise package, Node 24 or later, and matching PostgreSQL 16, 17 or 18 client/server majors. Enable `OM_ENABLE_ENTERPRISE_MODULES` and `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS`. An operator with the required commercial rights must also set `OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED=true`; these settings are capability/rights attestations, not a license purchase or a runtime license-key validator.
 
-Set `OM_BACKUP_BINARIES_DIR` to an operator-controlled directory containing `pg_dump`, `pg_restore` and `psql`. Configure named libpq services in a private `PGSERVICEFILE` and credentials in a private `PGPASSFILE` (both owner-only, mode 0600). There is no `DATABASE_URL` fallback and passwords never belong in command arguments. Remote connections require verified TLS; plaintext connections are limited to loopback or local sockets.
+The CLI discovers a trusted matching `pg_dump`, `pg_restore` and `psql` installation for PostgreSQL 16, 17 or 18. Set `OM_BACKUP_BINARIES_DIR` or `--binaries-dir` when selecting a particular installation. Configure named libpq services in a private `PGSERVICEFILE` and credentials in a private `PGPASSFILE` (both owner-only, mode 0600). There is no `DATABASE_URL` fallback and passwords never belong in command arguments. Remote connections require verified TLS; plaintext connections are limited to loopback or local sockets.
 
 Provision private output/workspace directories with mode 0700. The workspace stores sensitive run identities and temporary recovery files. Keep it on an appropriately sized protected volume. Stop application replicas, workers, schedulers, integrations and other writers before a protected rotation/recovery drill. A quiesced backup conservatively examines the whole cluster transaction horizon: unrelated writers can cause refusal.
 
 For an application wrapper, enable the module before running the normal generation/build workflow. `mercato backups labels --output /srv/recovery/private/labels.json` exports metadata labels without opening a database. The standalone create command accepts that file through `--labels-file` and otherwise uses table names.
 
+## Inspect automatic OS and container configuration
+
+Run this read-only command first; it works without a database connection, application bootstrap or rights attestation:
+
+```sh
+mercato-backup configure --json --progress json
+# Already built checkout alternative:
+node packages/enterprise/bin/mercato-backup.mjs configure --json --progress json
+```
+
+Its `configuration-plan-only` result lists resolved **nonsecret paths**, their provenance and `missingPrerequisites`. A completed plan is not a successful backup, license validation or database readiness. It never installs clients, creates keys/credentials, chooses a source/target service, or changes permissions. Missing prerequisites must be provisioned separately by the authorized operator.
+
+| Runtime | Default persistent recovery root | Default libpq files |
+| --- | --- | --- |
+| macOS ARM or Intel | `~/Library/Application Support/Open Mercato/recovery` | `~/.pg_service.conf`, `~/.pgpass` |
+| Native Linux | `$XDG_STATE_HOME/open-mercato/recovery`, or `~/.local/state/open-mercato/recovery` | `~/.pg_service.conf`, `~/.pgpass` |
+| Linux container | `/var/lib/open-mercato/recovery` | `custody/pg_service.conf`, `custody/pgpass` below that root |
+
+The root contains separate `backups`, `workspace`, `rotation-artifacts`, `rotation-trust` and `custody` directories. Set `OM_RECOVERY_ROOT` for a different persistent root. In Docker these directories must be on durable named volumes/bind mounts; overlay/tmpfs storage fails the operation guard. Resolve paths **inside** the container and follow [the Docker recovery guide](https://github.com/open-mercato/open-mercato/blob/main/docker/RECOVERY.md); host Homebrew paths cannot be used by Linux clients. Client discovery covers macOS Homebrew ARM/Intel, Debian, RHEL and Alpine layouts and requires one safe matching native trio. Existing server-major checks still apply.
+
+Explicit CLI paths take priority over their environment equivalents, then safe defaults. `PGSERVICEFILE`, `PGPASSFILE`, `OM_BACKUP_BINARIES_DIR`, `OM_BACKUP_RECIPIENTS_FILE` and `OM_BACKUP_IDENTITY_FILE` keep existing selections. An explicit empty, missing or incompatible path does not silently select a different installation. Existing custody files must be owner-only (0600) with secure used recovery/custody ancestors; private directories must be 0700. The authorized operation may create its artifact/workspace directories; configuration inspection never does.
+
 ## Configure without exposing secrets
 
-Inject credentials through the deployment secret manager. These examples configure paths and capability flags only; do not paste passwords, archive identities or application keys into shell history:
+Inject credentials through the deployment secret manager. The capability flags still require an appropriately licensed operator; automatic paths never enable them:
 
 ```sh
 export OM_ENABLE_ENTERPRISE_MODULES=true
 export OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=true
 export OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED=true
-export OM_BACKUP_BINARIES_DIR=/usr/lib/postgresql/16/bin
-export PGSERVICEFILE=/srv/recovery/private/pg_service.conf
-export PGPASSFILE=/srv/recovery/private/pgpass
 export OM_BACKUP_REQUIRE_ENCRYPTION=true
 ```
 
-Set the rights attestation only for a version you are licensed to use. Provision service entries `source` and `scratch` with distinct database identities; `scratch` must never point at the source. Restrict custody files to their owner and keep application-key escrow separate from the encrypted archive. The examples below use placeholder identifiers/digests/challenges returned by earlier commands; replace them with independently checked values.
+Provision named libpq service entries `source` and `scratch` with distinct database identities; `scratch` must never point at the source. Retain both private libpq files at the plan's paths, or explicitly override their paths. There is no automatic database selection. Keep passwords, private identities and application keys out of shell history and reports.
+
+Provision public archive recipients at the plan's `custody/recipients.txt` and an existing recovery identity at `custody/identity.txt`, or pass explicit custody-file paths. The CLI only auto-consumes those exact validated files; it never scans for custody or generates it. New encrypted creation uses public recipients; verification, decrypted status, recovery and resume may use the private archive identity. Keep application-key escrow separate: an archive identity cannot decrypt application field ciphertext. Preserve all historical archive/application keys and provider versions needed by retained backups. Successful verification never authorizes retirement.
+
+The examples below show explicit paths for portability. They can be omitted when the displayed plan's defaults are the intended authorized paths. Replace identifiers/digests/challenges with independently checked values. Generated resume commands carry the effective original paths and libpq bindings, so another working directory/container cannot silently choose different defaults.
+
+## Operator-only archive key provisioning
+
+Perform this once as a separately authorized custody task. An installed external [`age-keygen`](https://github.com/FiloSottile/age/blob/main/doc/age-keygen.1) is required for these setup commands; it is **not** a runtime dependency of `mercato-backup` and the CLI/agent never installs it. Use native X25519 identities (`AGE-SECRET-KEY-1…`/`age1…`), without `-pq`; other age key types are not supported by this backup implementation.
+
+On the operator's protected machine, select the exact custody directory displayed by `configure` (replace the example path), verify its ancestors/ownership, and create a **new** identity. Never overwrite an existing deployment identity:
+
+```sh
+# Operator machine only; do not run this on the database server by default.
+recovery_custody_dir='/absolute/approved/recovery/custody'
+(
+  umask 077
+  set -C
+  mkdir -p "$recovery_custody_dir"
+  chmod 700 "$recovery_custody_dir"
+  age-keygen -o "$recovery_custody_dir/identity.txt"
+  chmod 600 "$recovery_custody_dir/identity.txt"
+  age-keygen -y "$recovery_custody_dir/identity.txt" > "$recovery_custody_dir/operator-recipient.txt"
+)
+```
+
+On a **separate offline escrow machine**, the escrow owner independently creates its own private identity and exports only its public recipient:
+
+```sh
+# Offline escrow machine only; use a new protected directory.
+escrow_custody_dir='/absolute/offline/escrow/new-backup-key'
+(
+  umask 077
+  set -C
+  mkdir -p "$escrow_custody_dir"
+  chmod 700 "$escrow_custody_dir"
+  age-keygen -o "$escrow_custody_dir/identity.txt"
+  chmod 600 "$escrow_custody_dir/identity.txt"
+  age-keygen -y "$escrow_custody_dir/identity.txt" > "$escrow_custody_dir/escrow-recipient.txt"
+)
+```
+
+Exchange **public recipients only**, using an authenticated channel. On the operator machine, create a new mode 0600 `recipients.txt` containing the operator and escrow public lines, one per line; never copy the escrow private identity to the backup producer. The CLI accepts one to ten recipients. Keep a retained record of each original recipient set and its matching archive identities; recovery exercises use separately authorized escrow custody.
+
+Changing recipients affects new backups; it does not re-encrypt old archives. Resume uses the original authenticated recipient set. Retain old archive identities and historic application DEKs/provider versions independently for every retained recovery point. Neither new archive keys nor a successful backup rotate application encryption keys or authorize retiring old keys. Follow the [protected-rotation guide](../user-guide/key-rotation-protection) for application-key changes.
 
 ## Create and verify
 
@@ -91,6 +154,36 @@ Sequence recovery compares the captured counter state with the integer values ac
 
 Status exposes an owner-private, unencrypted aggregate checkpoint without entity names. These display counts are advisory and never authorize resume. Providing a recovery identity or the original workspace enables decrypted per-entity status. Status and checkpoint export do not repair/truncate a torn journal; repair belongs to an explicitly resumed writer. Preflight accepts --operation create, restore or exercise; its database/baseline checks are read-only. Generic command reports use exclusive private paths. Resume derives its original encryption/recipient/chunk settings from authenticated preparation unless an explicit compatible option is provided.
 
+
+## Operate backups with an AI agent
+
+The `om-backup-database` skill bundles the operator procedures for creation, inspection, artifact verification, isolated restore/exercise and matching-run resume. Its source is `.ai/skills/om-backup-database/`. After installing the skill in your agent, invoke it with the selected deployment, action and private **file paths**, without pasting credentials or keys. It works with an installed standalone CLI or an already built checkout; it never installs, builds, migrates or provisions a database automatically.
+
+Start with read-only discovery when the operator environment is not yet established:
+
+```text
+$om-backup-database inspect the installed backup CLI and preflight the configured source service. Do not create a backup or write to a target yet.
+```
+
+For an authorized encrypted backup and verification, identify the actual custody paths and writer window:
+
+```text
+$om-backup-database create an encrypted backup from service source into /srv/recovery/output using /srv/recovery/private as workspace and /srv/recovery/private/recipients. The stable maintenance window is already enforced. Verify it using /srv/recovery/private/escrow.identity and retain the creation digest independently. Keep all prior keys and recovery material.
+```
+
+Do not claim that a maintenance window exists merely to make that example runnable: the skill must establish the real writer state before passing `--quiesced`. If the requested window, installation, commercial rights or custody is missing, the agent reports that prerequisite instead of weakening the operation.
+
+Inspection and recovery are separate requests:
+
+```text
+$om-backup-database inspect the partial artifact /srv/recovery/output/.BACKUP_ID.partial using its original /srv/recovery/private workspace. Report status only; do not resume or remove locks.
+
+$om-backup-database restore the artifact from the preceding verified run into the specifically authorized isolated scratch target. Use the independently retained creation digest and /srv/recovery/private/escrow.identity, obtain a fresh target challenge, and keep the restored database quarantined. Do not promote it or retire any keys.
+```
+
+Replace example paths, service names and identifiers with the actual authorized values. A generic backup/verification request never authorizes recovery writes. When the exact target/action was already authorized, the agent reuses that authorization while still obtaining the CLI's fresh confirmation and enforcing matching journal/target bindings. To resume, identify the interrupted run and its exact emitted command; do not ask the agent to invent a target or reset a journal. Archive identities and application-key custody remain separate, and the skill does not automatically accept Core's unprotected key-rotation risk.
+
+The agent reports command results, actual verification coverage, retained recovery material and any remaining prerequisite. AI instructions do not upgrade a created archive to a verified restore or application-key recovery test. Share only small sanitized aggregate reports or reviewed screenshots; never upload backup files, dumps, keys or private workspaces.
 
 ## Rehearse recovery before relying on it
 
