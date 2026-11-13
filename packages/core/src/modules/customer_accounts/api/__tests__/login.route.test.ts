@@ -7,7 +7,15 @@
  * password) must return the same generic 401 body and run a constant-time bcrypt
  * comparison so the response cannot be used to enumerate accounts per tenant.
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
+import type { DatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { POST } from '@open-mercato/core/modules/customer_accounts/api/login'
+
+const mockScopes = new AsyncLocalStorage<DatabaseExecutionContext>()
+const mockRunContext = jest.fn((context: DatabaseExecutionContext, callback: () => unknown) => mockScopes.run(context, callback))
+jest.mock('@open-mercato/shared/lib/db/runtime', () => ({
+  runWithDatabaseExecutionContext: (context: DatabaseExecutionContext, callback: () => unknown) => mockRunContext(context, callback),
+}))
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/tenantEligibility', () => ({
   isCustomerTenantActive: jest.fn(async () => true),
@@ -262,5 +270,67 @@ describe('POST /api/customer_accounts/login — login event failures are reporte
       module: 'customer_accounts',
       code: 'customer_accounts.login_event_failed',
     })
+  })
+})
+
+
+describe('POST /api/customer_accounts/login — verified tenant continuation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockCheckAuthRateLimit.mockResolvedValue({ error: null, compoundKey: null })
+    mockResolveTenantContext.mockResolvedValue({ tenantId })
+    mockFindByEmail.mockImplementation(async (_email: string, selectedTenant: string) => {
+      expect(mockScopes.getStore()).toBeUndefined()
+      expect(selectedTenant).toBe(tenantId)
+      return { id: 'u1', isActive: true, passwordHash: 'hash', emailVerifiedAt: new Date() }
+    })
+    mockCheckLockout.mockReturnValue(false)
+    mockVerifyPassword.mockImplementation(async () => {
+      expect(mockScopes.getStore()).toBeUndefined()
+      return true
+    })
+    mockResetFailedAttemptsUnlessLocked.mockImplementation(async () => {
+      expect(mockScopes.getStore()).toMatchObject({ kind: 'tenant', tenantId })
+      return true
+    })
+    mockCreateSession.mockImplementation(async () => {
+      expect(mockScopes.getStore()).toMatchObject({ kind: 'tenant', tenantId })
+      return { rawToken: 'test-session', jwt: 'test-jwt' }
+    })
+    mockEmitCustomerAccountsEvent.mockResolvedValue(undefined)
+  })
+
+  test('promotes only verified credentials and creates a fresh container in their tenant', async () => {
+    const response = await POST(makeRequest(baseBody()))
+    expect(response.status).toBe(200)
+    expect(mockRunContext).toHaveBeenCalledWith({ kind: 'tenant', tenantId, source: 'public-token', operation: 'customer-login' }, expect.any(Function))
+    const { createRequestContainer } = jest.requireMock('@open-mercato/shared/lib/di/container')
+    expect(createRequestContainer).toHaveBeenCalledTimes(2)
+    expect(mockScopes.getStore()).toBeUndefined()
+  })
+
+  test('does not authorize tenant execution from a login hint with an invalid password', async () => {
+    mockVerifyPassword.mockResolvedValue(false)
+    expect((await POST(makeRequest(baseBody()))).status).toBe(401)
+    expect(mockRunContext).not.toHaveBeenCalled()
+    expect(mockCreateSession).not.toHaveBeenCalled()
+  })
+
+  test('awaits success subscribers while tenant authority remains active', async () => {
+    let finish: (() => void) | undefined
+    let started: (() => void) | undefined
+    const eventStarted = new Promise<void>((resolve) => { started = resolve })
+    const eventFinished = new Promise<void>((resolve) => { finish = resolve })
+    mockEmitCustomerAccountsEvent.mockImplementation(async () => {
+      started?.()
+      await eventFinished
+      expect(mockScopes.getStore()).toMatchObject({ kind: 'tenant', tenantId })
+    })
+    let responded = false
+    const response = POST(makeRequest(baseBody())).then((result) => { responded = true; return result })
+    await eventStarted
+    expect(responded).toBe(false)
+    finish?.()
+    expect((await response).status).toBe(200)
   })
 })
