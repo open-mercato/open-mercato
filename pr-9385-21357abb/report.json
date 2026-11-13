@@ -385,7 +385,10 @@
     "branch": "qa-evidence-pr-9385-21357abb",
     "slug": "pr-9385-21357abb",
     "reportJson": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/report.json",
-    "reportMarkdown": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/report.md"
+    "reportMarkdown": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/report.md",
+    "commentUrl": "https://github.com/open-mercato/open-mercato/pull/9385#issuecomment-6849124449",
+    "verifiedPublicPngCount": 14,
+    "renderedImageCount": 14
   },
   "cleanup": {
     "at": "2026-11-13T09:21:22.767118+00:00",
@@ -417,7 +420,8 @@
     "Loading/error screenshots use explicit browser network latency/abort injection, not fabricated application responses. Navigation waited for semantic roles after persistent connections prevented networkidle.",
     "Exploration harness corrections: first-row API sorting was aligned to the actual UI response; action locators scoped to the reservations table; asynchronous route cleanup was corrected after driver restart. Earlier setup/locator failures are not product failures and were not counted as PASS.",
     "Interrupted Nov12 session lost its runtime when the cockpit recreated the worktree. Nov13 rebuilt and reran exact-head tests; previous incomplete browser work was not counted.",
-    "Only temporary QA scripts/artifacts/environment were created. Test-generated tracked email capture appends restored after stopping the runtime; source diff is zero."
+    "Only temporary QA scripts/artifacts/environment were created. Test-generated tracked email capture appends restored after stopping the runtime; source diff is zero.",
+    "No .uxproof contract directory exists in the exact-head worktree; no contract-conformance step applies."
   ],
   "createdAt": "2026-11-13T09:22:55.793608+00:00",
   "commands": [
