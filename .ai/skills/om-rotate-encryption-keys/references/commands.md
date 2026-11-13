@@ -34,6 +34,12 @@ bundled reference; reconcile version differences before mutation. Missing comman
 protection service or supported capabilities are blockers, not permission to change
 software, entitlement or protection mode.
 
+## Selected Docker maintenance runtime
+
+Use only an already approved prebuilt maintenance image/profile with its existing private volume, custody and private runtime env file. When that exact runtime/tool invocation was authorized, launch only the ephemeral CLI container with the reviewed profile's `run --rm --no-deps` and no-pull policy; do not ask again for the same selected action. Do not build/pull images, start application/database/Redis services, create volumes or repair permissions as discovery or a rotation side effect.
+
+The compiled maintenance image needs no Next UI/server startup. In the monorepo the application prefix is `node /app/apps/mercato/scripts/mercato-cli.mjs` from `/app/apps/mercato`; in a standalone app it is `node /app/scripts/mercato-cli.mjs` from `/app`. Verify the selected installation's files before use. Direct Node invocation avoids runtime Corepack/Yarn downloads in a nonroot read-only container. The backup configuration inspector uses the corresponding existing standalone Enterprise bin. Runtime capability/rights, source service, provider selections, keys and the actual offline fence remain explicit. Preserve that same volume/profile/bindings across resume; never remove it with `down -v`.
+
 ## Select one scope
 
 Use the concrete tenant UUID and, only when intended, organization UUID. An
