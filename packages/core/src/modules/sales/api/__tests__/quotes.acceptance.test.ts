@@ -1155,6 +1155,109 @@ describe('send - commits send-state before email delivery (fix: #2336, supersede
     expect(res.status).toBe(200)
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'test@example.com' }))
   })
+
+  function draftQuoteFixture(quoteNumber: string) {
+    return {
+      id: '22222222-2222-4222-8222-222222222222',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber,
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '10',
+      status: 'draft',
+      statusEntryId: null,
+      customerSnapshot: { customer: { primaryEmail: 'test@example.com' } },
+      metadata: null,
+      updatedAt: new Date(),
+      validUntil: null,
+      sentAt: null,
+      acceptanceToken: null,
+    }
+  }
+
+  function serveQuote(quote: { id: string }) {
+    mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string } | undefined) => {
+      if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-sent' }
+      return null
+    })
+  }
+
+  test('mails the quote while the cache invalidation is still pending', async () => {
+    const quote = draftQuoteFixture('SQ-CACHE-3')
+    serveQuote(quote)
+
+    let settleInvalidation: () => void = () => undefined
+    mockInvalidateCrudCache.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        settleInvalidation = resolve
+      }),
+    )
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    let invalidationSettledBeforeDelivery: boolean | null = null
+    let invalidationSettled = false
+    ;(sendEmail as jest.Mock).mockImplementation(async () => {
+      invalidationSettledBeforeDelivery = invalidationSettled
+    })
+
+    const pendingResponse = sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+    while ((sendEmail as jest.Mock).mock.calls.length === 0) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    invalidationSettled = true
+    settleInvalidation()
+    const res = await pendingResponse
+
+    expect(res.status).toBe(200)
+    expect(invalidationSettledBeforeDelivery).toBe(false)
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'test@example.com' }))
+    expect(mockReportError).not.toHaveBeenCalled()
+  })
+
+  test('a cache invalidation that never settles is abandoned after the deadline and reported', async () => {
+    const quote = draftQuoteFixture('SQ-CACHE-4')
+    serveQuote(quote)
+
+    mockInvalidateCrudCache.mockReturnValueOnce(new Promise<void>(() => undefined))
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    ;(sendEmail as jest.Mock).mockResolvedValue(undefined)
+
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+    try {
+      const pendingResponse = sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+      while ((sendEmail as jest.Mock).mock.calls.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      await jest.advanceTimersByTimeAsync(2000)
+      const res = await pendingResponse
+
+      expect(res.status).toBe(200)
+      expect(quote.status).toBe('sent')
+      expect(sendEmail).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ code: 'sales.quote_send_cache_invalidation_timed_out' }),
+      )
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('a failed delivery still flushes the quotes list cache', async () => {
+    const quote = draftQuoteFixture('SQ-CACHE-5')
+    serveQuote(quote)
+
+    mockInvalidateCrudCache.mockResolvedValueOnce(undefined)
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    ;(sendEmail as jest.Mock).mockRejectedValue(new Error('email down'))
+
+    const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+
+    expect(res.status).toBe(400)
+    expect(quote.status).toBe('sent')
+    expect(mockInvalidateCrudCache).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('quote editing invalidates sent token', () => {

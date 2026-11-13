@@ -121,35 +121,70 @@ async function sendCcCopies(
   }
 }
 
+const QUOTE_LIST_CACHE_FLUSH_TIMEOUT_MS = 2000
+
+type QuoteListCacheFlushOutcome =
+  | { kind: 'flushed' }
+  | { kind: 'failed'; err: unknown }
+  | { kind: 'timed_out' }
+
+function reportQuoteListCacheFlushProblem(quote: SalesQuote, err: unknown, code: string): void {
+  logger.error('sales.quotes.send cache invalidation did not complete', { err, code, quoteId: quote.id })
+  try {
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'sales',
+      code,
+      attributes: { quoteId: quote.id },
+    })
+  } catch (reportingErr) {
+    logger.warn('sales.quotes.send cache invalidation problem could not be reported', { err: reportingErr, quoteId: quote.id })
+  }
+}
+
+async function invalidateQuoteListCache(
+  container: Parameters<typeof invalidateCrudCache>[0],
+  quote: SalesQuote,
+): Promise<void> {
+  await invalidateCrudCache(
+    container,
+    'sales.quote',
+    { id: quote.id, tenantId: quote.tenantId, organizationId: quote.organizationId },
+    quote.tenantId ?? null,
+    'updated',
+  )
+}
+
 /**
  * The quotes list is served from the CRUD GET cache, so a custom route flushes it itself
  * or the list keeps reporting the quote as unsent until the entry expires. The send state
- * is already committed when this runs: a cache backend that rejects must not stop the
- * quote from being mailed, so the failure is reported and the stale entry is left to expire.
+ * is already committed when this runs, so the flush is optional work: it never rejects and
+ * it gives up after a deadline, because a cache backend that rejects or stalls must not
+ * stop the quote from being mailed. Either problem is reported and the stale entry is left
+ * to expire.
  */
 async function flushQuoteListCache(
   container: Parameters<typeof invalidateCrudCache>[0],
   quote: SalesQuote,
 ): Promise<void> {
-  try {
-    await invalidateCrudCache(
-      container,
-      'sales.quote',
-      { id: quote.id, tenantId: quote.tenantId, organizationId: quote.organizationId },
-      quote.tenantId ?? null,
-      'updated',
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<QuoteListCacheFlushOutcome>((resolve) => {
+    deadlineTimer = setTimeout(() => resolve({ kind: 'timed_out' }), QUOTE_LIST_CACHE_FLUSH_TIMEOUT_MS)
+  })
+  const invalidation = invalidateQuoteListCache(container, quote).then(
+    (): QuoteListCacheFlushOutcome => ({ kind: 'flushed' }),
+    (err: unknown): QuoteListCacheFlushOutcome => ({ kind: 'failed', err }),
+  )
+  const outcome = await Promise.race([invalidation, deadline])
+  clearTimeout(deadlineTimer)
+  if (outcome.kind === 'failed') {
+    reportQuoteListCacheFlushProblem(quote, outcome.err, 'sales.quote_send_cache_invalidation_failed')
+  }
+  if (outcome.kind === 'timed_out') {
+    reportQuoteListCacheFlushProblem(
+      quote,
+      new Error(`[internal] quote list cache invalidation exceeded ${QUOTE_LIST_CACHE_FLUSH_TIMEOUT_MS}ms`),
+      'sales.quote_send_cache_invalidation_timed_out',
     )
-  } catch (err) {
-    logger.error('sales.quotes.send cache invalidation failed', { err, quoteId: quote.id })
-    try {
-      getTelemetryRuntime()?.reportError(err, {
-        module: 'sales',
-        code: 'sales.quote_send_cache_invalidation_failed',
-        attributes: { quoteId: quote.id },
-      })
-    } catch (reportingErr) {
-      logger.warn('sales.quotes.send cache invalidation failure could not be reported', { err: reportingErr, quoteId: quote.id })
-    }
   }
 }
 
@@ -246,7 +281,9 @@ export async function POST(req: Request) {
       tx.persist(quote)
     })
 
-    await flushQuoteListCache(ctx.container, quote)
+    // Started alongside delivery instead of ahead of it: the primary e-mail never waits on
+    // the cache backend, and a failed delivery still leaves the list flush under way.
+    const listCacheFlush = flushQuoteListCache(ctx.container, quote)
 
     const appUrl = process.env.APP_URL || ''
     const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${rawAcceptanceToken}` : `/quote/${rawAcceptanceToken}`
@@ -273,13 +310,17 @@ export async function POST(req: Request) {
     const subject = translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber })
 
     // Side effect after commit: an email failure must not roll back the send state.
-    await sendEmail({
-      to: email,
-      subject,
-      react: QuoteSentEmail({ url, copy }),
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-    })
+    try {
+      await sendEmail({
+        to: email,
+        subject,
+        react: QuoteSentEmail({ url, copy }),
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+      })
+    } finally {
+      await listCacheFlush
+    }
 
     const ccNotice = translate(
       'sales.quotes.email.ccNotice',
