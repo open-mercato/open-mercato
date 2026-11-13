@@ -17,17 +17,11 @@ import {
   buildExchangeRatePayload,
 } from '../../../lib/exchangeRateFormConfig'
 
-/**
- * Formats a Date object to YYYY-MM-DDTHH:MM format in local timezone
- * for use with datetime-local input
- */
-function formatDateTimeLocal(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day}T${hours}:${minutes}`
+function formatDateOnlyUtc(date: Date): string {
+  const year = date.getUTCFullYear()
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 type ExchangeRateData = {
@@ -149,7 +143,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
             fromCurrencyCode: exchangeRate.fromCurrencyCode,
             toCurrencyCode: exchangeRate.toCurrencyCode,
             rate: parseFloat(exchangeRate.rate),
-            date: formatDateTimeLocal(new Date(exchangeRate.date)),
+            date: formatDateOnlyUtc(new Date(exchangeRate.date)),
             source: exchangeRate.source || '',
             type: exchangeRate.type || '',
             isActive: exchangeRate.isActive,

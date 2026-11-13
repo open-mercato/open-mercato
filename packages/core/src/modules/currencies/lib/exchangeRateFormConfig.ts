@@ -81,7 +81,7 @@ export function exchangeRateGroups(
         },
         {
           id: 'date',
-          type: 'datetime-local',
+          type: 'date',
           label: t('exchangeRates.form.field.date'),
           required: true,
           description: t('exchangeRates.form.field.dateHelp'),
@@ -155,13 +155,27 @@ export function validateExchangeRateForm(
     })
   }
 
-  const date = values.date ? new Date(String(values.date)) : null
+  // A bare `YYYY-MM-DD` (or a legacy `YYYY-MM-DDTHH:MM[...]` datetime-local
+  // value predating the UTC-midnight normalization) has no timezone
+  // designator, so `new Date(...)` would parse it in the SERVER's local
+  // timezone rather than UTC — a legacy "2026-10-30T11:00" on a server east
+  // of UTC can round-trip to 2026-10-29 once truncated to UTC midnight.
+  // Anchor directly on the calendar-date portion of the string so the result
+  // never depends on the server's local timezone.
+  const rawDate = values.date ? String(values.date) : ''
+  const dateOnlyMatch = rawDate.match(/^(\d{4}-\d{2}-\d{2})/)
+  const parsedDate = dateOnlyMatch
+    ? new Date(`${dateOnlyMatch[1]}T00:00:00.000Z`)
+    : (rawDate ? new Date(rawDate) : null)
 
-  if (!date || isNaN(date.getTime())) {
+  if (!parsedDate || isNaN(parsedDate.getTime())) {
     throw createCrudFormError(t('exchangeRates.form.errors.invalidDate'), {
       date: t('exchangeRates.form.errors.invalidDate'),
     })
   }
+
+  const date = new Date(parsedDate)
+  date.setUTCHours(0, 0, 0, 0)
 
   const source = String(values.source || '').trim()
   if (!source || source.length < 2) {
