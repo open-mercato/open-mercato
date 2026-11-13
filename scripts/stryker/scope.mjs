@@ -24,7 +24,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import path from 'node:path'
+import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 export const DEFAULT_BASE_REF = 'origin/main'
@@ -201,6 +201,6 @@ function main() {
   process.stdout.write(`${JSON.stringify(matrix)}\n`)
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   main()
 }
