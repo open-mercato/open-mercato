@@ -77,14 +77,36 @@ describe('resolveRecordLockSaveErrorDecision (single conflict surface, S3)', () 
     expect(decision.action).toBe('record-deleted')
   })
 
-  test('opens the fallback dialog for an unrecognized 409 (legacy behavior preserved)', () => {
+  test('ignores an unrecognized 409 without evidence of a concurrent edit', () => {
     const decision = resolveRecordLockSaveErrorDecision({
       error: { status: 409, body: { code: 'some_other_conflict' } },
       eventContextId: formId,
       formId,
       currentState,
     })
-    expect(decision.action).toBe('fallback-dialog')
+    expect(decision.action).toBe('ignore')
+  })
+
+  test.each([
+    { status: 409, body: { error: 'This order has shipments. Cancel or return them before cancelling the order.' } },
+    { status: 409, body: { code: 'recurring_order_use_cancel', error: 'Remove the recurring schedule first.' } },
+    Object.assign(new Error('This order has shipments.'), { status: 409 }),
+  ])('ignores a business-rule refusal: %p', (error) => {
+    expect(resolveRecordLockSaveErrorDecision({
+      error,
+      eventContextId: formId,
+      formId,
+      currentState,
+    }).action).toBe('ignore')
+  })
+
+  test('still handles a legacy lock conflict with no code', () => {
+    expect(resolveRecordLockSaveErrorDecision({
+      error: { status: 409, message: 'Record conflict detected', resourceKind, resourceId },
+      eventContextId: formId,
+      formId,
+      currentState,
+    }).action).toBe('apply-conflict')
   })
 
   test.each([

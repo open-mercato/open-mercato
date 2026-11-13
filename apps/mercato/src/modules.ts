@@ -13,6 +13,8 @@ import { officialModuleEntries } from './official-modules.generated'
 export type ModuleEntry = {
   id: string
   from?: '@open-mercato/core' | '@app' | string
+  locator?: string
+  packageName?: string
   overrides?: ModuleOverrides
 }
 
