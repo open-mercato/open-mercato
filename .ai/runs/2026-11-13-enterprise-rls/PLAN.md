@@ -39,6 +39,7 @@ Engine: om-auto-continue-pr-loop
 | 3 | 3.2 | Add self-contained canary CRUD and cross-tenant HTTP integration tests | inline | todo | — |
 | 3 | 3.3 | Add dispatcher, job retry and maintenance integration coverage | inline | todo | — |
 | 3 | 3.4 | Verify canary browser flow and publish working-app screenshots | inline | todo | — |
+| 3 | 3.5-concurrency-oracle | Match physical deletion and distinguish contract errors from isolation violations | inline | done | this commit; focused TypeScript pass; live rerun required |
 | 3 | 3.5-concurrency | Verify tenant isolation at 20, 30, 50 and 100 concurrent users and publish analysis | inline | todo | — |
 | 3 | 3.5 | Benchmark checkout overhead and pool pressure | inline | todo | — |
 | 4 | 4.0 | Remove PoC code and retain production regression coverage | inline | done | 3b4195bffa + parent live verification |

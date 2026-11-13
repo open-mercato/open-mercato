@@ -5,7 +5,7 @@ import { startRlsLiveRuntime } from './helpers/liveRuntime'
 import { createConcurrencyFixtures } from './helpers/concurrencyFixtures'
 
 const peopleSchema = z.object({ items: z.array(z.object({ id: z.string() }).passthrough()) })
-type Sample = { user: number; operation: string; status: number | null; latencyMs: number; valid: boolean }
+type Sample = { user: number; operation: string; status: number | null; latencyMs: number; valid: boolean; isolationViolation: boolean }
 type LevelResult = { concurrency: number; distinctUsers: number; tenants: number; peakInFlight: number; elapsedMs: number; p50Ms: number; p95Ms: number; errors: number; isolationViolations: number; retainedRowsUnchanged: boolean; samples: Sample[] }
 
 function percentile(values: number[], fraction: number) {
@@ -21,7 +21,7 @@ function analysis(results: LevelResult[]) {
     '| Users | Peak HTTP | Requests | p50 ms | p95 ms | Errors | Isolation violations | Rows unchanged |',
     '|---:|---:|---:|---:|---:|---:|---:|---|',
     ...results.map((result) => `| ${result.concurrency} | ${result.peakInFlight} | ${result.samples.length} | ${result.p50Ms.toFixed(2)} | ${result.p95Ms.toFixed(2)} | ${result.errors} | ${result.isolationViolations} | ${result.retainedRowsUnchanged} |`),
-    'Latency covers the full HTTP response body; privileged persisted-row verification is excluded. Errors include unexpected status, malformed response, timeout and transport failure. Isolation violations count invalid read contents or accepted foreign writes. No tokens, database URLs or request bodies are included.',
+    'Latency covers the full HTTP response body; privileged persisted-row verification is excluded. Errors include unexpected status, malformed response, timeout and transport failure. Isolation violations count foreign-read contents, unexpected record IDs in own reads or accepted foreign writes; own deletion/name oracle failures count as errors. No tokens, database URLs or request bodies are included.',
   ].join('\n')
 }
 
@@ -60,6 +60,7 @@ test('TC-RLS-002: distinct authenticated users remain isolated at 20/30/50/100 c
             peakInFlight = Math.max(peakInFlight, inFlight)
             let status: number | null = null
             let valid = false
+            let isolationViolation = false
             let httpLatencyMs: number | undefined
             try {
               const context = contexts[user]
@@ -86,6 +87,9 @@ test('TC-RLS-002: distinct authenticated users remain isolated at 20/30/50/100 c
                   const parsed = peopleSchema.safeParse(await response.json())
                   const absent = operation === 'foreign-read' || operation === 'own-deleted-read'
                   const expectedId = operation === 'own-read' ? actor.customerId : write.id
+                  isolationViolation = status === 200 && parsed.success && (operation === 'foreign-read'
+                    ? parsed.data.items.length > 0
+                    : parsed.data.items.some((item) => item.id !== expectedId))
                   valid = status === 200 && parsed.success && (absent
                     ? parsed.data.items.length === 0
                     : parsed.data.items.length === 1 && parsed.data.items[0].id === expectedId)
@@ -95,13 +99,14 @@ test('TC-RLS-002: distinct authenticated users remain isolated at 20/30/50/100 c
                   }
                 } else {
                   await response.body()
+                  isolationViolation = operation.startsWith('foreign-') && response.ok()
                   valid = operation.startsWith('foreign-') ? status === 403 || status === 404
                     : response.ok() && await fixtures!.ownRowMatches(write.id, actor, updatedName, operation === 'own-delete')
                 }
               } finally { await response.dispose() }
             } catch { valid = false } finally {
               if (httpLatencyMs === undefined) inFlight -= 1
-              samples.push({ user, operation, status, latencyMs: httpLatencyMs ?? performance.now() - began, valid })
+              samples.push({ user, operation, status, latencyMs: httpLatencyMs ?? performance.now() - began, valid, isolationViolation })
             }
           })
           release()
@@ -114,7 +119,7 @@ test('TC-RLS-002: distinct authenticated users remain isolated at 20/30/50/100 c
           elapsedMs: performance.now() - started, p50Ms: percentile(samples.map((sample) => sample.latencyMs), 0.5),
           p95Ms: percentile(samples.map((sample) => sample.latencyMs), 0.95),
           errors: samples.filter((sample) => !sample.valid).length,
-          isolationViolations: samples.filter((sample) => !sample.valid && (sample.operation.endsWith('read') || sample.operation.startsWith('foreign-')) && sample.status !== null && sample.status >= 200 && sample.status < 300).length,
+          isolationViolations: samples.filter((sample) => sample.isolationViolation).length,
           retainedRowsUnchanged, samples,
         }
         results.push(result)
