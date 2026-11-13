@@ -148,6 +148,7 @@ export async function countActiveCustomerUsage(
   const usageCount = await em.count(CodeUsage, {
     codeId,
     customerId,
+    revertedAt: null,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   })

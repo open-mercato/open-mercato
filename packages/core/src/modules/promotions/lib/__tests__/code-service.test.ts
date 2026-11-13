@@ -1375,3 +1375,23 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
     expect(emitPromotionsEvent).not.toHaveBeenCalled()
   })
 })
+
+
+describe('cancelled order customer code allowance (#8426)', () => {
+  it.each(['static', 'dynamic'] as const)('restores the allowance for a %s code while retaining the usage audit', async (type) => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: type === 'static' ? 'REUSE1' : null, type, usage: 'single', usagePerCustomer: 1 })
+    if (type === 'dynamic') seedGeneratedCode(tables, { codeId: code.id, code: 'REUSE1' })
+    const service = new PromotionCodeService(fakeContainer())
+    const manager = em as unknown as import('@mikro-orm/postgresql').EntityManager
+    await service.reserveCode(manager, { codeString: 'REUSE1', cartId: 'cart-1', customerId: 'cust-1' }, SCOPE)
+    await service.useCode(manager, { codeId: code.id, codeString: 'REUSE1', cartId: 'cart-1', customerId: 'cust-1', orderId: 'order-1', type }, SCOPE)
+    await service.revertCodeUse(manager, { orderId: 'order-1' }, SCOPE)
+    expect(await service.revertCodeUse(manager, { orderId: 'order-1' }, SCOPE)).toEqual({ ok: true, revertedCount: 0 })
+    expect(await service.reserveCode(manager, { codeString: 'REUSE1', cartId: 'cart-2', customerId: 'cust-1' }, SCOPE)).toMatchObject({ ok: true })
+    await service.useCode(manager, { codeId: code.id, codeString: 'REUSE1', cartId: 'cart-2', customerId: 'cust-1', orderId: 'order-2', type }, SCOPE)
+    expect(tables.get(CodeUsage)).toHaveLength(2)
+    expect(tables.get(CodeUsage)![0].revertedAt).toBeInstanceOf(Date)
+    expect(tables.get(CodeUsage)![1].revertedAt).toBeNull()
+  })
+})
