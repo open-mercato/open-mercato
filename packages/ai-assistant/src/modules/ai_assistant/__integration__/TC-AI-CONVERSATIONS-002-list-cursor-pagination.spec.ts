@@ -8,8 +8,8 @@ import { deleteConversationCascadeInDb } from './helpers/aiAssistantFixtures';
  * TC-AI-CONVERSATIONS-002 — Conversation list cursor pagination returns every row exactly once.
  *
  * Conversations without messages have a null `lastMessageAt` and sort first. Walking
- * `nextCursor` page by page must still reach every one of them, then the conversations
- * that do have messages.
+ * `nextPageToken` page by page must still reach every one of them, then the conversations
+ * that do have messages. `nextCursor` stays the ISO timestamp it was before.
  */
 
 const CONVERSATIONS = '/api/ai_assistant/ai/conversations';
@@ -17,10 +17,11 @@ const CONVERSATIONS = '/api/ai_assistant/ai/conversations';
 interface ListResponse {
   items: Array<{ conversationId: string }>;
   nextCursor: string | null;
+  nextPageToken: string | null;
 }
 
 test.describe('TC-AI-CONVERSATIONS-002: conversation list cursor pagination', () => {
-  test('walking nextCursor with limit=1 returns every conversation exactly once', async ({ request }) => {
+  test('walking nextPageToken with limit=1 returns every conversation exactly once', async ({ request }) => {
     test.slow();
     const adminToken = await getAuthToken(request, 'admin');
     const { tenantId } = getTokenScope(adminToken);
@@ -62,7 +63,10 @@ test.describe('TC-AI-CONVERSATIONS-002: conversation list cursor pagination', ()
         expect(listRes.status()).toBe(200);
         const body = await readJsonSafe<ListResponse>(listRes);
         seen.push(...(body?.items ?? []).map((item) => item.conversationId));
-        cursor = body?.nextCursor ?? null;
+        if (body?.nextCursor) {
+          expect(new Date(body.nextCursor).toISOString(), 'nextCursor stays an ISO timestamp').toBe(body.nextCursor);
+        }
+        cursor = body?.nextPageToken ?? null;
         if (!cursor) break;
       }
 

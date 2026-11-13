@@ -184,9 +184,15 @@ All routes MUST export `openApi` and declare `metadata.POST/GET/PATCH/DELETE` wi
       "lastMessageAt": "2026-05-05T10:10:00.000Z"
     }
   ],
-  "nextCursor": null
+  "nextCursor": null,
+  "nextPageToken": null
 }
 ```
+
+- Order: `lastMessageAt DESC` (conversations without messages first), then `createdAt DESC`, then `id DESC`.
+- `nextCursor` is the ISO timestamp of the last row's `lastMessageAt ?? createdAt`; passed back as `cursor` it returns rows with `lastMessageAt` strictly older. It can skip conversations without messages and rows sharing the boundary timestamp, and is kept unchanged for existing consumers.
+- `nextPageToken` (added 2026-11-13) is an opaque base64url token over `(lastMessageAt, createdAt, id)`; passed back as `cursor` it returns every remaining conversation exactly once. Clients should prefer it.
+- `cursor` accepts either value; a value that is not a valid token is treated as the ISO timestamp cursor.
 
 ### Create Conversation
 - `POST /api/ai_assistant/ai/conversations`
@@ -297,6 +303,7 @@ This is additive and must not remove existing public API fields or route behavio
 - Browser migration is lazy because server code cannot read each user's local storage.
 - Once imported, the server store becomes authoritative for that conversation. Local import markers can be cleared safely without deleting server records.
 - Attachment previews stored as `data:` URLs in local messages must not be persisted to the database. Persist attachment ids and safe file metadata only.
+- List pagination (2026-11-13): `nextPageToken` is an additive response field. `nextCursor` keeps its documented ISO timestamp format and its earlier `cursor` semantics, so existing consumers that store, parse or pass it back see no change. Consumers move to the exact cursor by passing `nextPageToken` back as `cursor` instead; no deprecation of `nextCursor` is scheduled.
 
 ## Implementation Plan
 
@@ -459,6 +466,9 @@ Fully compliant: Approved — ready for implementation.
 ## Changelog
 ### 2026-05-05
 - Initial specification for moving typed AI chat conversations from `localStorage` to server-side database storage.
+
+### 2026-11-13
+- List Conversations: added the additive `nextPageToken` keyset cursor and the `id` tiebreaker; `nextCursor` unchanged (see Migration & Backward Compatibility).
 
 ### Review — 2026-05-05
 - **Reviewer**: Agent

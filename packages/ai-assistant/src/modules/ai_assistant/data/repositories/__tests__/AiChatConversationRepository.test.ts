@@ -490,8 +490,8 @@ describe('AiChatConversationRepository', () => {
       for (let page = 0; page < 20; page += 1) {
         const result = await repo.list(ctx, { limit, cursor })
         seen.push(...result.items.map((row) => row.conversationId))
-        if (!result.nextCursor) return seen
-        cursor = result.nextCursor
+        if (!result.nextPageToken) return seen
+        cursor = result.nextPageToken
       }
       throw new Error('[internal] pagination did not terminate')
     }
@@ -550,6 +550,31 @@ describe('AiChatConversationRepository', () => {
         'active-recent',
         'active-old',
       ])
+    })
+
+    it('keeps nextCursor as the ISO timestamp of the last row and adds nextPageToken', async () => {
+      const em = mockEm()
+      const repo = new AiChatConversationRepository(em)
+      await seed(repo, em, [
+        { conversationId: 'empty', createdAt: '2026-05-03T00:00:00.000Z', lastMessageAt: null },
+        { conversationId: 'active', createdAt: '2026-01-01T00:00:00.000Z', lastMessageAt: '2026-05-10T00:00:00.000Z' },
+        { conversationId: 'older', createdAt: '2026-01-01T00:00:00.000Z', lastMessageAt: '2026-04-10T00:00:00.000Z' },
+      ])
+
+      const first = await repo.list(ctx, { limit: 1 })
+      expect(first.items.map((row) => row.conversationId)).toEqual(['empty'])
+      expect(first.nextCursor).toBe('2026-05-03T00:00:00.000Z')
+      expect(first.nextPageToken).toEqual(expect.any(String))
+      expect(first.nextPageToken).not.toBe(first.nextCursor)
+
+      const second = await repo.list(ctx, { limit: 1, cursor: first.nextPageToken })
+      expect(second.items.map((row) => row.conversationId)).toEqual(['active'])
+      expect(second.nextCursor).toBe('2026-05-10T00:00:00.000Z')
+
+      const last = await repo.list(ctx, { limit: 1, cursor: second.nextPageToken })
+      expect(last.items.map((row) => row.conversationId)).toEqual(['older'])
+      expect(last.nextCursor).toBeNull()
+      expect(last.nextPageToken).toBeNull()
     })
 
     it('still accepts a plain ISO timestamp cursor issued before the compound cursor', async () => {

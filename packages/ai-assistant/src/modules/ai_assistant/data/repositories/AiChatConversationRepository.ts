@@ -216,7 +216,7 @@ export class AiChatConversationRepository {
   async list(
     ctx: AiChatConversationContext,
     options: AiChatConversationListOptions = {},
-  ): Promise<{ items: AiChatConversation[]; nextCursor: string | null }> {
+  ): Promise<{ items: AiChatConversation[]; nextCursor: string | null; nextPageToken: string | null }> {
     assertContext(ctx, 'list')
     const limit = clampLimit(options.limit, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT)
     const where: Record<string, unknown> = {
@@ -268,10 +268,14 @@ export class AiChatConversationRepository {
       },
     )
     let nextCursor: string | null = null
+    let nextPageToken: string | null = null
     if (rows.length > limit) {
-      nextCursor = encodeListCursor(rows[limit - 1])
+      const lastIncluded = rows[limit - 1]
+      const cursorValue = lastIncluded.lastMessageAt ?? lastIncluded.createdAt
+      nextCursor = cursorValue ? cursorValue.toISOString() : null
+      nextPageToken = encodeListCursor(lastIncluded)
     }
-    return { items: rows.slice(0, limit), nextCursor }
+    return { items: rows.slice(0, limit), nextCursor, nextPageToken }
   }
 
   /** Update within tenant/org. View-only callers can update only their own conversations. */

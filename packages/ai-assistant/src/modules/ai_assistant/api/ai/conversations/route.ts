@@ -27,12 +27,14 @@ export const openApi: OpenApiRouteDoc = {
       operationId: 'aiAssistantListConversations',
       summary: 'List AI chat conversations visible to the caller.',
       description:
-        'Returns `{ items, nextCursor }` for the authenticated caller, ordered by `lastMessageAt` ' +
+        'Returns `{ items, nextCursor, nextPageToken }` for the authenticated caller, ordered by `lastMessageAt` ' +
         'descending (conversations without messages first), then `createdAt` and `id`. View-only callers receive only their own conversations. Callers with ' +
         '`ai_assistant.conversations.manage` may list conversations across users in the same ' +
         'tenant/organization. The ' +
-        '`agent` and `status` filters are optional; `cursor` is the opaque `nextCursor` returned by a ' +
-        'previous response.',
+        '`agent` and `status` filters are optional; `cursor` accepts the ISO timestamp `nextCursor` or ' +
+        'the opaque `nextPageToken` returned by a previous response. Follow `nextPageToken` to visit ' +
+        'every conversation exactly once; the timestamp `nextCursor` keeps its earlier behaviour and ' +
+        'can skip conversations without messages or sharing the boundary timestamp.',
       responses: [
         {
           status: 200,
@@ -136,7 +138,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     return jsonError(403, `Caller lacks required feature "${REQUIRED_FEATURE}".`, 'forbidden')
   }
   if (callerCtx.kind === 'missing-tenant') {
-    return NextResponse.json({ items: [], nextCursor: null })
+    return NextResponse.json({ items: [], nextCursor: null, nextPageToken: null })
   }
 
   const url = new URL(req.url)
@@ -172,6 +174,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     return NextResponse.json({
       items: result.items.map((row) => serializeAiChatConversation(row)),
       nextCursor: result.nextCursor,
+      nextPageToken: result.nextPageToken,
     })
   } catch (error) {
     logger.error('AI Conversations GET — Failure', { err: error })
