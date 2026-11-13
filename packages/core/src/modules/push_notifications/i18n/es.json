@@ -1,4 +1,5 @@
 {
+  "notifications.categories.system": "Sistema",
   "push_notifications.deliveries.columns.attempts": "Intentos",
   "push_notifications.deliveries.columns.created": "Creado",
   "push_notifications.deliveries.columns.provider": "Proveedor",

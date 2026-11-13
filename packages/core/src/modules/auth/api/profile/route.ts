@@ -14,6 +14,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { resolveUserDataSubject } from '@open-mercato/core/modules/auth/lib/userDataSubject'
 
 const logger = createLogger('auth').child({ component: 'profile' })
 
@@ -98,10 +99,18 @@ export async function GET(req: Request) {
   try {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
+    const userId = await resolveUserDataSubject(em, auth)
+    if (!userId) {
+      return NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+    }
     const user = await findOneWithDecryption(
       em,
       User,
-      { id: auth.sub, deletedAt: null },
+      {
+        id: userId,
+        deletedAt: null,
+        ...(auth.isApiKey ? { tenantId: auth.tenantId, ...(auth.orgId ? { organizationId: auth.orgId } : {}) } : {}),
+      },
       undefined,
       { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
     )
@@ -125,6 +134,9 @@ export async function PUT(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
     return NextResponse.json({ error: translate('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
+  }
+  if (auth.isApiKey) {
+    return NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
   }
   try {
     const body = await req.json().catch(() => ({}))
@@ -222,6 +234,7 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Profile payload', schema: profileResponseSchema },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'No user binding in the authenticated scope', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'User not found', schema: z.object({ error: z.string() }) },
       ],
     },
@@ -236,6 +249,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Profile updated', schema: profileUpdateResponseSchema },
         { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Interactive session required', schema: z.object({ error: z.string() }) },
       ],
     },
   },

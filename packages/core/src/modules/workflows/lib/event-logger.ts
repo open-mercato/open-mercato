@@ -72,6 +72,33 @@ export const WorkflowEventTypes = {
   SIGNAL_RECEIVED: 'SIGNAL_RECEIVED',
   SIGNAL_TIMEOUT: 'SIGNAL_TIMEOUT',
 
+  // Error routing (spec 5.9)
+  ERROR_ROUTED: 'ERROR_ROUTED',
+  ERROR_DIRECTIVE_APPLIED: 'ERROR_DIRECTIVE_APPLIED',
+  ERROR_PARKED: 'ERROR_PARKED',
+  ERROR_HANDLER_SCHEDULED: 'ERROR_HANDLER_SCHEDULED',
+  ERROR_HANDLER_STARTED: 'ERROR_HANDLER_STARTED',
+  ERROR_HANDLER_SKIPPED: 'ERROR_HANDLER_SKIPPED',
+
+  // Recovery (spec 8.4). `STEP_RERUN` carries `{ stepId, editedContextDiff, by }`
+  // and is the audit record of a rerun — the terminal StepInstance of the
+  // previous attempt is never touched, so the event log is where the two
+  // attempts are linked.
+  STEP_RERUN: 'STEP_RERUN',
+
+  // Agent outcome routing (spec 7.2)
+  OUTCOME_ROUTED: 'OUTCOME_ROUTED',
+  OUTCOME_UNHANDLED: 'OUTCOME_UNHANDLED',
+
+  // Dry run (spec 8.2). Written only by an `isDryRun` instance; the pure
+  // `lib/dry-run.ts` owns the same literals as `DRY_RUN_EVENT_TYPES` and builds
+  // the "Would do" report from them. A test pins the two lists together.
+  DRY_RUN_STARTED: 'DRY_RUN_STARTED',
+  ACTIVITY_SIMULATED: 'ACTIVITY_SIMULATED',
+  ACTIVITY_SIMULATION_REFUSED: 'ACTIVITY_SIMULATION_REFUSED',
+  USER_TASK_SIMULATED: 'USER_TASK_SIMULATED',
+  BUSINESS_RULE_ACTIONS_SUPPRESSED: 'BUSINESS_RULE_ACTIONS_SUPPRESSED',
+
   // Timer events (Phase 9)
   TIMER_AWAITING: 'TIMER_AWAITING',
   TIMER_FIRED: 'TIMER_FIRED',

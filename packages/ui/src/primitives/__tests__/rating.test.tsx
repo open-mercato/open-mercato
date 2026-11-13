@@ -89,15 +89,63 @@ describe('Rating', () => {
       expect(onChange).not.toHaveBeenCalled()
     })
 
-    it('marks aria-checked on items that are filled (full or half)', () => {
+    it('marks only the current choice as checked while preserving cumulative visual fill', () => {
       const { getAllByRole } = render(
         <Rating value={2.5} max={5} onChange={() => {}} allowHalf aria-label="Rate" />,
       )
       const items = getAllByRole('radio')
-      expect(items[0].getAttribute('aria-checked')).toBe('true')
-      expect(items[1].getAttribute('aria-checked')).toBe('true')
-      expect(items[2].getAttribute('aria-checked')).toBe('true') // half counts as checked
+      expect(items[0].getAttribute('aria-checked')).toBe('false')
+      expect(items[1].getAttribute('aria-checked')).toBe('false')
+      expect(items[2].getAttribute('aria-checked')).toBe('true')
       expect(items[3].getAttribute('aria-checked')).toBe('false')
+      expect(items[0].getAttribute('data-fill')).toBe('full')
+      expect(items[2].getAttribute('data-fill')).toBe('half')
+      expect(items[2]).toHaveAttribute('aria-label', '2.5 of 5')
+    })
+
+    it('moves focus and the single selected choice together through half steps and Home/End', () => {
+      function ControlledRating() {
+        const [value, setValue] = React.useState(2)
+        return <Rating value={value} onChange={setValue} allowHalf aria-label="Rate" />
+      }
+      const { getAllByRole, getByRole } = render(<ControlledRating />)
+      const items = getAllByRole('radio')
+      fireEvent.keyDown(items[1], { key: 'ArrowRight' })
+      expect(items[2]).toHaveFocus()
+      expect(getByRole('radio', { checked: true })).toBe(items[2])
+      expect(items[2]).toHaveAttribute('data-fill', 'half')
+      fireEvent.keyDown(items[2], { key: 'End' })
+      expect(items[4]).toHaveFocus()
+      expect(getByRole('radio', { checked: true })).toBe(items[4])
+      fireEvent.keyDown(items[4], { key: 'Home' })
+      expect(items[0]).toHaveFocus()
+      expect(items[0]).toHaveAttribute('data-fill', 'half')
+      fireEvent.keyDown(items[0], { key: 'ArrowLeft' })
+      expect(items.every(item => item.getAttribute('aria-checked') === 'false')).toBe(true)
+      expect(items[0]).toHaveFocus()
+    })
+
+    it('blocks keyboard changes as well as clicks when disabled', () => {
+      const onChange = jest.fn()
+      const { getAllByRole } = render(<Rating value={2} onChange={onChange} disabled aria-label="Rate" />)
+      const items = getAllByRole('radio')
+      fireEvent.keyDown(items[1], { key: 'ArrowRight' })
+      fireEvent.keyDown(items[1], { key: 'End' })
+      expect(onChange).not.toHaveBeenCalled()
+      expect(items.every(item => item.hasAttribute('disabled'))).toBe(true)
+    })
+
+    it('uses pointer position for half clicks and full values for keyboard-generated clicks', () => {
+      const onChange = jest.fn()
+      const { getAllByRole } = render(<Rating value={2} onChange={onChange} allowHalf aria-label="Rate" />)
+      const option = getAllByRole('radio')[2]
+      jest.spyOn(option, 'getBoundingClientRect').mockReturnValue({ left: 100, width: 20 } as DOMRect)
+      fireEvent.click(option, { clientX: 105, detail: 1 })
+      expect(onChange).toHaveBeenLastCalledWith(2.5)
+      fireEvent.click(option, { clientX: 115, detail: 1 })
+      expect(onChange).toHaveBeenLastCalledWith(3)
+      fireEvent.click(option, { clientX: 0, detail: 0 })
+      expect(onChange).toHaveBeenLastCalledWith(3)
     })
 
     it('moves the value with ArrowRight / ArrowLeft keys', () => {
@@ -138,6 +186,36 @@ describe('Rating', () => {
       )
       fireEvent.keyDown(getAllByRole('radio')[0], { key: 'ArrowLeft' })
       expect(onChange).toHaveBeenLastCalledWith(0)
+    })
+  })
+
+  describe('cell appearance', () => {
+    function CellRating({ disabled = false }: { disabled?: boolean }) {
+      const [value, setValue] = React.useState(2)
+      return <Rating value={value} onChange={setValue} appearance="cell" disabled={disabled} aria-label="Rate" />
+    }
+
+    it('keeps one checked choice and follows selection with keyboard focus', () => {
+      const { getAllByRole } = render(<CellRating />)
+      const choices = getAllByRole('radio')
+      choices[1].focus()
+      fireEvent.keyDown(choices[1], { key: 'ArrowRight' })
+      expect(choices[2]).toHaveFocus()
+      expect(choices[2]).toHaveAttribute('aria-checked', 'true')
+      expect(choices.filter(choice => choice.getAttribute('aria-checked') === 'true')).toHaveLength(1)
+      fireEvent.click(choices[4])
+      expect(choices[4]).toHaveAttribute('aria-checked', 'true')
+      expect(choices[2]).toHaveAttribute('aria-checked', 'false')
+    })
+
+    it('prevents disabled cell changes from both clicks and keyboard input', () => {
+      const { getAllByRole } = render(<CellRating disabled />)
+      const choices = getAllByRole('radio')
+      fireEvent.click(choices[4])
+      fireEvent.keyDown(choices[1], { key: 'End' })
+      expect(choices[1]).toHaveAttribute('aria-checked', 'true')
+      expect(choices[4]).toHaveAttribute('aria-checked', 'false')
+      expect(choices.every(choice => choice.hasAttribute('disabled'))).toBe(true)
     })
   })
 

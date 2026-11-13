@@ -3,6 +3,7 @@ import { verifyAudienceJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CUSTOMER_JWT_AUDIENCE } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
+import { isCustomerTenantActive } from './tenantEligibility'
 
 export interface CustomerAuthContext {
   sub: string
@@ -18,6 +19,17 @@ export interface CustomerAuthContext {
   isPortalAdmin?: boolean
 }
 
+async function resolveSessionService(): Promise<
+  InstanceType<typeof import('@open-mercato/core/modules/customer_accounts/services/customerSessionService').CustomerSessionService>
+> {
+  const [{ createRequestContainer }, { CustomerSessionService }] = await Promise.all([
+    import('@open-mercato/shared/lib/di/container'),
+    import('@open-mercato/core/modules/customer_accounts/services/customerSessionService'),
+  ])
+  const container = await createRequestContainer()
+  return container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
+}
+
 async function assertSessionStillActive(input: {
   sessionId: string
   userId: string
@@ -25,17 +37,32 @@ async function assertSessionStillActive(input: {
   organizationId: string
 }): Promise<boolean> {
   try {
-    const [{ createRequestContainer }, { CustomerSessionService }] = await Promise.all([
-      import('@open-mercato/shared/lib/di/container'),
-      import('@open-mercato/core/modules/customer_accounts/services/customerSessionService'),
-    ])
-    const container = await createRequestContainer()
-    const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
+    const service = await resolveSessionService()
     const session = await service.findActiveSessionForClaims(input)
     return session !== null
   } catch {
     // Fail closed: if we cannot verify the session, treat the token as revoked to prevent
     // replay of leaked JWTs when the backend is partially degraded.
+    return false
+  }
+}
+
+/**
+ * Liveness re-check for a legacy token that carries no `sid` claim. It cannot name the session it
+ * was issued for, so the check falls back to the strongest available statement: the customer must
+ * still be signed in somewhere. Once every session is revoked — logout, per-device revoke, admin
+ * action — the token stops authenticating instead of surviving until its own expiry.
+ */
+async function assertUserStillHasActiveSession(input: {
+  userId: string
+  tenantId: string
+  organizationId: string
+}): Promise<boolean> {
+  try {
+    const service = await resolveSessionService()
+    return await service.hasActiveSessionForUser(input)
+  } catch {
+    // Same fail-closed contract as the sid-bound check above.
     return false
   }
 }
@@ -54,7 +81,15 @@ export function readCookieFromHeader(header: string | null | undefined, name: st
 
 export type UserValidationResult =
   | { valid: false }
-  | { valid: true; resolvedFeatures: string[]; isPortalAdmin: boolean }
+  | {
+      valid: true
+      resolvedFeatures: string[]
+      isPortalAdmin: boolean
+      tenantId?: string
+      organizationId?: string
+      customerEntityId?: string | null
+      personEntityId?: string | null
+    }
 
 export async function validateUserState(
   sub: string,
@@ -69,7 +104,7 @@ export async function validateUserState(
   const container = await createRequestContainer()
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
   const user = await findOneWithDecryption(em, CustomerUser, { id: sub }, {
-    fields: ['sessionsRevokedAt', 'deletedAt', 'isActive'],
+    fields: ['tenantId', 'organizationId', 'customerEntityId', 'personEntityId', 'sessionsRevokedAt', 'deletedAt', 'isActive'],
   })
   if (!user) return { valid: false }
   if (user.deletedAt) return { valid: false }
@@ -77,17 +112,35 @@ export async function validateUserState(
   if (user.sessionsRevokedAt && typeof iat === 'number' && iat * 1000 < user.sessionsRevokedAt.getTime()) {
     return { valid: false }
   }
+  if (!(await isCustomerTenantActive(em, tenantId))) return { valid: false }
+
+  // Trusted scope (#2244): the JWT's tenantId/orgId are a hint only, same as the staff auth
+  // contract (resolveCanonicalStaffAuthContext). A token issued before a tenant/org change —
+  // or carrying a forged claim — is rejected outright rather than trusted for authorization.
+  const currentTenantId = String(user.tenantId)
+  const currentOrganizationId = String(user.organizationId)
+  if (currentTenantId !== tenantId || currentOrganizationId !== orgId) {
+    return { valid: false }
+  }
 
   const { CustomerRbacService } = await import(
     '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
   )
   const rbac = container.resolve('customerRbacService') as InstanceType<typeof CustomerRbacService>
-  const acl = await rbac.loadAcl(sub, { tenantId, organizationId: orgId })
+  const acl = await rbac.loadAcl(sub, { tenantId: currentTenantId, organizationId: currentOrganizationId })
   const resolvedFeatures = await rbac.getEffectiveFeatures(sub, {
-    tenantId,
-    organizationId: orgId,
+    tenantId: currentTenantId,
+    organizationId: currentOrganizationId,
   })
-  return { valid: true, resolvedFeatures, isPortalAdmin: acl.isPortalAdmin }
+  return {
+    valid: true,
+    resolvedFeatures,
+    isPortalAdmin: acl.isPortalAdmin,
+    tenantId: currentTenantId,
+    organizationId: currentOrganizationId,
+    customerEntityId: user.customerEntityId ? String(user.customerEntityId) : null,
+    personEntityId: user.personEntityId ? String(user.personEntityId) : null,
+  }
 }
 
 export async function getCustomerAuthFromRequest(req: Request): Promise<CustomerAuthContext | null> {
@@ -129,6 +182,9 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
     const userId = String(payload.sub)
     const tenantId = String(payload.tenantId)
     const organizationId = String(payload.orgId)
+    // Every accepted token is re-checked for liveness, exactly like the SSR path does — a token
+    // without a `sid` is checked against the customer's remaining sessions rather than skipped,
+    // so session revocation is never structurally unreachable on the API path.
     const stillActive = sid
       ? await assertSessionStillActive({
           sessionId: sid,
@@ -136,7 +192,7 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
           tenantId,
           organizationId,
         })
-      : true
+      : await assertUserStillHasActiveSession({ userId, tenantId, organizationId })
     if (!stillActive) return null
 
     const userState = await validateUserState(
@@ -145,18 +201,20 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
       organizationId,
       payload.iat,
     )
-    if (!userState.valid) return null
+    if (!userState.valid || !userState.tenantId || !userState.organizationId) return null
 
     return {
       sub: userId,
       sid,
       type: 'customer',
-      tenantId,
-      orgId: organizationId,
+      // Authorization scope comes from userState (re-derived from the DB in validateUserState),
+      // not from the JWT's own tenantId/orgId/customerEntityId/personEntityId claims (#2244).
+      tenantId: userState.tenantId,
+      orgId: userState.organizationId,
       email: String(payload.email || ''),
       displayName: String(payload.displayName || ''),
-      customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,
-      personEntityId: payload.personEntityId ? String(payload.personEntityId) : null,
+      customerEntityId: userState.customerEntityId ?? null,
+      personEntityId: userState.personEntityId ?? null,
       resolvedFeatures: userState.resolvedFeatures,
       isPortalAdmin: userState.isPortalAdmin,
     }

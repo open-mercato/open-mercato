@@ -28,4 +28,22 @@ describe('CRUD export serializers', () => {
       '"\'\t=HYPERLINK(""https://example.invalid"")","\'\r+1+1",\'-7',
     ])
   })
+
+  it('escapes and neutralizes CSV header cells the same way as data cells', () => {
+    const serialized = serializeExport({
+      columns: [
+        { field: 'company', header: 'Name, Inc.' },
+        { field: 'formula', header: '=HEADER' },
+        { field: 'plain', header: 'Balance' },
+      ],
+      rows: [
+        { company: 'Acme', formula: 'ok', plain: 1 },
+      ],
+    }, 'csv')
+
+    expect(serialized.body.split('\n')).toEqual([
+      '"Name, Inc.",\'=HEADER,Balance',
+      'Acme,ok,1',
+    ])
+  })
 })

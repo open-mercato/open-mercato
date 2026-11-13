@@ -238,6 +238,7 @@ export function CustomerTodosTable(): React.JSX.Element {
   return (
     <DataTable
       title={t('customers.workPlan.customerTodos.table.title')}
+      titleHeadingLevel={1}
       actions={(
         <Button
           variant="outline"

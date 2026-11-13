@@ -215,6 +215,37 @@ describe('data_sync run route', () => {
     }))
   })
 
+  // `supportsStartControl` governs what the dashboard offers, never what the
+  // API accepts: an API client, a script, or a stale browser tab may still post
+  // the field and must get the documented behaviour.
+  it('honours fullSync even when the adapter declares the control inapplicable', async () => {
+    mockSyncRunService.resolveCursor.mockResolvedValue('shared-cursor')
+    mockGetDataSyncAdapter.mockReturnValueOnce({
+      providerKey: 'excel',
+      runMode: 'generic',
+      direction: 'import',
+      supportedEntities: ['customers.person'],
+      supportsStartControl: () => false,
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+        fullSync: true,
+        batchSize: 25,
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mockSyncRunService.resolveCursor).not.toHaveBeenCalled()
+    expect(mockStartDataSyncRun).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ cursor: null, batchSize: 25 }),
+    }))
+  })
+
   it('normalizes declared run parameters and forwards them to the run', async () => {
     mockGetDataSyncAdapter.mockReturnValueOnce({
       providerKey: 'excel',

@@ -5,7 +5,10 @@ import { Activity, Building2, History, NotebookPen, Paperclip, Users } from 'luc
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
-import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { resolveInjectedIcon } from '@open-mercato/ui/backend/injection/resolveInjectedIcon'
+import { DetailTabRail } from './DetailTabRail'
+
+export const DEAL_DETAIL_TAB_IDS = ['activities', 'people', 'companies', 'notes', 'files', 'changelog'] as const
 
 export type DealTabId =
   | 'activities'
@@ -21,6 +24,7 @@ type TabDef = {
   label: string
   icon?: React.ReactNode
   count?: React.ReactNode
+  priority?: number
 }
 
 export const DEAL_DETAIL_TABS_COMPONENT_ID = 'section:customers.deals.detailTabs'
@@ -28,7 +32,8 @@ export const DEAL_DETAIL_TABS_COMPONENT_ID = 'section:customers.deals.detailTabs
 export type DealDetailTabsProps = {
   activeTab: DealTabId
   onTabChange: (tab: DealTabId) => void
-  injectedTabs?: Array<{ id: string; label: string }>
+  injectedTabs?: Array<{ id: string; label: string; icon?: string; priority?: number }>
+  isLoadingInjectedTabs?: boolean
   hiddenTabIds?: string[]
   peopleCount?: number
   companiesCount?: number
@@ -53,6 +58,7 @@ function DefaultDealDetailTabs({
   activeTab,
   onTabChange,
   injectedTabs = [],
+  isLoadingInjectedTabs = false,
   hiddenTabIds = [],
   peopleCount = 0,
   companiesCount = 0,
@@ -103,36 +109,35 @@ function DefaultDealDetailTabs({
     const hidden = new Set(hiddenTabIds)
     return [
       ...builtInTabs,
-      ...injectedTabs.map((tab) => ({
+      ...injectedTabs.filter((tab, index) => !builtInTabs.some((native) => native.id === tab.id) && injectedTabs.findIndex((candidate) => candidate.id === tab.id) === index).map((tab) => ({
         id: tab.id as DealTabId,
         label: tab.label,
+        icon: resolveInjectedIcon(tab.icon),
+        priority: tab.priority,
       })),
-    ].filter((tab) => !hidden.has(tab.id))
+    ]
+      .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))
+      .filter((tab) => !hidden.has(tab.id))
   }, [builtInTabs, hiddenTabIds, injectedTabs])
 
-  return (
-    <div>
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => onTabChange(value as DealTabId)}
-        variant="underline"
-      >
-        <TabsList
-          aria-label={t('customers.deals.detail.tabs.label', 'Deal detail sections')}
-          className="w-full overflow-x-auto"
-        >
-          {allTabs.map((tab) => (
-            <TabsTrigger key={tab.id} value={tab.id} leading={tab.icon} count={tab.count}>
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+  React.useEffect(() => {
+    if (isLoadingInjectedTabs || allTabs.some((tab) => tab.id === activeTab)) return
+    const fallback = allTabs[0]?.id
+    if (fallback) onTabChange(fallback)
+  }, [activeTab, allTabs, isLoadingInjectedTabs, onTabChange])
 
-      <div className="pt-5" role="tabpanel">
-        {children}
-      </div>
-    </div>
+  return (
+    <DetailTabRail
+      busy={isLoadingInjectedTabs}
+      tabs={allTabs}
+      activeTab={activeTab}
+      onTabChange={(tab) => onTabChange(tab as DealTabId)}
+      listLabel={t('customers.deals.detail.tabs.label', 'Deal detail sections')}
+      moreLabel={t('customers.deals.detail.tabs.more', 'More')}
+      contentClassName="pt-5"
+    >
+      {children}
+    </DetailTabRail>
   )
 }
 

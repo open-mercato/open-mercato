@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto'
-import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
-import { COMMUNICATION_CHANNELS_QUEUES } from './lib/queue'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { CommunicationChannel } from './data/entities'
+import { COMMUNICATION_CHANNELS_QUEUES } from './lib/queue'
+import { isTestChannelSeedingEnabled, TEST_SEED_PROVIDER_KEY } from './lib/test-seed'
 
 const logger = createLogger('communication_channels')
 
@@ -24,6 +28,24 @@ type SchedulerServiceLike = {
     description?: string
   }) => Promise<void>
 }
+
+type CredentialsServiceLike = {
+  resolve: (
+    integrationId: string,
+    scope: { organizationId: string; tenantId: string; userId?: string | null },
+  ) => Promise<Record<string, unknown> | null>
+  save: (
+    integrationId: string,
+    credentials: Record<string, unknown>,
+    scope: { organizationId: string; tenantId: string; userId?: string | null },
+  ) => Promise<void>
+}
+
+/**
+ * Sender the test-seed channel presents. Shared by the channel row's
+ * `externalIdentifier` and its seeded credentials so both describe one address.
+ */
+const TEST_SEED_FROM_ADDRESS = 'system@test-seed.local'
 
 /**
  * Tick interval in seconds. Default 60s per email integration spec
@@ -49,6 +71,60 @@ function stablePollTickScheduleId(organizationId: string): string {
   return stableScheduleUuid(`communication_channels:poll-tick:${organizationId}`)
 }
 
+async function ensureCommunicationChannelSchedules(ctx: {
+  container: import('awilix').AwilixContainer
+  tenantId: string
+  organizationId: string
+}): Promise<void> {
+  const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
+  if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
+
+  const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
+  try {
+    await schedulerService.register({
+      id: stablePollTickScheduleId(ctx.organizationId),
+      name: 'Communication channels poll tick',
+      description:
+        `Enumerates active polling channels every ${POLL_TICK_INTERVAL_SECONDS}s and enqueues per-channel poll jobs.`,
+      scopeType: 'organization',
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      scheduleType: 'interval',
+      scheduleValue: `${POLL_TICK_INTERVAL_SECONDS}s`,
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: COMMUNICATION_CHANNELS_QUEUES.pollTick,
+      targetPayload: {
+        scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      },
+      sourceType: 'module',
+      sourceModule: 'communication_channels',
+      isEnabled: true,
+    })
+
+    await schedulerService.register({
+      id: stableScheduleUuid(`communication_channels:gmail-renew-watch:${ctx.organizationId}`),
+      name: 'Gmail watch renewal',
+      description:
+        'Daily 04:00 UTC. Re-issues gmail.users.watch for channels within OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS of expiry.',
+      scopeType: 'organization',
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      scheduleType: 'cron',
+      scheduleValue: '0 4 * * *',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: COMMUNICATION_CHANNELS_QUEUES.gmailRenewWatch,
+      targetPayload: { scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId } },
+      sourceType: 'module',
+      sourceModule: 'communication_channels',
+      isEnabled: true,
+    })
+  } catch (error) {
+    logger.warn('Failed to register module schedules', { err: error })
+  }
+}
+
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     superadmin: [
@@ -57,6 +133,7 @@ export const setup: ModuleSetupConfig = {
       'communication_channels.react',
       'communication_channels.assign',
       'communication_channels.connect_user_channel',
+      'communication_channels.share_own_channel',
       'communication_channels.connect_tenant_channel',
       'communication_channels.admin',
       'communication_channels.channel.import_history',
@@ -68,6 +145,7 @@ export const setup: ModuleSetupConfig = {
       'communication_channels.react',
       'communication_channels.assign',
       'communication_channels.connect_user_channel',
+      'communication_channels.share_own_channel',
       'communication_channels.connect_tenant_channel',
       'communication_channels.admin',
       'communication_channels.channel.import_history',
@@ -79,15 +157,85 @@ export const setup: ModuleSetupConfig = {
       'communication_channels.react',
       'communication_channels.assign',
       'communication_channels.connect_user_channel',
+      'communication_channels.share_own_channel',
     ],
     employee: [
       'communication_channels.view',
       'communication_channels.react',
       'communication_channels.connect_user_channel',
+      'communication_channels.share_own_channel',
     ],
   },
 
   async seedDefaults({ container, organizationId, tenantId }) {
+    if (isTestChannelSeedingEnabled() && process.env.SYSTEM_EMAIL_PROVIDER === TEST_SEED_PROVIDER_KEY) {
+      const em = (container.resolve('em') as EntityManager).fork()
+      const existing = await findOneWithDecryption(
+        em,
+        CommunicationChannel,
+        {
+          providerKey: TEST_SEED_PROVIDER_KEY,
+          channelType: 'email',
+          tenantId,
+          organizationId,
+          userId: null,
+          deletedAt: null,
+        },
+        undefined,
+        { tenantId, organizationId },
+      )
+      if (!existing) {
+        em.persist(em.create(CommunicationChannel, {
+          providerKey: TEST_SEED_PROVIDER_KEY,
+          channelType: 'email',
+          displayName: 'Test Seed System Email',
+          externalIdentifier: TEST_SEED_FROM_ADDRESS,
+          userId: null,
+          isPrimary: false,
+          isActive: true,
+          status: 'connected',
+          tenantId,
+          organizationId,
+        }))
+        await em.flush()
+      }
+
+      /**
+       * Seeding the channel row without credentials is not a neutral state — it is a
+       * fail-closed one. Once a tenant owns a Hub channel, `resolveTenantCredentials`
+       * deliberately refuses to fall back to instance-wide env credentials, so every
+       * tenant-scoped send throws `SYSTEM_EMAIL_CREDENTIALS_NOT_CONFIGURED`. Callers that
+       * treat a failed send as a failed write (customer invitations roll back and return
+       * 502) then fail outright rather than merely losing the email.
+       *
+       * Seeding credentials alongside the row makes the harness model a tenant that
+       * finished configuring its provider, which is also the only one of the three
+       * credential cases the integration suite would otherwise never exercise.
+       */
+      // Best-effort, like the scheduler registration below: credential storage needs the
+      // integrations module and a usable encryption key, and neither is guaranteed in every
+      // harness. A failure here must not abort tenant initialization for every other module.
+      try {
+        const credentialsService = container.resolve('integrationCredentialsService') as CredentialsServiceLike
+        const testSeedIntegrationId = `channel_${TEST_SEED_PROVIDER_KEY}`
+        const credentialScope = { tenantId, organizationId, userId: null }
+        const existingCredentials = await credentialsService.resolve(testSeedIntegrationId, credentialScope)
+        if (!existingCredentials) {
+          await credentialsService.save(
+            testSeedIntegrationId,
+            { testSeed: true, fromAddress: TEST_SEED_FROM_ADDRESS },
+            credentialScope,
+          )
+        }
+      } catch (error) {
+        logger.warn('Test-seed email credentials could not be stored; tenant-scoped sends will fail closed', {
+          err: error,
+          tenantId,
+          organizationId,
+        })
+      }
+    }
+
     /**
      * Register the per-channel polling tick with `@open-mercato/scheduler`.
      *
@@ -101,59 +249,11 @@ export const setup: ModuleSetupConfig = {
      * scheduler module isn't enabled — keeps the hub usable in scheduler-less
      * test harnesses.
      */
-    const cradle = container as { hasRegistration?: (name: string) => boolean }
-    if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) {
-      return
-    }
-    const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike
-    // Best-effort: a scheduler failure must not abort tenant initialization for
-    // every other module (mirrors the ai_assistant setup pattern). The schedule
-    // ids are deterministic uuids so re-runs upsert idempotently.
-    try {
-      await schedulerService.register({
-        id: stablePollTickScheduleId(organizationId),
-        name: 'Communication channels poll tick',
-        description:
-          `Enumerates active polling channels every ${POLL_TICK_INTERVAL_SECONDS}s and enqueues per-channel poll jobs.`,
-        scopeType: 'organization',
-        organizationId,
-        tenantId,
-        scheduleType: 'interval',
-        scheduleValue: `${POLL_TICK_INTERVAL_SECONDS}s`,
-        timezone: 'UTC',
-        targetType: 'queue',
-        targetQueue: COMMUNICATION_CHANNELS_QUEUES.pollTick,
-        targetPayload: {
-          scope: { tenantId, organizationId },
-        },
-        sourceType: 'module',
-        sourceModule: 'communication_channels',
-        isEnabled: true,
-      })
+    await ensureCommunicationChannelSchedules({ container, tenantId, organizationId })
+  },
 
-      // Spec C § Phase C4 — Gmail watch renewal cron, per-org so multi-tenant
-      // deploys schedule independently.
-      await schedulerService.register({
-        id: stableScheduleUuid(`communication_channels:gmail-renew-watch:${organizationId}`),
-        name: 'Gmail watch renewal',
-        description:
-          'Daily 04:00 UTC. Re-issues gmail.users.watch for channels within OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS of expiry.',
-        scopeType: 'organization',
-        organizationId,
-        tenantId,
-        scheduleType: 'cron',
-        scheduleValue: '0 4 * * *',
-        timezone: 'UTC',
-        targetType: 'queue',
-        targetQueue: COMMUNICATION_CHANNELS_QUEUES.gmailRenewWatch,
-        targetPayload: { scope: { tenantId, organizationId } },
-        sourceType: 'module',
-        sourceModule: 'communication_channels',
-        isEnabled: true,
-      })
-    } catch (error) {
-      logger.warn('Failed to register module schedules', { err: error })
-    }
+  async onOrganizationCreated({ container, tenantId, organizationId }) {
+    await ensureCommunicationChannelSchedules({ container, tenantId, organizationId })
   },
 }
 

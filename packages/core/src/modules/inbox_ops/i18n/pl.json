@@ -52,7 +52,7 @@
   "inbox_ops.discrepancy.desc.draft_reply_no_contact": "Odbiorca szkicu odpowiedzi nie ma pasuj\u0105cego kontaktu. Najpierw utw\u00f3rz kontakt.",
   "inbox_ops.discrepancy.desc.duplicate_order_reference": "Zam\u00f3wienie z t\u0105 referencj\u0105 klienta ju\u017c istnieje",
   "inbox_ops.discrepancy.desc.no_channel": "Brak dost\u0119pnego kana\u0142u sprzeda\u017cy. Utw\u00f3rz kana\u0142 w ustawieniach sprzeda\u017cy przed akceptacj\u0105 tego zam\u00f3wienia.",
-  "inbox_ops.discrepancy.desc.no_currency": "Nie mo\u017cna ustali\u0107 waluty dla tego zam\u00f3wienia. Ustaw kod waluty lub skonfiguruj kana\u0142 sprzeda\u017cy z domy\u015bln\u0105 walut\u0105.",
+  "inbox_ops.discrepancy.desc.no_currency": "Nie mo\u017cna ustali\u0107 waluty dla tego zam\u00f3wienia. Ustaw kod waluty dla zam\u00f3wienia.",
   "inbox_ops.discrepancy.desc.no_matching_contact": "Nie znaleziono pasuj\u0105cego kontaktu",
   "inbox_ops.discrepancy.desc.product_not_matched": "Nie uda\u0142o si\u0119 dopasowa\u0107 produktu do katalogu",
   "inbox_ops.discrepancy.expected": "Oczekiwano",

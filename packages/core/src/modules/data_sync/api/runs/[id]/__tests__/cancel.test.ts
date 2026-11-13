@@ -156,6 +156,9 @@ describe('data_sync cancel run route', () => {
       'cancelled',
       { organizationId: 'org-1', tenantId: 'tenant-1' },
     )
+    expect(mockSyncRunService.markStatus.mock.invocationCallOrder[0]).toBeLessThan(
+      mockProgressService.markCancelled.mock.invocationCallOrder[0],
+    )
     expect(mockIntegrationStateService.upsert).toHaveBeenCalledWith('sync_excel', expect.objectContaining({
       lastHealthStatus: 'degraded',
       lastHealthCheckedAt: expect.any(Date),
@@ -184,6 +187,26 @@ describe('data_sync cancel run route', () => {
       resourceKind: 'data_sync.run',
       resourceId: '11111111-1111-4111-8111-111111111111',
     }))
+  })
+
+  it('returns 409 without cancelling progress when a worker wins the terminal transition', async () => {
+    mockSyncRunService.markStatus.mockResolvedValueOnce({
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'failed',
+      lastError: 'Akeneo credentials are incomplete',
+    })
+
+    const response = await postHandler(
+      new Request('http://localhost/api/data_sync/runs/11111111-1111-4111-8111-111111111111/cancel', { method: 'POST' }),
+      { params: { id: '11111111-1111-4111-8111-111111111111' } },
+    )
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({ error: 'Only pending or running runs can be cancelled' })
+    expect(mockProgressService.markCancelled).not.toHaveBeenCalled()
+    expect(mockIntegrationStateService.upsert).not.toHaveBeenCalled()
+    expect(mockIntegrationLogService.write).not.toHaveBeenCalled()
+    expect(mockCrudMutationGuardService.afterMutationSuccess).not.toHaveBeenCalled()
   })
 
   it('short-circuits the cancellation when the mutation guard blocks it', async () => {

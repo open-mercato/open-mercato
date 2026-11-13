@@ -191,43 +191,36 @@ export function createSyncRunService(em: EntityManager) {
     },
 
     async markStatus(runId: string, status: SyncRun['status'], scope: SyncScope, error?: string): Promise<SyncRun | null> {
-      if (status === 'running') {
-        const updated = await em.nativeUpdate(
-          SyncRun,
-          {
-            id: runId,
-            organizationId: scope.organizationId,
-            tenantId: scope.tenantId,
-            deletedAt: null,
-            // A BullMQ stalled-job redelivery finds the run in `running` after
-            // the previous worker was hard-killed. Treat that transition as an
-            // idempotent claim while still excluding terminal states so a
-            // cancelled or completed run cannot be revived.
-            status: { $in: ['pending', 'running'] },
-          },
-          {
-            status,
-            ...(error !== undefined ? { lastError: error } : {}),
-            updatedAt: new Date(),
-          },
-        )
-        if (updated === 0) return null
-        const row = await this.getRun(runId, scope)
-        if (row && typeof em.refresh === 'function') {
-          await em.refresh(row)
-        }
-        return row
-      }
+      const allowedStatuses: SyncRun['status'][] = status === 'running'
+        ? ['pending', 'running']
+        : status === 'paused'
+          ? ['pending', 'running', 'paused']
+          : ['pending', 'running', 'paused', status]
+      const updated = await em.nativeUpdate(
+        SyncRun,
+        {
+          id: runId,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+          // A BullMQ stalled-job redelivery may reclaim `running`, while a
+          // terminal transition must atomically beat cancellation/failure in a
+          // different request EntityManager. No transition can revive or
+          // replace a different terminal state.
+          status: { $in: allowedStatuses },
+        },
+        {
+          status,
+          ...(error !== undefined ? { lastError: error } : {}),
+          updatedAt: new Date(),
+        },
+      )
+      if (updated === 0 && status === 'running') return null
 
       const row = await this.getRun(runId, scope)
-      if (!row) return null
-      const isTerminal = row.status === 'completed' || row.status === 'failed' || row.status === 'cancelled'
-      if (isTerminal && row.status !== status) {
-        return row
+      if (row && typeof em.refresh === 'function') {
+        await em.refresh(row)
       }
-      row.status = status
-      if (error !== undefined) row.lastError = error
-      await em.flush()
       return row
     },
 

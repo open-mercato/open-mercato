@@ -6,6 +6,9 @@ import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash';
 export type IntegrationRole = 'admin' | 'employee' | 'superadmin';
 
 export type ComposeMessagePayload = {
+  visibility?: 'public' | 'internal';
+  externalEmail?: string;
+  externalName?: string;
   recipients: Array<{ userId: string; type?: 'to' | 'cc' | 'bcc' }>;
   subject: string;
   body: string;

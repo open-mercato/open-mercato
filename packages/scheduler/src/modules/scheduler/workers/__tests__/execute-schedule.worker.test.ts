@@ -22,6 +22,10 @@ registerModules([
   },
 ] as never)
 
+// These suites cover the run itself; the nextRunAt sync that follows it is
+// async-strategy only and has its own suite.
+delete process.env.QUEUE_STRATEGY
+
 const mockCommandExecute = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({
