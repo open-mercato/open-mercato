@@ -1,0 +1,341 @@
+{
+  "runId": "70dbf1d7-f5db-4af2-846c-30a83b1cca3b",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8983,
+    "title": "fix(ui): contain Forms locale controls and warranty stage markers",
+    "branch": "cez/c4df2a6e",
+    "headSha": "1f3810ddea99b21ef557132fe0495346749a297b"
+  },
+  "scanHead": "a38bce952449f65c86156a0aa595a0674df1de9e",
+  "testedHead": "1f3810ddea99b21ef557132fe0495346749a297b",
+  "verdict": "PASS",
+  "reviewVerdict": "approve",
+  "outcome": "fresh affected-scope independent complex QA PASS; unchanged prior coverage retained with provenance",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:46747",
+    "role": "two newly created tenant-bound editor users plus own forms.view-only user",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "production": true,
+    "browserVersion": "Chromium149.0.7827.55",
+    "coldAndWarmReady": true
+  },
+  "hasUiTest": true,
+  "evidenceUrl": null,
+  "priorEvidenceUrl": "https://github.com/open-mercato/open-mercato/pull/8983#issuecomment-6856183983",
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "expected": "Two new users in separate authenticated browser contexts; own editor/viewer roles and own form",
+      "action": "Owned tenant-bound distinct actors",
+      "observed": "Two new users in separate authenticated browser contexts; own editor/viewer roles and own form",
+      "result": "PASS"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "expected": "10 independent rounds,20 UI PATCH409 refusals,truthful failure; each complete server record preserved",
+      "action": "Repeated two-actor stale writes",
+      "observed": "10 independent rounds,20 UI PATCH409 refusals,truthful failure; each complete server record preserved",
+      "result": "PASS"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "expected": "Name saved200,other actor description preserved,clean saved state after10s",
+      "action": "Conflict refresh and explicit recovery",
+      "observed": "Name saved200,other actor description preserved,clean saved state after10s",
+      "result": "PASS"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "expected": "Failed write unchanged whole record; retry saves both pending fields;clean after10s",
+      "action": "503 refusal and explicit next-edit retry",
+      "observed": "Failed write unchanged whole record; retry saves both pending fields;clean after10s",
+      "result": "PASS"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "expected": "Rapid name and description edits produce exactly one edited-fields-only PATCH",
+      "action": "Coalesced metadata writes",
+      "observed": "Rapid name and description edits produce exactly one edited-fields-only PATCH",
+      "result": "PASS"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "expected": "Delayed first save and queued description both200; no false409;latest field values preserved",
+      "action": "Edit queued behind in-flight mutation",
+      "observed": "Delayed first save and queued description both200; no false409;latest field values preserved",
+      "result": "PASS"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "expected": "Immediate reload did not persist the unsent title or alter any server field",
+      "action": "Reload cancels queued timer",
+      "observed": "Immediate reload did not persist the unsent title or alter any server field",
+      "result": "PASS"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "expected": "Dialog opens from current editor after refusal/recovery and Escape cancels",
+      "action": "Publish dialog Escape",
+      "observed": "Dialog opens from current editor after refusal/recovery and Escape cancels",
+      "result": "PASS"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "expected": "EN/PL/DE/ES/KO editor controls reachable at375px with no document overflow;existing Korean fallback remains attributed",
+      "action": "Five-locale narrow editor",
+      "observed": "EN/PL/DE/ES/KO editor controls reachable at375px with no document overflow;existing Korean fallback remains attributed",
+      "result": "PASS"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "expected": "Owned forms.view-only user denied editor and direct PATCH403;owned editor users previously saved",
+      "action": "Permission negative with positive control",
+      "observed": "Owned forms.view-only user denied editor and direct PATCH403;owned editor users previously saved",
+      "result": "PASS"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "expected": "Delayed own form GET shows useful loading state and then editor recovers",
+      "action": "Loading state",
+      "observed": "Delayed own form GET shows useful loading state and then editor recovers",
+      "result": "PASS"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "expected": "Controlled503 GET shows explicit localized error;ordinary reload returns usable editor",
+      "action": "Load error and recovery",
+      "observed": "Controlled503 GET shows explicit localized error;ordinary reload returns usable editor",
+      "result": "PASS"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "expected": "All synthetic scenarios concluded with a readable record and unchanged unedited fields",
+      "action": "Whole-record integrity final",
+      "observed": "All synthetic scenarios concluded with a readable record and unchanged unedited fields",
+      "result": "PASS"
+    }
+  ],
+  "notes": [
+    "Original read-only audit PARTIAL is superseded by resumed independent exact-head runtime verification.",
+    "Own atomic claim acquired only after foreign owner released. Existing assignments and pipeline/approval labels untouched.",
+    "Fresh full remote CI remains separate and pending; no new QA signoff or merge approval published.",
+    "Unchanged prior warranty stage/locale coverage retains original attribution to6856183983;not represented as newly executed browser warranty lifecycle.",
+    "No amount fields in changed metadata lifecycle,so decimal-comma and monetary reversal rules inapplicable to that delta;current native warranty line/refusal tests passed.",
+    "Fixture APIs/readback and direct permission probes are API-only;primary metadata writes/conflicts/retry were UI-driven.",
+    "Controlled503/delayed GET simulate outage/loading,not actual production failures.",
+    "Harness corrections: overlong213-character name correctly refused400;follow-up missing route variable;route-removal race corrected with unrouteAll({behavior:wait}). Required states then actually exercised successfully. Raw attempts retained.",
+    "Native16 API/browser integration tests used repository CLI reuse with actual isolated DB/queue;CLI warned about inherited fallback JWT and supplied its integration default. No direct DB/queue fixture path in this selected batch relied on JWT signing.",
+    "Runtime email-capture output restored to committed HEAD;no project source changes."
+  ],
+  "cleanup": {
+    "fixtures": [
+      {
+        "kind": "form",
+        "id": "4eff1858-cbaf-4a26-bde0-629e7cb79b4b",
+        "deleteStatus": 200,
+        "readback": "archived"
+      },
+      {
+        "kind": "form",
+        "id": "379745f3-f3f0-48ea-8996-2bde2f09bf81",
+        "deleteStatus": 200,
+        "readback": "archived"
+      },
+      {
+        "kind": "form",
+        "id": "ea87dde9-d8ef-4781-a710-98d8a1e63bce",
+        "deleteStatus": 200,
+        "readback": "archived"
+      },
+      {
+        "kind": "form",
+        "id": "7d6dd224-b918-46c0-8875-b1973f5c4700",
+        "deleteStatus": 200,
+        "readback": "archived"
+      },
+      {
+        "kind": "user",
+        "id": "082eba65-34cc-47f5-b6e7-8b7b4e36caca",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "user",
+        "id": "ace15174-f2e7-45f4-8bce-8ade07a2c278",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "user",
+        "id": "547a03fe-97cf-4b21-8492-91b83e6e1dae",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "user",
+        "id": "920ce191-2685-490c-a00b-72b43868dc52",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "user",
+        "id": "01fe7339-ee53-4208-bbd2-81f01d4ec603",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "user",
+        "id": "ddbd1e1a-1039-4b31-8a2d-e120775656f6",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "user",
+        "id": "8f0a38e9-a8b8-4593-bbb1-7431584e3497",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "user",
+        "id": "8b24cb4d-d7ae-460b-b413-ce96531d47b9",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "user",
+        "id": "66814faa-95c9-4b38-a90e-3f058748df3e",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "user",
+        "id": "41d7901f-78b1-4bbe-a595-b0243147ea70",
+        "deleteStatus": 200,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "user",
+        "id": "24d48d02-d37a-4382-851e-67fd214800eb",
+        "deleteStatus": 200,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "user",
+        "id": "d38a0ff8-9817-4318-90e3-a662e06ac6a6",
+        "deleteStatus": 200,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "role",
+        "id": "2903b44a-c7fc-4519-aba2-3c18319f33ad",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "role",
+        "id": "5b28f822-8e0b-4d37-b954-d8a778f8b822",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "role",
+        "id": "3dcbf322-a6ef-4e0f-b0ad-eff1cecf5f1a",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "role",
+        "id": "9de5a5bf-e0d9-44b1-96da-f9743b976f57",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "role",
+        "id": "7ae50b4d-4763-41c3-9d97-512950012101",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "role",
+        "id": "2c2dad75-29d5-4581-99c2-367b9435daee",
+        "deleteStatus": 404,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "role",
+        "id": "6de01c5d-d7ad-4c9c-9c97-fa430f94707f",
+        "deleteStatus": 200,
+        "readback": "absent from ids-filtered list"
+      },
+      {
+        "kind": "role",
+        "id": "2d1c8d98-b390-4b2f-b985-36b2228edde2",
+        "deleteStatus": 200,
+        "readback": "absent from ids-filtered list"
+      }
+    ],
+    "environment": {
+      "signalledCliPids": [
+        379638
+      ],
+      "ownerPid": 379360,
+      "appPort": 46747,
+      "appPortClosed": true,
+      "databaseContainer": "d6117b7c4a5a",
+      "databaseStopped": true
+    },
+    "sourceStatusClean": true,
+    "claimRelease": "pending after evidence publication"
+  },
+  "repeatableValidation": {
+    "requiredHead": "1f3810ddea99b21ef557132fe0495346749a297b",
+    "command": "OM_INTEGRATION_MODULES=forms,warranty_claims OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=86400 OM_OPTIMISTIC_LOCK=all PW_CAPTURE_SCREENSHOTS=1 timeout 600 yarn mercato test:integration 'TC-FORMS-UI|TC-FORMS-ACL|TC-FORMS-TEN|TC-FORMS-LOCK|TC-WC-001|TC-WC-002'",
+    "conditions": "Run through om-prepare-test-env fresh own production app;source own credentials env before reruns;own atomic claim and isolated exact-head checkout required. Browser scenarios/scripts retained in artifacts."
+  },
+  "screenshots": [
+    "own-desktop-default.png",
+    "own-conflict-1.png",
+    "own-conflict-10.png",
+    "own-conflict-recovered.png",
+    "own-server-error.png",
+    "own-server-retry.png",
+    "own-queued-save.png",
+    "own-followup-en-375.png",
+    "own-followup-pl-375.png",
+    "own-followup-de-375.png",
+    "own-followup-es-375.png",
+    "own-followup-ko-375.png",
+    "own-followup-no-design-permission.png",
+    "own-state-retry-loading.png",
+    "own-state-retry-load-error.png"
+  ],
+  "imageCount": 15,
+  "nativeStats": {
+    "startTime": "2026-11-13T19:31:43.870Z",
+    "duration": 60429.244,
+    "expected": 16,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "unitTests": {
+    "passed": 12,
+    "suites": 3,
+    "configuration": "Artifact-only explicit existing rootDir after TS6 TS5011;no assertions changed"
+  }
+}
