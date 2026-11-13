@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { InitSetupContext } from '@open-mercato/shared/modules/setup'
-import { registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { UNAVAILABILITY_REASON_DICTIONARIES } from '../lib/unavailabilityReasons'
 
@@ -69,6 +69,16 @@ function buildContext(em: EntityManager): InitSetupContext {
     container: {} as AwilixContainer,
   }
 }
+
+let previousEntityIds: EntityIds
+
+beforeAll(() => {
+  previousEntityIds = getEntityIds(false)
+})
+
+afterAll(() => {
+  registerEntityIds(previousEntityIds)
+})
 
 function findCommand(name: string) {
   const command = cliCommands.find((entry) => entry.command === name)
