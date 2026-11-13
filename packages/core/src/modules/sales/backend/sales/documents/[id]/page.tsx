@@ -533,6 +533,7 @@ function CustomerInlineEditor({
           <div className="flex-1 min-w-0 space-y-2">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
             <LookupSelect
+              defaultOpen
               value={draftId}
               onChange={(next) => {
                 setDraftId(next)
@@ -1404,6 +1405,7 @@ function ChannelInlineEditor({
               }}
             >
               <LookupSelect
+                defaultOpen
                 value={draft}
                 onChange={setDraft}
                 fetchItems={async (query) => {
@@ -1656,6 +1658,7 @@ function MethodInlineEditor({
               }}
             >
               <LookupSelect
+                defaultOpen
                 value={draft}
                 onChange={setDraft}
                 fetchItems={async (query) => {
