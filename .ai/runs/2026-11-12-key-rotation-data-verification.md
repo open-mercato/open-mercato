@@ -153,3 +153,20 @@ The failed checksum-worker runtime is reverted in ae89b8ca00, with its full timi
 Actual native71, canonical/verifier47, parser8, strict TypeScript and Core CLI3 pass. All eight configured commands pass on exact production f89/Node24.22.2:51workspace tasks in5m39.885s and app build25.996s. Earlier unrelated full-suite isolation-flake evidence stays preserved; no assertion or fixture is weakened. The benchmark conservatively counts complete verification duration, not just source iterator lifetime.
 
 Fresh final-source1/20GiB warm/cold and near-limit-row acceptance remain pending. The exact frozen bundle is f58d62b0ff47cf1ade82a79d0fa20b601ec7fa476f90b2902cb375552b249cd3. No timing measurement is launched while unrelated heavy host tests/builds continue. The final external process-tree sampler now requires observed process completion rather than timing out before a long20GiB run finishes; host-load and actual sleep-envelope audits accompany new cases. The implementation remains draft and no20GiB performance pass is inferred.
+
+
+## Approved operator presentation and documentation amendment — 2026-11-13
+
+The owner reviewed the setup-style terminal mockups and explicitly approved implementation. Scope: colored titles, phase headings, status icons, divider/result/error cards, truthful progress, strict plain/NO_COLOR/dumb fallback and machine-progress purity, preserving existing stdout, commands and exit codes. Official operator documentation and Enterprise licensing/feature lists are also requested. This does not approve the separately proposed isolated CI automation. No backup archives, dumps, keys or large fixtures are uploaded.
+
+- [x] A.1 Implement the approved terminal presentation and output-contract regressions.
+- [x] A.2 Publish official feature documentation and Enterprise feature listings.
+- [x] A.3 Run configured validation, independent review and actual CLI screenshot checks.
+- [x] A.4 Publish verification and executable manual-test instructions in the PR comment.
+
+
+### Presentation amendment verification — source c69d4f6ee3
+
+All eight configured commands passed in order with local Node 24.22.2, including the 51-task workspace test and production application build. Separate-agent source review found no unresolved blocker or major. Official operator guides/navigation and Enterprise overview, README and subscription feature lists pass documentation checks. Current-source actual terminal/JSON proof and immutable screenshots are recorded in `.ai/qa/2026-11-13-cli-presentation/`. Manual test instructions and the actual-output screenshots are published at https://github.com/open-mercato/open-mercato/pull/9334#issuecomment-6852295266. No archives, dumps, keys or raw private logs were uploaded. Required CI and manual QA remain separate; no merge was performed.
+
+This presentation/documentation amendment is complete. Original performance/resource acceptance and concluding release review remain open; the full fresh final-source cohort is not claimed. No isolated CI/workflow change was authorized or dispatched.
