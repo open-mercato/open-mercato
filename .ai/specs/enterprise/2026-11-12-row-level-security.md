@@ -1,14 +1,14 @@
 # Enterprise PostgreSQL Row-Level Security
 
 Edition: **Enterprise only — commercial specification and implementation.**
-Status: proposal with an executable, isolated connection-management PoC; production enforcement is not enabled.
+Status: full production implementation in progress on PR #9424; the isolated proof is complete. Activation remains opt-in until the final integration and security gates pass.
 Source: [issue #244](https://github.com/open-mercato/open-mercato/issues/244); previous attempt: [PR #419](https://github.com/open-mercato/open-mercato/pull/419).
 
 ## TLDR
 
 Enterprise deployments need a database tenant boundary when a query accidentally omits its tenant filter. The recommended approach **for the installed stack** is an enterprise `AsyncLocalStorage` scope applied to the exact PostgreSQL client on every pool checkout, before the client reaches ORM, Kysely or raw queries. Keep application tenant/organization filters, RBAC, encryption, mutation guards and optimistic locking.
 
-This PR proves that mechanism without activating RLS on application tables, adding an environment flag to production, or changing OSS behavior. It contains a small enterprise adapter, ordinary CI unit tests, and a disposable PostgreSQL proof. Full deployment remains gated on bootstrap integration, complete scope propagation, table/role inventory and operational checks below. A successful connection proof alone does not establish application-wide isolation.
+The original design PR established the isolated proof. On 2026-11-13 the user explicitly required implementation of the full specification, including production integration and a controlled table canary, and selected the PR-loop engine. PR #9424 now implements those remaining phases. Existing proof evidence remains historical; production completion requires the activation design, actual application integration tests, table/role verification and performance evidence below.
 
 ## Resolved assumptions (autonomous defaults)
 
@@ -181,7 +181,7 @@ The ordered full local gate is exactly `.ai/agentic.config.json`: `build:package
 2. Add the unregistered enterprise pool-scope prototype and unit tests.
 3. Execute disposable PostgreSQL checks and the configured local gate; request full GitHub CI. Record exact results and review limits.
 
-Phases 1–2 are a roadmap, not authorization to activate this prototype. They require a detailed activation design and compatibility/security review before implementation.
+The original prototype treated Phases 1–2 as a gated roadmap. The user explicitly authorized the full implementation on 2026-11-13. The activation design below supplies the remaining design decisions; compatibility/security review and final integration gates still precede completion. Production deployment and applying migrations to the user database are not authorized.
 
 ### Phase 1 — planned production integration, policies still disabled
 
@@ -195,11 +195,63 @@ Phases 1–2 are a roadmap, not authorization to activate this prototype. They r
 2. Exercise canary list/detail/create/update/delete HTTP paths plus a key UI flow, cross-tenant ID probes and denied writes; verify auth/setup/indexing/jobs still work. These API/UI integration tests ship with the activation change, using self-contained fixtures.
 3. Benchmark checkout overhead and pool pressure; run full CI with enterprise enabled. Expand only after operational review and canary evidence. Other tables remain application-scoped until explicitly enrolled.
 
+## Production activation design (2026-11-13)
+
+### Scope and operator configuration
+
+The enterprise `tenant_boundaries` module owns activation, ALS, pool guards, table manifests, role/policy validation, reconciliation and operational diagnostics. Register through the existing module `generators.ts` / `GeneratorPlugin.bootstrapRegistration` mechanism, which runs in `bootstrap-common.ts` and CLI `dynamicLoader` before ORM initialization. No enterprise package is imported by OSS code, no late DI patching, private Kysely mutation, new mandatory CLI or production dependency is needed.
+
+Activation is explicitly opt-in with `OM_TENANT_RLS=on`; absent/off preserves existing OSS and enterprise behavior. `OM_TENANT_RLS_POOL_MODE` must explicitly declare `direct` or `session`; reject missing, unknown and transaction-pooling modes when activated. Startup validates every runtime endpoint before serving protected work. Runtime roles have no bypass, ownership, role escalation, DDL or TRUNCATE privileges. Explicit `OM_TENANT_RLS_MAINTENANCE_DATABASE_URL` supplies a separate privileged connection for migrations, provisioning, global discovery/reindex/encryption/scheduler maintenance; never interpret a missing tenant as maintenance authority. Secrets are configuration inputs and never recorded in evidence.
+
+### Additive neutral seams and compatibility
+
+Add `@open-mercato/shared/lib/db/runtime` for process-global registration of one database-runtime adapter and trusted execution-context resolvers. Its interfaces describe connection lifecycle, pool identity/purpose, execution source and tenant identity, plus migration preflight/completion; they contain no RLS policy or enterprise activation decisions. Existing callers get no-op behavior with no adapter. Add calls at concrete primary/independent pool construction, trusted auth/request/job/page/CLI boundaries and the existing migration lifecycle. New exports and optional hooks are additive contracts; existing HTTP/ACL/event/command payloads and database columns do not change.
+
+Registration precedes first pool initialization; reject incompatible or late replacement. Use global symbols for registration, ALS and pool state so duplicated module instances and API/full bootstrap share the same identity. Idempotent same-version registration retains the original adapter and pool ownership; configuration changes require drain/restart. Do not dispose guards until all work drains and pools close. Initializer failure destroys the client and fails startup, rather than leaking a slot or silently returning an unguarded client.
+
+### Trusted context propagation and deferred rendering
+
+1. Identity bootstrap: canonical staff JWT validation runs in a narrow verified actor-tenant context, before selected-tenant cookies are applied. API-key and public/portal token discovery have explicit bootstrap classification over unprotected identity tables; derive tenant only after live token/account checks. Raw tenant header/query/body/cookie values never establish authority. A selected-tenant superadmin finishes actor verification before a sibling effective-tenant scope begins; no bypass is granted.
+2. API dispatch: scope the continuation immediately after trusted auth resolution and before authorization, feature checks, guards, interceptors, handlers, lifecycle events and side effects. Auth-null token routes resolve and validate persisted identity before tenant work. Direct login/token routes receive explicit classification too.
+3. RSC/pages: cover layout, metadata and backend/frontend entry points. Wrapping JSX construction does not cover deferred component queries. Add a request-context resolver invoked at actual pool acquisition when no explicit execution scope exists; it obtains canonical, request-cached staff/portal identity. Identity resolution queries execute under an explicit bootstrap scope to prevent resolver recursion; initial ORM setup uses a bootstrap lifecycle until initialization completes. Real RSC/browser integration must prove deferred component queries run under the final trusted tenant. Non-request contexts cannot silently use this fallback.
+4. Jobs/subscribers: establish a fresh scope before per-job container creation and keep cleanup in it. Validate known worker/envelope formats, including nested persistent-event payloads; reject ambiguous/malformed scopes. Ephemeral delivery uses trusted event metadata. Retries get a new invocation scope; detached work may not outlive it. Global scheduler polls and discovery use explicitly classified maintenance connections, then per-tenant dispatch uses the restricted role.
+5. CLI: explicitly classify migration/init/provisioning/global reindex/encryption operations as maintenance; tenant commands validate the operator-selected tenant and use the runtime role. No universal null-tenant bypass. Scheduler raw `pg.Client` probes must use the explicit maintenance boundary rather than the runtime connection.
+
+### Physical client ownership
+
+Capture an immutable scope at acquisition invocation, before waiting for the pool. Initialize the same physical client with parameterized tenant replacement/clearing before returning it. Bind every query and transaction to that invocation's scope identity, not merely the tenant UUID; reject retained clients/EM transactions used under another top-level scope, after release, or after their owner finishes. Support Promise and callback acquisition and callback pool.query. Refuse unsupported streaming/raw escapes instead of presenting them as covered. Destroy a client after setup failure. Test queued acquisition, same-tenant separate invocations, top-level A→B escaped clients, rollback/reuse, failure recovery, absent context and duplicated registrations.
+
+### Manifest, role and policy lifecycle
+
+The first explicit canary is `customer_entities` (resolved application schema), whose non-null UUID tenant column and real people CRUD/commands/indexing/optimistic-lock/browser paths provide full integration evidence. Other customer profile/company/index/custom-field storage remains application-scoped and is explicitly classified as deferred; canary evidence never implies those tables are protected. Maintain an enterprise-owned inventory of known tables with exact tenant column/type/nullability, classification, policy version and rationale. Compare it with both ORM metadata and catalog tenant-bearing tables; new/unclassified tables block activation until reviewed. Mixed/global nullable-tenant tables, identity bootstrap, migration ledgers, transport and search infrastructure have explicit exclusions, not a general wildcard exemption.
+
+Validate non-superuser, NOBYPASSRLS, NOCREATEROLE, NOCREATEDB and NOREPLICATION; inspect reachable role memberships, ownership, effective schema/database CREATE and table TRUNCATE/grant privileges, including PUBLIC/inherited grants. Reject unsupported inheritance/partitions, widening or unexpected policies, unsafe definer execution and ownership topology. Require ENABLE and FORCE RLS plus the exact canonical read/write tenant predicate; do not attempt arbitrary policy-expression equivalence.
+
+Integrate privileged preflight and idempotent, advisory-locked policy reconciliation into the existing db:migrate lifecycle, after all module schema migrations succeed and before protected reindex work. Run reconciliation even with zero pending migrations; propagate failure. Include an explicit reversible canary migration and snapshot handling, with activation off preserving existing schema behavior. Never apply it to the user's database. Rollback stops traffic, drains/closes pools, reverts only the canary's reviewed policy version via maintenance role, validates catalog state, and restarts under coherent configuration.
+
+### Independent pools and restricted-role readiness
+
+Register both DI and default/custom pgvector pools. Inventory vector_search, its migration ledger, and correlated reads of entity_indexes/custom_entities_storage. With enforcement active, move extension/table/index/ALTER provisioning to privileged migrations and make runtime readiness validate only; a restricted role must never require DDL. Keep existing disabled-mode behavior. Classify event publisher Pool and dedicated LISTEN Client as transport-only (pg_notify/LISTEN); establish tenant context for notification callbacks that perform application work. Do not claim NOTIFY payload isolation from RLS.
+
+### Required completion evidence
+
+- Unit tests: adapter registration/HMR, no-op disabled mode, topology/role/policy/manifest rejection, scoped lifecycle and client ownership.
+- Disposable PostgreSQL: real ORM/raw/Kysely queries, effective role denial, exact canary policy migration/reconcile/rollback, unknown-table gap, widening policy rejection, escaped/pinned clients and every independent pool mode.
+- Actual dispatcher: concurrent tenants; absent/invalid scope; selected-tenant superadmin; unauthorized cross-tenant IDs and denied writes; canary list/detail/create/update/delete with encryption, mutation guards, command side effects, custom fields and optimistic conflicts retained.
+- Actual jobs/CLI: context before container creation, nested persistent-event dispatch, retries, scheduler discovery and distinct privileged maintenance.
+- Browser: people create/read/edit/delete under restricted runtime role with canary enforcement enabled, tenant switching and conflict/error states; publish screenshots from the working app (verification-report screenshots do not substitute).
+- Benchmark the same workload with adapter off/on, recording checkout count, pool wait/peak, p50/p95 and connection settings. Run all configured gates plus full integration suite and template integration for synced app changes. Independent security/code review must have no unresolved blocking findings before completion.
+
 ## Final Compliance Report
+
+The following report describes the historical proof only. Full production compliance and acceptance remain pending the PR-loop Tasks table; do not infer completion from the earlier evidence.
+
 
 Enterprise commercial scope is explicit in title, path and code placement. No production dependency, app migration, API/schema change, module activation or removal of application scoping occurs. Existing encryption, RBAC, guards and optimistic locking are untouched. Prototype integration is exercised through the real installed driver; broad runtime coverage, proxy compatibility, escaped-client safety and production performance remain activation gates. Fresh-context cohesion review passed (one capability); its roadmap-authorization clarification was applied. Independent code review found no blocker/major in the isolated proof; a dedicated harness typecheck was added for its minor finding. Verification results are appended after execution.
 
 ## Changelog
+
+- 2026-11-13: User clarified full implementation scope and PR-loop execution. Added production activation design, neutral seams, trusted RSC/job/auth contexts, explicit customer_entities canary and final acceptance gates. Historical Phase 0 completion is no longer the full task completion criterion.
 
 - 2026-11-13: Added repeatable opt-in database integration execution, verified fixture removal, and drained concurrent reads before pool teardown. Production phases remain gated.
 - 2026-11-12: Extended the executable proof with concurrent mixed ORM/Kysely transactions, explicit backend overlap, rollback/delete outcomes and exact persisted-row verification.
