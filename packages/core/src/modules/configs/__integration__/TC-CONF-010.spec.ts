@@ -30,7 +30,6 @@ type SettingsResponse = { settings: { timeZone: string | null } }
 
 test.describe('TC-CONF-010: Tenant date settings isolation', () => {
   test('foreign scope supplied in query, body or cookies cannot read or modify another tenant', async ({ request }) => {
-    test.setTimeout(120_000)
     const superadminToken = await getAuthToken(request, 'superadmin')
     const fixtures: TenantFixture[] = []
 
