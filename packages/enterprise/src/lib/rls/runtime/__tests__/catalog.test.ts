@@ -88,6 +88,14 @@ describe('reviewed table inventory', () => {
     expect(() => parseTenantTableManifest({ version: 1, tables: [{ ...entry, classification: 'deferred', policyVersion: null }] })).toThrow('explicit enforced')
   })
 
+  it('requires complete tenant metadata even for deferred tables', () => {
+    for (const change of [{ tenantNullable: null }, { tenantType: null }, { tenantColumn: null }]) {
+      expect(() => parseTenantTableManifest({ version: 1, tables: [entry, {
+        ...entry, table: 'deferred_records', classification: 'deferred', policyVersion: null, ...change,
+      }] })).toThrow('manifest')
+    }
+  })
+
   it('allows preflight before table creation but refuses runtime readiness before migration', () => {
     expect(() => assertTenantTableInventory(manifest, [], 'preflight')).not.toThrow()
     expect(() => assertTenantTableInventory(manifest, [], 'runtime')).toThrow('missing')

@@ -14,7 +14,9 @@ const entrySchema = z.object({
   tenantType: z.literal('uuid').nullable(), tenantNullable: z.boolean().nullable(),
   policyVersion: z.literal(1).nullable(),
 }).strict().superRefine((entry, context) => {
-  if ((entry.tenantColumn === null) !== (entry.tenantType === null && entry.tenantNullable === null)) {
+  if (entry.tenantColumn === null
+    ? entry.tenantType !== null || entry.tenantNullable !== null
+    : entry.tenantType === null || entry.tenantNullable === null) {
     context.addIssue({ code: 'custom', message: '[internal] Tenant inventory column/type/nullability are inconsistent' })
   }
   if (entry.classification === 'enforced') {
