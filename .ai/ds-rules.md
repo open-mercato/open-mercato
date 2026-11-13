@@ -76,6 +76,24 @@ Decision tree — ask "is this a brand moment?":
 <div style={{ background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)' }} />
 ```
 
+#### Selection accent (`accent-indigo`)
+
+Selection is not a brand moment. Everything that says "this one is chosen / active" uses `accent-indigo` (`#6366f1`, `#818cf8` dark), the token `Checkbox`, `Radio`, `Switch`, `Slider`, `Stepper` and the underline `Tabs` already share. `brand-violet` (`#BC9AFF`) is AI-only and reads at about 1.9:1 on white, so it MUST NOT mark a selected row, card or summary.
+
+| Surface | Classes |
+|---------|---------|
+| Selected row / card / summary (e.g. `LookupSelect` option, selected-value bar) | `border-accent-indigo bg-accent-indigo/5`, `Check` icon `text-accent-indigo`, label text `text-foreground` (never the accent itself for small text) |
+| Ghost / text action sitting ON an `accent-indigo`-tinted surface (Change, Clear, More trigger, tab triggers) | `hover:bg-accent-indigo/10 hover:text-accent-indigo` — the default grey ghost hover (`bg-accent` / `bg-muted`) fights the tint and reads as a different component |
+| Active tab / step / segment | `bg-accent-indigo text-accent-indigo-foreground` or the underline in `accent-indigo` |
+
+```tsx
+// Selected summary bar with its actions
+<div className="rounded-lg border border-accent-indigo bg-accent-indigo/5">
+  <Check className="size-4 text-accent-indigo" />
+  <Button variant="ghost" size="sm" className="hover:bg-accent-indigo/10 hover:text-accent-indigo">Change</Button>
+</div>
+```
+
 ## Chart Colors
 
 Data visualization uses the dedicated `--chart-*` palette — never status tokens, and status semantics never come from chart colors.
@@ -174,6 +192,8 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 | Very subtle highlight (selected primary/destructive) | `bg-primary/5` or `bg-destructive/5` |
 | Soft highlight (active primary/destructive) | `bg-primary/10` or `bg-destructive/10` |
 | Hover on primary/destructive button | `bg-primary/90` or `bg-destructive/90` |
+| Selected surface tint (selection accent) | `bg-accent-indigo/5` with `border-accent-indigo` |
+| Hover for actions on a selected / accent-tinted surface | `bg-accent-indigo/10` |
 | Softened border | `border-border/70` |
 
 ## Z-Index (Layering)
