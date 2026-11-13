@@ -1085,6 +1085,86 @@ describe('output pipeline wiring', () => {
     expect('attemptedTools' in checkOutputMock.mock.calls[0][0]).toBe(false)
   })
 
+  function registerToolAgentWithoutIntegrity(id: string): AgentRegistryEntry {
+    const existing = getAgentEntry(id)
+    if (existing) return existing
+    const entry: AgentRegistryEntry = {
+      id,
+      moduleId: 'agent_orchestrator',
+      resultKind: 'research',
+      schema: z.object({ kind: z.literal('research'), data: z.unknown() }),
+      tools: ['customers.get_deal'],
+      skills: [],
+      subAgents: [],
+      label: 'Tool-scope wiring test agent',
+      description: 'Researcher agent with tools and no integrity rules.',
+      instructions: 'inform',
+      runtime: 'native',
+    }
+    registerFileAgent(entry)
+    return entry
+  }
+
+  function mockModelCallingTool(toolName: string): void {
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const loop = args.loop as { onStepFinish?: (event: unknown) => Promise<void> } | undefined
+      await loop?.onStepFinish?.({
+        toolCalls: [{ toolCallId: 'call-1', toolName, input: { id: 'd1' } }],
+        toolResults: [{ toolCallId: 'call-1', toolName, output: { ok: true } }],
+        finishReason: 'tool-calls',
+        usage: { inputTokens: 5, outputTokens: 2 },
+        response: { modelId: 'test-model' },
+      })
+      return VALID_MODEL_OUTPUT
+    })
+  }
+
+  it('passes the attempted tools to tool_scope for an agent with tools but without integrity', async () => {
+    process.env.OM_AGENT_TRACE_CAPTURE = 'off'
+    registerToolAgentWithoutIntegrity('native.tool_scope_allowed_agent')
+    mockModelCallingTool('customers__get_deal')
+
+    await makeService().run('native.tool_scope_allowed_agent', {}, runCtx)
+
+    expect(checkOutputMock).toHaveBeenCalledTimes(1)
+    const call = checkOutputMock.mock.calls[0][0]
+    expect(call.allowedTools).toEqual(['customers.get_deal'])
+    expect(call.attemptedTools).toEqual([{ name: 'customers.get_deal', isMutation: false }])
+    expect(completeRunMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks a tool_scope violation for an agent without integrity', async () => {
+    registerToolAgentWithoutIntegrity('native.tool_scope_violation_agent')
+    mockModelCallingTool('customers__delete_everything')
+    const { GuardrailService: RealGuardrailService } = jest.requireActual('../lib/guardrails/guardrailService') as {
+      GuardrailService: new (container: unknown) => { checkOutput(args: Record<string, unknown>): Promise<unknown> }
+    }
+    checkOutputMock.mockImplementation((args) => new RealGuardrailService({}).checkOutput(args))
+
+    const failure = makeService().run('native.tool_scope_violation_agent', {}, runCtx)
+
+    await expect(failure).rejects.toBeInstanceOf(AgentGuardrailBlockedError)
+    await expect(failure).rejects.toMatchObject({ kind: 'tool_scope', phase: 'output' })
+    expect(completeRunMock).not.toHaveBeenCalled()
+    expect(failRunMock).toHaveBeenCalledTimes(1)
+    const persisted = persistVerdictMock.mock.calls[0][2] as {
+      verdict: { checks: Array<{ kind: string; result: string; evidence?: Record<string, unknown> }> }
+    }
+    const toolScope = persisted.verdict.checks.find((check) => check.kind === 'tool_scope')
+    expect(toolScope).toMatchObject({ result: 'block', evidence: { tool: 'customers.delete_everything' } })
+  })
+
+  it('does not wire tool collection for an agent without tools or integrity', async () => {
+    process.env.OM_AGENT_TRACE_CAPTURE = 'off'
+    registerNativeAgent('native.no_tool_scope_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    await makeService().run('native.no_tool_scope_agent', {}, runCtx)
+
+    expect(runAiAgentObjectMock.mock.calls[0][0]).not.toHaveProperty('loop')
+    expect('attemptedTools' in checkOutputMock.mock.calls[0][0]).toBe(false)
+  })
+
   type PersistedCheck = { kind: string; evidence?: Record<string, unknown> }
   function persistedQuoteCheck(): PersistedCheck | undefined {
     const persisted = persistVerdictMock.mock.calls[0][2] as { verdict: { checks: PersistedCheck[] } }

@@ -314,6 +314,8 @@ export class NativeAgentRunner {
             },
           }
     const integrityRules = entry.integrity?.length ? entry.integrity : null
+    const effectiveTools = resolveAgentEffectiveTools(entry)
+    const collectToolCalls = integrityRules !== null || effectiveTools.length > 0
     const integrityToolCalls: IntegrityToolCall[] = []
     let integrityRawOutputKey: string | null = null
     const parentToolCallSink = getCurrentRunToolCallSink()
@@ -383,12 +385,12 @@ export class NativeAgentRunner {
     }
     const emitAgentAction = buildAgentActionEmitter()
     const wireStepFinish =
-      traceEnabled || emitAgentAction !== null || integrityRules !== null || parentToolCallSink !== undefined
+      traceEnabled || emitAgentAction !== null || collectToolCalls || parentToolCallSink !== undefined
     const onAgentStepFinish = async (event: unknown): Promise<void> => {
-      if (traceEnabled || integrityRules || parentToolCallSink) {
+      if (traceEnabled || collectToolCalls || parentToolCallSink) {
         const record = buildNativeStepRecord(event, Date.now())
         if (traceEnabled) stepRecords.push(record)
-        if (integrityRules || parentToolCallSink) {
+        if (collectToolCalls || parentToolCallSink) {
           for (const toolCall of record.toolCalls) {
             const integrityToolCall: IntegrityToolCall = {
               toolName: toolCall.toolName,
@@ -396,7 +398,7 @@ export class NativeAgentRunner {
               result: toolCall.result,
               ...(toolCall.error ? { error: toolCall.error.code } : {}),
             }
-            if (integrityRules) integrityToolCalls.push(integrityToolCall)
+            if (collectToolCalls) integrityToolCalls.push(integrityToolCall)
             parentToolCallSink?.(integrityToolCall)
           }
         }
@@ -651,7 +653,7 @@ export class NativeAgentRunner {
             grounding,
             guardrailService,
             capability: agentId,
-            allowedTools: resolveAgentEffectiveTools(entry),
+            allowedTools: effectiveTools,
             attemptedTools: buildAttemptedTools(integrityToolCalls),
             guardrailSetVersion: integritySet?.version ?? GUARDRAIL_SET_VERSION,
             scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
@@ -675,7 +677,9 @@ export class NativeAgentRunner {
           capability: agentId,
           schema: entry.schema,
           output: rawObject,
-          allowedTools: entry.tools,
+          ...(collectToolCalls
+            ? { allowedTools: effectiveTools, attemptedTools: buildAttemptedTools(integrityToolCalls) }
+            : { allowedTools: entry.tools }),
           grounding,
         })
     const guardEm = (this.container.resolve('em') as EntityManager).fork()
