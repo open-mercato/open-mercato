@@ -146,6 +146,19 @@ function evaluateFieldVisibility(
   return values[visibleWhen.field] === visibleWhen.equals
 }
 
+function isVerticalScrollContainer(element: Element): boolean {
+  const { overflowY } = window.getComputedStyle(element)
+  return overflowY === 'auto' || overflowY === 'scroll'
+}
+
+function isScrolledByPaddedDialog(root: HTMLElement, dialog: HTMLElement): boolean {
+  for (let node: HTMLElement | null = root; node && node !== dialog; node = node.parentElement) {
+    if (isVerticalScrollContainer(node)) return false
+  }
+  if (!isVerticalScrollContainer(dialog)) return false
+  return Number.parseFloat(window.getComputedStyle(dialog).paddingBottom) > 0
+}
+
 function isFormControlTarget(target: EventTarget | null): boolean {
   if (!target || typeof (target as Element).tagName !== 'string') return false
   const el = target as HTMLElement
@@ -922,6 +935,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   const [customFieldDefsVersion, setCustomFieldDefsVersion] = React.useState(0)
   const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null; view: 'entity' | 'fieldset' } | null>(null)
   const [isInDialog, setIsInDialog] = React.useState(false)
+  const [scrolledByPaddedDialog, setScrolledByPaddedDialog] = React.useState(false)
   const rootRef = React.useRef<HTMLDivElement | null>(null)
 
   // Collapsible groups support
@@ -1384,13 +1398,15 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   )
 
   const navigateWithGuard = React.useCallback(
-    async (target: string) => {
-      if (!target) return
+    async (target: string): Promise<boolean> => {
+      if (!target) return false
       const allowed = await canNavigateTo(target)
       if (allowed) {
         allowNextNavigation()
         router.push(target)
+        return true
       }
+      return false
     },
     [allowNextNavigation, canNavigateTo, router],
   )
@@ -1466,11 +1482,23 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   React.useEffect(() => {
     const root = rootRef.current
     if (!root) return
-    setIsInDialog(Boolean(root.closest('[data-dialog-content]')))
+    const dialog = root.closest<HTMLElement>('[data-dialog-content]')
+    setIsInDialog(Boolean(dialog))
+    setScrolledByPaddedDialog(dialog ? isScrolledByPaddedDialog(root, dialog) : false)
   }, [])
-  const dialogFooterClass = isInDialog
-    ? 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
-    : ''
+  // Sticky offsets resolve against the scroll container's content box, so when the
+  // padded `DialogContent` (`p-6`, `overflow-y-auto`) is the scroller a `bottom-0`
+  // footer parks 24px above the dialog edge and scrolled fields stay visible in that
+  // padding strip (#7497). Pull the footer down by the dialog padding (`-bottom-6`),
+  // let its own padding paint that strip (`pb-8` = `py-2` + 24px) and cancel the extra
+  // height in normal flow (`-mb-6`) so a short form gets no blank band below the
+  // buttons. A nested, unpadded scroller has no such strip: there `bottom-0` is flush
+  // and the compensation would hang the footer below the scrollport.
+  const dialogFooterClass = !isInDialog
+    ? ''
+    : scrolledByPaddedDialog
+      ? 'sticky -bottom-6 left-0 right-0 z-20 -mx-6 -mb-6 px-6 pt-2 pb-8 bg-card border-t border-border/70 sm:-mx-6 sm:px-6'
+      : 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
   // No bottom padding on the dialog form. The previous `pb-20` left an 80px gap below
   // the sticky footer in every dialog whose content fit the viewport (the form sized to
   // content + 80px with the footer as its last child) — visible as empty white space at
@@ -3095,6 +3123,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     if (formReadOnly) return
     if (submittingRef.current) return
     submittingRef.current = true
+    let redirectNavigationStarted = false
     try {
     setFormError(null)
     setErrors({})
@@ -3352,7 +3381,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         logger.error('Error in onSubmitSuccess', { err })
         getTelemetryRuntime()?.reportError(err, { module: 'ui', code: 'ui.form_submit_success_failed' })
       }
-      if (successRedirect) await navigateWithGuard(successRedirect)
+      if (successRedirect) redirectNavigationStarted = await navigateWithGuard(successRedirect)
     } catch (err: unknown) {
       clearSubmitNavigationBypass()
       try {
@@ -3424,10 +3453,14 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       }
       setFormError(displayMessage)
     } finally {
-      setPending(false)
+      // A successful submit that kicks off the success-redirect keeps the form
+      // "pending"/locked until it actually unmounts, so a second submit fired
+      // during router navigation (which resolves well before unmount) doesn't
+      // re-run onSubmit and create a duplicate record.
+      if (!redirectNavigationStarted) setPending(false)
     }
     } finally {
-      submittingRef.current = false
+      if (!redirectNavigationStarted) submittingRef.current = false
     }
   }
 
@@ -3583,6 +3616,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               entityIdForField={primaryEntityId ?? undefined}
               recordId={explicitResourceId ?? recordId}
               markRequired={widgetRequiredFieldIds.has(f.id)}
+              formId={formId}
             />
           )
         })}
@@ -4158,6 +4192,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
                     entityIdForField={primaryEntityId ?? undefined}
                     recordId={explicitResourceId ?? recordId}
                     markRequired={widgetRequiredFieldIds.has(f.id)}
+                    formId={formId}
                   />
                 )
               })}
@@ -4249,6 +4284,7 @@ function RelationSelect({
 }
 // Local-buffer text input to avoid focus loss when parent re-renders
 function TextInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -4259,6 +4295,7 @@ function TextInput({
   suggestions,
   inputType = 'text',
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -4315,6 +4352,7 @@ function TextInput({
   if (inputType === 'password') {
     return (
       <PasswordInput
+        id={id}
         placeholder={placeholder}
         value={local}
         onChange={handleChange}
@@ -4332,6 +4370,7 @@ function TextInput({
   return (
     <>
       <Input
+        id={id}
         type={inputType}
         placeholder={placeholder}
         value={local}
@@ -4359,6 +4398,7 @@ function TextInput({
 
 // Local-buffer number input to avoid focus loss when parent re-renders
 function NumberInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -4368,6 +4408,7 @@ function NumberInput({
   disabled,
   readOnly,
 }: {
+  id?: string
   value: number | string | null | undefined
   onChange: (v: number | string | undefined) => void
   placeholder?: string
@@ -4452,6 +4493,7 @@ function NumberInput({
     // against the BROWSER locale, so it discards the separator the app locale displays
     // before React ever sees it (issue #5552). inputMode keeps the mobile numeric keypad.
     <Input
+      id={id}
       type="text"
       inputMode="decimal"
       // A text input is eligible for autofill and spellcheck; a number field is not.
@@ -4473,6 +4515,7 @@ function NumberInput({
 
 // Local-buffer textarea to avoid form-wide re-renders while typing
 function TextAreaInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -4483,6 +4526,7 @@ function TextAreaInput({
   disabled,
   readOnly,
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -4519,6 +4563,7 @@ function TextAreaInput({
 
   return (
     <Textarea
+      id={id}
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
@@ -4648,6 +4693,7 @@ type FieldControlProps = {
   entityIdForField?: string
   recordId?: string
   markRequired?: boolean
+  formId: string
 }
 
 function supportsWrapperBlurValidation(field: CrudField): boolean {
@@ -4763,6 +4809,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   entityIdForField,
   recordId,
   markRequired,
+  formId,
 }: FieldControlProps) {
   const t = useT()
   const fieldSetValue = React.useCallback(
@@ -4808,6 +4855,20 @@ const FieldControl = React.memo(function FieldControlImpl({
     ? options.find((option) => option.value === singleSelectValue)?.label
     : undefined
 
+  // Fields rendering a single focusable control get a real htmlFor/id pair;
+  // fields rendering a composite widget (date/time pickers, rich text, tags,
+  // relation search, multi-value selects) fall back to aria-labelledby on a
+  // group wrapper, per #5360's accessible-name requirement.
+  const controlId = `${formId}-field-${field.id}`
+  const labelId = `${controlId}-label`
+  const hasSingleControl =
+    field.type === 'text' ||
+    field.type === 'password' ||
+    field.type === 'number' ||
+    field.type === 'textarea' ||
+    field.type === 'combobox' ||
+    (field.type === 'select' && !builtin?.multiple)
+
   return (
     <div
       className={rootClassName}
@@ -4821,13 +4882,18 @@ const FieldControl = React.memo(function FieldControlImpl({
         : undefined}
     >
       {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
-        <label className="block text-sm font-medium">
+        <label
+          id={labelId}
+          htmlFor={hasSingleControl ? controlId : undefined}
+          className="block text-sm font-medium"
+        >
           {field.label}
           {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
         </label>
       ) : null}
       {field.type === 'text' && (
         <TextInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4840,6 +4906,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'password' && (
         <TextInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4852,6 +4919,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {(field.type === 'number' || field.type === 'decimal') && (
         <NumberInput
+          id={controlId}
           value={typeof value === 'number' || typeof value === 'string' ? value : null}
           placeholder={placeholder}
           onChange={fieldSetValue}
@@ -4863,73 +4931,84 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'date' && (
-        <DatePicker
-          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          closeOnSelect={builtin?.closeOnSelect}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DatePicker
+            value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            closeOnSelect={builtin?.closeOnSelect}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'datetime-local' && (
-        <DateTimePicker
-          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minuteStep={builtin?.minuteStep}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DateTimePicker
+            value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minuteStep={builtin?.minuteStep}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'datepicker' && (
-        <DatePicker
-          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          closeOnSelect={builtin?.closeOnSelect}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DatePicker
+            value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            closeOnSelect={builtin?.closeOnSelect}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'datetime' && (
-        <DateTimePicker
-          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minuteStep={builtin?.minuteStep}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DateTimePicker
+            value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minuteStep={builtin?.minuteStep}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'time' && (
-        <TimePicker
-          value={typeof value === 'string' ? value : null}
-          onChange={(time) => setValue(field.id, time ?? undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minuteStep={builtin?.minuteStep}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <TimePicker
+            value={typeof value === 'string' ? value : null}
+            onChange={(time) => setValue(field.id, time ?? undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minuteStep={builtin?.minuteStep}
+          />
+        </div>
       )}
       {field.type === 'textarea' && (
         <TextAreaInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4942,28 +5021,37 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'richtext' && builtin?.editor === 'simple' && (
-        <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        <div role="group" aria-labelledby={labelId}>
+          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        </div>
       )}
       {field.type === 'richtext' && builtin?.editor === 'html' && (
-        <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
+        <div role="group" aria-labelledby={labelId}>
+          <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
+        </div>
       )}
       {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
-        <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        <div role="group" aria-labelledby={labelId}>
+          <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        </div>
       )}
       {field.type === 'tags' && (
-        <TagsInput
-          value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
-          onChange={(next) => fieldSetValue(next)}
-          placeholder={placeholder}
-          autoFocus={autoFocusField}
-          suppressInitialSuggestionsOnFocus={autoFocusField}
-          suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
-          loadSuggestions={loadFieldSuggestions}
-          disabled={disabled}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <TagsInput
+            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+            onChange={(next) => fieldSetValue(next)}
+            placeholder={placeholder}
+            autoFocus={autoFocusField}
+            suppressInitialSuggestionsOnFocus={autoFocusField}
+            suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
+            loadSuggestions={loadFieldSuggestions}
+            disabled={disabled}
+          />
+        </div>
       )}
       {field.type === 'combobox' && (
         <ComboboxInput
+          id={controlId}
           value={typeof value === 'string' ? value : String(value ?? '')}
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
@@ -4986,8 +5074,9 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'checkbox' && (
-        <label className="inline-flex items-center gap-2 cursor-pointer">
+        <label htmlFor={controlId} className="inline-flex items-center gap-2 cursor-pointer">
           <Checkbox
+            id={controlId}
             checked={value === true}
             onCheckedChange={(next) => setValue(field.id, next === true)}
             data-crud-focus-target=""
@@ -5018,7 +5107,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           }}
           disabled={disabled || readOnly}
         >
-          <SelectTrigger data-crud-focus-target="">
+          <SelectTrigger id={controlId} data-crud-focus-target="">
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
               {singleSelectLabel}
             </SelectValue>
@@ -5040,16 +5129,18 @@ const FieldControl = React.memo(function FieldControlImpl({
         </Select>
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox === true && (
-        <ListboxMultiSelect
-          options={options}
-          placeholder={placeholder}
-          value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
-          onChange={(vals) => setValue(field.id, vals)}
-          autoFocus={autoFocusField}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <ListboxMultiSelect
+            options={options}
+            placeholder={placeholder}
+            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+            onChange={(vals) => setValue(field.id, vals)}
+            autoFocus={autoFocusField}
+          />
+        </div>
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox !== true && (
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-3" role="group" aria-labelledby={labelId}>
           {options.map((opt) => {
             const arr = Array.isArray(value)
               ? value.filter((item): item is string => typeof item === 'string')
@@ -5077,22 +5168,24 @@ const FieldControl = React.memo(function FieldControlImpl({
         </div>
       )}
       {field.type === 'relation' && (
-        <RelationSelect
-          options={options}
-          placeholder={placeholder}
-          value={
-            Array.isArray(value)
-              ? String(value[0] ?? '')
-              : value == null
-                ? ''
-                : String(value)
-          }
-          onChange={(selected) => setValue(field.id, selected)}
-          autoFocus={autoFocusField}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <RelationSelect
+            options={options}
+            placeholder={placeholder}
+            value={
+              Array.isArray(value)
+                ? String(value[0] ?? '')
+                : value == null
+                  ? ''
+                  : String(value)
+            }
+            onChange={(selected) => setValue(field.id, selected)}
+            autoFocus={autoFocusField}
+          />
+        </div>
       )}
       {field.type === 'custom' && (
-        <>
+        <div role="group" aria-labelledby={labelId}>
           {field.component({
             id: field.id,
             value,
@@ -5105,7 +5198,7 @@ const FieldControl = React.memo(function FieldControlImpl({
             autoFocus,
             disabled,
           })}
-        </>
+        </div>
       )}
       {field.description ? (
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -5137,6 +5230,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.wrapperClassName === next.wrapperClassName &&
   prev.entityIdForField === next.entityIdForField &&
   prev.recordId === next.recordId &&
+  prev.formId === next.formId &&
   (prev.field.type !== 'custom' ||
     (prev.values === next.values &&
       prev.field.component === (next.field as CrudCustomField).component &&

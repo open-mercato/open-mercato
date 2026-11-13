@@ -100,6 +100,7 @@ All sizes share `rounded-md`. Same-row buttons MUST share `size`.
 3. Use `IconButton` (not `Button size="icon"`) for icon-only buttons.
 4. Add `hover:bg-transparent` when using `variant="ghost"` for tab-style buttons with underline indicators.
 5. Add `h-auto` in compact inline contexts (tag chips, toolbars, inline lists) where fixed height would overflow.
+6. A `ghost` button placed on an `accent-indigo`-tinted surface (selected summary bar, selected card, tab rail) MUST hover with `hover:bg-accent-indigo/10 hover:text-accent-indigo`, not the default grey ghost hover — see "Selection accent" in [`ds-rules.md`](ds-rules.md).
 
 ### Same-row size consistency (MUST)
 
@@ -5101,7 +5102,7 @@ type LookupSelectItem = {
   description?: string | null
   rightLabel?: string | null      // small uppercase tracked label on top right (country code, status badge etc.)
   badge?: string | null
-  icon?: React.ReactNode          // 48×48 leading slot (rounded-lg). Falls back to the first letter of `title`.
+  icon?: React.ReactNode          // 32×32 leading slot (rounded-md). Falls back to the first letter of `title`.
   disabled?: boolean              // disables the row unless it is currently selected
 }
 ```
@@ -5109,12 +5110,12 @@ type LookupSelectItem = {
 ### Visual
 
 - Container: vertical card list, `gap-1.5`, `max-h-80` scroll
-- Card: `rounded-xl border p-4` with `gap-4` between the 48×48 leading slot, the text column, and the trailing checkmark slot
-- Leading slot: **frameless** when `item.icon` is provided (the icon brings its own visual — Avatar circle, lucide icon, etc.). The styled `rounded-lg border bg-muted` box renders ONLY for the fallback first-letter case, so Avatar / icon don't get a redundant square frame around them.
-- Default state: `border-input bg-card` with `hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm` (subtle elevation)
-- Selected state: `border-brand-violet bg-brand-violet/5 shadow-sm` with a `Check` icon (`size-5 text-brand-violet`) on the right and the leading icon box tinted `bg-brand-violet/10`
+- Card: `rounded-lg border px-3 py-2` with `gap-3` between the 32×32 leading slot, the text column, and the trailing checkmark slot
+- Leading slot: **frameless** when `item.icon` is provided (the icon brings its own visual — Avatar circle, lucide icon, etc.). The styled `rounded-md border bg-muted` box renders ONLY for the fallback first-letter case, so Avatar / icon don't get a redundant square frame around them.
+- Default state: `border-input bg-card` with `hover:border-foreground/20 hover:bg-muted/30`
+- Selected state: `border-accent-indigo bg-accent-indigo/5` with a `Check` icon (`size-4 text-accent-indigo`) on the right and the leading icon box tinted `bg-accent-indigo/10`
 - The right-hand `Select` / `Selected` button has been **removed** — the entire row is the click target. The resolved labels are still exposed via the row's `title` attribute (browser tooltip + screen-reader hint) for backward compatibility
-- Typography: title `text-sm font-semibold`, subtitle `text-xs text-muted-foreground`, description `text-xs text-muted-foreground/70`, `rightLabel` `text-overline uppercase tracking-wider text-muted-foreground`
+- Typography: title `text-sm font-medium`, subtitle `text-xs text-muted-foreground`, description `text-xs text-muted-foreground/70`, `rightLabel` `text-overline uppercase tracking-wider text-muted-foreground`
 
 ### Props
 
@@ -5126,7 +5127,7 @@ type LookupSelectItem = {
 | `fetchOptions` | `(query?: string) => Promise<LookupSelectItem[]>` | — | Legacy alias. Prefer `fetchItems`. |
 | `options` | `LookupSelectItem[]` | — | Sync list. Mutually exclusive with `fetchItems`/`fetchOptions`. |
 | `minQuery` | `number` | `2` | Minimum query length before the loader fires. Bypassed by `defaultOpen` or a preselected `value`. |
-| `defaultOpen` | `boolean` | `false` | Loads on mount and ignores `minQuery`. |
+| `defaultOpen` | `boolean` | `false` | Loads on mount, ignores `minQuery` and starts on the open list even with a `value`. Pass it where the lookup mounts because the user asked to change the value (inline editors, "Change user"). |
 | `actionSlot` | `React.ReactNode` | — | Right-of-search slot, typically a "Create new" button. |
 | `onReady` | `(controls: { setQuery: (value: string) => void }) => void` | — | Receives a parent-driven query setter (deep-linking, "Search again" buttons). |
 | `searchPlaceholder` | `string` | `placeholder ?? t('ui.lookupSelect.searchPlaceholder', 'Search…')` | Auto-translated. |
@@ -5137,14 +5138,17 @@ type LookupSelectItem = {
 | `selectLabel` / `selectedLabel` | `string` | `t('ui.lookupSelect.select', 'Select')` / `t('ui.lookupSelect.selected', 'Selected')` | Auto-translated button labels per row. |
 | `minQueryHintLabel` | `string` | `t('ui.lookupSelect.minQueryHint', 'Type at least {minQuery} characters or paste an id to search.', { minQuery })` | Shown when the user has typed but below `minQuery`. |
 | `startTypingLabel` | `string` | `t('ui.lookupSelect.startTyping', 'Start typing to search.')` | Auto-translated. |
-| `selectedHintLabel` | `(id: string) => string` | — | Future hook for an inline preview block (currently unused by the primitive — pass through for forward-compat). |
+| `selectedHintLabel` | `(id: string) => string` | — | Label resolver for the collapsed selection summary. Only a value that is a real name counts: a resolver that returns the id or embeds it (`Selected customer: <id>`) is ignored and the summary falls back to the picked item's `title`, so a record id never reaches the DOM. |
 | `disabled` | `boolean` | `false` | Disables both the search input and row interaction. |
 | `loading` | `boolean` | `false` | Force the loading state regardless of the internal fetch — useful when the parent owns the request. |
 
 ### MUST rules
 
 - All default labels (`searchPlaceholder`, `clearLabel`, `emptyLabel`, `loadingLabel`, `selectLabel`, `selectedLabel`, `startTypingLabel`, `minQueryHintLabel`) are auto-translated via `useT()` against `ui.lookupSelect.*` keys. Override only when the surface needs custom copy.
-- Search input is styled `h-10 rounded-lg border-input shadow-xs focus-visible:shadow-focus focus-visible:border-brand-violet` — slightly bigger and more rounded than a standard form `Input` to read as a picker chrome rather than a form field. The leading search icon sits at `left-3.5`. Card rows use `rounded-xl p-4` with selected state `border-brand-violet bg-brand-violet/5 shadow-sm` and a leading `Check` icon (DS active token).
+- Search input is styled `h-9 rounded-lg border-input shadow-xs focus-visible:shadow-focus focus-visible:border-foreground` — the default control height, so a default-size `Button` in `actionSlot` lines up with it. The leading search icon sits at `left-3.5`. Card rows are compact (`rounded-lg px-3 py-2`, 32px avatar) with the selected state on the selection accent: `border-accent-indigo bg-accent-indigo/5`, a `Check` in `text-accent-indigo` and a `text-foreground` "Selected" label (never `brand-violet`, see "Selection accent" in [`ds-rules.md`](ds-rules.md)).
+- Picking a result ends the interaction (#6196): once the parent adopts the id the list closes, the query clears and the search box gives way to a single summary row (`data-testid="lookup-select-selected"`, same accent tint). The picked `title`/`subtitle` is a ghost `Button` that reopens the search (**Change**, its accessible name), and an `IconButton` clears (**Clear selection**); a `disabled` lookup shows plain text with neither. A host that keeps `value` at `null` to collect picks (multi-add) keeps browsing instead.
+- A value already set when the lookup mounts starts on that summary row, unless `defaultOpen` is set.
+- Focus follows the swap: after a pick or `Escape` it lands on the Change control, and after Change or Clear on the search box.
 - Set `minQuery` to match the API's minimum filter length (typically 2 or 3). For pre-loaded short lists, switch to `options` instead of `fetchItems`.
 - Use `actionSlot` for a "Create new" affordance — do not render a separate `<Button>` outside the primitive that breaks the search-row alignment.
 - For modules with permission-gated lookup APIs, route `fetchItems` through `apiCall`/`apiCallOrThrow` so 401/403 flows reach the global error handler.

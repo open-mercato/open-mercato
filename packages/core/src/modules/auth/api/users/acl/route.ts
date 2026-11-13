@@ -56,6 +56,10 @@ const userAclResponseSchema = z.object({
 const userAclUpdateResponseSchema = z.object({
   ok: z.literal(true),
   sanitized: z.boolean(),
+  // The persisted row's new version, so a caller tracking its own optimistic-lock
+  // baseline (e.g. the user edit page's composite save) can refresh it without a
+  // follow-up GET.
+  updatedAt: z.string().nullable(),
 })
 
 const userAclErrorSchema = z.object({ error: z.string() })
@@ -411,7 +415,7 @@ export async function PUT(req: Request) {
     organizationIds: actorOrgId ? [actorOrgId] : null,
     request: req,
   }
-  await commandBus.execute<UserAclUpdateInput, AclUpdateResult>(AUTH_USER_ACL_UPDATE_COMMAND_ID, {
+  const commandResult = await commandBus.execute<UserAclUpdateInput, AclUpdateResult>(AUTH_USER_ACL_UPDATE_COMMAND_ID, {
     input: {
       userId: parsed.data.userId,
       tenantId,
@@ -427,6 +431,7 @@ export async function PUT(req: Request) {
   return NextResponse.json({
     ok: true,
     sanitized: !actorIsSuperAdmin && (hasRestrictedChanges(requestedFeatures, effectiveFeatures, existingFeatures) || requestedIsSuperAdmin !== effectiveIsSuperAdmin),
+    updatedAt: commandResult.result?.updatedAt ?? null,
   })
 }
 

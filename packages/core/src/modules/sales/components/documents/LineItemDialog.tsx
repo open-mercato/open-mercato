@@ -1930,6 +1930,7 @@ export function LineItemDialog({
                 values,
               }: FieldRenderProps) => (
                 <LookupSelect
+                  defaultOpen
                   value={typeof value === "string" ? value : null}
                   onChange={(next) => {
                     const selectedOption = next
@@ -2077,6 +2078,7 @@ export function LineItemDialog({
                     : null;
                 return (
                   <LookupSelect
+                    defaultOpen
                     key={productId ?? "no-product"}
                     value={typeof value === "string" ? value : null}
                     onChange={(next) => {
@@ -2221,6 +2223,7 @@ export function LineItemDialog({
                 }
                 return (
                   <LookupSelect
+                    defaultOpen
                     key={
                       productId
                         ? `${productId}-${variantId ?? "no-variant"}`
