@@ -27,5 +27,5 @@ Root cause: `loadUsers()` runs only from the Select's `onOpenChange`; until then
 
 ### Phase 1: Fix and regression test
 
-- [ ] 1.1 Load assignee options on mount in channel info panel
-- [ ] 1.2 Add regression test for the collapsed assignee label
+- [x] 1.1 Load assignee options on mount in channel info panel — 252a662485
+- [x] 1.2 Add regression test for the collapsed assignee label — b3026eea96
