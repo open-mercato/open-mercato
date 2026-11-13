@@ -1,0 +1,76 @@
+[
+  {
+    "kind": "claim",
+    "id": "efd746a3-6565-4812-88a5-e1047b21e354",
+    "action": "delete",
+    "status": 200
+  },
+  {
+    "id": "44ac6fb5-7e47-4a03-a5c9-3c49a37753ba",
+    "action": "close",
+    "status": 200
+  },
+  {
+    "id": "44ac6fb5-7e47-4a03-a5c9-3c49a37753ba",
+    "action": "reopen",
+    "status": 200
+  },
+  {
+    "id": "44ac6fb5-7e47-4a03-a5c9-3c49a37753ba",
+    "action": "cancel",
+    "status": 200
+  },
+  {
+    "kind": "claim",
+    "id": "44ac6fb5-7e47-4a03-a5c9-3c49a37753ba",
+    "action": "delete",
+    "status": 200
+  },
+  {
+    "kind": "claim",
+    "id": "90d1b687-ef29-4d53-8954-240f81aea933",
+    "action": "delete",
+    "status": 200
+  },
+  {
+    "kind": "claim",
+    "id": "da3a5cf7-e7fc-4a8b-9d6c-1570add5f595",
+    "action": "delete",
+    "status": 200
+  },
+  {
+    "kind": "claim",
+    "id": "9fdd19fe-b28c-463b-800a-3b5765380c4d",
+    "action": "delete",
+    "status": 200
+  },
+  {
+    "kind": "form",
+    "id": "3f6539f6-d5b0-47dc-9a63-81bb62cb4eec",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "updatedAt": "2026-11-13T09:43:25.518Z"
+    }
+  },
+  {
+    "kind": "user",
+    "id": "8d8a2e7a-284f-43c5-9392-1e0e280ed0fd",
+    "status": 200
+  },
+  {
+    "kind": "user",
+    "id": "1fe0a956-e5fd-4d76-802a-4a7f3bc64a27",
+    "status": 200
+  },
+  {
+    "kind": "role",
+    "id": "bf190ebb-b1b9-426a-912b-66b4b00e5ea2",
+    "status": 200
+  },
+  {
+    "kind": "role",
+    "id": "db16abcc-5975-4b48-877b-0c924597e556",
+    "status": 200
+  }
+]
