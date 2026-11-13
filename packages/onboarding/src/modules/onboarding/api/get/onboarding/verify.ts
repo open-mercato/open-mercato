@@ -89,14 +89,17 @@ async function completeProvisionedRequest(args: {
   const ids = resolveProvisioningIds(args.request)
   if (!ids) return null
   const identityContainer = await createRequestContainer()
-  if (!await hasPersistedWorkspace(identityContainer.resolve('em') as EntityManager, args.request)) return null
+  try {
+    if (!await hasPersistedWorkspace(identityContainer.resolve('em') as EntityManager, args.request)) return null
+  } finally {
+    await identityContainer.dispose()
+  }
   return runOnboardingTenant(ids.tenantId, async (container) => {
     const em = container.resolve('em') as EntityManager
     const service = new OnboardingService(em)
     const current = await service.findById(args.request.id)
     if (!current || current.tokenHash !== args.request.tokenHash || current.status !== 'processing'
-      || current.tenantId !== ids.tenantId || current.organizationId !== ids.organizationId
-      || !await hasPersistedWorkspace(em, current)) return null
+      || current.deletedAt || current.tenantId !== ids.tenantId || current.organizationId !== ids.organizationId) return null
     await service.markCompleted(current, ids)
     after(async () => {
       await runDeferredProvisioning({ requestId: current.id, tenantId: ids.tenantId, organizationId: ids.organizationId })

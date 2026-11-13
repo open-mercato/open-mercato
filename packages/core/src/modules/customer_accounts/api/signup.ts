@@ -112,110 +112,114 @@ export async function POST(req: Request) {
 
   return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId, source: 'public-token', operation: 'customer-signup' }, async () => {
     const tenantContainer = await createRequestContainer()
-    const customerUserService = tenantContainer.resolve('customerUserService') as CustomerUserService
-    const customerTokenService = tenantContainer.resolve('customerTokenService') as CustomerTokenService
-    const em = tenantContainer.resolve('em') as import('@mikro-orm/postgresql').EntityManager
-    const { translate } = await resolveTranslations()
-    const existing = await customerUserService.findByEmail(email, tenantId)
-    if (existing) {
-      await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
-      const existingOrg = await findOrganizationInTenant(em, existing.organizationId, tenantId)
-      // Prefer the org's active custom domain when available; fall back to the
-      // platform login URL preserved by `resolvePortalLoginUrl`.
-      let loginUrl = resolvePortalLoginUrl(baseUrl, existingOrg?.slug ?? null)
-      try {
-        loginUrl = await urlForCustomerOrg(existing.organizationId, '/login', { container: tenantContainer })
-      } catch {
-        // Fall back to platform URL on any resolution issue.
+    try {
+      const customerUserService = tenantContainer.resolve('customerUserService') as CustomerUserService
+      const customerTokenService = tenantContainer.resolve('customerTokenService') as CustomerTokenService
+      const em = tenantContainer.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+      const { translate } = await resolveTranslations()
+      const existing = await customerUserService.findByEmail(email, tenantId)
+      if (existing) {
+        await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
+        const existingOrg = await findOrganizationInTenant(em, existing.organizationId, tenantId)
+        // Prefer the org's active custom domain when available; fall back to the
+        // platform login URL preserved by `resolvePortalLoginUrl`.
+        let loginUrl = resolvePortalLoginUrl(baseUrl, existingOrg?.slug ?? null)
+        try {
+          loginUrl = await urlForCustomerOrg(existing.organizationId, '/login', { container: tenantContainer })
+        } catch {
+          // Fall back to platform URL on any resolution issue.
+        }
+        const subject = translate('customer_accounts.signup.existing.subject', 'You already have a portal account')
+        const copy = {
+          preview: translate('customer_accounts.signup.existing.preview', 'A sign-up attempt was made for an email that already has a portal account.'),
+          title: translate('customer_accounts.signup.existing.title', 'You already have a portal account'),
+          body: translate(
+            'customer_accounts.signup.existing.body',
+            'A sign-up request was made for this email address. You can sign in with your existing account. If you forgot your password, use the password reset option on the sign-in page.',
+          ),
+          cta: translate('customer_accounts.signup.existing.cta', 'Open sign-in page'),
+          hint: translate(
+            'customer_accounts.signup.existing.hint',
+            'If this was not you, you can ignore this message. No new portal account was created.',
+          ),
+        }
+
+        await sendEmail({
+          to: existing.email,
+          subject,
+          react: CustomerExistingAccountEmail({ loginUrl, copy }),
+          tenantId,
+          organizationId,
+        }).catch((error) => {
+          logger.error('Existing-account email failed', { err: error })
+        })
+
+        return NextResponse.json({ ok: true }, { status: 202 })
       }
-      const subject = translate('customer_accounts.signup.existing.subject', 'You already have a portal account')
+
+      const user = await customerUserService.createUser(email, password, displayName, { tenantId, organizationId })
+
+      const defaultRole = await em.findOne(CustomerRole, {
+        tenantId,
+        isDefault: true,
+        deletedAt: null,
+      })
+      if (defaultRole) {
+        const userRole = em.create(CustomerUserRole, {
+          user,
+          role: defaultRole,
+          createdAt: new Date(),
+        } as any)
+        em.persist(userRole)
+      }
+
+      await em.persist(user).flush()
+
+      const verificationToken = await customerTokenService.createEmailVerification(user.id, tenantId)
+      let verifyUrl = resolvePortalVerifyUrl(baseUrl, verificationToken, orgRow.slug)
+      try {
+        verifyUrl = await urlForCustomerOrg(organizationId, `/verify?token=${encodeURIComponent(verificationToken)}`, {
+          container: tenantContainer,
+        })
+      } catch {
+        // Fall back to the platform-derived URL on any resolution issue.
+      }
+      const subject = translate('customer_accounts.signup.created.subject', 'Verify your portal account')
       const copy = {
-        preview: translate('customer_accounts.signup.existing.preview', 'A sign-up attempt was made for an email that already has a portal account.'),
-        title: translate('customer_accounts.signup.existing.title', 'You already have a portal account'),
+        preview: translate('customer_accounts.signup.created.preview', 'Verify your portal account to finish sign-up.'),
+        title: translate('customer_accounts.signup.created.title', 'Verify your portal account'),
         body: translate(
-          'customer_accounts.signup.existing.body',
-          'A sign-up request was made for this email address. You can sign in with your existing account. If you forgot your password, use the password reset option on the sign-in page.',
+          'customer_accounts.signup.created.body',
+          'Your account request was accepted. Confirm your email address to finish setting up portal access.',
         ),
-        cta: translate('customer_accounts.signup.existing.cta', 'Open sign-in page'),
+        cta: translate('customer_accounts.signup.created.cta', 'Verify email address'),
         hint: translate(
-          'customer_accounts.signup.existing.hint',
-          'If this was not you, you can ignore this message. No new portal account was created.',
+          'customer_accounts.signup.created.hint',
+          'This verification link expires in 24 hours. If you did not request this, you can ignore this email.',
         ),
       }
 
       await sendEmail({
-        to: existing.email,
+        to: user.email,
         subject,
-        react: CustomerExistingAccountEmail({ loginUrl, copy }),
+        react: CustomerSignupVerificationEmail({ verifyUrl, copy }),
         tenantId,
         organizationId,
       }).catch((error) => {
-        logger.error('Existing-account email failed', { err: error })
+        logger.error('Verification email failed', { err: error })
       })
+
+      await emitCustomerAccountsEvent('customer_accounts.user.created', {
+        id: user.id,
+        email: user.email,
+        tenantId,
+        organizationId,
+      }).catch(() => undefined)
 
       return NextResponse.json({ ok: true }, { status: 202 })
+    } finally {
+      await tenantContainer.dispose()
     }
-
-    const user = await customerUserService.createUser(email, password, displayName, { tenantId, organizationId })
-
-    const defaultRole = await em.findOne(CustomerRole, {
-      tenantId,
-      isDefault: true,
-      deletedAt: null,
-    })
-    if (defaultRole) {
-      const userRole = em.create(CustomerUserRole, {
-        user,
-        role: defaultRole,
-        createdAt: new Date(),
-      } as any)
-      em.persist(userRole)
-    }
-
-    await em.persist(user).flush()
-
-    const verificationToken = await customerTokenService.createEmailVerification(user.id, tenantId)
-    let verifyUrl = resolvePortalVerifyUrl(baseUrl, verificationToken, orgRow.slug)
-    try {
-      verifyUrl = await urlForCustomerOrg(organizationId, `/verify?token=${encodeURIComponent(verificationToken)}`, {
-        container: tenantContainer,
-      })
-    } catch {
-      // Fall back to the platform-derived URL on any resolution issue.
-    }
-    const subject = translate('customer_accounts.signup.created.subject', 'Verify your portal account')
-    const copy = {
-      preview: translate('customer_accounts.signup.created.preview', 'Verify your portal account to finish sign-up.'),
-      title: translate('customer_accounts.signup.created.title', 'Verify your portal account'),
-      body: translate(
-        'customer_accounts.signup.created.body',
-        'Your account request was accepted. Confirm your email address to finish setting up portal access.',
-      ),
-      cta: translate('customer_accounts.signup.created.cta', 'Verify email address'),
-      hint: translate(
-        'customer_accounts.signup.created.hint',
-        'This verification link expires in 24 hours. If you did not request this, you can ignore this email.',
-      ),
-    }
-
-    await sendEmail({
-      to: user.email,
-      subject,
-      react: CustomerSignupVerificationEmail({ verifyUrl, copy }),
-      tenantId,
-      organizationId,
-    }).catch((error) => {
-      logger.error('Verification email failed', { err: error })
-    })
-
-    await emitCustomerAccountsEvent('customer_accounts.user.created', {
-      id: user.id,
-      email: user.email,
-      tenantId,
-      organizationId,
-    }).catch(() => undefined)
-
-    return NextResponse.json({ ok: true }, { status: 202 })
   })
 }
 

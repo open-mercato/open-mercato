@@ -123,63 +123,67 @@ export async function POST(req: Request) {
 
   return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId, source: 'public-token', operation: 'customer-login' }, async () => {
     const tenantContainer = await createRequestContainer()
-    const customerUserService = tenantContainer.resolve('customerUserService') as CustomerUserService
-    const customerSessionService = tenantContainer.resolve('customerSessionService') as CustomerSessionService
-    const customerRbacService = tenantContainer.resolve('customerRbacService') as CustomerRbacService
+    try {
+      const customerUserService = tenantContainer.resolve('customerUserService') as CustomerUserService
+      const customerSessionService = tenantContainer.resolve('customerSessionService') as CustomerSessionService
+      const customerRbacService = tenantContainer.resolve('customerRbacService') as CustomerRbacService
 
-    if (!(await customerUserService.resetFailedAttemptsUnlessLocked(user))) {
-      void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch(reportLoginEventError)
-      return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
-    }
-    await customerUserService.updateLastLoginAt(user)
+      if (!(await customerUserService.resetFailedAttemptsUnlessLocked(user))) {
+        void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch(reportLoginEventError)
+        return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
+      }
+      await customerUserService.updateLastLoginAt(user)
 
-    if (compoundKey) {
-      await resetAuthRateLimit(compoundKey, customerLoginRateLimitConfig)
-    }
+      if (compoundKey) {
+        await resetAuthRateLimit(compoundKey, customerLoginRateLimitConfig)
+      }
 
-    const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
-      tenantId,
-      organizationId: user.organizationId,
-    })
+      const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
+        tenantId,
+        organizationId: user.organizationId,
+      })
 
-    const ip = getClientIp(req, 0)
-    const userAgent = req.headers.get('user-agent') || null
-    const { rawToken, jwt } = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
+      const ip = getClientIp(req, 0)
+      const userAgent = req.headers.get('user-agent') || null
+      const { rawToken, jwt } = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
 
-    await emitCustomerAccountsEvent('customer_accounts.login.success', {
-      id: user.id,
-      email: user.email,
-      tenantId,
-      organizationId: user.organizationId,
-    }).catch(reportLoginEventError)
-
-    const res = NextResponse.json({
-      ok: true,
-      user: {
+      await emitCustomerAccountsEvent('customer_accounts.login.success', {
         id: user.id,
         email: user.email,
-        displayName: user.displayName,
-        emailVerified: !!user.emailVerifiedAt,
-      },
-      resolvedFeatures,
-    })
+        tenantId,
+        organizationId: user.organizationId,
+      }).catch(reportLoginEventError)
 
-    res.cookies.set('customer_auth_token', jwt, {
-      httpOnly: true,
-      path: '/',
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 60 * 60 * 8,
-    })
-    res.cookies.set('customer_session_token', rawToken, {
-      httpOnly: true,
-      path: '/',
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 60 * 60 * 24 * 30,
-    })
+      const res = NextResponse.json({
+        ok: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          emailVerified: !!user.emailVerifiedAt,
+        },
+        resolvedFeatures,
+      })
 
-    return res
+      res.cookies.set('customer_auth_token', jwt, {
+        httpOnly: true,
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 60 * 8,
+      })
+      res.cookies.set('customer_session_token', rawToken, {
+        httpOnly: true,
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 60 * 24 * 30,
+      })
+
+      return res
+    } finally {
+      await tenantContainer.dispose()
+    }
   })
 }
 

@@ -36,6 +36,7 @@ const mockEm = {
 }
 
 const mockContainer = {
+  dispose: jest.fn(async () => undefined),
   resolve: jest.fn((token: string) => {
     if (token === 'customerUserService') return mockCustomerUserService
     if (token === 'customerTokenService') return mockCustomerTokenService

@@ -61,58 +61,62 @@ export async function POST(req: Request) {
   const { user, invitation } = result
   return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: user.tenantId, source: 'public-token', operation: 'customer-invitation-accepted' }, async () => {
     const tenantContainer = await createRequestContainer()
-    const customerSessionService = tenantContainer.resolve('customerSessionService') as CustomerSessionService
-    const customerRbacService = tenantContainer.resolve('customerRbacService') as CustomerRbacService
-    const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
-      tenantId: user.tenantId,
-      organizationId: user.organizationId,
-    })
+    try {
+      const customerSessionService = tenantContainer.resolve('customerSessionService') as CustomerSessionService
+      const customerRbacService = tenantContainer.resolve('customerRbacService') as CustomerRbacService
+      const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
+        tenantId: user.tenantId,
+        organizationId: user.organizationId,
+      })
 
-    const ip = getClientIp(req, 0)
-    const userAgent = req.headers.get('user-agent') || null
-    const { rawToken, jwt } = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
+      const ip = getClientIp(req, 0)
+      const userAgent = req.headers.get('user-agent') || null
+      const { rawToken, jwt } = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
 
-    await emitCustomerAccountsEvent('customer_accounts.user.created', {
-      id: user.id,
-      email: user.email,
-      tenantId: user.tenantId,
-      organizationId: user.organizationId,
-      invitationId: invitation.id,
-    }).catch(() => undefined)
-
-    await emitCustomerAccountsEvent('customer_accounts.invitation.accepted', {
-      invitationId: invitation.id,
-      userId: user.id,
-      tenantId: user.tenantId,
-    }).catch(() => undefined)
-
-    const res = NextResponse.json({
-      ok: true,
-      user: {
+      await emitCustomerAccountsEvent('customer_accounts.user.created', {
         id: user.id,
         email: user.email,
-        displayName: user.displayName,
-        emailVerified: true,
-      },
-      resolvedFeatures,
-    }, { status: 201 })
+        tenantId: user.tenantId,
+        organizationId: user.organizationId,
+        invitationId: invitation.id,
+      }).catch(() => undefined)
 
-    res.cookies.set('customer_auth_token', jwt, {
-      httpOnly: true,
-      path: '/',
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 60 * 60 * 8,
-    })
-    res.cookies.set('customer_session_token', rawToken, {
-      httpOnly: true,
-      path: '/',
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 60 * 60 * 24 * 30,
-    })
+      await emitCustomerAccountsEvent('customer_accounts.invitation.accepted', {
+        invitationId: invitation.id,
+        userId: user.id,
+        tenantId: user.tenantId,
+      }).catch(() => undefined)
 
-    return res
+      const res = NextResponse.json({
+        ok: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          emailVerified: true,
+        },
+        resolvedFeatures,
+      }, { status: 201 })
+
+      res.cookies.set('customer_auth_token', jwt, {
+        httpOnly: true,
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 60 * 8,
+      })
+      res.cookies.set('customer_session_token', rawToken, {
+        httpOnly: true,
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 60 * 24 * 30,
+      })
+
+      return res
+    } finally {
+      await tenantContainer.dispose()
+    }
   })
 }
 

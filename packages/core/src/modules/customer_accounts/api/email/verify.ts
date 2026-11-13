@@ -33,17 +33,21 @@ export async function POST(req: Request) {
 
   return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: result.tenantId, source: 'public-token', operation: 'customer-email-verification' }, async () => {
     const tenantContainer = await createRequestContainer()
-    const em = tenantContainer.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+    try {
+      const em = tenantContainer.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-    await em.nativeUpdate(CustomerUser, { id: result.userId, tenantId: result.tenantId }, { emailVerifiedAt: new Date() })
+      await em.nativeUpdate(CustomerUser, { id: result.userId, tenantId: result.tenantId }, { emailVerifiedAt: new Date() })
 
-    await emitCustomerAccountsEvent('customer_accounts.email.verified', {
-      userId: result.userId,
-      recipientUserId: result.userId,
-      tenantId: result.tenantId,
-    }).catch(() => undefined)
+      await emitCustomerAccountsEvent('customer_accounts.email.verified', {
+        userId: result.userId,
+        recipientUserId: result.userId,
+        tenantId: result.tenantId,
+      }).catch(() => undefined)
 
-    return NextResponse.json({ ok: true })
+      return NextResponse.json({ ok: true })
+    } finally {
+      await tenantContainer.dispose()
+    }
   })
 }
 

@@ -15,7 +15,11 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => {
     const scope = storage.getStore()
     if (!scope?.active) throw new Error('inactive container scope')
-    const container = { scope, resolve: () => ({ scope }) }
+    const container = { scope, resolve: () => ({ scope }), dispose: jest.fn(async () => {
+      await Promise.resolve()
+      expect(storage.getStore()).toBe(scope)
+      expect(scope.active).toBe(true)
+    }) }
     containers.push(container)
     return container
   },
@@ -83,4 +87,15 @@ it('revokes timed-out seed authority before its delayed continuation resumes', a
   expect(lateAuthority).toBe(false)
   expect(jest.getTimerCount()).toBe(0)
   jest.useRealTimers()
+})
+
+test.each(['success', 'failure'])('awaits disposal before ending the %s invocation', async (outcome) => {
+  const operation = runOnboardingTenant('tenant-a', async () => {
+    if (outcome === 'failure') throw new Error('hook failed')
+    return 'done'
+  })
+  if (outcome === 'failure') await expect(operation).rejects.toThrow('hook failed')
+  else await expect(operation).resolves.toBe('done')
+  expect(containers).toHaveLength(1)
+  expect((containers[0] as { dispose: jest.Mock }).dispose).toHaveBeenCalledTimes(1)
 })

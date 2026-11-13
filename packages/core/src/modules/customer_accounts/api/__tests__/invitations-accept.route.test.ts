@@ -12,6 +12,7 @@ const mockResolveTranslations = jest.fn()
 const mockRunDatabaseContext = jest.fn((_context: unknown, callback: () => unknown) => callback())
 
 const mockContainer = {
+  dispose: jest.fn(async () => undefined),
   resolve: jest.fn((token: string) => {
     if (token === 'customerInvitationService') return { acceptInvitation: mockAcceptInvitation }
     if (token === 'customerSessionService') return { createSession: mockCreateSession }
