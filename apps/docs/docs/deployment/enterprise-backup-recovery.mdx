@@ -1,5 +1,6 @@
 ---
 title: Enterprise encrypted backup and recovery
+description: Configure commercial PostgreSQL backups, authenticate recovery artifacts, and rehearse an isolated restore with retained keys.
 ---
 
 The commercial `backups` module provides `mercato-backup`, a standalone PostgreSQL recovery command that works without application bootstrap. `mercato backups` is the application convenience wrapper; use the standalone command for JSON output or recovery when the original application is unavailable.
@@ -13,6 +14,22 @@ Set `OM_BACKUP_BINARIES_DIR` to an operator-controlled directory containing `pg_
 Provision private output/workspace directories with mode 0700. The workspace stores sensitive run identities and temporary recovery files. Keep it on an appropriately sized protected volume. Stop application replicas, workers, schedulers, integrations and other writers before a protected rotation/recovery drill. A quiesced backup conservatively examines the whole cluster transaction horizon: unrelated writers can cause refusal.
 
 For an application wrapper, enable the module before running the normal generation/build workflow. `mercato backups labels --output /srv/recovery/private/labels.json` exports metadata labels without opening a database. The standalone create command accepts that file through `--labels-file` and otherwise uses table names.
+
+## Configure without exposing secrets
+
+Inject credentials through the deployment secret manager. These examples configure paths and capability flags only; do not paste passwords, archive identities or application keys into shell history:
+
+```sh
+export OM_ENABLE_ENTERPRISE_MODULES=true
+export OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=true
+export OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED=true
+export OM_BACKUP_BINARIES_DIR=/usr/lib/postgresql/16/bin
+export PGSERVICEFILE=/srv/recovery/private/pg_service.conf
+export PGPASSFILE=/srv/recovery/private/pgpass
+export OM_BACKUP_REQUIRE_ENCRYPTION=true
+```
+
+Set the rights attestation only for a version you are licensed to use. Provision service entries `source` and `scratch` with distinct database identities; `scratch` must never point at the source. Restrict custody files to their owner and keep application-key escrow separate from the encrypted archive. The examples below use placeholder identifiers/digests/challenges returned by earlier commands; replace them with independently checked values.
 
 ## Create and verify
 
@@ -73,3 +90,28 @@ Quiesced keyset resume reuses a committed prefix only after authenticating every
 Sequence recovery compares the captured counter state with the integer values actually restored, using MAX for ascending and MIN for descending allocation while preserving non-unit increments and bigint precision. Empty sequences keep their original is_called state. All plans are validated before nontransactional setval calls; an interrupted apply can be replayed. Owned cyclic sequences and ownership of non-integer/domain columns are refused before export instead of applying lexical or ambiguous counter ordering.
 
 Status exposes an owner-private, unencrypted aggregate checkpoint without entity names. These display counts are advisory and never authorize resume. Providing a recovery identity or the original workspace enables decrypted per-entity status. Status and checkpoint export do not repair/truncate a torn journal; repair belongs to an explicitly resumed writer. Preflight accepts --operation create, restore or exercise; its database/baseline checks are read-only. Generic command reports use exclusive private paths. Resume derives its original encryption/recipient/chunk settings from authenticated preparation unless an explicit compatible option is provided.
+
+
+## Rehearse recovery before relying on it
+
+Use a disposable, network-isolated environment and representative synthetic records, including encrypted scalar fields, custom documents and sequences. Do not run a rehearsal against a production target.
+
+1. Create and verify an encrypted artifact as above, retaining its trusted digest independently. Confirm command exit status and the returned consistency label; an interrupted or multi-snapshot run is not a quiesced recovery point.
+2. Provision a fresh empty scratch target and obtain its fresh challenge through `preflight --operation exercise`. Prepare an owner-only checks file. A minimal integrity/migration example is:
+
+   ```json
+   [{ "type": "artifact-integrity" }, { "type": "migration-fingerprint" }]
+   ```
+
+3. Run the restore exercise, using that fresh challenge and a new private report path:
+
+   ```sh
+   mercato-backup preflight --operation exercise --target-service scratch --artifact /srv/recovery/output/BACKUP_ID --trusted-manifest-sha256 TRUSTED_DIGEST --identity-file /srv/recovery/private/escrow.identity --workspace /srv/recovery/private --json
+   mercato-backup exercise --target-service scratch --confirm-target FRESH_CHALLENGE --artifact /srv/recovery/output/BACKUP_ID --trusted-manifest-sha256 TRUSTED_DIGEST --identity-file /srv/recovery/private/escrow.identity --workspace /srv/recovery/private --checks-file /srv/recovery/private/checks.json --report /srv/recovery/private/exercise-report.json --json
+   ```
+
+4. Inspect the durable report, loaded counts, sequence allocation and application-level behavior against retained key custody. The minimal checks above do not exercise application-key recovery: add encrypted-canary checks and their separate `--canary-keys-file` to establish that part of the drill. `keyRecovery: not-tested` is not a passing key-recovery rehearsal. `promotionReady` remains false even after successful checks.
+5. In a separate disposable drill, interrupt a run and use its explicit resume command and fresh target challenge; check that committed chunks are not duplicated. Test a deliberately damaged copy of an artifact and confirm verification refuses. Preserve the original artifact and trusted digest unchanged.
+6. Record the tested application version, PostgreSQL versions, consistency, elapsed time and outcomes in a small sanitized operator report. Keep backup files, dumps, database volumes, private workspaces, raw logs and keys out of GitHub issues, PR comments and attachments. Share only redacted aggregate reports and output screenshots. Delete disposable targets and test custody only after the rehearsal is reviewed; production retention remains a separate policy decision.
+
+No published throughput or memory guarantee applies to arbitrary deployments. Rehearse with your actual row sizes, extensions, concurrency and available disk; successful archive verification alone does not prove an application can recover.
