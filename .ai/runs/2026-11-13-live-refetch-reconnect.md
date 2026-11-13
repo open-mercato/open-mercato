@@ -47,9 +47,9 @@ Make browser live-refresh consumers survive event-bridge reconnect gaps: export 
 
 ### Phase 1: Constants and hooks
 
-- [ ] 1.1 Export the reconnect id constants and make both bridges import them
-- [ ] 1.2 Add useLiveRefetch with unit tests
-- [ ] 1.3 Add usePortalLiveRefetch with unit tests
+- [x] 1.1 Export the reconnect id constants and make both bridges import them — 0b4680803d
+- [x] 1.2 Add useLiveRefetch with unit tests — d6df0a6ea1
+- [x] 1.3 Add usePortalLiveRefetch with unit tests — bb72a6111b
 
 ### Phase 2: Consumers
 
