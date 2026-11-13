@@ -23,7 +23,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.2-modular | Replace module-specific runtime knowledge with module-owned declarations | inline | done | this commit |
 | 2 | 2.2-storage | Discover module-owned legacy storage and keep test probes with their owner | inline | done | this commit |
 | 2 | 2.2-storage-fix | Declare retained catalog relations discovered by the live database gate | inline | done | this commit |
-| 2 | 2.2-rsc | Verify deferred Next render lifetime and audience against the live canary | inline | todo | — |
+| 2 | 2.2-rsc | Verify deferred Next render lifetime and audience against the live canary | inline | done | live retry: 3/3; comment6856492040 |
 | 2 | 2.2-public-signup | Keep verified signup/invitation continuations and subscribers in tenant scope | inline | done | this commit |
 | 2 | 2.2-public-tokens | Scope verified email, magic-link and password-reset continuations | inline | done | this commit |
 | 2 | 2.2-public-login | Scope authenticated customer login and awaited success subscribers | inline | done | this commit |
@@ -128,6 +128,8 @@ Files: Enterprise tenant_boundaries integration tests and isolated application f
 Depends on: 2.2 resolver implementation.
 
 Exit gate: Real deferred RSC tests prove route-audience choice with both cookies, cold start non-recursion, stable query/checkout token, Next after revocation, response cancellation/stream completion and bounded resolver/container work. Publish actual app evidence; no mock-only completion.
+
+Verified 2026-11-13: native isolated retry passed all three real Next tests (concurrent deferred staff rendering, both-cookie portal/selected staff tenant, cancellation). Restricted role, FORCE canary and one-connection pool used. First attempt failed before fixtures on database connection timeout. Retry teardown logged Next exit143 after the passing summary. Screenshots and exact limits: PR comment6856492040. This does not complete the People CRUD browser gate.
 
 ### Step 2.2-public-signup: Keep verified signup/invitation continuations and subscribers in tenant scope
 
