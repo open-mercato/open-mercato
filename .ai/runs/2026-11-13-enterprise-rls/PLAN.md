@@ -62,6 +62,7 @@ Engine: om-auto-continue-pr-loop
 | 3 | 3.5 | Benchmark checkout overhead and pool pressure | inline | done | this commit; live PG17 24 paired cases/12000 acquisitions; pool1/3/10; actual JSON and analysis |
 | 3 | 3.6-pool40 | Compare identical HTTP workload at pool40 with genuine pre-PR base checkout | inline | done | both2000 operations pass zero errors/leaks; genuine bf633 baseline; measured overhead documented pool40-analysis.md |
 | 4 | 4.0 | Remove PoC code and retain production regression coverage | inline | done | 3b4195bffa + parent live verification |
+| 4 | 4.0-operator-guide | Document opt-in roles, migration, restart and exact policy rollback | inline | done | this commit |
 | 4 | 4.1 | Run full repository and integration validation gates | inline | todo | — |
 | 4 | 4.2 | Complete independent code and security review with fixes | inline | in_progress | review244 F1/F3/F4 remediated; F2 fixed59c25 and independently approved03a, parent15 composed tests pass; final integrated gate remains |
 | 4 | 4.3 | Publish full implementation results and finalize PR | inline | todo | — |

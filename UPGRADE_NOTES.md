@@ -1,5 +1,26 @@
 # Upgrade Notes
 
+## Opt-in enterprise tenant RLS (#9424)
+
+Enterprise `tenant_boundaries` adds an optional database boundary. Existing installations
+remain unchanged with `OM_TENANT_RLS` absent or off. Before enabling it, follow the
+[operator rollout and rollback guide](packages/enterprise/README.md#tenant-rls-operations).
+The initial enforced table is `customer_entities`; other declared tables retain their
+existing application scoping. This is not automatic protection for every tenant table.
+
+Generate registries with enterprise modules enabled, provision distinct restricted runtime
+and reviewed maintenance logins, and run the existing migration workflow before starting
+protected traffic. Runtime connections must use PostgreSQL 16–18 with direct or session
+pooling; transaction pooling is unsupported. PUBLIC TEMP and schema CREATE grants can
+make an otherwise restricted login unsafe. Activation rejects unsafe grants, missing
+policies and unclassified tenant tables. Configuration changes require draining work,
+closing pools and restarting every app/worker process. Do not disable the adapter while
+FORCE policies remain installed: roll back the exact policy migration under maintenance
+authority first, after draining traffic. See the guide for the security tradeoff.
+
+The pool-40 before/after acceptance comparison passed isolation but measured a slowdown;
+review [the analysis](packages/enterprise/tests/rls/pool40-analysis.md) before rollout.
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

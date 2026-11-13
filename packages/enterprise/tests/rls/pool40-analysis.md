@@ -36,3 +36,20 @@ Current Playwright: 1 pass, 0 fail, 0 skip, 148.31s including discovery/setup. B
 This is one sequential pair on a shared local machine, with current measured before baseline. It has no repeated randomized trials, confidence intervals, dedicated load host, SQL timing/checkout count trace or pool-wait profile. Cold-start/JIT/cache/order and concurrent host work can affect results. The table describes the measured application-level difference, not a causal estimate of PostgreSQL policy cost alone. Authentication, authority validation, per-checkout transaction/context guards and the rest of this PR all contribute. A read-only hot-path review is tracked separately. Do not relax scope, liveness, mutation or role guards to improve this benchmark.
 
 Raw credential-free configuration, per-request samples and complete Playwright reports are published alongside this document on the QA evidence branch under `pr-9424/pool40-{baseline,current}/`. The prior pool-1 and SQL checkout microbenchmark remain separate experiments; neither substitutes for this requested pool-40 comparison.
+
+
+## Focused source review after measurement
+
+The independent read-only review found one required parameterized `set_config`
+round trip for every physical checkout. Pool readiness and manifest validation are
+cached; role validation runs once per new physical client. It found no global
+lease serialization or newly repeated staff API identity lookup in the measured
+handler path. These findings do not attribute the measured slowdown to a single
+cause or approve the performance result.
+
+Successful own mutations were slower in this pair, while rejected foreign writes
+were similar. The next useful experiment is repeated alternating baseline/current
+runs with separate cold and warmed pools, recording checkout wait, context-setting,
+first-client role checks and mutation side-effect SQL timings. Batching the four
+cold role-validation catalog queries is an optional hypothesis, not a measured
+remedy. No guard was relaxed and no performance recovery is claimed.
