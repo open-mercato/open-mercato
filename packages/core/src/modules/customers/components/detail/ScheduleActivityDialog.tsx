@@ -78,14 +78,6 @@ const CALL_DIRECTIONS: Array<{ key: 'outbound' | 'inbound'; labelKey: string; la
   { key: 'inbound', labelKey: 'customers.schedule.call.direction.inbound', labelFallback: 'Inbound', dot: 'bg-status-success-icon' },
 ]
 
-const CALL_OUTCOMES: Array<{ key: string; labelKey: string; labelFallback: string; dot: string }> = [
-  { key: 'connected', labelKey: 'customers.schedule.call.outcome.connected', labelFallback: 'Connected', dot: 'bg-status-success-icon' },
-  { key: 'voicemail', labelKey: 'customers.schedule.call.outcome.voicemail', labelFallback: 'Voicemail', dot: 'bg-status-warning-icon' },
-  { key: 'noanswer', labelKey: 'customers.schedule.call.outcome.noAnswer', labelFallback: 'No answer', dot: 'bg-muted-foreground' },
-  { key: 'busy', labelKey: 'customers.schedule.call.outcome.busy', labelFallback: 'Busy', dot: 'bg-status-warning-icon' },
-  { key: 'badnumber', labelKey: 'customers.schedule.call.outcome.badNumber', labelFallback: 'Bad number', dot: 'bg-status-error-icon' },
-]
-
 // Task priority is the interaction's own nullable `priority` column (0-100), not a
 // custom field — the same scale `CalendarEventEditor` writes through
 // `PRIORITY_NUMBER` / `priorityFromNumber`. `null` means "no priority set", which the
@@ -176,7 +168,6 @@ export function ScheduleActivityDialog({
   const chrome = TYPE_CHROME[presentationType]
   const SaveIcon = chrome.saveIcon
   const [callDirection, setCallDirection] = React.useState<'outbound' | 'inbound'>('outbound')
-  const [callOutcome, setCallOutcome] = React.useState<string | null>(null)
   const [callPhoneNumber, setCallPhoneNumber] = React.useState('')
   const [callPhoneError, setCallPhoneError] = React.useState<string | null>(null)
   const [taskPriority, setTaskPriority] = React.useState<TaskPriorityValue>(null)
@@ -202,7 +193,6 @@ export function ScheduleActivityDialog({
     const raw = editData as (Record<string, unknown> & { customValues?: unknown; phoneNumber?: unknown; priority?: unknown }) | null | undefined
     const cv = (raw?.customValues && typeof raw.customValues === 'object' ? raw.customValues : null) as Record<string, unknown> | null
     setCallDirection(typeof cv?.callDirection === 'string' && cv.callDirection === 'inbound' ? 'inbound' : 'outbound')
-    setCallOutcome(typeof cv?.callOutcome === 'string' ? cv.callOutcome : null)
     // Seed phone number from either top-level `phoneNumber` (newer write path)
     // or legacy `customValues.callPhoneNumber` so previously-saved calls still
     // round-trip on edit (#1808).
@@ -224,7 +214,6 @@ export function ScheduleActivityDialog({
   React.useEffect(() => {
     if (!open || isEditing) return
     setCallDirection('outbound')
-    setCallOutcome(null)
     setCallPhoneNumber('')
     setCallPhoneError(null)
     setTaskPriority(null)
@@ -450,7 +439,6 @@ export function ScheduleActivityDialog({
       const customValues: Record<string, unknown> = {}
       if (presentationType === 'call') {
         customValues.callDirection = callDirection
-        if (callOutcome) customValues.callOutcome = callOutcome
         if (phoneNumberForPayload) customValues.callPhoneNumber = phoneNumberForPayload
       }
       // On edit, pin the payload to the activity's own linked entity when the
@@ -546,7 +534,7 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, catalogPending, keepsCustomType, isDateMissing, isTimeMissing, presentationType, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callPhoneInvalidMessage, callPhoneNumber, catalogPending, keepsCustomType, isDateMissing, isTimeMissing, presentationType, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 
@@ -638,10 +626,12 @@ export function ScheduleActivityDialog({
         <div className="flex flex-col gap-1.5">
           <label className="text-overline font-semibold text-muted-foreground tracking-wider">
             {getFieldLabel(presentationType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
+            <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
           </label>
           <input
             type="text"
             value={state.title}
+            aria-required="true"
             onChange={(e) => state.setTitle(e.target.value)}
             placeholder={
               presentationType === 'email'
@@ -678,7 +668,7 @@ export function ScheduleActivityDialog({
           setRecurrenceEndDate={state.setRecurrenceEndDate}
         />
 
-        {/* Call: Direction + Outcome chips */}
+        {/* Call: Direction chips */}
         {presentationType === 'call' && (
           <div className="flex flex-col gap-3">
             <div>
@@ -694,33 +684,6 @@ export function ScheduleActivityDialog({
                       type="button"
                       aria-pressed={isActive}
                       onClick={() => setCallDirection(opt.key)}
-                      className={cn(
-                        'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors',
-                        isActive
-                          ? 'border-transparent bg-foreground text-background'
-                          : 'border-border bg-card text-muted-foreground hover:border-foreground/40',
-                      )}
-                    >
-                      <span className={cn('inline-block size-1.5 rounded-full', opt.dot)} aria-hidden />
-                      {t(opt.labelKey, opt.labelFallback)}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-            <div>
-              <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
-                {t('customers.schedule.call.outcomeLabel', 'Outcome')}
-              </label>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {CALL_OUTCOMES.map((opt) => {
-                  const isActive = callOutcome === opt.key
-                  return (
-                    <button
-                      key={opt.key}
-                      type="button"
-                      aria-pressed={isActive}
-                      onClick={() => setCallOutcome(isActive ? null : opt.key)}
                       className={cn(
                         'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors',
                         isActive
