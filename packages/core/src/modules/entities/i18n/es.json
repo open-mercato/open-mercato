@@ -198,6 +198,7 @@
   "entities.nav.userEntities.create": "Crear entidad",
   "entities.records.errors.alreadyExists": "Ya existe un registro con este ID. Utilice PUT para actualizarlo.",
   "entities.rotation.acknowledgmentRequired": "Rotación de claves rechazada. Repita el comando con --acknowledge-unprotected-key-rotation para aceptar explícitamente la rotación sin protección. Las confirmaciones genéricas y force no sustituyen esta aceptación.",
+  "entities.rotation.allTenantsDerivedRootWarning": "Todos los tenants seleccionados deben compartir la raíz derivada anterior indicada. Use --tenant si las raíces anteriores son diferentes.",
   "entities.rotation.previewProtected": "Dry run: a rotation protection service is registered; its recovery prerequisites will be verified before a mutating run.",
   "entities.rotation.previewUnprotected": "Dry run: Enterprise rotation protection is unavailable. No risk acknowledgment is required for this read-only preview.",
   "entities.rotation.unprotectedAcknowledged": "Rotación de claves sin protección: riesgo aceptado",

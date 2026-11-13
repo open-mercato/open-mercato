@@ -72,6 +72,32 @@ test('wrong-database recovery artifact refuses before mutation', async () => {
   expect(state.mutated).toBe(false); expect(state.reports).toBe(0)
 })
 
+test('absence of both a derived root and an actual previous KMS never permits mutation', async () => {
+  const { state, options, context } = fixture()
+  const original = options.providers
+  options.providers = async input => ({ ...await original(input), previousKms: null })
+  await expect(createEnterpriseRotationProtection(options).protect({ ...context, previousKey: null }, async () => { state.mutated = true })).rejects.toThrow('ROTATION_SOURCE_KEY_REQUIRED')
+  expect(state.mutated).toBe(false)
+  expect(state.creates).toBe(0)
+  expect(state.reports).toBe(0)
+})
+
+test('a provider change during report publication prevents durable completion even after a verified receipt', async () => {
+  const { state, options, context } = fixture()
+  const original = options.providers
+  options.providers = async input => {
+    const providers = await original(input)
+    return { ...providers, async refresh() {
+      await providers.refresh()
+      if (state.reports) throw new Error('[internal] ROTATION_VAULT_TARGET_NOT_CURRENT')
+    } }
+  }
+  await expect(createEnterpriseRotationProtection(options).protect(context, async () => { state.mutated = true })).rejects.toThrow('ROTATION_VAULT_TARGET_NOT_CURRENT')
+  expect(state.reports).toBe(1)
+  const record = (await readdir(options.trustRoot)).find(name => name.endsWith('.json'))!
+  expect(JSON.parse(await readFile(join(options.trustRoot, record), 'utf8')).status).toBe('failed')
+})
+
 test('post-rotation mismatch retains a failed trusted record and cannot publish success', async () => {
   const { state, options, context } = fixture(); state.wrongValue = true
   await expect(createEnterpriseRotationProtection(options).protect(context, async () => { state.mutated = true })).rejects.toThrow('DATA_MISMATCH')

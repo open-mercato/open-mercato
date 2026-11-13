@@ -17,6 +17,7 @@ import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { createKmsService, type KmsService, type TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import {
@@ -556,10 +557,10 @@ const rotateEncryptionKey: ModuleCli = {
     const oldKey = oldKeyEnvironment || oldKeyArgument
     const dryRun = Boolean(args['dry-run'] || args.dry)
     const debug = Boolean(args.debug)
-    const rotate = Boolean(oldKey)
-    if (rotate && !tenantIdArg) {
+    if (oldKey && !tenantIdArg) {
+      const { translate } = await resolveTranslations()
       rotationNotice(
-        '⚠️  Rotating with one previous key across all tenants. A single previous key should normally target one tenant; consider --tenant.',
+        '⚠️  ' + translate('entities.rotation.allTenantsDerivedRootWarning', 'All selected tenants must share the declared previous derived root. Use --tenant when previous roots differ.'),
       )
     }
     if (!isTenantDataEncryptionEnabled()) {
@@ -575,6 +576,7 @@ const rotateEncryptionKey: ModuleCli = {
       args[UNPROTECTED_ROTATION_ACKNOWLEDGMENT],
       protection,
       async (providers?: RotationKeyProviders) => {
+    const rotate = Boolean(oldKey) || Boolean(providers?.previousKms) || (dryRun && Boolean(protection))
     const isCiphertext = providers ? isRotationCiphertextShape : isEncryptedPayloadShape
     const conn: any = providers?.signal
       ? { execute: (sql: string, parameters: unknown[]) => em.execute(sql, parameters, { signal: providers.signal, inflightQueryAbortStrategy: 'cancel query' }) }
@@ -583,7 +585,7 @@ const rotateEncryptionKey: ModuleCli = {
       failCli('Unable to access raw connection; aborting.')
     }
 
-    const encryptionService = new TenantDataEncryptionService(em as any, { kms: providers?.kms ?? createKmsService() })
+    const encryptionService = new TenantDataEncryptionService(em as any, { kms: providers?.kms ?? createKmsService(), isolatedKeyCache: Boolean(providers) })
     const oldKms = providers ? providers.previousKms : rotate && oldKey ? new DerivedKeyKmsService(oldKey) : null
     if (!encryptionService.isEnabled()) {
       failCli('Encryption service is not enabled (KMS unhealthy or no DEK). Aborting.')

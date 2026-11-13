@@ -131,7 +131,7 @@ describe('entities rotate-encryption-key CLI', () => {
       expect(warnings).toHaveLength(3)
       const events = warnings.map(value => JSON.parse(value))
       expect(events.every(event => event.schemaVersion === 1 && event.type === 'phase.changed')).toBe(true)
-      expect(events.some(event => event.entity.includes('across all tenants'))).toBe(true)
+      expect(events.some(event => event.phase === 'rotation.warning' && event.entity.includes('--tenant'))).toBe(true)
       expect(events.some(event => event.phase === 'rotation.unprotected')).toBe(true)
       expect(warnings.join('')).not.toContain('synthetic-never-display')
       expect(warnings.join('')).not.toContain('\u001b')
@@ -184,6 +184,24 @@ describe('entities rotate-encryption-key CLI', () => {
       '"enc:{\\"note\\":\\"hello\\"}"',
       'row-1',
     ]))
+  })
+
+  it('uses a protected previous KMS to rotate Vault source rows without a previous derived root', async () => {
+    singleMapFixture()
+    const previous = { isHealthy: () => true, getTenantDek: jest.fn(async (tenantId: string) => ({ tenantId, key: 'vault-source-fixture-key', fetchedAt: 0 })), createTenantDek: jest.fn() }
+    const target = { isHealthy: () => true, getTenantDek: jest.fn(async (tenantId: string) => ({ tenantId, key: 'target-fixture-key', fetchedAt: 0 })), createTenantDek: jest.fn() }
+    mockProtectionService = { protect: async (context, operation) => {
+      expect(context.previousKey).toBeNull()
+      await operation({ kms: target, previousKms: previous })
+    } }
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'row-1', resource_id: shapeValidCiphertext('old'), context_json: null }]).mockResolvedValueOnce([{ id: 'row-1' }]).mockResolvedValueOnce([{ verified: '1' }])
+    ;(decryptWithAesGcm as jest.Mock).mockReturnValueOnce('retained logical value')
+    await cli.find(command => command.command === 'rotate-encryption-key')!.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+    expect(previous.getTenantDek).toHaveBeenCalledWith('tenant-1')
+    expect(encryptEntityPayload.mock.calls[0]![1]).toEqual({ resource_id: 'retained logical value' })
+    expect(execute.mock.calls.some(([sql]) => String(sql).startsWith('UPDATE'))).toBe(true)
+    expect(previous.createTenantDek).not.toHaveBeenCalled()
+    expect(target.createTenantDek).not.toHaveBeenCalled()
   })
 
   // Regression for #5951: a row sealed under neither --old-key nor the current tenant key

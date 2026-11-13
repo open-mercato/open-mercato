@@ -2,14 +2,13 @@ import { createHash, randomUUID } from 'node:crypto'
 import { isAbsolute, join } from 'node:path'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { createDerivedKeyKmsService, HashicorpVaultKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import type { RotationProtectionContext, RotationProtectionService } from '@open-mercato/shared/lib/encryption/rotationProtection'
 import { createBackup, verifyBackup, createPostgresSource, recipientsFromFile, identitiesFromFile } from '../engine'
 import { createRotationPresentation } from './presentation'
 import type { VerificationResult } from './verifier'
 import { createRotationArtifactCipher } from './age'
 import { createEnterpriseRotationProtection } from './coordinator'
-import { pinRotationProviders } from './keys'
+import { resolveRotationProviders } from './providers'
 import { publishRotationReport, publishRotationFailureReport } from './report'
 import { createPostgresRotationDataset, assertPostgresRotationAdmission } from './postgres-dataset'
 
@@ -56,8 +55,6 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
       try {
         const recipients = await recipientsFromFile(path(environment, 'OM_ROTATION_RECIPIENTS_FILE'))
         const identities = await identitiesFromFile(path(environment, 'OM_ROTATION_IDENTITIES_FILE'))
-        const explicitProvider = required(environment, 'OM_ROTATION_KMS_PROVIDER')
-        if (explicitProvider !== 'derived' && explicitProvider !== 'vault') throw new Error('[internal] ROTATION_EXPLICIT_PROVIDER_REQUIRED')
         const native = {
           sourceService: required(environment, 'OM_ROTATION_BACKUP_SOURCE_SERVICE'),
           binariesDir: path(environment, 'OM_BACKUP_BINARIES_DIR'),
@@ -65,19 +62,11 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
           jobs: 1, signal: controller.signal,
         }
         const providers = async (input: RotationProtectionContext) => {
-          if (!input.previousKey) throw new Error('[internal] ROTATION_SOURCE_KEY_REQUIRED')
           await assertPostgresRotationAdmission(input, controller.signal)
           const rows: unknown = input.tenantId ? [{ tenant_id: input.tenantId }] : await input.entityManager.execute('SELECT tenant_id::text AS tenant_id FROM (SELECT tenant_id FROM encryption_maps WHERE tenant_id IS NOT NULL UNION SELECT tenant_id FROM custom_entities_storage WHERE tenant_id IS NOT NULL) selected ORDER BY tenant_id LIMIT 10001', [], { signal: controller.signal, inflightQueryAbortStrategy: 'cancel query' })
           if (!Array.isArray(rows) || rows.length > 10000 || rows.some((entry: unknown) => !entry || typeof entry !== 'object' || typeof (entry as { tenant_id?: unknown }).tenant_id !== 'string')) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
           const tenantIds = rows.map((entry: { tenant_id: string }) => entry.tenant_id)
-          const target = explicitProvider === 'vault'
-            ? new HashicorpVaultKmsService({ ttlMs: 0, redactSensitiveLogs: true, vaultAddr: required(environment, 'VAULT_ADDR'), vaultToken: required(environment, 'VAULT_TOKEN'), mountPath: environment.VAULT_KV_PATH || 'secret/data' })
-            : createDerivedKeyKmsService((environment.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? environment.TENANT_DATA_ENCRYPTION_KEY ?? '').trim().replace(/(?:^['"]|['"]$)/g, ''))
-          if (explicitProvider === 'derived' && !environment.TENANT_DATA_ENCRYPTION_FALLBACK_KEY?.trim() && !environment.TENANT_DATA_ENCRYPTION_KEY?.trim()) throw new Error('[internal] ROTATION_EXPLICIT_PROVIDER_REQUIRED')
-          const pinned = await pinRotationProviders(tenantIds,
-            { identity: 'derived:previous-root', service: createDerivedKeyKmsService(input.previousKey) },
-            { identity: explicitProvider === 'vault' ? `vault:${environment.VAULT_ADDR ?? ''}:${environment.VAULT_KV_PATH ?? 'secret/data'}` : 'derived:configured-root', service: target }, controller.signal)
-          return { ...pinned, signal: controller.signal }
+          return resolveRotationProviders(input, tenantIds, environment, controller.signal)
         }
         let runId = 'rotation'
         const progress = presentation.progress

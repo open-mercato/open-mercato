@@ -99,7 +99,6 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
       const startedAt = Date.now()
       if (context.entityManager?.isInTransaction?.() || context.entityManager?.getTransactionContext?.()) throw new Error('[internal] ROTATION_ACTIVE_TRANSACTION_UNSUPPORTED')
       if (context.dryRun) throw new Error('[internal] ROTATION_MUTATING_COORDINATOR_IN_DRY_RUN')
-      if (!context.previousKey) throw new Error('[internal] ROTATION_SOURCE_KEY_REQUIRED')
       options.signal?.throwIfAborted()
       await options.assertEntitlement()
       await ownerDirectory(options.artifactRoot); await ownerDirectory(options.trustRoot)
@@ -126,6 +125,7 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         await lock.writeFile(JSON.stringify({ pid: process.pid, host: hostname(), id, startedAt: new Date().toISOString() })); await lock.sync()
         await options.reportRun?.(id)
         const providers = await options.providers(context)
+        if (!providers.previousKms) throw new Error('[internal] ROTATION_SOURCE_KEY_REQUIRED')
         let intentQueue = Promise.resolve()
         type CachedPage = { file: string; entries: Map<string, TimestampRecord> }
         const cachedPages = new Map<string, CachedPage>()
@@ -293,9 +293,11 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         options.phase?.('verification')
         const result = await verifyRotationData(state.prepared as PreparedRotation, dataset, store, options.signal, verificationAttemptId)
         verified = result
+        await providers.refresh()
         await options.assertEntitlement()
         options.phase?.('finalizing')
         await options.report({ ...result, coordinatorRunId: id }, state.recovery)
+        await providers.refresh()
         await journal.append({ kind: 'phase', status: 'passed' })
         state.status = 'passed'; await publishState(trustPath, state)
       } catch (error) {

@@ -198,6 +198,7 @@
   "entities.nav.userEntities.create": "엔터티 생성",
   "entities.records.errors.alreadyExists": "이 ID의 레코드가 이미 존재합니다. 업데이트하려면 PUT을 사용하세요.",
   "entities.rotation.acknowledgmentRequired": "키 교체가 거부되었습니다. 보호되지 않은 키 교체의 위험을 명시적으로 수락하려면 --acknowledge-unprotected-key-rotation 옵션으로 다시 실행하세요. 일반 확인이나 force 옵션으로는 이 동의를 대신할 수 없습니다.",
+  "entities.rotation.allTenantsDerivedRootWarning": "선택한 모든 테넌트는 지정된 이전 파생 루트를 공유해야 합니다. 이전 루트가 다르면 --tenant를 사용하세요.",
   "entities.rotation.previewProtected": "Dry run: a rotation protection service is registered; its recovery prerequisites will be verified before a mutating run.",
   "entities.rotation.previewUnprotected": "Dry run: Enterprise rotation protection is unavailable. No risk acknowledgment is required for this read-only preview.",
   "entities.rotation.unprotectedAcknowledged": "보호되지 않은 키 교체: 위험 확인됨",
