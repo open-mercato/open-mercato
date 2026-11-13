@@ -10,6 +10,7 @@ import { installTenantPoolBoundary, type BoundaryPool } from './pool'
 import { verifyTenantTablePolicies } from './policies'
 import { verifyRuntimeDatabaseRole } from './roles'
 import { runWithTenantBoundary } from './scope'
+import { registerTenantBoundaryRequestResolver } from './requests'
 
 const registrationKey = Symbol.for('@open-mercato/enterprise.tenantBoundaryRegistration.v1')
 type RegistrationState = { configurationKey: string }
@@ -73,6 +74,9 @@ export function registerTenantBoundaryRuntime(registration: Readonly<{ version: 
   if (previous && previous.configurationKey !== configurationKey) {
     throw new Error('[internal] Tenant boundary bootstrap configuration changed; drain pools and restart')
   }
-  if (configuration.enabled) registerDatabaseRuntimeAdapter(createTenantBoundaryAdapter(configuration, env, configurationKey))
+  if (configuration.enabled) {
+    registerDatabaseRuntimeAdapter(createTenantBoundaryAdapter(configuration, env, configurationKey))
+    registerTenantBoundaryRequestResolver()
+  }
   globals[registrationKey] ??= { configurationKey }
 }

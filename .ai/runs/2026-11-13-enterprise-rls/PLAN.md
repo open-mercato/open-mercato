@@ -18,8 +18,10 @@ Engine: om-auto-continue-pr-loop
 | 1 | 1.4 | Implement table manifest, effective policy and runtime role verification | inline | done | 86a5570e49 |
 | 1 | 1.4-review-fix | Reject partial tenant metadata in deferred manifest entries | inline | done | e467e3c46d |
 | 1 | 1.5 | Register enterprise enforcement before ORM initialization | inline | done | 762a2d0ccc |
-| 2 | 2.1 | Propagate trusted API identity before authorization and handler queries | inline | done | this commit |
-| 2 | 2.2 | Cover page, portal and public-token execution contexts | inline | todo | — |
+| 2 | 2.1 | Propagate trusted API identity before authorization and handler queries | inline | done | 4d99b71fc4 |
+| 2 | 2.2 | Implement request/RSC resolver and canonical portal bootstrap | inline | done | this commit |
+| 2 | 2.2-rsc | Verify deferred Next render lifetime and audience against the live canary | inline | todo | — |
+| 2 | 2.2-public | Scope verified public token, storefront and provisioning continuations | inline | todo | — |
 | 2 | 2.3 | Propagate worker, subscriber and scheduler tenant contexts | inline | todo | — |
 | 2 | 2.4 | Separate tenant CLI operations from privileged maintenance | inline | todo | — |
 | 2 | 2.5 | Classify and integrate independent search, vector and event pools | inline | todo | — |
@@ -102,19 +104,35 @@ Depends on: 1.5 bootstrap; no canary activation until all2.x contexts complete.
 
 Exit gate: Actual dispatcher tests verify actorA→selectedB sibling scopes before RBAC, concurrent tenants, absent/invalid identities, API keys and direct auth handlers. Preserve existing auth503/cookie behavior and tenant-selection guards.
 
-### Step 2.2: Cover page, portal and public-token execution contexts
+### Step 2.2: Implement request/RSC resolver and canonical portal bootstrap
 
 Files: Enterprise request-cached resolver, staff/customer auth, backend/frontend layouts/pages/metadata, proxy trusted pathname; template mirror.
 
 Depends on: 2.1 trusted identity hooks.
 
-Exit gate: Real deferred RSC tests prove route-audience choice with both cookies, cold start non-recursion, stable query/checkout token, Next after revocation, response cancellation/stream completion, public token persisted tenant and no unbounded resolver/container work.
+Exit gate: Request bridge, resolver and portal identity unit tests cover before-container bootstrap, stable cached invocation, route audience with both cookies, identity unavailability, organization/domain binding, response completion and cancellation. Package typechecks pass. This is implementation only; real-framework verification remains mandatory in 2.2-rsc.
+
+### Step 2.2-rsc: Verify deferred Next render lifetime and audience against the live canary
+
+Files: Enterprise tenant_boundaries integration tests and isolated application fixtures; actual Next app remains repository-native.
+
+Depends on: 2.2 resolver implementation.
+
+Exit gate: Real deferred RSC tests prove route-audience choice with both cookies, cold start non-recursion, stable query/checkout token, Next after revocation, response cancellation/stream completion and bounded resolver/container work. Publish actual app evidence; no mock-only completion.
+
+### Step 2.2-public: Scope verified public token, storefront and provisioning continuations
+
+Files: Customer signup/invitation/token success continuations, portal/storefront services and onboarding provisioning boundaries identified in inventory ec59c4e3.
+
+Depends on: 2.2-rsc verified request lifetime; persistent subscribers and deferred jobs are completed in 2.3/2.4.
+
+Exit gate: Integration proves tenant authority comes from persisted verified tokens/accounts/domain/store bindings, never raw tenant inputs or unrelated cookies. Continuations start before acquiring new transactions; consume tokens once and retain atomic rechecks. All prior 2.2 production gates remain required.
 
 ### Step 2.3: Propagate worker, subscriber and scheduler tenant contexts
 
 Files: CLI per-job handler, events dispatch/worker bridge, scheduler services and tests.
 
-Depends on: 2.2 invocation lifetime protocol.
+Depends on: 2.2-rsc invocation lifetime and 2.2-public verified continuations.
 
 Exit gate: Actual worker handler before-container scope, nested event envelope validation, retry/finally isolation, ephemeral callback fresh scopes and scheduler global maintenance poll tests pass; malformed/ambiguous tenant metadata fails closed.
 

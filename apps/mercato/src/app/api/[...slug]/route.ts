@@ -1,3 +1,4 @@
+import { runWithDatabaseRequest } from '@open-mercato/shared/lib/db/request'
 import { isInvalidDatabaseExecutionContextError, runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type ApiRouteBeforeAuth, type HttpMethod } from '@open-mercato/shared/modules/registry'
@@ -438,7 +439,15 @@ export async function extractTenantCandidates(req: NextRequest): Promise<unknown
   return candidates
 }
 
-async function handleRequest(
+function handleRequest(
+  method: HttpMethod,
+  req: NextRequest,
+  paramsPromise: Promise<{ slug: string[] }>,
+): Promise<Response> {
+  return runWithDatabaseRequest(req, () => handleApiRequest(method, req, paramsPromise))
+}
+
+async function handleApiRequest(
   method: HttpMethod,
   req: NextRequest,
   paramsPromise: Promise<{ slug: string[] }>

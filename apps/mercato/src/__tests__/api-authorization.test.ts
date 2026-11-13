@@ -3,6 +3,7 @@ import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/se
 import type { ApiRouteManifestEntry, HttpMethod } from '@open-mercato/shared/modules/registry'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { registerDatabaseRuntimeAdapter } from '@open-mercato/shared/lib/db/runtime'
+import { getDatabaseRequest } from '@open-mercato/shared/lib/db/request'
 import { TRUSTED_AUTH_CONTEXT_SYMBOL } from '@open-mercato/shared/lib/auth/server'
 import { currentTenantBoundaryScope, runWithTenantBoundary, type TenantBoundaryScope } from '@open-mercato/enterprise/lib/rls/runtime/scope'
 
@@ -249,6 +250,7 @@ describe('dispatcher database invocation ownership', () => {
       expect(scope?.context.kind).toBe('tenant')
       captured.push(scope!)
       const request = arguments_[0] as Request
+      expect(getDatabaseRequest()).toBe(request)
       expect((request as unknown as Record<symbol, unknown>)[TRUSTED_AUTH_CONTEXT_SYMBOL]).toMatchObject({ status: 'authenticated' })
       await new Promise<void>((resolve) => setImmediate(resolve))
       expect(currentTenantBoundaryScope()?.invocation.token).toBe(scope?.invocation.token)

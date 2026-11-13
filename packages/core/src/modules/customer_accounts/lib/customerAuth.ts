@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { verifyAudienceJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
@@ -36,15 +37,9 @@ async function assertSessionStillActive(input: {
   tenantId: string
   organizationId: string
 }): Promise<boolean> {
-  try {
-    const service = await resolveSessionService()
-    const session = await service.findActiveSessionForClaims(input)
-    return session !== null
-  } catch {
-    // Fail closed: if we cannot verify the session, treat the token as revoked to prevent
-    // replay of leaked JWTs when the backend is partially degraded.
-    return false
-  }
+  const service = await resolveSessionService()
+  const session = await service.findActiveSessionForClaims(input)
+  return session !== null
 }
 
 /**
@@ -58,13 +53,8 @@ async function assertUserStillHasActiveSession(input: {
   tenantId: string
   organizationId: string
 }): Promise<boolean> {
-  try {
-    const service = await resolveSessionService()
-    return await service.hasActiveSessionForUser(input)
-  } catch {
-    // Same fail-closed contract as the sid-bound check above.
-    return false
-  }
+  const service = await resolveSessionService()
+  return await service.hasActiveSessionForUser(input)
 }
 
 export function readCookieFromHeader(header: string | null | undefined, name: string): string | undefined {
@@ -143,7 +133,7 @@ export async function validateUserState(
   }
 }
 
-export async function getCustomerAuthFromRequest(req: Request): Promise<CustomerAuthContext | null> {
+async function readCustomerAuthFromRequest(req: Request): Promise<CustomerAuthContext | null> {
   const cookieHeader = req.headers.get('cookie') || ''
   const authHeader = (req.headers.get('authorization') || '').trim()
 
@@ -185,43 +175,78 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
     // Every accepted token is re-checked for liveness, exactly like the SSR path does — a token
     // without a `sid` is checked against the customer's remaining sessions rather than skipped,
     // so session revocation is never structurally unreachable on the API path.
-    const stillActive = sid
-      ? await assertSessionStillActive({
-          sessionId: sid,
-          userId,
-          tenantId,
-          organizationId,
-        })
-      : await assertUserStillHasActiveSession({ userId, tenantId, organizationId })
-    if (!stillActive) return null
+    return await runWithDatabaseExecutionContext(
+      { kind: 'identity', tenantId, source: 'identity', operation: 'customer-session-authentication' },
+      async () => {
+        try {
+          const stillActive = sid
+            ? await assertSessionStillActive({
+                sessionId: sid,
+                userId,
+                tenantId,
+                organizationId,
+              })
+            : await assertUserStillHasActiveSession({ userId, tenantId, organizationId })
+          if (!stillActive) return null
 
-    const userState = await validateUserState(
-      userId,
-      tenantId,
-      organizationId,
-      payload.iat,
+          const userState = await validateUserState(
+            userId,
+            tenantId,
+            organizationId,
+            payload.iat,
+          )
+          if (!userState.valid || !userState.tenantId || !userState.organizationId) return null
+
+          return {
+            sub: userId,
+            sid,
+            type: 'customer',
+            // Authorization scope comes from userState (re-derived from the DB in validateUserState),
+            // not from the JWT's own tenantId/orgId/customerEntityId/personEntityId claims (#2244).
+            tenantId: userState.tenantId,
+            orgId: userState.organizationId,
+            email: String(payload.email || ''),
+            displayName: String(payload.displayName || ''),
+            customerEntityId: userState.customerEntityId ?? null,
+            personEntityId: userState.personEntityId ?? null,
+            resolvedFeatures: userState.resolvedFeatures,
+            isPortalAdmin: userState.isPortalAdmin,
+          }
+        } catch (error) {
+          throw new CustomerAuthUnavailableError(error)
+        }
+      },
     )
-    if (!userState.valid || !userState.tenantId || !userState.organizationId) return null
-
-    return {
-      sub: userId,
-      sid,
-      type: 'customer',
-      // Authorization scope comes from userState (re-derived from the DB in validateUserState),
-      // not from the JWT's own tenantId/orgId/customerEntityId/personEntityId claims (#2244).
-      tenantId: userState.tenantId,
-      orgId: userState.organizationId,
-      email: String(payload.email || ''),
-      displayName: String(payload.displayName || ''),
-      customerEntityId: userState.customerEntityId ?? null,
-      personEntityId: userState.personEntityId ?? null,
-      resolvedFeatures: userState.resolvedFeatures,
-      isPortalAdmin: userState.isPortalAdmin,
-    }
-  } catch {
+  } catch (error) {
+    if (error instanceof CustomerAuthUnavailableError) throw error
     // Invalid or expired JWT — treat as unauthenticated
     return null
   }
+}
+
+export type CustomerAuthResolution = Readonly<{
+  auth: CustomerAuthContext | null
+  status: 'authenticated' | 'unauthenticated' | 'error'
+}>
+
+export class CustomerAuthUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super('[internal] Customer identity validation unavailable', { cause })
+    this.name = 'CustomerAuthUnavailableError'
+  }
+}
+
+export async function resolveCustomerAuthFromRequestDetailed(req: Request): Promise<CustomerAuthResolution> {
+  try {
+    const auth = await readCustomerAuthFromRequest(req)
+    return { auth, status: auth ? 'authenticated' : 'unauthenticated' }
+  } catch {
+    return { auth: null, status: 'error' }
+  }
+}
+
+export async function getCustomerAuthFromRequest(req: Request): Promise<CustomerAuthContext | null> {
+  return (await resolveCustomerAuthFromRequestDetailed(req)).auth
 }
 
 export async function requireCustomerAuth(req: Request): Promise<CustomerAuthContext> {
