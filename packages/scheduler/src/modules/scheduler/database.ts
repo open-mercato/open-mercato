@@ -15,3 +15,5 @@ export const database: DatabaseModuleDeclarations = {
 }
 
 export default database
+
+export const databaseDeclarations = database

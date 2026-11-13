@@ -2,7 +2,7 @@
 
 Specification: [.ai/specs/enterprise/2026-11-12-row-level-security.md](https://github.com/open-mercato/open-mercato/blob/cez/82462d87/.ai/specs/enterprise/2026-11-12-row-level-security.md)
 
-Actual disposable PostgreSQL 17 run, Node24.22.3, local Docker. All 24 cases passed, 12,000 measured acquisitions, zero errors or observed isolation violations. Each case uses 10 barrier waves of identical own-tenant UPDATE RETURNING and foreign SELECT with explicit tenant predicates. Privileged counter oracle confirms every own write. Adapter off disables RLS; on enables FORCE RLS and the production checkout boundary. Runtime role is a nonowner with NOSUPERUSER/NOBYPASSRLS. Pool limits: 1, 3, 10; 5-second idle/default pg settings, 10-second acquisition/query timeout. One untimed warmup checkout per case. Fixtures removed.
+Actual disposable PostgreSQL 17 run, Node24.22.3, local Docker. All 24 cases passed, 12,000 measured acquisitions, zero errors or observed isolation violations. Each case uses 10 barrier waves of identical own-tenant UPDATE RETURNING and foreign SELECT with explicit tenant predicates. Privileged counter oracle confirms every own write. Adapter off disables RLS; on enables FORCE RLS and the production checkout boundary. Runtime role is a nonowner with NOSUPERUSER/NOBYPASSRLS. Pool limits: 1, 3, 10; default pg idle settings, 10-second acquisition/query timeout. One untimed warmup checkout per case. Fixtures removed.
 
 | Pool max | Users | Mode | Acquisitions | Queued at saturation | Peak waiting / leased | Operation p50 / p95 ms | Checkout p50 / p95 ms | Elapsed ms |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

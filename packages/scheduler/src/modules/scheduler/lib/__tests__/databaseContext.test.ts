@@ -38,7 +38,12 @@ jest.mock('../safeQueueTargets', () => ({
 }))
 
 import { assertScheduleEnvelope, resolvePersistedScheduleDatabaseContext, resolveScheduleDatabaseContext, withSchedulerMaintenance } from '../databaseContext'
-import { database } from '../../database'
+import databaseDefault, { database, databaseDeclarations } from '../../database'
+
+test('exposes the discovery declaration while preserving existing exports', () => {
+  expect(databaseDeclarations).toBe(database)
+  expect(databaseDefault).toBe(database)
+})
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const scheduleId = '22222222-2222-4222-8222-222222222222'
