@@ -38,10 +38,14 @@ Make browser live-refresh consumers survive event-bridge reconnect gaps: export 
 
 ## Risks
 
+- Local `yarn test` gate: `ai-assistant` package-exports and `create-mercato-app` inventory tests fail locally because npm 12.2.2 returns `npm pack --json` as an object, not an array. This is environmental and unrelated to this change; CI (once approved) is authoritative.
+
 - Coalesced path: a reconnect must share the window with event bursts — implemented by listening on both patterns inside one coalesced effect rather than two hooks.
 - Portal pages: reconnect refetch must not unmount the comment/reply drafts; both pages already refresh in the background with request sequencing.
 
 ## Progress
+
+PR: #9423
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
