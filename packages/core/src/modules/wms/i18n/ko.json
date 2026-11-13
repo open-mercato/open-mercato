@@ -1185,6 +1185,7 @@
   "wms.errors.salesOrder.reRunReservationCancelled": "취소된 주문에는 재고 예약을 둘 수 없습니다.",
   "wms.errors.trackingRequired": "이 제품에는 로트 또는 시리얼 추적 데이터가 필요합니다.",
   "wms.errors.unauthorized": "승인되지 않은",
+  "wms.errors.validationFailed": "유효성 검사에 실패했습니다",
   "wms.nav.group": "WMS",
   "wms.notifications.lowStock.body": "재고 부족 경고 — 사용 가능: {availableQuantity}, 재주문 지점: {reorderPoint}, 안전 재고: {safetyStock}",
   "wms.notifications.lowStock.renderer.available": "사용 가능",

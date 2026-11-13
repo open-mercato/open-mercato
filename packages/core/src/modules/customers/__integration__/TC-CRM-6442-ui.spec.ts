@@ -33,6 +33,9 @@ const OWNER_FIELD = '[data-crud-field-id="ownerUserId"]';
 
 async function pickOwnerInScope(page: Page, scope: string, query: string): Promise<void> {
   const root = page.locator(scope);
+  // A preset owner collapses the picker to its summary row (#6196): reopen the search first.
+  const summary = root.getByTestId('lookup-select-selected');
+  if (await summary.count()) await summary.getByRole('button', { name: 'Change' }).click();
   const search = root.locator('input[role="combobox"], input[placeholder*="name or email" i]').first();
   await expect(search).toBeVisible({ timeout: 30_000 });
   await search.click();
@@ -106,7 +109,7 @@ test.describe('CRM deal owner assignment — browser UI', () => {
     const ownerField = page.locator(OWNER_FIELD);
     await expect(ownerField).toBeVisible({ timeout: 60_000 });
     // D10 — self-assigned before the user touches anything.
-    await expect(ownerField.locator('[role="option"][aria-selected="true"]')).toBeVisible({ timeout: 30_000 });
+    await expect(ownerField.getByTestId('lookup-select-selected')).toBeVisible({ timeout: 30_000 });
 
     const title = `TC-CRM-6442-ui standalone ${Date.now()}`;
     await page.locator('input#title, [data-crud-field-id="title"] input').first().fill(title);
@@ -176,13 +179,13 @@ test.describe('CRM deal owner assignment — browser UI', () => {
 
     await page.reload();
     await revealOwnerField(page);
-    await expect(ownerField.locator('[role="option"][aria-selected="true"]')).toBeVisible();
+    await expect(ownerField.getByTestId('lookup-select-selected')).toBeVisible();
 
     // D5 — clearing must send an explicit null, not omit the key.
     const clear = ownerField.getByRole('button', { name: /clear selection/i }).first();
     await expect(clear).toBeVisible({ timeout: 20_000 });
     await clear.click();
-    await expect(ownerField.locator('[role="option"][aria-selected="true"]')).toHaveCount(0);
+    await expect(ownerField.getByTestId('lookup-select-selected')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Save' }).first()).toBeEnabled();
 
     const cleared = await waitForApiMutation(page, '/api/customers/deals', async () => {
