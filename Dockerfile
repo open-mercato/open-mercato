@@ -333,6 +333,7 @@ COPY --from=dev-build /app/packages/documents/dist /opt/prebuilt/dist/documents
 # keeps the image runnable/consistent on its own and matches the runner stage.
 COPY docker/scripts/dev-entrypoint.sh /app/docker/scripts/dev-entrypoint.sh
 COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
+COPY packages/starter/src/encryption-preflight.mjs /app/docker/scripts/encryption-preflight.mjs
 COPY docker/scripts/mcp-entrypoint.sh /app/docker/scripts/mcp-entrypoint.sh
 RUN chmod +x /app/docker/scripts/dev-entrypoint.sh
 RUN chmod +x /app/docker/scripts/init-or-migrate.sh
@@ -447,6 +448,7 @@ COPY --from=builder /app/newrelic.js ./
 # Copy Railway entrypoint script
 COPY docker/scripts/railway-entrypoint.sh /app/docker/scripts/railway-entrypoint.sh
 COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
+COPY packages/starter/src/encryption-preflight.mjs /app/docker/scripts/encryption-preflight.mjs
 COPY docker/scripts/mcp-entrypoint.sh /app/docker/scripts/mcp-entrypoint.sh
 RUN chmod +x /app/docker/scripts/railway-entrypoint.sh
 RUN chmod +x /app/docker/scripts/init-or-migrate.sh
