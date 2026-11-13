@@ -197,9 +197,10 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     const failure = signal.aborted ? new BackupError(signal.reason === 'deadline' ? 'BACKUP_DEADLINE' : 'BACKUP_INTERRUPTED', signal.reason === 'SIGTERM' ? 143 : signal.reason === 'deadline' ? 5 : 130, true) : error instanceof BackupError ? error : inputFailure ? new BackupError('BACKUP_INVALID_INPUT',2) : new BackupError('BACKUP_INVALID_INPUT_OR_FAILURE', 1)
     if (error instanceof BackupError && signal.aborted) failure.context = error.context
     render?.suspend()
-    if (!structuredProgress) createLogger('backups').error('[internal] Backup command failed', { code: failure.code })
     const output = { schemaVersion: 1, command,runId:failure.context.restoreRunId??failure.context.backupId??requestId,status: [130, 143].includes(failure.exitCode) ? 'interrupted' : failure.resumable ? 'resumable' : failure.exitCode === 2 || failure.exitCode === 3 ? 'refused' : 'failed', error: { code: failure.code, messageKey: 'backups.cli.error' }, warnings: [], ...failure.context }
     const errorText = `${backupTranslation('backups.cli.error')} ${failure.code}`
+    const commandLogger = structuredProgress ? createLogger('backups', { write: () => notice(`backup.command.${output.status}`, `${errorText}${failure.context.resumeCommand ? '\n' + failure.context.resumeCommand : ''}`) }) : createLogger('backups')
+    commandLogger.error('[internal] Backup command failed', { code: failure.code })
     const telemetryLogger = structuredProgress ? createLogger('telemetry', { write: record => notice(record.level === 'warn' ? 'backup.telemetry.warning' : `backup.${output.status}`, `${errorText}${failure.context.resumeCommand ? '\n' + failure.context.resumeCommand : ''}`) }) : undefined
     reportError(new Error(`[internal] ${failure.code}`), { module: 'backups', code: 'backups.command_failed', attributes: { failure_code: failure.code }, logger: telemetryLogger })
     if (json) io.stdout(JSON.stringify(output) + '\n')
