@@ -189,6 +189,7 @@ const sidebars: SidebarsConfig = {
         },
         "user-guide/inbox-ops",
         "user-guide/audit-logs",
+        "user-guide/key-rotation-protection",
         "user-guide/scheduler",
       ],
     },

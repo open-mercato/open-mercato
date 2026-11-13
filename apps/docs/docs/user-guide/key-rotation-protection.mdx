@@ -1,5 +1,6 @@
 ---
 title: Protected key rotation
+description: Prepare an offline Enterprise rotation, verify persisted data, and recover safely after interruption.
 ---
 
 # Protected key rotation
@@ -32,9 +33,35 @@ Prepare the following private files and absolute directories on the maintenance 
 
 For a derived target, retain the selected `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` or `TENANT_DATA_ENCRYPTION_KEY` in approved custody. For Vault, explicitly configure `VAULT_ADDR`, `VAULT_TOKEN` and `VAULT_KV_PATH`; its pinned DEKs must already exist. Supply the previous derived root using `TENANT_DATA_ENCRYPTION_OLD_KEY`, never a command-line key. Neither backup nor verification exports application DEKs. A source/target pair with identical concrete key material refuses as a no-op. Unsupported historical ownership/codec/global-fallback scopes refuse before mutation; system-key records and independent inner secret envelopes are outside tenant rotation and must be handled by their owners before any root-key retirement.
 
+## Invoke the command safely
+
+Inject the previous derived root through `TENANT_DATA_ENCRYPTION_OLD_KEY` and the selected target provider credentials through your secret manager. Do not put key bytes in arguments or screenshots. Enable `TENANT_DATA_ENCRYPTION` in the application environment, and set the Enterprise capability/rights flags and private file paths listed above before bootstrapping the CLI.
+
+With the offline fence already provisioned and the previous/target keys independently retained, inspect the intended scope first:
+
+```sh
+mercato entities rotate-encryption-key --tenant TENANT_UUID --dry-run
+```
+
+A dry run previews Core maintenance; it does not prove that the protected backup, offline admission fence, final data verification or restore will succeed. Perform the protected invocation only after reviewing the scope:
+
+```sh
+mercato entities rotate-encryption-key --tenant TENANT_UUID
+```
+
+Add `--org ORGANIZATION_UUID` when that narrower scope is intentional. Use the same scope and key/provider configuration on resume. The protected invocation has no option to skip its recovery backup or final verification.
+
+When Enterprise protection is unavailable, the corresponding explicit Core risk acknowledgment is:
+
+```sh
+mercato entities rotate-encryption-key --tenant TENANT_UUID --acknowledge-unprotected-key-rotation
+```
+
+This last command authorizes unprotected mutation and provides neither Enterprise protection. Use it only with an independently tested recovery plan and retained keys; it is not a way to continue a failed protected run. The initial refusal displays a red error on a color-capable terminal; noninteractive/`NO_COLOR` output retains the `ERROR` text.
+
 ## Execution and verification
 
-The protected flow verifies offline fencing and key/provider identity, creates and verifies a quiesced whole-database encrypted backup, seals a complete logical baseline, performs bounded rotation and checks committed values back. An independent final scan then compares every declared row/value and exact coverage with the frozen baseline, using only pinned target keys for final decryption. Ciphertext equality, row counts alone and sampling never produce a passing result.
+The protected flow verifies offline fencing and key/provider identity, creates and verifies a quiesced whole-database encrypted backup, seals a complete logical baseline, performs bounded rotation and checks committed values back. An independent final scan then compares every declared row/value and exact coverage with the frozen baseline, using only pinned target keys for final decryption. The baseline seals canonical typed values using keyed HMAC-SHA-256, so randomized replacement ciphertext can change while the logical value remains identical. Coverage includes selected mapped scalar fields and supported custom documents; system-key records and independent inner envelopes are excluded explicitly. Encrypted bounded chunks and streaming comparisons avoid loading the entire database into memory. This is a full comparison, not a quick sampled checksum. Ciphertext equality, row counts alone and sampling never produce a passing result.
 
 Progress identifies the protected run. On success, the owner-only trusted directory contains a versioned aggregate report with exact compared/expected counts and the recovery reference; output says only that the declared scope passed. Keep the backup and previous keys. Passing does not authorize deleting keys needed by historical backups, system records or other applications.
 
@@ -53,3 +80,19 @@ Before rotation, an operator must provision `CONNECTION LIMIT 0` on the selected
 Protected resume requires the same PostgreSQL postmaster lifetime. A PostgreSQL restart or replacement refuses the old run; retain the previous keys and recovery artifact for an operator-led recovery decision.
 
 Maintenance preserves JSON numeric tokens exactly, including numbers beyond JavaScript precision, while lookup hashes retain the framework's existing serializer contract. JSON inputs are limited to 1 MiB, nesting depth 64 and 10,000 structural nodes; unsupported documents refuse before rotation mutation.
+
+
+## Rehearse and release the maintenance fence
+
+Use a disposable isolated copy with synthetic data and separate test keys before production maintenance. Exercise mapped scalar fields, custom documents, nulls, timestamps, exact JSON numeric tokens and representative large rows. Never copy real custody keys into a test fixture or GitHub attachment.
+
+1. Record the selected tenant/organization scope and database's original admission settings, retain previous and target keys separately, and stop all writers. Provision the required database fence and maintenance-role timeouts yourself; the command does not do this for you.
+2. Confirm dry-run leaves data unchanged, then run the protected command. Keep the coordinator run identifier. Inspect the owner-only success report: expected and compared counts must agree and the original recovery artifact must remain retrievable. Confirm selected data decrypts using the intended target provider in the isolated application.
+3. In another disposable test, interrupt a protected rotation. Keep the same PostgreSQL instance running, keys, scope, artifacts and trust directory; set `OM_ROTATION_RESUME_ID` to that run identifier and explicitly repeat the same command. Verify it repeats the full final comparison. A PostgreSQL restart intentionally makes the original protected run ineligible for resume.
+4. Exercise negative cases on disposable copies: missing recovery identity, changed schema/scope, damaged expectation artifacts or a conflicting persisted row must refuse or fail rather than print success. Do not modify the original trusted report or production recovery artifact to test this.
+5. Rehearse [backup recovery](../deployment/enterprise-backup-recovery) into a separate quarantined target using retained application keys. Rotation verification establishes only the declared current-data scope; it does not establish historical recovery, system-key migration or permission to retire keys.
+6. After a passing report and independent application/recovery checks, the operator decides whether to restore the database's original connection limit and restart writers. On any incomplete, failed or conflicting result, keep the fence and investigate before retrying or cutting over.
+
+Performance depends on database size, row shape, disk, provider latency and workload. Bounded streaming is designed to avoid a whole-dataset memory load; it does not establish that the release's full fresh benchmark matrix has passed. Do not substitute timings from a contended host, a sampled scan or a dry run for acceptance evidence.
+
+Retain only small redacted aggregate reports and terminal-output screenshots in PR comments. Backup archives, dumps, database volumes, private workspaces, encrypted expectation chunks, raw logs and key files belong in operator-controlled storage. Clean up disposable rehearsal resources after review; retain production previous keys and recovery artifacts according to the independently tested recovery policy.
