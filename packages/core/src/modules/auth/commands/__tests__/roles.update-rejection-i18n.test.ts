@@ -22,6 +22,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate }),
 }))
 
+import { createContainer, asValue, InjectionMode } from 'awilix'
 import '@open-mercato/core/modules/auth/commands/roles'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -49,26 +50,18 @@ function makeCtx(
   if (typeof transactionEm.rollback !== 'function') transactionEm.rollback = jest.fn(async () => undefined)
   if (typeof transactionEm.flush !== 'function') transactionEm.flush = jest.fn(async () => undefined)
   if (typeof transactionEm.find !== 'function') transactionEm.find = jest.fn(async () => [])
-  const container = {
-    resolve: (token: string) => {
-      switch (token) {
-        case 'dataEngine':
-          return dataEngine
-        case 'em':
-          return em
-        default:
-          throw new Error(`Unexpected dependency: ${token}`)
-      }
-    },
-  }
+  const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+  container.register({
+    dataEngine: asValue(dataEngine),
+    em: asValue(em),
+  })
 
   return {
-    container: container as any,
-    auth: { sub: 'actor-1', tenantId: tenantA, orgId: null, isSuperAdmin } as any,
+    container,
+    auth: { sub: 'actor-1', tenantId: tenantA, orgId: null, isSuperAdmin },
     organizationScope: null,
     selectedOrganizationId: null,
     organizationIds: null,
-    request: undefined as any,
   }
 }
 
