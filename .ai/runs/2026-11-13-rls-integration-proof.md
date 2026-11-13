@@ -39,5 +39,13 @@ PR: #9424
 
 ### Phase 2: Verify and publish
 
-- [ ] 2.1 Run unit tests, harness typecheck, real PostgreSQL integration checks, and the ordered repository gate with the local runner.
-- [ ] 2.2 Review the complete diff, fix findings, and publish results as PR comments.
+- [x] 2.1 Run unit tests, harness typecheck, real PostgreSQL integration checks, and the ordered repository gate with the local runner.
+- [x] 2.2 Review the complete diff, fix findings, and publish results as PR comments.
+
+## Verification outcome
+
+Runner: local, Node 24.22.3. Pin `MISE_NODE_VERSION=24.22.3 TMPDIR=/tmp TURBO_ENV_MODE=loose` so the launcher and subprocesses retain the intended runtime and short temporary path.
+
+All eight configured gate commands passed in order: package build, generate, package build, translation sync, translation usage, typecheck, full test, app build. The test command completed 51/51 tasks successfully. Template parity passed. The focused pool-scope suite passed 12/12, harness typecheck passed, and the automated integration passed all 13 database checks with zero skips. Missing-URL skip and secret-safe connection failure were independently verified. Fixture catalogs were empty and the dedicated PostgreSQL container was removed.
+
+Independent code review: approve, no actionable findings. Formal GitHub self-approval was rejected because the authenticated account authored the PR; the review evidence is published as a comment and a maintainer's formal approval remains a merge requirement. GitHub CI is reported separately on the PR and is not inferred from local results. Production Phases 1–2 remain outside this specification's authorized implementation scope.
