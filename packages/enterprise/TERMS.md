@@ -147,6 +147,8 @@ The Open Mercato Enterprise Subscription includes access to proprietary modules 
 * Record Locking - protection against concurrent edit conflicts, with presence indicators and controlled conflict resolution for shared records.
 * Agent Orchestrator - governed execution of AI agents inside your workflows: agents run as workflow steps with defined context, confidence thresholds route uncertain cases to human sign-off, and every agent action is audited like a user action.
 
+* Protected Key Rotation & Data Verification - a verified encrypted recovery backup and complete persisted-data comparison for declared tenant key-rotation scope; previous keys and recovery artifacts remain subject to operator retention.
+
 Modules are built to documented specifications: github.com/open-mercato/open-mercato/tree/main/.ai/specs/enterprise
 
 ---
@@ -195,7 +197,7 @@ Services by tier
 
 | SERVICE / CAPABILITY | BASIC | MEDIUM | ENTERPRISE |
 |---|---|---|---|
-| Enterprise software modules (MFA, SSO & Directory Sync, Record Locking, Agents Orchestrator). If the subscription ends, you keep running the version of these modules you already have; they stop receiving updates, security patches, new features, and support. | Included | Included | Included |
+| Enterprise software modules (MFA, SSO & Directory Sync, Record Locking, Agents Orchestrator, Protected Key Rotation & Data Verification). If the subscription ends, you keep running the version of these modules you already have; they stop receiving updates, security patches, new features, and support. | Included | Included | Included |
 | Unlimited users & servers (per Licensed Project) | Included | Included | Included |
 | Time-limited offer: Open Mercato project sandboxes with dev/staging and production environment, CI/CD and AI SDLC pipeline (backup & 7-day restore) — early access (beta) | 1 active project | 3 active projects | 10 active projects |
 | Priority support (AI-assisted helpdesk via Discord / ticketing / automatic issue triage by selected Github accounts) | up to 5 Accounts, 1 issue in the pipeline | up to 10 Accounts, includes Discord, 3 issues in the pipeline | Unlimited Accounts, includes Discord, 10 issues in the pipeline |
