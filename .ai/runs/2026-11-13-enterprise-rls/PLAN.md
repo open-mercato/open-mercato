@@ -55,6 +55,7 @@ Engine: om-auto-continue-pr-loop
 | 3 | 3.1 | Reconcile explicit canary policies through migrations with rollback | inline | done | this commit; runtime94/shared8; live PG17 16+25 checks, zero skips |
 | 3 | 3.1-orchestration | Verify actual dbMigrate failure/retry and policy re-enable on disposable PostgreSQL | inline | done | 14ca3ecc90; parent 8 checks, zero skips |
 | 3 | 3.2-lock-transaction | Reuse the quota transaction connection under a one-client pool | inline | done | this commit; 26 tests/enterprise tsc; original fails regression |
+| 3 | 3.2-indexer-lifetime | Await accepted index/search/coverage work through the bounded invocation | inline | done | 04aa6f1175; parent508+composition1, independent reviewac91 approve |
 | 3 | 3.2-configured-guard | Assert authenticated pessimistic mutation denial preserves tenant data and audit | inline | todo | 6c9253d0cb; focused checks pass, native live pending |
 | 3 | 3.2 | Add self-contained canary CRUD and cross-tenant HTTP integration tests | inline | todo | — |
 | 3 | 3.3 | Add dispatcher, job retry and maintenance integration coverage | inline | done | b5b6602014; parent actual disposable Redis/PostgreSQL1 pass, five checks, cleanup verified; prior dispatcher/CLI live |
