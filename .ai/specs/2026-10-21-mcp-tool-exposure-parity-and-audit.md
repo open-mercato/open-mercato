@@ -792,3 +792,7 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 
 - Merged with `main` after issue #3805 (`.ai/specs/2026-10-31-issue-3805-direct-tool-mutation-approval.md`). `POST /api/ai_assistant/tools/execute` refuses every `isMutation: true` tool with `403 { success: false, error }` in all mutation modes and audits the refusal (`outcome: denied`, `errorCode: DIRECT_MUTATION_DENIED`). `OM_MCP_MUTATION_MODE` now governs the MCP servers only; the `/tools/execute` 202 and deny-code contracts above are superseded. The env mode is still passed to `executeTool` so agent tools keep their channel policy.
 - Integration: TC-AI-MCP-APPROVAL-016 now asserts the refusal under every mode; TC-AI-MCP-APPROVAL-015/017 queue raw-tool `mcp` rows through the DB fixture instead of `/tools/execute`.
+
+### 2026-11-13
+
+- Integration: `TC-AI-MCP-PARITY-011` now exists — for one API-key role it compares `customers.deal_analyzer` `allowedTools` reachable via `/api/ai_assistant/ai/agents` + the tool list with the `view=mcp` exposure filtered to those tools, and asserts an agent the role lacks `requiredFeatures` for is absent from `/ai/agents`, its agent tool (when registered) is absent from both listings and refused on `/tools/execute`, and `/ai/run-object` answers 403 `agent_features_denied`.
