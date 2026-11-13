@@ -3,6 +3,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ArrowDown, ArrowUp, Bell, Loader2, RotateCcw, Settings2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
+import { Alert } from '../../primitives/alert'
 import { IconButton } from '../../primitives/icon-button'
 import { Sheet, SheetContent, SheetTitle } from '../../primitives/sheet'
 import { Tabs, TabsList, TabsTrigger } from '../../primitives/tabs'
@@ -75,6 +76,7 @@ export function NotificationPanel({
 }: NotificationPanelProps) {
   const [filter, setFilter] = React.useState<'all' | 'unread' | 'action'>('all')
   const [markingAllRead, setMarkingAllRead] = React.useState(false)
+  const [markAllReadFailed, setMarkAllReadFailed] = React.useState(false)
 
   const filteredNotifications = React.useMemo(() => {
     switch (filter) {
@@ -91,8 +93,11 @@ export function NotificationPanel({
 
   const handleMarkAllRead = async () => {
     setMarkingAllRead(true)
+    setMarkAllReadFailed(false)
     try {
       await onMarkAllRead()
+    } catch {
+      setMarkAllReadFailed(true)
     } finally {
       setMarkingAllRead(false)
     }
@@ -154,6 +159,14 @@ export function NotificationPanel({
             </IconButton>
           </div>
         </div>
+
+        {markAllReadFailed ? (
+          <div className="px-5 py-3">
+            <Alert status="error" style="lighter">
+              {t('notifications.error.markAllRead', 'Could not mark notifications as read. Please try again.')}
+            </Alert>
+          </div>
+        ) : null}
 
         <Tabs value={filter} onValueChange={handleFilterChange} variant="underline">
           <TabsList className="flex w-full px-5">

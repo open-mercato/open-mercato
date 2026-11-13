@@ -17,6 +17,7 @@
   "notifications.error.actionCommandNotAllowed": "Notification actions created through the API cannot run commands",
   "notifications.error.actionForbidden": "You are not allowed to run this notification action",
   "notifications.error.load": "Failed to load notifications",
+  "notifications.error.markAllRead": "Could not mark notifications as read. Please try again.",
   "notifications.filters.actionRequired": "Action Required",
   "notifications.filters.all": "All",
   "notifications.filters.unread": "Unread",

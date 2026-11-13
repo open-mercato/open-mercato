@@ -112,6 +112,22 @@ describe('useNotificationActions — failed API writes leave local state unchang
     expect(hook.result.current.dismissUndo).not.toBeNull()
   })
 
+  it('preserves unread state on transport failure and updates it after retry', async () => {
+    ;(apiFetch as jest.Mock).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const { hook, setNotifications, setUnreadCount } = renderActions([makeNotification('n1')])
+
+    expect(await callAndCaptureRejection(() => hook.result.current.markAllRead())).toBe(true)
+    expect(setNotifications).not.toHaveBeenCalled()
+    expect(setUnreadCount).not.toHaveBeenCalled()
+
+    setFetchResult(200)
+    await act(async () => { await hook.result.current.markAllRead() })
+    expect(setNotifications.mock.calls[0][0]([makeNotification('n1')])).toEqual([
+      expect.objectContaining({ id: 'n1', status: 'read', readAt: expect.any(String) }),
+    ])
+    expect(setUnreadCount).toHaveBeenCalledWith(0)
+  })
+
   it('markAllRead surfaces the error and does not mutate state when the write fails', async () => {
     setFetchResult(500)
     const { hook, setNotifications, setUnreadCount } = renderActions([makeNotification('n1')])
