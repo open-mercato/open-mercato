@@ -88,7 +88,7 @@ ASN receive rejects this location as `target_staging_location_id` with `409 pack
 
 One pick task per still-reserved reservation bucket. Reservations are `source_type = order` and `source_id = sales order id`. Transfer and manual reservations are ignored. Release does not invent quantity for order lines that were never reserved.
 
-One packing task per `(wave, sales order)`, created inside the transaction that makes every pick task for that order terminal (`done`, `short`, or `cancelled`) when the sum of `quantity_picked` is positive. Lines point at those pick tasks. No carton, no JSON snapshot. Confirm/short undo soft-deletes that task while it is still `open` or `in_progress`, so a mis-confirmed last pick can be corrected before anybody completes packing.
+One packing task per `(wave, sales order)`, created inside the transaction that makes every pick task for that order terminal (`done`, `short`, or `cancelled`) when the sum of `quantity_picked` is positive. The decision is made only after the wave lock below, re-reading every pick for that order. Lines point at those pick tasks. No carton, no JSON snapshot. Confirm/short undo soft-deletes that task while it is still `open` or `in_progress`, so a mis-confirmed last pick can be corrected before anybody completes packing.
 
 ### Design Decisions
 
@@ -247,9 +247,13 @@ Pick undo cannot race a label request. `request-label` requires packing status `
 
 ### Concurrency
 
-Action commands take `PESSIMISTIC_WRITE` on the parent wave or task, then on reservations in id order, then on balances in id order. They re-read status under those locks.
+Every wave, pick, and packing command takes `PESSIMISTIC_WRITE` on the parent wave first, then on the child task, then on reservations in id order, then on balances in id order. The wave is the common lock for one order's picks. Two confirms of different variants hold different task and balance rows, so task-local locks do not serialize them. After the wave lock, the command re-reads every pick and packing row it will decide on.
 
-Optimistic lock uses the platform command guard on the parent `updated_at` (wave for release/cancel-wave, pick task for pick actions, packing task for pack/ship/label). HTTP list and detail return `updatedAt`.
+That re-read is what creates the packing task. The confirm that finds every pick for the order already terminal inserts exactly one task. The other confirm, waiting on the same wave, sees that task and does not insert a second one.
+
+Complete and confirm/short undo take the same wave lock. One commits first. If undo commits while packing is still `open` or `in_progress`, it soft-deletes that packing task and complete then finds nothing to finish, so `wms.packing.completed` is not emitted. If complete commits first, undo sees `done` and returns `409 pick_undo_blocked`.
+
+Optimistic lock stays on `updated_at` as well: the wave for release and cancel-wave, the pick task for pick actions, the packing task for pack, ship, and label. HTTP list and detail return `updatedAt`. The version check does not replace the wave lock.
 
 Idempotency keys, unique among non-deleted movements:
 
@@ -645,6 +649,8 @@ Cache: command success invalidates the wave, task, balance, and reservation tags
 | WMS-P3-INT-14 | API | Short, undo, short the same quantity | second short inserts a new movement; the first short movement row remains |
 | WMS-P3-INT-15 | API | Undo confirm after packing is `done` | `409 pick_undo_blocked`, balances unchanged, complete is not undoable, a linked sales shipment stays |
 | WMS-P3-INT-16 | API | Order already has one non-deleted shipment for the packed quantity | subscriber links that shipment, fulfilled quantity is not increased again, a second packing task cannot store the same `sales_shipment_id` |
+| WMS-P3-INT-17 | API | Two concurrent confirms of the last two picks on one order | exactly one live packing task, both picks `done` |
+| WMS-P3-INT-18 | API | Complete racing confirm undo on the same wave | one winner: either packing is soft-deleted and `wms.packing.completed` is not emitted, or complete wins and undo returns `409 pick_undo_blocked` |
 
 Fixtures use phase 1 reservations and a staging pack location. Do not reserve staging stock directly. Carrier failure asserts the packing row and the balances, not a rolled-back transaction.
 
@@ -729,6 +735,10 @@ Unit coverage: bucket split on short, ship quantity against reservation remainde
 Ready for implementation. Code is not shipped with this revision.
 
 ## Changelog
+
+### 2026-11-13 (rev 8)
+
+- Pick and packing commands lock the parent wave before their own task, then re-read child rows. Concurrent final confirms create one packing task. Complete and pick undo cannot both commit.
 
 ### 2026-11-13 (rev 7)
 
