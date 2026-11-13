@@ -16,11 +16,13 @@ export type RecoveryArtifact = { artifactPath: string; digest: string; databaseB
 export type TimestampRecord = { before: Record<string, LogicalValue>; after: Record<string, LogicalValue>; mac: string }
 export type TimestampLoader = { load(identity: string): Promise<TimestampRecord | undefined>; prefetch?(identities: string[]): Promise<void> }
 export type RotationFailureDetails = { elapsedMs: number } & Partial<VerificationFailureAggregates>
+export type RotationPresentationPhase = 'recovery' | 'recovery-verification' | 'baseline' | 'rotating' | 'verification' | 'finalizing'
 export type RotationCoordinatorOptions = {
   artifactRoot: string
   trustRoot: string
   resumeId?: string
   signal?: AbortSignal
+  phase?(phase: RotationPresentationPhase): void
   assertEntitlement(): Promise<void>
   providers(context: RotationProtectionContext): Promise<PinnedRotationProviders>
   dataset(context: RotationProtectionContext, providers: RotationKeyProviders, backupDigest: string, intents: TimestampLoader): Promise<RotationDataset>
@@ -194,14 +196,19 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
           if (candidate.status === 'passed') throw new Error('[internal] ROTATION_ALREADY_COMPLETED')
           // Invalid or completed resumes must never become mutable run state.
           state = candidate
+          options.phase?.('recovery-verification')
           await options.recovery.verify(state.recovery, context)
+          options.phase?.('baseline')
         } else {
+          options.phase?.('recovery')
           const recovery = recoverySchema.parse(await options.recovery.create(context, databaseBinding))
           pendingRecovery = recovery
           if (recovery.databaseBinding !== databaseBinding) throw new Error('[internal] ROTATION_BACKUP_DATABASE_MISMATCH')
+          options.phase?.('recovery-verification')
           await options.recovery.verify(recovery, context)
           await initial.assertFence(); await providers.refresh()
           const dataset = await options.dataset(context, providers, recovery.digest, intents)
+          options.phase?.('baseline')
           const prepared = await prepareRotationVerification(dataset, store, options.signal)
           state = { schemaVersion: 1, id, prepared, recovery, status: 'prepared' }
           await publishState(trustPath, state)
@@ -276,15 +283,18 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         }
         providers.timestampForWrite = async (intent: RotationTimestampIntent) => (await providers.timestampForBatchWrite!([intent]))[0]!
 
+        options.phase?.('rotating')
         await operation(providers)
         await intentQueue
         await options.assertEntitlement(); await dataset.assertFence(); await providers.refresh()
         await journal.append({ kind: 'phase', status: 'verifying' })
         state.status = 'verifying'; await publishState(trustPath, state)
         verificationAttemptId = randomUUID()
+        options.phase?.('verification')
         const result = await verifyRotationData(state.prepared as PreparedRotation, dataset, store, options.signal, verificationAttemptId)
         verified = result
         await options.assertEntitlement()
+        options.phase?.('finalizing')
         await options.report({ ...result, coordinatorRunId: id }, state.recovery)
         await journal.append({ kind: 'phase', status: 'passed' })
         state.status = 'passed'; await publishState(trustPath, state)

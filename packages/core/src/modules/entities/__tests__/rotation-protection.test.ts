@@ -19,7 +19,27 @@ describe('rotation protection preflight', () => {
     await protectKeyRotation(context, acknowledgment, undefined, operation)
     expect(operation).toHaveBeenCalledTimes(1)
     expect(error).toHaveBeenCalledTimes(1)
+    expect(String(error.mock.calls[0][0])).toContain('unprotectedAcknowledged')
     await expect(protectKeyRotation(context, undefined, undefined, operation)).rejects.toThrow()
+  })
+
+  test.each([undefined, true])('JSON warning stays NDJSON before refusal or acknowledgment %s', async acknowledgment => {
+    const previous = process.env.OM_ROTATION_PROGRESS
+    process.env.OM_ROTATION_PROGRESS = 'json'
+    const operation = jest.fn()
+    try {
+      const promise = protectKeyRotation(context, acknowledgment, undefined, operation)
+      if (acknowledgment) await promise
+      else await expect(promise).rejects.toThrow('acknowledgmentRequired')
+      const event = JSON.parse(String(error.mock.calls[0][0]))
+      expect(event).toMatchObject({ schemaVersion: 1, type: 'phase.changed', phase: 'rotation.unprotected', rowsDone: '0' })
+      expect(event.entity).toContain('ERROR:')
+      expect(operation).toHaveBeenCalledTimes(acknowledgment ? 1 : 0)
+      expect(String(error.mock.calls[0][0])).not.toContain('\u001b')
+    } finally {
+      if (previous === undefined) delete process.env.OM_ROTATION_PROGRESS
+      else process.env.OM_ROTATION_PROGRESS = previous
+    }
   })
   test('read-only previews need no acknowledgment', async () => {
     const operation = jest.fn()

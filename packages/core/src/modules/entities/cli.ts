@@ -40,7 +40,7 @@ import { Organization } from '../directory/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 import type { RotationProtectionService, RotationKeyProviders } from '@open-mercato/shared/lib/encryption/rotationProtection'
-import { protectKeyRotation, UNPROTECTED_ROTATION_ACKNOWLEDGMENT } from './lib/rotation-protection'
+import { rotationNotice, protectKeyRotation, UNPROTECTED_ROTATION_ACKNOWLEDGMENT } from './lib/rotation-protection'
 import { readMaintenanceBatches, writeMaintenanceRow, verifyMaintenanceBatch, quoteMaintenanceIdentifier } from './lib/rotation-maintenance'
 
 function parseArgs(rest: string[]) {
@@ -468,6 +468,7 @@ function classifyEncryptionMap(
 function resolveMapsOrFail(
   maps: EncryptionMap[],
   metaByEntityId: ReturnType<typeof buildEntityMetaRegistry>,
+  warn: (message: string) => void = message => console.warn(message),
 ): Array<{ map: EncryptionMap; mapMeta: EncryptionMapMeta }> {
   const resolved: Array<{ map: EncryptionMap; mapMeta: EncryptionMapMeta }> = []
   const unresolvable: string[] = []
@@ -478,7 +479,7 @@ function resolveMapsOrFail(
       continue
     }
     if (resolution.status === 'nothing-to-process') {
-      console.warn(`Skipping ${String(map.entityId)}: ${resolution.reason}.`)
+      warn(`Skipping ${String(map.entityId)}: ${resolution.reason}.`)
       continue
     }
     unresolvable.push(`  ${String(map.entityId)} (encryption_maps.id=${String(map.id)}): ${resolution.reason}`)
@@ -548,7 +549,7 @@ const rotateEncryptionKey: ModuleCli = {
       failCli(`--old-key is deprecated because process listings expose it. Use ${OLD_ENCRYPTION_KEY_ENV}; the compatibility bridge requires --allow-unsafe-old-key.`)
     }
     if (oldKeyArgument) {
-      console.warn(
+      rotationNotice(
         `Passing key material through --old-key can expose it in shell history and process listings. Set ${OLD_ENCRYPTION_KEY_ENV} through your secret manager instead.`,
       )
     }
@@ -557,7 +558,7 @@ const rotateEncryptionKey: ModuleCli = {
     const debug = Boolean(args.debug)
     const rotate = Boolean(oldKey)
     if (rotate && !tenantIdArg) {
-      console.warn(
+      rotationNotice(
         '⚠️  Rotating with one previous key across all tenants. A single previous key should normally target one tenant; consider --tenant.',
       )
     }
@@ -607,12 +608,12 @@ const rotateEncryptionKey: ModuleCli = {
     const systemScopedEntityIds = protectedSystemEntities ?? await getSystemScopedEntityIds()
     const maps = allMaps.filter((map: EncryptionMap) => {
       if (!systemScopedEntityIds.has(String(map.entityId))) return true
-      console.warn(
+      rotationNotice(
         `Skipping ${map.entityId}: system-scoped entity. Its ciphertext is sealed under a system key and cannot be rotated with a tenant key — use "mercato entities backfill-system-encryption" instead.`,
       )
       return false
     })
-    const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)
+    const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId, rotationNotice)
     const customDocuments = await rotateCustomEntityDocuments(em, {
       encryptionService,
       oldKms,
@@ -666,7 +667,7 @@ const rotateEncryptionKey: ModuleCli = {
       const available = Boolean(await encryptionService.getDek(tenantId))
       dekAvailability.set(tenantId, available)
       if (!available) {
-        console.warn(
+        rotationNotice(
           `[dry-run] Tenant ${tenantId} has no data-encryption key yet. Reporting the rows a real run would encrypt; no key material was provisioned.`,
         )
       }
@@ -764,7 +765,7 @@ const rotateEncryptionKey: ModuleCli = {
             if (rule.hashField) delete payload[rule.hashField]
             unrecoverableCount += 1
             if (unrecoverableRows.length < 20) unrecoverableRows.push({ entityId, field: rule.field })
-            console.warn(
+            rotationNotice(
               `Skipping ${entityId}.${rule.field}: its ciphertext opens under neither the previous nor the current tenant key. Re-run with the key that sealed it.`,
             )
           }

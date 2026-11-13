@@ -120,6 +120,29 @@ describe('entities rotate-encryption-key CLI', () => {
     cli = require('@open-mercato/core/modules/entities/cli').default
   })
 
+  it('keeps all-tenant and deprecated-key warnings plus guard refusal as existing-schema NDJSON', async () => {
+    const previous = process.env.OM_ROTATION_PROGRESS
+    process.env.OM_ROTATION_PROGRESS = 'json'
+    const warnings: string[] = []
+    const warn = jest.spyOn(console, 'warn').mockImplementation(value => { warnings.push(String(value)) })
+    const error = jest.spyOn(console, 'error').mockImplementation(value => { warnings.push(String(value)) })
+    try {
+      await expect(cli.find(command => command.command === 'rotate-encryption-key')!.run(['--allow-unsafe-old-key', '--old-key', 'synthetic-never-display'])).rejects.toThrow('explicitly accept')
+      expect(warnings).toHaveLength(3)
+      const events = warnings.map(value => JSON.parse(value))
+      expect(events.every(event => event.schemaVersion === 1 && event.type === 'phase.changed')).toBe(true)
+      expect(events.some(event => event.entity.includes('across all tenants'))).toBe(true)
+      expect(events.some(event => event.phase === 'rotation.unprotected')).toBe(true)
+      expect(warnings.join('')).not.toContain('synthetic-never-display')
+      expect(warnings.join('')).not.toContain('\u001b')
+      expect(execute).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore(); error.mockRestore()
+      if (previous === undefined) delete process.env.OM_ROTATION_PROGRESS
+      else process.env.OM_ROTATION_PROGRESS = previous
+    }
+  })
+
   const singleMapFixture = () => {
     find.mockImplementation(async (entity: any) => {
       if (entity === EncryptionMap) {

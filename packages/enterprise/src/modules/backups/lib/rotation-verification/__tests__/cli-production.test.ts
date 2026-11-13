@@ -53,8 +53,10 @@ native('real Core CLI handler with Enterprise DI and native PostgreSQL', () => {
   let directory: string
   let base: URL
   let previousEnvironment: NodeJS.ProcessEnv
+  let stderrDescriptors: Record<string, PropertyDescriptor | undefined>
   beforeEach(async () => {
     previousEnvironment = { ...process.env }
+    stderrDescriptors = Object.fromEntries(['isTTY', 'columns', 'rows'].map(key => [key, Object.getOwnPropertyDescriptor(process.stderr, key)]))
     directory = await mkdtemp(join(tmpdir(), 'rotation-cli-production-'))
     base = new URL(process.env.OM_ROTATION_TEST_DATABASE_URL!)
     database = 'rotation_cli_' + randomUUID().replaceAll('-', '')
@@ -72,6 +74,10 @@ native('real Core CLI handler with Enterprise DI and native PostgreSQL', () => {
   })
   afterEach(async () => {
     jest.restoreAllMocks()
+    for (const [key, descriptor] of Object.entries(stderrDescriptors)) {
+      if (descriptor) Object.defineProperty(process.stderr, key, descriptor)
+      else Reflect.deleteProperty(process.stderr, key)
+    }
     await mockContainer?.dispose()
     await orm?.close(true)
     const administrator = new Client({ connectionString: previousEnvironment.OM_ROTATION_TEST_DATABASE_URL! })
@@ -109,7 +115,8 @@ native('real Core CLI handler with Enterprise DI and native PostgreSQL', () => {
   test('actual handler selects registered protection, backs up, rotates mapped and custom rows, then verifies persisted data', async () => {
     const stdout: string[] = []; const stderr: string[] = []
     const log = jest.spyOn(console, 'log').mockImplementation((...values) => { stdout.push(values.map(String).join(' ')) })
-    const error = jest.spyOn(console, 'error').mockImplementation((...values) => { stderr.push(values.map(String).join(' ')) })
+    const error = jest.spyOn(console, 'error').mockImplementation((...values) => { stderr.push(values.map(String).join(' ') + '\n') })
+    const write = jest.spyOn(process.stderr, 'write').mockImplementation(chunk => { stderr.push(String(chunk)); return true })
     const source = (await createDerivedKeyKmsService(sourceSecret).getTenantDek(tenantId))!.key
     const target = (await createDerivedKeyKmsService(targetSecret).getTenantDek(tenantId))!.key
     const em = orm.em.fork()
@@ -122,6 +129,13 @@ native('real Core CLI handler with Enterprise DI and native PostgreSQL', () => {
     em.persist(em.create(CustomFieldDef, { id: randomUUID(), createdAt: new Date(), updatedAt: new Date(), entityId: 'test:cli_dynamic', tenantId, organizationId, key: 'secret', kind: 'text', configJson: { encrypted: true }, isActive: true }))
     await em.flush()
     Object.assign(process.env, await runtimeEnvironment(), { TENANT_DATA_ENCRYPTION: 'yes', TENANT_DATA_ENCRYPTION_OLD_KEY: sourceSecret, TENANT_DATA_ENCRYPTION_KEY: targetSecret, OM_ROTATION_PROGRESS: 'none' })
+    const outputMode = process.env.OM_ROTATION_CLI_EVIDENCE_MODE
+    if (outputMode === 'tty') {
+      for (const [key, value] of Object.entries({ isTTY: true, columns: 100, rows: 30 })) Object.defineProperty(process.stderr, key, { configurable: true, value })
+      delete process.env.NO_COLOR
+      process.env.TERM = 'xterm-256color'
+      process.env.OM_ROTATION_PROGRESS = ''
+    } else if (outputMode === 'json') process.env.OM_ROTATION_PROGRESS = 'json'
     delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
     mockContainer = createContainer()
     mockContainer.register({ em: asValue(em) })
@@ -156,9 +170,10 @@ native('real Core CLI handler with Enterprise DI and native PostgreSQL', () => {
       schemaVersion: 1, scope: 'Actual Core CLI handler, real MikroORM, actual Enterprise DI registration; app container factory is the only mocked integration boundary',
       fixture: 'Two generated rows, mapped scalar and custom JSON, synthetic tenant/organization',
       stdout, stderr, receipt: result,
+      terminal: outputMode === 'tty' ? 'Harness advertises a 100x30 stderr TTY; actual production ANSI output captured verbatim' : outputMode === 'json' ? 'Actual production NDJSON stderr captured verbatim' : 'No live progress; actual production final guidance captured',
       assertions: ['mapped ciphertext opens only with target key', 'custom ciphertext opens with target key', 'lookup hash preserves framework contract', 'untouched columns remain equal', 'complete persisted verification covers both rows', 'Core stdout gains no structured JSON result', 'encrypted recovery artifact remains after verified pass', 'no failure receipt or stale lock'],
     }, null, 2), { mode: 0o600 })
-    log.mockRestore(); error.mockRestore()
+    log.mockRestore(); error.mockRestore(); write.mockRestore()
   }, 60000)
 
   test('escaped unpaired Unicode in encrypted JSON refuses before any Core mutation', async () => {

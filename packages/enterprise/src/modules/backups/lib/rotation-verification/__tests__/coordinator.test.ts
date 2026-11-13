@@ -48,7 +48,10 @@ function fixture() {
 
 test('does not mutate until backup verification and baseline preparation finish, and final scan gates report', async () => {
   const { state, options, context } = fixture()
+  const phases: string[] = []
+  options.phase = phase => { phases.push(phase) }
   await createEnterpriseRotationProtection(options).protect(context, async () => {
+    expect(phases).toEqual(['recovery', 'recovery-verification', 'baseline', 'rotating'])
     expect(state.verifiedBackup).toBe(true)
     const contents = await readdir(options.trustRoot)
     expect(contents.filter(name => name.endsWith('.json'))).toHaveLength(1)
@@ -58,6 +61,9 @@ test('does not mutate until backup verification and baseline preparation finish,
   })
   expect(state.mutated).toBe(true); expect(state.reports).toBe(1); expect(state.refreshes).toBeGreaterThanOrEqual(2)
   expect((await readdir(options.trustRoot)).some(name => name.endsWith('.lock'))).toBe(false)
+  expect(phases).toEqual(['recovery', 'recovery-verification', 'baseline', 'rotating', 'verification', 'finalizing'])
+  const record = (await readdir(options.trustRoot)).find(name => name.endsWith('.json'))!
+  expect(JSON.parse(await readFile(join(options.trustRoot, record), 'utf8')).status).toBe('passed')
 })
 
 test('wrong-database recovery artifact refuses before mutation', async () => {
