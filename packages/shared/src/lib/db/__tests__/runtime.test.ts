@@ -35,6 +35,15 @@ it('preserves execution, URLs and migration behavior when no adapter is register
   await expect(afterDatabaseMigrate()).resolves.toBeUndefined()
 })
 
+it('recognizes invalid execution identity across duplicated module instances', async () => {
+  const first = await import('../runtime')
+  const error = new first.InvalidDatabaseExecutionContextError('[internal] Invalid tenant')
+  jest.resetModules()
+  const duplicate = await import('../runtime')
+  expect(duplicate.isInvalidDatabaseExecutionContextError(error)).toBe(true)
+  expect(duplicate.isInvalidDatabaseExecutionContextError(new Error('unrelated'))).toBe(false)
+})
+
 it('retains the original adapter across duplicate same-version registrations', () => {
   const first = jest.fn(() => 'first')
   registerDatabaseRuntimeAdapter(adapter({ connectionUrl: first }))

@@ -1,9 +1,10 @@
+import { isInvalidDatabaseExecutionContextError, runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type ApiRouteBeforeAuth, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiRouteFacades } from '@/.mercato/generated/api-route-shards.generated'
-import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
+import { attachTrustedAuthContext, resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap-api'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -491,28 +492,42 @@ async function handleRequest(
       return response
     }
   }
+  const methodMetadata = extractMethodMetadata(routeMetadata, method)
   const authResolution = await resolveAuthFromRequestDetailed(req)
   const auth = authResolution.auth
-  await emitLifecycleEvent(applicationLifecycleEvents.requestAuthResolved, {
-    ...receivedPayload,
-    authenticated: !!auth,
-    userId: auth?.sub ?? null,
-    tenantId: auth?.tenantId ?? null,
-  })
+  attachTrustedAuthContext(req, authResolution)
+  const runAuthorizedContinuation = async (): Promise<Response> => {
+    await emitLifecycleEvent(applicationLifecycleEvents.requestAuthResolved, {
+      ...receivedPayload,
+      authenticated: !!auth,
+      userId: auth?.sub ?? null,
+      tenantId: auth?.tenantId ?? null,
+    })
 
-  const methodMetadata = extractMethodMetadata(routeMetadata, method)
-  const authError = await checkAuthorization(methodMetadata, auth, req)
-  if (authError) {
-    // Auth could not be verified because of a transient/unexpected failure (DB
-    // unavailable, pool exhausted, timeout). Do NOT clear the session cookies or
-    // return 401 — that would force-log-out every active user at once during a
-    // shared infrastructure blip (issue #4176). Return a retryable 503 instead
-    // and leave the cookies intact so the session survives once the DB recovers.
-    if (authResolution.status === 'error' && authError.status === 401) {
-      const response = NextResponse.json(
-        { error: t('api.errors.serviceUnavailable', 'Service temporarily unavailable') },
-        { status: 503, headers: { 'retry-after': '2' } },
-      )
+    const authError = await checkAuthorization(methodMetadata, auth, req)
+    if (authError) {
+      // Auth could not be verified because of a transient/unexpected failure (DB
+      // unavailable, pool exhausted, timeout). Do NOT clear the session cookies or
+      // return 401 — that would force-log-out every active user at once during a
+      // shared infrastructure blip (issue #4176). Return a retryable 503 instead
+      // and leave the cookies intact so the session survives once the DB recovers.
+      if (authResolution.status === 'error' && authError.status === 401) {
+        const response = NextResponse.json(
+          { error: t('api.errors.serviceUnavailable', 'Service temporarily unavailable') },
+          { status: 503, headers: { 'retry-after': '2' } },
+        )
+        await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
+          ...receivedPayload,
+          status: response.status,
+          userId: auth?.sub ?? null,
+          tenantId: auth?.tenantId ?? null,
+          durationMs: Date.now() - startedAt,
+        })
+        return response
+      }
+      const response = authResolution.status === 'invalid' && authError.status === 401
+        ? clearStaffAuthCookies(authError)
+        : authError
       await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
         ...receivedPayload,
         status: response.status,
@@ -522,102 +537,105 @@ async function handleRequest(
       })
       return response
     }
-    const response = authResolution.status === 'invalid' && authError.status === 401
-      ? clearStaffAuthCookies(authError)
-      : authError
-    await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
-      ...receivedPayload,
-      status: response.status,
-      userId: auth?.sub ?? null,
-      tenantId: auth?.tenantId ?? null,
-      durationMs: Date.now() - startedAt,
-    })
-    return response
-  }
 
-  if (methodMetadata?.rateLimit) {
-    const rateLimiterService = getCachedRateLimiterService()
-    if (rateLimiterService) {
-      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
-      const rateLimitError = await checkRateLimit(
-        rateLimiterService,
-        methodMetadata.rateLimit,
-        clientIp ?? RATE_LIMIT_FALLBACK_KEY,
-        t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
-      )
-      if (rateLimitError) {
-        await emitLifecycleEvent(applicationLifecycleEvents.requestRateLimited, {
-          ...receivedPayload,
-          status: rateLimitError.status,
-          clientIp,
-          userId: auth?.sub ?? null,
-          tenantId: auth?.tenantId ?? null,
-          durationMs: Date.now() - startedAt,
-        })
-        return rateLimitError
+    if (methodMetadata?.rateLimit) {
+      const rateLimiterService = getCachedRateLimiterService()
+      if (rateLimiterService) {
+        const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+        const rateLimitError = await checkRateLimit(
+          rateLimiterService,
+          methodMetadata.rateLimit,
+          clientIp ?? RATE_LIMIT_FALLBACK_KEY,
+          t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+        )
+        if (rateLimitError) {
+          await emitLifecycleEvent(applicationLifecycleEvents.requestRateLimited, {
+            ...receivedPayload,
+            status: rateLimitError.status,
+            clientIp,
+            userId: auth?.sub ?? null,
+            tenantId: auth?.tenantId ?? null,
+            durationMs: Date.now() - startedAt,
+          })
+          return rateLimitError
+        }
       }
     }
-  }
 
-  try {
-    const handlerContext: HandlerContext = { params: match.params, auth }
-    const runHandler = () => runWithCacheTenant(auth?.tenantId ?? null, () => handler(req, handlerContext))
-    const response = methodMetadata?.skipModuleResourceUsageTracking !== true
-      ? await withModuleResourceUsage(
-        {
-          moduleId: match.route.moduleId,
-          surface: 'api',
-          operation: `${method} ${match.route.path}`,
-          resourceId: `${method} ${match.route.path}`,
-        },
-        runHandler,
-      )
-      : await runHandler()
-    const finalResponse = authResolution.status === 'invalid' && response.status === 401
-      ? clearStaffAuthCookies(response)
-      : response
-    await emitLifecycleEvent(applicationLifecycleEvents.requestCompleted, {
-      ...receivedPayload,
-      status: finalResponse.status,
-      userId: auth?.sub ?? null,
-      tenantId: auth?.tenantId ?? null,
-      durationMs: Date.now() - startedAt,
-    })
-    getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)
-    return finalResponse
-  } catch (error) {
-    // A CrudHttpError is a deliberate, typed HTTP outcome (403 from an org-scope
-    // deny, 404 from a guard, 409 from an optimistic lock) that a handler threw
-    // instead of returning. Without this branch it reaches Next as an unhandled
-    // throw and the caller sees a 500 with a leaked stack, hiding the real
-    // decision — so it is answered with its own status and body here rather than
-    // funnelled through the 5xx path below.
-    if (isCrudHttpError(error)) {
-      const response = NextResponse.json(error.body, { status: error.status })
+    try {
+      const handlerContext: HandlerContext = { params: match.params, auth }
+      const runHandler = () => runWithCacheTenant(auth?.tenantId ?? null, () => handler(req, handlerContext))
+      const response = methodMetadata?.skipModuleResourceUsageTracking !== true
+        ? await withModuleResourceUsage(
+          {
+            moduleId: match.route.moduleId,
+            surface: 'api',
+            operation: `${method} ${match.route.path}`,
+            resourceId: `${method} ${match.route.path}`,
+          },
+          runHandler,
+        )
+        : await runHandler()
+      const finalResponse = authResolution.status === 'invalid' && response.status === 401
+        ? clearStaffAuthCookies(response)
+        : response
       await emitLifecycleEvent(applicationLifecycleEvents.requestCompleted, {
         ...receivedPayload,
-        status: response.status,
+        status: finalResponse.status,
         userId: auth?.sub ?? null,
         tenantId: auth?.tenantId ?? null,
         durationMs: Date.now() - startedAt,
       })
-      getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, response.status, startedAt)
-      return response
+      getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)
+      return finalResponse
+    } catch (error) {
+      // A CrudHttpError is a deliberate, typed HTTP outcome (403 from an org-scope
+      // deny, 404 from a guard, 409 from an optimistic lock) that a handler threw
+      // instead of returning. Without this branch it reaches Next as an unhandled
+      // throw and the caller sees a 500 with a leaked stack, hiding the real
+      // decision — so it is answered with its own status and body here rather than
+      // funnelled through the 5xx path below.
+      if (isCrudHttpError(error)) {
+        const response = NextResponse.json(error.body, { status: error.status })
+        await emitLifecycleEvent(applicationLifecycleEvents.requestCompleted, {
+          ...receivedPayload,
+          status: response.status,
+          userId: auth?.sub ?? null,
+          tenantId: auth?.tenantId ?? null,
+          durationMs: Date.now() - startedAt,
+        })
+        getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, response.status, startedAt)
+        return response
+      }
+      // Unhandled throws become 500s (Next renders the error). This is the 5xx
+      // error funnel: record the exception (correlated to the active trace) and
+      // the request-duration metric, then re-throw unchanged.
+      getTelemetryRuntime()?.reportError(error, {
+        attributes: { 'http.request.method': method, 'http.route': match.route.path, 'http.response.status_code': 500 },
+      })
+      getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, 500, startedAt)
+      await emitLifecycleEvent(applicationLifecycleEvents.requestFailed, {
+        ...receivedPayload,
+        userId: auth?.sub ?? null,
+        tenantId: auth?.tenantId ?? null,
+        durationMs: Date.now() - startedAt,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      })
+      throw error
     }
-    // Unhandled throws become 500s (Next renders the error). This is the 5xx
-    // error funnel: record the exception (correlated to the active trace) and
-    // the request-duration metric, then re-throw unchanged.
-    getTelemetryRuntime()?.reportError(error, {
-      attributes: { 'http.request.method': method, 'http.route': match.route.path, 'http.response.status_code': 500 },
-    })
-    getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, 500, startedAt)
-    await emitLifecycleEvent(applicationLifecycleEvents.requestFailed, {
-      ...receivedPayload,
-      userId: auth?.sub ?? null,
-      tenantId: auth?.tenantId ?? null,
-      durationMs: Date.now() - startedAt,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    })
+  }
+  try {
+    if (methodMetadata?.requireAuth === false) return await runAuthorizedContinuation()
+    return await runWithDatabaseExecutionContext(
+      auth?.tenantId
+        ? { kind: 'tenant', tenantId: auth.tenantId, source: 'api', operation: `${method} ${match.route.path}` }
+        : { kind: 'identity', tenantId: null, source: 'identity', operation: `${method} ${match.route.path}` },
+      runAuthorizedContinuation,
+    )
+  } catch (error) {
+    if (isInvalidDatabaseExecutionContextError(error)) {
+      return NextResponse.json({ error: t('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+    }
     throw error
   }
 }

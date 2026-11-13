@@ -2,6 +2,9 @@ import { NextRequest } from 'next/server'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import type { ApiRouteManifestEntry, HttpMethod } from '@open-mercato/shared/modules/registry'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { registerDatabaseRuntimeAdapter } from '@open-mercato/shared/lib/db/runtime'
+import { TRUSTED_AUTH_CONTEXT_SYMBOL } from '@open-mercato/shared/lib/auth/server'
+import { currentTenantBoundaryScope, runWithTenantBoundary, type TenantBoundaryScope } from '@open-mercato/enterprise/lib/rls/runtime/scope'
 
 // Mock bootstrap to prevent it from running during tests
 jest.mock('@/bootstrap-api', () => ({
@@ -14,11 +17,17 @@ import { GET, POST, PUT, PATCH, DELETE } from '@/app/api/[...slug]/route'
 
 // Mock the auth module
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
+  attachTrustedAuthContext: jest.requireActual('@open-mercato/shared/lib/auth/server').attachTrustedAuthContext,
+  TRUSTED_AUTH_CONTEXT_SYMBOL: jest.requireActual('@open-mercato/shared/lib/auth/server').TRUSTED_AUTH_CONTEXT_SYMBOL,
   resolveAuthFromRequestDetailed: jest.fn()
 }))
 
 // Mock DI container to provide rbacService
 const mockRbac = {
+  resolveFeatureOrganizationAccess: jest.fn<
+    ReturnType<RbacService['resolveFeatureOrganizationAccess']>,
+    Parameters<RbacService['resolveFeatureOrganizationAccess']>
+  >(),
   userHasAllFeatures: jest.fn<
     ReturnType<RbacService['userHasAllFeatures']>,
     Parameters<RbacService['userHasAllFeatures']>
@@ -201,6 +210,83 @@ function authenticatedAuth(roles: string[] | undefined, email = 'user@test.com')
     status: 'authenticated' as const,
   }
 }
+
+describe('dispatcher database invocation ownership', () => {
+  const tenantA = '22222222-2222-4222-8222-222222222222'
+  const tenantB = '44444444-4444-4444-8444-444444444444'
+  const runtimeKey = Symbol.for('@open-mercato/shared.databaseRuntime.v1')
+  const globals = globalThis as Record<symbol, unknown>
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    delete globals[runtimeKey]
+    registerDatabaseRuntimeAdapter({
+      id: 'dispatcher-test', version: '1', configurationKey: 'dispatcher-test',
+      configurePool: () => { throw new Error('[internal] No database pool in this test') },
+      run: runWithTenantBoundary,
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockRbac.resolveFeatureOrganizationAccess.mockResolvedValue({ unrestricted: true, filterOrganizationIds: () => [] })
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    delete globals[runtimeKey]
+  })
+
+  it('isolates concurrent selected-tenant authorization and handlers and revokes their separate tokens', async () => {
+    const captured: TenantBoundaryScope[] = []
+    mockResolveAuthFromRequestDetailed.mockImplementation(async (request) => ({
+      status: 'authenticated',
+      auth: { sub: '11111111-1111-4111-8111-111111111111', tenantId: new URL(request.url).searchParams.get('selected'), actorTenantId: tenantA, orgId: null, isSuperAdmin: true },
+    }))
+    mockRbac.userHasAllFeatures.mockImplementation(async (_subject, _features, options) => {
+      expect(currentTenantBoundaryScope()?.context.tenantId).toBe(options?.tenantId)
+      return true
+    })
+    jest.spyOn(mockedRouteModule, 'GET').mockImplementation(async (...arguments_: unknown[]) => {
+      const scope = currentTenantBoundaryScope()
+      expect(scope?.context.kind).toBe('tenant')
+      captured.push(scope!)
+      const request = arguments_[0] as Request
+      expect((request as unknown as Record<symbol, unknown>)[TRUSTED_AUTH_CONTEXT_SYMBOL]).toMatchObject({ status: 'authenticated' })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(currentTenantBoundaryScope()?.invocation.token).toBe(scope?.invocation.token)
+      return new Response(scope?.context.tenantId)
+    })
+    const results = await Promise.all([tenantA, tenantB].map(async (tenantId) => {
+      const request = new NextRequest(`http://localhost/api/example/test?selected=${tenantId}`, { headers: { 'x-tenant-id': 'untrusted' } })
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+      return response.text()
+    }))
+    expect(results).toEqual([tenantA, tenantB])
+    expect(new Set(captured.map((scope) => scope.invocation.token)).size).toBe(2)
+    expect(captured.every((scope) => !scope.invocation.isActive())).toBe(true)
+    expect(currentTenantBoundaryScope()).toBeUndefined()
+  })
+
+  it('does not derive a public-route tenant from request headers or query values', async () => {
+    mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
+    jest.spyOn(publicRouteModule, 'GET').mockImplementation(async () => {
+      expect(currentTenantBoundaryScope()).toBeUndefined()
+      return new Response('public identity')
+    })
+    const request = new NextRequest(`http://localhost/api/example/public?tenantId=${tenantB}`, { headers: { 'x-tenant-id': tenantB } })
+    const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'public'] }) })
+    expect(await response.text()).toBe('public identity')
+  })
+
+  it('rejects a malformed selected identity before authorization or handler work', async () => {
+    mockResolveAuthFromRequestDetailed.mockResolvedValue({
+      status: 'authenticated', auth: { sub: 'user', tenantId: 'invalid-selection', orgId: null, isSuperAdmin: true },
+    })
+    const handler = jest.spyOn(mockedRouteModule, 'GET')
+    const response = await GET(new NextRequest('http://localhost/api/example/test'), { params: Promise.resolve({ slug: ['example', 'test'] }) })
+    expect(response.status).toBe(403)
+    expect(mockRbac.userHasAllFeatures).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+})
 
 describe('API Route Authorization', () => {
   let consoleWarnSpy: jest.SpyInstance

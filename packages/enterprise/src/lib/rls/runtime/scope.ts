@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { z } from 'zod'
 import {
+  InvalidDatabaseExecutionContextError,
   resolveDatabaseExecutionContext,
   type DatabaseExecutionContext,
   type DatabaseInvocation,
@@ -30,7 +31,7 @@ function normalizeContext(context: DatabaseExecutionContext): DatabaseExecutionC
   }
   if (context.kind === 'identity' && context.tenantId === null) return Object.freeze({ ...context })
   const parsed = tenantUuid.safeParse(context.tenantId)
-  if (!parsed.success) throw new Error('[internal] Tenant boundary identity requires a UUID')
+  if (!parsed.success) throw new InvalidDatabaseExecutionContextError('[internal] Tenant boundary identity requires a UUID')
   return Object.freeze({ ...context, tenantId: parsed.data.toLowerCase() })
 }
 

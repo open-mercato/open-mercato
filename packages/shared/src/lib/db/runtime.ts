@@ -7,6 +7,20 @@ export type DatabaseExecutionContext =
 
 export type DatabaseInvocation = Readonly<{ token: symbol; isActive(): boolean }>
 
+const invalidContextKey = Symbol.for('@open-mercato/shared.invalidDatabaseExecutionContext.v1')
+
+export class InvalidDatabaseExecutionContextError extends Error {
+  readonly [invalidContextKey] = true
+  constructor(message: string) {
+    super(message)
+    this.name = 'InvalidDatabaseExecutionContextError'
+  }
+}
+
+export function isInvalidDatabaseExecutionContextError(value: unknown): value is InvalidDatabaseExecutionContextError {
+  return value instanceof Error && invalidContextKey in value && value[invalidContextKey] === true
+}
+
 export type DatabaseContextResolution =
   | Readonly<{ status: 'resolved'; context: DatabaseExecutionContext; invocation: DatabaseInvocation }>
   | Readonly<{ status: 'absent' }>
