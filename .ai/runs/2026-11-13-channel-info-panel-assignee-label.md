@@ -23,9 +23,15 @@ Root cause: `loadUsers()` runs only from the Select's `onOpenChange`; until then
 
 ## Progress
 
+PR: #9422
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Fix and regression test
 
 - [x] 1.1 Load assignee options on mount in channel info panel — 252a662485
 - [x] 1.2 Add regression test for the collapsed assignee label — b3026eea96
+
+### Phase 2: Review autofix
+
+- [x] 2.1 Guard against duplicate user fetch while mount request is pending — d51a723651
