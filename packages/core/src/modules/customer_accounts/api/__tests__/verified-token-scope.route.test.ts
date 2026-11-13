@@ -12,6 +12,7 @@ const mockFindUser = jest.fn()
 const mockWrite = jest.fn()
 const mockEvent = jest.fn()
 const mockContainers = jest.fn()
+const mockDispose = jest.fn()
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const userId = '22222222-2222-4222-8222-222222222222'
 
@@ -41,6 +42,7 @@ function request() {
 describe.each(endpoints)('$operation verified tenant continuation', ({ handler, operation }) => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockDispose.mockImplementation(async () => { expect(mockScopes.getStore()).toMatchObject({ kind: 'tenant', tenantId }) })
     mockVerifyToken.mockImplementation(async () => {
       expect(mockScopes.getStore()).toBeUndefined()
       return { tenantId, userId }
@@ -50,6 +52,7 @@ describe.each(endpoints)('$operation verified tenant continuation', ({ handler, 
     mockEvent.mockImplementation(async () => { expect(mockScopes.getStore()).toMatchObject({ kind: 'tenant', tenantId }) })
     const manager = { nativeUpdate: mockWrite }
     mockContainers.mockImplementation(async () => ({
+      dispose: mockDispose,
       resolve: (name: string) => {
         if (name === 'customerTokenService') return { verifyEmailToken: mockVerifyToken, verifyPasswordResetToken: mockVerifyToken }
         if (name === 'customerUserService') return {
@@ -73,6 +76,7 @@ describe.each(endpoints)('$operation verified tenant continuation', ({ handler, 
     expect(mockContainers).toHaveBeenCalledTimes(2)
     expect(mockWrite).toHaveBeenCalled()
     expect(mockEvent).toHaveBeenCalledTimes(1)
+    expect(mockDispose).toHaveBeenCalledTimes(1)
     expect(mockScopes.getStore()).toBeUndefined()
   })
 
