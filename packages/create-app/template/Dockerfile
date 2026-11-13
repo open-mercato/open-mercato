@@ -62,6 +62,7 @@ RUN yarn install
 
 COPY . .
 RUN yarn generate
+ENV OM_BUILD_NODE_OPTIONS="--max-old-space-size=4096"
 RUN NODE_ENV=production yarn build
 
 FROM recovery-tools AS dev
