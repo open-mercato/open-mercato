@@ -49,6 +49,7 @@ test.describe('TC-SEC-016: Password change revokes other credentials (#9143)', (
       expect((await (await request.post('/api/auth/reset/validate', { form: { token: resetToken } })).json()).valid).toBe(true)
 
       const rejected = await caller.put('/api/security/profile/password', {
+        headers: { Authorization: `Bearer ${callerAuth}` },
         data: { currentPassword: 'WrongPass1!', newPassword },
       })
       expect(rejected.status()).toBe(401)
@@ -56,11 +57,14 @@ test.describe('TC-SEC-016: Password change revokes other credentials (#9143)', (
       expect((await other.post('/api/auth/session/refresh', { data: { refreshToken: otherSession } })).status()).toBe(200)
 
       const changed = await caller.put('/api/security/profile/password', {
+        headers: { Authorization: `Bearer ${callerAuth}` },
         data: { currentPassword: user.password, newPassword },
       })
       expect(changed.status()).toBe(200)
       expect(await changed.json()).toEqual({ ok: true })
-      expect((await fetchJson(request, 'GET', '/api/auth/profile', { token: callerAuth })).status).toBe(200)
+      expect((await caller.get('/api/auth/profile', {
+        headers: { Cookie: `auth_token=${callerAuth}; session_token=${callerSession}` },
+      })).status()).toBe(200)
       expect((await caller.post('/api/auth/session/refresh', { data: { refreshToken: callerSession } })).status()).toBe(200)
       expect((await fetchJson(request, 'GET', '/api/auth/profile', { token: otherAuth })).status).toBe(401)
       expect((await request.post('/api/auth/session/refresh', {
