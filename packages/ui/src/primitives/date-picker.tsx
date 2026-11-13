@@ -30,7 +30,9 @@ export type DatePickerProps = {
   /**
    * Footer mode in the popover.
    * - `'apply-cancel'` (default, Figma-aligned): selecting a day stages a draft;
-   *   Apply commits and closes; Cancel reverts and closes.
+   *   Apply commits and closes; Cancel or Escape reverts and closes. Closing the
+   *   popover any other way (pressing or tabbing outside it, clicking the
+   *   trigger) commits a changed draft, so a picked day is never silently lost.
    * - `'today-clear'`: legacy behavior — Today commits today, Clear sets null.
    * - `'none'`: no footer; selecting a day commits immediately and closes.
    */
@@ -85,6 +87,10 @@ function applyTimeToDate(base: Date, time: string): Date {
   const next = new Date(base)
   next.setHours(isNaN(hour) ? 0 : hour, isNaN(minute) ? 0 : minute, 0, 0)
   return next
+}
+
+function isSameInstant(left: Date | null, right: Date | null): boolean {
+  return (left ? left.getTime() : null) === (right ? right.getTime() : null)
 }
 
 function startOfDay(date: Date): Date {
@@ -142,9 +148,12 @@ export function DatePicker({
   const isInteractive = !disabled && !readOnly
   const useDraft = footer === 'apply-cancel'
 
+  const valueTime = value ? value.getTime() : null
+  const dismissedWithEscapeRef = React.useRef(false)
+
   React.useEffect(() => {
-    if (open) setDraft(value ?? null)
-  }, [open, value])
+    if (open) setDraft(valueTime === null ? null : new Date(valueTime))
+  }, [open, valueTime])
 
   const resolvedFormat = withTime
     ? resolvePublicDateTimeFormat(locale, displayFormat)
@@ -198,6 +207,22 @@ export function DatePicker({
     setOpen(false)
   }, [value, setOpen])
 
+  const handlePopoverOpenChange = React.useCallback(
+    (next: boolean) => {
+      const dismissedWithEscape = dismissedWithEscapeRef.current
+      dismissedWithEscapeRef.current = false
+      if (!next && useDraft && !dismissedWithEscape && !isSameInstant(draft, value ?? null)) {
+        onChange(draft)
+      }
+      setOpen(next)
+    },
+    [useDraft, draft, value, onChange, setOpen],
+  )
+
+  const handleEscapeKeyDown = React.useCallback(() => {
+    dismissedWithEscapeRef.current = true
+  }, [])
+
   const handleToday = React.useCallback(() => {
     const today = withTime ? new Date() : startOfDay(new Date())
     onChange(today)
@@ -221,7 +246,7 @@ export function DatePicker({
   const selectedDate = useDraft ? draft : value
 
   return (
-    <Popover open={open} onOpenChange={isInteractive ? setOpen : undefined}>
+    <Popover open={open} onOpenChange={isInteractive ? handlePopoverOpenChange : undefined}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -253,7 +278,11 @@ export function DatePicker({
           </span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align={align} className={cn('w-auto p-0', popoverClassName)}>
+      <PopoverContent
+        align={align}
+        className={cn('w-auto p-0', popoverClassName)}
+        onEscapeKeyDown={handleEscapeKeyDown}
+      >
         <Calendar
           mode="single"
           selected={selectedDate ?? undefined}
