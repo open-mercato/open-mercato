@@ -1,5 +1,54 @@
 # Upgrade Notes
 
+## Production Compose tenant encryption key (#7231)
+
+**Operators:** the production Docker starter, root compatibility copy and create-app
+Compose template no longer provide a tenant encryption key; copied env examples are
+blank too. Before initialization/serving, a shared preflight requires a unique key of
+at least 32 UTF-8 bytes or configured HashiCorp Vault (`VAULT_ADDR` + `VAULT_TOKEN`).
+It rejects the published key even if explicitly supplied. The effective lookup secret
+must also be unique and at least 32 bytes: Vault-only installations require a dedicated
+`LOOKUP_HASH_PEPPER`, and a weak explicit pepper cannot override a strong derived key.
+Remote Vault requires HTTPS; HTTP is allowed only for exact `localhost`, `127.0.0.1`
+and `[::1]` hosts, even when a fallback key is supplied. Existing strong preferred
+and legacy keys retain their precedence; supported Vault configuration, its mount and
+timeouts, and `LOOKUP_HASH_PEPPER` now reach all app/sidecar consumers consistently.
+The check also applies when the encryption toggle is off; do not disable encryption
+to bypass it. Generate new random material only for an installation without existing
+encrypted data. Never regenerate keys on restart. Keys made only of a few repeated
+characters, and other secrets published in this repository, are rejected as well.
+
+**Local development:** when `yarn setup`, `yarn dev`, `yarn dev:ephemeral`, the
+standalone `setup`/`dev` scripts or the `mercato` CLI create a missing `.env` from
+`.env.example`, they now write a unique random `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`
+into it only when neither the example nor process environment supplies a preferred
+or legacy encryption key (`yarn setup` reuses the compose `.env` key), alongside the secrets the
+starter already generated. An existing `.env` is never modified; one still carrying
+the old published key keeps it until migrated.
+
+**Existing data:** retain the old root/DEKs and lookup pepper securely. Replacing a
+root alone makes tenant and system ciphertext unreadable; replacing the effective
+pepper breaks old keyed lookups/login. Stop all writers and rehearse backup/restore
+and the complete migration before cutover. The existing entity rotation command
+supports previous derived roots through `TENANT_DATA_ENCRYPTION_OLD_KEY`, but does
+not cover every system record, keyed hash, Vault DEK or inner credential envelope.
+Affected installations need an audited owner-assisted migration for those cases;
+keep them in maintenance until verified. Do not print secrets or pass old keys as
+CLI arguments. Historical database copies sealed with the published key remain
+suspect after rotation.
+
+**Downstream app/module authors:** adopt the updated Compose environment and
+preflight dependency together, keep every replica/sidecar consistent, and account
+for custom ciphertext and hash fields in the operator's inventory. Existing weak/missing peppers require the documented hash inventory/backfill, and
+remote HTTP Vault must move to trusted HTTPS while retaining its existing DEKs. No
+runtime API, crypto format, KMS interface or schema changes are required. Do not bypass the
+preflight when starting servers. A missing/unsafe configuration now prevents startup.
+
+[Migration and rollback runbook](starters/docker/encryption-migration.md) ·
+[Specification](.ai/specs/2026-11-01-7231-compose-encryption-key.md).
+This narrow security removal requires a named human maintainer's emergency
+compatibility waiver before merge; automated review cannot grant it.
+
 ## Communication channel concurrent writes (#8712)
 
 Gmail history sync and push register/unregister now re-read channel state under a
@@ -1475,6 +1524,27 @@ the same check, for at most three hops. Any other redirect fails with
 **Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
+
+### Time tracking: a new built-in setting key `defaults.entryMode` (#6989)
+
+The staff time-tracking settings gain a new built-in key, `defaults.entryMode`
+(`'task' | 'project'`, default `'task'`). It switches the time entry dialog between logging
+time against a task (today's behaviour) and against a project with an optional task. Tenants
+that never change it see no difference.
+
+**Action for module authors:** none, unless your module already contributes a key with the
+same id through `registerTimeTrackingSettingKey({ group: 'defaults', key: 'entryMode', … })`.
+A contribution cannot replace a built-in, so that registration now throws at load; rename
+your key. Code that asserted the exact `defaults` group shape or counted
+`TIME_TRACKING_SETTING_KEYS` should expect the extra key, and an exhaustive
+`Record<TimeTrackingSettingKey, …>` needs an entry for `'defaults.entryMode'`. Payloads sent to
+`PUT /api/staff/timesheets/settings` and `writeTimeTrackingSettings` may still omit it — the
+registry fills in the default.
+
+The time entry dialog's `propsSchema` is now a named export,
+`timeEntryDialogPropsSchema` from
+`@open-mercato/core/modules/staff/lib/time-tracking-ui/TimeEntryDialog`. A replacement can
+import its contract instead of copying it.
 
 ### `TimeReportingSettings.lastProjectId` deprecated in favour of a shared staff timesheet preference (#3750)
 
@@ -5340,3 +5410,17 @@ With `NODE_ENV=production`, `mercato init` now rejects missing, blank, or built-
 Operators using starter or generated-app full-app Compose deployments must set a unique `OM_INIT_SUPERADMIN_PASSWORD` securely before first initialization or reinstall; the Compose `password` fallback is only usable outside production. Existing initialized databases still support `--skip-if-initialized` without bootstrap credentials. Bootstrap scripts must supply the secret via environment or `--password` and handle initialization failures. Do not store secrets in source control or logs.
 
 This does not rotate existing credentials. If a deployment previously initialized with a predictable password, rotate the superadmin credential and review account access separately. No schema migration is needed. See [the specification](.ai/specs/2026-11-06-production-bootstrap-credentials.md#migration--backward-compatibility). Maintainer @pkarw approved the production-only emergency security exception on 2026-11-06; see the specification for the approval record. QA and validation remain required.
+
+## Setup verifies encryption before database reuse (#8913)
+
+Setup migrations, initialization, reinstall and development recovery migrations now inspect existing database ciphertext with the configured tenant KMS and Forms key adapter before writes. Correct PostgreSQL credentials alone no longer permit reuse. Both monorepo and refreshed standalone setup scripts include this guard, including container initialization, migrations and role-ACL synchronization.
+
+Keep the original `TENANT_DATA_ENCRYPTION` configuration, fallback/application key, historical Vault tenant keys and Forms master key. The starter preserves existing key/KMS configuration. Only a fresh, unconfigured environment with neither env file receives a unique new fallback key, shared by root and app configuration. Restore the original configuration; do not regenerate keys, rotate them, or use reinstall to bypass a rejection. No key or ciphertext migration is performed by the preflight.
+
+Empty/new databases and migration-bookkeeping-only databases proceed normally. Populated plaintext-only databases need read-only resolution of existing tenant keys when encryption is enabled; they are reported as having no ciphertext proof. Unavailable KMS, missing keys, unknown scopes/formats, denied reads, RLS/foreign tables, unsupported binary stores, or proof exceeding 100,000 sampled candidate rows / 64 MiB / 60 seconds or 32 nesting levels block reuse. Custom Forms DI adapters and custom system encryption stores require administrator review; app bootstrap is deliberately not invoked. Use a separate empty database when the existing environment cannot be verified. Stop concurrent application writers during setup; a preflight snapshot cannot prevent external key rotation or subsequent concurrent writes. External encrypted files/object stores are outside the database proof.
+
+Existing standalone applications must refresh `scripts/dev.mjs` and add `scripts/dev-encryption-preflight.mjs` together with the matching installed helper packages. No production dependency or database migration is required.
+
+Container compatibility refusals exit with status `78` and are fatal even before role-ACL synchronization. Custom `SYNC_ROLE_ACLS_COMMAND` implementations should reserve status `78` for fatal configuration failures; other nonzero ACL-sync statuses retain the existing warning behavior.
+
+The compatibility proof authenticates at most five candidate rows per store/key scope using server-side filtering; total plaintext table size is not a transfer limit. Known Documents CRDT binary columns are excluded. This is not a full historical ciphertext audit: unreadable values outside a sample may remain, and normal per-record runtime guards still apply. Optional dev auto-migrations warn and skip writes on a compatibility refusal; explicit setup/container initialization and migrations remain blocking.
