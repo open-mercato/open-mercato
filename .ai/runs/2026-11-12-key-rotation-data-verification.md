@@ -133,3 +133,14 @@ Actual integrated dataset tests pass70/70 (53.975 s), canonical/verifier43/43 pa
 One consistent Node128 MiB oldspace/semi4 policy is pinned for final acceptance. Fresh1 GiB warm/cold cases pass all numeric gates: warm12.972 s overhead and3.580/2.565 s final/reference (71.63%), coordinator208.39 MiB; cold12.636 s overhead and3.458/2.481 s (71.75%), coordinator209.71 MiB. There is no host-sleep overlap or heavy measured-phase concurrency. Earlier semi8 and other failed cases remain nonacceptance evidence; passing cases are not assembled across policies.
 
 Fresh20 GiB warm/cold, same-bundle near-limit large-row stress, and concluding authoritative review/report remain pending. No20 GiB performance pass is inferred from the small cases.
+
+
+## Performance gate checkpoint — 2026-11-13
+
+The complete, quiet cc62 20 GiB warm run compared all327,680 rows correctly, but failed both unchanged timing gates: final70.262 s/reference48.437 s (68.94%), overhead271.444 s versus259.616 s allowance. No20 GiB cold run followed. Actual timestamped host sleep logs show no sleep/wake event inside the cc62 warm/cold1 GiB or failed20 GiB envelopes; this audit is independent of the ordinary-idle lease. Failed raw results remain in QA artifacts.
+
+A bounded private checksum-worker spike in3ae3af3535 preserves the exact canonical/HMAC/chunk/root protocol. Independent lifecycle review required lazy startup plus an independent failure signal; actual PostgreSQL proves that terminating an idle worker after a successful digest cancels an in-flight query, joins source/worker cleanup, and releases a pool-one connection within15 seconds. Focused124 cases, strict TypeScript, native70 and actual CLI3 pass. Benchmark-only73d3ec7a2c conservatively measures the maximum of source lifetime and complete verifier receipt duration, so worker tail/startup/IPC/normal exit cannot fall outside the final timing gate.
+
+The fresh1 GiB worker spike fails release acceptance: all16,384 rows compare, but final4.679 s/reference3.119 s (66.65%) and300.75 MiB coordinator RSS fail the unchanged70%/256 MiB targets. Its15.798 s overhead passes. The process-tree sample is299.55 MiB and includes worker threads in the same process RSS. A separate, nonacceptance memory diagnostic shows RSS remaining268.79 MiB after baseline worker exit while main-thread heapUsed is20.18 MiB, external24.06 MiB and ArrayBuffers6.27 MiB. This suggests retained native/transfer allocation footprint; it does not identify an exact allocator cause. No child-process/slab architecture or threshold change is accepted from this evidence. Bounded synchronous alternatives are being measured separately.
+
+The worker runtime still needs a renewed full configured gate and a complete consistent resource/performance matrix if retained. Neither implementation readiness nor a20 GiB acceptance pass is claimed. The spec materialization stays untracked and the implementation PR stays draft.
