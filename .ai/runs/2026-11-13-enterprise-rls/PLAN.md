@@ -27,6 +27,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.2-public-signup | Keep verified signup/invitation continuations and subscribers in tenant scope | inline | done | this commit |
 | 2 | 2.2-public-tokens | Scope verified email, magic-link and password-reset continuations | inline | done | this commit |
 | 2 | 2.2-public-login | Scope authenticated customer login and awaited success subscribers | inline | done | this commit |
+| 2 | 2.2-public-storefront | Scope resolved storefront and validated buyer continuations in the owning module | inline | done | this commit |
 | 2 | 2.2-public | Scope verified public token, storefront and provisioning continuations | inline | todo | — |
 | 2 | 2.3 | Propagate worker, subscriber and scheduler tenant contexts | inline | todo | — |
 | 2 | 2.4 | Separate tenant CLI operations from privileged maintenance | inline | todo | — |
