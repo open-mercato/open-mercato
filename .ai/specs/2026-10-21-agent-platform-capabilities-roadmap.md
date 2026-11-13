@@ -23,7 +23,7 @@ A typical governed agent, one agent core that validates content against a rule s
 | 4 | [`enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md`](enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md) | Enterprise | `agent_orchestrator` (+ `shared` types, `audit_logs` index) | Per-agent invoke permission at one choke point, declarative principals + universal `runAs`, least-privilege tool ACL, run correlation on action logs, AO implementation of the dispatcher | 0 no-bypass de-risk · 1 invoke permission · 2 principals · 3 tool ACL · 4 correlation · 5 doors (dispatcher, agent token) | Phase 4 manifest keys: #6 Phase 1 builder (either creates it); Phase 5: #1 port |
 | 5 | [`enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md`](enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md) | Enterprise | `agent_orchestrator` (+ `shared` resolver type) | Declarative `evidence_quote`, `reference_exists`, `tool_consulted`, `abstain_or_review`, `custom` rules and untrusted-input screening, run before disposition | 1 pipeline + quotes · 2 refs/consulted/custom · 3 abstain/review · 4 untrusted inputs · 5 surfaces + OpenCode | #4 Phase 0 (only for agents with principals); artifact route of #6 for `raw_output` (route already exists) |
 | 6 | [`enterprise/agent-orchestrator/2026-10-21-agent-run-observability-full-fidelity.md`](enterprise/agent-orchestrator/2026-10-21-agent-run-observability-full-fidelity.md) | Enterprise | `agent_orchestrator` (+ `ai-assistant` hook, `shared` collector) | Run manifest (versions, identity), per-step params/usage/cost, opt-in encrypted full content capture, Request/Response/diff UI | 0 spikes · 1 manifest · 2 per-step metadata + policy · 3 content · 4 UI/OpenCode/ingest | #2 §6 contract (either lands it); #4 for identity fields (falls back to `ctx.userId`) |
-| 7 | [`enterprise/agent-orchestrator/2026-10-21-otel-genai-trace-export.md`](enterprise/agent-orchestrator/2026-10-21-otel-genai-trace-export.md) | Enterprise | `agent_orchestrator` | Opt-in, fail-open replay exporter of persisted AO traces to OTLP/HTTP JSON with GenAI conventions | 1 metadata replay export · 2 content events + protobuf · 3 live streaming (candidate split) | Phase 1: none hard; richer with #6 Phase 1–2. Phase 2: #6 Phase 3 |
+| 7 | [`enterprise/agent-orchestrator/2026-10-21-otel-genai-trace-export.md`](enterprise/agent-orchestrator/2026-10-21-otel-genai-trace-export.md) | Enterprise | `agent_orchestrator` | Opt-in, fail-open replay exporter of persisted AO traces to OTLP/HTTP JSON with GenAI conventions | 1 metadata replay export · 2 content events + protobuf · 3 live streaming (split into [`2026-11-13-agent-otel-live-streaming.md`](2026-11-13-agent-otel-live-streaming.md)) | Phase 1: none hard; richer with #6 Phase 1–2. Phase 2: #6 Phase 3 |
 | 8 | [`enterprise/agent-orchestrator/2026-10-21-eval-reports-and-reproducible-regression.md`](enterprise/agent-orchestrator/2026-10-21-eval-reports-and-reproducible-regression.md) | Enterprise | `agent_orchestrator` (+ `ai-assistant` tool-replay seam) | Portable eval reports (JSON/MD/JUnit), frozen content-hashed datasets, file eval sets, tool/model record-replay, rubric library, CI recipe | 1 report + judge fix · 2 manifests · 3 file sets · 4 replay + settings · 5 rubrics + CI | Phase 4: #2 §6 (`callSettings` / `modelSettings`); `honored` reporting: #6 Phase 2 |
 
 ## Dependency graph
@@ -87,7 +87,7 @@ Notes on the edges:
 | 3 | Integrity P1–P2 (or an app-local verifier); DocStructure P3; MCP P4 + Identity P5 (dispatcher) | **Yes** for integrity *or* its hand-written substitute; dispatcher makes "one agent core, three doors" real for AO agents | Needs waves 1–2 |
 | 4 | Observability P2; OTel P1 | Strongly recommended (when full prompts as sent are required, also Observability P3) / stretch | OTel Phase 1 is demonstrable on today's spans but far better after Observability P2 |
 | 5 | Observability P3–P4; Chat P3–P4; Integrity P3–P5; Identity P2–P4; Eval P3–P5 | Partly (chat citations are part of the copilot story; P3 content capture if prompts must be shown) | Depth and parity |
-| 6 | OTel P2 (and P3 as its own spec); DocStructure P4 | No | Unblocked 2026-10-22 (OTEL-Q2, DOC-Q3 approved) |
+| 6 | OTel P2 (and P3 as its own spec: [`2026-11-13-agent-otel-live-streaming.md`](2026-11-13-agent-otel-live-streaming.md)); DocStructure P4 | No | Unblocked 2026-10-22 (OTEL-Q2, DOC-Q3 approved) |
 
 Decisions of 2026-10-22 that shape this order:
 - **ID-Q3:** permanent delegation. Identity P1 and P5 ship in the same release as MCP P4, so `run-object` never runs an AO agent outside `agentRuntime.run()` in a released build.
@@ -98,7 +98,7 @@ Decisions of 2026-10-22 that shape this order:
 
 ### 1. AO migration policy (all five AO specs state the same rule)
 
-AO migrations are squash-only: `packages/enterprise/src/modules/agent_orchestrator/__tests__/helpers/squashMigration.ts` requires exactly one `Migration<ts>_agent_orchestrator.ts`, and a re-squash forces existing databases to drop and re-initialise the module's tables (`migrations/adopt-squash.mjs` targets the previous squash and is stale). Therefore:
+AO migrations are squash-only: `packages/enterprise/src/modules/agent_orchestrator/__tests__/helpers/squashMigration.ts` requires exactly one `Migration<ts>_agent_orchestrator.ts`, and a re-squash forces existing databases to drop and re-initialise the module's tables (`migrations/adopt-squash.mjs` targets the previous squash and, since 2026-11-13, refuses to run against the current one). Therefore:
 
 - **No AO DDL** in any of these specs until the next planned re-squash.
 - Run-level facts → the `run.manifest` system span (`agent_spans.attributes`, observability spec, builder `lib/trace/runManifest.ts`).
@@ -234,7 +234,7 @@ The divergence is deliberate and stated in both specs: chat turns are short conv
 - **OTEL-Q2** — Content export? **Resolved 2026-10-22: approved as recommended.** Phase 2, three locks (deployment allow + tenant `full` + run captured `full`).
 - **OTEL-Q3** — Per-tenant endpoints in Phase 1? *Default: no; Phase 2 via `integrations` credentials.*
 - **OTEL-Q4** — Export ledger table? *Default: none in Phase 1; on the next-re-squash list.*
-- **OTEL-Q5** — Split Phase 3 (live streaming) into its own spec? *Default: yes (likely OSS, with the chat-tracing owners).*
+- **OTEL-Q5** — Split Phase 3 (live streaming) into its own spec? *Default: yes (likely OSS, with the chat-tracing owners).* **Done 2026-11-13:** OSS spec [`2026-11-13-agent-otel-live-streaming.md`](2026-11-13-agent-otel-live-streaming.md) (also covers OTEL-Q7's live part).
 - **OTEL-Q6** — Export dispositions / effector / eval results? *Default: yes, as `om.*` spans/events.*
 - **OTEL-Q7** — Export OSS chat runs? *Default: not here; belongs with the live-streaming follow-up or an OSS spec.*
 
@@ -264,7 +264,7 @@ The divergence is deliberate and stated in both specs: chat turns are short conv
 | F13 | `next/IMPLEMENTATION-TRACE.md` claims guardrail moderation/PII are implemented; no AO code produces them, and ai-assistant moderation runs only in chat, not object mode. | Low (doc) | Integrity (records it; fix belongs to the guardrails P2 spec) |
 | F14 | **Judge results are never aggregated:** replayed judge `AgentEvalResult` rows lack `evalCaseRunId`, so they never reach the suite summary; `__judgeDeltas` is always empty; the judge never receives `expected`. | Medium | Eval (P1) |
 | F15 | `evalSetVersion` is a free-text label; replays read live, editable cases and assertions. | Medium | Eval (P2) |
-| F16 | Scorer count stated as 21 in the workbench spec; the registry has 22. | Low (doc) | Eval |
+| F16 | Scorer count stated as 21 in the workbench spec; the registry has 23 (22 deterministic + `llm_judge`). | Low (doc) | Eval |
 | F17 | **Chat trace collector reads pre-AI-SDK-5 fields** (`args`, `result`): every chat trace shows empty args/results, no errors, zero durations; same defect in `runAiAgentObject` steps. | Medium | Chat (P1) |
 | F18 | `ui-parts.mdx` documents `ctx.uiParts?.enqueue(...)` but `McpToolContext` has no `uiParts`; read tools cannot emit UI parts. `LoopTracePanel` has hard-coded English. | Low | Chat (P4, P3) |
 | F19 | AO traces store no request, params, per-step cost or versions; `payloadRef` is always null; the prompt-override version is discarded; `agent_version` is never stamped for native/OpenCode runs; `agent_runs` has no caller column. | Medium | Observability (P1–P3) |
@@ -325,3 +325,13 @@ The divergence is deliberate and stated in both specs: chat turns are short conv
 - Decisions of 2026-10-29: Q1 hand-encode protobuf in agent_orchestrator; Q2 include per-tenant endpoints; Q3 add `shouldIndex`; one PR.
 - Remaining after wave 6: OTel P3 (live streaming through the platform telemetry bridge) as its own spec; OTel P2.4 (`agent_trace_exports`) at the next AO re-squash; recording tool call ids on native/OpenCode tool spans so tool content can be exported.
 
+### 2026-11-13
+- Roadmap-gap round on PR #8251 (after wave 6), closing what the waves left open:
+  - Audit backfill scope/cursor filters fixed and by-instigator columns decrypted (`5ab95ca806`).
+  - Identity: "Sync principal" endpoint and button (`ab0b9362bb`); integration `TC-AGENT-ACC-006..010` for the remaining access flows (`43e8ed8791`); MCP `TC-AI-MCP-PARITY-011` (`c9792576bf`).
+  - F10 closed: `tool_scope` receives attempted tools for every native agent with tools (`4a336572de`). F12 closed: OpenCode runs without `integrity` run schema + `tool_scope` on the submitted outcome (`0f650dd29d`). F11 closed by design for declared `untrustedInputs` only. Coverage `TC-AGENT-INT-006` (`7642cd523d`, `6fc4d35dc2`).
+  - F23: `releaseScoped` emits `attachments.attachment.deleted` after commit (`efc45e07a3`); OCR on the durable `attachments-ocr` queue (`bc1ccd5e86`); spec record (`960f3a3af4`); `encryption.ts` already existed (DocStructure P2). The AI attachment bridge 64 K cap stays out of scope.
+  - Section search hits filtered per caller: `SearchEntityConfig.filterResults` + `SearchOptions.viewer` (`e888688839`), section hits hidden unless the caller can open the file (`0c50978658`).
+  - Direct-mode MCP startup warning no longer claims `/tools/execute` runs mutations (`ab43d82e72`). F22: `adopt-squash.mjs` refuses the superseded target (`6aaaf9e32c`).
+  - Docs and contract debt: OTel P3 written as its own OSS spec, [`2026-11-13-agent-otel-live-streaming.md`](2026-11-13-agent-otel-live-streaming.md) (`f77d055547`); AO `AGENTS.md` next-re-squash debt list, F16 (registry has 23 scorers), F13 (`next/IMPLEMENTATION-TRACE.md` now says guardrail moderation/PII is not built), `OM_EVAL_GIT_SHA` docs, and changelog lines for the chat citation shim, MCP audit coverage and eval Phase 1 (`3dd9642b36`); `UPGRADE_NOTES.md` section (`0551385f53`).
+- Still deferred: the next AO re-squash (ROAD-Q3; list in Shared decisions §1 and the AO `AGENTS.md`), including OTel P2.4 `agent_trace_exports` and `agent_eval_set_snapshots`; OTel P3 implementation; guardrail moderation/PII screening (Guardrails P2); recording tool call ids on native/OpenCode tool spans; the AI attachment bridge 64 K cap; section-search over-fetch (filtered pages can come back short); integration cases that need a real model or storage integration.
