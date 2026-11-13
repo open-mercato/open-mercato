@@ -224,7 +224,8 @@ When you run `yarn dev` on the host, Open Mercato starts a compact development r
 - Browser auto-open happens on interactive local runs when supported by the OS
 - The terminal still prints both URLs, so you can open them manually if needed
 - Press `d` while `yarn dev` is running to toggle raw logs
-- Standalone apps can show a `Start coding with AI` menu for detected coding tools
+- The `Start building with Cezar` button opens [Cezar](https://github.com/open-mercato/cezar) for the current project by running plain `npx cezar-run` in a new terminal; it works while the app is still starting
+- Once the app is ready, hover `Start building with Cezar` to choose another detected coding tool; the dropdown toggle also supports keyboard and touch
 - Standalone apps can show a GitHub publish panel that creates or publishes the local project through `gh`
 
 For the standalone splash features, install these recommended tools up front:
@@ -259,7 +260,7 @@ To hide the standalone GitHub publish panel from the splash:
 OM_DEV_CREATE_GIT_REPO_FLOW=false yarn dev
 ```
 
-To hide the coding-tools menu from the splash:
+To hide the combined `Start building with Cezar` control from the splash:
 
 ```bash
 OM_ENABLE_CODING_FLOW_FROM_SPLASH=false yarn dev
@@ -519,7 +520,7 @@ Key variables you may want to override:
 | `OM_DEV_SPLASH_PORT` | `4000` | Host and container port for the dev splash progress page |
 | `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to disable browser auto-open for the splash on supported local runs |
 | `OM_DEV_CREATE_GIT_REPO_FLOW` | `true` | Set to `false` to hide the standalone splash GitHub publish panel |
-| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Set to `false` to hide the splash coding-tools menu |
+| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Set to `false` to hide the combined `Start building with Cezar` splash control |
 | `OM_DEV_SPLASH_VSCODE_PATH` | auto-detect | Optional path override for the VS Code CLI used by the splash coding menu |
 | `OM_DEV_SPLASH_CURSOR_PATH` | auto-detect | Optional path override for the Cursor CLI used by the splash coding menu |
 | `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI used by the splash coding menu |
@@ -675,20 +676,21 @@ docker compose --project-directory . -f starters/docker/compose.fullapp.yml rest
 
 ### Data Persistence
 
-Data is stored in named Docker volumes:
-- `mercato-postgres-data` - PostgreSQL database
-- `mercato-redis-data` - Redis cache and events
-- `mercato-meilisearch-data` - Meilisearch indexes
+Data is stored in named Docker volumes. Volume names end with your `DEPLOY_ENV` value (`local` by default):
+- `mercato-postgres-data-local` - PostgreSQL database
+- `mercato-redis-data-local` - Redis cache and events
+- `mercato-meilisearch-data-local` - Meilisearch indexes
+- `mercato-attachments-storage-local` - Uploaded attachments
 
 Volumes persist between container restarts unless explicitly removed with `docker compose down -v`.
 
 **Backup volumes:**
 ```bash
 # Backup PostgreSQL
-docker exec mercato-postgres pg_dump -U postgres open-mercato > backup.sql
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec -T postgres pg_dump -U postgres open-mercato > backup.sql
 
 # Restore PostgreSQL
-cat backup.sql | docker exec -i mercato-postgres psql -U postgres -d open-mercato
+cat backup.sql | docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec -T postgres psql -U postgres -d open-mercato
 ```
 
 ### Production Deployment Tips
@@ -743,7 +745,7 @@ lsof -i :6379
 docker compose --project-directory . -f starters/docker/compose.fullapp.yml ps postgres
 
 # Check if database exists
-docker exec mercato-postgres psql -U postgres -c "\l"
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec postgres psql -U postgres -c "\l"
 
 # Verify DATABASE_URL matches container configuration
 grep DATABASE_URL apps/mercato/.env

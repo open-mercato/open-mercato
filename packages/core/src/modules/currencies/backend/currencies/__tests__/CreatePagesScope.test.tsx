@@ -12,6 +12,7 @@ import CreateExchangeRatePage from '../../exchange-rates/create/page'
 const mockPush = jest.fn()
 const mockTranslate = (key: string) => key
 let mockScope: OrganizationScopeChangedDetail
+let mockScopeHook: (() => OrganizationScopeChangedDetail) | null = null
 let mockFormProps: CrudFormProps<Record<string, unknown>> | null
 
 jest.mock('next/navigation', () => ({
@@ -23,7 +24,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
-  useOrganizationScopeDetail: () => mockScope,
+  useOrganizationScopeDetail: () => mockScopeHook ? mockScopeHook() : mockScope,
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({
@@ -96,6 +97,7 @@ const scopes = [
 describe.each(pages)('$name create scope', ({ Component, apiPath, listPath, successKey, values, expectedFields }) => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockScopeHook = null
     mockFormProps = null
     jest.mocked(createCrud).mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof createCrud>>)
   })
@@ -117,5 +119,31 @@ describe.each(pages)('$name create scope', ({ Component, apiPath, listPath, succ
     expect(JSON.parse(JSON.stringify(payload))).toEqual({ ...expectedFields, ...expected })
     expect(flash).toHaveBeenCalledWith(successKey, 'success')
     expect(mockPush).toHaveBeenCalledWith(listPath)
+  })
+
+  it('keeps persisted cookies out of early submissions until the real scope hook receives switcher validation', async () => {
+    document.cookie = `om_selected_org=${organizationId}; path=/`
+    document.cookie = `om_selected_tenant=${tenantId}; path=/`
+    jest.doMock('react', () => React)
+    let events!: typeof import('@open-mercato/shared/lib/frontend/organizationEvents')
+    jest.isolateModules(() => {
+      events = jest.requireActual('@open-mercato/shared/lib/frontend/organizationEvents') as typeof events
+      const hooks = jest.requireActual('@open-mercato/shared/lib/frontend/useOrganizationScope') as typeof import('@open-mercato/shared/lib/frontend/useOrganizationScope')
+      mockScopeHook = hooks.useOrganizationScopeDetail
+    })
+    try {
+      render(<Component />)
+      await act(async () => { await mockFormProps?.onSubmit?.(values) })
+      expect(createCrud).toHaveBeenNthCalledWith(1, apiPath, expectedFields)
+      act(() => { events.emitOrganizationScopeChanged({ organizationId, tenantId }) })
+      expect(events.getCurrentOrganizationScopeVersion()).toBe(0)
+      await act(async () => { await mockFormProps?.onSubmit?.(values) })
+      expect(createCrud).toHaveBeenNthCalledWith(2, apiPath, { ...expectedFields, organizationId, tenantId })
+    } finally {
+      document.cookie = 'om_selected_org=; Max-Age=0; path=/'
+      document.cookie = 'om_selected_tenant=; Max-Age=0; path=/'
+      mockScopeHook = null
+      jest.dontMock('react')
+    }
   })
 })

@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Ellipsis } from 'lucide-react'
+import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ColorPicker } from '@open-mercato/ui/primitives/color-picker'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -52,6 +53,8 @@ export function AppearanceSelector({
   className,
   previewLabel,
 }: AppearanceSelectorProps) {
+  const translate = useOptionalT()
+  const previewHeading = translate ? translate('dictionaries.appearance.preview', 'Preview') : 'Preview'
   const normalizedIcon = icon ?? ''
   const normalizedColor = color ?? '#000000'
   const hasAppearance = Boolean(icon) || Boolean(color)
@@ -246,7 +249,7 @@ export function AppearanceSelector({
       </div>
 
       <div>
-        <label className="text-sm font-medium">Preview</label>
+        <label className="text-sm font-medium">{previewHeading}</label>
         <div className="flex items-center gap-3 rounded border border-dashed border-border px-3 py-2">
           {hasPreviewContent ? (
             <>

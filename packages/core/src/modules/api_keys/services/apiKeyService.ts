@@ -107,6 +107,7 @@ export type CreateApiKeyInput = {
   roles?: string[]
   expiresAt?: Date | null
   createdBy?: string | null
+  sessionUserId?: string | null
 }
 
 export type ApiKeyWithSecret = {
@@ -154,6 +155,7 @@ export async function createApiKey(
       keyPrefix: prefix,
       rolesJson: roleIds,
       createdBy: input.createdBy ?? null,
+      sessionUserId: input.sessionUserId ?? null,
       expiresAt: input.expiresAt ?? null,
       createdAt: new Date(),
     })

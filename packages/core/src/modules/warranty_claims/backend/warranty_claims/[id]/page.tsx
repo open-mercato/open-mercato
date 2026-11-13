@@ -9,6 +9,7 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import type { TranslateFn, TranslateParams } from '@open-mercato/shared/lib/i18n/context'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -67,6 +68,7 @@ import {
 import { AiAssessButtons } from '../../components/AiAssessButtons'
 import { useUserDisplayNames } from '../../components/useUserDisplayNames'
 import { ReceivingPanel } from '../../components/ReceivingPanel'
+import { loadClaimLines } from '../../../lib/claimLines'
 import { ReturnLabelPanel } from '../../components/ReturnLabelPanel'
 import { VendorRecoverySuggestionsPanel } from '../../components/VendorRecoverySuggestionsPanel'
 import { ClaimStageProgress } from '../../components/ClaimStageProgress'
@@ -781,6 +783,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const [lineDialog, setLineDialog] = React.useState<{ mode: 'create' } | { mode: 'edit'; line: ClaimLine } | null>(null)
   const [defaultWarrantyMonths, setDefaultWarrantyMonths] = React.useState<number | null>(null)
   const [featureAccess, setFeatureAccess] = React.useState({
+    attachmentsView: false,
     claimManage: false,
     claimDelete: false,
     receivingManage: false,
@@ -812,6 +815,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           features: [
+            'attachments.view',
             'warranty_claims.claim.manage',
             'warranty_claims.claim.delete',
             'warranty_claims.receiving.manage',
@@ -828,6 +832,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         const granted = Array.isArray(call.result?.granted) ? call.result.granted : []
         const allGranted = call.result?.ok === true
         setFeatureAccess({
+          attachmentsView: allGranted || hasFeature(granted, 'attachments.view'),
           claimManage: allGranted || hasFeature(granted, 'warranty_claims.claim.manage'),
           claimDelete: allGranted || hasFeature(granted, 'warranty_claims.claim.delete'),
           receivingManage: allGranted || hasFeature(granted, 'warranty_claims.receiving.manage'),
@@ -839,6 +844,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       .catch(() => {
         if (!cancelled) {
           setFeatureAccess({
+            attachmentsView: false,
             claimManage: false,
             claimDelete: false,
             receivingManage: false,
@@ -923,17 +929,13 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     setError(null)
     setNotFound(false)
     try {
-      const [claimPayload, linesPayload, eventsPayload, riskPayload, statsPayload, attachmentsPayload] = await Promise.all([
+      const [claimPayload, linesPayload, eventsPayload, riskPayload, statsPayload] = await Promise.all([
         readApiResultOrThrow<{ items?: unknown[] }>(
           `/api/warranty_claims?ids=${encodeURIComponent(id)}&page=1&pageSize=1`,
           undefined,
           { fallback: { items: [] }, errorMessage: t('warranty_claims.detail.error.load') },
         ),
-        readApiResultOrThrow<{ items?: unknown[] }>(
-          `/api/warranty_claims/lines?claimId=${encodeURIComponent(id)}&page=1&pageSize=100`,
-          undefined,
-          { fallback: { items: [] }, errorMessage: t('warranty_claims.detail.error.loadLines') },
-        ),
+        loadClaimLines(id, t('warranty_claims.detail.error.loadLines')),
         readApiResultOrThrow<{ items?: unknown[] }>(
           `/api/warranty_claims/events?claimId=${encodeURIComponent(id)}`,
           undefined,
@@ -952,11 +954,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
           undefined,
           { fallback: { ok: true, result: {} } },
         ),
-        readApiResultOrThrow<{ items?: unknown[] }>(
-          `/api/attachments?entityId=${encodeURIComponent('warranty_claims:warranty_claim')}&recordId=${encodeURIComponent(id)}`,
-          undefined,
-          { fallback: { items: [] } },
-        ),
       ])
       const nextClaim = (claimPayload.items ?? []).map(normalizeClaim).find((item): item is ClaimRecord => item !== null) ?? null
       if (!nextClaim) {
@@ -971,7 +968,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       setClaim(nextClaim)
       setLines((linesPayload.items ?? []).map(normalizeLine).filter((item): item is ClaimLine => item !== null))
       setEvents((eventsPayload.items ?? []).map(normalizeEvent).filter((item): item is ClaimEvent => item !== null))
-      setAttachmentCount(Array.isArray(attachmentsPayload.items) ? attachmentsPayload.items.length : 0)
       setRiskAssessment(normalizeRiskResponse(riskPayload))
       const nextThreshold = statsPayload?.result?.slaAtRiskThresholdPct
       setSlaAtRiskThresholdPct(typeof nextThreshold === 'number' ? nextThreshold : undefined)
@@ -985,6 +981,30 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   React.useEffect(() => {
     void loadData()
   }, [loadData])
+
+  React.useEffect(() => {
+    let cancelled = false
+    setAttachmentCount(0)
+    if (!claim || claim.id !== id || !featureAccess.attachmentsView) return
+    void apiCall<{ items?: unknown[] }>(
+      `/api/attachments?entityId=${encodeURIComponent('warranty_claims:warranty_claim')}&recordId=${encodeURIComponent(claim.id)}`,
+      { headers: { 'x-om-forbidden-redirect': '0' } },
+      { fallback: { items: [] } },
+    )
+      .then((call) => {
+        if (cancelled || !call.ok) return
+        setAttachmentCount(Array.isArray(call.result?.items) ? call.result.items.length : 0)
+      })
+      .catch((error) => {
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'warranty_claims',
+          code: 'warranty_claims.attachment_count_failed',
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [claim, featureAccess.attachmentsView, id, scopeVersion])
 
   useAppEvent('warranty_claims.claim.*', (event) => {
     const eventClaimId = toStringOrNull(event.payload.claimId)
@@ -1426,6 +1446,39 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       flash(translateErrorMessage(err, t, 'warranty_claims.edit.error.delete'), 'error')
     }
   }, [claim, confirm, currentStatus, featureAccess.claimDelete, loadData, mutationContext, router, runMutation, t])
+
+  const deleteLine = React.useCallback(async (line: ClaimLine) => {
+    if (!claim || !linesInlineEditable) return
+    const confirmed = await confirm({
+      title: t('warranty_claims.form.lines.remove'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    const payload = { id: line.id, claimId: claim.id }
+    try {
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(line.updatedAt),
+          () => deleteCrud('warranty_claims/lines', {
+            body: payload,
+            errorMessage: t('warranty_claims.detail.lines.error.delete'),
+          }),
+        ),
+        context: { ...mutationContext, resourceKind: 'warranty_claims.claim_line', resourceId: line.id },
+        mutationPayload: payload,
+      })
+      flash(t('warranty_claims.detail.lines.flash.deleted'), 'success')
+      await loadData()
+    } catch (err) {
+      if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'warranty_claims',
+        code: 'warranty_claims.line_delete_failed',
+        attributes: { claimId: claim.id, lineId: line.id },
+      })
+      flash(translateErrorMessage(err, t, 'warranty_claims.detail.lines.error.delete'), 'error')
+    }
+  }, [claim, confirm, linesInlineEditable, loadData, mutationContext, runMutation, t])
 
   const headerMoreActions = React.useMemo(() => {
     if (!claim) return []
@@ -1877,7 +1930,9 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const tabs: Array<{ id: TabId; label: string; count?: number }> = [
     { id: 'lines', label: t('warranty_claims.detail.tabs.lines'), count: lines.length },
     { id: 'timeline', label: t('warranty_claims.detail.tabs.timeline'), count: events.length },
-    { id: 'attachments', label: t('warranty_claims.detail.tabs.attachments'), count: attachmentCount },
+    ...(featureAccess.attachmentsView
+      ? [{ id: 'attachments' as const, label: t('warranty_claims.detail.tabs.attachments'), count: attachmentCount }]
+      : []),
     { id: 'ai', label: t('warranty_claims.detail.tabs.ai') },
   ]
   const approvedLineCount = lines.filter((line) => line.lineStatus === 'approved').length
@@ -2015,7 +2070,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
             </div>
             <ClaimStageProgress status={claim.status} />
           <Tabs
-            value={activeTab}
+            value={activeTab === 'attachments' && !featureAccess.attachmentsView ? 'lines' : activeTab}
             onValueChange={(value) => setActiveTab(value as TabId)}
             variant="underline"
           >
@@ -2089,6 +2144,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                             id: 'edit',
                             label: t('warranty_claims.detail.lines.edit'),
                             onSelect: () => setLineDialog({ mode: 'edit', line }),
+                          },
+                          {
+                            id: 'delete',
+                            label: t('warranty_claims.form.lines.remove'),
+                            destructive: true,
+                            onSelect: () => { void deleteLine(line) },
                           },
                         ]}
                       />
@@ -2212,25 +2273,27 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               </div>
             </TabsContent>
 
-            <TabsContent value="attachments" className="mt-0">
-              <div className="px-8 pb-8 pt-6">
-                <AttachmentInput
-                  entityId="warranty_claims:warranty_claim"
-                  recordId={claim.id}
-                  allowDelete={featureAccess.claimManage}
-                  allowReplace={featureAccess.claimManage}
-                  disabled={!featureAccess.claimManage}
-                  onCountChange={setAttachmentCount}
-                  renderItemMeta={(item) => (
-                    isCustomerVisibleAttachment(item.tags) ? (
-                      <StatusBadge variant="info">
-                        {t('warranty_claims.detail.attachments.customerVisible', 'Visible to customer')}
-                      </StatusBadge>
-                    ) : null
-                  )}
-                />
-              </div>
-            </TabsContent>
+            {featureAccess.attachmentsView ? (
+              <TabsContent value="attachments" className="mt-0">
+                <div className="px-8 pb-8 pt-6">
+                  <AttachmentInput
+                    entityId="warranty_claims:warranty_claim"
+                    recordId={claim.id}
+                    allowDelete={featureAccess.claimManage}
+                    allowReplace={featureAccess.claimManage}
+                    disabled={!featureAccess.claimManage}
+                    onCountChange={setAttachmentCount}
+                    renderItemMeta={(item) => (
+                      isCustomerVisibleAttachment(item.tags) ? (
+                        <StatusBadge variant="info">
+                          {t('warranty_claims.detail.attachments.customerVisible', 'Visible to customer')}
+                        </StatusBadge>
+                      ) : null
+                    )}
+                  />
+                </div>
+              </TabsContent>
+            ) : null}
 
             <TabsContent value="ai" className="mt-0">
               <div className="grid gap-4 px-8 pb-8 pt-6 xl:grid-cols-2">
@@ -2533,17 +2596,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               setLineDialog(null)
               await loadData()
             }}
-            onDelete={lineDialog?.mode === 'edit'
-              ? async () => {
-                await deleteCrud('warranty_claims/lines', {
-                  body: { id: lineDialog.line.id, claimId: claim.id },
-                  errorMessage: t('warranty_claims.detail.lines.error.delete'),
-                })
-                flash(t('warranty_claims.detail.lines.flash.deleted'), 'success')
-                setLineDialog(null)
-                await loadData()
-              }
-              : undefined}
           />
         </DialogContent>
       </Dialog>

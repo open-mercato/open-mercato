@@ -38,7 +38,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHead
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
+import { mapCrudServerErrorToFormErrors, normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -52,6 +52,7 @@ import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/compone
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { SalesReturnsSection } from '@open-mercato/core/modules/sales/components/documents/ReturnsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
+import { SalesDocumentExtensionSpot, type SalesDocumentExtensionContext } from '@open-mercato/core/modules/sales/components/documents/SalesDocumentExtensionSpot'
 import { E } from '#generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
@@ -862,6 +863,8 @@ type StatusOption = {
 
 type DocumentRecord = {
   id: string
+  organizationId?: string | null
+  tenantId?: string | null
   orderNumber?: string | null
   quoteNumber?: string | null
   status?: string | null
@@ -957,6 +960,16 @@ export function handleDocumentMutationError(
     return true
   }
   return false
+}
+
+export function handleQuoteActionError(
+  err: unknown,
+  t: (key: string, fallback?: string) => string,
+  refresh: () => void,
+  fallbackMessage: string,
+): void {
+  if (handleDocumentMutationError(err, t, refresh)) return
+  flash(normalizeCrudServerError(err).message?.trim() || fallbackMessage, 'error')
 }
 
 const prefixCustomFieldValues = (input: Record<string, unknown> | null | undefined): Record<string, unknown> => {
@@ -1992,14 +2005,17 @@ export default function SalesDocumentDetailPage({
     contextId: mutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const detailInjectionContext = React.useMemo(
+  const detailInjectionContext = React.useMemo<SalesDocumentExtensionContext<DocumentRecord>>(
     () => ({
       kind,
+      documentId: record?.id ?? null,
       record,
       formId: mutationContextId,
       resourceKind: `sales.${kind}`,
       resourceId: record?.id ?? undefined,
       retryLastMutation,
+      organizationId: record?.organizationId ?? null,
+      tenantId: record?.tenantId ?? null,
     }),
     [kind, mutationContextId, record, retryLastMutation],
   )
@@ -3765,9 +3781,8 @@ export default function SalesDocumentDetailPage({
       router.replace(`/backend/sales/orders/${orderId}`)
     } catch (err) {
       logger.error('sales.documents.convert', { err })
-      if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
-        flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
-      }
+      handleQuoteActionError(err, t, () => setReloadKey((prev) => prev + 1),
+        t('sales.documents.detail.convertError', 'Failed to convert quote.'))
     } finally {
       setConverting(false)
     }
@@ -3785,7 +3800,7 @@ export default function SalesDocumentDetailPage({
             ...buildOptimisticLockHeader(record.updatedAt),
           },
           body: JSON.stringify({ quoteId: record.id, validForDays }),
-        })
+        }, { errorMessage: t('sales.quotes.send.failed', 'Failed to send quote.') })
         flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
         setSendOpen(false)
         const updated = await fetchDocumentByKind(record.id, 'quote')
@@ -3793,7 +3808,8 @@ export default function SalesDocumentDetailPage({
       }, { quoteId: record.id, validForDays })
     } catch (err) {
       logger.error('sales.quotes.send', { err })
-      flash(t('sales.quotes.send.failed', 'Failed to send quote.'), 'error')
+      handleQuoteActionError(err, t, () => setReloadKey((prev) => prev + 1),
+        t('sales.quotes.send.failed', 'Failed to send quote.'))
     } finally {
       setSending(false)
     }
@@ -4779,6 +4795,12 @@ export default function SalesDocumentDetailPage({
           isDeleting={deleting}
           deleteLabel={t('sales.documents.detail.delete', 'Delete')}
         />
+        <SalesDocumentExtensionSpot
+          surface="stage-bar"
+          context={detailInjectionContext}
+          data={record}
+          onDataChange={setRecord}
+        />
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-3">
             <CustomerInlineEditor
@@ -5023,6 +5045,12 @@ export default function SalesDocumentDetailPage({
           />
         </div>
 
+        <SalesDocumentExtensionSpot
+          surface="closure"
+          context={detailInjectionContext}
+          data={record}
+          onDataChange={setRecord}
+        />
         <div className="space-y-4">
           <CustomDataSection
             title={t('sales.documents.detail.customData', 'Custom data')}

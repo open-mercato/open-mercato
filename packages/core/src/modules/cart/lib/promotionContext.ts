@@ -1,3 +1,4 @@
+import { TransactionContext } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CatalogProduct, CatalogProductVariant } from '@open-mercato/core/modules/catalog/data/entities'
@@ -100,6 +101,10 @@ function giftLineKey(promotionId: string, productId: string, variantId: string |
   return `${promotionId}:${productId}:${variantId ?? ''}`
 }
 
+function round(value: number): number {
+  return Math.round((value + Number.EPSILON) * 1e4) / 1e4
+}
+
 type ApplicationEntry = {
   cartLineId: string | null
   effect: ResolvedEffect
@@ -163,7 +168,7 @@ export type BuildPromotionsEffectsPhaseParams = {
 export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseParams): () => Promise<void> {
   const { em, container, cart, lines, assortmentScope, tenantScope, now, adjustments, warnings, createdGiftLines, removedGiftLines } = params
 
-  return async () => {
+  return () => TransactionContext.create(em, async () => {
     const promotionsService = container.resolve<PromotionsService>('promotionsService')
     const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
 
@@ -181,11 +186,6 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
     const codeIdsInUse = Array.from(
       new Set(existingApplications.map((application) => application.codeId).filter((id): id is string => !!id)),
     )
-    // A code-id's reservation lives on `promotions`' own tables, not this cart's `em` — so
-    // extending it and then re-checking it still exists is two round trips against a
-    // DIFFERENT EntityManager (`extendReservation`'s own `resolvePromotionsEm` fork) plus a
-    // plain cross-module read on THIS `em`, never a read-after-mutate hazard on this phase's
-    // own pending changes (there are none yet at this point in the phase).
     const lapsedCodeIds = new Set<string>()
     for (const codeId of codeIdsInUse) {
       await promotionsService.extendReservation(codeId, cart.id)
@@ -430,14 +430,23 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
       pushApplication(promotionId, { cartLineId: line.id, effect, amountNet: effect.amountNet, amountGross: effect.amountGross })
     }
     for (const { promotionId, effect } of cartDiscountEntries) {
+      const amountNet = Number(effect.amountNet)
+      const amountGross = Number(effect.amountGross)
       adjustments.push({
         scope: 'order',
         kind: 'discount',
         promotionId,
-        amountNet: Number(effect.amountNet),
-        amountGross: Number(effect.amountGross),
+        amountNet,
+        amountGross,
         currencyCode: effect.currency,
         label: pickEffectLabel(effect.label, cart.locale),
+        // The sales calculator only reduces `taxTotal` for a discount adjustment when it
+        // can see a tax rate (`extractAdjustmentTaxRate` in sales/lib/calculations.ts) — it
+        // otherwise treats a discount as tax-neutral, which is correct for a manually
+        // entered flat amount but wrong here: `amountNet`/`amountGross` above already embed
+        // the cart's blended tax split, so without this metadata the order's tax total kept
+        // reflecting the pre-discount price while subtotalNet/Gross were correctly reduced.
+        metadata: amountNet !== 0 ? { taxRate: round((amountGross / amountNet - 1) * 100) } : null,
       })
       pushApplication(promotionId, { cartLineId: null, effect, amountNet: effect.amountNet, amountGross: effect.amountGross })
     }
@@ -566,5 +575,5 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
     // has the full `appliedPromotions` shape to read from, same "found and closed before
     // anyone needed it" style this run's earlier steps use for a half-wired field.
     cart.promotionEffects = result.appliedPromotions
-  }
+  })
 }

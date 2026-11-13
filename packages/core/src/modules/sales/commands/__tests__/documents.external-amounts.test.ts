@@ -1064,20 +1064,21 @@ describe('quotes stay computed', () => {
     expect(rejection.error).toContain('computed amounts')
   })
 
-  it('rejects a quote update that carries the document mode', async () => {
-    const { ctx } = buildHarness({ orders: [storedExternalOrder()] })
+  it('ignores the order-only document mode on an otherwise valid quote update', async () => {
+    const quote = storedExternalOrder({ totalsMode: undefined, comments: null })
+    const { ctx } = buildHarness({ orders: [quote] })
 
-    // `documentUpdateSchema` is shared with orders, so `totalsMode` reaches a
-    // quote command and has to be refused rather than parsed and dropped.
-    const rejection = await expectRejection(
-      commandRegistry.get('sales.quotes.update')!.execute(
-        { id: ORDER_ID, totalsMode: 'external' } as never,
-        ctx,
-      ),
+    await commandRegistry.get('sales.quotes.update')!.execute(
+      {
+        id: ORDER_ID,
+        comments: 'Compatibility update',
+        totalsMode: 'external',
+      } as never,
+      ctx,
     )
 
-    expect(rejection.status).toBe(400)
-    expect(rejection.error).toContain('computed amounts')
+    expect(quote.comments).toBe('Compatibility update')
+    expect(quote.totalsMode).toBeUndefined()
   })
 
   it('keeps a header-only quote update rejected as empty', async () => {

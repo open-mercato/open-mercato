@@ -81,6 +81,18 @@ async function readOrder(request: Request, token: string, orderId: string): Prom
   return item as Record<string, unknown>
 }
 
+async function readQuote(request: Request, token: string, quoteId: string): Promise<Record<string, unknown>> {
+  const response = await request.fetch(resolveUrl(`/api/sales/quotes?id=${encodeURIComponent(quoteId)}`), {
+    method: 'GET',
+    headers: jsonHeaders(token),
+  })
+  expect(response.status(), 'GET /api/sales/quotes?id=... should return 200').toBe(200)
+  const body = (await response.json()) as { items?: Array<Record<string, unknown>> }
+  const item = body.items?.[0]
+  expect(item, 'response should include the requested quote').toBeTruthy()
+  return item as Record<string, unknown>
+}
+
 async function readLines(request: Request, token: string, orderId: string): Promise<Array<Record<string, unknown>>> {
   const response = await request.fetch(
     resolveUrl(`/api/sales/order-lines?orderId=${encodeURIComponent(orderId)}&pageSize=100`),
@@ -180,6 +192,55 @@ async function createExternalOrder(request: Request, token: string): Promise<str
 }
 
 test.describe('TC-SALES-EXT-001: external amounts mode', () => {
+  test('quote create and update ignore the order-only totals mode consistently', async ({ request }) => {
+    const token = await getAuthToken(request)
+    let quoteId: string | null = null
+
+    try {
+      const created = await request.fetch(resolveUrl('/api/sales/quotes'), {
+        method: 'POST',
+        headers: jsonHeaders(token),
+        data: { currencyCode: 'USD', totalsMode: 'external' },
+      })
+      expect(
+        created.status(),
+        `quote create should retain its compatibility behavior: ${(await created.text()).slice(0, 500)}`,
+      ).toBe(201)
+      quoteId = ((await created.json()) as { id?: string }).id ?? null
+      expect(quoteId, 'quote create response should carry the quote id').toBeTruthy()
+
+      const createdQuote = await readQuote(request, token, quoteId as string)
+      expect(createdQuote.totalsMode).toBeUndefined()
+
+      const updated = await request.fetch(resolveUrl('/api/sales/quotes'), {
+        method: 'PUT',
+        headers: jsonHeaders(token),
+        data: {
+          id: quoteId,
+          comments: 'Compatibility update with an ignored order-only mode',
+          totalsMode: 'external',
+        },
+      })
+      expect(
+        updated.status(),
+        `quote update should match create behavior: ${(await updated.text()).slice(0, 500)}`,
+      ).toBe(200)
+
+      const updatedQuote = await readQuote(request, token, quoteId as string)
+      expect(updatedQuote.comment).toBe('Compatibility update with an ignored order-only mode')
+      expect(updatedQuote.totalsMode).toBeUndefined()
+    } finally {
+      if (quoteId) {
+        const cleanup = await request.fetch(resolveUrl('/api/sales/quotes'), {
+          method: 'DELETE',
+          headers: jsonHeaders(token),
+          data: { id: quoteId },
+        })
+        expect(cleanup.status(), `quote cleanup should succeed: ${cleanup.status()}`).toBe(200)
+      }
+    }
+  })
+
   test('a mirrored order keeps its own header and line amounts across writes', async ({ request }) => {
     const token = await getAuthToken(request)
     let orderId: string | null = null

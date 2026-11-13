@@ -22,7 +22,7 @@ function SyncStatusBadge({ status, lastSynced }: { status: ExternalIdMapping['sy
   const label = t(config.label, status)
 
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+    <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
       <span className={cn('inline-block size-1.5 rounded-full', config.dot)} aria-hidden="true" />
       <span>{label}</span>
       {lastSynced && (
@@ -60,11 +60,11 @@ export default function ExternalIdsWidget({ data }: InjectionWidgetComponentProp
             key={integrationId}
             className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-3 py-2"
           >
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               <span className="text-sm font-medium truncate">
                 {getIntegrationTitle(integrationId)}
               </span>
-              <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-muted-foreground">
+              <code className="min-w-0 max-w-full break-all rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-muted-foreground">
                 {mapping.externalId}
               </code>
               {mapping.externalUrl && (
@@ -72,7 +72,7 @@ export default function ExternalIdsWidget({ data }: InjectionWidgetComponentProp
                   href={mapping.externalUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
                   aria-label={t('integrations.externalIds.openExternal', 'Open in external system')}
                 >
                   <ExternalLinkIcon />
