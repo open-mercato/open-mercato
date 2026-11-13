@@ -66,3 +66,35 @@ test('web builders retain the 8 GiB Next TypeScript heap with an explicit build-
   assert.doesNotMatch(stage(dockerfile, 'maintenance'), /OM_BUILD_NODE_OPTIONS|next build/)
   assert.doesNotMatch(stage(template, 'module-build'), /OM_BUILD_NODE_OPTIONS|next build/)
 })
+
+for (const composePath of [
+  'docker-compose.fullapp.yml',
+  'docker-compose.fullapp.dev.yml',
+  'starters/docker/compose.fullapp.yml',
+  'starters/docker/compose.fullapp.dev.yml',
+  'packages/create-app/template/docker-compose.fullapp.yml',
+  'packages/create-app/template/docker-compose.fullapp.dev.yml',
+]) {
+  test(`${composePath} keeps recovery custody out of application services`, () => {
+    const compose = fs.readFileSync(path.join(repositoryRoot, composePath), 'utf8')
+    const services = compose.split(/^volumes:/m)[0]
+    assert.doesNotMatch(services, /recovery_data|\/var\/lib\/open-mercato\/recovery/)
+    assert.match(compose, /^  recovery_data:/m)
+  })
+}
+
+for (const composePath of [
+  'starters/docker/compose.recovery.yml',
+  'packages/create-app/template/docker-compose.recovery.yml',
+]) {
+  test(`${composePath} preserves isolated maintenance access to persistent custody`, () => {
+    const compose = fs.readFileSync(path.join(repositoryRoot, composePath), 'utf8')
+    assert.match(compose, /^  maintenance:/m)
+    assert.match(compose, /profiles: \[recovery\]/)
+    assert.match(compose, /user: "1001:1001"/)
+    assert.match(compose, /recovery_data:\/var\/lib\/open-mercato\/recovery/)
+    assert.match(compose, /cap_drop: \[ALL\]/)
+    assert.match(compose, /no-new-privileges:true/)
+    assert.match(compose, /read_only: true/)
+  })
+}

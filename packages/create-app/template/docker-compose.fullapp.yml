@@ -32,7 +32,6 @@ services:
         yarn start
     working_dir: /app
     volumes:
-      - recovery_data:/var/lib/open-mercato/recovery
       - init_marker:/tmp/init-marker
       - attachments_storage:/app/storage
     ports:

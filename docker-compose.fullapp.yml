@@ -191,7 +191,6 @@ services:
         INIT_COMMAND='yarn mercato init' sh /app/docker/scripts/init-or-migrate.sh
         yarn start
     volumes:
-      - recovery_data:/var/lib/open-mercato/recovery
       - init_marker:/tmp/init-marker
       - attachments_storage:/app/apps/mercato/storage
       - mcp_shared:/run/mcp-shared:ro
