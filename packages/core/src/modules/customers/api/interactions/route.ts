@@ -555,9 +555,15 @@ export async function GET(req: Request) {
     let hasMore: boolean
 
     if (sortFieldIsEncrypted || searchNeedsDecryption) {
-      const candidateColumns = searchNeedsDecryption
-        ? Array.from(new Set(['id', 'organization_id', 'title', 'body', sortConfig.column]))
-        : ['id', sortConfig.column]
+      // Every candidate carries its own organization: the scan can span organizations
+      // with different encryption maps, and `decryptRow` resolves the map per row.
+      // Without the column a sort-only scan decrypted every row under the selected
+      // organization's map and left another organization's ciphertext in the sort.
+      const candidateColumns = Array.from(new Set(
+        searchNeedsDecryption
+          ? ['id', 'organization_id', 'title', 'body', sortConfig.column]
+          : ['id', 'organization_id', sortConfig.column],
+      ))
       let candidateQuery = applyInteractionListFilters(
         db.selectFrom('customer_interactions').select(candidateColumns),
         { tenantId: auth.tenantId, organizationIds, query: filterQuery },
