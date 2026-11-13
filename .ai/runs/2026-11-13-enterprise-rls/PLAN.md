@@ -20,6 +20,7 @@ Engine: om-auto-continue-pr-loop
 | 1 | 1.5 | Register enterprise enforcement before ORM initialization | inline | done | 762a2d0ccc |
 | 2 | 2.1 | Propagate trusted API identity before authorization and handler queries | inline | done | 4d99b71fc4 |
 | 2 | 2.2 | Implement request/RSC resolver and canonical portal bootstrap | inline | done | this commit |
+| 2 | 2.2-modular | Replace module-specific runtime knowledge with module-owned declarations | inline | done | this commit |
 | 2 | 2.2-rsc | Verify deferred Next render lifetime and audience against the live canary | inline | todo | — |
 | 2 | 2.2-public | Scope verified public token, storefront and provisioning continuations | inline | todo | — |
 | 2 | 2.3 | Propagate worker, subscriber and scheduler tenant contexts | inline | todo | — |
@@ -29,7 +30,9 @@ Engine: om-auto-continue-pr-loop
 | 3 | 3.2 | Add self-contained canary CRUD and cross-tenant HTTP integration tests | inline | todo | — |
 | 3 | 3.3 | Add dispatcher, job retry and maintenance integration coverage | inline | todo | — |
 | 3 | 3.4 | Verify canary browser flow and publish working-app screenshots | inline | todo | — |
+| 3 | 3.5-concurrency | Verify tenant isolation at 20, 30, 50 and 100 concurrent users and publish analysis | inline | todo | — |
 | 3 | 3.5 | Benchmark checkout overhead and pool pressure | inline | todo | — |
+| 4 | 4.0 | Remove PoC code and retain production regression coverage | inline | todo | — |
 | 4 | 4.1 | Run full repository and integration validation gates | inline | todo | — |
 | 4 | 4.2 | Complete independent code and security review with fixes | inline | todo | — |
 | 4 | 4.3 | Publish full implementation results and finalize PR | inline | todo | — |

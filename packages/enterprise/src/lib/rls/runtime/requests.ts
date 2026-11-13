@@ -8,56 +8,11 @@ import {
 } from '@open-mercato/shared/lib/db/runtime'
 import { getDatabaseRequest } from '@open-mercato/shared/lib/db/request'
 import { findRouteManifestMatch, getBackendRouteManifests, getFrontendRouteManifests } from '@open-mercato/shared/modules/registry'
-import { runWithTenantBoundary } from './scope'
 
-type RequestAudience = 'staff' | 'customer' | 'public'
+import { resolveDeclaredDatabaseRequestContext } from '@open-mercato/shared/lib/db/declarations'
+
 const requestRenderersKey = Symbol.for('@open-mercato/enterprise.tenantBoundaryRequestRenderers.v1')
 type RequestRenderers = { identifiers: WeakMap<object, string>; nextIdentifier: number }
-
-export function tenantRequestAudience(pathname: string): RequestAudience {
-  if (pathname.startsWith('/api/')) {
-    return /^\/api\/(?:customer_accounts|staff|warranty_claims)\/portal(?:\/|$)/.test(pathname)
-      || /^\/api\/ecommerce\/storefront(?:\/|$)/.test(pathname) ? 'customer' : 'public'
-  }
-  const page = findRouteManifestMatch(getFrontendRouteManifests(), pathname)?.route
-    ?? findRouteManifestMatch(getBackendRouteManifests(), pathname)?.route
-  if (page?.requireCustomerAuth || /^\/[^/]+\/portal(?:\/|$)/.test(pathname)) return 'customer'
-  if (page?.requireAuth === false) return 'public'
-  return page?.requireAuth || pathname === '/backend' || pathname.startsWith('/backend/') ? 'staff' : 'public'
-}
-
-async function verifyPortalBinding(
-  pathname: string,
-  hostname: string | null,
-  auth: Readonly<{ tenantId: string; orgId: string }>,
-): Promise<boolean> {
-  const [{ createRequestContainer }, { Organization }, { DomainMapping }, { findOneWithDecryption }, { platformDomains }, { tryNormalizeHostname }] = await Promise.all([
-    import('@open-mercato/shared/lib/di/container'),
-    import('@open-mercato/core/modules/directory/data/entities'),
-    import('@open-mercato/core/modules/customer_accounts/data/entities'),
-    import('@open-mercato/shared/lib/encryption/find'),
-    import('@open-mercato/core/modules/customer_accounts/lib/platformDomains'),
-    import('@open-mercato/core/modules/customer_accounts/lib/hostname'),
-  ])
-  return runWithTenantBoundary({ kind: 'identity', tenantId: auth.tenantId, source: 'identity', operation: 'portal-binding' }, async () => {
-    const container = await createRequestContainer()
-    const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
-    const slug = pathname.match(/^\/([^/]+)\/portal(?:\/|$)/)?.[1]
-    const organization = await findOneWithDecryption(em, Organization, {
-      id: auth.orgId, tenant: auth.tenantId, isActive: true, deletedAt: null, ...(slug ? { slug } : {}),
-    })
-    if (!organization) return false
-    if (!hostname) return true
-    const platformHost = hostname.trim().toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '')
-    if (platformDomains().includes(platformHost)) return true
-    const normalized = tryNormalizeHostname(hostname)
-    if (!normalized) return false
-    const mapping = await findOneWithDecryption(em, DomainMapping, {
-      hostname: normalized, status: 'active', tenantId: auth.tenantId, organizationId: auth.orgId,
-    })
-    return mapping !== null
-  })
-}
 
 async function canonicalRequestContext(request: Request | undefined): Promise<DatabaseExecutionContext> {
   const headerStore = request?.headers ?? await headers()
@@ -65,23 +20,13 @@ async function canonicalRequestContext(request: Request | undefined): Promise<Da
   if (!pathname?.startsWith('/') || (!request && pathname.startsWith('/api/'))) {
     throw new Error('[internal] Tenant boundary requires a server-resolved page pathname')
   }
-  const audience = tenantRequestAudience(pathname)
-  if (audience === 'staff') {
-    const { resolveAuthFromCookiesDetailed } = await import('@open-mercato/shared/lib/auth/server')
-    const resolved = await resolveAuthFromCookiesDetailed()
-    if (resolved.status === 'error') throw new Error('[internal] Tenant boundary staff identity is unavailable')
-    if (resolved.auth?.tenantId) return { kind: 'tenant', source: 'page', tenantId: resolved.auth.tenantId }
-  }
-  if (audience === 'customer') {
-    const resolved = request
-      ? await (await import('@open-mercato/core/modules/customer_accounts/lib/customerAuth')).resolveCustomerAuthFromRequestDetailed(request)
-      : await (await import('@open-mercato/core/modules/customer_accounts/lib/customerAuthServer')).resolveCustomerAuthFromCookiesDetailed()
-    if (resolved.status === 'error') throw new Error('[internal] Tenant boundary customer identity is unavailable')
-    if (resolved.auth && await verifyPortalBinding(pathname, headerStore.get('host'), resolved.auth)) {
-      return { kind: 'tenant', source: 'portal', tenantId: resolved.auth.tenantId }
-    }
-  }
-  return { kind: 'identity', source: 'identity', tenantId: null, operation: 'unauthenticated-request' }
+  const route = request ? undefined : findRouteManifestMatch(getFrontendRouteManifests(), pathname)?.route
+    ?? findRouteManifestMatch(getBackendRouteManifests(), pathname)?.route
+  return resolveDeclaredDatabaseRequestContext({
+    pathname, headers: headerStore, request,
+    requireAuth: route?.requireAuth === true,
+    requireCustomerAuth: route?.requireCustomerAuth === true,
+  })
 }
 
 export function createTenantRequestResolver(): () => Promise<DatabaseContextResolution> {

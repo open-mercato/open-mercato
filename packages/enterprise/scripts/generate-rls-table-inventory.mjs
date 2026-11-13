@@ -9,6 +9,7 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 const repository = fileURLToPath(new URL('../../../', import.meta.url))
 const entities = new Set()
 const owners = new Map()
+const declarations = new Map()
 const packages = await readdir(path.join(repository, 'packages'), { withFileTypes: true })
 
 for (const workspace of packages.filter((entry) => entry.isDirectory()).sort((left, right) => left.name.localeCompare(right.name))) {
@@ -20,6 +21,11 @@ for (const workspace of packages.filter((entry) => entry.isDirectory()).sort((le
     throw error
   }
   for (const module of modules.filter((entry) => entry.isDirectory()).sort((left, right) => left.name.localeCompare(right.name))) {
+    const declarationFile = path.join(packageRoot, 'dist/modules', module.name, 'database.js')
+    try {
+      await access(declarationFile)
+      declarations.set(module.name, (await import(pathToFileURL(declarationFile).href)).databaseDeclarations)
+    } catch (error) { if (error.code !== 'ENOENT') throw error }
     try { await access(path.join(modulesRoot, module.name, 'data/entities.ts')) } catch (error) {
       if (error.code === 'ENOENT') continue
       throw error
@@ -51,21 +57,19 @@ const orm = await MikroORM.init({
   connect: false,
 })
 try {
-  const identityModules = new Set(['auth', 'api_keys', 'directory', 'customer_accounts', 'onboarding', 'security', 'sso'])
   const entries = []
   for (const metadata of orm.getMetadata().getAll().values()) {
     if (!metadata.tableName || metadata.abstract || metadata.embeddable) continue
     const tenant = Object.values(metadata.properties).find((property) => property.fieldNames?.includes('tenant_id'))
     const owner = owners.get(metadata.class) ?? 'app'
-    const classification = metadata.tableName === 'customer_entities' ? 'enforced'
-      : identityModules.has(owner) ? 'identity'
-        : !tenant ? 'global'
-          : tenant.nullable ? 'mixed' : 'deferred'
-    const reason = classification === 'enforced' ? 'Initial reviewed customer CRUD canary.'
+    const declaration = declarations.get(owner)
+    const override = declaration?.tables?.find((table) => table.table === metadata.tableName)
+    const classification = override?.classification ?? declaration?.tableClassification ?? (!tenant ? 'global' : tenant.nullable ? 'mixed' : 'deferred')
+    const reason = override?.reason ?? (classification === 'enforced' ? 'Explicit module-owned enrollment.'
       : classification === 'identity' ? `${owner} identity/bootstrap storage is required before authoritative tenant resolution.`
         : classification === 'global' ? `${owner} storage has no direct tenant column and needs a separate authorization model.`
           : classification === 'mixed' ? `${owner} permits null-tenant rows; global-row semantics require separate policy review.`
-            : `${owner} remains application-scoped until its queries and maintenance paths are reviewed for enrollment.`
+            : `${owner} remains application-scoped until its queries and maintenance paths are reviewed for enrollment.`)
     entries.push({
       schema: metadata.schema ?? 'public', table: metadata.tableName, owner, classification, reason,
       tenantColumn: tenant ? 'tenant_id' : null,

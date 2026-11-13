@@ -103,7 +103,7 @@ export function assertTenantTableInventory(
   const installed = new Map(catalog.map((table) => [`${table.schema}.${table.table}`, table]))
   for (const table of catalog) {
     const entry = entries.get(`${table.schema}.${table.table}`)
-    if (table.tenant_type && !entry) throw new Error('[internal] Tenant boundary found an unclassified tenant-bearing table')
+    if (table.tenant_type && !entry) throw new Error(`[internal] Tenant boundary found an unclassified tenant-bearing table: ${table.schema}.${table.table}`)
     if (!entry) continue
     if (entry.tenantType !== table.tenant_type || (entry.tenantNullable !== null && entry.tenantNullable === table.tenant_not_null)) {
       throw new Error('[internal] Tenant boundary table metadata differs from its reviewed manifest')

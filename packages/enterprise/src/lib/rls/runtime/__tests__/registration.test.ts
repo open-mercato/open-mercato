@@ -77,10 +77,14 @@ it('fails closed on unintegrated pool purposes and undeclared primary metadata',
   lifecycle.dispose()
 })
 
-it('uses the existing generator bootstrap hook without a new discovery convention', async () => {
+it('registers module declarations and runtime through the generator bootstrap hook', async () => {
   const { generatorPlugins } = await import('../../../../modules/tenant_boundaries/generators')
-  const plugin = generatorPlugins[0]
-  expect(plugin.conventionFile).toBe('index.ts')
-  expect(plugin.buildOutput({ importSection: '', entriesLiteral: '' })).toContain('version: 1')
-  expect(plugin.bootstrapRegistration?.buildCall('tenantBoundaryRegistration')).toBe('registerTenantBoundaryRuntime(tenantBoundaryRegistration)')
+  const runtime = generatorPlugins.find((plugin) => plugin.id === 'tenant_boundaries.bootstrap')!
+  expect(runtime.conventionFile).toBe('index.ts')
+  expect(runtime.buildOutput({ importSection: '', entriesLiteral: '' })).toContain('version: 1')
+  expect(runtime.bootstrapRegistration?.buildCall('tenantBoundaryRegistration')).toBe('registerTenantBoundaryRuntime(tenantBoundaryRegistration)')
+  const declarations = generatorPlugins.find((plugin) => plugin.id === 'tenant_boundaries.declarations')!
+  expect(declarations.configExpr('EXTERNAL', 'extension')).toContain("moduleId: 'extension'")
+  expect(declarations.buildOutput({ importSection: 'import external from "extension"', entriesLiteral: 'external' })).toContain('databaseModuleDeclarations')
+  expect(declarations.bootstrapRegistration?.buildCall('entries')).toBe('registerDatabaseModuleDeclarations(entries)')
 })
