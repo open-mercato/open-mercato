@@ -50,4 +50,3 @@ test('untrusted labels cannot add terminal commands or fake status lines', () =>
   presenter.status('info', '\u001b[31mexternal\nFAKE\u001b]8;;https://invalid.test\u0007\u202e')
   expect(text).not.toContain('\u001b'); expect(text).not.toContain('\u202e'); expect(text.trim().split('\n')).toHaveLength(1)
 })
-
