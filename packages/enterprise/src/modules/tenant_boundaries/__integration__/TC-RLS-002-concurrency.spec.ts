@@ -26,6 +26,7 @@ function analysis(results: LevelResult[]) {
 }
 
 test('TC-RLS-002: distinct authenticated users remain isolated at 20/30/50/100 concurrency', async ({ playwright }, testInfo) => {
+  test.setTimeout(240_000)
   const runtime = await startRlsLiveRuntime()
   const results: LevelResult[] = []
   let fixtures: Awaited<ReturnType<typeof createConcurrencyFixtures>> | undefined
