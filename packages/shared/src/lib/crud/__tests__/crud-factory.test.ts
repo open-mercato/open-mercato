@@ -14,6 +14,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import {
   findApiRouteManifestMatch,
@@ -2157,6 +2158,66 @@ describe('CRUD Factory', () => {
       const res = await put(guardedRoute({ rejectUnknownFields: true }), { id: todo.id, no_such_field: 'x' })
       expect(res.status).toBe(400)
       expect(await res.json()).toMatchObject({ fields: ['no_such_field'] })
+    })
+
+    // Command-backed routes parse their body through `parseScopedCommandInput`,
+    // which rides the report on the parsed input as a Symbol. A `response`
+    // callback returning a bare `{ ok: true }` must still surface it, or the
+    // command path keeps answering success for a write that dropped a field.
+    it('surfaces the report on a command-backed update response', async () => {
+      commandBus.execute.mockResolvedValue({ result: { id: todo.id }, logEntry: { id: 'log-1' } })
+      const commandSchema = z.object({ id: z.string(), title: z.string().optional() })
+      const route = makeCrudRoute({
+        metadata: { PUT: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        actions: {
+          update: {
+            commandId: 'example.todo.update',
+            schema: z.any(),
+            mapInput: ({ raw, ctx }: any) => parseScopedCommandInput(commandSchema, raw ?? {}, ctx, mockTranslate),
+            response: () => ({ ok: true }),
+          },
+        },
+      })
+
+      const res = await put(route, { id: todo.id, title: 'kept', no_such_field: 'x' })
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({
+        ok: true,
+        ignoredFields: [{ key: 'no_such_field', reason: 'unknown' }],
+      })
+    })
+
+    it('surfaces the report on a command-backed create response', async () => {
+      commandBus.execute.mockResolvedValue({ result: { id: 'todo-cmd-1' }, logEntry: { id: 'log-1' } })
+      const commandSchema = z.object({ title: z.string() })
+      const route = makeCrudRoute({
+        metadata: { POST: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        actions: {
+          create: {
+            commandId: 'example.todo.create',
+            schema: z.any(),
+            mapInput: ({ raw, ctx }: any) => parseScopedCommandInput(commandSchema, raw ?? {}, ctx, mockTranslate),
+            response: () => ({ id: 'todo-cmd-1' }),
+          },
+        },
+      })
+
+      const res = await route.POST(new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'A', no_such_field: 'x' }),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(res.status).toBe(201)
+      expect(await res.json()).toEqual({
+        id: 'todo-cmd-1',
+        ignoredFields: [{ key: 'no_such_field', reason: 'unknown' }],
+      })
     })
 
     // `immutableFields` means "cannot change AFTER creation", so creation itself

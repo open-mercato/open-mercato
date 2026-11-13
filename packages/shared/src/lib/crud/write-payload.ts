@@ -54,19 +54,35 @@ export type WritePayloadInspection = {
  * `null` for a shape we cannot introspect (a union, say), which every caller
  * below treats as "do not guess", leaving today's behaviour untouched.
  */
+type SchemaInspectionNode = {
+  _def?: unknown
+  shape?: unknown
+}
+
+function readSchemaShape(node: SchemaInspectionNode): Record<string, unknown> | null {
+  const { shape } = node
+  if (!shape || typeof shape !== 'object') return null
+  return shape as Record<string, unknown>
+}
+
+function readWrappedSchema(def: unknown): unknown {
+  if (!def || typeof def !== 'object') return null
+  const wrapper = def as { schema?: unknown; innerType?: unknown; in?: unknown }
+  return wrapper.schema ?? wrapper.innerType ?? wrapper.in ?? null
+}
+
 export function collectWritableKeys(schema: z.ZodTypeAny): Set<string> | null {
-  let current: any = schema
+  let current: unknown = schema
   // `.optional()`, `.nullable()`, `.default()` and `.superRefine()` can nest.
   for (let depth = 0; depth < 10; depth += 1) {
     if (!current || typeof current !== 'object') return null
-    const def = current._def
-    if (!def) return null
-    if (typeof current.shape === 'object' && current.shape !== null) {
-      return new Set(Object.keys(current.shape))
-    }
+    const node = current as SchemaInspectionNode
+    if (!node._def) return null
+    const shape = readSchemaShape(node)
+    if (shape) return new Set(Object.keys(shape))
     // zod v3 exposes `.shape` as a getter on ZodObject; v4 keeps it too, but the
     // wrappers below hide it, so unwrap one layer at a time.
-    const inner = def.schema ?? def.innerType ?? def.in ?? null
+    const inner = readWrappedSchema(node._def)
     if (!inner) return null
     current = inner
   }
@@ -370,24 +386,26 @@ export function guardWriteBody(
     })
   }
 
-  const unknown = inspection.unwritable.filter((entry) => entry.reason === 'unknown')
-  if (config?.rejectUnknownFields && unknown.length > 0) {
+  const aliasing = config?.aliasSnakeCaseKeys !== false
+  // With aliasing off the original body still spells the key snake_case, so Zod
+  // strips it. Report it — and count it as unwritable for strictness, or
+  // `rejectUnknownFields` combined with `aliasSnakeCaseKeys: false` would accept
+  // the very key it is meant to refuse.
+  const misspelled: UnwritableKey[] = aliasing
+    ? []
+    : inspection.aliased.map((entry) => ({ key: entry.from, reason: 'misspelled' as const }))
+  const unapplied = [...inspection.unwritable, ...misspelled]
+
+  if (config?.rejectUnknownFields && unapplied.length > 0) {
     throw new CrudHttpError(400, {
       error: resolveGuardMessage(config, 'unknownField'),
-      fields: unknown.map((entry) => entry.key),
+      fields: unapplied.map((entry) => entry.key),
     })
   }
 
-  const aliasing = config?.aliasSnakeCaseKeys !== false
-  // With aliasing off the original body still spells the key snake_case, so Zod
-  // strips it. Report it, or switching the flag off would reintroduce exactly the
-  // silent drop this guard exists to remove.
-  const reported: UnwritableKey[] = aliasing
-    ? unknown
-    : [...unknown, ...inspection.aliased.map((entry) => ({ key: entry.from, reason: 'misspelled' as const }))]
   return {
     body: aliasing ? { ...inspection.payload, ...passthrough } : body,
-    ignoredFields: reported,
+    ignoredFields: unapplied,
     // Returned so a caller holding keys the guard never saw (custom fields, say)
     // can apply the same renames to its own copy of the body.
     aliased: aliasing ? inspection.aliased : [],

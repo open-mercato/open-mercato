@@ -43,7 +43,7 @@ import {
 } from './custom-field-definition-index'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
 import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from './errors'
-import { guardWriteBody, type CrudWriteGuardConfig } from './write-payload'
+import { guardWriteBody, withIgnoredFieldsReport, type CrudWriteGuardConfig } from './write-payload'
 export type { CrudWriteGuardConfig } from './write-payload'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -95,6 +95,20 @@ function createWriteGuardConfig(config: CrudWriteGuardConfig | undefined): CrudW
   if (!config?.immutableFields) return config
   const { immutableFields: _ignored, ...rest } = config
   return rest
+}
+
+/**
+ * Attach the guard report to a command action's resolved response.
+ *
+ * Command routes parse their body through `parseScopedCommandInput`, which rides
+ * the report on the parsed input under a Symbol. Without this the route's own
+ * `response` callback could return a bare `{ ok: true }` and the caller would
+ * never learn which keys the write dropped — the exact failure mode the guard
+ * removes. A payload that carries no report is returned unchanged.
+ */
+function withCommandResponseReport(payload: unknown, input: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload
+  return withIgnoredFieldsReport(payload as Record<string, unknown>, input)
 }
 
 type RbacServiceLike = {
@@ -2510,7 +2524,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
 
         const payload = action.response ? action.response({ result, logEntry, ctx, input }) : result
-        let resolvedPayload = await Promise.resolve(payload)
+        let resolvedPayload = withCommandResponseReport(await Promise.resolve(payload), input)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({
             ctx,
@@ -2837,7 +2851,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend }),
         )
         const payload = action.response ? action.response({ result, logEntry, ctx, input }) : result
-        let resolvedPayload = await Promise.resolve(payload)
+        let resolvedPayload = withCommandResponseReport(await Promise.resolve(payload), input)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({
             ctx,
@@ -3188,7 +3202,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend }),
         )
         const payload = action.response ? action.response({ result, logEntry, ctx, input }) : result
-        let resolvedPayload = await Promise.resolve(payload)
+        let resolvedPayload = withCommandResponseReport(await Promise.resolve(payload), input)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({
             ctx,

@@ -99,6 +99,19 @@ describe('guardWriteBody', () => {
     expect(r.ignoredFields).toEqual([])
   })
 
+  // Strictness must cover everything the payload will not apply. Checking only
+  // `reason: 'unknown'` let `aliasSnakeCaseKeys: false` + `rejectUnknownFields`
+  // accept the snake spelling it was configured to refuse.
+  it('rejects a misspelled key when strictness is on and aliasing is off', () => {
+    let thrown: any = null
+    try {
+      guardWriteBody(schema, { id: 'x', is_done: true }, { aliasSnakeCaseKeys: false, rejectUnknownFields: true })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toMatchObject({ status: 400, body: { fields: ['is_done'] } })
+  })
+
   // Scope is derived from trusted context, so a round-tripped record carrying the
   // snake_case spelling a list emitted must not raise the ambiguity 400, and must
   // not be aliased into a way of steering scope.
