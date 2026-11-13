@@ -475,6 +475,30 @@ describeWithPostgres('sales order delete -> promotion usage revert -> undo -> re
     return { fixture, otherOrderId, confirmed }
   }
 
+  test('cancellation restores the same customer allowance without losing active reservations or audit history (#8426)', async () => {
+    const fixture = await seedPromotedOrder({ usage: 'multiple', usageAmount: 3 })
+    const scope = { tenantId: fixture.tenantId, organizationId: fixture.organizationId }
+    const original = await orm.em.fork().findOneOrFail(CodeUsage, { orderId: fixture.orderId, ...scope })
+    await orm.em.fork().nativeUpdate(Code, { id: fixture.codeId, ...scope }, { usagePerCustomer: 1 })
+    const code = await orm.em.fork().findOneOrFail(Code, { id: fixture.codeId, ...scope })
+    const cartId = randomUUID()
+    const input = { codeString: code.code!, cartId, customerId: original.customerId ?? null }
+    await expect(codeService().reserveCode(orm.em.fork(), input, scope)).rejects.toMatchObject({ status: 422 })
+
+    const cancelled = await cancelOrder(fixture, fixture.orderId)
+    await handleOrderCancelled(cancelled, subscriberCtx())
+    await handleOrderCancelled(cancelled, subscriberCtx())
+    expect(await codeService().reserveCode(orm.em.fork(), input, scope)).toMatchObject({ ok: true })
+    await expect(codeService().reserveCode(orm.em.fork(), { ...input, cartId: randomUUID() }, scope)).rejects.toMatchObject({ status: 422 })
+    await codeService().useCode(orm.em.fork(), { ...input, codeId: fixture.codeId, orderId: randomUUID(), type: 'static' }, scope)
+    await expect(codeService().reserveCode(orm.em.fork(), { ...input, cartId: randomUUID() }, scope)).rejects.toMatchObject({ status: 422 })
+    const usages = await orm.em.fork().find(CodeUsage, { codeId: fixture.codeId, ...scope })
+    expect(usages).toHaveLength(2)
+    expect(usages.filter((usage) => usage.revertedAt !== null)).toHaveLength(1)
+    expect(usages.filter((usage) => usage.revertedAt === null)).toHaveLength(1)
+    expect(await codeCounter(fixture)).toEqual({ used: 1, active: true })
+  })
+
   test('in order: delete reverts promotion and code usage, undo reinstates both', async () => {
     const fixture = await seedPromotedOrder()
     expect(await codeCounter(fixture)).toEqual({ used: 1, active: false })

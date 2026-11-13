@@ -1376,7 +1376,6 @@ describe('PromotionCodeService.reinstateCodeUse', () => {
   })
 })
 
-
 describe('cancelled order customer code allowance (#8426)', () => {
   it.each(['static', 'dynamic'] as const)('restores the allowance for a %s code while retaining the usage audit', async (type) => {
     const { em, tables } = createFakeEm()
@@ -1389,6 +1388,7 @@ describe('cancelled order customer code allowance (#8426)', () => {
     await service.revertCodeUse(manager, { orderId: 'order-1' }, SCOPE)
     expect(await service.revertCodeUse(manager, { orderId: 'order-1' }, SCOPE)).toEqual({ ok: true, revertedCount: 0 })
     expect(await service.reserveCode(manager, { codeString: 'REUSE1', cartId: 'cart-2', customerId: 'cust-1' }, SCOPE)).toMatchObject({ ok: true })
+    await expectCrudError(service.reserveCode(manager, { codeString: 'REUSE1', cartId: 'cart-3', customerId: 'cust-1' }, SCOPE), 422, CODE_INVALID_REASON)
     await service.useCode(manager, { codeId: code.id, codeString: 'REUSE1', cartId: 'cart-2', customerId: 'cust-1', orderId: 'order-2', type }, SCOPE)
     expect(tables.get(CodeUsage)).toHaveLength(2)
     expect(tables.get(CodeUsage)![0].revertedAt).toBeInstanceOf(Date)

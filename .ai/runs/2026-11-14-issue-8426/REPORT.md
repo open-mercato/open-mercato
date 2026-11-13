@@ -1,19 +1,16 @@
-# Issue #8426 local handoff
+# Promotion-code customer allowance after cancellation (#8426)
 
-Dependency: this fix commit is based on open Release 5 PR #8268 head `28538d8e58d1b25c3cb0556834795b0ade979e34`. Do not merge that release into a main-based parent as part of this fix. Apply only this fix commit to a Release 5-based target. Original fork point `7588d72a33` lacks the cancellation implementation and CodeUsage.revertedAt.
+The per-customer usage count included reverted audit rows. Cancellation correctly restored global capacity and marked the use reverted, but the same customer remained over their limit. The fix excludes `revertedAt != null` rows from the shared eligibility count, preserving tenant/organization scope and active reservations held by other carts. No API, schema, event, locking, or public type changes.
 
-Root cause: countActiveCustomerUsage counted reverted CodeUsage rows. Cancellation correctly sets revertedAt and restores global capacity, but the customer allowance remained exhausted. Filter the count by revertedAt:null; organization/tenant filters and active other-cart reservations are preserved. No schema, API, DI, event or other public-contract changes.
+This patch is based on Release 5 PR open-mercato/open-mercato#8268 head `28538d8e58d1b25c3cb0556834795b0ade979e34`. Its implementation is absent on main. The patch targets `adeptofvoltron/open-mercato:feat/ecommerce-release-5-conversion` so the feature is not imported into main by this bug fix.
 
-Regression: static and generated single-use codes with usagePerCustomer=1 run reserve -> use -> cancel -> duplicate cancel -> reserve from a new cart -> use. Audit retains both usage rows with only the first reverted. Existing live-use and other-cart-reservation limit tests remain passing.
+Regression evidence:
 
-Runner: local; no running compose app found. Dependencies reused through an untracked node_modules symlink to the parent installation.
+- Static and generated codes with `usagePerCustomer: 1`: reserve, use, cancel, duplicate cancellation, reserve from a new cart, use again; both audit rows retained, only the original reverted. A different cart remains blocked while a reservation is live.
+- Real PostgreSQL integration through the cancellation subscriber: an active use blocks the same customer; cancellation and duplicate delivery restore eligibility; an active reservation blocks another cart; the next active use blocks further reuse. The new case fails on the original code with `code_invalid` on the post-cancellation reserve.
+- Final Node 24 run with `OM_PG_INTEGRATION=1`: all 37 promotions suites and 443 tests pass, including all 12 PostgreSQL lifecycle tests. Disposable PostgreSQL containers are stopped by test teardown.
+- Targeted ESLint and `git diff --check` pass.
 
-Validation commands and results:
-- `timeout 90 node node_modules/jest/bin/jest.js --config packages/core/jest.config.cjs --runInBand --runTestsByPath packages/core/src/modules/promotions/lib/__tests__/code-service.test.ts`: before production fix, exit 1, 2 new regressions failed with code_invalid; 55 passed.
-- `timeout 120 node node_modules/jest/bin/jest.js --config packages/core/jest.config.cjs --runInBand promotions`: exit 0; 36 suites passed, 1 skipped; 431 tests passed, 11 skipped.
-- `timeout 90 node node_modules/typescript/bin/tsc --noEmit -p packages/core/tsconfig.json`: exit 2; missing generated registries and multiple unrelated errors including duplicate id in parent ui ComboboxInput.tsx. Full log provided as cockpit artifact. No out-of-scope fixes attempted.
-- `git diff --check`: exit 0.
+Runner: local, Node 24.22.3, immutable worktree-local dependency install. Earlier diagnostics using a shared dependency symlink and Node 26 were superseded by a clean local install and the supported runtime. `TMPDIR=/tmp` avoids the macOS Unix-socket path limit during tsx checks.
 
-Review: production diff is one scoped predicate in the shared helper consumed by reserve/validate/use. Existing audit and locking behavior preserved. No correctness findings in local diff inspection. Formal review verdict: request changes for incomplete validation; this is a parent-review handoff, not merge approval.
-
-Limits: full configured gate NOT RUN (build:packages, generate, build:packages, i18n:check-sync, i18n:check-usage, typecheck, test, build:app); only scoped tests/typecheck above executed. Real Postgres/concurrency integration and cart API cancellation/reuse QA NOT RUN (no live app/database). No push or PR; parent owns publication and final validation. No children dispatched.
+The configured validation gate is being completed and its final result will be recorded on the PR. Real browser checkout/cancellation QA is separate from this database/subscriber integration proof; retain `needs-qa` and do not infer QA approval.
