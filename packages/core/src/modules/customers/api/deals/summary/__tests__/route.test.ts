@@ -18,6 +18,10 @@ const stuckDealId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 
 const executeMock = jest.fn()
 const getRatesMock = jest.fn()
+const ratesForOrganization = jest.fn((_organizationId: string) => new Map())
+const storedRatesMock = jest.fn(async (params: { requests: Array<{ organizationId: string }> }) =>
+  new Map(params.requests.map(({ organizationId }) => [organizationId, ratesForOrganization(organizationId)])),
+)
 const resolveBaseCurrencyMock = jest.fn()
 const fetchStuckDealIdsMock = jest.fn()
 const getAuthFromRequestMock = jest.fn()
@@ -26,10 +30,12 @@ const em = {
   getConnection: () => ({ execute: executeMock }),
 }
 
+let exchangeRateServiceStub: Record<string, unknown> = {}
+
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
-    if (name === 'exchangeRateService') return { getRates: getRatesMock }
+    if (name === 'exchangeRateService') return exchangeRateServiceStub
     if (name === 'baseCurrencyService') return { resolveBaseCurrency: resolveBaseCurrencyMock }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
@@ -55,6 +61,11 @@ jest.mock('../../../../lib/stuckDeals', () => ({
 }))
 
 import { GET } from '../route'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+
+const resolveScopeMock = resolveOrganizationScopeForRequest as jest.Mock
+const usdOrganizationId = '44444444-4444-4444-8444-444444444444'
+const eurOrganizationId = '55555555-5555-4555-8555-555555555555'
 
 type Json = Record<string, unknown>
 
@@ -124,7 +135,8 @@ describe('customers deals summary route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
-    getRatesMock.mockResolvedValue(new Map())
+    exchangeRateServiceStub = { getRates: getRatesMock, getStoredRatesForOrganizations: storedRatesMock }
+    ratesForOrganization.mockReturnValue(new Map())
     resolveBaseCurrencyMock.mockResolvedValue({ status: 'resolved', code: 'USD' })
     fetchStuckDealIdsMock.mockResolvedValue([])
     jest.useFakeTimers()
@@ -155,7 +167,7 @@ describe('customers deals summary route', () => {
 
   it('computes KPI values, deltas, UTC quarter bucketing, multi-currency conversion and need-attention union', async () => {
     // Base currency = USD; EUR rate present, GBP rate missing.
-    getRatesMock.mockResolvedValue(
+    ratesForOrganization.mockReturnValue(
       new Map([
         ['EUR/USD', { rates: [rate('1.20')], fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', requestedDate: new Date(), actualDate: new Date() }],
       ]),
@@ -165,17 +177,17 @@ describe('customers deals summary route', () => {
     executeMock
       // 1) open pipeline rows (stage/currency/total/count/owner)
       .mockResolvedValueOnce([
-        { stage: 'qualification', currency: 'USD', total: '1000', count: '2', owner_user_id: ownerA },
-        { stage: 'qualification', currency: 'EUR', total: '100', count: '1', owner_user_id: ownerB },
-        { stage: 'proposal', currency: 'GBP', total: '50', count: '1', owner_user_id: ownerA },
+        { organization_id: organizationId, stage: 'qualification', currency: 'USD', total: '1000', count: '2', owner_user_id: ownerA },
+        { organization_id: organizationId, stage: 'qualification', currency: 'EUR', total: '100', count: '1', owner_user_id: ownerB },
+        { organization_id: organizationId, stage: 'proposal', currency: 'GBP', total: '50', count: '1', owner_user_id: ownerA },
       ])
       // 2) inflow rows (open value created current vs previous quarter)
       .mockResolvedValueOnce([
-        { currency: 'USD', current_total: '600', current_count: '2', previous_total: '300', previous_count: '1' },
+        { organization_id: organizationId, currency: 'USD', current_total: '600', current_count: '2', previous_total: '300', previous_count: '1' },
       ])
       // 3) won rows (updated_at current vs previous quarter)
       .mockResolvedValueOnce([
-        { currency: 'USD', current_total: '800', current_count: '2', previous_total: '400', previous_count: '1' },
+        { organization_id: organizationId, currency: 'USD', current_total: '800', current_count: '2', previous_total: '400', previous_count: '1' },
       ])
       // 4) win/loss counts (current/previous quarter)
       .mockResolvedValueOnce([
@@ -261,8 +273,8 @@ describe('customers deals summary route', () => {
     executeMock
       // 1) open pipeline rows: USD dominant, EUR smaller
       .mockResolvedValueOnce([
-        { stage: 'qualification', currency: 'USD', total: '900', count: '3', owner_user_id: ownerA },
-        { stage: 'qualification', currency: 'EUR', total: '100', count: '1', owner_user_id: ownerB },
+        { organization_id: organizationId, stage: 'qualification', currency: 'USD', total: '900', count: '3', owner_user_id: ownerA },
+        { organization_id: organizationId, stage: 'qualification', currency: 'EUR', total: '100', count: '1', owner_user_id: ownerB },
       ])
       // 2) inflow
       .mockResolvedValueOnce([])
@@ -284,7 +296,7 @@ describe('customers deals summary route', () => {
     // Dominant currency total (USD 900, larger than EUR 100).
     expect((body.pipelineValue as { value: number }).value).toBe(900)
     // getRates not consulted without a base currency.
-    expect(getRatesMock).not.toHaveBeenCalled()
+    expect(storedRatesMock).not.toHaveBeenCalled()
     // Win rate degrades to 0 with no closed deals.
     expect((body.winRate as { value: number }).value).toBe(0)
     expect((body.winRate as { direction: string }).direction).toBe('unchanged')
@@ -299,7 +311,7 @@ describe('customers deals summary route', () => {
     executeMock
       // 1) open pipeline rows
       .mockResolvedValueOnce([
-        { stage: 'qualification', currency: 'USD', total: '500', count: '1', owner_user_id: ownerA },
+        { organization_id: organizationId, stage: 'qualification', currency: 'USD', total: '500', count: '1', owner_user_id: ownerA },
       ])
       // 2) inflow
       .mockResolvedValueOnce([])
@@ -319,5 +331,181 @@ describe('customers deals summary route', () => {
     const body = (await response.json()) as { activeDeals: { needAttention: number } }
     // Only the open stuck deal counts; the terminal stuck deal is filtered out by the intersection.
     expect(body.activeDeals.needAttention).toBe(1)
+  })
+
+  describe('across several organizations (#8243)', () => {
+    function mockEmptyTail() {
+      executeMock
+        .mockResolvedValueOnce([{ current_won: '0', current_lost: '0', previous_won: '0', previous_lost: '0' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+    }
+
+    function eurRate(value: string) {
+      return { rates: [rate(value)], fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', requestedDate: new Date(), actualDate: new Date() }
+    }
+
+    it('reports no base currency when the organizations in scope disagree, whatever their order', async () => {
+      const baseByOrganization: Record<string, string> = { [usdOrganizationId]: 'USD', [eurOrganizationId]: 'EUR' }
+      resolveBaseCurrencyMock.mockImplementation(async ({ organizationIds }: { organizationIds: string[] }) => {
+        const codes = new Set(organizationIds.map((id) => baseByOrganization[id]))
+        return codes.size === 1 ? { status: 'resolved', code: [...codes][0] } : { status: 'ambiguous' }
+      })
+
+      for (const filterIds of [[usdOrganizationId, eurOrganizationId], [eurOrganizationId, usdOrganizationId]]) {
+        resolveScopeMock.mockResolvedValueOnce({ tenantId, filterIds })
+        executeMock
+          .mockResolvedValueOnce([
+            { organization_id: usdOrganizationId, stage: 'qualification', currency: 'USD', total: '1000', count: '1', owner_user_id: ownerA },
+            { organization_id: eurOrganizationId, stage: 'qualification', currency: 'EUR', total: '1000', count: '1', owner_user_id: ownerB },
+          ])
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([])
+        mockEmptyTail()
+
+        const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+        const body = (await response.json()) as { baseCurrencyCode: string | null; convertedAll: boolean; missingRateCurrencies: string[] }
+
+        expect(body.baseCurrencyCode).toBeNull()
+        expect(body.convertedAll).toBe(false)
+        expect([...body.missingRateCurrencies].sort()).toEqual(['EUR', 'USD'])
+      }
+      expect(storedRatesMock).not.toHaveBeenCalled()
+    })
+
+    it('converts each organization\'s deals with the rates entered in that organization', async () => {
+      resolveScopeMock.mockResolvedValueOnce({ tenantId, filterIds: [usdOrganizationId, eurOrganizationId] })
+      ratesForOrganization.mockImplementation((organizationId) =>
+        new Map([['EUR/USD', eurRate(organizationId === usdOrganizationId ? '1.10' : '1.20')]]),
+      )
+      executeMock
+        .mockResolvedValueOnce([
+          { organization_id: usdOrganizationId, stage: 'qualification', currency: 'EUR', total: '100', count: '1', owner_user_id: ownerA },
+          { organization_id: eurOrganizationId, stage: 'qualification', currency: 'EUR', total: '100', count: '1', owner_user_id: ownerB },
+          { organization_id: eurOrganizationId, stage: 'qualification', currency: 'USD', total: '50', count: '1', owner_user_id: ownerB },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+      mockEmptyTail()
+
+      const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+      const body = (await response.json()) as { baseCurrencyCode: string | null; convertedAll: boolean; pipelineValue: { value: number } }
+
+      expect(resolveBaseCurrencyMock).toHaveBeenCalledWith({
+        tenantId,
+        organizationIds: [usdOrganizationId, eurOrganizationId],
+      })
+      expect(body.baseCurrencyCode).toBe('USD')
+      expect(body.convertedAll).toBe(true)
+      expect(body.pipelineValue.value).toBe(280)
+      expect(storedRatesMock).toHaveBeenCalledTimes(1)
+      expect(getRatesMock).not.toHaveBeenCalled()
+      const [batch] = storedRatesMock.mock.calls[0] as unknown as [{ tenantId: string; requests: Array<{ organizationId: string; pairs: unknown[] }> }]
+      expect(batch.tenantId).toBe(tenantId)
+      expect([...batch.requests].sort((a, b) => a.organizationId.localeCompare(b.organizationId))).toEqual([
+        { organizationId: usdOrganizationId, pairs: [{ fromCurrencyCode: 'EUR', toCurrencyCode: 'USD' }] },
+        { organizationId: eurOrganizationId, pairs: [{ fromCurrencyCode: 'EUR', toCurrencyCode: 'USD' }] },
+      ])
+    })
+
+    it('discloses a currency as missing when only another organization has a rate for it', async () => {
+      resolveScopeMock.mockResolvedValueOnce({ tenantId, filterIds: [usdOrganizationId, eurOrganizationId] })
+      ratesForOrganization.mockImplementation((organizationId) =>
+        organizationId === usdOrganizationId ? new Map([['EUR/USD', eurRate('1.10')]]) : new Map(),
+      )
+      executeMock
+        .mockResolvedValueOnce([
+          { organization_id: usdOrganizationId, stage: 'qualification', currency: 'USD', total: '1000', count: '1', owner_user_id: ownerA },
+          { organization_id: eurOrganizationId, stage: 'qualification', currency: 'EUR', total: '1000', count: '1', owner_user_id: ownerB },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+      mockEmptyTail()
+
+      const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+      const body = (await response.json()) as { convertedAll: boolean; missingRateCurrencies: string[]; pipelineValue: { value: number } }
+
+      expect(body.convertedAll).toBe(false)
+      expect(body.missingRateCurrencies).toEqual(['EUR'])
+      expect(body.pipelineValue.value).toBe(1000)
+    })
+
+    it('looks up missing rates for every organization in one batched call instead of one per organization', async () => {
+      const organizationIds = [usdOrganizationId, eurOrganizationId, organizationId]
+      resolveScopeMock.mockResolvedValueOnce({ tenantId, filterIds: organizationIds })
+      executeMock
+        .mockResolvedValueOnce(organizationIds.map((id) => (
+          { organization_id: id, stage: 'qualification', currency: 'EUR', total: '100', count: '1', owner_user_id: ownerA }
+        )))
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+      mockEmptyTail()
+
+      const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+      const body = (await response.json()) as { convertedAll: boolean; missingRateCurrencies: string[]; pipelineValue: { value: number } }
+
+      expect(storedRatesMock).toHaveBeenCalledTimes(1)
+      expect(getRatesMock).not.toHaveBeenCalled()
+      const [batch] = storedRatesMock.mock.calls[0] as unknown as [{ requests: Array<{ organizationId: string }>; maxDaysBack: number }]
+      expect(batch.requests.map((entry) => entry.organizationId).sort()).toEqual([...organizationIds].sort())
+      expect(batch.maxDaysBack).toBe(60)
+      expect(body.convertedAll).toBe(false)
+      expect(body.missingRateCurrencies).toEqual(['EUR'])
+      expect(body.pipelineValue.value).toBe(0)
+    })
+
+    it('falls back to per-organization getRates when an overriding exchange-rate service has no batched lookup', async () => {
+      exchangeRateServiceStub = { getRates: getRatesMock }
+      resolveScopeMock.mockResolvedValueOnce({ tenantId, filterIds: [usdOrganizationId, eurOrganizationId] })
+      getRatesMock.mockImplementation(async ({ scope }: { scope: { organizationId: string } }) =>
+        new Map([['EUR/USD', eurRate(scope.organizationId === usdOrganizationId ? '1.10' : '1.20')]]),
+      )
+      executeMock
+        .mockResolvedValueOnce([
+          { organization_id: usdOrganizationId, stage: 'qualification', currency: 'EUR', total: '100', count: '1', owner_user_id: ownerA },
+          { organization_id: eurOrganizationId, stage: 'qualification', currency: 'EUR', total: '100', count: '1', owner_user_id: ownerB },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+      mockEmptyTail()
+
+      const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+      const body = (await response.json()) as { convertedAll: boolean; pipelineValue: { value: number } }
+
+      expect(body.convertedAll).toBe(true)
+      expect(body.pipelineValue.value).toBe(230)
+      expect(getRatesMock.mock.calls.map(([params]) => params.scope.organizationId).sort())
+        .toEqual([usdOrganizationId, eurOrganizationId].sort())
+    })
+
+    it('rounds once after combining organization subtotals for pipeline, won and deltas', async () => {
+      resolveScopeMock.mockResolvedValueOnce({ tenantId, filterIds: [usdOrganizationId, eurOrganizationId] })
+      executeMock
+        .mockResolvedValueOnce([
+          { organization_id: usdOrganizationId, stage: 'qualification', currency: 'USD', total: '0.40', count: '1', owner_user_id: ownerA },
+          { organization_id: eurOrganizationId, stage: 'qualification', currency: 'USD', total: '0.40', count: '1', owner_user_id: ownerB },
+        ])
+        .mockResolvedValueOnce([
+          { organization_id: usdOrganizationId, currency: 'USD', current_total: '0.40', current_count: '1', previous_total: '1.30', previous_count: '1' },
+          { organization_id: eurOrganizationId, currency: 'USD', current_total: '0.40', current_count: '1', previous_total: '1.30', previous_count: '1' },
+        ])
+        .mockResolvedValueOnce([
+          { organization_id: usdOrganizationId, currency: 'USD', current_total: '0.40', current_count: '1', previous_total: '1.30', previous_count: '1' },
+          { organization_id: eurOrganizationId, currency: 'USD', current_total: '0.40', current_count: '1', previous_total: '1.30', previous_count: '1' },
+        ])
+      mockEmptyTail()
+
+      const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+      const body = (await response.json()) as {
+        pipelineValue: { value: number; delta: { value: number; direction: string }; stages: Array<{ value: number }> }
+        wonThisQuarter: { value: number; delta: { value: number; direction: string } }
+      }
+
+      expect(body.pipelineValue.value).toBe(1)
+      expect(body.pipelineValue.stages[0]?.value).toBe(1)
+      expect(body.pipelineValue.delta).toEqual({ value: -67, direction: 'down' })
+      expect(body.wonThisQuarter.value).toBe(1)
+      expect(body.wonThisQuarter.delta).toEqual({ value: -67, direction: 'down' })
+    })
   })
 })

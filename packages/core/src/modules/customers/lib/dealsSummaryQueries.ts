@@ -8,6 +8,7 @@ type DateWindow = {
 }
 
 export type OpenPipelineRow = {
+  organization_id: string
   stage: string | null
   currency: string | null
   total: string | number | null
@@ -16,6 +17,7 @@ export type OpenPipelineRow = {
 }
 
 export type WindowSumRow = {
+  organization_id: string
   currency: string | null
   current_total: string | number | null
   current_count: string | number
@@ -85,6 +87,7 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
 
   const openRows = await connection.execute<OpenPipelineRow[]>(
     `SELECT
+        organization_id,
         pipeline_stage AS stage,
         UPPER(COALESCE(value_currency, '')) AS currency,
         COALESCE(SUM(value_amount), 0) AS total,
@@ -92,12 +95,13 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
         owner_user_id
       FROM customer_deals
       WHERE ${scopeWhere} AND ${openDealsPredicate.clause}
-      GROUP BY pipeline_stage, UPPER(COALESCE(value_currency, '')), owner_user_id`,
+      GROUP BY organization_id, pipeline_stage, UPPER(COALESCE(value_currency, '')), owner_user_id`,
     [...scopeValues, ...openDealsPredicate.values],
   )
 
   const inflowRows = await connection.execute<WindowSumRow[]>(
     `SELECT
+        organization_id,
         UPPER(COALESCE(value_currency, '')) AS currency,
         COALESCE(SUM(value_amount) FILTER (WHERE created_at >= ? AND created_at < ?), 0) AS current_total,
         COUNT(*) FILTER (WHERE created_at >= ? AND created_at < ?) AS current_count,
@@ -105,7 +109,7 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
         COUNT(*) FILTER (WHERE created_at >= ? AND created_at < ?) AS previous_count
       FROM customer_deals
       WHERE ${scopeWhere} AND ${openDealsPredicate.clause}
-      GROUP BY UPPER(COALESCE(value_currency, ''))`,
+      GROUP BY organization_id, UPPER(COALESCE(value_currency, ''))`,
     [
       input.currentQuarter.start.toISOString(),
       input.currentQuarter.end.toISOString(),
@@ -122,6 +126,7 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
 
   const wonRows = await connection.execute<WindowSumRow[]>(
     `SELECT
+        organization_id,
         UPPER(COALESCE(value_currency, '')) AS currency,
         COALESCE(SUM(value_amount) FILTER (WHERE updated_at >= ? AND updated_at < ?), 0) AS current_total,
         COUNT(*) FILTER (WHERE updated_at >= ? AND updated_at < ?) AS current_count,
@@ -129,7 +134,7 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
         COUNT(*) FILTER (WHERE updated_at >= ? AND updated_at < ?) AS previous_count
       FROM customer_deals
       WHERE ${scopeWhere} AND (status = 'win' OR closure_outcome = 'won')
-      GROUP BY UPPER(COALESCE(value_currency, ''))`,
+      GROUP BY organization_id, UPPER(COALESCE(value_currency, ''))`,
     [
       input.currentQuarter.start.toISOString(),
       input.currentQuarter.end.toISOString(),

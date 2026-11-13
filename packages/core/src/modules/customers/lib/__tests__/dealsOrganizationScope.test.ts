@@ -45,6 +45,19 @@ describe('deals organization scope', () => {
     expect(execute).toHaveBeenCalledTimes(1)
   })
 
+  it('orders the widened lookup so callers that still read [0] get a stable organization', async () => {
+    const { em, execute } = createEntityManager([{ id: accountOrgId }])
+
+    await resolveDealsOrganizationIds({
+      em,
+      scope: { filterIds: null },
+      auth: { orgId: null },
+      tenantId,
+    })
+
+    expect(execute.mock.calls[0][0]).toMatch(/ORDER BY created_at, id\s*$/)
+  })
+
   it('scopes the widened lookup to the caller tenant', async () => {
     const { em, execute } = createEntityManager([{ id: accountOrgId }])
 

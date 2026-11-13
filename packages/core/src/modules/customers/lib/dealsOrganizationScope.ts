@@ -15,8 +15,8 @@ export const NO_ORGANIZATION_SENTINEL = '00000000-0000-0000-0000-000000000000'
  * the read rather than narrow it. `auth.orgId` is null in exactly that case (the super-admin
  * org cookie override clears it), which is why it cannot be used as a fallback there.
  *
- * Always returns at least one id, so callers can rely on `[0]` for the single-organization
- * lookups (base currency, exchange-rate scope) these routes still perform.
+ * Always returns at least one id. The widened list is ordered (oldest organization first) so
+ * callers that still pick `[0]` for a single-organization lookup get the same one every time.
  */
 export async function resolveDealsOrganizationIds(params: {
   em: CoreEntityManager
@@ -31,7 +31,7 @@ export async function resolveDealsOrganizationIds(params: {
   }
   if (scope.filterIds === null) {
     const rows = await em.getConnection().execute<Array<{ id: string }>>(
-      `SELECT id FROM organizations WHERE tenant_id = ? AND deleted_at IS NULL`,
+      `SELECT id FROM organizations WHERE tenant_id = ? AND deleted_at IS NULL ORDER BY created_at, id`,
       [tenantId],
     )
     const ids = rows.map((row: { id: string }) => String(row.id)).filter((id: string) => id.length > 0)
