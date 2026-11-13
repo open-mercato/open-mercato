@@ -20,7 +20,7 @@ Open Questions raised while drafting were resolved with the most reversible, sma
 | Q1 | Split the OSS provider contract and the Enterprise module into two specs? | **No — one spec, phased.** Phase 1 (OSS seam) ships as its own OSS PR and is inert; Phases 2–4 (Enterprise) depend on it. | The brief mandates a single enterprise spec with minimal OSS seams. The fresh-context scope review recommended a split (the seam also serves custom providers). If maintainers prefer, Phase 1 can be lifted verbatim into an OSS spec under `.ai/specs/` without design changes. |
 | Q2 | Who owns the OSS default provider — `directory` (as #7317 proposed) or `shared`? | **`shared` DI defaults register a no-op provider** (`noopTenantBrandingProvider`). The existing `Organization.logoUrl` behaviour of the backend nav stays where it is and is used whenever the provider returns no logo. | Smallest OSS surface; no new `directory` subscribers; nav output with nothing registered stays byte-identical. |
 | Q3 | Branding granularity: tenant, organization, or host? | **Tenant-level, one profile per tenant.** No `organization_id` column in v1; organization overrides and host mapping are deferred. Backend precedence: tenant profile logo → selected organization's `logoUrl` (today) → platform logo. | Tenant is the commercial unit of a multi-tenant deployment; org-level overrides can be added later as an additive column + resolver rule. |
-| Q4 | Logo storage: attachments module or the profile row? | **Profile row** — validated base64 PNG/JPEG/WebP, ≤ 256 KB decoded per logo, served from a same-origin public route `GET /api/branding_profiles/logo/{tenantId}/{variant}?v={hash}`. | Works offline and on the unauthenticated login page; `attachmentService.createScoped` writes private partitions only, and a public partition would add a cross-module write path for two small images. |
+| Q4 | Logo storage: attachments module or the profile row? | **Write-once asset table** — validated base64 PNG/JPEG/WebP, ≤ 256 KB decoded per logo, served from a same-origin public route `GET /api/branding_profiles/logo/{tenantId}/{variant}?v={hash}`. | Works offline and on the unauthenticated login page; `attachmentService.createScoped` writes private partitions only, and a public partition would add a cross-module write path for two small images. |
 | Q5 | Accept SVG logos? | **No in v1** (PNG/JPEG/WebP only). | SVG served from the app origin is an XSS vector on direct navigation; raster-only matches the existing `BrandStyle.logo` rule. Revisit with a sanitiser. |
 | Q6 | What does "accent colour" map to? | **`--brand-violet` / `--brand-violet-foreground`** (the brand-accent tokens in the published safe-token contract). `--accent-indigo`, `--status-*`, `--accent*` scaffolding are never written. | Stays inside the DS theming contract of the predecessor spec. |
 | Q7 | How does the login page know the tenant before login? | **`?tenant=<uuid>` query parameter, else the existing `om_login_tenant` cookie** (both already used by `login.tsx`). No host → tenant mapping in v1. | Reuses today's tenant-selection mechanism; host mapping needs a domain registry and is deferred. A deployment can still override `tenantBrandingProvider` with `varyByHost`. |
@@ -142,6 +142,30 @@ export function invalidateTenantBrandingCache(
    - Portal layout (`(frontend)/layout.tsx` + mirror): after the org is resolved, resolve with surface `portal`; pass `branding` to `PortalLayoutShell` (`logo`, `darkLogo`, `productName`), render `<TenantBrandStyle>`.
    - Login (`apps/mercato/src/app/login/page.tsx` + mirror): becomes an async server component reading `searchParams.tenant` or the `om_login_tenant` cookie (must parse as UUID), resolves with surface `auth`, renders `<TenantBrandStyle>` and passes `branding` to `LoginPage` (`auth/frontend/login.tsx` uses it instead of `/open-mercato.svg` and `auth.login.brandName` when present).
 
+### Frontend Architecture Contract
+
+| Surface | Server root and data owner | Client islands |
+|---|---|---|
+| Backend | Existing backend layout resolves branding using its existing request container and auth scope | Existing AppShell/ShellLogo receive serializable branding props |
+| Portal | Existing frontend layout resolves branding after its org lookup, reusing that container | Existing PortalLayoutShell/PortalShell receive serializable props |
+| Login | Async login page reads tenant query/cookie and resolves branding | Existing LoginPage handles credentials, tenant selection and form state |
+| Settings → Branding | New server page owns feature gating and mounts the editor | Route-local BrandingEditor and BrandingPreview handle form state and preview |
+
+`TenantBrandStyle` remains server-only. Schema, palette and CSS serialization helpers are browser-safe; DI, ORM, provider resolution, timeout and cache code are server-only and must never enter client imports.
+
+| Client file | Browser-only reason | Scope and cleanup |
+|---|---|---|
+| Existing AppShell / ShellLogo | Navigation state and theme-dependent logo display | Existing backend subtree; no new fetch, provider or global subscription |
+| Existing PortalLayoutShell / PortalShell | Portal navigation/session context | Existing portal subtree; no backend-only editor imports |
+| Existing auth/frontend/login.tsx | Credential form state, tenant selection and browser storage | Login subtree; preserve existing effect cleanup |
+| New components/BrandingEditor.tsx | CrudForm state, file input/FileReader and local keyboard actions | Settings route only; release readers/listeners on unmount |
+| New components/BrandingPreview.tsx | Surface/mode controls and scoped CSS variables | Settings route only; no document-wide style writes |
+| Existing gallery preview runtime | localStorage subscription and preview CSS specificity | Existing opt-in scope; preserve unsubscribe cleanup |
+
+Budgets: zero new client page/layout roots; new client leaves stay at or below 300 LOC (split editor fields into local leaves when needed); zero heavy browser libraries or route-specific editor imports in shared shells/global providers. The new branding DI registration is server-scoped and adds no browser bootstrap provider. No additional request container is created inside the resolver or an already-container-owning layout.
+
+Verification before implementation merge: run `yarn check:client-boundaries`; capture a production build/bundle comparison for login/backend/portal, with no new editor dependencies in those route chunks. Extend TC-BRAND-006/009 to load each shell with JavaScript enabled and fail on hydration errors while checking light/dark logo behavior; TC-BRAND-010/011 must cover editor hydration, preview, save/reset and dialog keyboard behavior. Retain raw-HTML first-paint assertions separately. Record request latency on cache hit/miss and confirm the provider timeout remains bounded at 2 s.
+
 ### Enterprise module `branding_profiles` (Phases 2–4)
 
 Owns the data, the admin UI, the validation/derivation, and a provider that overrides `tenantBrandingProvider` in its `di.ts`.
@@ -151,7 +175,7 @@ Owns the data, the admin UI, the validation/derivation, and a provider that over
 | Alternative | Why not |
 |---|---|
 | Everything in OSS (`directory` default provider + UI) as #7317 proposed | Product decision: per-tenant branding is an Enterprise capability (#7317 maintainer comment). OSS keeps only the seam. |
-| Logos in `attachments` (public partition) | Needs a public partition and a cross-module write path; `createScoped` is private-only. Two ≤ 256 KB images per tenant fit the row. |
+| Logos in `attachments` (public partition) | Needs a public partition and a cross-module write path; `createScoped` is private-only. Two ≤ 256 KB images per tenant fit the dedicated asset table without a cross-module storage dependency. |
 | Inline logos as `data:` URLs in SSR HTML | Bloats every HTML response and needs `img-src data:` in CSP. A same-origin route with `immutable` caching costs one cached request. |
 | Client-side branding fetch after hydration | Exactly the flash this spec removes. |
 | Full palette (11 shades) like the gallery Colour Studio | Larger surface than the published safe-token contract; v1 derives only `--primary*` and `--brand-violet*`. |
@@ -163,7 +187,7 @@ flowchart LR
   subgraph OSS["OSS (new, additive)"]
     R[resolveTenantBranding] -->|DI| P{{tenantBrandingProvider}}
     P -.default.-> N[noopTenantBrandingProvider]
-    R --> C[(DI cache, tag tenant:id)]
+    R --> C[("DI cache, tag tenant-branding:{tenantId}")]
     L1[login page.tsx] --> R
     L2[backend layout.tsx] --> R
     L3["(frontend) portal layout.tsx"] --> R
@@ -203,6 +227,7 @@ commands/profile.ts branding_profiles.profile.save / .reset (undoable)
 api/profile/route.ts            GET / PUT / DELETE
 api/logo/[tenantId]/[variant]/route.ts   public GET
 backend/branding/page.tsx + page.meta.ts  settings page
+components/BrandingEditor.tsx  route-local client form
 components/BrandingPreview.tsx  preview frames (login/backend/portal, light/dark)
 i18n/{en,pl,de,es,ko}.json
 migrations/ + .snapshot-open-mercato.json
@@ -240,7 +265,7 @@ __tests__/, __integration__/
 | `byte_size`, `width`, `height` | int | width/height from the client, sanity-checked against PNG/WebP headers when parseable |
 | `created_at` | timestamptz | |
 
-Assets are write-once. The profile references them by id, so the profile row stays small (the provider reads only the profile plus the two asset `sha256` values, never the blobs), and undo snapshots hold asset ids, not base64. On every save the command deletes the tenant's assets that are unreferenced **and** older than 30 days (undo retention), bounded to that tenant.
+Assets are write-once. The profile references them by id, so the profile row stays small (the provider reads only the profile plus the two asset `sha256` values, never the blobs), and undo snapshots hold asset ids, not base64. Cleanup is tenant-scoped and runs only after commit. An asset is eligible for deletion only when it is older than 30 days, no profile row (including soft-deleted rows) references it, and no still-replayable undo or redo snapshot references it. Asset creation age alone never establishes undo expiry: replacing a year-old logo creates a fresh snapshot that must retain that asset. The implementation must use the command history's actual replay eligibility when checking snapshot references; if that eligibility cannot be established, retain the asset. Undo/redo and cleanup must serialize their reference check and deletion so a replay cannot restore an id whose asset is being deleted.
 
 - No `organization_id` (Q3): the entity is tenant-scoped; every query filters `tenant_id` from the authenticated scope, never from the body.
 - No ORM relations; `tenant_id` is a plain FK id.
@@ -416,12 +441,12 @@ Per `BACKWARD_COMPATIBILITY.md`:
 8. `data/entities.ts` (`BrandingProfile`, `BrandingLogoAsset`) + `data/validators.ts`; `yarn db:generate`, keep only the `branding_profiles` / `branding_logo_assets` migration + snapshot (do **not** run `yarn db:migrate` without asking).
 9. `lib/palette.ts` (`deriveBrandStyle`: light primary as given; hover = OKLCH L−0.06; dark primary L ≥ 0.65; foregrounds auto-picked; accent → `--brand-violet*`; returns `{ style, contrast[] }`) and `lib/logo.ts` (decode, magic bytes, size, hash). Unit tests with fixed fixtures (dark brand, pastel, mid-luminance valley, achromatic).
 10. `lib/provider.ts` + `di.ts` override; respects `applyToLogin`/`applyToPortal`/`isActive`/tenant active. Unit tests.
-11. `commands/profile.ts` (save/reset with undo snapshots, cache invalidation after commit, events).
+11. `commands/profile.ts` (save/reset with undo snapshots, cache invalidation after commit, events). Asset cleanup preserves live profile and replayable undo/redo references, serializes with replay, and retains assets when replay eligibility is uncertain.
 12. `api/profile/route.ts` (GET/PUT/DELETE, mutation guards, optimistic lock, openApi) and `api/logo/[tenantId]/[variant]/route.ts` (headers as specified). Integration tests TC-BRAND-001…009.
 
 ### Phase 3 — Admin settings page
 
-13. `backend/branding/page.meta.ts` + `page.tsx` (CrudForm, custom renderers for logo and colour fields, contrast table, Save gating, reset dialog, keyboard shortcuts).
+13. Server `backend/branding/page.meta.ts` + `page.tsx` mounting route-local `components/BrandingEditor.tsx` (CrudForm, custom renderers for logo and colour fields, contrast table, Save gating, reset dialog, keyboard shortcuts).
 14. `components/BrandingPreview.tsx` (three frames × light/dark, scoped CSS variables).
 15. i18n for en/pl/de/es/ko; `yarn i18n:check-sync`, `yarn i18n:check-usage`. Integration test TC-BRAND-010…011.
 
@@ -448,6 +473,7 @@ All tests live in `packages/enterprise/src/modules/branding_profiles/__integrati
 | TC-BRAND-010 | Settings UI live preview | change primary → preview frame CSS var updates before save; failing pair shows fail badge and Save disabled; dark toggle shows dark logo |
 | TC-BRAND-011 | Settings UI save/reset flow | upload logo via file chooser (in-memory buffer), save → flash; reset → confirm dialog → defaults; undo restores |
 | TC-BRAND-012 | OSS no-op path (core suite, module disabled) | `/login` and `/backend` HTML contain no `om-tenant-brand`; nav `brand` equals pre-change snapshot |
+| TC-BRAND-013 | Asset retention and replay | Replace a logo whose asset is > 30 days old, trigger cleanup, then undo and redo; both logo routes return the expected bytes. Repeat reset/undo and verify snapshot-protected assets survive; only expired, unreferenced assets are deleted. Exercise cleanup concurrent with replay. |
 
 Unit suites: `packages/shared/src/lib/branding/__tests__/*`, `packages/enterprise/src/modules/branding_profiles/__tests__/*` (palette, logo, provider, commands), `packages/core/src/modules/auth/__tests__/nav-brand.test.ts`.
 
@@ -476,3 +502,8 @@ Unit suites: `packages/shared/src/lib/branding/__tests__/*`, `packages/enterpris
 
 ### Re-review — 2026-11-13
 - **Cache**: Aligned the multi-instance edge-case row with the resolver and command contracts: invalidate `tenant-branding:{tenantId}`, never the shared `tenant:{id}` tag. Addresses the requested change from @haxiorz.
+
+### Autonomous re-review corrections — 2026-11-13
+- Protected assets referenced by replayable undo/redo history; specified conservative retention, replay/cleanup serialization and TC-BRAND-013.
+- Added the frontend boundary map, client ledger, budgets, bootstrap scope and hydration/build evidence gate.
+- Aligned Q4 storage and the architecture cache-tag diagram with the authoritative contracts.
