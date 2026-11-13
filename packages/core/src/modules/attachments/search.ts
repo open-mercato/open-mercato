@@ -1,10 +1,15 @@
+import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type {
   SearchBuildContext,
   SearchIndexSource,
   SearchModuleConfig,
+  SearchResult,
   SearchResultPresenter,
+  SearchResultVisibilityContext,
 } from '@open-mercato/shared/modules/search'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { buildCitation, DOCUMENT_HEADING_PATH_SEPARATOR } from './lib/documentStructure/locator'
@@ -176,6 +181,84 @@ export async function shouldIndexDocumentSection(ctx: SearchBuildContext): Promi
   }
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function isAwilixContainer(value: unknown): value is AwilixContainer {
+  return typeof value === 'object' && value !== null && typeof (value as { resolve?: unknown }).resolve === 'function'
+}
+
+function isOrganizationVisible(ctx: SearchResultVisibilityContext, organizationId: string | null): boolean {
+  if (ctx.organizationId) return organizationId === ctx.organizationId
+  if (Array.isArray(ctx.organizationIds)) return organizationId !== null && ctx.organizationIds.includes(organizationId)
+  return true
+}
+
+/**
+ * Keep only section hits whose attachment the viewer may open: the same
+ * `evaluateAttachmentAccess` rule (`read`) as `GET /api/attachments/file/:id`,
+ * including owner-access resolvers. Missing sections, attachments or partitions
+ * drop the hit; a lookup failure throws, which drops every section hit.
+ */
+export async function filterVisibleDocumentSections(ctx: SearchResultVisibilityContext): Promise<SearchResult[]> {
+  const container = ctx.viewer.container
+  if (!isAwilixContainer(container)) throw new Error('[internal] Section visibility check requires a request container')
+  const auth = ctx.viewer.auth
+  if (auth.isSuperAdmin !== true && auth.tenantId !== ctx.tenantId) return []
+  const sectionIds = Array.from(new Set(ctx.results.map((result) => result.recordId).filter((id) => UUID_PATTERN.test(id))))
+  if (!sectionIds.length) return []
+  const [{ Attachment, AttachmentDocumentSection, AttachmentPartition }, { createAttachmentAccessContext, evaluateAttachmentAccess }] =
+    await Promise.all([import('./data/entities'), import('./lib/access-runner')])
+  const em = container.resolve<EntityManager>('em')
+  const decryptionScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId ?? null }
+  const sections = await findWithDecryption(
+    em,
+    AttachmentDocumentSection,
+    { id: { $in: sectionIds }, tenantId: ctx.tenantId },
+    { fields: ['id', 'attachmentId', 'tenantId', 'organizationId'] },
+    decryptionScope,
+  )
+  const attachmentIdBySection = new Map(sections.map((section) => [section.id, section.attachmentId]))
+  const attachmentIds = Array.from(new Set(sections.map((section) => section.attachmentId)))
+  if (!attachmentIds.length) return []
+  const attachments = await findWithDecryption(
+    em,
+    Attachment,
+    { id: { $in: attachmentIds }, tenantId: ctx.tenantId },
+    undefined,
+    decryptionScope,
+  )
+  const partitionCodes = Array.from(new Set(attachments.map((attachment) => attachment.partitionCode)))
+  const partitions = partitionCodes.length
+    ? await findWithDecryption(em, AttachmentPartition, { code: { $in: partitionCodes } }, undefined, decryptionScope)
+    : []
+  const partitionByCode = new Map(
+    partitions
+      .filter((partition) => (partition.tenantId ?? null) === null || partition.tenantId === ctx.tenantId)
+      .map((partition) => [partition.code, partition]),
+  )
+  const accessContext = createAttachmentAccessContext(container)
+  const visibleAttachments = new Set<string>()
+  for (const attachment of attachments) {
+    const partition = partitionByCode.get(attachment.partitionCode)
+    if (!partition || attachment.tenantId !== ctx.tenantId) continue
+    const organizationId = attachment.organizationId ?? null
+    if (!isOrganizationVisible(ctx, organizationId)) continue
+    const access = await evaluateAttachmentAccess({
+      auth: { ...auth, orgId: organizationId },
+      attachment,
+      partition,
+      action: 'read',
+      context: accessContext,
+      requireAuthForPublic: true,
+    })
+    if (access.ok) visibleAttachments.add(attachment.id)
+  }
+  return ctx.results.filter((result) => {
+    const attachmentId = attachmentIdBySection.get(result.recordId)
+    return attachmentId !== undefined && visibleAttachments.has(attachmentId)
+  })
+}
+
 async function buildPresenter(section: SectionRecord, fileName: string | null): Promise<SearchResultPresenter> {
   const { translate } = await resolveTranslations()
   const citation = buildCitation({
@@ -200,6 +283,7 @@ export const searchConfig: SearchModuleConfig = {
       priority: 5,
       strategies: ['fulltext', 'vector', 'tokens'],
       shouldIndex: shouldIndexDocumentSection,
+      filterResults: filterVisibleDocumentSections,
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         const scope = resolveScope(ctx)

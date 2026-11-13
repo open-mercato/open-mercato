@@ -1,6 +1,9 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { deleteAttachmentIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/attachmentsFixtures'
+import {
+  deleteAttachmentIfExists,
+  uploadAttachmentFixture,
+} from '@open-mercato/core/modules/core/__integration__/helpers/attachmentsFixtures'
 import {
   createRoleFixture,
   createUserFixture,
@@ -29,7 +32,8 @@ export const integrationMeta = {
  * TC-ATT-STRUCT-006: document sections are searchable only from partitions that opt in
  * Source spec: .ai/specs/2026-10-21-document-structure-extraction.md (section search)
  * Surfaces: POST/PUT /api/attachments/partitions (indexDocumentSections), DELETE /api/attachments,
- * GET /api/search/search with entityTypes=attachments:attachment_document_section.
+ * GET /api/search/search with entityTypes=attachments:attachment_document_section,
+ * GET /api/attachments/file/:id (section hits follow the same open rule, including owner access).
  *
  * Indexing runs on queue workers after extraction completes, toggling the partition flag
  * enqueues a partition-wide sync, and deleting an attachment purges its section records,
@@ -107,6 +111,20 @@ async function readPastPerformanceSection(
   return lookup.body!.items[0]
 }
 
+async function fileStatus(request: APIRequestContext, token: string, attachmentId: string): Promise<number> {
+  const response = await apiRequest(request, 'GET', `/api/attachments/file/${encodeURIComponent(attachmentId)}`, { token })
+  return response.status()
+}
+
+async function createOwnerDocument(request: APIRequestContext, token: string, title: string): Promise<string | null> {
+  const response = await apiRequest(request, 'POST', '/api/documents', { token, data: { title, folderId: null } })
+  if (response.status() === 404) return null
+  expect(response.status(), 'POST /api/documents should return 201').toBe(201)
+  const body = await readJsonSafe<{ id?: string }>(response)
+  expect(typeof body?.id, 'document id').toBe('string')
+  return body!.id!
+}
+
 async function setPartitionIndexing(
   request: APIRequestContext,
   token: string,
@@ -128,7 +146,7 @@ async function setPartitionIndexing(
 }
 
 test.describe('TC-ATT-STRUCT-006: document section search', () => {
-  test('indexes opted-in partitions only and removes records on toggle-off, delete and missing ACL', async ({ request }) => {
+  test('indexes opted-in partitions only, hides sections the caller cannot open, and removes records on toggle-off, delete and missing ACL', async ({ request }) => {
     test.setTimeout(SEARCH_TEST_TIMEOUT_MS)
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
@@ -144,8 +162,12 @@ test.describe('TC-ATT-STRUCT-006: document section search', () => {
     let deletedAttachmentId: string | null = null
     let toggledAttachmentId: string | null = null
     let plainAttachmentId: string | null = null
+    let ownedAttachmentId: string | null = null
+    let ownerDocumentId: string | null = null
     let viewerRoleId: string | null = null
     let viewerUserId: string | null = null
+    let readerRoleId: string | null = null
+    let readerUserId: string | null = null
 
     try {
       indexedPartition = await prepareStructurePartition(request, adminToken, 'search_on', { indexDocumentSections: true })
@@ -194,6 +216,50 @@ test.describe('TC-ATT-STRUCT-006: document section search', () => {
       expect(afterIndexing.status).toBe(200)
       expect(findHit(afterIndexing.results, plainSection.id), 'partition without indexing must not produce section hits').toBeNull()
 
+      ownerDocumentId = await createOwnerDocument(request, adminToken, `${stamp}-owner`)
+      if (!ownerDocumentId) {
+        test.info().annotations.push({ type: 'skip-part', description: 'documents module unavailable; owner-access section filter not exercised' })
+      } else {
+        const owned = await uploadAttachmentFixture(request, adminToken, {
+          entityId: 'documents:document',
+          recordId: ownerDocumentId,
+          fileName: `${stamp}-owned.pdf`,
+          mimeType: 'application/pdf',
+          buffer: pdf,
+          partitionCode: indexedPartition.partitionCode,
+        })
+        ownedAttachmentId = owned.id
+        const ownedStructure = await extractAndWait(request, adminToken, ownedAttachmentId, indexedPartition)
+        expect(ownedStructure.extraction?.status, 'owned document extraction should complete').toBe('completed')
+        const ownedSection = await readPastPerformanceSection(request, adminToken, ownedAttachmentId)
+        expect(await fileStatus(request, adminToken, ownedAttachmentId), 'the document owner can open the attachment').toBe(200)
+        await expectHitState(request, adminToken, ownedSection.id, 'present', 'the owner should find the owned section')
+
+        readerRoleId = await createRoleFixture(request, superadminToken, { tenantId, name: `QA Section Reader ${stamp}` })
+        await setRoleAclFeatures(request, superadminToken, {
+          roleId: readerRoleId,
+          features: ['search.view', 'attachments.view'],
+          organizations: [organizationId],
+        })
+        const readerEmail = `${stamp}-reader@test.invalid`
+        readerUserId = await createUserFixture(request, superadminToken, {
+          email: readerEmail,
+          password: VALID_PASSWORD,
+          organizationId,
+          roles: [readerRoleId],
+          name: `QA Section Reader ${stamp}`,
+        })
+        const readerToken = await getAuthToken(request, readerEmail, VALID_PASSWORD)
+        expect(await fileStatus(request, readerToken, ownedAttachmentId), 'attachments.view alone cannot open a document-owned file').not.toBe(200)
+        await expectHitState(request, readerToken, toggledSection.id, 'present', 'attachments.view holders still find library sections')
+        const readerSearch = await searchSections(request, readerToken)
+        expect(readerSearch.status).toBe(200)
+        expect(
+          findHit(readerSearch.results, ownedSection.id),
+          'a section of an attachment the caller cannot open must not be returned',
+        ).toBeNull()
+      }
+
       viewerRoleId = await createRoleFixture(request, superadminToken, { tenantId, name: `QA Section Search ${stamp}` })
       await setRoleAclFeatures(request, superadminToken, {
         roleId: viewerRoleId,
@@ -233,10 +299,16 @@ test.describe('TC-ATT-STRUCT-006: document section search', () => {
       await deleteAttachmentIfExists(request, adminToken, deletedAttachmentId)
       await deleteAttachmentIfExists(request, adminToken, toggledAttachmentId)
       await deleteAttachmentIfExists(request, adminToken, plainAttachmentId)
+      await deleteAttachmentIfExists(request, adminToken, ownedAttachmentId)
+      if (ownerDocumentId) {
+        await apiRequest(request, 'DELETE', `/api/documents/${ownerDocumentId}`, { token: adminToken }).catch(() => undefined)
+      }
       await deletePartitionQuietly(request, adminToken, indexedPartition)
       await deletePartitionQuietly(request, adminToken, plainPartition)
       await deleteUserIfExists(request, superadminToken, viewerUserId)
       await deleteRoleIfExists(request, superadminToken, viewerRoleId)
+      await deleteUserIfExists(request, superadminToken, readerUserId)
+      await deleteRoleIfExists(request, superadminToken, readerRoleId)
     }
   })
 })
