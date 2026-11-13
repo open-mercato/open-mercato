@@ -55,6 +55,7 @@ const markPreparationCompleted = jest.fn(async (_request: unknown, completedAt: 
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
+    dispose: jest.fn(async () => {}),
     resolve: (name: string) => {
       if (name === 'em') return {}
       if (name === 'eventBus') return { emitEvent }
