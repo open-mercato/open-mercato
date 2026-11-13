@@ -340,31 +340,6 @@ const INTERACTION_LIST_COLUMNS = [
   'updated_at',
 ] as const
 
-// The organizations whose encryption maps decide how the list is searched and sorted.
-// A restricted scope names them. An unrestricted one covers the whole tenant, so they are
-// read from the rows themselves, and only when encryption is on: with it off every map
-// resolves to "nothing encrypted" and the extra query would buy nothing.
-async function listEncryptionScopeOrganizationIds(
-  db: any,
-  params: {
-    tenantId: string
-    organizationIds: string[] | undefined
-    selectedOrganizationId: string | null
-    encryptionEnabled: boolean
-  },
-): Promise<Array<string | null>> {
-  if (params.organizationIds !== undefined) return params.organizationIds
-  if (!params.encryptionEnabled) return [params.selectedOrganizationId]
-  const rows = await db
-    .selectFrom('customer_interactions')
-    .select('organization_id')
-    .distinct()
-    .where('deleted_at', 'is', null)
-    .where('tenant_id', '=', params.tenantId)
-    .execute() as Array<{ organization_id: string | null }>
-  return [params.selectedOrganizationId, ...rows.map((row) => row.organization_id ?? null)]
-}
-
 // Shared by both the SQL keyset path and the encrypted-sort candidate scan
 // so the two paths never drift on which rows are in scope.
 function applyInteractionListFilters(
@@ -529,22 +504,20 @@ export async function GET(req: Request) {
     // decision is taken across that whole scope: reading only the selected
     // organization's map ran SQL search and ordering against the ciphertext of an
     // organization that encrypts a column the selected one keeps in plaintext.
+    // An unrestricted scope asks for the tenant-wide policy (`null`), which the
+    // encryption service already resolves as the union of every organization's
+    // map, so no organization has to be discovered from the rows first.
     const [callerUserFeatures, encryptedFields] = await Promise.all([
       viewerUserId
         ? resolveUserFeatures(container, viewerUserId, auth.tenantId ?? null, selectedOrganizationId)
         : Promise.resolve(undefined),
-      (async () => resolveEncryptedFieldsAcrossOrganizations({
+      resolveEncryptedFieldsAcrossOrganizations({
         service: encryptionService,
         entityId: CUSTOMER_INTERACTION_ENTITY_ID,
         fields: [sortConfig.column, 'title', 'body'],
         tenantId: auth.tenantId,
-        organizationIds: await listEncryptionScopeOrganizationIds(db, {
-          tenantId: auth.tenantId as string,
-          organizationIds,
-          selectedOrganizationId,
-          encryptionEnabled: encryptionService?.isEnabled() ?? false,
-        }),
-      }))(),
+        organizationIds: organizationIds ?? [null],
+      }),
     ])
     const sortFieldIsEncrypted = encryptedFields.has(sortConfig.column)
     const searchTerm = query.search

@@ -72,9 +72,6 @@ function createKysely(): Kysely<any> {
   ;(db.getExecutor() as any).executeQuery = async (compiled: CompiledQuery) => {
     if (!compiled.sql.includes('customer_interactions')) return { rows: [] }
     recorded.push(compiled)
-    if (/select distinct "organization_id"/i.test(compiled.sql)) {
-      return { rows: Array.from(new Set(Array.from(storedRows.values()).map((row) => row.organizationId))).map((organization_id) => ({ organization_id })) }
-    }
     const pageIds = compiled.parameters.filter((value): value is string => typeof value === 'string' && storedRows.has(value))
     if (/"id" in/.test(compiled.sql)) return { rows: pageIds.map((id) => fullRow(storedRows.get(id) as StoredRow)) }
     // SQL ILIKE only ever sees what is stored: ciphertext never contains the search term.
@@ -122,8 +119,10 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
 }))
 
 const mockIsEnabled = jest.fn<boolean, []>(() => true)
+// Mirrors the service: an organization resolves its own map, and the tenant-wide policy
+// (`null`) is the union of every organization's map.
 const mockGetEncryptedFieldNames = jest.fn<Promise<string[]>, [string, string | null, string | null]>(
-  async (_entityId, _tenantId, organizationId) => (organizationId === childOrgId ? ['title', 'body'] : []),
+  async (_entityId, _tenantId, organizationId) => (organizationId === parentOrgId ? [] : ['title', 'body']),
 )
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: () => ({
@@ -159,7 +158,7 @@ async function searchIds(term: string): Promise<string[]> {
 }
 
 const ilikeQueries = () => recorded.filter((query) => /\bilike\b/i.test(query.sql))
-const distinctOrganizationQueries = () => recorded.filter((query) => /select distinct "organization_id"/i.test(query.sql))
+const organizationDiscoveryQueries = () => recorded.filter((query) => /\bdistinct\b/i.test(query.sql))
 
 describe('interactions list — search across organizations with different encryption maps', () => {
   beforeEach(() => {
@@ -186,26 +185,36 @@ describe('interactions list — search across organizations with different encry
     )
   })
 
-  test('reads the organizations from the rows when the scope is unrestricted', async () => {
+  test('an unrestricted scope uses the tenant-wide policy and never discovers organizations from the rows', async () => {
     scope = { filterIds: null, selectedId: null }
 
     const ids = await searchIds('renewal')
 
     expect(ids).toEqual([rowId(1), rowId(3), rowId(4)])
-    expect(distinctOrganizationQueries()).toHaveLength(1)
-    expect(distinctOrganizationQueries()[0]!.parameters).toEqual(expect.arrayContaining([tenantId]))
+    expect(mockGetEncryptedFieldNames.mock.calls[0]?.[2]).toBeNull()
+    expect(organizationDiscoveryQueries()).toHaveLength(0)
     expect(ilikeQueries()).toHaveLength(0)
   })
 
-  test('keeps the SQL search, without the extra organization lookup, when encryption is off', async () => {
+  test('an unrestricted list without a search or an encrypted sort stays on the single page query', async () => {
+    scope = { filterIds: null, selectedId: null }
+
+    const res = await GET(new Request('http://localhost/api/customers/interactions?limit=50&sortField=scheduledAt&sortDir=desc'))
+
+    expect(res.status).toBe(200)
+    expect(organizationDiscoveryQueries()).toHaveLength(0)
+    expect(candidateScans()).toHaveLength(0)
+    expect(recorded).toHaveLength(1)
+  })
+
+  test('keeps the SQL search when encryption is off', async () => {
     scope = { filterIds: null, selectedId: null }
     mockIsEnabled.mockReturnValue(false)
-    mockGetEncryptedFieldNames.mockImplementation(async () => [])
 
     const ids = await searchIds('renewal')
 
     expect(ids).toEqual([rowId(1)])
-    expect(distinctOrganizationQueries()).toHaveLength(0)
+    expect(organizationDiscoveryQueries()).toHaveLength(0)
     expect(ilikeQueries().length).toBeGreaterThan(0)
   })
 
