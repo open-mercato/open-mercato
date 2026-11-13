@@ -23,6 +23,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.2-modular | Replace module-specific runtime knowledge with module-owned declarations | inline | done | this commit |
 | 2 | 2.2-storage | Discover module-owned legacy storage and keep test probes with their owner | inline | done | this commit |
 | 2 | 2.2-rsc | Verify deferred Next render lifetime and audience against the live canary | inline | todo | — |
+| 2 | 2.2-public-signup | Keep verified signup/invitation continuations and subscribers in tenant scope | inline | done | this commit |
 | 2 | 2.2-public | Scope verified public token, storefront and provisioning continuations | inline | todo | — |
 | 2 | 2.3 | Propagate worker, subscriber and scheduler tenant contexts | inline | todo | — |
 | 2 | 2.4 | Separate tenant CLI operations from privileged maintenance | inline | todo | — |
@@ -123,6 +124,12 @@ Files: Enterprise tenant_boundaries integration tests and isolated application f
 Depends on: 2.2 resolver implementation.
 
 Exit gate: Real deferred RSC tests prove route-audience choice with both cookies, cold start non-recursion, stable query/checkout token, Next after revocation, response cancellation/stream completion and bounded resolver/container work. Publish actual app evidence; no mock-only completion.
+
+### Step 2.2-public-signup: Keep verified signup/invitation continuations and subscribers in tenant scope
+
+Files: Customer-account signup/invitation routes and route unit tests.
+
+Exit gate: Existing authentication response/cookie behavior remains compatible. Invalid organization binding and expired token never enter a tenant continuation. The continuation creates a fresh container and awaits event subscribers before returning. Focused route units and core typecheck pass; live public integration remains required by 2.2-public.
 
 ### Step 2.2-public: Scope verified public token, storefront and provisioning continuations
 

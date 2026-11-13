@@ -2,6 +2,7 @@ import { POST } from '@open-mercato/core/modules/customer_accounts/api/signup'
 
 const mockCheckAuthRateLimit = jest.fn()
 const mockResolveTranslations = jest.fn()
+const mockRunDatabaseContext = jest.fn((_context: unknown, callback: () => unknown) => callback())
 const mockSendEmail = jest.fn()
 const mockFindByEmail = jest.fn()
 const mockCreateUser = jest.fn()
@@ -42,6 +43,10 @@ const mockContainer = {
     return null
   }),
 }
+
+jest.mock('@open-mercato/shared/lib/db/runtime', () => ({
+  runWithDatabaseExecutionContext: (context: unknown, callback: () => unknown) => mockRunDatabaseContext(context, callback),
+}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
@@ -173,4 +178,30 @@ describe('POST /api/customer_accounts/signup', () => {
     })
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
   })
+  test('does not create a tenant continuation for a mismatched persisted organization binding', async () => {
+    mockExecute.mockResolvedValue([])
+    const response = await POST(makeRequest({ email: 'new@example.com', password: 'Secret123!', displayName: 'New User', tenantId, organizationId }))
+    expect(response.status).toBe(400)
+    expect(mockRunDatabaseContext).not.toHaveBeenCalled()
+    expect(mockCreateUser).not.toHaveBeenCalled()
+    expect(mockEmitCustomerAccountsEvent).not.toHaveBeenCalled()
+  })
+
+  test('keeps the verified tenant continuation alive until signup subscribers finish', async () => {
+    let releaseEvent: () => void = () => undefined
+    let eventStarted: () => void = () => undefined
+    const started = new Promise<void>((resolve) => { eventStarted = resolve })
+    mockEmitCustomerAccountsEvent.mockImplementation(() => {
+      eventStarted()
+      return new Promise<void>((resolve) => { releaseEvent = resolve })
+    })
+    let completed = false
+    const response = POST(makeRequest({ email: 'new@example.com', password: 'Secret123!', displayName: 'New User', tenantId, organizationId })).then((value) => { completed = true; return value })
+    await started
+    expect(completed).toBe(false)
+    expect(mockRunDatabaseContext).toHaveBeenCalledWith({ kind: 'tenant', tenantId, source: 'public-token', operation: 'customer-signup' }, expect.any(Function))
+    releaseEvent()
+    expect((await response).status).toBe(202)
+  })
+
 })
