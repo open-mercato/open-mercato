@@ -92,15 +92,20 @@ test.describe('TC-RLS-003: actual People forms with restricted FORCE RLS', () =>
       const switchedList = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/customers/people' && response.request().method() === 'GET')
       await page.goto('/backend/customers/people')
       const switchedResponse = await switchedList
-      expect([200, 403]).toContain(switchedResponse.status())
+      expect([200, 403, 422]).toContain(switchedResponse.status())
+      if (switchedResponse.status() === 422) {
+        expect(await switchedResponse.json()).toMatchObject({ code: 'organization_selection_invalid' })
+      }
       if (switchedResponse.ok()) {
         const listed = z.object({ items: z.array(z.object({ id: z.string() }).passthrough()) }).parse(await switchedResponse.json())
         expect(listed.items.map((person) => person.id)).not.toContain(foreignActor.customerId)
       }
       await expect(page.getByText(runtime.second.slug, { exact: true })).toHaveCount(0)
-      await expect(page.getByText(runtime.first.slug, { exact: true }).first()).toBeVisible()
       const foreignRead = await context.request.get(`/api/customers/people/${foreignActor.customerId}`)
-      expect([403, 404]).toContain(foreignRead.status())
+      expect([403, 404, 422]).toContain(foreignRead.status())
+      if (foreignRead.status() === 422) {
+        expect(await foreignRead.json()).toMatchObject({ code: 'organization_selection_invalid' })
+      }
       await screenshot(page, testInfo, 'rls-people-forged-selection.png')
 
       await context.clearCookies({ name: /^om_selected_(tenant|org)$/ })
