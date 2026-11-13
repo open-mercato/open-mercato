@@ -25,8 +25,12 @@ export type EventTone = {
   surfaceClassName: string
   titleClassName: string
   subClassName: string
-  /** Saturated type color for the leading accent bar; null falls back to the neutral token. */
-  accentColor: string | null
+  /**
+   * Saturated type color for the leading accent bar; null or absent falls back to
+   * the neutral token. Optional so tones built from the three class names alone
+   * keep working.
+   */
+  accentColor?: string | null
   style?: React.CSSProperties
 }
 
@@ -196,7 +200,7 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
       style={{ top, height, insetInlineStart, width, ...tone.style }}
       {...buttonProps}
     >
-      <EventAccentBar color={tone.accentColor} />
+      <EventAccentBar color={tone.accentColor ?? null} />
       <span className={cn('w-full text-xs font-semibold leading-4', wrapTitle || compact ? 'line-clamp-2' : 'truncate', tone.titleClassName)}>
         {title}
       </span>
