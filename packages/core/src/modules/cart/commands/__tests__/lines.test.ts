@@ -1419,6 +1419,72 @@ describe('cart promotions + totals recompute (Step 8.2, QA F12)', () => {
     expect(seededCarts[0].totals).toMatchObject({ discountTotalAmount: 0, grandTotalNetAmount: 10, grandTotalGrossAmount: 12 })
   })
 
+  function makeVisibleScopeCtx() {
+    const loadScopedProducts = jest.fn(async () => new Map([['product-1', { id: 'product-1', categoryIds: ['cat-a'], tagIds: [], isActive: true }]]))
+    return makeCtx({ em: makeEm(), catalogScopedProductService: { loadScopedProducts } })
+  }
+
+  it('cart.lines.update clears a stale product_unavailable flag on a line it accepted and counts it in Cart.totals', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 3, assortmentScope: [{ categoryIds: ['cat-a'] }] },
+      makeVisibleScopeCtx(),
+    )
+
+    expect(result.status).toBe('updated')
+    expect(seededCartLines[0].flagState).toBeNull()
+    expect(seededCarts[0].totals).toMatchObject({ grandTotalNetAmount: 30, grandTotalGrossAmount: 36 })
+  })
+
+  it('cart.lines.update keeps a product_unavailable flag when no assortment scope is enforced', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+
+    const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 3 }, makeCtx({ em: makeEm() }))
+
+    expect(result.status).toBe('updated')
+    expect(seededCartLines[0].flagState).toBe('product_unavailable')
+  })
+
+  it('cart.lines.add merging into a stale product_unavailable line clears the flag and counts it in Cart.totals', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 3, addedByActorType: 'rep', assortmentScope: [{ categoryIds: ['cat-a'] }] },
+      makeVisibleScopeCtx(),
+    )
+
+    expect(result.status).toBe('merged')
+    expect(seededCartLines).toHaveLength(1)
+    expect(seededCartLines[0].flagState).toBeNull()
+    expect(seededCarts[0].totals).toMatchObject({ grandTotalNetAmount: 50, grandTotalGrossAmount: 60 })
+  })
+
+  it('cart.lines.bulkAdd merging into a stale product_unavailable line clears the flag and counts it in Cart.totals', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+    const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+
+    const result = await handler.execute(
+      {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        cartId: CART_ID,
+        addedByActorType: 'rep',
+        assortmentScope: [{ categoryIds: ['cat-a'] }],
+        lines: [{ productId: 'product-1', quantity: 3 }],
+      },
+      makeVisibleScopeCtx(),
+    )
+
+    expect(result.results).toEqual([expect.objectContaining({ index: 0, status: 'merged' })])
+    expect(seededCartLines).toHaveLength(1)
+    expect(seededCartLines[0].flagState).toBeNull()
+    expect(seededCarts[0].totals).toMatchObject({ grandTotalNetAmount: 50, grandTotalGrossAmount: 60 })
+  })
+
   // Live repro row 3: deleting the cart's last remaining line must zero every total field,
   // never leave a stale non-zero `grandTotalNetAmount` behind.
   it('deleting the last remaining line zeroes every total field', async () => {
