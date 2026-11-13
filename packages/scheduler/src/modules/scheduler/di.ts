@@ -1,3 +1,4 @@
+import { isDatabaseRuntimeEnabled } from '@open-mercato/shared/lib/db/runtime'
 import { asClass } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { createQueue } from '@open-mercato/queue'
@@ -52,10 +53,13 @@ export function register(container: AppContainer) {
     if (!schedulerSynced) {
       schedulerSynced = true
       setImmediate(() => {
-        const service = container.resolve('bullmqSchedulerService') as BullMQSchedulerService
+        const service = isDatabaseRuntimeEnabled()
+          ? new BullMQSchedulerService(() => { throw new Error('[internal] Scheduler discovery requires a fresh maintenance EntityManager') })
+          : container.resolve('bullmqSchedulerService') as BullMQSchedulerService
         service.syncAll()
           .then(() => logger.info('BullMQ cold start sync complete'))
           .catch((err: Error) => logger.error('BullMQ cold start sync failed', { err }))
+          .finally(async () => { if (isDatabaseRuntimeEnabled()) await service.destroy() })
       })
     }
   } else {
