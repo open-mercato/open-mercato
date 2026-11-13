@@ -20,7 +20,7 @@ The command side already exposes request metadata through `CommandInterceptorCon
 
 | # | Question | Applied default | Why | Confirm? |
 |---|----------|-----------------|-----|----------|
-| Q1 | Split the OSS seam and the enterprise feature into separate specs? | No — one spec, two phases. Phase 1 (OSS seam) ships and is useful on its own; the enterprise phases depend on it. | The OSS seam is ~10 lines and has no consumer without the enterprise phases; a separate spec would be overhead. Phases are independently mergeable. | reversible |
+| Q1 | Split the OSS seam and the enterprise feature into separate specs? | No — one spec, four phases. Phase 1 (OSS seam) ships and is useful on its own; the enterprise phases depend on it. | The OSS seam is additive and has no persistence consumer without the enterprise phases; a separate spec would be overhead. Phases are independently mergeable. | reversible |
 | Q2 | Where does the enterprise part live? | Inside the existing enterprise `security` module, not a new module. | Reuses its ACL namespace, `security.profile.sections` injection spot, notification category `auth`, Security admin menu group and integration fixtures. A new module would duplicate all of these and add a `modules.ts` enablement step for no isolation gain; operators who do not want the data use the kill switch (Q7). | reversible |
 | Q3 | How is the client IP derived? | `getClientIp(req, rateLimiterService.trustProxyDepth)` from `@open-mercato/shared/lib/ratelimit/helpers`, with `rateLimiterService` resolved from the request container — exactly what `auth/lib/rateLimitCheck.ts` does (backed by `RATE_LIMIT_TRUST_PROXY_DEPTH`). Depth `0` (default) yields `ip: null`. | Never trusts spoofable `X-Forwarded-For` unless the operator configured proxies; one source of truth for "client IP". | reversible |
 | Q4 | How is the user agent parsed? | Tiny local regex parser in `security/lib/user-agent.ts` (browser family + major version, OS family, device type). No new dependency. | `bowser` is in `yarn.lock` only transitively (AWS SDK); depending on it directly would add a production dependency (Ask-First). The UI needs families, not exhaustive detection. Fully offline. | reversible |
@@ -31,7 +31,7 @@ The command side already exposes request metadata through `CommandInterceptorCon
 | Q9 | Should SSO and customer-portal sign-ins be recorded? | Not in this spec. "Success" means the primary password credential was accepted (MFA state per Q12). SSO and portal logins do not emit `auth.login.*` today. | Smallest working scope; each is a follow-up that only needs the same event fields emitted from its flow. | reversible |
 | Q10 | "This wasn't me" action? | Not in v1. The drawer and notification link to `/backend/profile/security` (change password, MFA). | Session revocation needs a separate design (sessions are owned by `auth`). | reversible |
 | Q11 | Record the `requiredRoles` 403 and rate-limited 429 responses? | 403: yes — `login.ts` emits `auth.login.failed` with a new reason `role_denied` (password was correct, area not allowed). 429: no — throttled requests emit nothing, by design, so a flood cannot amplify into DB writes. | `role_denied` is an additive reason value on an existing event; 429 logging would turn the rate limiter into a write amplifier. | reversible |
-| Q12 | How do MFA-protected sign-ins look? | Success rows carry `mfa_status`: `not_required` when the user has no active MFA method, otherwise `pending`; a subscriber on the existing `security.mfa.verified` event flips the user's latest `pending` row (within 15 minutes) to `verified`. The new-device notification still fires on password success. | The MFA interceptor runs after the route (`security/api/interceptors.ts`), so the success event precedes MFA. A correct password from an unknown device is exactly what the user should hear about. | reversible |
+| Q12 | How do MFA-protected sign-ins look? | Success rows carry `mfa_status`: `unknown` until the interceptor records its decision, then `not_required`, `pending` or `verified`. The interceptor binds its challenge to this request's server-created `attemptId`; verification updates only that exact attempt through a durable MFA receipt. No latest-row or time-window matching is permitted. The new-device notification still fires on password success. | The MFA interceptor runs after the route (`security/api/interceptors.ts`), so the success event precedes MFA. A correct password from an unknown device is exactly what the user should hear about. | reversible |
 
 ## 📝 User Stories
 
@@ -42,11 +42,11 @@ The command side already exposes request metadata through `CommandInterceptorCon
 
 ## 📝 Proposed Solution
 
-1. **OSS seam (core `auth`)** — `login.ts` computes `ip` once per request and reads `user-agent` (truncated to 512 chars), then passes them, plus an `occurredAt` ISO timestamp, on every `auth.login.success` and `auth.login.failed` emission. Failed emissions also carry `userId`, `tenantId`, `organizationId` when a user resolved. All new fields are optional and nullable. No response, status code, timing or rate-limit change.
+1. **OSS seam (core `auth`)** — `login.ts` computes `ip` once per request and reads `user-agent` (truncated to 512 chars), then passes them, plus a stable server-generated `attemptId` and an `occurredAt` ISO timestamp, on every `auth.login.success` and `auth.login.failed` emission. Failed emissions also carry `userId`, `tenantId`, `organizationId` when a user resolved. New payload fields are optional for compatibility. Success `attemptId` is the existing newly created login session UUID (`loginSession.id`, already carried as JWT `sid`); failures get a fresh UUID once before emission. Client input never supplies this identity. No response, status code or rate-limit change.
 2. **Enterprise persistence** — persistent subscribers in `security/subscribers/` write one `SignInAttempt` row per tenant-resolved event, parse the UA locally, upsert `KnownDevice` atomically to compute `is_new_device`, and track `mfa_status`.
 3. **Admin list** — `/backend/security/sign-ins`: DataTable with filters (user, result, date range, IP), failed rows marked with status tokens, row click opens a detail drawer.
 4. **Profile section** — a widget injected into the existing `security.profile.sections` spot on `/backend/profile/security`: the user's last 10 sign-ins (30 days), with failed attempts and a "New device" badge.
-5. **New-device notification** — in-app only `security.sign_in.new_device`, created by the persistence subscriber, deduplicated by group key per user + device.
+5. **New-device notification** — in-app only `security.sign_in.new_device`, requested by an intent committed atomically with the attempt and device, then delivered by a retryable worker using the existing notification service deduplication API.
 6. **Retention** — a daily queue worker deletes rows older than the retention window, registered with the scheduler when present.
 
 ### Alternatives considered
@@ -66,7 +66,11 @@ flowchart LR
     login["auth: POST /api/auth/login (existing, +ip/userAgent)"] -->|auth.login.success / failed| bus["event bus (existing)"]
     bus --> sub["security: sign-in-activity subscribers (new)"]
     sub --> tbl[("security_sign_in_attempts (new)")]
-    sub -->|new device| notif["notifications service (existing)"]
+    sub -->|atomic with attempt/device| intent[("notification intents (new)")]
+    intent --> delivery["retryable notification worker + sweep (new)"]
+    delivery --> notif["notifications service (existing)"]
+    mfa["MFA interceptor + verification (existing, extended)"] --> receipt[("MFA receipts (new)")]
+    receipt -->|exact attempt projection| tbl
     sched["scheduler (existing, optional)"] --> worker["security: sign-in-retention worker (new)"]
     worker --> tbl
     tbl --> adminApi["GET /api/security/sign-ins (new)"]
@@ -78,8 +82,8 @@ flowchart LR
 Takeaway: the only change outside `packages/enterprise` is the event payload in `auth/api/login.ts` and the `auth.login.*` payload type; everything else is enterprise-owned and decoupled through events and an existing injection spot.
 
 - Coupling: events only (no imports from `security` into `auth`). `security` reads user display names through the existing `auth` user lookup by id (FK id, no ORM relation).
-- MFA interceptor (`security.auth.login.mfa-challenge`) is unaffected; the success event is emitted before it runs, as today.
-- Subscribers are `persistent: true` so a DB hiccup retries via the queue and login latency is unchanged (emission is already fire-and-forget).
+- MFA interceptor (`security.auth.login.mfa-challenge`) now reads the existing verified JWT `sid` and passes it as an optional trailing `createChallenge(userId, { signInAttemptId })` argument. No new JWT claim or HTTP field is needed. The success event remains before the interceptor. The exact challenge/attempt mapping and delivery-order handling are specified below.
+- Subscribers are `persistent: true` so a DB hiccup retries via the queue and audit persistence stays off the login request path (emission is already fire-and-forget). Challenge/receipt writes remain synchronous on existing MFA paths and must be measured during implementation.
 
 ## 📝 Data Model
 
@@ -94,6 +98,7 @@ type AuthLoginSuccessPayload = {
   ip?: string | null
   userAgent?: string | null
   occurredAt?: string
+  attemptId?: string
 }
 
 type AuthLoginFailedPayload = {
@@ -105,16 +110,18 @@ type AuthLoginFailedPayload = {
   tenantId?: string | null
   organizationId?: string | null
   occurredAt?: string
+  attemptId?: string
 }
 ```
 
-`occurredAt` is the ISO timestamp taken in the route at emission time.
+`occurredAt` is the ISO timestamp taken in the route at emission time. `attemptId` is fixed before the first emit and preserved unchanged through queue retries; a fresh HTTP request gets a fresh identity. Never derive identity from email, UA, timestamps or queue processing time. New core emits it on every recorded path. Legacy payloads without it are skipped with a structured non-PII warning and `reportError`; do not invent random subscriber-side IDs that would duplicate on retry. Deploy Phase 1 before enabling enterprise persistence; already-queued legacy events may consequently be absent from history.
 
 ### Enterprise: `SignInAttempt` → table `security_sign_in_attempts`
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid PK | |
+| `source_attempt_id` | uuid | stable payload `attemptId`, required for persisted events |
 | `tenant_id` | uuid | always set (unresolved failures are not persisted, Q5) |
 | `organization_id` | uuid, nullable | user's organization when known |
 | `user_id` | uuid, nullable | FK id to `users.id`, no ORM relation |
@@ -131,11 +138,11 @@ type AuthLoginFailedPayload = {
 | `device_type` | text | `desktop` \| `mobile` \| `tablet` \| `bot` \| `unknown` |
 | `device_key` | text | `${browser_name}|${os_name}|${device_type}` (lowercase) |
 | `is_new_device` | boolean | computed on success rows only; false on failures |
-| `mfa_status` | text, nullable | success rows: `not_required` \| `pending` \| `verified`; null on failures |
+| `mfa_status` | text, nullable | success rows: `unknown` \| `not_required` \| `pending` \| `verified`; null on failures |
 | `occurred_at` | timestamptz | payload `occurredAt`; subscriber falls back to processing time when absent (older core) |
 | `created_at` | timestamptz | |
 
-Indexes: `(tenant_id, occurred_at desc)`, `(tenant_id, user_id, occurred_at desc)`, `(tenant_id, ip_hash)`, `(occurred_at)` for retention.
+Unique `(tenant_id, source_attempt_id)`. A duplicate insert returns the existing row without repeating device detection or resetting MFA status. Reject and report conflicting payload scope/user/result for the same key. Indexes: `(tenant_id, occurred_at desc)`, `(tenant_id, user_id, occurred_at desc)`, `(tenant_id, ip_hash)`, `(occurred_at)` for retention.
 
 ### Enterprise: `KnownDevice` → table `security_known_devices`
 
@@ -147,9 +154,30 @@ Indexes: `(tenant_id, occurred_at desc)`, `(tenant_id, user_id, occurred_at desc
 | `device_key` | text | same value as on `SignInAttempt` |
 | `first_seen_at` / `last_seen_at` | timestamptz | `last_seen_at` bumped on each success |
 
-Unique `(tenant_id, user_id, device_key)`. The subscriber inserts with `ON CONFLICT DO NOTHING RETURNING id`; a returned id plus an existing other row for the user = new device. This is race-free under concurrent or out-of-order queue delivery. Retention deletes devices with `last_seen_at` older than the window, so a device unused for 90 days alerts again.
+Unique `(tenant_id, user_id, device_key)`. The transaction serializes successes for the same tenant/user with a transaction advisory lock, then checks for an existing other device and inserts with `ON CONFLICT DO NOTHING RETURNING id`. A returned id plus an existing other row means new device. This also serializes concurrent first-ever sign-ins from different devices: exactly one establishes the baseline without an alert. Baseline order is processing order; history still sorts by `occurred_at`. Set `last_seen_at = greatest(existing, occurredAt)` so delayed delivery cannot move it backwards. Retention takes the same tenant/user lock before pruning. A pruned device can alert again on its next appearance, with a new device-row UUID identifying that generation.
 
-- **System-written, append-only** (the only update is the `mfa_status` flip by the MFA subscriber). No `updated_at`, no `deleted_at`, no edit/delete form or mutating API, so optimistic locking does not apply (AGENTS.md rule targets user-editable entities). Retention hard-deletes.
+### Enterprise: exact MFA correlation and durable receipts
+
+Add nullable `sign_in_attempt_id` (uuid, unique with `tenant_id` when non-null) to existing `mfa_challenges`; it is independent of `provider_challenge`, whose value is overwritten during provider preparation. Old `createChallenge(userId)` callers remain supported and leave it null.
+
+New `security_sign_in_mfa_receipts`: `id` uuid PK, `tenant_id`, `user_id`, `source_attempt_id` uuid, nullable `challenge_id` uuid, `status` (`not_required|pending|verified`), nullable `verified_at`, `created_at`. Unique `(tenant_id, source_attempt_id)` and partial unique `(tenant_id, challenge_id)` when present. No credentials, JWTs, IP or UA are stored here. This table is a reconciliation record, not a new authentication authority.
+
+1. Challenge creation persists the attempt mapping and a `pending` receipt in the **same transaction** as the challenge, before returning its id. Validate the supplied identity against the signed login claims and canonical user/tenant; never trust request headers/body or use an unscoped challenge lookup. Explicit no-MFA and emergency-bypass paths write `not_required`. Unexpected challenge/interceptor failure leaves `unknown`; absence of a receipt never proves MFA was unnecessary.
+2. On successful verification, `MfaVerificationService` writes the challenge's existing `verifiedAt` and the matching receipt's `verified` state atomically, before emitting the existing `security.mfa.verified` event. The event retains its existing shape. Unmapped challenges from old/other callers never update a sign-in by inference. Expiry is checked at verification using the challenge's configured `expiresAt`; queue delay must not invalidate an already valid verification. There is no arbitrary 15-minute attribution window.
+3. Receipt writes and attempt persistence take the same transaction advisory lock keyed by tenant + attempt. Each receipt writer also projects its current status onto an already-present matching attempt; insertion reads the receipt under that lock. Thus either processing order converges, including verification before attempt insertion. The verified-event subscriber re-reads the scoped challenge/receipt and idempotently reconciles the exact key. `verified` never regresses to `pending`, including on duplicate events. Validate tenant and user on every match. No match means no other row is changed.
+4. Receipt retention follows the sign-in retention window; keep mappings until their related event retry/dead-letter replay window has elapsed. Events older than retention are ignored before any attempt/device/intent writes, preventing replay from recreating purged history. An uncorrelated legacy attempt displays `unknown`, never an inferred `verified`.
+
+### Enterprise: atomic attempt and notification intent
+
+New `security_sign_in_notification_intents`: `id` uuid PK, `tenant_id`, nullable `organization_id`, `user_id`, `source_attempt_id`, `known_device_id` (uuid, id only), `status` (`pending|delivered|suppressed`), `created_at`, nullable `delivered_at`. Unique `(tenant_id, known_device_id)`; the device-row UUID distinguishes reappearance after retention. Keep the attempt id as an id-only reference for encrypted display data, with no cross-module ORM relation.
+
+Within one database transaction: acquire the tenant/user device lock (success only), then the tenant/attempt lock; insert the attempt with its unique source key; read the MFA receipt; compute/persist device state and `is_new_device`; insert a notification intent for a newly detected device when alerts are enabled. Any failure rolls back **all** these writes. Duplicate attempts do not recompute device state or erase an existing intent. No notification service call occurs inside this transaction: its current implementation forks its own EntityManager and owns its transaction.
+
+A queue worker `security:sign-in-notification` drains pending intents; a recurring sweep re-enqueues pending work after a process crash, so correctness does not depend on an after-commit enqueue succeeding. Use `notificationService.createBatch({ recipientUserIds: [userId], ...content, groupKey }, scope, { skipExistingGroup: true })`, the existing advisory-lock-backed deduplication path, with `groupKey = sign_in_new_device:{tenantId}:{userId}:{knownDeviceId}`. Do not use ordinary `create`, which refreshes an existing notification and can repeat delivery side effects. Only mark the intent delivered after the call succeeds; retry after notification commit but before intent acknowledgement finds the existing notification and creates no duplicate. Respect notification preferences; an intentionally suppressed channel is not a transient error.
+
+The guarantee is eventual one persisted in-app notification per eligible device generation while enabled and within retention, not exactly-once browser SSE delivery. The existing service can commit the notification then fail before emitting its bell event; retry finds the stored row and the user sees it on the next notification fetch. Intents carry no decrypted personal data. Retention skips pending intents and their device/notification deduplication records until delivery or terminal suppression; once the source attempt expires, suppress undelivered intents rather than sending stale alerts. The worker checks the kill switches again before delivery. Explicitly serialize delivery of each intent; test notification cleanup and device pruning against pending delivery so the deduplication record cannot disappear during retries.
+
+- **System-written, append-only** (attempt updates only project correlated MFA receipt state; devices, receipts and intents are also system-maintained). No `updated_at`, no `deleted_at`, no edit/delete form or mutating API, so optimistic locking does not apply (AGENTS.md rule targets user-editable entities). Retention hard-deletes.
 - Encryption map registered in `security/encryption.ts` (new file, same shape as `auth/encryption.ts`), read through `findWithDecryption`. Every row has a tenant, so the tenant DEK always applies.
 - `email_hash` / `ip_hash` use `hashForLookup`, which is a keyed `v2:` HMAC with the installation pepper (`LOOKUP_HASH_PEPPER` → encryption keys). This is **pseudonymisation**, not anonymisation: the IPv4 space is small, so anyone holding both the DB and the pepper can reverse an `ip_hash`. Without any configured key the helper falls back to an unkeyed digest — the enterprise docs must state that a pepper is required for meaningful protection.
 - Entity id `security:sign_in_attempt`. Not indexed for fulltext search.
@@ -198,8 +226,8 @@ Same guard and scoping; 404 when out of scope. Returns one `SignInAttemptDto` pl
 ### Events, notifications, workers
 
 - No new event IDs. Consumes `auth.login.success`, `auth.login.failed` and the existing `security.mfa.verified` (`{ userId, challengeId, methodType }`).
-- Notification type `security.sign_in.new_device`: `channels: ['in_app']`, `severity: 'warning'`, icon `monitor-smartphone`, `linkHref: '/backend/profile/security'`, `groupKey: sign_in_new_device:{userId}:{device_key}`, `expiresAfterHours: 168`. Body interpolates browser, OS, IP (or "unknown IP") and time.
-- Worker `security:sign-in-retention` on queue `security-sign-in-retention`, deletes in batches of 5,000 until no rows older than `now - retentionDays`. Retention is a pure time-based delete, so it runs as **one global system schedule** (not per tenant/org), registered through the soft-optional `schedulerService` with a stable UUID derived from `security:sign-in-retention` (the `stableScheduleUuid` approach in `agent_orchestrator/setup.ts`), so repeated registration upserts the same row. Daily cron `15 3 * * *`. Also prunes `security_known_devices`.
+- Notification type `security.sign_in.new_device`: `channels: ['in_app']`, `severity: 'warning'`, icon `monitor-smartphone`, `linkHref: '/backend/profile/security'`, `groupKey: sign_in_new_device:{tenantId}:{userId}:{knownDeviceId}`, `expiresAfterHours: 168`. Body interpolates browser, OS, IP (or "unknown IP") and time.
+- Worker `security:sign-in-retention` on queue `security-sign-in-retention`, deletes in batches of 5,000 until no rows older than `now - retentionDays`. Retention observes the receipt/intent safety rules above and runs as **one global system schedule** (not per tenant/org), registered through the soft-optional `schedulerService` with a stable UUID derived from `security:sign-in-retention` (the `stableScheduleUuid` approach in `agent_orchestrator/setup.ts`), so repeated registration upserts the same row. Daily cron `15 3 * * *`. Also prunes known devices, receipts and terminal intents with the same cutoff and lock protocol. The delivery recovery sweep is registered as a separate stable-UUID recurring job; without the optional scheduler, operators must run the queue sweep periodically through the documented worker job, and the setup health warning must disclose that recovery is not automatic.
 
 ## 📝 UI/UX
 
@@ -208,7 +236,7 @@ Proposed-UI prototype (illustrative, low-fi, clickable; a proposal, not accepted
 ### Admin — Security › Sign-in activity (`/backend/security/sign-ins`)
 
 - Menu entry under the existing Security settings group, feature `security.sign_ins.view`.
-- `DataTable` (table id `security.sign_ins.list`, registered as an extension host in `extension-points.ts`) columns: Time (relative + absolute tooltip), User (name + email; "Unknown account" for unresolved), Result (`Badge` success / error status tokens), Reason (translated), MFA (not required / pending / verified), IP, Browser · OS, New device badge.
+- `DataTable` (table id `security.sign_ins.list`, registered as an extension host in `extension-points.ts`) columns: Time (relative + absolute tooltip), User (name + email; "Unknown account" for unresolved), Result (`Badge` success / error status tokens), Reason (translated), MFA (unknown / not required / pending / verified), IP, Browser · OS, New device badge.
 - Filters: User (async select over `/api/auth/users`), Result (all / success / failure), Date range (presets 24h, 7d, 30d, custom), IP (exact text). Filters reflect into the URL so the drawer's "All sign-ins for this user" link is a filtered view.
 - Row click → detail drawer (`Sheet`): all fields, raw user agent in monospace, previous successful sign-in, link "Open user security" (`/backend/security/users/[id]`) when a user is known. `Escape` closes.
 - Empty state, `LoadingMessage` / `ErrorMessage` per `ui:backend`. No row actions, no bulk actions.
@@ -234,7 +262,8 @@ i18n keys under `security.signIns.*` and `security.notifications.signInNewDevice
 - **Subscriber failure** (DB down): queue retries; login is never blocked (event emission already `void … .catch()`).
 - **Unresolved email failures**: not persisted (Q5); `POST /api/auth/login` behavior is unchanged.
 - **Rate-limited (429) requests**: not recorded (Q11).
-- **Concurrent sign-ins from one new device**: the unique `KnownDevice` key lets exactly one subscriber run win the insert, so at most one alert fires.
+- **Concurrent sign-ins from one new device**: tenant/user serialization plus the unique `KnownDevice` key lets exactly one subscriber run win the insert, so at most one alert fires.
+- **MFA delivery race**: durable receipt and attempt share a transaction lock; verification for A can only change A even when B is newer. No receipt displays unknown, and legacy unmatched challenges do not infer attribution.
 - **MFA never completed**: row stays `mfa_status = pending`; UI shows "MFA not completed" so an abandoned or attacker sign-in is distinguishable.
 - **User deleted later**: rows keep `user_id` and encrypted email; list shows "Deleted user". Retention eventually removes them. GDPR erasure (`2026-07-08-gdpr-data-erasure.md`) should register this entity for erasure by `user_id` — noted as a follow-up hook, no coupling added here.
 - **Org visibility**: an admin limited to org A cannot see rows of users in org B in the same tenant.
@@ -250,17 +279,19 @@ i18n keys under `security.signIns.*` and `security.notifications.signInNewDevice
 | Anonymous credential stuffing (unknown emails) is not visible in the UI | Low | Admin investigations | Rate limiter + structured logs still record it; Q5 follow-up can add hash-only counters | Admins see only attacks on real accounts |
 | `ip_hash` reversible by someone with DB access and the lookup pepper | Medium | Pseudonymisation strength | Keyed HMAC, encrypted raw IP, docs require `LOOKUP_HASH_PEPPER` | Without a configured pepper the digest is unkeyed |
 | Table growth under sustained attack | Low | Database size | Rate limits + daily retention + indexes on `occurred_at` | Short-term growth between retention runs |
+| Verification of sign-in A incorrectly attributed to concurrent B | High | MFA audit accuracy | Stable attempt/challenge mapping and durable receipt with monotonic projection under a shared transaction lock; TC-SEC-021/022 | Unknown state when legacy correlation is absent |
+| Crash between device registration and alert creation | High | Audit/alert delivery | Atomic attempt/device/intent transaction and retryable deduplicated delivery; recurring recovery sweep | Notification bell SSE may be missed after commit; stored notification remains fetchable |
 | Local UA parser misclassifies a browser | Low | Display and new-device alerts | Table-driven unit tests; worst case is one extra notification per user per misclassified family | None material |
 
 ## 📝 Migration & Backward Compatibility
 
 - OSS: event IDs unchanged; payloads gain optional fields only. No route, response, schema or DI change in `auth`.
-- Enterprise: one new table + migration and snapshot in `security/migrations`; new ACL feature, notification type, worker, routes and page are additive. No existing contract changes. Rollback = disable via env, then drop the table in a follow-up migration if desired.
+- Enterprise: four new tables (`SignInAttempt`, `KnownDevice`, MFA receipt, notification intent) + migration and snapshot in `security/migrations`; new ACL feature, notification type, worker, routes and page are additive. The existing MFA challenge gains a nullable correlation column; `createChallenge` gains an optional trailing options argument. Existing callers, challenge ids, token format, verification event payload and HTTP behavior remain supported. Rollback = disable via env; additive tables/columns may remain until a reviewed follow-up migration removes them.
 - New env vars must be mirrored to `apps/mercato/.env.example` and the create-app template (`yarn template:sync:fix`).
 
 ## 📋 Phasing
 
-- **Phase 1 — OSS seam** (core `auth`, independently shippable): `ip`, `userAgent`, `occurredAt` (+ resolved ids on failure) on `auth.login.*`.
+- **Phase 1 — OSS seam** (core `auth`, independently shippable): `ip`, `userAgent`, `occurredAt`, `attemptId` (+ resolved ids on failure) on `auth.login.*`.
 - **Phase 2 — Persistence + retention** (enterprise `security`): entity, migration, encryption map, UA parser, subscribers, retention worker.
 - **Phase 3 — Admin Sign-in activity page + API**.
 - **Phase 4 — Profile Recent sign-ins + new-device notification**.
@@ -269,16 +300,16 @@ i18n keys under `security.signIns.*` and `security.notifications.signInNewDevice
 
 ### Phase 1 — OSS seam
 
-1. Add a `resolveLoginClientMeta(req, container)` helper in `packages/core/src/modules/auth/lib/` returning `{ ip, userAgent, occurredAt }` via `getClientIp(req, rateLimiterService.trustProxyDepth)` (service resolved from the container, `null` ip when unavailable) and a 512-char truncated `user-agent`. Unit test: depth 0 → null ip; depth 1 with `X-Forwarded-For` → client ip; long UA truncated.
-2. Pass the meta into all three `emitAuthEvent` calls in `auth/api/login.ts`; add `userId/tenantId/organizationId` to failures when `user` resolved; emit `auth.login.failed` with `reason: 'role_denied'` before the `requiredRoles` 403. Unit test asserts emitted payloads for success, `invalid_password`, `invalid_credentials`, `account_deactivated`, `role_denied`; response bodies and status codes unchanged.
+1. Add a `resolveLoginClientMeta(req, container)` helper in `packages/core/src/modules/auth/lib/` returning `{ ip, userAgent, occurredAt }` (take `occurredAt` at emission, not request start) via `getClientIp(req, rateLimiterService.trustProxyDepth)` (service resolved from the container, `null` ip when unavailable) and a 512-char truncated `user-agent`. Unit test: depth 0 → null ip; depth 1 with `X-Forwarded-For` → client ip; long UA truncated.
+2. Generate the stable `attemptId` (existing session UUID on success; fresh server UUID on failure) once and pass it with the meta into all three `emitAuthEvent` calls in `auth/api/login.ts`; add `userId/tenantId/organizationId` to failures when `user` resolved; emit `auth.login.failed` with `reason: 'role_denied'` before the `requiredRoles` 403. Unit test asserts emitted payloads for success, `invalid_password`, `invalid_credentials`, `account_deactivated`, `role_denied`; response bodies and status codes unchanged.
 3. Document the new optional fields in `apps/docs` events reference and `auth` AGENTS.md events list.
 
 ### Phase 2 — Persistence
 
 4. `security/lib/user-agent.ts` parser + table-driven unit tests (Chrome/Edge/Firefox/Safari/Opera/Samsung, Windows/macOS/iOS/iPadOS/Android/Linux/ChromeOS, bots, empty).
-5. `SignInAttempt` and `KnownDevice` entities, `security/encryption.ts` map, `yarn db:generate` → keep only this table's migration + snapshot. `yarn generate`.
+5. `SignInAttempt`, `KnownDevice`, MFA receipt and notification intent entities, plus nullable `MfaChallenge.signInAttemptId`, `security/encryption.ts` map, `yarn db:generate` → keep only the intended tables/column migration + snapshot. `yarn generate`.
 6. `security/lib/sign-in-activity-config.ts` reading the three env vars with `parseBooleanWithDefault` and clamped ints; mirror into `.env.example` + template.
-7. `subscribers/sign-in-activity-success.ts`, `sign-in-activity-failed.ts` and `sign-in-activity-mfa-verified.ts` (`persistent: true`), shared `SignInActivityService` registered in `di.ts`. Unit tests: scoping, unresolved failure skipped, atomic new-device upsert (two concurrent calls → one new), `mfa_status` transitions, disabled switch no-op.
+7. `subscribers/sign-in-activity-success.ts`, `sign-in-activity-failed.ts` and `sign-in-activity-mfa-verified.ts` (`persistent: true`), shared `SignInActivityService` registered in `di.ts`. Unit tests: scoping, unresolved failure skipped, atomic new-device upsert (two concurrent calls → one new), exact MFA correlation, reversed delivery, duplicate events, missing identity handling and disabled switch no-op. Extend the MFA interceptor and optional challenge-creation argument; atomically persist/project MFA receipts during challenge creation and verification. Never select latest pending attempts.
 8. Retention worker + single global stable-UUID schedule (soft-optional scheduler); unit test batch deletion, known-device pruning, window clamp and idempotent registration.
 
 ### Phase 3 — Admin page
@@ -292,12 +323,12 @@ i18n keys under `security.signIns.*` and `security.notifications.signInNewDevice
 
 13. `GET /api/security/profile/sign-ins` + unit tests.
 14. `profile-recent-sign-ins` injection widget into `security.profile.sections`; i18n.
-15. Notification type `security.sign_in.new_device` + creation inside `recordSignInAttempt` with group key; unit test dedupe.
+15. Notification type `security.sign_in.new_device` + atomic intent creation inside `recordSignInAttempt`, retryable delivery worker and recovery sweep using deduplicated `createBatch`; failure injection at every durable boundary, including notification commit before acknowledgement.
 16. Integration tests TC-SEC-018 and TC-SEC-019 (profile part); update enterprise README spec table.
 
 ## 🧪 Integration Coverage
 
-All tests live in `packages/enterprise/src/modules/security/__integration__/`. The enterprise integration environment sets `RATE_LIMIT_TRUST_PROXY_DEPTH=1` (added in step 12 alongside the existing integration env; rate limiting stays disabled by `OM_INTEGRATION_TEST`) so IP assertions are deterministic. Tests create their own tenant/users through existing `helpers/securityFixtures.ts`, set a custom `User-Agent` header on the login request, poll the API (≤10 s) for the persistent subscriber, and clean up in `finally`. No network access beyond the local app; no GeoIP or UA service. Run with `yarn test:integration --grep TC-SEC-01[6-9]` against a local enterprise app.
+All tests live in `packages/enterprise/src/modules/security/__integration__/`. The enterprise integration environment sets `RATE_LIMIT_TRUST_PROXY_DEPTH=1` (added in step 12 alongside the existing integration env; rate limiting stays disabled by `OM_INTEGRATION_TEST`) so IP assertions are deterministic. Tests create their own tenant/users through existing `helpers/securityFixtures.ts`, set a custom `User-Agent` header on the login request, poll the API (≤10 s) for the persistent subscriber, and clean up in `finally`. No network access beyond the local app; no GeoIP or UA service. Run with `yarn test:integration --grep 'TC-SEC-(01[6-9]|02[0-2])'` against a local enterprise app.
 
 | ID | Path(s) | Scenario |
 |---|---|---|
@@ -305,6 +336,17 @@ All tests live in `packages/enterprise/src/modules/security/__integration__/`. T
 | TC-SEC-020 | `POST /api/auth/login` (`requiredRoles`), `GET /api/security/sign-ins` | Correct password with a required role the user lacks → 403 response unchanged, row with `reason=role_denied`. |
 | TC-SEC-017 | `GET /api/security/sign-ins`, `GET /api/security/sign-ins/[id]`, `GET /api/security/profile/sign-ins` | Successful login appears in own profile list; a user without `security.sign_ins.view` gets 403 on the admin list; an admin of a second tenant cannot see the row (list empty, detail 404). |
 | TC-SEC-018 | `POST /api/auth/login`, `GET /api/notifications` | First login (UA A) → no notification; login with UA B → one `security.sign_in.new_device`; second login with UA B → still one. |
+| TC-SEC-021 | `POST /api/auth/login`, `POST /api/security/mfa/verify`, `GET /api/security/sign-ins` | Two concurrent successes A/B for the same MFA user; verify A's challenge after B is created: only A becomes verified, B stays pending. Reverse A/B verification order, duplicate event delivery and wrong-user/cross-tenant mapping are also covered. |
+| TC-SEC-022 | Persistent login/MFA subscribers and notification worker; sign-in/profile/notification GET routes | Hold login-event processing, complete MFA, then release it: exact row is verified. Re-deliver success/failure events and inject failures after each attempt/device/intent write and after notification commit before acknowledgement: one history row per source id and eventual one persisted alert per eligible device generation. Assert transaction rollback, process-crash sweep recovery, two different first-ever devices, retained pending intent dedupe, replay outside retention, legacy missing id and kill switches. Self-contained worker/service fixtures control delivery order without new production test endpoints. |
 | TC-SEC-019 | UI `/backend/security/sign-ins`, `/backend/profile/security` | Admin filters Result = Failed, sees error badge row, opens drawer showing raw UA, closes with Escape; user's profile shows "Recent sign-ins" with the attempt. |
 
 Unit suites: `auth/lib/__tests__/login-client-meta.test.ts`, `auth/api/__tests__/login-events.test.ts`, `security/lib/__tests__/user-agent.test.ts`, `security/services/__tests__/SignInActivityService.test.ts`, `security/workers/__tests__/sign-in-retention.test.ts`, `security/api/sign-ins/__tests__/route.test.ts`.
+
+
+## Final Compliance Report
+
+Design revision only; implementation remains in future phases. Existing login event ids, response fields, JWT claims and verification event shape are preserved. Correlation uses the already-issued session id, a nullable enterprise challenge column and an optional service argument. All persistence keys and reconciliation checks include tenant scope; failure history needs a resolved tenant. Persistent handlers have explicit unique keys, transaction boundaries and recovery behavior. Four new enterprise tables and the challenge column must ship with migrations/snapshots; no migration is applied by this PR. Planned TC-SEC-021/022 and failure-injection unit coverage are implementation acceptance gates, not tests claimed as run here. Prototype screenshots are illustrative and predate this revision; the implementation must add the translated MFA unknown state.
+
+## Changelog
+
+- **2026-11-13** — Addressed @haxiorz's MFA attribution review and the earlier specification review: exact session-attempt/challenge correlation, durable MFA reconciliation for reordered delivery, stable attempt idempotency keys, atomic device/notification intents, deduplicated retry delivery, retention interactions and concurrent/failure-injection acceptance tests. Corrected table count and four-phase wording.
