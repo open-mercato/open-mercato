@@ -8,32 +8,47 @@ export const integrationMeta = {
 
 const malformedId = 'not-a-uuid'
 
+type ValidationBody = { error?: string; details?: Array<{ path?: unknown[] }> }
+
 const routes = [
-  `/api/wms/putaway-tasks/${malformedId}/assign`,
-  `/api/wms/putaway-tasks/${malformedId}/cancel`,
-  `/api/wms/putaway-tasks/${malformedId}/complete`,
-  `/api/wms/putaway-tasks/${malformedId}/start`,
-  `/api/wms/asns/${malformedId}/complete`,
-  `/api/wms/asns/${malformedId}/receive`,
-  `/api/wms/sales-orders/${malformedId}/re-run-reservation`,
+  { path: `/api/wms/putaway-tasks/${malformedId}/assign`, paramKey: 'id' },
+  { path: `/api/wms/putaway-tasks/${malformedId}/cancel`, paramKey: 'id' },
+  { path: `/api/wms/putaway-tasks/${malformedId}/complete`, paramKey: 'id' },
+  { path: `/api/wms/putaway-tasks/${malformedId}/start`, paramKey: 'id' },
+  { path: `/api/wms/asns/${malformedId}/complete`, paramKey: 'id' },
+  { path: `/api/wms/asns/${malformedId}/receive`, paramKey: 'id' },
+  { path: `/api/wms/sales-orders/${malformedId}/re-run-reservation`, paramKey: 'salesOrderId' },
 ]
 
 test.describe('TC-WMS-034: WMS custom POST routes reject a malformed path id with 400', () => {
-  for (const path of routes) {
+  for (const { path, paramKey } of routes) {
     test(`POST ${path} returns 400`, async ({ request }) => {
       const token = await getAuthToken(request, 'admin')
       const response = await apiRequest(request, 'POST', path, { token, data: {} })
-      const body = await readJsonSafe<{ error?: string; details?: unknown[] }>(response)
+      const body = await readJsonSafe<ValidationBody>(response)
 
       expect(response.status(), `POST ${path}`).toBe(400)
       expect(body?.error).toBe('Validation failed')
-      expect(Array.isArray(body?.details)).toBe(true)
+      expect(body?.details?.map((issue) => issue.path)).toEqual([[paramKey]])
     })
   }
 
+  test('answers the malformed id error in the requested language', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const response = await apiRequest(request, 'POST', routes[0].path, {
+      token,
+      data: {},
+      headers: { 'Accept-Language': 'pl' },
+    })
+    const body = await readJsonSafe<ValidationBody>(response)
+
+    expect(response.status()).toBe(400)
+    expect(body?.error).toBe('Walidacja nie powiodła się')
+  })
+
   test('an unauthenticated malformed id is still rejected with 401', async () => {
     const status = await withCredentialIsolatedRequest(async (isolatedRequest) => {
-      const response = await isolatedRequest.post(routes[0], { data: {} })
+      const response = await isolatedRequest.post(routes[0].path, { data: {} })
       return response.status()
     })
     expect(status).toBe(401)
