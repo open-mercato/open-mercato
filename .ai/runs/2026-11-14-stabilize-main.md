@@ -66,8 +66,8 @@ PR: #9497
 
 ### Phase 2: Stabilize and verify
 
-- [ ] 2.1 Fix only reproduced failures and run the complete PR CI suite
-- [ ] 2.2 Record verification evidence and complete the applicable validation gate
+- [x] 2.1 Fix only reproduced failures and run the complete PR CI suite — a4cd51c3b5
+- [x] 2.2 Record verification evidence and complete the applicable validation gate — a4cd51c3b5
 
 ### Phase 3: Independent review and handoff
 
