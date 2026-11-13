@@ -112,6 +112,10 @@ export default function ChannelInfoPanelWidget({
     setUsersLoaded(true)
   }, [canReassign, usersLoaded])
 
+  React.useEffect(() => {
+    if (assignedUserId) void loadUsers()
+  }, [assignedUserId, loadUsers])
+
   const reassign = React.useCallback(
     async (nextAssignedUserId: string | null) => {
       const threadId = data?.threadId
