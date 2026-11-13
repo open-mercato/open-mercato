@@ -128,7 +128,6 @@ export async function GET(req: Request) {
   const pageSize = noPagination ? Math.max(basePageSize, DEFAULT_EXPORT_PAGE_SIZE) : basePageSize
   const sortField = url.searchParams.get('sortField') || 'id'
   const sortDir = (url.searchParams.get('sortDir') || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc'
-  const withDeleted = parseBooleanWithDefault(url.searchParams.get('withDeleted'), false)
   const searchTerm = (url.searchParams.get('search') || '').trim()
   const searchFields = parseCommaSeparatedList(url.searchParams.get('searchFields'))
 
@@ -230,7 +229,7 @@ export async function GET(req: Request) {
       page: { page, pageSize },
       sort: [{ field: sortField as any, dir: sortDir as any }] as Sort[],
       filters: filtersObj as any,
-      withDeleted,
+      withDeleted: false,
     }
     if (organizationIds && organizationIds.length) {
       qopts.organizationIds = organizationIds
