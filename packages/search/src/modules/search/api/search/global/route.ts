@@ -160,6 +160,7 @@ export async function GET(req: Request) {
       limit,
       strategies,
       entityTypes: readableEntityTypes,
+      viewer: { auth, container },
     }
 
     const rawResults = await searchService.search(query, searchOptions)

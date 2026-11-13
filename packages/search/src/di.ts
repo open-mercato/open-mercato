@@ -230,6 +230,7 @@ export function registerSearchModule(
   const searchService = new SearchService({
     strategies,
     resolveEntityStrategies: (entityId) => resolveEntityIndexStrategies(entityId, moduleConfigs),
+    resolveResultFilter: (entityId) => entityConfigMap.get(entityId as EntityId)?.filterResults,
     defaultStrategies,
     fallbackStrategy: 'tokens',
     mergeConfig: options?.mergeConfig ?? {
