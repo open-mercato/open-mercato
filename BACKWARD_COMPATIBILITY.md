@@ -12,12 +12,12 @@ Every listed surface is a **public contract**. Changes MUST follow the deprecati
 
 ### Emergency Security Exception
 
-Steps 1-3 — stage the removal, deprecate first, ship a bridge — are waived, and **only** those three, when the contract surface being removed *is itself* the vulnerability: keeping it alongside the replacement would leave the flaw exploitable for the whole deprecation window. A surface that merely makes an insecure usage possible does not qualify; the exception applies only where continued acceptance of the old shape **is** the exploit.
+Only steps 1–3 are waived when the removed surface *is itself* the vulnerability and a bridge would keep it exploitable throughout deprecation. Merely enabling insecure usage does not qualify: continued acceptance of the old shape must **be** the exploit.
 
-This is not author or reviewer discretion. Every one of the following MUST hold, and a change that cannot satisfy all of them follows the ordinary protocol instead:
+Authors and reviewers cannot waive these conditions. Every condition MUST hold; otherwise follow the ordinary protocol:
 
 1. **The qualifying condition is argued, not asserted.** The PR names the surface, the vulnerability, and why a bridge release would keep it reachable.
-2. **The removal is the narrowest one that closes the hole.** No unrelated tightening rides along, and **no partial bridge retains the vulnerable branch** behind a flag, a config toggle, or an opt-in — a retained branch is the bridge the exception exists to refuse.
+2. **The removal is the narrowest one that closes the hole.** No unrelated tightening rides along, and **no partial bridge retains the vulnerable branch** behind a flag, a config toggle, or an opt-in.
 3. **Steps 4 and 5 still apply in full.** An `UPGRADE_NOTES.md` entry with both client *and* operator migration instructions, and a spec under `.ai/specs/` or `.ai/specs/enterprise/` with a "Migration & Backward Compatibility" section.
 4. **A dated entry is added at the end of this document**, recording the surface, its classification, the qualifying argument, and the migration path.
 5. **A maintainer signs off on the exception by name.** The PR carries the `security` label and a human maintainer approval that acknowledges the waiver; an automated review cannot clear it.
@@ -655,11 +655,10 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
 
 
-## Credential policy enforcement (2026-11-13, #3821 / PR #8582)
+## Credential writes (2026-11-13, #8582)
 
-FROZEN validator schemas and STABLE CLI/service/API behavior are narrowed for new credential writes: all four production `auth setup` policy-bypass aliases, plaintext `setupInitialTenant` inputs, explicit derived-account password overrides, and customer `signupSchema`, `passwordResetConfirmSchema`, `invitationAcceptSchema`, `passwordChangeSchema`, `adminCreateUserSchema` and `adminResetPasswordSchema`. Retaining acceptance of policy-prohibited passwords would retain the policy bypass itself during a bridge release; no production opt-in retains that vulnerable path. Maintainer Piotr Karwatka (@pkarw) [approved the emergency security exception](https://github.com/open-mercato/open-mercato/pull/8582#issuecomment-6852843978) on 2026-11-13, waiving deprecation steps 1–3 for this scope.
+FROZEN schemas/STABLE CLI+service+API: policy bypass is the vulnerability; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3. [Scope, approval, migration](.ai/specs/2026-11-12-credential-policy-enforcement.md#migration--backward-compatibility).
 
-Clients must submit policy-compliant new passwords and handle validation errors. Operators must remove reliance on production bypass flags, supply compliant primary/derived passwords, and review and rotate previously exposed credentials where appropriate. Existing stored hashes, login and trusted prehashed imports remain valid; no automatic rotation or database migration occurs. [Full client/operator migration and scope](.ai/specs/2026-11-12-credential-policy-enforcement.md#migration--backward-compatibility); [upgrade notes](UPGRADE_NOTES.md). This exception does not grant QA approval or waive CI.
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
