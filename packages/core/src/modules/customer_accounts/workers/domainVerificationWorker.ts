@@ -1,3 +1,4 @@
+import { runCustomerMaintenanceTenant } from '../database'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
@@ -28,15 +29,18 @@ export default async function handle(_job: QueuedJob, ctx: HandlerContext): Prom
 
   for (const mapping of candidates) {
     try {
-      const result = await service.verify(mapping.id)
-      if (result.domainMapping.status === 'verified') {
-        try {
-          await service.healthCheck(mapping.id)
-        } catch {
-          // healthCheck emits its own events on failure; swallow here so one
-          // bad domain doesn't poison the rest of the batch.
+      await runCustomerMaintenanceTenant(mapping, ctx, async (container) => {
+        const tenantService = container.resolve<DomainMappingService>('domainMappingService')
+        const result = await tenantService.verify(mapping.id)
+        if (result.domainMapping.status === 'verified') {
+          try {
+            await tenantService.healthCheck(mapping.id)
+          } catch {
+            // healthCheck emits its own events on failure; swallow here so one
+            // bad domain doesn't poison the rest of the batch.
+          }
         }
-      }
+      })
     } catch {
       // verify() emits dns_failed events on negative results. A thrown error
       // here is unexpected (e.g. DB blip) — skip and let the next tick retry.
