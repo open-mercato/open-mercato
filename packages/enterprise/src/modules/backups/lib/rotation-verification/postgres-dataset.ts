@@ -120,9 +120,9 @@ export async function assertPostgresRotationAdmission(context: RotationProtectio
 export async function createPostgresRotationDataset(options: PostgresRotationOptions): Promise<PostgresRotationDataset> {
   const { context, providers } = options
   const connection = context.entityManager.getConnection()
-  const query = async <Row extends Record<string, unknown>>(sql: string, parameters: unknown[] = []): Promise<Row[]> => {
-    const result: unknown = providers.signal
-      ? await context.entityManager.execute(sql, parameters, { signal: providers.signal, inflightQueryAbortStrategy: 'cancel query' })
+  const query = async <Row extends Record<string, unknown>>(sql: string, parameters: unknown[] = [], querySignal = providers.signal): Promise<Row[]> => {
+    const result: unknown = querySignal
+      ? await context.entityManager.execute(sql, parameters, { signal: querySignal, inflightQueryAbortStrategy: 'cancel query' })
       : await connection.execute(sql, parameters)
     if (!Array.isArray(result)) throw new Error('[internal] ROTATION_DATABASE_INVALID')
     return result as Row[]
@@ -281,10 +281,12 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
   }
   async function* scanRows(phase: 'before' | 'after', signal: AbortSignal | undefined, includeIntents: boolean): AsyncGenerator<VerificationRow> {
     signal?.throwIfAborted()
+    const querySignal = signal && providers.signal ? AbortSignal.any([signal, providers.signal]) : signal ?? providers.signal
+    const scanQuery = <Row extends Record<string, unknown>>(sql: string, parameters: unknown[] = []) => query<Row>(sql, parameters, querySignal)
     await checkedBinding()
     if (phase === 'after') await assertFence()
     for (const table of orderedTables) {
-      const expectedCount = await query<{ count: string }>(`SELECT count(*)::text AS count FROM ${tableSql(table)} WHERE ${scopeSql}`, scopeParameters())
+      const expectedCount = await scanQuery<{ count: string }>(`SELECT count(*)::text AS count FROM ${tableSql(table)} WHERE ${scopeSql}`, scopeParameters())
       const expectedRows = BigInt(expectedCount[0]?.count ?? '-1')
       if (expectedRows < 0n || expectedRows > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
       let yieldedRows = 0n; let bytesDone = 0n; let chunksDone = 0
@@ -312,7 +314,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
         // First limit native keys, then project exactly those rows once. The
         // materialized aggregate withholds the ENTIRE page on either row or
         // page overflow; only one NULL-payload sentinel crosses the wire.
-        const selected = await query<SqlRow>(`WITH frontier AS MATERIALIZED (
+        const selected = await scanQuery<SqlRow>(`WITH frontier AS MATERIALIZED (
           SELECT limited.*,row_number() OVER (ORDER BY ${table.primaryKeys.map(key => `limited.${quote(key)}`).join(',')}) AS ${quote(ordinal)}
           FROM (SELECT ${primary.join(',')} FROM ${tableSql(table)} AS verification_rows WHERE ${scopeSql}${predicate} ORDER BY ${primary.join(',')} LIMIT ${verificationBatchRows}) limited
         ), projected AS MATERIALIZED (
@@ -378,7 +380,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
             const scopeKey = JSON.stringify([raw.entity_type, tenantId, organizationId])
             let policy = definitionCache.get(scopeKey)
             if (!policy) {
-              const definitions = await query<{ key: string; required: boolean; tenant_id: string | null; organization_id: string | null; is_active: boolean; deleted_at: string | null; updated_at: string }>("SELECT key, coalesce(config_json->>'encrypted' = 'true',false) AS required, tenant_id::text, organization_id::text, is_active, deleted_at::text, updated_at::text FROM custom_field_defs WHERE entity_id = ? AND (tenant_id = ? OR tenant_id IS NULL) AND (organization_id = ? OR organization_id IS NULL) ORDER BY id LIMIT 501", [raw.entity_type, tenantId, organizationId])
+              const definitions = await scanQuery<{ key: string; required: boolean; tenant_id: string | null; organization_id: string | null; is_active: boolean; deleted_at: string | null; updated_at: string }>("SELECT key, coalesce(config_json->>'encrypted' = 'true',false) AS required, tenant_id::text, organization_id::text, is_active, deleted_at::text, updated_at::text FROM custom_field_defs WHERE entity_id = ? AND (tenant_id = ? OR tenant_id IS NULL) AND (organization_id = ? OR organization_id IS NULL) ORDER BY id LIMIT 501", [raw.entity_type, tenantId, organizationId])
               if (definitions.length > 500) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
               const winning = new Map<string, typeof definitions[number]>()
               const historical = new Map<string, typeof definitions[number]>()

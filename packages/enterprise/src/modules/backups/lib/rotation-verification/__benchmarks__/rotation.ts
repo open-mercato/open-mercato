@@ -82,6 +82,7 @@ async function main() {
     return result.rows
   } }
   const em = {
+    execute: connection.execute,
     getConnection: () => connection,
     getMetadata: () => ({ getAll: () => [{ className: 'BenchRecord', tableName: 'bench_records', schema: 'public', primaryKeys: ['id'], properties }] }),
     find: async (entity: { name: string }) => entity.name === 'EncryptionMap'

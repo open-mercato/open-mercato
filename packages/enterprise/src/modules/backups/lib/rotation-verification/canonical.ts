@@ -137,4 +137,17 @@ export function keyedRowDigestAndSize(key: Buffer, row: VerificationRow): { dige
   return { digest: hmac.digest('hex'), bytes: size }
 }
 
+/** Exact canonical row body in an initialized, unpooled transferable allocation. */
+export function encodeRowDigestFrame(row: VerificationRow): { frame: ArrayBuffer; bytes: number } {
+  const value = rowValue(row)
+  const size = encodedSize(value)
+  if (size > 1024 * 1024) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+  const encoded = Buffer.allocUnsafeSlow(size)
+  if (writeCanonical(value, encoded, 0) !== size || encoded.byteOffset !== 0 || encoded.byteLength !== encoded.buffer.byteLength || !(encoded.buffer instanceof ArrayBuffer)) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+  return { frame: encoded.buffer, bytes: size }
+}
+
+/** Public protocol prefix only; callers receive their own exact allocation. */
+export function rowDigestDomainPrefix(): Uint8Array { return Uint8Array.from(domainFrame('row-v1')) }
+
 export function keyedRowDigest(key: Buffer, row: VerificationRow): string { return keyedRowDigestAndSize(key, row).digest }

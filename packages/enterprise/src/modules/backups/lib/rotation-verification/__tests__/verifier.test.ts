@@ -1,9 +1,9 @@
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
-import { canonicalValue, canonicalRow, keyFingerprint, keyedDigest, keyedRowDigest, type VerificationRow } from '../canonical'
+import { canonicalValue, canonicalRow, keyFingerprint, keyedDigest, keyedRowDigest, keyedRowDigestAndSize, rowIdentity, type VerificationRow } from '../canonical'
 import { RotationArtifactStore } from '../store'
 import { prepareRotationVerification, verifyRotationData, readVerificationFailureAggregates, validatePreparedRotation, type RotationDataset } from '../verifier'
 
@@ -53,6 +53,28 @@ test('streams a full multi-chunk roundtrip and writes no plaintext baseline to d
   for (const name of await readdir(join(directory, 'artifacts'))) {
     expect((await readFile(join(directory, 'artifacts', name))).toString()).not.toContain('private-value')
   }
+})
+
+test('worker baseline chunks and root exactly match the previous synchronous row protocol', async () => {
+  const { dataset, store } = fixture()
+  await prepareRotationVerification(dataset, store)
+  const runKey = await store.read('run-key')
+  try {
+    const root = createHash('sha256')
+    let totalBytes = 0n
+    for (let chunk = 0; chunk < 3; chunk++) {
+      const expected = []
+      for (let index = chunk * 500; index < Math.min(1001, (chunk + 1) * 500); index++) {
+        const value = row(index), old = keyedRowDigestAndSize(runKey, value)
+        totalBytes += BigInt(old.bytes)
+        expected.push({ identity: rowIdentity(value), digest: old.digest, bytes: old.bytes, fields: value.columns.length, metadata: keyedDigest(runKey, 'metadata-v1', canonicalValue({})) })
+      }
+      const bytes = Buffer.from(JSON.stringify(expected))
+      expect(await store.read(`chunk-${String(chunk).padStart(12, '0')}`)).toEqual(bytes)
+      root.update(keyedDigest(runKey, `chunk-${chunk}`, bytes))
+    }
+    expect(JSON.parse((await store.read('header')).toString())).toMatchObject({ root: root.digest('hex'), bytes: String(totalBytes), rows: 1001, fields: 2002, chunks: 3 })
+  } finally { runKey.fill(0) }
 })
 
 test('absent metadata retains the empty-object MAC while nonempty changes require a run-bound intent', async () => {
