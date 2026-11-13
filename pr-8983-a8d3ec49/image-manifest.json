@@ -1,0 +1,72 @@
+[
+  {
+    "file": "actor-a-first-refusal.png",
+    "sha256": "e91fc5c40e2faa7f33baf9b6826580af30ed438008b5163830c760a2c7cb45bc",
+    "bytes": 218121
+  },
+  {
+    "file": "actor-a-ten-refusals.png",
+    "sha256": "39b8f31d8c9cddf12169d50dc84bbaf581896454e37d95b948f409423e1c7f75",
+    "bytes": 218395
+  },
+  {
+    "file": "actor-b-description-saved.png",
+    "sha256": "ed98bebe89157f0fc9c22a6c2c48c69e80e93a1261bba1a05046cf70fe7a12a8",
+    "bytes": 212471
+  },
+  {
+    "file": "coalesced-both-fields.png",
+    "sha256": "326b2aea19fbd28db41c221383c45445dadf30d36bb4a1e6311f46c74fa296d8",
+    "bytes": 209949
+  },
+  {
+    "file": "final-clean-state.png",
+    "sha256": "fda067753e09eb84f80228c7c73fa1c1808c3d02d7a289fd3ee2ef13bc492b7c",
+    "bytes": 166313
+  },
+  {
+    "file": "metadata-de-375.png",
+    "sha256": "acba319401c70fe5dc222b73889b2b284fbd48ea9ea2add213bf2e0386494a26",
+    "bytes": 159896
+  },
+  {
+    "file": "metadata-en-375.png",
+    "sha256": "6a6a0324e59ecea3e0259fc8555e0c97c49b7a92f62544f5a9ff6637590ac205",
+    "bytes": 145606
+  },
+  {
+    "file": "metadata-es-375.png",
+    "sha256": "b771ffd58b10f79a0957d82c11e87950d26dd0cdd50f76f7e13f6b1649e6a368",
+    "bytes": 162642
+  },
+  {
+    "file": "metadata-ko-375.png",
+    "sha256": "0edf5a2472ddb75d91c428620c4f7418f2c7292c150887c0733b0eabed71b36c",
+    "bytes": 144382
+  },
+  {
+    "file": "metadata-pl-375.png",
+    "sha256": "5082663e27cdc1a8c5ca16abb74f4643a6bae9068160076f4dfc987453538e9a",
+    "bytes": 159454
+  },
+  {
+    "file": "metadata-server-refusal.png",
+    "sha256": "cb0ea426e66082c84f7b9e9767ca049a724e0425ec3566093d5e9c9e6ef9407d",
+    "bytes": 214280
+  },
+  {
+    "file": "recovered-after-ten-seconds.png",
+    "sha256": "8b8b68b43726d3a7a8d889dbc8a29843a31ee3c38a34d76c1ee636bd2b6c55f6",
+    "bytes": 209792
+  },
+  {
+    "file": "serialized-queued-save.png",
+    "sha256": "fe8296f6382f68cb527e5a7269d224bf70624ea5c4da8a4ceeaceb88f842049e",
+    "bytes": 209786
+  },
+  {
+    "file": "server-retry-after-ten-seconds.png",
+    "sha256": "fad592e858161e0790484e304613d28286621e3b144be878e1ff60f50c1ac7fe",
+    "bytes": 210754
+  }
+]
