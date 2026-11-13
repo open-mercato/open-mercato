@@ -51,7 +51,7 @@ type PreviewBody = { passed?: boolean | null; scorerKey?: string; runId?: string
 type EvalRunDetailBody = { caseRuns?: Array<{ agent_run_id?: string | null }> }
 type EvalReportBody = {
   cases?: Array<{
-    trials?: Array<{ agentRunId?: string | null; results?: Array<{ assertionKey?: string; scorerKey?: string; passed?: boolean | null }> }>
+    trials?: Array<{ agentRunId?: string | null; status?: string; error?: string | null; results?: Array<{ assertionKey?: string; scorerKey?: string; passed?: boolean | null }> }>
   }>
 }
 
@@ -197,8 +197,11 @@ test.describe('TC-AGENT-INT-006: guardrail_check eval assertion', () => {
       expect(reportRes.status(), await reportRes.text()).toBe(200)
       const report = (await readJsonSafe<EvalReportBody>(reportRes)) ?? {}
       const trials = (report.cases ?? []).flatMap((entry) => entry.trials ?? [])
-      const scoredTrial = trials.find((trial) => trial.agentRunId)
-      test.skip(!scoredTrial, 'the model did not complete the replayed run in this environment')
+      const scoredTrial = trials.find((trial) => trial.agentRunId && trial.status !== 'error' && !trial.error)
+      test.skip(
+        !scoredTrial,
+        'the provider pre-filter passed but the model could not complete the replayed run in this environment',
+      )
       const result = (scoredTrial?.results ?? []).find((entry) => entry.assertionKey === assertionKey)
       expect(result?.scorerKey).toBe('guardrail_check')
       expect(typeof result?.passed, 'the guardrail_check assertion records a verdict').toBe('boolean')
