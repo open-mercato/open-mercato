@@ -550,6 +550,7 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
 
 ## Future Work
 
+- **AI attachment bridge `sections` strategy.** `ai-assistant/lib/attachment-parts.ts` still forwards `content` capped at `DEFAULT_MAX_TEXT_CHARS = 64 * 1024` (overridable per call through `maxTextChars`) with an explicit `[... truncated]` marker. Sending the outline plus selected sections belongs to the AI attachment processing spec (see Relationship to SPEC-040 and AO); agents use `attachments.get_document_sections` today.
 - **`messages` attachment deletes bypass the purge.** `messages/commands/{messages,shared,attachments}.ts` remove attachment rows with `em.nativeDelete(Attachment, …)` instead of `removeAttachmentRecord`, so a structured message attachment leaves its extraction and section rows behind. Those paths are out of scope for this spec; route them through `removeAttachmentRecord` (or call `purgeDocumentStructure` in the same transaction) in a follow-up.
 
 ## Changelog
@@ -615,3 +616,9 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
   - **Known gap:** an attachment purged between a toggle-off fan-out and its delete job can leave a few section records until a reindex.
   - **No client citation resolver:** the ui registry has no module registration hook; attachment citations use their label and the server-side library link.
   - Residual risk unchanged: no per-record search post-filter, so `attachments.view` holders in the organization can see snippets of indexed sections; opening an attachment still enforces access.
+
+### 2026-11-13
+- Roadmap F23 follow-ups (PR #8251):
+  - **`releaseScoped` emits the delete event.** Both paths now emit `attachments.attachment.deleted` with the attachment query-index side effect (`attachmentCrudEvents` / `attachmentCrudIndexer`, as the `DELETE` route) and clear cached thumbnails once per removed attachment, after commit: the immediate path after `removeAttachmentRecord`, the `{ flush: false }` path from the returned post-commit cleanup, which is therefore always returned (search-only and provider cleanup unchanged). `DefaultAttachmentService` takes an optional lazy `dataEngine` resolver. The GDPR and lifecycle note that `releaseScoped` emits no event is superseded; the in-transaction `purgeDocumentStructure` call stays the purge mechanism.
+  - **OCR is durable.** `requestOcrProcessing` enqueues an `attachments-ocr` job (`lib/ocrJobQueue.ts`, attachment id + scope, coalesced per attachment) processed by the auto-discovered `workers/ocr.ts`, which re-reads the attachment in scope, skips deleted rows and reuses `processAttachmentOcr` (same `OM_ATTACHMENT_OCR_MAX_PAGES` cap and content write). `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` sets the worker concurrency (max 20). The in-process `setImmediate` scheduler and its wait-queue inline fallback remain only for when the queue rejects the job. Supersedes Problem Statement item 3's "not through `packages/queue`". OCR tests stay unit-level (no provider key in CI).
+  - **AI bridge truncation is recorded, not changed.** The 64 K cap already has a per-call override and an explicit truncation marker; the `sections` strategy stays out of scope (Relationship to SPEC-040 and AO) and is listed under Future Work.
