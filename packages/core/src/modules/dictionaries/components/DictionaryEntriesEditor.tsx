@@ -411,7 +411,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-md border">
+      <div className="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>

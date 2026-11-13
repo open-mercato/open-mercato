@@ -1,15 +1,3 @@
-/**
- * The classification precedence chain, pinned where it now lives.
- *
- * `classifyRecordsEntity` was private to `api/records.ts` and covered only
- * indirectly, through the records route tests. It is now shared with the
- * workflows task-visibility resolver, so the precedence it encodes — ORM
- * registry beats module declaration beats a scoped `custom_entities` row, and
- * `restricted` is read from the row that applies to THIS caller — is pinned
- * directly. Nothing here asserts new behavior; it asserts the behavior the
- * extraction had to preserve.
- */
-
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 
 const isOrmBackedSystemEntityId = jest.fn<(em: unknown, entityId: string) => boolean>(() => false)
@@ -29,10 +17,13 @@ const OTHER_TENANT = '33333333-3333-3333-3333-333333333333'
 
 const scope = { tenantId: TENANT, organizationId: ORG }
 
-type Row = { entityId: string; tenantId: string | null; organizationId: string | null; accessRestricted?: boolean }
+type Row = { entityId: string; tenantId: string | null; organizationId: string | null; accessRestricted?: boolean; isActive?: boolean; deletedAt?: Date | null }
 
 function matches(row: Row, where: Record<string, unknown>): boolean {
-  return Object.entries(where).every(([key, value]) => (row as Record<string, unknown>)[key] === value)
+  return Object.entries(where).every(([key, value]) => {
+    if (key === '$or') return (value as Record<string, unknown>[]).some((candidate) => matches(row, candidate))
+    return ({ isActive: true, deletedAt: null, ...row } as Record<string, unknown>)[key] === value
+  })
 }
 
 function makeEm(rows: Row[]) {
@@ -67,7 +58,7 @@ describe('classifyRecordsEntity precedence', () => {
     expect(findOne).not.toHaveBeenCalled()
   })
 
-  test('a module-declared entity wins over the database and carries its restriction flag', async () => {
+  test('a restricted module declaration requires no database lookup', async () => {
     getModules.mockReturnValue([{ customEntities: [{ id: 'example:todo', accessRestricted: true }] }])
     const { classifyRecordsEntity } = await loadModule()
     const { em, findOne } = makeEm([{ entityId: 'example:todo', tenantId: TENANT, organizationId: ORG }])
@@ -104,16 +95,86 @@ describe('classifyRecordsEntity precedence', () => {
     })
   })
 
-  test("another tenant's row cannot flip the restriction flag, only prove the id is custom", async () => {
+  test("another tenant's row cannot classify an entity or flip its restriction flag", async () => {
     const { classifyRecordsEntity } = await loadModule()
     const { em } = makeEm([
       { entityId: 'user:vendors', tenantId: OTHER_TENANT, organizationId: null, accessRestricted: true },
     ])
 
     expect(await classifyRecordsEntity(em, 'user:vendors', scope)).toEqual({
-      kind: 'custom',
+      kind: 'unknown',
       restricted: false,
     })
+  })
+
+  test.each([ORG, 'sibling-org', null])('a restricted sibling registration applies for organization %s', async (organizationId) => {
+    const { classifyRecordsEntity } = await loadModule()
+    const { em } = makeEm([
+      { entityId: 'user:vendors', tenantId: TENANT, organizationId: ORG, accessRestricted: false },
+      { entityId: 'user:vendors', tenantId: TENANT, organizationId: 'hq', accessRestricted: true },
+    ])
+
+    expect(await classifyRecordsEntity(em, 'user:vendors', { tenantId: TENANT, organizationId })).toEqual({
+      kind: 'custom', restricted: true,
+    })
+  })
+
+  test('an unrestricted organization overlay cannot weaken a global restriction', async () => {
+    const { classifyRecordsEntity } = await loadModule()
+    const { em } = makeEm([
+      { entityId: 'user:vendors', tenantId: TENANT, organizationId: ORG, accessRestricted: false },
+      { entityId: 'user:vendors', tenantId: null, organizationId: null, accessRestricted: true },
+    ])
+
+    expect(await classifyRecordsEntity(em, 'user:vendors', scope)).toEqual({ kind: 'custom', restricted: true })
+  })
+
+  test('an unrestricted declaration cannot weaken a live tenant restriction', async () => {
+    getModules.mockReturnValue([{ customEntities: [{ id: 'user:vendors', accessRestricted: false }] }])
+    const { classifyRecordsEntity } = await loadModule()
+    const { em } = makeEm([
+      { entityId: 'user:vendors', tenantId: TENANT, organizationId: 'hq', accessRestricted: true },
+    ])
+
+    expect(await classifyRecordsEntity(em, 'user:vendors', scope)).toEqual({ kind: 'custom', restricted: true })
+  })
+
+  test.each([
+    { isActive: false, deletedAt: null },
+    { isActive: true, deletedAt: new Date('2026-01-01') },
+  ])('inactive sibling registrations retain historical classification without a live restriction (%j)', async (lifecycle) => {
+    const { classifyRecordsEntity } = await loadModule()
+    const { em } = makeEm([
+      { entityId: 'user:vendors', tenantId: TENANT, organizationId: 'hq', accessRestricted: true, ...lifecycle },
+    ])
+
+    expect(await classifyRecordsEntity(em, 'user:vendors', scope)).toEqual({ kind: 'custom', restricted: false })
+  })
+
+  test('foreign restrictions cannot override an unrestricted local registration', async () => {
+    const { classifyRecordsEntity } = await loadModule()
+    const { em } = makeEm([
+      { entityId: 'user:vendors', tenantId: OTHER_TENANT, organizationId: null, accessRestricted: true },
+      { entityId: 'user:vendors', tenantId: TENANT, organizationId: 'hq', accessRestricted: false },
+    ])
+
+    expect(await classifyRecordsEntity(em, 'user:vendors', scope)).toEqual({ kind: 'custom', restricted: false })
+  })
+
+  test('every fallback lookup is explicitly tenant-scoped', async () => {
+    const { classifyRecordsEntity } = await loadModule()
+    const { em, findOne } = makeEm([])
+
+    await classifyRecordsEntity(em, 'user:vendors', scope)
+
+    for (const [, where] of findOne.mock.calls) {
+      if (Array.isArray(where.$or)) {
+        expect(where.$or).toEqual([{ tenantId: TENANT }, { tenantId: null, organizationId: null }])
+      } else {
+        expect(where).toHaveProperty('tenantId')
+        expect([TENANT, null]).toContain(where.tenantId)
+      }
+    }
   })
 
   test('an id with no registration anywhere is unknown', async () => {

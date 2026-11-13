@@ -456,6 +456,14 @@ A second interceptor family guards undo against archive state: undoing `document
 
 Hocuspocus over WebSocket at `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL`. Not an HTTP route. Auth via the short-lived v2 collab token; `onAuthenticate` enforces scope, origin, and tier; read-only is enforced at the message level. The message protocol is the standard Yjs sync + awareness protocol (opaque binary), bounded by `DOCUMENTS_COLLAB_MAX_PAYLOAD_BYTES`.
 
+### Named version save protocol
+
+Named versions first await the active editor's durable-content save barrier. Single-user fallback drains its debounced/in-flight content writes using each returned optimistic-lock token. Collaboration sends a correlated `documents.content.save` stateless message (`requestId`: UUID); the authenticated sidecar expedites the normal store queue, preserving its mutex, CAS merge and Redis fanout. It responds only to that connection with `documents.content.saved` (`requestId`, `saved`: boolean). Success requires a confirmed materialized durable snapshot containing the requested Yjs state vector **and deletions**, even with concurrent collaborator edits. Socket sync or completion of a failed store hook is insufficient. Save failure, unavailable editor, disconnect or a 15-second acknowledgement timeout prevents the versions POST and success notification. Existing HTTP payloads and routes stay compatible; older sidecars time out safely until upgraded.
+
+The persistence confirmation belongs to the exact expedited store payload and is released after that attempt completes. A historical snapshot or an unrelated autosave cannot acknowledge a skipped/failed store, including during delayed invalidation after an authoritative content replacement.
+
+Regression coverage: `versionRestoreUiLifecycle.test.tsx` holds fallback writes in flight and verifies POST ordering/failure/duplicate/navigation behavior; `collabContentSave.test.ts` covers correlation, disconnect, teardown, timeout and concurrent/deletion containment; `collabServer.test.ts` covers delayed/failed/skipped durable stores, historical and unrelated confirmations, collaborators, scope, revocation and invalidation.
+
 ### Version restore protocol
 
 Restore must not be a raw DB overwrite that a live room merges over: `Y.applyUpdate(liveDoc, oldSnapshot)` **merges** rather than reverts, and a live room's final `onStoreDocument` would clobber a DB-only write. Restore is therefore an **epoch reset**:
@@ -509,9 +517,11 @@ All business-record selection is search-based and bounded. Picker results carry 
 
 ### Related-documents widget
 
-The module injects a related-documents panel (widget id `documents.injection.related-documents`, `features: ['documents.view']`, `requiredModules: ['documents']`, kind `stack`, priority 80) into supported host record pages via the widget injection system. `widgets/injection-table.ts` targets **eight spot ids**:
+The module injects a related-documents panel (widget id `documents.injection.related-documents`, `features: ['documents.view']`, `requiredModules: ['documents']`, kind `stack` on legacy/sales/catalog hosts and kind `tab` on the canonical CRM pages, priority 80 / -20) into supported host record pages via the widget injection system. `widgets/injection-table.ts` targets **eight spot ids**:
 
-`detail:customers.person:footer` · `customers.person.detail:details` · `detail:customers.company:footer` · `customers.company.detail:details` · `detail:customers.deal:footer` · `sales.document.detail.quote:details` · `sales.document.detail.order:details` · `crud-form:catalog.product`
+`detail:customers.person:tabs` · `customers.person.detail:details` · `detail:customers.company:tabs` · `customers.company.detail:details` · `detail:customers.deal:tabs` · `sales.document.detail.quote:details` · `sales.document.detail.order:details` · `crud-form:catalog.product`
+
+Since #7488 the three canonical CRM detail pages (people-v2, companies-v2, deals) receive a separate `kind: 'tab'` descriptor (`groupId: 'related-documents'`, label `documents.relatedDocuments.title`, priority -20) and mount the panel as a tab of their related-content workspace instead of a detached footer card; the legacy CRM, sales and catalog hosts keep the inline `stack`. The `detail:customers.*:footer` spots remain available to other modules.
 
 The widget receives typed host context, queries only Documents-owned link routes, applies the caller's Documents **and** peer-record permissions, renders document titles rather than ids, offers Link and Create actions gated by resolved capabilities, and renders nothing when there is no target or the caller is unauthorized. No peer module imports Documents code and no peer database table changes.
 
@@ -714,6 +724,8 @@ Integration fixtures are created and cleaned up by each test and never rely on s
 ## Changelog
 
 - **2026-10-26** — Issue #7837: require effective scoped `documents.view` for watch and mention recipients, including owners and retained shares, and revalidate at notification persistence. Missing authorization fails closed. Preserve hierarchical organization grants through the existing fresh scope resolver and consolidated feature policy. Keep mention grant decisions on the document relationship tier so revoked module access cannot downgrade retained editor shares or add redundant direct shares. Unit coverage includes owners, direct/role shares, managers, wildcard grants, inherited and denied organization access, service failure, share preservation, and real sidecar authorization; API regression coverage retains shares and subscriptions across view revocation, including an explicit mention grant request. Existing public signatures and database schema remain unchanged.
+
+- **2026-10-26** — Fix #7839: named-version creation awaits fallback persistence or a correlated durable collaboration acknowledgement; failed or unavailable saves cannot create a misleading successful snapshot. Existing HTTP contracts remain unchanged.
 
 - **2026-07-08** — Spec created from the approved design and hardened by a pre-implementation backward-compatibility audit: concrete sidecar auth handshake (collab-token mint and verify), post-connect write enforcement and revocation, document-tier-gated image proxy, `DocumentContentService` search-freshness contract, explicit encryption and search field policy, epoch-reset version-restore protocol, shared editor config, local entity-id constants, re-share upsert, and a real PDF export endpoint. **M1–M4 implemented and verified**: shared-docs core (11 entities across the milestone set, per-document sharing, folders, CRUD APIs, image proxy, TipTap editor), the Hocuspocus realtime sidecar with collab-token handshake and live cursors, comments/@mentions with version history, and docx/PDF export.
 - **2026-07-09** — **M5 implemented and verified**: TipTap keep-verdict recorded with sourced licensing and performance research; naked-GUID elimination via a shared `resolveUserLabels` and out-of-band comment mentions; Google-Docs UX (alignment, highlight, colour, undo/redo, outline, word count, inline rename); the `entityRef` chip node with an `@`-trigger EntityPicker; and `document_templates` with client-side instantiation and seeded defaults.
