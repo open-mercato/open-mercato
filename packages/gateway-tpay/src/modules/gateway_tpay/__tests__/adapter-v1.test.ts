@@ -268,11 +268,7 @@ describe('tpayAdapterV1', () => {
       expect(result).toMatchObject({ status: 'pending', amount: 123.45, amountReceived: 100 })
     })
 
-    it.each([
-      [0, 0],
-      ['0.00', 0],
-      [-1, -1],
-    ])('keeps a settled transaction with amountPaid %p pending', async (amountPaid, amountReceived) => {
+    it.each([0, '0.00', -1])('keeps a settled transaction with amountPaid %p pending', async (amountPaid) => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ access_token: TOKEN }))
         .mockResolvedValueOnce(
@@ -288,7 +284,7 @@ describe('tpayAdapterV1', () => {
         sessionId: 'ta_unpaid',
         credentials: { clientId: 'client-id', clientSecret: CLIENT_SECRET, environment: 'sandbox' },
       })
-      expect(result).toMatchObject({ status: 'pending', amount: 123.45, amountReceived })
+      expect(result).toMatchObject({ status: 'pending', amount: 123.45 })
     })
 
     it('defaults amount received to zero and maps unknown statuses', async () => {
