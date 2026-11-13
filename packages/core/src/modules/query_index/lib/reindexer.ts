@@ -552,8 +552,6 @@ export async function reindexEntity(
   let jobFailed = false
   const writeTotals = createEmptyUpsertIndexBatchResult()
 
-  options?.onProgress?.({ processed, total, chunkSize: 0 })
-
   // Partitions run concurrently, so a scope-wide purge here would delete rows a sibling
   // partition has already written and never rebuild them (the run still reports success
   // because progress counts attempted writes). Each partition therefore purges only the
@@ -644,6 +642,7 @@ export async function reindexEntity(
   }
 
   try {
+    await options?.onProgress?.({ processed, total, chunkSize: 0 })
     while (true) {
       let query = applyBaseWhere(
         db
@@ -758,7 +757,7 @@ export async function reindexEntity(
 
       processed += batchResult.written
       lastId = String(rows[rows.length - 1]!.id)
-      options?.onProgress?.({ processed, total, chunkSize: batchResult.written })
+      await options?.onProgress?.({ processed, total, chunkSize: batchResult.written })
       await updateJobProgress(db, jobScope, batchResult.written)
     }
 
