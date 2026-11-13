@@ -1,0 +1,146 @@
+[
+  {
+    "kind": "form",
+    "id": "4eff1858-cbaf-4a26-bde0-629e7cb79b4b",
+    "deleteStatus": 200,
+    "readback": "archived"
+  },
+  {
+    "kind": "form",
+    "id": "379745f3-f3f0-48ea-8996-2bde2f09bf81",
+    "deleteStatus": 200,
+    "readback": "archived"
+  },
+  {
+    "kind": "form",
+    "id": "ea87dde9-d8ef-4781-a710-98d8a1e63bce",
+    "deleteStatus": 200,
+    "readback": "archived"
+  },
+  {
+    "kind": "form",
+    "id": "7d6dd224-b918-46c0-8875-b1973f5c4700",
+    "deleteStatus": 200,
+    "readback": "archived"
+  },
+  {
+    "kind": "user",
+    "id": "082eba65-34cc-47f5-b6e7-8b7b4e36caca",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "user",
+    "id": "ace15174-f2e7-45f4-8bce-8ade07a2c278",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "user",
+    "id": "547a03fe-97cf-4b21-8492-91b83e6e1dae",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "user",
+    "id": "920ce191-2685-490c-a00b-72b43868dc52",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "user",
+    "id": "01fe7339-ee53-4208-bbd2-81f01d4ec603",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "user",
+    "id": "ddbd1e1a-1039-4b31-8a2d-e120775656f6",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "user",
+    "id": "8f0a38e9-a8b8-4593-bbb1-7431584e3497",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "user",
+    "id": "8b24cb4d-d7ae-460b-b413-ce96531d47b9",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "user",
+    "id": "66814faa-95c9-4b38-a90e-3f058748df3e",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "user",
+    "id": "41d7901f-78b1-4bbe-a595-b0243147ea70",
+    "deleteStatus": 200,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "user",
+    "id": "24d48d02-d37a-4382-851e-67fd214800eb",
+    "deleteStatus": 200,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "user",
+    "id": "d38a0ff8-9817-4318-90e3-a662e06ac6a6",
+    "deleteStatus": 200,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "role",
+    "id": "2903b44a-c7fc-4519-aba2-3c18319f33ad",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "role",
+    "id": "5b28f822-8e0b-4d37-b954-d8a778f8b822",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "role",
+    "id": "3dcbf322-a6ef-4e0f-b0ad-eff1cecf5f1a",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "role",
+    "id": "9de5a5bf-e0d9-44b1-96da-f9743b976f57",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "role",
+    "id": "7ae50b4d-4763-41c3-9d97-512950012101",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "role",
+    "id": "2c2dad75-29d5-4581-99c2-367b9435daee",
+    "deleteStatus": 404,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "role",
+    "id": "6de01c5d-d7ad-4c9c-9c97-fa430f94707f",
+    "deleteStatus": 200,
+    "readback": "absent from ids-filtered list"
+  },
+  {
+    "kind": "role",
+    "id": "2d1c8d98-b390-4b2f-b985-36b2228edde2",
+    "deleteStatus": 200,
+    "readback": "absent from ids-filtered list"
+  }
+]
