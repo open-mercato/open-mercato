@@ -1,3 +1,5 @@
+import { isDatabaseRuntimeEnabled } from '@open-mercato/shared/lib/db/runtime'
+import { withSchedulerMaintenance } from '../lib/databaseContext.js'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
 import { recalculateNextRun } from '../lib/nextRunCalculator'
@@ -279,6 +281,17 @@ export class BullMQSchedulerService {
    * Useful for initialization or repair
    */
   async syncAll(): Promise<void> {
+    if (isDatabaseRuntimeEnabled()) {
+      return withSchedulerMaintenance('scheduler.bullmq-sync', async (em) => {
+        const service = new BullMQSchedulerService(() => em)
+        service.queue = await this.getQueue()
+        await service.syncAllInContext()
+      })
+    }
+    return this.syncAllInContext()
+  }
+
+  private async syncAllInContext(): Promise<void> {
     const em = this.em().fork()
     const queue = await this.getQueue()
     

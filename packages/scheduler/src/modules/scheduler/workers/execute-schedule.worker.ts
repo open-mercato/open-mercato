@@ -1,3 +1,5 @@
+import { isDatabaseRuntimeEnabled } from '@open-mercato/shared/lib/db/runtime'
+import { resolveScheduleDatabaseContext } from '../lib/databaseContext.js'
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import { createQueue } from '@open-mercato/queue'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
@@ -154,6 +156,10 @@ async function executeSchedule(
       dbOrg: schedule.organizationId,
     })
     throw new Error('Schedule organization ID mismatch - potential security issue')
+  }
+
+  if (isDatabaseRuntimeEnabled() && schedule.scopeType === 'system') {
+    await resolveScheduleDatabaseContext(schedule)
   }
 
   // Check if schedule is still enabled

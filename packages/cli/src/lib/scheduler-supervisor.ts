@@ -10,6 +10,8 @@
 import { spawn as nodeSpawn } from 'node:child_process'
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
+import { configureDatabasePool, isDatabaseRuntimeEnabled, resolveDatabaseConnectionUrl, runWithFreshDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+import type { DatabasePoolLifecycle } from '@open-mercato/shared/lib/db/runtime'
 
 export type SchedulerScheduleProbeResult = {
   enabledSchedules: number
@@ -80,15 +82,38 @@ export async function probeEnabledSchedules(env: NodeJS.ProcessEnv = process.env
     }
   }
 
-  const { Client } = await import('pg')
-  const client = new Client({
-    connectionString: databaseUrl,
-    ssl: getSslConfig(),
-  })
+  if (isDatabaseRuntimeEnabled()) {
+    return runWithFreshDatabaseExecutionContext({
+      kind: 'maintenance', tenantId: null, source: 'scheduler', operation: 'scheduler.lazy-probe',
+    }, () => probeScheduleConnection(databaseUrl, true))
+  }
+  return probeScheduleConnection(databaseUrl, false)
+}
 
+async function probeScheduleConnection(databaseUrl: string, maintenance: boolean): Promise<SchedulerScheduleProbeResult> {
+  let lifecycle: DatabasePoolLifecycle | undefined
+  let release: (() => void) | undefined
+  let client: InstanceType<typeof import('pg').Client> | undefined
   try {
+    const { Client } = await import('pg')
+    client = new Client({
+      connectionString: maintenance ? resolveDatabaseConnectionUrl('maintenance', databaseUrl) : databaseUrl,
+      ssl: getSslConfig(),
+      ...(maintenance ? { connectionTimeoutMillis: 5000, query_timeout: 5000 } : {}),
+    })
+
     await client.connect()
-    const result = await client.query(`
+    let connection: Pick<InstanceType<typeof Client>, 'query'> = client
+    if (maintenance) {
+      const physical = { query: client.query.bind(client), release: () => undefined }
+      const pool = { connect: async () => physical }
+      lifecycle = configureDatabasePool(pool, { id: 'scheduler-lazy-probe', purpose: 'maintenance', tables: ['scheduled_jobs'] })
+      await lifecycle.ready()
+      const guarded = await pool.connect()
+      connection = guarded
+      release = guarded.release
+    }
+    const result = await connection.query(`
       select
         count(*)::int as enabled_schedules,
         count(*) filter (where next_run_at <= now())::int as due_schedules
@@ -117,7 +142,9 @@ export async function probeEnabledSchedules(env: NodeJS.ProcessEnv = process.env
       errorMessage: error instanceof Error ? error.message : String(error),
     }
   } finally {
-    await client.end().catch(() => undefined)
+    try { release?.() } finally {
+      try { await client?.end().catch(() => undefined) } finally { lifecycle?.dispose() }
+    }
   }
 }
 
