@@ -36,7 +36,7 @@ Runner: local (no configured compose app running). Immutable install completed. 
 
 Independent review: https://github.com/open-mercato/open-mercato/pull/9455#issuecomment-6856517956 — approve, no findings, reviewed d1b0ffef38. The reviewer explicitly accepts clerical plan-progress/evidence updates only after that SHA; source/test/config changes require new review. GitHub rejected a native approving review because the reviewer authenticates as the authoring App. The recorded independent verdict does not replace any eligible native approval required at merge.
 
-`automerge` was applied after the repaired head passed all reported checks, as explicitly requested. This task performs no merge. The draft and owned claim remain in place during the final full-suite recheck triggered by this clerical completion record; promote/release only after that final head is green.
+`automerge` was confirmed after the repaired head passed all reported checks, as explicitly requested. Timeline inspection showed that pkarw had already promoted the draft and applied `automerge` plus `automerge-force` at 15:15 UTC; those human actions are preserved. This task performs no merge and retains its owned claim during the final full-suite recheck triggered by this clerical completion record. Release only after that final head is green; normal merge gates remain in force.
 
 ## Risks
 Full suite may reveal additional failures after the compile blocker. UI changes require QA evidence and retain the QA merge gate. Remote CI is authoritative for runner-dependent checks. No production or base-branch mutations are authorized or planned. Local runner selection must follow the repository probe.
@@ -60,4 +60,4 @@ PR: #9455
 
 ### Phase 3: Publish outcome
 
-- [x] 3.1 Publish evidence and enable guarded automerge after green CI — d1b0ffef38 (evidence published; operator-requested label applied only after green CI)
+- [x] 3.1 Publish evidence and enable guarded automerge after green CI — d1b0ffef38 (evidence published; operator-requested label confirmed after green CI; existing human merge labels preserved)
