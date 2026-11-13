@@ -200,8 +200,10 @@ export function handleDiscordInteraction(input: {
       rawBody,
     })
     if (ok) {
+      if (matched) {
+        return { status: 401, body: { error: 'ambiguous_signature' }, matchedChannel: null }
+      }
       matched = candidate
-      break
     }
   }
 

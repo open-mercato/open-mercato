@@ -159,6 +159,70 @@ describe('Discord interaction request body limits', () => {
     expect(createRequestContainer).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    ['PING', 1, 'different-tenant'],
+    ['command', 2, 'different-tenant'],
+    ['component', 3, 'different-user'],
+    ['modal', 5, 'different-user'],
+  ])('rejects an ambiguous signed %s before any queue work (%s, %s)', async (_name, type, scope) => {
+    const first = {
+      id: 'channel-1', channelType: 'discord', tenantId: 'tenant-1', organizationId: 'org-1',
+      credentialsRef: 'discord', userId: 'user-1',
+    }
+    const second = {
+      ...first, id: 'channel-2', tenantId: scope === 'different-tenant' ? 'tenant-2' : 'tenant-1', userId: 'user-2',
+    }
+    const rawBody = JSON.stringify({
+      type, id: 'interaction-1', application_id: 'app-1', token: 'test-interaction-token',
+      channel_id: 'discord-channel-1', user: { id: 'discord-user-1' },
+      data: { name: 'mercato', custom_id: 'test-component', components: [] },
+    })
+    for (const rows of [[first, second], [second, first]]) {
+      jest.mocked(findWithDecryption).mockResolvedValue(rows as never)
+      const response = await POST(new Request('http://localhost/api/channel_discord/interactions', {
+        method: 'POST', headers: signedHeaders(rawBody), body: rawBody,
+      }))
+      expect(response.status).toBe(401)
+      expect(await response.json()).toEqual({ error: 'ambiguous_signature' })
+      expect(getInteractionDispatchQueue).not.toHaveBeenCalled()
+    }
+    expect(credentialsResolve).toHaveBeenCalledWith('channel_discord', {
+      tenantId: first.tenantId, organizationId: first.organizationId, userId: first.userId,
+    })
+    expect(credentialsResolve).toHaveBeenCalledWith('channel_discord', {
+      tenantId: second.tenantId, organizationId: second.organizationId, userId: second.userId,
+    })
+  })
+
+  it.each([2, 3, 5])('dispatches an authorized type %i interaction only under its matching channel scope', async (type) => {
+    const enqueue = jest.fn().mockResolvedValue(undefined)
+    jest.mocked(getInteractionDispatchQueue).mockReturnValue({ enqueue } as never)
+    jest.mocked(findWithDecryption).mockResolvedValue([
+      { id: 'unrelated-channel', channelType: 'discord', tenantId: 'other-tenant', organizationId: null, credentialsRef: 'discord', userId: null },
+      { id: 'channel-1', channelType: 'discord', tenantId: 'tenant-1', organizationId: 'org-1', credentialsRef: 'discord', userId: 'user-1' },
+    ] as never)
+    credentialsResolve.mockImplementation(async (_integration: string, scope: { tenantId: string }) => ({
+      botToken: 'test-bot-token', applicationId: 'app-1',
+      publicKey: scope.tenantId === 'tenant-1' ? publicKeyHex : 'b'.repeat(64),
+    }))
+    const rawBody = JSON.stringify({
+      type, id: 'interaction-1', application_id: 'app-1', token: 'test-interaction-token',
+      channel_id: 'discord-channel-1', user: { id: 'discord-user-1' },
+      data: { name: 'mercato', custom_id: 'test-component', components: [] },
+    })
+    const response = await POST(new Request('http://localhost/api/channel_discord/interactions', {
+      method: 'POST', headers: signedHeaders(rawBody), body: rawBody,
+    }))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ type: 5 })
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: 'channel-1', tenantId: 'tenant-1', organizationId: 'org-1',
+      credentialScope: { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' },
+      interaction: expect.objectContaining({ id: 'interaction-1', type }),
+    }))
+  })
+
   it('propagates a stream failure without calling the interaction handler', async () => {
     const failure = new Error('[internal] request stream failed')
     const body = new ReadableStream<Uint8Array>({ start(controller) { controller.error(failure) } })

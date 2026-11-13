@@ -21,6 +21,7 @@ import type {
   ValidateCredentialsResult,
   VerifyWebhookInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { discordCapabilities } from './capabilities'
 import {
   DISCORD_CHANNEL_TYPE,
@@ -287,8 +288,19 @@ class DiscordChannelAdapter implements ChannelAdapter {
       }
       return { ok: false, errors }
     }
+    const { t } = await resolveTranslations()
     try {
-      await getDiscordRestClient().getCurrentUser({ botToken: parsed.data.botToken })
+      const application = await getDiscordRestClient().getCurrentApplication?.({ botToken: parsed.data.botToken })
+      if (!application || typeof application.id !== 'string' || typeof application.verify_key !== 'string'
+        || !/^[0-9a-fA-F]{64}$/.test(application.verify_key)) {
+        return { ok: false, errors: { botToken: t('channel_discord.credentials.errors.unavailable') } }
+      }
+      if (application.id !== parsed.data.applicationId) {
+        return { ok: false, errors: { applicationId: t('channel_discord.credentials.errors.applicationMismatch') } }
+      }
+      if (application.verify_key.toLowerCase() !== parsed.data.publicKey.toLowerCase()) {
+        return { ok: false, errors: { publicKey: t('channel_discord.credentials.errors.publicKeyMismatch') } }
+      }
       return { ok: true, externalIdentifier: discordChannelExternalIdentifier(parsed.data.applicationId) }
     } catch (error) {
       const status = error instanceof DiscordApiError ? error.status : 0
@@ -297,8 +309,8 @@ class DiscordChannelAdapter implements ChannelAdapter {
         errors: {
           botToken:
             status === 401
-              ? 'Discord rejected the bot token. Reset it in the Developer Portal and paste the new value.'
-              : 'Could not reach Discord to validate the bot token. Check the token and try again.',
+              ? t('channel_discord.credentials.errors.invalidToken')
+              : t('channel_discord.credentials.errors.unavailable'),
         },
       }
     }

@@ -264,7 +264,7 @@ those conversations, notifications, and (optionally) an AI assistant inside Open
 | `editMessage` / `deleteMessage` | `PATCH/DELETE /channels/{id}/messages/{mid}` |
 | `resolveContact` | maps Discord user id + username/global_name to a `ContactHint` (no email/phone; sets `displayName`, `externalProfileUrl`, best-effort CRM match by handle) |
 | `fetchHistory` | optional backfill via `GET /channels/{id}/messages?before=` (cursor = message id); used by the explicit import-history endpoint, not for live delivery |
-| `validateCredentials` | live `GET /users/@me` with the bot token to confirm token + intents at connect time |
+| `validateCredentials` | authenticated `GET /oauth2/applications/@me`; require the returned application ID and verification key to match the supplied credentials |
 | OAuth methods (`buildOAuthAuthorizeUrl`, `exchangeOAuthCode`, `refreshCredentials`) | **omitted** — bot token is static; no per-user OAuth |
 | Push methods (`registerPush`, `applyPushNotification`) | **omitted** — the gateway worker is the live source, not Gmail-style Pub/Sub push |
 
@@ -384,7 +384,7 @@ call — run in a worker.
 | Stage | Where | What it does |
 |-------|-------|--------------|
 | Screen | `lib/interactions-handler.ts` → `screenInteractionRequest` | Rejects on the request alone (missing / malformed signature header, stale timestamp) before any database work. |
-| Verify + pin | `handleDiscordInteraction` | Ed25519 fan-out over the `application_id`-narrowed candidates; the match pins tenant and organization. |
+| Verify + pin | `handleDiscordInteraction` | Ed25519 fan-out over the `application_id`-narrowed candidates; exactly one verifying channel pins tenant and organization. Multiple verifying channels return 401 without acknowledgement or dispatch, regardless of row order. |
 | Answer | `api/interactions/route.ts` | PING → PONG. Dispatchable type → deferred ack **plus** the `dispatch` payload. Autocomplete → empty choice list (Discord rejects a deferred ack there). Anything else, or a payload with no follow-up token / channel / invoking user → an ephemeral "not handled" reply, never a promise the provider cannot keep. |
 | Hand off | route → `lib/interactions-queue.ts` | Enqueues on `channel_discord_interactions` **before** returning the ack; a queue that cannot accept the job downgrades the response to a visible error. |
 | Dispatch | `workers/discord-interactions.ts` | Synthesizes a Discord message object from the interaction, enqueues it on the hub's existing `communication-channels-inbound` queue, then replaces the placeholder over Discord's interaction-webhook endpoints. |
@@ -470,7 +470,7 @@ recorded in the hub inbox and answered in Discord — see § Interactions dispat
 
 In `/backend/integrations`, find **Discord**, and connect a channel with the credential fields
 (`botToken`, `applicationId`, `publicKey`, `guildId`, `defaultChannelId`). `validateCredentials`
-calls `GET /users/@me` to confirm the token before persisting.
+calls authenticated `GET /oauth2/applications/@me` to confirm the token owns the supplied application ID and public key before persisting.
 
 Optional env preconfiguration (provider-owned, applied from `setup.ts`, rerunnable via a provider
 CLI command — same pattern as other providers):
@@ -715,6 +715,16 @@ and 007's guard cases need no fixture and run unconditionally.
 | **Scale (many guilds)** | Low | Single shard first release; document Discord sharding as the scale-out path. |
 
 ---
+
+## Migration & Backward Compatibility — credential ownership and routing (#9018)
+
+Connect-time validation uses Discord's authenticated [Get Current Bot Application Information](https://github.com/discord/discord-api-docs/blob/main/developers/topics/oauth2.mdx#get-current-bot-application-information) endpoint, through the existing timeout/retry transport. The returned application ID and 32-byte hexadecimal verification key must match the entered credentials; hexadecimal letter case is ignored. Missing, malformed or unavailable application metadata fails closed. No credential field, configuration structure, startup procedure, database schema, dependency, route URL, HTTP method or existing exported signature changes.
+
+`DiscordRestClient.getCurrentApplication` is an additive **optional** method, so existing implementations remain structurally compatible. A custom REST override must implement the authenticated lookup to validate credentials successfully; a missing method must never fall back to token-only validation. Existing `getCurrentUser` callers (including health/gateway checks) remain unchanged. This restores the provider's credential ownership validation rather than removing an API or weakening authentication through a compatibility bridge.
+
+The interactions endpoint already specifies fail-closed verification against exactly one candidate. It now enforces that invariant for existing stored records too: multiple signature-valid channels receive `401 { error: 'ambiguous_signature' }`, with no selected tenant, no PONG/deferred acknowledgement and no queued work. Operators must audit affected connections and remove or deactivate duplicate active channels for the same application before routing resumes. A single valid channel retains the existing PING, command, component and modal responses. Reconnect mismatched credentials using the token, application ID and public key from the same Discord application. Existing unique valid connections need no migration; existing suspicious tuples are not silently rewritten or repaired.
+
+Regression evidence lives in `lib/__tests__/adapter.test.ts` (the real authenticated REST transport with fake HTTP responses, mismatch/malformed/unavailable denial and valid acceptance), `lib/__tests__/interactions-handler.test.ts` (cross-tenant and same-tenant user ambiguity in both orders) and `api/interactions/__tests__/route.test.ts` (real request/signature/loader/handler/queue boundary with mocked persistence and queue; ambiguous PING/command/component/modal rejection and authorized dispatch). These boundary tests are deterministic and require no live Discord credentials; they do not claim to exercise a running database or Discord service.
 
 ## Backward compatibility
 
@@ -1193,6 +1203,12 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-11-13 — Bind credential validation and reject ambiguous interaction ownership (#9018)
+
+- Validate bot-token ownership of the application ID and verification key using authenticated application metadata; fail closed when ownership cannot be verified.
+- Enforce exactly one signature-valid channel before acknowledging or dispatching, including legacy duplicate records across tenants or users.
+- Add localized field errors and deterministic transport/HTTP boundary regressions covering rejected and authorized interactions. No schema, startup, configuration format, architecture or dependency change.
 
 ### 2026-10-29 — Bound public signed interaction bodies (#7241)
 
