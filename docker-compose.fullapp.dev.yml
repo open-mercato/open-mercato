@@ -221,6 +221,9 @@ services:
       context: .
       target: dev
       args:
+        - OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES:-false}
+        - OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
+        - POSTGRES_CLIENT_MAJOR=${POSTGRES_CLIENT_MAJOR:-17}
         # Optional internal Alpine mirror for proxy-blocked corporate networks
         # (empty = official CDN; see the Dockerfile builder stage comment).
         - ALPINE_MIRROR=${ALPINE_MIRROR:-}
@@ -235,6 +238,7 @@ services:
       - .:/app
       - app_node_modules:/app/node_modules
       - app_next:/app/apps/mercato/.next
+      - recovery_data:/var/lib/open-mercato/recovery
       - init_marker:/tmp/init-marker
       - attachments_storage:/app/apps/mercato/storage
       # Exclude package dist dirs so container builds own output (avoids host dist overwriting .js imports).
@@ -262,6 +266,8 @@ services:
       - "${APP_PORT:-3000}:3000"
       - "${OM_DEV_SPLASH_PORT:-4000}:${OM_DEV_SPLASH_PORT:-4000}"
     environment:
+      OM_ENABLE_ENTERPRISE_MODULES: ${OM_ENABLE_ENTERPRISE_MODULES:-false}
+      OM_ENABLE_ENTERPRISE_MODULES_BACKUPS: ${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
       CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-true}
       OM_DEV_SPLASH_PORT: ${OM_DEV_SPLASH_PORT:-4000}
@@ -521,6 +527,8 @@ services:
       - mercato-network-fullapp
 
 volumes:
+  recovery_data:
+    name: mercato-recovery-data-${DEPLOY_ENV:-local}
   postgres_data:
     name: mercato-postgres-data-${DEPLOY_ENV:-local}
   redis_data:
