@@ -67,6 +67,7 @@ import {
   combineDateAndClock,
   createIntervalState,
   formatRateText,
+  parseRateText,
   reduceIntervalState,
   resetIntervalState,
   readRowItems,
@@ -181,13 +182,6 @@ function readSettings(payload: unknown): SettingsPayload {
     },
     warnings: { overlap: typeof warnings.overlap === 'boolean' ? warnings.overlap : true },
   }
-}
-
-function parseRateText(value: string): number | null {
-  const trimmed = value.trim().replace(',', '.')
-  if (!trimmed) return null
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
 /**
