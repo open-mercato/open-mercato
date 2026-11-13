@@ -14,6 +14,12 @@ const progressJobId = '44444444-4444-4444-8444-444444444444'
 let candidateCount = 5
 const enqueue = jest.fn(async () => 'queued-1')
 const createJob = jest.fn(async () => ({ id: progressJobId }))
+const emitStaffEvent = jest.fn<Promise<void>, unknown[]>(async () => undefined)
+
+jest.mock('../../../../../events', () => ({
+  ...jest.requireActual('../../../../../events'),
+  emitStaffEvent: (...args: unknown[]) => emitStaffEvent(...args),
+}))
 
 jest.mock('../../../../../lib/time-tracking/reapplyRounding', () => {
   const actual = jest.requireActual('../../../../../lib/time-tracking/reapplyRounding')
@@ -86,6 +92,7 @@ describe('reapply rounding route', () => {
     candidateCount = 5
     enqueue.mockClear()
     createJob.mockClear()
+    emitStaffEvent.mockClear()
     container.resolve.mockClear()
     registerMutationGuards([])
     grantedFeatures = ['staff.timesheets.settings.manage']
@@ -133,6 +140,11 @@ describe('reapply rounding route', () => {
       progressJobId,
       scope: { tenantId, organizationIds: [organizationId], userId },
     })
+    expect(emitStaffEvent).toHaveBeenCalledWith(
+      'staff.timesheets.time_tracking.rounding_reapplied',
+      { tenantId, organizationId, progressJobId, candidateCount: 5 },
+      { persistent: true },
+    )
   })
 
   it('does nothing at all when there is nothing to restate', async () => {
@@ -173,7 +185,7 @@ describe('reapply rounding route', () => {
     })
   })
 
-  it('queues the job without a progress job when the progress module is disabled', async () => {
+  it('queues the job without a progress job or event when the progress module is disabled', async () => {
     const resolveWithProgress = container.resolve.getMockImplementation()!
     container.resolve.mockImplementation((name: string) => {
       if (name === 'progressService') throw new Error('[internal] Could not resolve progressService')
@@ -189,6 +201,7 @@ describe('reapply rounding route', () => {
         progressJobId: null,
         scope: { tenantId, organizationIds: [organizationId], userId },
       })
+      expect(emitStaffEvent).not.toHaveBeenCalled()
     } finally {
       container.resolve.mockImplementation(resolveWithProgress)
     }

@@ -11,7 +11,9 @@
  * It enqueues; it does not do the work. Restating a tenant's entries is exactly the
  * long-running job the progress module exists for, so the response is a `202` with
  * a `progressJobId` that the top bar picks up on its own. Without the progress
- * module the job is still queued and `progressJobId` is null.
+ * module the job is still queued and `progressJobId` is null; the
+ * `rounding_reapplied` event is not emitted then, because its published payload
+ * requires a progress job id.
  *
  * Locked entries are never touched — the candidate query excludes them and the
  * command excludes them again, independently.
@@ -165,14 +167,16 @@ export async function POST(req: Request) {
 
     await guardResult.runAfterSuccess()
 
-    void emitStaffEvent('staff.timesheets.time_tracking.rounding_reapplied', {
-      tenantId,
-      organizationId,
-      progressJobId,
-      candidateCount,
-    }, { persistent: true }).catch((err) => {
-      logger.error('staff.timesheets emit time_tracking.rounding_reapplied failed', { err })
-    })
+    if (progressJobId) {
+      void emitStaffEvent('staff.timesheets.time_tracking.rounding_reapplied', {
+        tenantId,
+        organizationId,
+        progressJobId,
+        candidateCount,
+      }, { persistent: true }).catch((err) => {
+        logger.error('staff.timesheets emit time_tracking.rounding_reapplied failed', { err })
+      })
+    }
 
     return session.respond(202, responseSchema.parse({ ok: true, progressJobId, candidateCount }))
   } catch (err) {
