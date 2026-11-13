@@ -1,4 +1,5 @@
 import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
+import { resolveCoalesceKey } from '../coalescing'
 import { getRedisUrlOrThrow, parseRedisUrl, REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
 import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -30,6 +31,7 @@ interface BullQueueInterface<T> {
       delay?: number
       attempts?: number
       backoff?: { type: string; delay: number }
+      deduplication?: { id: string; keepLastIfActive?: boolean }
     },
   ) => Promise<{ id?: string }>
   obliterate: (opts?: { force?: boolean }) => Promise<void>
@@ -65,7 +67,7 @@ interface BullMQModule {
 }
 
 /** The `bullmq-otel` package (optional). Loaded only when an OTLP backend is active. */
-type BullMQOtelModule = { BullMQOtel: new (tracerName: string) => object }
+type BullMQOtelModule = { BullMQOtel: new (options: { tracerName: string }) => object }
 
 const REMOVABLE_JOB_STATES = ['waiting', 'delayed', 'prioritized', 'paused', 'waiting-children']
 
@@ -185,7 +187,7 @@ function resolveConnection(options?: AsyncQueueOptions['connection']): Connectio
  */
 export function createAsyncQueue<T = unknown>(
   name: string,
-  options?: AsyncQueueOptions
+  options?: AsyncQueueOptions<T>
 ): Queue<T> {
   const connection = resolveConnection(options?.connection)
   const concurrency = options?.concurrency ?? 1
@@ -193,7 +195,32 @@ export function createAsyncQueue<T = unknown>(
   const lockDuration = options?.lockDuration
   const maxStalledCount = options?.maxStalledCount
   const onJobAbandoned = options?.onJobAbandoned
+  // Captured here because `enqueue`'s own `options` parameter shadows this one.
+  const coalesceBy = options?.coalesceBy
   const logger = packageLogger.child({ queue: name })
+
+  /**
+   * Report a queue-level failure outward. Wrapped so a telemetry fault can never
+   * escape into an EventEmitter handler, where an unhandled rejection is fatal to
+   * the process.
+   */
+  function reportQueueError(
+    error: unknown,
+    code: string,
+    attributes?: Record<string, string | number | undefined>,
+  ): void {
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'queue',
+        code,
+        attributes: { queue: name, ...attributes },
+      })
+    } catch (telemetryError) {
+      // Reporting is never worth a worker — but a systematically broken bridge
+      // must not be silent either, or a worker stops reporting and nothing says so.
+      logger.warn('Failed to report a queue error to telemetry', { code, err: telemetryError as Error })
+    }
+  }
 
   let bullQueue: BullQueueInterface<QueuedJob<T>> | null = null
   let bullWorker: BullWorkerInterface | null = null
@@ -211,6 +238,12 @@ export function createAsyncQueue<T = unknown>(
     id?: string
     data?: QueuedJob<T>
     updateData?: (data: QueuedJob<T>) => Promise<void>
+  }
+
+  /** What BullMQ hands the `failed` handler, beyond the abandonment fields. */
+  type FailedJobRecord = AbandonedJobRecord & {
+    attemptsMade?: number
+    opts?: { attempts?: number }
   }
 
   // The acknowledgement that makes delivery at-least-once: written only after the callback returns,
@@ -243,6 +276,7 @@ export function createAsyncQueue<T = unknown>(
           jobId,
           err: hookError as Error,
         })
+        reportQueueError(hookError as Error, 'queue.abandon_report_failed', { jobId: jobId ?? undefined })
         return
       }
       try {
@@ -252,6 +286,7 @@ export function createAsyncQueue<T = unknown>(
           jobId,
           err: ackError as Error,
         })
+        reportQueueError(ackError as Error, 'queue.abandon_ack_failed', { jobId: jobId ?? undefined })
       }
     })().finally(() => {
       inFlightAbandonedJobIds.delete(payload.id)
@@ -289,6 +324,7 @@ export function createAsyncQueue<T = unknown>(
       }
     } catch (sweepError) {
       logger.error('Abandoned-job sweep failed', { err: sweepError as Error })
+      reportQueueError(sweepError as Error, 'queue.abandon_sweep_failed')
     }
   }
   // Resolved once: a BullMQOtel instance (delegate async tracing to BullMQ) or
@@ -327,7 +363,7 @@ export function createAsyncQueue<T = unknown>(
         if (!getTelemetryRuntime()?.canUseGlobalTracePropagation()) return undefined
         try {
           const mod = (await import('bullmq-otel')) as unknown as BullMQOtelModule
-          return new mod.BullMQOtel('open-mercato')
+          return new mod.BullMQOtel({ tracerName: 'open-mercato' })
         } catch {
           packageLogger.warn('bullmq-otel not available; using built-in trace carrier', { queue: name })
           return undefined
@@ -351,6 +387,7 @@ export function createAsyncQueue<T = unknown>(
   // -------------------------------------------------------------------------
 
   async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
+    const coalesceKey = resolveCoalesceKey(data, options, coalesceBy)
     const queue = await getQueue()
     // When bullmq-otel handles propagation, don't also attach our carrier.
     const telemetry = await getQueueTelemetry()
@@ -368,8 +405,16 @@ export function createAsyncQueue<T = unknown>(
       removeOnFail: 1000,
       attempts,
       backoff: { type: 'exponential', delay: 1000 },
+      // `keepLastIfActive` is what turns BullMQ's deduplication from "drop the duplicate" into the
+      // coalescing this package promises: an add that lands mid-run is stored and replayed once the
+      // running job finishes, rather than discarded along with the write that triggered it.
+      // Never emit `deduplication: undefined` — BullMQ treats the key's presence as intent.
+      ...(coalesceKey ? { deduplication: { id: coalesceKey, keepLastIfActive: true } } : {}),
     })
 
+    // On a coalesced add BullMQ returns the outstanding job that caused the add to collapse. When
+    // that job is active, BullMQ separately stores a proto-job for the follow-up; its id becomes
+    // visible only when promoted.
     return job.id ?? jobData.id
   }
 
@@ -412,9 +457,30 @@ export function createAsyncQueue<T = unknown>(
     })
 
     bullWorker.on('failed', (job, err) => {
-      const failedJob = job as AbandonedJobRecord | undefined
+      const failedJob = job as FailedJobRecord | undefined
       const error = err as Error
-      logger.error('Job failed', { jobId: failedJob?.id, err: error })
+      // BullMQ counts `attemptsMade` on the job itself, so the last delivery is
+      // identifiable here without any bookkeeping of our own. Its per-job
+      // `opts.attempts` wins over the strategy default, because a caller may have
+      // overridden it.
+      const attemptNumber = failedJob?.attemptsMade ?? 0
+      const maxAttempts = failedJob?.opts?.attempts ?? attempts
+      const exhausted = attemptNumber >= maxAttempts
+      logger.error('Job failed', { jobId: failedJob?.id, attemptNumber, maxAttempts, err: error })
+      // A log line reaches the backend's LOGS signal; a job that died is an error
+      // and belongs in the error signal too, with a code the backend can group on.
+      // This is the only outward record for a handler that rethrows after doing its
+      // own bookkeeping — a sync worker marking its run `failed`, for instance.
+      //
+      // One report per failure, coded by what the failure means: a job that has
+      // burned every retry is dead-lettered, which is the condition an operator
+      // pages on, and it must be distinguishable from a first attempt that BullMQ
+      // will simply retry. Matches the local strategy exactly, so an alert written
+      // against one holds for the other.
+      reportQueueError(error, exhausted ? 'queue.job_exhausted' : 'queue.job_failed', {
+        jobId: failedJob?.id,
+        attemptNumber,
+      })
 
       if (!onJobAbandoned) return
       // Any other reason means a handler ran and threw. That failure is the handler's own and it has
@@ -445,6 +511,7 @@ export function createAsyncQueue<T = unknown>(
     bullWorker.on('error', (err) => {
       const error = err as Error
       logger.error('Worker error', { err: error })
+      reportQueueError(error, 'queue.worker_error')
     })
 
     if (onJobAbandoned) {

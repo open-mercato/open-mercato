@@ -37,6 +37,9 @@ const dealFormMock = jest.fn(() => <div>form</div>)
 const collapsibleZoneLayoutMock = jest.fn(
   ({ zone1, zone2 }: { zone1: React.ReactNode; zone2: React.ReactNode }) => <div>{zone1}{zone2}</div>,
 )
+const dealDetailTabsPropsCapture: {
+  current: { injectedTabs?: Array<{ id: string; label: string; priority?: number }> } | null
+} = { current: null }
 let activeTabParam: string | null = 'activities'
 let detailRequestCount = 0
 let injectedTabWidgets: Array<Record<string, unknown>> = []
@@ -142,6 +145,7 @@ jest.mock('../../../../../components/detail/DealDetailHeader', () => ({
 }))
 
 jest.mock('../../../../../components/detail/DealDetailTabs', () => ({
+  DEAL_DETAIL_TAB_IDS: ['activities', 'people', 'companies', 'notes', 'files', 'changelog'],
   resolveLegacyTab: (tab?: string | null, knownTabIds?: Iterable<string>) => {
     if (tab === 'activities' || tab === 'people' || tab === 'companies' || tab === 'notes' || tab === 'files' || tab === 'changelog') {
       return tab
@@ -157,21 +161,24 @@ jest.mock('../../../../../components/detail/DealDetailTabs', () => ({
   }: {
     children: React.ReactNode
     activeTab: string
-    injectedTabs?: Array<{ id: string; label: string }>
+    injectedTabs?: Array<{ id: string; label: string; priority?: number }>
     onTabChange: (tab: string) => void
-  }) => (
-    <div>
-      <div data-testid="active-tab">{activeTab}</div>
-      <button type="button" onClick={() => onTabChange('activities')}>tab-activities</button>
-      <button type="button" onClick={() => onTabChange('companies')}>tab-companies</button>
-      <button type="button" onClick={() => onTabChange('files')}>tab-files</button>
-      <button type="button" onClick={() => onTabChange('changelog')}>tab-changelog</button>
-      {injectedTabs.map((tab) => (
-        <button key={tab.id} type="button" onClick={() => onTabChange(tab.id)}>{`tab-${tab.id}`}</button>
-      ))}
-      {children}
-    </div>
-  ),
+  }) => {
+    dealDetailTabsPropsCapture.current = { injectedTabs }
+    return (
+      <div>
+        <div data-testid="active-tab">{activeTab}</div>
+        <button type="button" onClick={() => onTabChange('activities')}>tab-activities</button>
+        <button type="button" onClick={() => onTabChange('companies')}>tab-companies</button>
+        <button type="button" onClick={() => onTabChange('files')}>tab-files</button>
+        <button type="button" onClick={() => onTabChange('changelog')}>tab-changelog</button>
+        {injectedTabs.map((tab) => (
+          <button key={tab.id} type="button" onClick={() => onTabChange(tab.id)}>{`tab-${tab.id}`}</button>
+        ))}
+        {children}
+      </div>
+    )
+  },
 }))
 
 jest.mock('../../../../../components/detail/DealForm', () => ({
@@ -199,6 +206,29 @@ jest.mock('../../../../../components/detail/DealLinkedEntitiesTab', () => ({
         onClick={() => onSaveSelection(entityLabelPlural === 'People' ? ['person-2'] : ['company-2'])}
       >
         {entityLabelPlural === 'People' ? 'manage-people-links' : 'manage-company-links'}
+      </button>
+    </div>
+  ),
+}))
+
+jest.mock('../../../../../components/detail/DealPeopleSection', () => ({
+  DealPeopleSection: ({
+    selectedIds,
+    onSaveSelection,
+  }: {
+    selectedIds: string[]
+    onSaveSelection: (next: string[]) => void
+  }) => (
+    <div>
+      <div>People</div>
+      <button type="button" onClick={() => onSaveSelection(['person-2'])}>
+        manage-people-links
+      </button>
+      <button
+        type="button"
+        onClick={() => onSaveSelection(selectedIds.filter((id) => id !== 'person-1'))}
+      >
+        unlink-person-1
       </button>
     </div>
   ),
@@ -366,6 +396,7 @@ describe('DealDetailPage', () => {
     activeTabParam = 'activities'
     detailRequestCount = 0
     injectedTabWidgets = []
+    dealDetailTabsPropsCapture.current = null
     readApiResultOrThrowMock.mockReset()
     updateCrudMock.mockReset()
     deleteCrudMock.mockReset()
@@ -473,6 +504,21 @@ describe('DealDetailPage', () => {
       '/backend/customers/deals/deal-123?tab=crm.custom-tab',
       { scroll: false },
     )
+  })
+
+  it('passes injected tab priority through to DealDetailTabs', async () => {
+    injectedTabWidgets = [{
+      widgetId: 'crm.overview',
+      placement: { kind: 'tab', groupId: 'crm.overview', priority: 1000 },
+      module: { metadata: { title: 'Overview' }, Widget: () => <div>overview</div> },
+    }]
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await screen.findByText('Expansion renewal')
+    expect(dealDetailTabsPropsCapture.current?.injectedTabs).toEqual([
+      { id: 'crm.overview', label: 'Overview', priority: 1000 },
+    ])
   })
 
   it('resolves a deep link to an injected tab once the widgets load (#4379)', async () => {

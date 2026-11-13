@@ -35,6 +35,19 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   })
 }
 
+// jsdom doesn't implement `ResizeObserver`. Several Radix primitives measure
+// their control with `useSize` during render (radio group, switch, checkbox), so
+// a component test that renders one throws without this shim. Individual suites
+// that need to observe resize behaviour still install their own — the guard
+// leaves theirs in place.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  ;(globalThis as any).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+}
+
 jest.mock('react-markdown', () => ({
   __esModule: true,
   default: ({ children }: { children?: unknown }) => children ?? null,

@@ -1,3 +1,4 @@
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import * as React from 'react'
 import { CircleCheck, Rocket, Sparkles } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -14,6 +15,140 @@ import type { GalleryEntry } from '../types'
 // `FlashMessages` itself is a singleton mounted by AppShell — the gallery only
 // demonstrates the imperative `flash()` API; the triggered toast renders
 // through the already-mounted singleton.
+function FlashMessagesEntryKindsPreview() {
+  const t = useT()
+  return (
+    <>
+      <Button
+        variant="outline"
+        onClick={() => flash(t('design_system.gallery.samples.content.changesSaved'), 'success')}
+      >
+        {t('design_system.gallery.samples.content.fireSuccess')}
+      </Button>
+      <Button variant="outline" onClick={() => flash(t('design_system.gallery.samples.content.syncScheduled'), 'info')}>
+        {t('design_system.gallery.samples.content.fireInfo')}
+      </Button>
+      <Button
+        variant="outline"
+        onClick={() => flash(t('design_system.gallery.samples.content.quotaAlmostReached'), 'warning')}
+      >
+        {t('design_system.gallery.samples.content.fireWarning')}
+      </Button>
+      <Button variant="outline" onClick={() => flash(t('design_system.gallery.samples.content.saveFailed'), 'error')}>
+        {t('design_system.gallery.samples.content.fireError')}
+      </Button>
+    </>
+  )
+}
+function NextStepCalloutEntryBasicPreview() {
+  const t = useT()
+  return (
+    <div className="w-full">
+      <NextStepCallout
+        icon={<Rocket className="size-6" />}
+        title={t('design_system.gallery.samples.content.publishYourCatalog')}
+        description={t(
+          'design_system.gallery.samples.content.productsAreImportedAndPricedPublishingMakesThemVisibleOnEverySalesChannel',
+        )}
+        actionLabel={t('design_system.gallery.samples.content.publishCatalog')}
+        actionIcon={<Sparkles className="mr-2 size-4" />}
+        onAction={() => {}}
+      />
+    </div>
+  )
+}
+function NextStepCalloutEntryWithStepsPreview() {
+  const t = useT()
+  return (
+    <div className="w-full">
+      <NextStepCallout
+        title={t('design_system.gallery.samples.content.finishStoreSetup')}
+        description={t('design_system.gallery.samples.content.twoStepsAreDoneConnectAPaymentProviderToStartSelling')}
+        steps={[
+          {
+            id: 'import',
+            label: t('design_system.gallery.samples.content.importProducts'),
+            state: 'completed',
+          },
+          {
+            id: 'pricing',
+            label: t('design_system.gallery.samples.content.setPricing'),
+            state: 'completed',
+          },
+          {
+            id: 'payments',
+            label: t('design_system.gallery.samples.content.connectPayments'),
+            state: 'active',
+          },
+          {
+            id: 'launch',
+            label: t('design_system.gallery.samples.content.launch'),
+            state: 'pending',
+          },
+        ]}
+        actionLabel={t('design_system.gallery.samples.content.connectPayments')}
+        onAction={() => {}}
+      />
+    </div>
+  )
+}
+function NextStepCalloutEntryWithStatusPreview() {
+  const t = useT()
+  return (
+    <div className="w-full">
+      <NextStepCallout
+        title={t('design_system.gallery.samples.content.indexYourProducts')}
+        description={t('design_system.gallery.samples.content.searchStaysDisabledUntilTheFirstIndexingRunCompletes')}
+        actionLabel={t('design_system.gallery.samples.content.reRunIndexing')}
+        onAction={() => {}}
+        busy
+        status={{
+          tone: 'info',
+          icon: <CircleCheck className="size-4" />,
+          label: t('design_system.gallery.samples.content.indexingInProgress'),
+          progressValue: 64,
+          progressDescription: t('design_system.gallery.samples.content.1280Of2000ProductsIndexed'),
+        }}
+      />
+    </div>
+  )
+}
+function ContextHelpEntryDefaultPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-md">
+      <ContextHelp title={t('design_system.gallery.samples.content.howDoExchangeRatesWork')}>
+        {t(
+          'design_system.gallery.samples.content.ratesRefreshNightlyFromTheConfiguredProviderManualOverridesStayPinnedUntilYouClearThem',
+        )}
+      </ContextHelp>
+    </div>
+  )
+}
+function ContextHelpEntryDefaultOpenPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-md">
+      <ContextHelp title={t('design_system.gallery.samples.content.whyIsThisFieldRequired')} defaultOpen>
+        {t(
+          'design_system.gallery.samples.content.theTaxOfficeIdentifierIsMandatoryForInvoicesIssuedToCompaniesRegisteredInTheEu',
+        )}
+      </ContextHelp>
+    </div>
+  )
+}
+function ContextHelpEntryInfoIconPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-md">
+      <ContextHelp title={t('design_system.gallery.samples.content.aboutDraftOrders')} bulb={false} defaultOpen>
+        {t(
+          'design_system.gallery.samples.content.draftOrdersAreInvisibleToCustomersAndSkipStockReservationUntilTheyAreConfirmed',
+        )}
+      </ContextHelp>
+    </div>
+  )
+}
 const flashMessagesEntry: GalleryEntry = {
   id: 'flash-messages',
   title: 'FlashMessages',
@@ -22,22 +157,7 @@ const flashMessagesEntry: GalleryEntry = {
     {
       id: 'kinds',
       title: 'flash() kinds (toast via the AppShell singleton)',
-      render: () => (
-        <>
-          <Button variant="outline" onClick={() => flash('Changes saved', 'success')}>
-            Fire success
-          </Button>
-          <Button variant="outline" onClick={() => flash('Sync scheduled', 'info')}>
-            Fire info
-          </Button>
-          <Button variant="outline" onClick={() => flash('Quota almost reached', 'warning')}>
-            Fire warning
-          </Button>
-          <Button variant="outline" onClick={() => flash('Save failed', 'error')}>
-            Fire error
-          </Button>
-        </>
-      ),
+      render: () => <FlashMessagesEntryKindsPreview />,
       code: `import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 // FlashMessages is mounted once by AppShell — never mount your own.
@@ -48,7 +168,6 @@ flash('Save failed', 'error')`,
     },
   ],
 }
-
 const nextStepCalloutEntry: GalleryEntry = {
   id: 'next-step-callout',
   title: 'NextStepCallout',
@@ -57,18 +176,7 @@ const nextStepCalloutEntry: GalleryEntry = {
     {
       id: 'basic',
       title: 'Basic',
-      render: () => (
-        <div className="w-full">
-          <NextStepCallout
-            icon={<Rocket className="size-6" />}
-            title="Publish your catalog"
-            description="Products are imported and priced. Publishing makes them visible on every sales channel."
-            actionLabel="Publish catalog"
-            actionIcon={<Sparkles className="mr-2 size-4" />}
-            onAction={() => {}}
-          />
-        </div>
-      ),
+      render: () => <NextStepCalloutEntryBasicPreview />,
       code: `import { Rocket, Sparkles } from 'lucide-react'
 import { NextStepCallout } from '@open-mercato/ui/backend/NextStepCallout'
 
@@ -84,22 +192,7 @@ import { NextStepCallout } from '@open-mercato/ui/backend/NextStepCallout'
     {
       id: 'with-steps',
       title: 'With steps',
-      render: () => (
-        <div className="w-full">
-          <NextStepCallout
-            title="Finish store setup"
-            description="Two steps are done — connect a payment provider to start selling."
-            steps={[
-              { id: 'import', label: 'Import products', state: 'completed' },
-              { id: 'pricing', label: 'Set pricing', state: 'completed' },
-              { id: 'payments', label: 'Connect payments', state: 'active' },
-              { id: 'launch', label: 'Launch', state: 'pending' },
-            ]}
-            actionLabel="Connect payments"
-            onAction={() => {}}
-          />
-        </div>
-      ),
+      render: () => <NextStepCalloutEntryWithStepsPreview />,
       code: `import { NextStepCallout } from '@open-mercato/ui/backend/NextStepCallout'
 
 <NextStepCallout
@@ -118,24 +211,7 @@ import { NextStepCallout } from '@open-mercato/ui/backend/NextStepCallout'
     {
       id: 'with-status',
       title: 'With status progress',
-      render: () => (
-        <div className="w-full">
-          <NextStepCallout
-            title="Index your products"
-            description="Search stays disabled until the first indexing run completes."
-            actionLabel="Re-run indexing"
-            onAction={() => {}}
-            busy
-            status={{
-              tone: 'info',
-              icon: <CircleCheck className="size-4" />,
-              label: 'Indexing in progress',
-              progressValue: 64,
-              progressDescription: '1,280 of 2,000 products indexed',
-            }}
-          />
-        </div>
-      ),
+      render: () => <NextStepCalloutEntryWithStatusPreview />,
       code: `import { CircleCheck } from 'lucide-react'
 import { NextStepCallout } from '@open-mercato/ui/backend/NextStepCallout'
 
@@ -156,7 +232,6 @@ import { NextStepCallout } from '@open-mercato/ui/backend/NextStepCallout'
     },
   ],
 }
-
 const contextHelpEntry: GalleryEntry = {
   id: 'context-help',
   title: 'ContextHelp',
@@ -165,14 +240,7 @@ const contextHelpEntry: GalleryEntry = {
     {
       id: 'default',
       title: 'default (collapsed)',
-      render: () => (
-        <div className="w-full max-w-md">
-          <ContextHelp title="How do exchange rates work?">
-            Rates refresh nightly from the configured provider. Manual overrides
-            stay pinned until you clear them.
-          </ContextHelp>
-        </div>
-      ),
+      render: () => <ContextHelpEntryDefaultPreview />,
       code: `import { ContextHelp } from '@open-mercato/ui/backend/ContextHelp'
 
 <ContextHelp title="How do exchange rates work?">
@@ -183,14 +251,7 @@ const contextHelpEntry: GalleryEntry = {
     {
       id: 'default-open',
       title: 'defaultOpen',
-      render: () => (
-        <div className="w-full max-w-md">
-          <ContextHelp title="Why is this field required?" defaultOpen>
-            The tax office identifier is mandatory for invoices issued to
-            companies registered in the EU.
-          </ContextHelp>
-        </div>
-      ),
+      render: () => <ContextHelpEntryDefaultOpenPreview />,
       code: `import { ContextHelp } from '@open-mercato/ui/backend/ContextHelp'
 
 <ContextHelp title="Why is this field required?" defaultOpen>
@@ -201,14 +262,7 @@ const contextHelpEntry: GalleryEntry = {
     {
       id: 'info-icon',
       title: 'Info icon (bulb={false})',
-      render: () => (
-        <div className="w-full max-w-md">
-          <ContextHelp title="About draft orders" bulb={false} defaultOpen>
-            Draft orders are invisible to customers and skip stock reservation
-            until they are confirmed.
-          </ContextHelp>
-        </div>
-      ),
+      render: () => <ContextHelpEntryInfoIconPreview />,
       code: `import { ContextHelp } from '@open-mercato/ui/backend/ContextHelp'
 
 <ContextHelp title="About draft orders" bulb={false} defaultOpen>
@@ -218,9 +272,4 @@ const contextHelpEntry: GalleryEntry = {
     },
   ],
 }
-
-export const entries: GalleryEntry[] = [
-  flashMessagesEntry,
-  nextStepCalloutEntry,
-  contextHelpEntry,
-]
+export const entries: GalleryEntry[] = [flashMessagesEntry, nextStepCalloutEntry, contextHelpEntry]

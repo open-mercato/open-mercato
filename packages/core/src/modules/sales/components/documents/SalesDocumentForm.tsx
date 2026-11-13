@@ -57,12 +57,21 @@ import {
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
+import { extensionPoints as customersExtensionPoints } from '@open-mercato/core/modules/customers/extension-points'
+import { crudFormExtensionSpotId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { SalesOrderDraftLines, createSalesOrderLineDraft, type SalesOrderLineDraft } from './SalesOrderDraftLines'
 import { normalizeAddressDraft } from './normalizeAddressDraft'
 
 const logger = createLogger('sales')
+
+// Before this change, `CrudForm` auto-derived its injection spot id from
+// `entityIds[0]` (`E.customers.customer_entity`), which resolves to this id.
+// Declaring `injectionSpotId` below on the two quick-create dialogs replaces
+// that auto-derived id with the customers module's declared host — bridge the
+// legacy one for one minor version per BACKWARD_COMPATIBILITY.md §6.
+const CUSTOMER_QUICK_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
 
 type DocumentKind = 'quote' | 'order'
 
@@ -370,6 +379,8 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
                 submitLabel={t('common.save', 'Save')}
                 cancelHref={undefined}
                 onSubmit={(values) => handlePersonCreate(values)}
+                injectionSpotId={customersExtensionPoints.hosts.personForm.spotId}
+                legacyInjectionSpotId={CUSTOMER_QUICK_CREATE_LEGACY_INJECTION_SPOT_ID}
                 entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
               />
             </div>
@@ -404,6 +415,8 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
                 submitLabel={t('common.save', 'Save')}
                 cancelHref={undefined}
                 onSubmit={(values) => handleCompanyCreate(values)}
+                injectionSpotId={customersExtensionPoints.hosts.companyForm.spotId}
+                legacyInjectionSpotId={CUSTOMER_QUICK_CREATE_LEGACY_INJECTION_SPOT_ID}
                 entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
               />
             </div>
@@ -1098,6 +1111,10 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     [],
   )
 
+  // The order lines card only exists for orders; CrudForm cannot read the live
+  // document kind from its own values, so the toggle mirrors it here.
+  const [documentKindState, setDocumentKindState] = React.useState<DocumentKind>(initialKind === 'order' ? 'order' : 'quote')
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'documentKind',
@@ -1117,7 +1134,10 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     key={kind}
                     type="button"
                     variant={current === kind ? 'default' : 'ghost'}
-                    onClick={() => setValue(kind)}
+                    onClick={() => {
+                      setValue(kind)
+                      setDocumentKindState(kind)
+                    }}
                   >
                     {t(`sales.documents.form.kind.${kind}`, kind.charAt(0).toUpperCase() + kind.slice(1))}
                   </Button>
@@ -1524,6 +1544,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       submitLabel={t('sales.documents.form.submit', 'Create')}
       cancelHref={cancelHref}
       onSubmit={handleSubmit}
+      hiddenGroupIds={documentKindState === 'order' ? undefined : ['lines']}
     />
   )
 }

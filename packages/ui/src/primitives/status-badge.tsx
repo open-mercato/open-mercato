@@ -13,6 +13,8 @@ export type StatusBadgeProps = {
   dot?: boolean
   /** Additional className */
   className?: string
+  appearance?: 'light' | 'stroke'
+  disabled?: boolean
 }
 
 const dotColors: Record<StatusBadgeVariant, string> = {
@@ -28,15 +30,25 @@ export function StatusBadge({
   children,
   dot = false,
   className,
+  appearance,
+  disabled = false,
 }: StatusBadgeProps) {
   return (
     <Badge
       variant={variant}
-      className={cn(dot && 'gap-1.5', className)}
+      appearance={appearance === 'light' ? 'lighter' : undefined}
+      disabled={disabled}
+      data-appearance={appearance}
+      className={cn(
+        dot && 'gap-1.5',
+        appearance === 'stroke' && 'border-border bg-background text-muted-foreground shadow-none',
+        disabled && 'border-border-disabled bg-bg-disabled text-text-disabled',
+        className,
+      )}
     >
       {dot && (
         <span
-          className={cn('inline-block h-1.5 w-1.5 rounded-full shrink-0', dotColors[variant])}
+          className={cn('inline-block h-1.5 w-1.5 rounded-full shrink-0', disabled ? 'bg-text-disabled' : dotColors[variant])}
           aria-hidden="true"
         />
       )}

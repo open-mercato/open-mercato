@@ -11,6 +11,7 @@ import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { fetchAssignableStaffMembers } from './assignableStaff'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -38,6 +39,8 @@ interface RoleAssignmentRowProps {
   entityId: string
   onRemoved: () => void
   onUpdated: () => void
+  /** Opens the shared assignment dialog in reassign mode; without it the row falls back to its inline lookup. */
+  onChangeUser?: () => void
 }
 
 function formatAssignedAt(value: string | undefined, t: ReturnType<typeof useT>): string | null {
@@ -59,15 +62,17 @@ export function RoleAssignmentRow({
   entityId,
   onRemoved,
   onUpdated,
+  onChangeUser,
 }: RoleAssignmentRowProps) {
   const t = useT()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [removing, setRemoving] = React.useState(false)
   const [changingUser, setChangingUser] = React.useState(false)
 
   const searchUsers = React.useCallback(async (query: string): Promise<LookupSelectItem[]> => {
     try {
-      const members = await fetchAssignableStaffMembers(query, { pageSize: 20 })
+      const members = await fetchAssignableStaffMembers(query, { pageSize: 20, activeOrgId })
       return members.map((member) => ({
         id: member.userId,
         title: member.displayName,
@@ -77,7 +82,7 @@ export function RoleAssignmentRow({
       logger.error('customers.roles.searchUsers failed', { err: error })
       return []
     }
-  }, [])
+  }, [activeOrgId])
 
   const handleUserChange = React.useCallback(async (userId: string | null) => {
     if (!userId || userId === role.userId) return
@@ -225,13 +230,19 @@ export function RoleAssignmentRow({
             variant="ghost"
             size="sm"
             className="h-auto w-full justify-start px-2 py-1 text-xs sm:ml-auto sm:w-auto"
-            onClick={() => setChangingUser((current) => !current)}
+            onClick={() => {
+              if (onChangeUser) {
+                onChangeUser()
+                return
+              }
+              setChangingUser((current) => !current)
+            }}
           >
             {t('customers.roles.changeUser', 'Change user')}
           </Button>
         </div>
 
-        {changingUser ? (
+        {changingUser && !onChangeUser ? (
           <div className="mt-4 border-t pt-4">
             <LookupSelect
               value={role.userId}

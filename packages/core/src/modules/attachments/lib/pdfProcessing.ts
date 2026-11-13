@@ -1,11 +1,14 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { createRequire } from 'module'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveMaxOcrPages, resolvePdfPageIterationLimit } from './ocrLimits'
 
 const moduleRequire = createRequire(path.join(process.cwd(), 'package.json'))
 const pdfJsPackageRoot = path.dirname(moduleRequire.resolve('pdfjs-dist/package.json'))
 const cMapUrl = `${path.join(pdfJsPackageRoot, 'cmaps')}${path.sep}`
 const standardFontDataUrl = `${path.join(pdfJsPackageRoot, 'standard_fonts')}${path.sep}`
+const logger = createLogger('attachments').child({ component: 'pdf-processing' })
 
 const MIN_RENDER_SCALE = 2
 const MAX_RENDER_SCALE = 4
@@ -113,8 +116,17 @@ export async function preparePdfPagesForOcr(filePath: string): Promise<PdfOcrPre
 
   try {
     const pages: PdfPageOcrInput[] = []
+    const maxPages = resolveMaxOcrPages()
+    const pageLimit = resolvePdfPageIterationLimit(pdfDocument.numPages, maxPages)
+    if (pdfDocument.numPages > pageLimit) {
+      logger.warn('PDF page count exceeds OCR cap; truncating', {
+        numPages: pdfDocument.numPages,
+        maxPages: pageLimit,
+        filePath,
+      })
+    }
 
-    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+    for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
       const page = await pdfDocument.getPage(pageNumber)
 
       try {
@@ -141,7 +153,7 @@ export async function preparePdfPagesForOcr(filePath: string): Promise<PdfOcrPre
     }
 
     return {
-      pageCount: pdfDocument.numPages,
+      pageCount: pages.length,
       pages,
     }
   } finally {

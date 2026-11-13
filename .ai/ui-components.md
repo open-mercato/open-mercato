@@ -248,7 +248,8 @@ Marketing-grade CTA with gradient bg + dual-shadow ring. Use sparingly — landi
 ### MUST rules
 
 - Use sparingly — one FancyButton per page section at most.
-- The `primary` gradient pulls from `--brand-lime` and `--brand-violet`; do NOT swap to other brand pairs.
+- The `primary` gradient uses brand lime, yellow and violet with `text-brand-violet-foreground` in both themes. Never use the page foreground on this theme-invariant light gradient.
+- Filled destructive controls pair `status-error-solid` with `status-error-solid-foreground`; avoid white sheens, brightness increases and translucent hover fills that reduce text contrast.
 - For dialog footers, settings pages, data tables → use `Button` not `FancyButton`.
 
 ---
@@ -864,6 +865,21 @@ Set `showCount` + `maxLength` to render a `current/max` indicator below the text
 
 `aria-live="polite"` on the counter so screen readers announce the changing count.
 
+### Auto-resize
+
+Set `autoResize` to let the field grow with its content instead of hiding the tail behind an inner scrollbar. The cap is expressed in **rows** (`maxRows`, default `12`) so it follows the element's own type scale rather than a magic pixel height; past the cap the field scrolls. `autoResize` implies `resize-none` — the height is owned by the content, so a manual grabber would fight it.
+
+```tsx
+<Textarea
+  autoResize
+  maxRows={10}
+  value={description}
+  onChange={(e) => setDescription(e.target.value)}
+/>
+```
+
+Reach for this on prose fields the author cannot see the end of otherwise (descriptions, notes, composers). Do NOT hand-roll `element.style.height = scrollHeight` in a page — that pattern was duplicated three times before this prop existed.
+
 ### Composition with FormField
 
 ```tsx
@@ -886,6 +902,8 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 | Prop | Default | Notes |
 |---|---|---|
 | `showCount` | `false` | Render `length/maxLength` counter below |
+| `autoResize` | `false` | Grow with content; implies `resize-none` |
+| `maxRows` | `12` | Rows to grow to before scrolling (`autoResize` only) |
 | `wrapperClassName` | — | Applied to outer wrapper when counter visible |
 | `className` | — | Applied to the `<textarea>` element |
 | All native textarea props | — | `value`, `onChange`, `placeholder`, `disabled`, `required`, `maxLength`, `rows`, etc. |
@@ -896,7 +914,8 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 - For form fields with label + error, wrap with `FormField`.
 - Keep `min-h-[80px]` default (matches Figma) — only override when a specific design demands it.
 - For `showCount`, ALWAYS set `maxLength` — without it, the counter shows just `length` which is less actionable.
-- `resize-y` is allowed (user grows vertically); avoid `resize-none` unless layout breaks.
+- `resize-y` is allowed (user grows vertically); avoid `resize-none` unless layout breaks or `autoResize` owns the height.
+- **NEVER hand-roll auto-grow** (`el.style.height = el.scrollHeight`) in page code — pass `autoResize` instead.
 
 ---
 
@@ -1295,6 +1314,7 @@ import {
   TooltipContent,
   TooltipProvider,
   SimpleTooltip,
+  TooltipCard,
 } from '@open-mercato/ui/primitives/tooltip'
 ```
 
@@ -1314,8 +1334,10 @@ Hover/focus tooltip built on `@radix-ui/react-tooltip`. `SimpleTooltip` is the c
 | Size | Padding / text | Use case |
 |---|---|---|
 | `sm` | `px-1.5 py-0.5` / 12/16 | Compact triggers (icon buttons, table cells) |
-| `default` | `px-2 py-1` / 12/16 | Most cases |
-| `lg` | `px-3 py-2` / 14/20 | Multi-line / rich content |
+| `default` | `px-2.5 py-1` / 14/20 | Figma X-Small:28px body plus6px tail |
+| `lg` | `p-3` / 14/20 | Multi-line content,12px corners |
+
+`TooltipCard` implements the large source card with `title`, `description`, optional `leading`, `variant`, `side`, `align` and `closeAriaLabel`. Its real close action uses a click-triggered Radix Popover with a labeled dialog, so keyboard users can reach and dismiss it. `SimpleTooltip` remains non-interactive hover/focus help. The small tail measures8×4px; other tails12×6px. Keep content overflow visible so the tail is not clipped. Figma names the arrow edge; Radix `side` names where content is relative to its trigger.
 
 ### Arrow
 
@@ -2390,10 +2412,10 @@ Tokens map to the Figma `state/{x}/*` variable family — `status-{x}-icon` ↔ 
 
 | Style | Description | Outer wrapper | Icon |
 |---|---|---|---|
-| `light` (default) | Saturated tinted bg, status-colored text, no border | `bg-status-{x}-border text-status-{x}-text border-transparent` | Rounded badge with `bg-status-{x}-icon` + white icon |
-| `lighter` | Very light tinted bg, status-colored text, no border | `bg-status-{x}-bg text-status-{x}-text border-transparent` | Rounded badge with `bg-status-{x}-icon` + white icon |
-| `stroke` | White bg, neutral text, soft border + drop shadow | `bg-background text-foreground border-border shadow-lg` | Rounded badge with `bg-status-{x}-icon` + white icon |
-| `filled` | Saturated bg, white text | `bg-status-{x}-icon text-white border-transparent` | Plain white icon (no badge wrap) |
+| `light` (default) | Saturated tinted bg, status-colored text, no border | `bg-status-{x}-border text-status-{x}-text` | Rounded badge with `bg-status-{x}-icon` + white icon |
+| `lighter` | Very light tinted bg, status-colored text, no border | `bg-status-{x}-bg text-status-{x}-text` | Rounded badge with `bg-status-{x}-icon` + white icon |
+| `stroke` | White bg, neutral text, soft border + drop shadow | `bg-background text-foreground ring-1 ring-inset ring-border shadow-lg` | Rounded badge with `bg-status-{x}-icon` + white icon |
+| `filled` | Saturated accessible bg/foreground pair | `bg-status-{x}-solid text-status-{x}-solid-foreground` | Plain matching icon (no badge wrap) |
 
 `feature` status maps to the `--status-neutral-*` token family (Figma `state/faded/*` gray) — there is no dedicated `feature` token set in `globals.css`, and it deliberately does NOT use `--brand-violet` (see MUST rules below).
 
@@ -2401,9 +2423,9 @@ Tokens map to the Figma `state/{x}/*` variable family — `status-{x}-icon` ↔ 
 
 | Size | Layout | Use case |
 |---|---|---|
-| `sm` (default) | `min-h-9 rounded-md px-3 py-2 text-xs` + `size-4` icon | Toast / inline strip. Grows vertically when content wraps (`min-h-*`). |
-| `xs` | `min-h-8 rounded-md px-3 py-1 text-xs` + `size-4` icon | Dense table inline notice. |
-| `default` | `rounded-lg px-4 py-3 text-sm` + `size-5` icon | Full inline alert with `AlertTitle` + `AlertDescription` paragraphs. No min height — content drives layout. |
+| `sm` (default) | `min-h-9 rounded-md px-2.5 py-2 text-sm leading-5` + `size-5` icon | Toast / inline strip. Grows vertically when content wraps (`min-h-*`). |
+| `xs` | `min-h-8 rounded-md px-2 py-1.5 text-xs leading-4` + `size-4` icon | Dense table inline notice. |
+| `default` | `rounded-alert px-3.5 pt-3.5 pb-4 text-sm` + `size-5` icon | Full inline alert with `AlertTitle` + `AlertDescription` paragraphs. No min height — content drives layout. |
 
 ### Usage
 
@@ -2449,20 +2471,21 @@ const t = useT()
 | `onDismiss` | `() => void` | — | Fired when the close button is clicked. |
 | `dismissAriaLabel` | `string` | `'Dismiss'` | i18n hook for the close button. |
 | `action` | `ReactNode` | — | Inline action slot rendered to the right of the body (link buttons typical). |
+| `footer` | `ReactNode` | — | Actions below the body with a 10px gap; use for the large two-link composition. |
 | `variant` | `'default' \| 'destructive' \| 'success' \| 'warning' \| 'info'` | — | **Deprecated.** BC alias for the pre-Figma-169:2358 API. Maps to `status` and picks up the new `light` + `sm` defaults — visually matches the pre-Figma `light` look (tinted bg with border) at the new `min-h-9` density (which still grows for multi-line content). Prefer `status` in new code. |
 
 ### MUST rules
 
 - NEVER hand-roll a tinted `<div role="alert">` — use `Alert`. The five status × four style matrix covers every contextual-message look in the Figma guidelines.
 - Use the `light` + `sm` defaults for inline alerts, toasts (FlashMessages already wires them via `flash()`), and notifications — `light` maps to the Figma `state/{x}/light` tokens (`#fecaca` saturated pink for error etc.) and the rounded icon badge gives every status a recognizable badge mark.
-- Step up to `size="default"` whenever the message wraps to multiple lines or carries an `AlertTitle` + `AlertDescription` paragraph — `default` has no min-height, larger padding, and uses `rounded-xl` per the Figma Large size.
+- Step up to `size="default"` whenever the message wraps to multiple lines or carries an `AlertTitle` + `AlertDescription` paragraph — `default` has no min-height, larger padding, and uses the 12px `rounded-alert` token per the Figma Large size.
 - Drop to `style="lighter"` for the lowest-emphasis tint (`state/{x}/lighter` — `#fef2f2` for error) when the surface is already crowded.
 - Use `style="stroke"` (white bg + soft border + drop shadow + neutral text + icon badge) for floating cards where the alert should sit visually on top of arbitrary page content without taking on a tint.
 - Reserve `style="filled"` for explicit high-contrast call-outs where the message must dominate the surrounding chrome — `filled` drops the icon badge in favor of a plain icon over the saturated background.
 - The `feature` status renders with the `state/faded/*` gray (Figma palette name) → `status-neutral-*` tokens in code. Do **not** map it to `brand-violet`; that mismatch happened during early iteration and Figma keeps `feature` neutral on purpose so it does not collide with the product's brand color elsewhere.
 - Pass `dismissAriaLabel` translated via `useT()` — the primitive default `'Dismiss'` is English-only.
 - For ephemeral "save on action" feedback, prefer the global `flash()` helper from `@open-mercato/ui/backend/FlashMessages` (it wraps `Alert` internally) over building your own toast queue.
-- The legacy `variant` prop is **deprecated** but still honored — new code should use the explicit `status` + `style` props. Existing call sites continue to work; their look softens slightly (bg `/50`, no border) because the default style is now `lighter` instead of `light`.
+- The legacy `variant` prop is **deprecated** but still honored — new code should use the explicit `status` + `style` props. Existing call sites continue to work with the `light` and `sm` defaults.
 
 ---
 
@@ -3135,6 +3158,45 @@ Toolbar atoms (`RichEditorIconButton`, `RichEditorTextDropdown`, `RichEditorDrop
 
 ---
 
+## FileUploadArea
+
+Import: `@open-mercato/ui/primitives/file-upload`. Source set `450:9413` (Default/Hover). The 400×202 drop target has a 12px upload radius, real hover/drag feedback, keyboard-accessible Browse action and a native file chooser. It returns local `File[]` through `onFilesSelected`; it does not send requests.
+
+- Default `accept`: JPEG, PNG, PDF and MP4; `maxSizeBytes`: 50×1024²; `multiple`: true. These match the source description. Supply matching `description` text when overriding constraints.
+- `onFilesRejected` receives the rejected file and `type`, `size` or `count` reason. Accepted and rejected files from the same selection are separated; errors are announced. `disabled` blocks chooser and dropped-file callbacks.
+- The file input resets after selection so selecting the same file again works. The caller owns queue, transfer, progress, cancellation and persistence.
+
+## FileUploadCard
+
+Import: `@open-mercato/ui/primitives/file-upload-card`. Source set `451:409` (Uploading/Success/Error). Controlled `fileName`, `sizeLabel`, `status`, optional `progress`, `format`, `tone` and `showStatus` compose the real FileFormatIcon and Progress primitives.
+
+The source dimensions are 400×94, 400×72 and 400×100 respectively. `onRemove` renders Cancel during upload and Remove afterward; `onRetry` renders the error action. `disabled` blocks both actions. Progress is clamped to 0–100. Status and action labels are translated; the caller formats file sizes. Error height assumes the retry action is supplied.
+
+## FileFormatIcon
+
+Import: `@open-mercato/ui/primitives/file-format-icon`. Source set `450:17234`, all 18 combinations. `format` is caller-provided extension text; `size="default" | "sm"` is 40 or 32px. `tone` is red, orange, yellow, green, teal, blue, purple, pink or gray. Figma calls its light-blue category Teal.
+
+The original Figma SVG paper/fold layers are bundled in `assets/file-format-artwork.ts`; no runtime download or asset loader is required. Nine semantic `file-format-*` category tokens retain source fills. Foreground pairs meet 4.5:1 contrast in both themes, intentionally replacing insufficient-contrast white labels. The small caption scales the 11px overline token to the source 8.8px; badge corners use the existing 6px `rounded-sm` token, differing from the source 4px/3px.
+
+## ImageUpload
+
+Import: `@open-mercato/ui/primitives/image-upload`. Source set `452:653`, Avatar/Company × Empty/Uploaded × Vertical/Horizontal. `src` controls the existing preview; `onChange(File | null)` reports a valid new image or removal. The caller owns preview object URLs, revokes them when replaced/unmounted, and handles persistence.
+
+- Both source alignments put the avatar on the left. Vertical has a 64px avatar aligned to the top, title, description and action row (92px high); Horizontal has a 56px avatar and actions (56px high).
+- New images must match PNG/JPEG MIME types, contain a PNG/JPEG signature, decode successfully and satisfy `minWidth`/`minHeight` (400×400 by default). `maxSizeBytes` is optional. The component interpolates the dimensions in its description; callers may override title/description/alt. An existing `src` is not revalidated.
+- `onFilesRejected` receives the file and a `type`, `size`, `count`, `dimensions` or `image` reason. Validation errors are announced. A newer selection, Remove, unmount or disabling invalidates pending results, preventing stale images from replacing the current preview.
+- Source illustrations are gallery-only local Figma exports. Empty previews reuse Avatar with four original Figma SVG placeholders (56/64px, avatar/company). Their illustrative gray/white artwork is preserved in both themes. Buttons use existing DS typography/padding, so intrinsic widths depend on locale and the selected application/reference font.
+
+## PasswordStrength
+
+Controlled password feedback from Figma `Password Strength [1.1]` (`327:8202`). Import `PasswordStrength` and its `PasswordRequirement` / `PasswordStrengthState` types from `@open-mercato/ui/primitives/password-strength`.
+
+Pass `strength="empty" | "weak" | "moderate" | "strong"` and `requirements`, an array of `{ id, label, met }`. The component renders three progressive colored segments, a translated requirements heading and the caller's checklist. A progressbar exposes the current level and translated strength; each checklist item includes its completion state for screen readers. `requirementsLabel` and `aria-label` can override the default headings.
+
+Supply the result of the policy that owns the form. The primitive neither accepts a password nor establishes a platform authentication policy. The interactive gallery example demonstrates the Figma rules (one uppercase, one number, eight characters); application validation remains authoritative. At the 300 px source width the three-row example is 106 px high, with 4 px segments, 8 px gaps and 16 px icons. Width contracts on smaller screens and translated requirements can wrap.
+
+---
+
 ## ScrollArea
 
 DS-styled scrollable container. Wraps Radix `ScrollArea` with token-driven thumb / track styling so scrollbars stay consistent across macOS / Windows / Linux instead of falling back to native OS chrome.
@@ -3185,6 +3247,8 @@ Reach for `ScrollArea` whenever you'd otherwise write `<div className="overflow-
 | `viewportClassName` | `string` | — | Applied to the inner `Viewport`. Use for padding inside the scroll area. |
 | `scrollbarClassName` | `string` | — | Applied to every `Scrollbar`. |
 | `thumbClassName` | `string` | — | Applied to every `Thumb`. |
+| `scrollbarSize` | `'md' \| 'sm' \| 'xs'` | — | Opt into Figma track dimensions: 20 / 16 / 12 px with a 4 px thumb. |
+| `scrollbarVariant` | `'default' \| 'lighter'` | — | Opt into the background or muted Figma track. Defaults to Medium when only this prop is set. |
 | All Radix `ScrollArea.Root` props | — | — | `dir`, `type`, `scrollHideDelay` etc. |
 
 ### MUST rules
@@ -3196,7 +3260,7 @@ Reach for `ScrollArea` whenever you'd otherwise write `<div className="overflow-
 
 ### Notes
 
-- No dedicated Figma node — DS Open Mercato library did not ship a `ScrollArea` master component at the time this primitive was authored. Styling is inferred from DS scrollbar token decisions used elsewhere.
+- Figma `Scroll [1.1]` (`166941:61889`) contains Default/Lighter × Medium/Small/X-Small. Supplying either new prop enables these styles. Omitting both preserves the existing transparent 10 px track and thumb behavior. On the compound `ScrollAreaScrollbar`, the corresponding props are `size` and `variant`; its thumb inherits the style. Horizontal scrollbars use the same thickness values as height.
 - Built on `@radix-ui/react-scroll-area`. Scrollbar visibility is layout-driven (Radix only mounts the thumb when content overflows). jsdom unit tests cannot exercise scroll behaviour — coverage lives in visual / integration tests instead.
 
 ---
@@ -3555,7 +3619,7 @@ The Figma source pairs the slider with a label row above it (label text + option
 
 ## Rating
 
-1-to-N star / heart / dot rating widget. Two modes — read-only display (no `onChange`) and interactive input (`onChange` present). Anchored on Figma `Rating & Review [1.0]` (DS Open Mercato componentSet `199969:1797`, key `544eab9fbc72c0038c0a28b7ff27a93ab8c3c01a`).
+1-to-N star / heart / dot rating widget. Two modes — read-only display (no `onChange`) and interactive input (`onChange` present). Anchored on Figma `Rating & Review [1.0]` (DS Open Mercato component set `532:4340`).
 
 ```typescript
 import { Rating } from '@open-mercato/ui/primitives/rating'
@@ -3577,7 +3641,8 @@ import { Rating } from '@open-mercato/ui/primitives/rating'
   onChange={(next: number) => void}         // omit for read-only
   size="sm" | "default" | "lg"              // default 'default' (size-5 = 20px)
   icon="star" | "heart" | "circle"          // default 'star'
-  allowHalf={boolean}                       // default false; stars only
+  appearance="inline" | "cell"             // default 'inline'; cell uses a 56px shell
+  allowHalf={boolean}                       // default false; stars and hearts
   disabled={boolean}                        // false
   aria-label={string}                       // required when interactive
 />
@@ -3617,8 +3682,8 @@ const [v, setV] = React.useState(0)
 ### MUST rules
 
 1. **Always provide `aria-label`** when `onChange` is supplied. Without it, screen-reader users only hear `"1 of 5", "2 of 5"` per button with no context for what is being rated.
-2. **NEVER use `allowHalf` with `icon="heart"` or `icon="circle"`** — Lucide ships `StarHalf` but no half-precision variants for heart / circle. Half values are silently rendered as full for those icons. Stick to stars when half precision matters.
-3. **For interactive ratings, render with `size="lg"`** when the rating is a primary form field (review submission). The default `size-5` is for read-only summaries; `size-6` matches typical "tap target" expectations on touch screens.
+2. **Use stars or hearts for half precision.** Both display half-filled glyphs. Circle glyphs remain whole even when `allowHalf` enables half-step input.
+3. **Use `appearance="cell"` for the large source rating cells** in primary form fields. Each cell is 56px with a 32px glyph; inline `size` options remain available for compact compositions.
 4. **NEVER use `Rating` as a non-rating selector** (e.g. priority level, intensity). Reach for `SegmentedControl` (1-5 step picker), `Slider` (continuous numeric), or `RadioGroup` (form field). Rating's semantics are tied to "stars / hearts" — repurposing it confuses screen-readers.
 
 ### Anti-patterns
@@ -3627,7 +3692,7 @@ const [v, setV] = React.useState(0)
 // WRONG — interactive Rating without aria-label (screen-reader: "1 of 5" with no context)
 <Rating value={v} onChange={setV} />
 
-// WRONG — half precision on heart (silently rounds up to full hearts)
+// CORRECT — half precision on a heart
 <Rating value={2.5} max={5} icon="heart" allowHalf />
 
 // WRONG — using Rating for priority level selection
@@ -3643,11 +3708,24 @@ const [v, setV] = React.useState(0)
 
 ### Notes
 
-- Color: `text-status-warning-icon` (`--status-warning-icon`, `oklch(0.666 0.179 58.318)` ≈ amber-600). Figma source uses `#F6B51E` (amber-400) but our DS token is the closest semantic equivalent and stays consistent with other warning-tier accents (status badges, alerts). Override per-call via `className` if a specific surface needs a custom hue.
+- Color: stars and circles use `text-status-warning-icon`; hearts use `text-status-error-icon`, matching the red hearts in the Figma source. Semantic tokens adapt to both themes.
 - Empty items: `text-muted-foreground/30` (washed-out grey outline).
-- Hover (interactive): items scale up via `enabled:hover:scale-110` for tactile feedback. No background change — keeps the visual minimal.
+- Inline hover: items scale up via `enabled:hover:scale-110`. Cell hover uses a muted background and filled glyph, suppressing the resting border/shadow without changing dimensions.
+- Cell appearance follows `Rating Cell [1.1]` (`532:4160`): 56px shell, 32px glyph, 10px corner and 8px gap. Empty cells use a filled border-colored glyph. Selected stars/hearts use semantic warning/error colors. Both read-only and interactive modes support the additive appearance prop; omitting it preserves inline behavior.
+- Review summaries follow `Rating & Review [1.0]`: combine a 108×20px half Rating with a translated score/count and LinkButton, separated by 8px. Vertical summaries are 48px high and horizontal summaries are 20px before wrapping. The gallery's review link opens 18 local sample rows in a keyboard-accessible Dialog; it does not fetch tenant reviews. Existing Lucide contours and locale/font text widths are documented differences from the source vectors.
 - Keyboard navigation: ArrowRight / ArrowUp = increment, ArrowLeft / ArrowDown = decrement, Home = first position, End = last position. Step is `1` by default, `0.5` when `allowHalf`. Clamped at `0` and `max`.
+- Interactive selection: one radio is checked at a time; preceding icons may be visually filled without being additional checked choices. Keyboard changes move focus to the selected choice.
 - Click precision when `allowHalf`: clicking the left half of an icon commits `index + 0.5`, the right half commits `index + 1` — matches the common review-form pattern.
+
+---
+
+## RatingBar
+
+Five equal feedback choices from Figma `Rating Bar [1.1]` (`535:4658`), with `emoji`, `number`, `star` and `heart` variants. Import from `@open-mercato/ui/primitives/rating-bar`. The controlled `value` is `0` for an unanswered scale or `1`–`5` for the selected position; `onChange` receives the next numeric value. Provide a translated `aria-label`. `disabled`, form `name`, direction and other RadioGroup props pass through.
+
+The default bar is 320 × 36 px and contracts to the available width. It uses the existing RadioGroup and Button primitives for single selection, focus and keyboard navigation. Emoji are the original 40 × 40 PNG exports embedded in a source asset module and displayed at 20 × 20, with no external requests. In the Figma selected star/heart bars all five glyphs are filled; the chosen cell additionally has a muted background so the selected value remains visible.
+
+For the `Rating Bar Area [1.1]` composition (`535:4994`), join a bar with `className="w-full border-0 border-b"` and a Textarea with `className="min-h-24 resize-none rounded-none border-0 p-3 shadow-none focus-visible:shadow-none"` inside `w-80 max-w-full overflow-hidden rounded-xl border border-border bg-background focus-within:shadow-focus`. Give the text field its own translated label. The gallery includes all four types, unanswered and selected examples, feedback areas and disabled examples.
 
 ---
 
@@ -5522,6 +5600,10 @@ Inline pill for tagging, status, counts. CVA-based. New props in v5: `dot`, `rem
 
 Modal dialog (Radix-based). v5 added a mobile bottom-sheet layout that automatically reflows to centred desktop modal above `sm` breakpoint.
 
+`DialogHeader` also accepts `alignment="vertical"` for a centered status badge above its text, and `compact` for a bare24px leading icon. Existing horizontal/default headers stay supported. Status badges use a40px shell with10px corners; the generic leading badge stays circular. The shared gallery demonstrates all12source header combinations,7footer modes and8status arrangements. `DrawerHeader` accepts the same additive `compact` option; its gallery covers4headers and6footers.
+
+`PopoverArrow` is exported from `@open-mercato/ui/primitives/popover` and follows Radix side/alignment/collision behavior. Gallery Popovers show all12source arrow placements plus equal-button, numbered-step and dot-step footers with working navigation.
+
 ### Compound API
 - `Dialog` — root (Radix)
 - `DialogTrigger` — opens it (asChild-ready)
@@ -5684,3 +5766,49 @@ Small primitives that need no full section — listed here so nothing shipped is
 | `DataLoader` | `@open-mercato/ui/primitives/DataLoader` | `isLoading`-gated wrapper rendering a centered `Spinner` before children | For simple section-level loading; full pages prefer `LoadingMessage` |
 | `Calendar` | `@open-mercato/ui/primitives/calendar` | Internal engine for `DatePicker`/`DateRangePicker` (incl. month/year grid navigation) | INTERNAL — consume via `DatePicker`/`DateRangePicker`, do not embed directly |
 | `Notice` / `ErrorNotice` | — | DEPRECATED shells kept for BC only; migration to `Alert` is complete and guard-tested | NEVER import in new code — use `Alert` |
+
+
+## Banner
+
+`Banner` from `@open-mercato/ui/primitives/banner` implements source224:2249: a full-width centered announcement,44px minimum height,20px icon, optional description/action and an accessible dismiss button. `status` accepts the five Alert statuses; `style` accepts filled/light/lighter/stroke. `title` is required; `onDismiss` renders a working dismissal action. Long content wraps rather than clipping on narrow screens. Filled surfaces use the existing solid status/foreground pairs for readable text, so some hues intentionally differ from low-contrast source icon fills. The gallery shows all20status/style combinations plus a minimal title-only variant.
+
+
+### Complete-library follow-up: source controls and illustrations
+
+`Calendar` adds `daySize={36 | 40}` with the previous 36px default. `CalendarMonthSelector` from the same import path accepts `month`, `locale`, optional `onPreviousMonth`/`onNextMonth` callbacks and corresponding disabled flags. A missing callback hides that arrow. The controlled `month` can also drive a Calendar. Marked dates use the existing DayPicker modifiers API.
+
+`Slider` forwards `aria-label`, `aria-labelledby` and `aria-describedby` to its actual slider thumbs. Use `thumbLabels={['Lower value', 'Upper value']}` to name range endpoints separately. Existing size and value behavior stay unchanged.
+
+`Progress` adds `size="md"` for the source 6px track and `valuePlacement="top" | "right"`; the default remains top. The previous sizes and label/description props remain supported.
+
+`TimePickerSlot` adds `checkPosition="right" | "center"` (right by default). Center places the indicator between the two time labels, matching Figma's Direction axis. Active slots use the muted surface and a 14px accent check. Status and duration chips use the 8px radius; active durations use accessible info text. Source stories cover 16 status, 4 duration and 8 slot combinations.
+
+`ActivityFeedStatusChip` adds `status="pending"` with the source yellow icon. Other status mappings are preserved. Gallery compositions demonstrate all five activity types with working local filters, hide/restore, file preview and replies; NotificationFeed demonstrates its four row types and 2/3/4-tab headers.
+
+`EmptyStateIllustration` from `@open-mercato/ui/primitives/empty-state-illustration` renders one of 34 original local PNG exports. Its required `kind` is typed (`hr-notes`, `finance-my-cards`, etc.); `emptyStateIllustrations` exposes names, groups and source node IDs. The default empty alt makes these decorative. Use `illustration={<EmptyStateIllustration kind="hr-notes" />}` on EmptyState and provide translated title/description. Original artwork is static in both themes; no expiring asset URLs or tenant requests are involved.
+
+## Filter compositions
+
+`@open-mercato/ui/primitives/filter-toolbar` provides presentational slots for the Figma horizontal table/calendar filters and vertical filter panel. `FilterToolbar` takes a `leading` slot and trailing children, wrapping controls on narrow screens. Keep toolbar controls at 36px.
+
+`FilterPanelItem` is a 36px button with controlled `active`, a 20px `leading` visual and a trailing chevron. It forwards button events and ARIA attributes. `FilterPanelHeader` takes `title`, `leading` and `action` (52px minimum); `FilterPanelFooter` lays out two equal actions with a 16px gap (68px minimum). Translate action labels in the consumer.
+
+These components do not fetch or persist filters. The consumer owns draft state and applies it explicitly, using the existing query filter stack for real data. The Storybook compositions demonstrate local search, date/category/status filters, draft Apply/Clear, sorting, column visibility and keyboard/focus return.
+
+## Source artwork and icon libraries
+
+`@open-mercato/ui/assets/source-icons` exports `SourceIcon`, `sourceIconNames` and `SourceIconName`. The catalogue covers all 1667 names on the source icon sheet: 1647 use installed Lucide components and 20 use original Figma SVGs. Prefer direct `lucide-react` imports when an application needs one known icon; the complete registry is intended for pickers and catalogues. Preserve an accessible label for icon-only actions.
+
+`@open-mercato/ui/assets/source-artwork` exports `loadSourceArtwork(group)` and the `SourceArtwork` type. Collections are loaded separately. Original PNG exports retain Figma artwork colors; these are image assets, not replacements for semantic UI color tokens. Render `src` at the record's `width` and `height`, provide meaningful alt text when the image carries information, and paginate catalogues at 100 items or fewer.
+
+The native catalogue is in Settings → Developers → Design system at `/backend/design-system`, with the existing `design_system.view` feature gate. Its family, entry and variant links use the shared registry. A separate Storybook process is development and validation tooling only.
+
+## PromptArea
+
+Import: `@open-mercato/ui/primitives/prompt-area`.
+
+Controlled multiline message composer. Required: `value: string`, `onValueChange(value)`, `onSubmit(value)`, `inputLabel`, `submitLabel`. Optional: `compact`, `disabled`, `placeholder`, `information`, `attachments`, `toolbar`, and native form attributes except `onSubmit`.
+
+Enter submits trimmed non-empty text. Shift+Enter inserts a line break; IME composition does not submit. A native disabled fieldset disables the textarea, attachment controls and toolbar controls. Text height follows controlled value changes. The component owns no transport, model selection, attachment upload or tenant state; consumers supply slots and submission behavior.
+
+The shared Design System `prompt-area` entry includes all 18 measured source variants through six desktop/mobile and empty/file/image compositions with real hover/focus. `ai-controls`, `ai-sidebar` and `ai-mobile-navigation` cover the other 15 source sets using existing primitives. Source radius/15px typography tokens are additive; existing application defaults are unchanged. See `docs/design-system/figma-audit/ai-product.md` for source/runtime differences and validation.

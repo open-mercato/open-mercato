@@ -3,6 +3,8 @@ import { CustomerUser, CustomerUserSession } from '@open-mercato/core/modules/cu
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { signAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
+import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
 
 export const CUSTOMER_JWT_AUDIENCE = 'customer'
 const CUSTOMER_JWT_TTL_SECONDS = 60 * 60 * 8
@@ -32,18 +34,21 @@ export class CustomerSessionService {
     const days = Number(process.env.CUSTOMER_SESSION_TTL_DAYS || DEFAULT_SESSION_TTL_DAYS)
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
 
-    await this.enforceSessionCap(user.id, user.tenantId, user.organizationId)
+    const session = await withAdvisoryXactLock(this.em, `customer_accounts:session_cap:${user.id}`, async (tx) => {
+      await this.enforceSessionCap(tx, user.id, user.tenantId, user.organizationId)
 
-    const session = this.em.create(CustomerUserSession, {
-      user,
-      tokenHash,
-      ipAddress: ip || null,
-      userAgent: userAgent || null,
-      expiresAt,
-      lastUsedAt: new Date(),
-      createdAt: new Date(),
-    } as any) as CustomerUserSession
-    await this.em.persist(session).flush()
+      const created = tx.create(CustomerUserSession, {
+        user: tx.getReference(CustomerUser, user.id),
+        tokenHash,
+        ipAddress: ip || null,
+        userAgent: userAgent || null,
+        expiresAt,
+        lastUsedAt: new Date(),
+        createdAt: new Date(),
+      })
+      await tx.persist(created).flush()
+      return created
+    })
 
     const jwt = this.signCustomerJwt(user, resolvedFeatures, session.id)
 
@@ -90,6 +95,7 @@ export class CustomerSessionService {
     if (!session) return null
     const user = session.user as CustomerUser
     if (!user || user.deletedAt || !user.isActive) return null
+    if (!(await isCustomerTenantActive(this.em, user.tenantId))) return null
 
     await this.em.nativeUpdate(CustomerUserSession, { id: session.id }, { lastUsedAt: new Date() })
     const jwt = this.signCustomerJwt(user, resolvedFeatures, session.id)
@@ -126,18 +132,47 @@ export class CustomerSessionService {
     return session
   }
 
+  /**
+   * Liveness probe for tokens that carry no `sid` claim — the pre-migration customer JWTs the
+   * legacy raw-secret fallback still admits during a key rotation. Such a token cannot name the
+   * session it was issued for, so the strongest statement we can make about it is whether the
+   * customer is still signed in anywhere. A customer whose sessions have all been revoked
+   * (logout, per-device revoke, admin action) has none, and the token must stop working.
+   *
+   * Existence is the whole answer, so this reads no encrypted column and needs no decryption
+   * round-trip on the authentication path — the same reason `findActiveSessionForClaims` next to
+   * it queries directly. Scope comes from the owning user, since sessions carry no scope columns.
+   */
+  async hasActiveSessionForUser(input: {
+    userId: string
+    tenantId: string
+    organizationId: string
+  }): Promise<boolean> {
+    const session = await this.em.findOne(CustomerUserSession, {
+      user: {
+        id: input.userId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      },
+      deletedAt: null,
+      expiresAt: { $gt: new Date() },
+    })
+    return session !== null
+  }
+
   async revokeSession(sessionId: string): Promise<void> {
     await this.em.nativeUpdate(CustomerUserSession, { id: sessionId }, { deletedAt: new Date() })
   }
 
   private async enforceSessionCap(
+    em: EntityManager,
     userId: string,
     tenantId: string,
     organizationId: string,
   ): Promise<void> {
     const cap = resolveMaxSessionsPerUser()
     const existing = await findWithDecryption(
-      this.em,
+      em,
       CustomerUserSession,
       {
         user: userId as any,
@@ -150,7 +185,7 @@ export class CustomerSessionService {
     const toRevoke = existing.length - (cap - 1)
     if (toRevoke <= 0) return
     const oldestIds = existing.slice(0, toRevoke).map((s) => s.id)
-    await this.em.nativeUpdate(
+    await em.nativeUpdate(
       CustomerUserSession,
       { id: { $in: oldestIds } },
       { deletedAt: new Date() },

@@ -156,6 +156,7 @@ export type InteractionSummary = {
   } | null
   _integrations?: Record<string, unknown>
   pinned?: boolean
+  timezone?: string | null
   duration?: number | null
   createdAt: string
   updatedAt: string

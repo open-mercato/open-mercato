@@ -10,7 +10,11 @@ import {
   ForbiddenError,
   UnauthorizedError,
   apiFetch,
+  notifyForbiddenAccess,
+  redirectToSessionRefresh,
+  registerAuthNoticeTranslator,
 } from '../../utils/api'
+import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
 
 function createMockResponse(
   status: number,
@@ -177,6 +181,30 @@ describe('apiFetch', () => {
     expect(flash).not.toHaveBeenCalled()
   })
 
+  it('stays silent on a passive /start visit — a background auth-check 401 is expected, not a real session problem (GH #6159)', async () => {
+    window.history.pushState({}, '', '/start')
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () =>
+      createMockResponse(401, { error: 'Nieautoryzowany' }),
+    )
+
+    const result = await apiFetch('/api/auth/feature-check', { method: 'POST' })
+
+    expect(result.status).toBe(401)
+    expect(flash).not.toHaveBeenCalled()
+  })
+
+  it('stays silent when a 401 lands after navigating to /start', async () => {
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () => {
+      window.history.pushState({}, '', '/start')
+      return createMockResponse(401, { error: 'Unauthorized' })
+    })
+
+    const result = await apiFetch('/api/private')
+
+    expect(result.status).toBe(401)
+    expect(flash).not.toHaveBeenCalled()
+  })
+
   it('throws UnauthorizedError for 401 responses by default', async () => {
     ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () =>
       createMockResponse(401, { error: 'Unauthorized' }),
@@ -201,5 +229,68 @@ describe('apiFetch', () => {
     // answers 401 again — the second attempt must not re-trigger the redirect.
     await expect(apiFetch('/api/private')).rejects.toBeInstanceOf(UnauthorizedError)
     expect(flash).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('auth notice banners i18n (GH #7381)', () => {
+  const polishTranslator = createTranslator({
+    'ui.auth.sessionExpired': 'Sesja wygasła. Przekierowanie do logowania…',
+    'ui.auth.accessDenied.missingFeatures': 'Odmowa dostępu: brakuje uprawnienia „{features}”.',
+    'ui.auth.accessDenied.requiredRoles': 'Odmowa dostępu: wymagana rola „{roles}”.',
+    'ui.auth.accessDenied.generic': 'Odmowa dostępu.',
+  })
+  let unregister: (() => void) | null = null
+
+  beforeEach(() => {
+    jest.resetAllMocks()
+    jest.useFakeTimers()
+    window.history.pushState({}, '', '/backend/customers/people')
+    window.sessionStorage.clear()
+  })
+
+  afterEach(() => {
+    unregister?.()
+    unregister = null
+    jest.clearAllTimers()
+    jest.useRealTimers()
+  })
+
+  it('translates the session-expired banner with the registered translator', () => {
+    unregister = registerAuthNoticeTranslator(polishTranslator)
+
+    redirectToSessionRefresh()
+
+    expect(flash).toHaveBeenCalledWith('Sesja wygasła. Przekierowanie do logowania…', 'warning')
+  })
+
+  it('translates the access-denied banners and interpolates features and roles', () => {
+    unregister = registerAuthNoticeTranslator(polishTranslator)
+
+    notifyForbiddenAccess({ requiredFeatures: ['dashboards.view'] })
+    notifyForbiddenAccess({ requiredRoles: ['admin'] })
+
+    expect(flash).toHaveBeenNthCalledWith(1, 'Odmowa dostępu: brakuje uprawnienia „dashboards.view”.', 'warning')
+    expect(flash).toHaveBeenNthCalledWith(2, 'Odmowa dostępu: wymagana rola „admin”.', 'warning')
+  })
+
+  it('falls back to English copy once the translator is unregistered', () => {
+    registerAuthNoticeTranslator(polishTranslator)()
+
+    notifyForbiddenAccess({ requiredFeatures: ['dashboards.view'] })
+
+    expect(flash).toHaveBeenCalledWith(
+      'Access denied: you are missing the required permission "dashboards.view". Contact your administrator.',
+      'warning',
+    )
+  })
+
+  it('keeps a newer translator when an older registration is cleaned up', () => {
+    const releaseOlder = registerAuthNoticeTranslator(createTranslator({}))
+    unregister = registerAuthNoticeTranslator(polishTranslator)
+    releaseOlder()
+
+    redirectToSessionRefresh()
+
+    expect(flash).toHaveBeenCalledWith('Sesja wygasła. Przekierowanie do logowania…', 'warning')
   })
 })

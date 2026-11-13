@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/channel-discord",
-  "version": "0.7.0",
+  "version": "0.10.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -71,7 +71,8 @@
     "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-is": ">=18.0.0"
   },
   "peerDependenciesMeta": {
     "@open-mercato/ai-assistant": {
@@ -85,10 +86,11 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "esbuild": "^0.28.2",
-    "glob": "^13.0.6",
+    "glob": "^14.0.4",
     "jest": "^30.4.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-is": "^19.2.8",
     "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },

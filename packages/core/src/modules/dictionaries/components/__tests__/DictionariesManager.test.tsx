@@ -55,7 +55,7 @@ jest.mock('@open-mercato/ui/primitives/spinner', () => ({
 
 jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogContent: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
   DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
@@ -130,5 +130,44 @@ describe('DictionariesManager', () => {
     fireEvent.click(screen.getByText('Sizes'))
     await waitFor(() => expect(screen.getByTestId('entries-editor')).toHaveTextContent('dict-sizes'))
     expect(listFetchCount()).toBe(1)
+  })
+
+  function createRequests() {
+    return apiCall.mock.calls.filter(
+      ([url, init]) => url === '/api/dictionaries' && (init as RequestInit | undefined)?.method === 'POST',
+    )
+  }
+
+  async function openCreateDialogWithValues() {
+    render(<DictionariesManager />)
+    await waitFor(() => expect(screen.getByTestId('entries-editor')).toHaveTextContent('dict-colors'))
+    fireEvent.click(screen.getByText('New dictionary'))
+    fireEvent.change(screen.getByPlaceholderText('slug_name'), { target: { value: 'qa.test.dictionary' } })
+    const nameInput = screen.getByPlaceholderText('Display name')
+    fireEvent.change(nameInput, { target: { value: 'QA test' } })
+    return nameInput
+  }
+
+  it.each([
+    ['Ctrl+Enter', { ctrlKey: true }],
+    ['Cmd+Enter', { metaKey: true }],
+  ])('creates the dictionary when %s is pressed inside the dialog', async (_label, modifier) => {
+    const nameInput = await openCreateDialogWithValues()
+
+    fireEvent.keyDown(nameInput, { key: 'Enter', ...modifier })
+
+    await waitFor(() => expect(createRequests()).toHaveLength(1))
+    expect(JSON.parse(String((createRequests()[0][1] as RequestInit).body))).toMatchObject({
+      key: 'qa.test.dictionary',
+      name: 'QA test',
+    })
+  })
+
+  it('does not submit the dialog on a plain Enter', async () => {
+    const nameInput = await openCreateDialogWithValues()
+
+    fireEvent.keyDown(nameInput, { key: 'Enter' })
+
+    expect(createRequests()).toHaveLength(0)
   })
 })

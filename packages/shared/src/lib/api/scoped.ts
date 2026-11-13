@@ -91,6 +91,11 @@ export function withScopedPayload<T extends Record<string, unknown>>(
     const msg = resolveMessage(options.messages, 'tenantRequired')
     throw new CrudHttpError(400, { error: translate(msg.key, msg.fallback) })
   }
+  // A payload-supplied `tenantId` must still belong to the actor (issue #7877): the central API
+  // dispatcher only validates a body-supplied `tenantId` up to a small byte budget, so a non-superadmin
+  // can bypass that gate with an oversized body. This is the one place every caller of this helper
+  // converges on, so the check holds regardless of body size or dispatcher-level route flags.
+  enforceActorTenant(tenantId, ctx, translate, options)
 
   const resolvedOrg =
     (source as { organizationId?: string })?.organizationId ??
@@ -190,6 +195,24 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
   return withReport as z.infer<TSchema> & {
     customFields?: Record<string, unknown>
     ignoredFields?: UnwritableKey[]
+  }
+}
+
+function enforceActorTenant(
+  tenantId: string,
+  ctx: ScopedContext,
+  translate: TranslateFn,
+  options: ScopedPayloadOptions
+): void {
+  if (authIsSuperAdmin(ctx.auth)) return
+  const actorTenantId = normalizeTenant(ctx.auth?.tenantId)
+  const requestedTenantId = normalizeTenant(tenantId)
+  const mismatched = actorTenantId
+    ? !requestedTenantId || requestedTenantId !== actorTenantId
+    : Boolean(requestedTenantId)
+  if (mismatched) {
+    const msg = resolveMessage(options.messages, 'tenantForbidden')
+    throw new CrudHttpError(403, { error: translate(msg.key, msg.fallback) })
   }
 }
 

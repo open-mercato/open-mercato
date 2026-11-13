@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { z } from 'zod'
 import { syncExcelUploadResponseSchema, syncExcelEntityTypeSchema } from '../../data/validators'
 import { SyncExcelUpload } from '../../data/entities'
@@ -45,7 +46,7 @@ export const openApi = {
         { status: 400, description: 'Invalid multipart payload', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 413, description: 'CSV upload exceeds the maximum upload size', schema: errorSchema },
-        { status: 422, description: 'Unsupported entity type or file type', schema: errorSchema },
+        { status: 422, description: 'Unsupported entity type, file type, or upload blocked by a mutation guard', schema: errorSchema },
       ],
     },
   },
@@ -107,12 +108,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'CSV upload exceeds the maximum upload size.' }, { status: 413 })
   }
 
+  const uploadId = randomUUID()
+  const mutationPayload: Record<string, unknown> = {
+    entityType: parsedPayload.data.entityType,
+    filename: file.name,
+    mimeType: file.type || 'text/csv',
+    fileSize: file.size,
+  }
+  const guarded = await runRouteMutationGuards({
+    container,
+    req: request,
+    auth: { userId: auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    input: {
+      resourceKind: 'sync_excel.upload',
+      resourceId: uploadId,
+      operation: 'create',
+      mutationPayload,
+    },
+  })
+  if (!guarded.ok) return guarded.response
+
+  const guardedPayload = guarded.modifiedPayload
+    ? multipartSchema.safeParse({ ...mutationPayload, ...guarded.modifiedPayload })
+    : parsedPayload
+  if (!guardedPayload.success) {
+    return NextResponse.json({ error: 'Invalid upload payload.' }, { status: 422 })
+  }
+  const entityType = guardedPayload.data.entityType
+
   const fileBuffer = Buffer.from(await file.arrayBuffer())
   const preview = parseCsvPreview(fileBuffer, { maxRows: 5 })
-  const suggestedMapping = buildSuggestedMapping(parsedPayload.data.entityType, preview.headers)
+  const suggestedMapping = buildSuggestedMapping(entityType, preview.headers)
 
   const em = container.resolve('em') as EntityManager
-  const uploadId = randomUUID()
   const attachment = await createSyncExcelUploadAttachment({
     em,
     uploadId,
@@ -129,7 +157,7 @@ export async function POST(request: Request) {
     filename: file.name,
     mimeType: file.type || 'text/csv',
     fileSize: fileBuffer.length,
-    entityType: parsedPayload.data.entityType,
+    entityType,
     delimiter: preview.delimiter,
     encoding: preview.encoding,
     headers: preview.headers,
@@ -142,6 +170,8 @@ export async function POST(request: Request) {
 
   em.persist(upload)
   await em.flush()
+
+  await guarded.runAfterSuccess()
 
   return NextResponse.json(syncExcelUploadResponseSchema.parse({
     uploadId: upload.id,

@@ -78,6 +78,18 @@ export const entities = [
   - If the `id` is not a system entity, the installer automatically creates/updates a corresponding row in `custom_entities` so the entity shows up in the UI and can store records.
   - All entries are processed per tenant by default; mark an entry with `global: true` to install it once with `tenant_id = null`.
 
+#### Declaring a field as encrypted
+
+Set `encrypted: true` to store a field's values encrypted with the tenant key, the same way `required` or `listVisible` are declared:
+
+```ts
+export const entities = [
+  { id: 'crm:contact', fields: [ { key: 'national_id', kind: 'text', label: 'National ID', encrypted: true } ] },
+]
+```
+
+The declaration is idempotent — re-running `entities install` keeps the flag. A field an administrator encrypted through the admin UI also keeps its flag when the declaration omits `encrypted`, because clearing it would leave stored ciphertext that the read path no longer decrypts. To turn encryption off, declare `encrypted: false` explicitly (existing values stay encrypted at rest and must be migrated separately).
+
 ### Declaring fields via DSL (legacy) — deprecated
 ```ts
 import { defineFields, entityId, cf } from '@/modules/dsl'

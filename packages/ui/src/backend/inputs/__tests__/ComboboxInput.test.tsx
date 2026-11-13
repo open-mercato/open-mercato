@@ -85,6 +85,27 @@ describe('ComboboxInput clearable behavior', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  // Display text that matches what the user typed is not proof the value was committed: an
+  // unselected query renders identically to a picked option's label until blur resolves it.
+  // Playwright helpers that assert only `toHaveValue(typedText)` before blur therefore report
+  // success on a field the form never received, so the blur-clear below is the observable
+  // signal they must key on.
+  it('leaves the value uncommitted and clears the input on blur when the typed text matches no option', () => {
+    const onChange = jest.fn()
+    render(<Harness allowCustomValues={false} onChange={onChange} />)
+
+    const input = screen.getByRole('combobox') as HTMLInputElement
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'Blue' } })
+    expect(input.value).toBe('Blue')
+
+    blurAndFlush(input)
+
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByTestId('value')).toHaveTextContent('')
+    expect(input.value).toBe('')
+  })
+
   it('emits empty string on blur with empty input when clearable, regardless of allowCustomValues', () => {
     const onChange = jest.fn()
     render(
@@ -159,6 +180,30 @@ describe('ComboboxInput — eager label resolution', () => {
     await waitFor(() => expect(getInput(container).value).toBe('Resolved uuid-123'))
     expect(resolveLabel).toHaveBeenCalledWith('uuid-123')
     expect(resolveLabel).toHaveBeenCalledTimes(1)
+  })
+
+  it('resolves a disabled preselected value without enabling or changing it', async () => {
+    const onChange = jest.fn()
+    const resolveLabel = jest.fn(async () => 'Source bin')
+    const { container } = render(
+      <ComboboxInput value="location-id" onChange={onChange} resolveLabel={resolveLabel} disabled />,
+    )
+
+    await waitFor(() => expect(getInput(container).value).toBe('Source bin'))
+    expect(getInput(container).disabled).toBe(true)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('loads a disabled preselected label when no resolver is supplied', async () => {
+    const onChange = jest.fn()
+    const loadSuggestions = jest.fn(async () => [{ value: 'location-id', label: 'Source bin' }])
+    const { container } = render(
+      <ComboboxInput value="location-id" onChange={onChange} loadSuggestions={loadSuggestions} disabled />,
+    )
+
+    await waitFor(() => expect(getInput(container).value).toBe('Source bin'))
+    expect(getInput(container).disabled).toBe(true)
+    expect(onChange).not.toHaveBeenCalled()
   })
 
   it('resolves the label via a synchronous resolveLabel', async () => {
@@ -652,5 +697,32 @@ describe('ComboboxInput suggestion popup placement', () => {
       })
       jest.useRealTimers()
     }
+  })
+})
+
+describe('ComboboxInput labelling and validation attributes', () => {
+  it('forwards id and ARIA validation attributes to the combobox input', () => {
+    render(
+      <div>
+        <label htmlFor="combo-field">Colour</label>
+        <Harness id="combo-field" aria-required aria-invalid aria-describedby="combo-field-error" />
+        <p id="combo-field-error">Pick a colour.</p>
+      </div>,
+    )
+
+    const input = screen.getByRole('combobox', { name: 'Colour' })
+    expect(input).toHaveAttribute('id', 'combo-field')
+    expect(input).toBeRequired()
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input).toHaveAccessibleDescription('Pick a colour.')
+  })
+
+  it('omits the ARIA validation attributes when they are not passed', () => {
+    render(<Harness />)
+
+    const input = screen.getByRole('combobox')
+    expect(input).not.toHaveAttribute('aria-required')
+    expect(input).not.toHaveAttribute('aria-invalid')
+    expect(input).not.toHaveAttribute('aria-describedby')
   })
 })

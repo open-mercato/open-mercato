@@ -5,6 +5,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { assertOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { DocumentContent } from '../data/entities'
 import { DOCUMENTS_ENTITY_IDS } from './constants'
@@ -61,42 +62,8 @@ export function advanceDocumentCollaborationGeneration(content: DocumentContent)
   return content.collaborationGeneration
 }
 
-const ENTITY_MAP: Record<string, string> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  nbsp: ' ',
-}
-
-function decodeHtmlEntities(value: string): string {
-  return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, token: string) => {
-    const named = ENTITY_MAP[token.toLowerCase()]
-    if (named) return named
-    if (token.startsWith('#x') || token.startsWith('#X')) {
-      const parsed = Number.parseInt(token.slice(2), 16)
-      return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : match
-    }
-    if (token.startsWith('#')) {
-      const parsed = Number.parseInt(token.slice(1), 10)
-      return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : match
-    }
-    return match
-  })
-}
-
 export function deriveContentTextFromHtml(contentHtml: string): string {
-  return decodeHtmlEntities(
-    contentHtml
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<\/(p|div|section|article|header|footer|li|tr|h[1-6])>/gi, '\n')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim(),
-  )
+  return htmlToPlainText(contentHtml).replace(/\s+/g, ' ').trim()
 }
 
 export async function loadDocumentContent(

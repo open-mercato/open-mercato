@@ -4,6 +4,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import {
   createWidgetDataService,
   type WidgetDataRequest,
@@ -49,6 +50,14 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const analyticsRegistry = container.resolve<AnalyticsRegistry>('analyticsRegistry')
 
+  const tenantId = auth.tenantId ?? null
+  if (!tenantId) {
+    return NextResponse.json({ error: 'Tenant context is required' }, { status: 400 })
+  }
+
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const { organizationIds, rbacOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
+
   const entityFeatures = analyticsRegistry.getRequiredFeatures(parsed.data.entityType)
   if (entityFeatures && entityFeatures.length > 0) {
     const rbacService = container.resolve<{
@@ -59,8 +68,8 @@ export async function POST(req: Request) {
       ) => Promise<boolean>
     }>('rbacService')
     const hasAccess = await rbacService.userHasAllFeatures(auth.sub, entityFeatures, {
-      tenantId: auth.tenantId!,
-      organizationId: auth.orgId,
+      tenantId,
+      organizationId: rbacOrganizationId,
     })
     if (!hasAccess) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -72,21 +81,6 @@ export async function POST(req: Request) {
     freshEventManager: true,
     useContext: true,
   })
-
-  const tenantId = auth.tenantId ?? null
-  if (!tenantId) {
-    return NextResponse.json({ error: 'Tenant context is required' }, { status: 400 })
-  }
-
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-
-  const organizationIds = (() => {
-    if (scope?.selectedId) return [scope.selectedId]
-    if (Array.isArray(scope?.filterIds) && scope.filterIds.length > 0) return scope.filterIds
-    if (scope?.allowedIds === null) return undefined
-    if (auth.orgId) return [auth.orgId]
-    return undefined
-  })()
 
   const userFeatures = Array.isArray(auth.features)
     ? auth.features.filter((value): value is string => typeof value === 'string')
@@ -111,7 +105,7 @@ export async function POST(req: Request) {
       container,
       userId: auth.sub ?? '',
       tenantId,
-      organizationId: organizationIds?.[0] ?? auth.orgId ?? '',
+      organizationId: rbacOrganizationId ?? '',
       userFeatures,
     },
   })
