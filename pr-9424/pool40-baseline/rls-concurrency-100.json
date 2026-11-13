@@ -1,0 +1,8015 @@
+{
+  "concurrency": 100,
+  "distinctUsers": 100,
+  "tenants": 2,
+  "peakInFlight": 100,
+  "backendConnections": 40,
+  "elapsedMs": 7228.986166999999,
+  "p50Ms": 503.0613749999993,
+  "p95Ms": 1134.658000000003,
+  "errors": 0,
+  "isolationViolations": 0,
+  "retainedRowsUnchanged": true,
+  "samples": [
+    {
+      "user": 3,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 514.9779170000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 10,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 514.5617500000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 11,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 515.5472919999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 13,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 515.6702920000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 14,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 517.0254999999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 15,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 516.9982089999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 1,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 520.0008749999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 2,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 520.0278749999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 5,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 519.860917,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 12,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 519.1043340000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 4,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 520.5841659999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 9,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 520.2327499999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 6,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 521.5355420000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 7,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 521.4439170000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 8,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 521.646041,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 21,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 519.5186659999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 22,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 519.4256250000017,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 23,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 519.6360419999983,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 25,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 519.7799159999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 16,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 522.5986659999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 0,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 525.5290829999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 17,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 522.7805419999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 19,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 522.5102080000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 18,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 522.7727080000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 20,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 522.5237079999988,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 26,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 521.7895840000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 29,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 521.3439999999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 27,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 522.6695409999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 28,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 522.7494999999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 30,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 522.4682499999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 31,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 522.3677079999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 47,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 519.7659999999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 48,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 519.6531250000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 24,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 524.7369589999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 32,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 523.517041000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 36,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 523.9432919999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 35,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 524.2972499999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 38,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 523.8288329999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 40,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 523.7487500000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 44,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 523.4056660000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 42,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 523.9829170000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 33,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 526.1725000000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 45,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 524.2151670000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 46,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 524.1097919999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 43,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 525.8292079999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 39,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 526.9952920000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 37,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 527.5538339999985,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 41,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 527.0259160000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 49,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 526.6631670000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 34,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 531.1515839999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 50,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 590.3443750000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 53,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 591.6743339999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 55,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 594.6835840000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 51,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 595.9536250000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 52,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 598.067500000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 54,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 601.5194170000013,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 59,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 602.4396669999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 57,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 604.2218329999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 56,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 605.7060000000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 58,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 612.8707089999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 61,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 613.7705000000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 62,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 615.2393329999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 63,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 616.913708,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 65,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 622.2184579999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 66,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 622.8911669999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 60,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 624.3786249999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 67,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 629.8290419999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 68,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 631.5433749999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 64,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 633.623791,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 69,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 634.7624159999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 72,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 635.7598330000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 71,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 636.9126670000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 73,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 636.672208,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 76,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 638.0077500000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 78,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 638.5564579999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 77,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 639.0344169999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 70,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 641.5191250000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 75,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 640.7655830000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 74,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 641.7368339999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 84,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 640.9304579999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 81,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 641.5730840000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 82,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 645.3349170000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 79,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 650.8493329999983,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 83,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 651.7442920000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 85,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 655.6837919999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 80,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 656.8664580000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 86,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 656.1521670000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 89,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 656.894792000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 93,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 656.636375,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 95,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 656.6693329999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 87,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 658.4193749999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 92,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 658.6747079999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 97,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 657.9100420000013,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 90,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 659.6214169999985,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 98,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 658.3567079999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 88,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 660.3371670000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 94,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 659.8789579999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 99,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 659.0774579999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 91,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 660.604292,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 96,
+      "operation": "own-read",
+      "status": 200,
+      "latencyMs": 660.8786250000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 24,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 376.7394170000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 4,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 382.024707999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 6,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 382.26195800000096,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 19,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 380.30404199999975,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 0,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 383.957042,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 26,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 379.9803329999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 25,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 380.27808299999924,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 56,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 375.01141700000153,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 7,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 383.9702500000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 9,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 383.8408330000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 2,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 385.49354200000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 5,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 385.2971670000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 41,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 379.2595000000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 18,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 383.5105000000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 13,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 384.6964590000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 22,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 383.25366699999904,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 32,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 381.82266700000037,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 12,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 385.5839589999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 17,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 385.3195419999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 29,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 383.5706249999985,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 3,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 389.9461659999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 33,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 384.9772919999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 89,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 375.43683299999975,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 51,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 382.5450840000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 42,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 384.29675000000134,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 31,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 386.7561249999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 35,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 386.4354579999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 63,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 381.8104170000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 69,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 380.79954200000066,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 16,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 390.3344590000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 50,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 385.1139170000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 10,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 392.19420900000114,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 23,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 390.210833000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 15,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 391.63483300000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 1,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 394.80604200000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 34,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 389.4667079999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 77,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 381.8245419999985,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 75,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 382.56687500000044,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 65,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 384.44874999999956,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 27,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 391.63266699999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 79,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 382.4663330000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 40,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 389.9608329999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 11,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 394.95274999999856,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 20,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 393.81312499999876,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 93,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 381.5337499999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 14,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 395.96229200000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 66,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 386.9158750000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 67,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 387.32124999999905,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 99,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 381.7811249999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 98,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 382.0328329999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 38,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 393.62833299999875,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 39,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 393.5334160000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 76,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 386.9278750000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 60,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 390.4629169999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 71,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 388.532541999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 49,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 392.6932909999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 74,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 388.9182500000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 8,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 400.58058399999936,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 37,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 396.6582500000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 64,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 391.87674999999945,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 57,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 393.2947499999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 44,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 395.6838750000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 80,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 389.20074999999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 30,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 399.31387500000164,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 59,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 394.2549999999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 84,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 389.842208,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 90,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 388.8724170000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 78,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 391.0336669999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 86,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 389.70720900000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 47,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 396.86162499999955,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 58,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 396.4654590000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 68,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 394.72162500000013,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 61,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 396.0400840000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 48,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 398.56095900000037,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 46,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 398.97400000000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 21,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 403.2950000000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 45,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 399.28320800000074,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 96,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 390.191499999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 72,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 396.54762499999924,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 53,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 400.19908399999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 36,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 403.1710000000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 62,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 398.567583,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 81,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 395.22266599999966,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 85,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 394.6019159999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 82,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 395.1912919999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 73,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 396.8679169999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 54,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 400.4572079999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 88,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 394.34808299999895,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 94,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 393.38133299999936,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 87,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 395.2800420000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 43,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 403.2869580000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 92,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 394.55375000000095,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 83,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 396.1798749999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 70,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 398.5485840000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 95,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 394.23962500000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 55,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 401.4889170000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 28,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 406.24766699999964,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 52,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 402.2209160000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 97,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 394.17808400000104,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 91,
+      "operation": "foreign-read",
+      "status": 200,
+      "latencyMs": 395.2937920000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 1,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 499.712125,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 22,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 496.82287499999984,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 24,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 497.04604199999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 4,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 500.96791699999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 14,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 499.5453749999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 3,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 502.174332999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 49,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 494.81924999999865,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 21,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 500.25983300000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 51,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 495.15583399999923,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 29,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 499.5155419999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 38,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 498.1978330000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 68,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 493.02554099999907,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 6,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 504.2843749999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 18,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 502.44087500000023,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 66,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 494.19104100000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 32,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 500.65137499999946,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 47,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 498.3940829999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 60,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 496.0555839999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 23,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 503.0613749999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 26,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 502.62387500000114,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 61,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 496.805875,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 62,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 496.68233300000065,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 73,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 495.1521670000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 20,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 504.64858300000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 28,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 503.70370899999944,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 12,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 506.54420800000116,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 57,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 499.08545799999956,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 42,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 501.9016250000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 52,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 500.77345799999966,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 27,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 505.2077909999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 33,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 504.846458,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 40,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 503.7168339999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 53,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 501.46795900000143,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 10,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 509.674583,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 16,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 508.69254100000035,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 17,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 508.5856249999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 2,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 511.30125000000044,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 55,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 502.834499999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 54,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 503.07083299999977,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 9,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 510.9696249999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 82,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 498.09983399999874,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 83,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 497.98483399999895,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 48,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 505.2012079999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 72,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 500.87975000000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 92,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 497.3548749999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 91,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 497.5927499999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 74,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 500.7109169999985,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 89,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 499.01658300000054,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 70,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 502.4868750000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 63,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 503.79212499999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 64,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 503.67854199999965,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 19,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 511.7437090000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 5,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 515.5197909999988,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 0,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 516.6544169999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 44,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 508.8692920000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 50,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 507.89604099999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 39,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 509.89829199999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 88,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 502.6822080000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 25,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 514.0013340000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 36,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 512.1743750000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 43,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 510.9976660000011,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 11,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 516.635209,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 37,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 512.2117080000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 65,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 507.18025000000125,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 59,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 508.32424999999967,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 8,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 517.4127919999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 78,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 506.7308329999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 90,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 504.6172910000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 99,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 503.0516659999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 96,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 503.6750000000011,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 79,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 506.80683300000055,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 80,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 506.69495800000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 58,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 510.6647499999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 86,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 505.705915999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 85,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 505.9565829999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 87,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 505.66083400000025,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 93,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 504.6480840000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 71,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 508.6518329999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 7,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 521.3713750000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 35,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 516.5945840000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 84,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 507.86462500000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 30,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 517.5774579999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 34,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 516.9588339999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 13,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 520.6520419999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 77,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 509.3672920000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 15,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 520.4182500000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 76,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 509.6642499999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 67,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 511.31241599999885,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 95,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 506.3804999999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 45,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 515.4655419999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 97,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 506.13225000000057,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 81,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 509.0829999999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 75,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 511.80012499999975,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 98,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 507.7196249999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 94,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 508.5221249999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 46,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 517.2590409999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 56,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 515.5698329999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 41,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 518.2932089999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 31,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 520.0793750000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 69,
+      "operation": "foreign-update",
+      "status": 403,
+      "latencyMs": 513.3232090000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 0,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 479.2486250000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 4,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 480.29799999999886,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 5,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 480.6864999999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 24,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 477.61583299999984,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 25,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 477.761625000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 9,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 483.3383750000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 6,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 484.0597080000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 27,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 480.88966600000094,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 12,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 484.843667000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 14,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 485.53008299999965,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 57,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 478.65908300000046,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 58,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 478.8334999999988,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 59,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 478.9926669999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 60,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 479.13075000000026,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 61,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 479.29783399999906,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 62,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 479.4839580000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 64,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 479.4357090000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 65,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 479.6442500000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 66,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 479.7327499999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 29,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 487.9225409999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 35,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 487.5907499999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 1,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 494.14666699999907,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 33,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 488.97491699999955,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 23,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 491.2364579999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 90,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 479.609457999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 2,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 495.7614169999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 34,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 490.5105000000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 26,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 492.2492910000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 28,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 492.3810830000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 17,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 494.7393749999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 10,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 496.58333400000083,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 49,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 489.9294169999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 67,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 486.99370799999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 18,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 496.04008299999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 15,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 497.0352920000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 38,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 493.04162499999984,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 37,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 493.7679169999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 56,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 490.7125410000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 16,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 498.2771670000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 51,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 492.17370800000026,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 43,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 494.0624169999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 20,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 498.59100000000035,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 47,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 494.00924999999916,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 19,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 499.2585420000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 93,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 486.28579100000024,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 8,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 501.75895800000035,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 78,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 490.08279200000106,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 79,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 490.4072500000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 50,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 495.75058400000125,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 46,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 497.0965419999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 31,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 499.850457999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 30,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 500.09400000000096,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 32,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 500.25804100000096,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 95,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 489.034083999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 53,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 496.64245800000026,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 94,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 489.8481249999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 11,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 504.74787500000093,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 36,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 500.34537499999897,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 54,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 497.8844169999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 55,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 497.8000830000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 63,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 497.00525000000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 92,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 491.9343749999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 40,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 501.3154169999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 70,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 496.7766249999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 72,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 496.48354199999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 73,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 496.37583300000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 76,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 495.89637500000026,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 77,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 496.90295799999876,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 74,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 497.522332999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 75,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 497.3942909999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 52,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 501.66354200000023,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 7,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 509.7258750000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 42,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 503.60549999999967,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 48,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 503.91100000000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 80,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 498.19154100000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 21,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 508.8685000000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 22,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 508.7590419999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 88,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 496.96954200000073,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 87,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 497.2063330000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 98,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 496.6160830000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 97,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 496.8681660000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 99,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 496.59191699999974,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 41,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 507.02229199999965,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 13,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 512.0767919999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 86,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 499.05275000000074,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 89,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 500.6545839999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 71,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 503.9411249999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 69,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 504.3518330000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 44,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 508.94116699999904,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 84,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 501.7828750000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 45,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 509.46658299999945,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 91,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 501.2681670000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 82,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 502.8996670000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 68,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 505.48462499999914,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 39,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 510.7742079999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 3,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 517.2632919999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 96,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 500.72083399999974,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 83,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 503.0463749999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 81,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 503.471375000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 85,
+      "operation": "foreign-delete",
+      "status": 403,
+      "latencyMs": 503.22058300000026,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 4,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 749.3749590000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 26,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 746.8794579999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 46,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 746.0964999999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 31,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 752.312833,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 38,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 754.077792,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 58,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 754.1869999999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 32,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 761.4329999999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 54,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 760.7460419999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 9,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 772.2870419999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 65,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 765.1160419999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 30,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 774.3705410000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 40,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 776.4827499999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 87,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 771.2299579999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 78,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 776.0151249999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 79,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 779.134333,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 55,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 786.5872090000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 44,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 791.2657080000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 23,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 798.3096249999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 20,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 801.7945419999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 12,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 808.8502080000017,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 43,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 805.1805409999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 72,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 803.0497500000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 16,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 816.4119579999988,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 21,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 818.2363750000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 81,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 810.7568329999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 6,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 827.5469159999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 82,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 816.3929580000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 99,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 816.7169169999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 52,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 828.0827500000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 47,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 831.6431250000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 62,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 831.9628749999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 1,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 846.5298750000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 53,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 839.4854999999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 17,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 849.1964580000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 45,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 846.8288339999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 84,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 843.1849579999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 57,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 850.9404169999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 71,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 851.4810830000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 56,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 857.2724579999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 50,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 861.4056249999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 25,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 873.0793750000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 74,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 869.9662079999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 37,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 880.9328749999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 41,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 885.4738749999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 80,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 881.0552909999988,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 36,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 892.5895830000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 70,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 889.4740409999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 19,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 901.9241249999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 69,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 898.5838330000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 49,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 904.8858749999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 88,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 901.4942499999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 11,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 918.428750000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 29,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 918.1935420000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 8,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 925.0147499999985,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 90,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 913.6067910000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 48,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 924.1496669999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 96,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 918.8967920000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 18,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 935.8834170000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 93,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 926.3799589999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 89,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 930.1642080000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 92,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 933.6188750000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 91,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 936.7462919999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 7,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 955.4798749999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 5,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 958.3974999999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 51,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 954.1460420000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 10,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 964.0461249999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 77,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 954.3480419999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 13,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 969.5167079999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 0,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 975.4199169999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 97,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 960.452166000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 33,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 974.8594169999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 73,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 970.957957999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 60,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 975.8959579999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 3,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 990.1850419999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 14,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 990.5718750000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 27,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 991.5459580000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 59,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 989.2049580000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 94,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 986.2008340000011,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 2,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1007.6769170000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 64,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1000.3731669999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 22,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1011.6737499999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 85,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1003.413125000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 34,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1015.8641669999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 98,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1007.5168749999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 86,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1012.2362080000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 39,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1024.200832999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 68,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1024.2132499999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 75,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1026.1411669999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 15,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1039.9123330000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 76,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1032.1203749999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 61,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1037.8782090000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 95,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1034.8995840000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 28,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1050.1075420000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 35,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1051.9957919999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 67,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1049.1059159999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 24,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1059.8841670000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 66,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1056.8140840000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 63,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1064.9427500000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 83,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1063.1099589999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 42,
+      "operation": "own-create",
+      "status": 201,
+      "latencyMs": 1072.7369159999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 6,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 484.97604200000023,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 5,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 485.30425000000105,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 43,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 478.5910409999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 17,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 485.1859999999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 2,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 489.02179100000103,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 7,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 488.70158400000037,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 52,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 480.61079099999915,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 46,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 482.29604199999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 45,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 482.7243750000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 3,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 490.63066699999945,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 56,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 481.68104200000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 24,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 487.9965000000011,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 9,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 490.966042,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 10,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 490.93041599999924,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 19,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 489.7381659999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 11,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 491.31504100000166,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 14,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 491.89937499999905,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 30,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 489.42883299999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 47,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 486.43170800000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 49,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 486.4379590000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 18,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 492.61583299999984,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 67,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 483.66812500000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 12,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 494.29162499999984,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 20,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 492.7443750000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 32,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 490.7129590000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 22,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 493.24320799999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 55,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 488.2320830000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 44,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 490.2370839999985,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 38,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 491.51466699999946,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 70,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 486.91941600000064,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 74,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 486.3019170000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 64,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 488.1907080000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 96,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 482.4337080000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 23,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 495.9195839999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 1,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 501.4890000000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 82,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 486.492209,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 33,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 495.6239170000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 95,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 484.27299999999923,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 35,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 495.404958000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 58,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 491.16799999999967,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 62,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 490.51174999999967,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 83,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 488.2359579999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 85,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 487.96658299999945,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 15,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 500.9066669999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 41,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 496.23449999999866,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 28,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 498.6812090000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 60,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 492.8115829999988,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 4,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 503.35391700000037,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 76,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 490.0146249999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 8,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 502.75175000000127,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 53,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 496.4580839999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 37,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 499.50475000000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 68,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 493.8186250000017,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 54,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 496.46058300000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 21,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 502.62191600000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 66,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 494.38987499999894,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 40,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 499.3121250000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 39,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 499.569125,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 77,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 492.5665000000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 65,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 494.8439579999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 98,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 488.89229200000045,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 86,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 491.15229200000067,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 69,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 496.0739169999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 42,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 501.1634580000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 57,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 498.40220899999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 79,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 494.44325000000026,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 71,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 495.99112500000047,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 50,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 499.9985830000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 36,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 502.61554199999955,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 72,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 496.02558300000055,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 93,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 492.2412089999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 48,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 500.63754100000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 99,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 491.3005830000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 31,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 503.86545900000056,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 0,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 509.96387499999946,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 61,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 498.4392910000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 81,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 494.8470840000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 51,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 500.52208299999984,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 80,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 495.2441660000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 75,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 496.0885419999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 88,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 494.1817089999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 27,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 505.487000000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 29,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 505.2017500000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 91,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 493.84841700000106,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 25,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 506.05604200000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 73,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 497.2940830000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 13,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 508.3965420000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 16,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 507.9236669999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 89,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 494.57687500000065,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 87,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 495.0188330000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 94,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 493.80654200000026,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 90,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 494.6028330000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 84,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 495.77420900000106,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 59,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 500.40166699999827,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 26,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 506.58908299999894,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 63,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 499.81887500000084,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 34,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 505.2790420000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 92,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 494.64950000000135,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 97,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 493.8157080000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 78,
+      "operation": "own-created-read",
+      "status": 200,
+      "latencyMs": 497.3447090000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 2,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 849.6662080000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 0,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 853.5237500000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 71,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 844.1647910000011,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 15,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 858.138332999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 30,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 859.7062919999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 66,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 856.3881249999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 69,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 860.3652500000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 36,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 870.4508330000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 17,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 876.3145000000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 98,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 866.3520419999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 45,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 879.6092910000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 13,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 889.1991670000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 81,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 880.7989579999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 51,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 890.4082080000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 40,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 895.8211250000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 23,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 904.2350830000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 46,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 904.1527909999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 3,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 916.2024579999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 93,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 903.9575839999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 79,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 909.0638330000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 85,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 912.5227919999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 37,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 925.0547080000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 60,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 925.8372919999983,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 21,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 936.4082909999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 8,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 942.1642499999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 16,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 944.6270839999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 50,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 941.8454170000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 27,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 950.2151670000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 39,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 951.4330420000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 82,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 947.3066249999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 91,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 950.2232079999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 92,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 953.8877909999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 41,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 967.1728330000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 47,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 971.8783329999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 58,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 971.8821669999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 32,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 980.327041999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 67,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 980.5344589999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 52,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 986.9450419999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 18,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 997.5119169999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 42,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 995.8507499999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 90,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 992.0300830000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 20,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1007.9807920000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 28,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1010.4084160000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 14,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1017.478833000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 53,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1013.3227499999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 48,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1018.6605420000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 31,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1025.913292000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 87,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1019.0583339999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 43,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1030.5906250000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 7,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1040.9371659999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 77,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1031.693166000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 1,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1049.5308339999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 75,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1038.8349159999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 56,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1047.0250410000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 29,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1054.6303750000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 88,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1048.448124999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 73,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1054.9911670000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 12,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1071.9159999999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 61,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1066.7749170000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 70,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1068.7404160000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 94,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1068.1804580000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 24,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1084.803917000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 74,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1079.3158750000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 78,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1082.5432089999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 59,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1089.7425000000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 62,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1093.9122500000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 64,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1097.5610829999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 68,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1101.3040419999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 54,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1107.471834,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 83,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1106.5413329999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 9,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1124.7930840000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 63,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1117.6204580000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 25,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1128.506292,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 95,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1118.396917,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 80,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1125.9154999999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 38,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1137.2003750000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 10,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1146.2510000000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 6,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1149.8124580000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 84,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1142.078540999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 86,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1146.0114580000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 97,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1147.1220420000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 49,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1159.91525,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 4,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1171.2030000000013,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 65,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1166.3735840000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 55,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1170.1853329999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 22,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1180.5707079999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 57,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1179.1012090000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 5,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1191.0579580000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 34,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1190.788833999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 35,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1193.9697500000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 44,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1196.79025,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 72,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1195.0795830000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 99,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1193.1088330000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 89,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1204.1119579999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 33,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1217.492666,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 26,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1221.5933750000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 11,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1241.6815000000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 76,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1229.8685000000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 96,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1226.4112909999985,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 19,
+      "operation": "own-update",
+      "status": 200,
+      "latencyMs": 1257.2420839999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 4,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 480.6780830000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 9,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 482.1822919999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 0,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 485.45966600000065,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 22,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 481.2229590000006,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 13,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 486.14358399999946,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 11,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 487.5701670000017,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 6,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 488.66549999999916,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 46,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 482.0162089999976,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 43,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 483.4059589999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 8,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 489.5497919999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 71,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 478.3605829999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 62,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 480.20800000000054,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 61,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 480.59479199999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 21,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 489.0926249999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 70,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 480.49462499999936,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 53,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 484.20050000000083,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 19,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 490.89450000000215,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 16,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 491.57187499999964,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 68,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 482.1894999999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 74,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 481.1927910000013,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 3,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 494.6312089999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 7,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 493.8618750000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 5,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 495.5473750000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 32,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 491.51900000000023,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 89,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 481.1929170000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 40,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 490.1984590000011,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 17,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 494.5034590000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 92,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 481.6406250000018,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 47,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 489.96879199999785,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 66,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 486.59729199999856,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 15,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 496.02641700000095,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 28,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 494.9132919999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 14,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 497.5727500000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 12,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 498.18208400000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 20,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 496.7851660000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 54,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 492.16187499999796,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 79,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 487.71600000000035,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 72,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 489.06825000000026,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 33,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 496.2758329999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 26,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 497.62525000000096,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 57,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 492.0064999999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 10,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 500.706916000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 81,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 487.7872090000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 88,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 486.58400000000074,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 37,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 497.49983299999985,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 25,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 499.7920419999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 36,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 497.8391250000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 51,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 495.15141700000095,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 41,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 497.06558399999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 73,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 491.36320799999885,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 34,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 498.4206670000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 49,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 495.79479100000026,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 29,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 499.5525409999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 77,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 490.85191699999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 63,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 493.46904099999847,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 75,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 491.3524170000019,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 55,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 497.20241599999827,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 42,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 499.70600000000013,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 2,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 507.2797920000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 18,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 504.2637909999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 30,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 502.1458330000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 24,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 503.3061669999988,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 23,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 503.55612499999916,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 86,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 492.1116660000025,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 95,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 490.552208000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 84,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 492.5415410000023,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 44,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 499.9660839999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 97,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 490.32041599999866,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 31,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 503.7445829999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 85,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 493.9404169999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 90,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 493.05633300000045,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 48,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 500.81241600000067,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 27,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 504.752625000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 67,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 497.4991250000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 64,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 498.12491599999885,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 45,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 501.64745799999946,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 52,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 500.43387500000244,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 82,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 495.0481660000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 83,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 494.93862499999886,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 60,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 499.19437500000095,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 87,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 494.3525000000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 93,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 493.26637500000106,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 76,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 496.49075000000084,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 80,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 495.82358300000124,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 98,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 492.5560829999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 35,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 504.173417,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 78,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 496.3961670000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 56,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 500.4599159999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 1,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 511.14829199999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 96,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 493.6112499999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 99,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 493.15141700000095,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 59,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 500.55516700000044,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 91,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 494.74637500000244,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 65,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 499.6102499999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 39,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 504.4229159999977,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 38,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 504.6727920000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 50,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 502.5323750000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 69,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 499.1514580000021,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 58,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 501.2154159999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 94,
+      "operation": "own-updated-read",
+      "status": 200,
+      "latencyMs": 494.67537500000253,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 71,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 865.5924169999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 18,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 879.7097089999988,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 74,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 872.6386249999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 10,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 888.5066659999975,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 54,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 884.083125000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 9,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 898.6747920000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 58,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 892.1830829999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 68,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 893.5212079999983,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 21,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 906.5071250000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 13,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 912.0609579999982,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 2,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 917.5433339999981,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 82,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 907.4177920000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 65,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 913.7464999999975,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 28,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 924.1246250000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 7,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 931.551958,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 42,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 928.7561659999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 69,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 927.9022499999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 24,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 939.9223329999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 5,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 947.0989160000026,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 8,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 950.2793750000019,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 44,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 948.1988750000019,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 35,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 953.4330000000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 25,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 959.0713329999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 83,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 951.731458000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 41,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 963.8453750000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 46,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 966.5966660000013,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 34,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 972.150625000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 6,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 980.1829170000019,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 36,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 978.4517500000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 86,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 974.8899999999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 51,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 984.1769999999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 17,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 995.5577499999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 64,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 989.497374999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 1,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1007.0264999999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 57,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 998.0981250000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 23,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1009.8009160000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 33,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1010.0331249999981,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 66,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1008.2844579999983,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 0,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1024.1403329999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 53,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1017.202583000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 32,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1025.1837500000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 20,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1030.4649590000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 96,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1020.9047079999982,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 87,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1026.5400840000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 31,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1040.4364590000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 49,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1040.898291999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 55,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1043.3325839999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 88,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1042.0980839999975,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 27,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1056.625,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 38,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1058.870500000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 19,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1064.7183750000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 70,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1060.3165829999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 72,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1062.921624999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 81,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1064.8079580000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 97,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1065.346916999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 26,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1083.3750409999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 12,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1089.1422920000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 77,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1078.9674579999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 48,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1087.1892499999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 99,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1082.3762090000018,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 3,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1101.283958,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 45,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1097.7655000000013,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 60,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1097.3658329999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 84,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1096.2745419999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 63,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1103.004291000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 94,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1100.6366249999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 15,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1118.245583,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 78,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1109.7721669999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 50,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1117.1459589999977,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 40,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1121.996500000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 61,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1123.161,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 95,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1118.6318339999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 29,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1133.819625,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 43,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1134.658000000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 47,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1138.8665409999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 22,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1146.520542000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 98,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1134.4712500000023,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 11,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1153.2946250000023,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 90,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1142.4249170000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 89,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1146.0980419999978,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 37,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1158.2942919999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 14,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1166.768959000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 80,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1158.8228750000017,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 85,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1158.7068749999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 30,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1172.8684170000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 73,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1167.9746670000022,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 67,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1170.8256250000013,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 59,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1175.1701660000035,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 56,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1179.942874999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 76,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1181.752124999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 75,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1186.257875000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 93,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1186.5713339999966,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 4,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1207.7767080000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 62,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1199.4714590000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 79,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1202.5294590000012,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 16,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1219.7072079999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 52,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1216.6515830000026,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 91,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1212.6218750000007,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 39,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1225.9219169999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 92,
+      "operation": "own-delete",
+      "status": 200,
+      "latencyMs": 1220.174791999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 16,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 394.05899999999747,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 5,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 397.58979199999885,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 9,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 398.4080410000024,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 1,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 400.1167089999981,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 21,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 397.7191249999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 24,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 397.7150419999998,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 10,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 401.25895800000217,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 12,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 401.29633399999875,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 48,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 395.35241699999824,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 15,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 402.38008400000035,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 51,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 396.56624999999985,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 61,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 394.8979999999974,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 28,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 401.2668339999982,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 33,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 400.9001250000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 54,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 397.87883299999885,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 0,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 408.2110829999983,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 7,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 407.7273749999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 34,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 403.3729579999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 52,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 400.28558300000077,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 50,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 401.0261250000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 64,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 398.6063749999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 35,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 404.35545900000216,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 42,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 404.2141249999986,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 14,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 409.84050000000207,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 53,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 402.7565419999992,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 31,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 407.2227500000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 3,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 412.94174999999814,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 11,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 412.4780419999988,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 4,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 414.4722499999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 30,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 409.7903330000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 92,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 399.09387499999866,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 55,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 405.94337500000256,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 26,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 412.09641700000066,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 63,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 405.35041700000147,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 56,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 406.8160830000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 17,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 414.1720830000013,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 29,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 413.0253330000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 85,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 403.8189999999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 57,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 408.8267909999995,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 80,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 404.89862500000163,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 36,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 413.9427079999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 2,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 420.30604200000016,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 49,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 411.69037500000195,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 40,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 413.4246669999993,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 8,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 420.09799999999814,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 59,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 410.6965830000008,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 91,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 404.9735409999994,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 27,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 416.86504200000127,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 38,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 414.90283400000044,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 66,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 410.35079100000075,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 45,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 414.44312499999796,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 97,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 404.98875000000044,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 47,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 414.1558750000004,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 41,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 415.3948750000018,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 62,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 412.4519169999985,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 6,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 422.7693330000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 60,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 412.9609580000033,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 44,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 415.9449999999997,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 22,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 421.3058749999982,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 76,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 411.43366700000115,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 88,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 409.3087080000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 79,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 411.0410000000011,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 72,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 412.36283300000287,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 39,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 419.7822090000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 69,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 414.27950000000055,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 18,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 423.79954200000066,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 96,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 409.4958750000005,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 65,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 415.21708299999955,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 95,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 409.8122500000027,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 78,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 413.0198750000018,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 71,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 414.3384589999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 67,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 415.1336670000019,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 87,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 412.7564590000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 75,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 415.0351669999982,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 32,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 423.08716699999786,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 20,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 425.3396670000002,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 83,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 413.78333300000304,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 25,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 424.5762089999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 93,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 412.0718749999978,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 99,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 411.06354099999953,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 46,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 420.9323750000003,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 13,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 427.0424579999999,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 82,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 414.9513330000009,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 19,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 426.64887499999895,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 23,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 425.9911249999968,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 37,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 423.489375000001,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 98,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 412.29879099999744,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 77,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 416.21908299999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 89,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 414.08779100000174,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 90,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 414.0430000000015,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 58,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 419.7949580000022,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 84,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 415.2714159999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 70,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 417.74712499999805,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 73,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 417.41441699999996,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 94,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 413.50108399999954,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 86,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 415.8757919999989,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 43,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 423.9287499999991,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 74,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 418.3015000000014,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 68,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 419.3177079999987,
+      "valid": true,
+      "isolationViolation": false
+    },
+    {
+      "user": 81,
+      "operation": "own-deleted-read",
+      "status": 200,
+      "latencyMs": 417.1176659999983,
+      "valid": true,
+      "isolationViolation": false
+    }
+  ]
+}
