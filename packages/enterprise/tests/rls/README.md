@@ -16,7 +16,7 @@ Set `OM_RLS_TEST_DATABASE_URL` privately to an **explicitly disposable** Postgre
 timeout 240 node --test packages/enterprise/tests/rls/integration.test.mjs
 ```
 
-The integration runner launches two sequential subprocesses with 90-second deadlines and requires exactly **16 runtime checks** and **25 catalog checks**. Without the disposable URL, both tests skip; skips provide no live isolation evidence. The former prototype environment variable and runtime-selection flag are no longer used.
+The integration runner launches two sequential subprocesses with 90-second deadlines and requires exactly **16 runtime checks** and **26 catalog checks**. Without the disposable URL, both tests skip; skips provide no live isolation evidence. The former prototype environment variable and runtime-selection flag are no longer used.
 
 For private diagnostics, run either harness directly:
 

@@ -153,3 +153,19 @@ it('awaits migration hooks and propagates failures to the caller', async () => {
   expect(calls).toEqual(['preflight'])
   await expect(afterDatabaseMigrate()).rejects.toThrow('policy drift')
 })
+
+it('tracks transport initialization, rejects conflicting descriptors and drains idempotently', async () => {
+  const { configureDatabaseTransport } = await import('../runtime')
+  const transport = {}
+  const descriptor = { id: 'fixture', kind: 'client', mode: 'listen', channel: 'fixture_events' } as const
+  const lifecycle = configureDatabaseTransport(transport, descriptor)
+  expect(configureDatabaseTransport(transport, descriptor)).toBe(lifecycle)
+  expect(() => configureDatabaseTransport(transport, { ...descriptor, mode: 'publish' })).toThrow('conflicting identities')
+  expect(() => registerDatabaseRuntimeAdapter(adapter())).toThrow('before connection pools')
+  await lifecycle.ready()
+  lifecycle.dispose()
+  lifecycle.dispose()
+  await expect(lifecycle.ready()).rejects.toThrow('disposed')
+  registerDatabaseRuntimeAdapter(adapter())
+  expect(() => configureDatabaseTransport({}, descriptor)).toThrow('does not support transport')
+})

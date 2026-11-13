@@ -3,13 +3,14 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { Pool, type PoolClient } from 'pg'
+import { Client, Pool, type PoolClient } from 'pg'
 import type { BoundaryClient } from '../../src/lib/rls/runtime/pool'
 import { quoteBoundaryIdentifier } from '../../src/lib/rls/runtime/config'
 import { assertTenantTableInventory, parseTenantTableManifest, readTenantCatalog } from '../../src/lib/rls/runtime/manifest'
 import { verifyRuntimeDatabaseRole } from '../../src/lib/rls/runtime/roles'
 import { reconcileTenantTablePolicies, rollbackTenantTablePolicies, tenantPolicyName, verifyTenantTablePolicies } from '../../src/lib/rls/runtime/policies'
 import { createTenantBoundaryAdapter } from '../../src/lib/rls/runtime/registration'
+import { installDatabaseTransportBoundary } from '../../src/lib/rls/runtime/transport'
 import { createTenantMigrationHooks } from '../../src/lib/rls/runtime/migrations'
 import { Migration20261113160000 } from '../../src/modules/tenant_boundaries/migrations/Migration20261113160000'
 import { registerDatabaseModuleDeclarations } from '@open-mercato/shared/lib/db/declarations'
@@ -290,6 +291,39 @@ try {
     } finally {
       await maintenance.end()
       lifecycle.dispose()
+    }
+  })
+
+  await check('restricted transport verifies physical roles and permits only its notification channel', async () => {
+    const channel = `transport_${suffix}`
+    const publisher = new Pool({ connectionString: runtimeUrl.toString(), max: 1, connectionTimeoutMillis: 5_000 })
+    const listener = new Client({ connectionString: runtimeUrl.toString(), connectionTimeoutMillis: 5_000 })
+    const publishing = installDatabaseTransportBoundary(publisher, { id: 'fixture.publisher', kind: 'pool', mode: 'publish', channel }, schema)
+    const listening = installDatabaseTransportBoundary(listener, { id: 'fixture.listener', kind: 'client', mode: 'listen', channel }, schema)
+    try {
+      await listener.connect()
+      await Promise.all([publishing.ready(), listening.ready()])
+      await assert.rejects(publisher.query(`select id from ${relation}`), /rejects application SQL/)
+      await assert.rejects(listener.query(`select id from ${relation}`), /rejects application SQL/)
+      await listener.query(`LISTEN ${channel}`)
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const received = new Promise<string>((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Notification deadline exceeded')), 5_000)
+        listener.once('notification', (message) => resolve(message.payload ?? ''))
+      })
+      try {
+        await publisher.query('SELECT pg_notify($1, $2)', [channel, 'verified'])
+        assert.equal(await received, 'verified')
+      } finally { clearTimeout(timer) }
+      const handle = await publisher.connect()
+      await assert.rejects(handle.query('SELECT 1'), /rejects application SQL/)
+      handle.release()
+      await assert.rejects(handle.query('SELECT pg_notify($1, $2)', [channel, '{}']), /released/)
+    } finally {
+      await publisher.end()
+      await listener.end()
+      publishing.dispose()
+      listening.dispose()
     }
   })
 

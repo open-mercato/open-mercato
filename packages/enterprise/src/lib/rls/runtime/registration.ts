@@ -1,3 +1,4 @@
+import { installDatabaseTransportBoundary } from './transport'
 import { createHash } from 'node:crypto'
 import {
   registerDatabaseRuntimeAdapter,
@@ -36,6 +37,7 @@ export function createTenantBoundaryAdapter(
     beforeMigrate, afterMigrate,
     recoverMigrationReindex: true,
     storageMode: () => 'validate' as const,
+    configureTransport: (connection, descriptor) => installDatabaseTransportBoundary(connection, descriptor, configuration.schema),
     run: runWithTenantBoundary,
     runFresh: runWithFreshTenantBoundary,
     currentContext: () => currentTenantBoundaryScope()?.context,

@@ -40,6 +40,8 @@ export type DatabasePoolDescriptor = Readonly<{
   metadata?(): readonly DatabaseTableMetadata[] | undefined
 }>
 
+export type DatabaseTransportDescriptor = Readonly<{ id: string; kind: 'pool' | 'client'; mode: 'publish' | 'listen'; channel: string }>
+
 export type DatabaseTableMetadata = Readonly<{
   schema: string
   table: string
@@ -58,6 +60,7 @@ export type DatabaseRuntimeAdapter = Readonly<{
   version: string
   configurationKey: string
   configurePool(pool: object, descriptor: DatabasePoolDescriptor): DatabasePoolLifecycle
+  configureTransport?(connection: object, descriptor: DatabaseTransportDescriptor): DatabasePoolLifecycle
   run<Result>(context: DatabaseExecutionContext, callback: () => Result): Result
   runFresh?<Result>(context: DatabaseExecutionContext, callback: () => Result): Result
   currentContext?(): DatabaseExecutionContext | undefined
@@ -78,6 +81,7 @@ type RegisteredPool = {
 type DatabaseRuntimeState = {
   adapter?: DatabaseRuntimeAdapter
   pools: WeakMap<object, RegisteredPool>
+  transports?: WeakMap<object, Readonly<{ descriptor: DatabaseTransportDescriptor; lifecycle: DatabasePoolLifecycle }>>
   activePools: number
   initializationStarted: boolean
   resolvers: Map<string, DatabaseExecutionContextResolver>
@@ -229,4 +233,34 @@ export function shouldRecoverDatabaseMigrationReindex(): boolean {
 
 export function databaseStorageMode(descriptor: DatabaseStorageDescriptor): 'provision' | 'validate' {
   return state().adapter?.storageMode?.(descriptor) ?? 'provision'
+}
+
+export function configureDatabaseTransport(connection: object, descriptor: DatabaseTransportDescriptor): DatabasePoolLifecycle {
+  const current = state()
+  current.transports ??= new WeakMap()
+  const existing = current.transports.get(connection)
+  if (existing) {
+    if (JSON.stringify(existing.descriptor) !== JSON.stringify(descriptor)) throw new Error('[internal] Database transport was registered with conflicting identities')
+    return existing.lifecycle
+  }
+  if (current.adapter && !current.adapter.configureTransport) throw new Error('[internal] Active database runtime does not support transport connections')
+  const captured = Object.freeze({ ...descriptor })
+  const configured = current.adapter?.configureTransport?.(connection, captured)
+  let disposed = false
+  const lifecycle = Object.freeze({
+    ready: async () => {
+      if (disposed) throw new Error('[internal] Database transport is disposed')
+      await configured?.ready()
+    },
+    dispose: () => {
+      if (disposed) return
+      configured?.dispose()
+      disposed = true
+      current.transports?.delete(connection)
+      current.activePools -= 1
+    },
+  })
+  current.transports.set(connection, { descriptor: captured, lifecycle })
+  current.activePools += 1
+  return lifecycle
 }

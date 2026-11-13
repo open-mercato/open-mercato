@@ -37,6 +37,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.3-coalescing-fix | Preserve accepted trailing broadcasts in a fresh validated invocation | inline | done | this commit; 21 event tests and events/enterprise typechecks |
 | 2 | 2.3 | Propagate worker, subscriber and scheduler tenant contexts | inline | todo | — |
 | 2 | 2.4 | Separate tenant CLI operations from privileged maintenance | inline | todo | — |
+| 2 | 2.5-transport | Restrict event PG transports and create fresh callback scopes | inline | done | events189/runtime99/shared23; live PG17 16+26 zero skips |
 | 2 | 2.5 | Classify and integrate independent search, vector and event pools | inline | todo | — |
 | 3 | 3.1-cli-lifecycle | Wire neutral migration preflight, completion and committed-history recovery | inline | done | this commit; CLI57 tests + typecheck |
 | 3 | 3.1 | Reconcile explicit canary policies through migrations with rollback | inline | done | this commit; runtime94/shared8; live PG17 16+25 checks, zero skips |
