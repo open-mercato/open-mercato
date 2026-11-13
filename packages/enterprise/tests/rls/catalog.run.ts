@@ -12,13 +12,13 @@ import { reconcileTenantTablePolicies, rollbackTenantTablePolicies, tenantPolicy
 import { createTenantBoundaryAdapter } from '../../src/lib/rls/runtime/registration'
 import { runWithTenantBoundary } from '../../src/lib/rls/runtime/scope'
 
-const databaseUrl = process.env.OM_RLS_POC_DATABASE_URL
-assert.ok(databaseUrl, 'Set OM_RLS_POC_DATABASE_URL to an explicitly disposable PostgreSQL database')
+const databaseUrl = process.env.OM_RLS_TEST_DATABASE_URL
+assert.ok(databaseUrl, 'Set OM_RLS_TEST_DATABASE_URL to an explicitly disposable PostgreSQL database')
 const suffix = randomUUID().replaceAll('-', '')
-const schema = `rls_catalog_${suffix}`
-const role = `rls_catalog_${suffix}`
+const schema = `rls_catalog_test_${suffix}`
+const role = `rls_catalog_test_${suffix}`
 const password = randomUUID()
-const directory = await mkdtemp(path.join(tmpdir(), 'om-rls-catalog-'))
+const directory = await mkdtemp(path.join(tmpdir(), 'om-rls-catalog-test-'))
 const manifestPath = path.join(directory, 'manifest.json')
 const admin = new Pool({ connectionString: databaseUrl, max: 3, connectionTimeoutMillis: 5_000, query_timeout: 15_000 })
 const runtimeUrl = new URL(databaseUrl)
@@ -280,4 +280,4 @@ try {
     assert.deepEqual(remaining.rows, [{ schema_exists: false, role_exists: false }])
   } finally { await admin.end(); await rm(directory, { recursive: true, force: true }) }
 }
-process.stdout.write(`Enterprise RLS catalog proof: ${checks} checks passed; disposable fixtures removed.\n`)
+process.stdout.write(`Enterprise RLS catalog regression: ${checks} checks passed; disposable fixtures removed.\n`)
