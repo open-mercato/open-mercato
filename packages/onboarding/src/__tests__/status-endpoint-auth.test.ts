@@ -1,3 +1,7 @@
+jest.mock('../modules/onboarding/lib/tenant-continuation', () => ({
+  ...jest.requireActual('../modules/onboarding/lib/tenant-continuation'),
+  hasPersistedWorkspace: jest.fn(async () => true),
+}))
 import { OnboardingRequest } from '../modules/onboarding/data/entities'
 
 const findLatestByTenantId = jest.fn()
@@ -39,6 +43,7 @@ jest.mock('@open-mercato/shared/lib/url', () => ({
 jest.mock('@open-mercato/onboarding/modules/onboarding/lib/service', () => ({
   OnboardingService: jest.fn().mockImplementation(() => ({
     findLatestByTenantId,
+    findById: () => findLatestByTenantId(),
     markCompleted,
   })),
 }))

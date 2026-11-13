@@ -1,3 +1,7 @@
+jest.mock('../modules/onboarding/lib/tenant-continuation', () => ({
+  ...jest.requireActual('../modules/onboarding/lib/tenant-continuation'),
+  hasPersistedWorkspace: jest.fn(async () => true),
+}))
 import { OnboardingRequest } from '../modules/onboarding/data/entities'
 
 const sendEmailMock = jest.fn().mockResolvedValue(undefined)
@@ -42,6 +46,7 @@ function makeReadyRequest(overrides: Record<string, unknown> = {}) {
     id: 'req-1',
     email: 'owner@example.com',
     status: 'completed',
+    preparationCompletedAt: new Date(),
     firstName: 'Jane',
     lastName: 'Doe',
     organizationName: 'Acme Corp',
@@ -68,6 +73,13 @@ describe('sendWorkspaceReadyEmail', () => {
 
   afterAll(() => {
     process.env = originalEnv
+  })
+
+  it('does not send email for a substituted tenant or unfinished request', async () => {
+    await expect(sendWorkspaceReadyEmail({ requestId: 'req-1', tenantId: 'another-tenant' })).resolves.toBe(false)
+    findByIdMock.mockResolvedValue(makeReadyRequest({ preparationCompletedAt: null }))
+    await expect(sendWorkspaceReadyEmail({ requestId: 'req-1', tenantId: 'tenant-uuid' })).resolves.toBe(false)
+    expect(sendEmailMock).not.toHaveBeenCalled()
   })
 
   it('builds the login link from the configured APP_URL, not a request header', async () => {

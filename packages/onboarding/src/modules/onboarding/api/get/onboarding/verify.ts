@@ -1,3 +1,4 @@
+import { hasPersistedWorkspace, runOnboardingIdentity, runOnboardingTenant, withOnboardingTimeout } from '../../../lib/tenant-continuation'
 import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -38,12 +39,6 @@ export const metadata = {
 
 const SEED_DEFAULTS_TIMEOUT_MS = 15_000
 
-function createTimeoutPromise(label: string, timeoutMs: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
-  })
-}
-
 async function runModuleSetupHook(args: {
   moduleId: string
   phase: 'seedDefaults' | 'seedExamples'
@@ -57,10 +52,7 @@ async function runModuleSetupHook(args: {
     timeoutMs: args.timeoutMs,
   })
   try {
-    await Promise.race([
-      args.run(),
-      createTimeoutPromise(`module ${args.moduleId} ${args.phase}`, args.timeoutMs),
-    ])
+    await withOnboardingTimeout(`module ${args.moduleId} ${args.phase}`, args.timeoutMs, args.run)
     logger.info('Module hook completed', {
       moduleId: args.moduleId,
       phase: args.phase,
@@ -96,18 +88,28 @@ async function completeProvisionedRequest(args: {
 }) {
   const ids = resolveProvisioningIds(args.request)
   if (!ids) return null
-  await args.service.markCompleted(args.request, ids)
-  after(async () => {
-    await runDeferredProvisioning({
-      requestId: args.request.id,
-      tenantId: ids.tenantId,
-      organizationId: ids.organizationId,
+  const identityContainer = await createRequestContainer()
+  if (!await hasPersistedWorkspace(identityContainer.resolve('em') as EntityManager, args.request)) return null
+  return runOnboardingTenant(ids.tenantId, async (container) => {
+    const em = container.resolve('em') as EntityManager
+    const service = new OnboardingService(em)
+    const current = await service.findById(args.request.id)
+    if (!current || current.tokenHash !== args.request.tokenHash || current.status !== 'processing'
+      || current.tenantId !== ids.tenantId || current.organizationId !== ids.organizationId
+      || !await hasPersistedWorkspace(em, current)) return null
+    await service.markCompleted(current, ids)
+    after(async () => {
+      await runDeferredProvisioning({ requestId: current.id, tenantId: ids.tenantId, organizationId: ids.organizationId })
     })
+    return ids
   })
-  return ids
 }
 
-export async function GET(req: Request) {
+export function GET(req: Request) {
+  return runOnboardingIdentity(() => handleGet(req))
+}
+
+async function handleGet(req: Request) {
   if (parseBooleanToken(process.env.SELF_SERVICE_ONBOARDING_ENABLED ?? '') !== true) {
     return NextResponse.json({ ok: false, error: 'Self-service onboarding is disabled.' }, { status: 404 })
   }
@@ -139,6 +141,7 @@ export async function GET(req: Request) {
   if (request.expiresAt <= new Date() && request.status !== 'completed') {
     return redirectWithStatus(baseUrl, 'invalid')
   }
+  if (request.tenantId && !await hasPersistedWorkspace(em, request)) return redirectWithStatus(baseUrl, 'invalid')
   if (request.status === 'completed' && request.tenantId) {
     if (!request.preparationCompletedAt) {
       return redirectToPreparing(baseUrl, request.tenantId)
@@ -239,82 +242,93 @@ export async function GET(req: Request) {
       userId: resolvedUserId,
     })
 
-    if (request.marketingConsent) {
-      const now = new Date()
-      const clientIp = resolveConsentClientIp(req)
-      const integrityHash = computeConsentIntegrityHash({
-        userId: resolvedUserId,
-        consentType: 'marketing_email',
-        isGranted: true,
-        grantedAt: now,
-        ipAddress: clientIp,
-        source: 'onboarding',
-      })
-      // Persist the marketing consent on an isolated EM fork wrapped in a
-      // transaction so it commits all-or-nothing AND a failure here can neither
-      // abort provisioning nor poison the request EM's unit of work before
-      // markCompleted runs. Recording the consent is best-effort: the workspace
-      // is already provisioned, and a lost consent record fails safe (treated as
-      // not granted) and is logged for follow-up rather than stranding the user.
-      await runBestEffortProvisioningStep('marketing-consent', () =>
-        em.fork().transactional(async (txEm) => {
-          txEm.create(UserConsent, {
-            userId: resolvedUserId,
-            tenantId: resolvedTenantId,
-            organizationId: resolvedOrganizationId,
-            consentType: 'marketing_email',
-            isGranted: true,
-            grantedAt: now,
-            source: 'onboarding',
-            ipAddress: clientIp,
-            integrityHash,
-            createdAt: now,
-          })
-        }),
-      )
-    }
-
-    // Call module seedDefaults hooks. Each hook is best-effort and runs on its
-    // own isolated EM fork: a single module's throw or 15s timeout must not
-    // strand the freshly provisioned workspace — the tenant/org/user already
-    // exist and the request must still reach markCompleted so the user can sign
-    // in. A per-module fork also keeps a failed module's unflushed unit of work
-    // from leaking into (or aborting) the next module's flush. Failures are
-    // logged for follow-up (deferred seedExamples is already non-fatal in the
-    // same way).
-    const modules = getModules()
-    for (const mod of modules) {
-      if (!mod.setup?.seedDefaults) continue
-      const seedEm = em.fork()
-      await runBestEffortProvisioningStep(`seedDefaults:${mod.id}`, () =>
-        runModuleSetupHook({
-          moduleId: mod.id,
-          phase: 'seedDefaults',
-          timeoutMs: SEED_DEFAULTS_TIMEOUT_MS,
-          run: () => mod.setup!.seedDefaults!({
-            em: seedEm,
-            tenantId: resolvedTenantId,
-            organizationId: resolvedOrganizationId,
-            container,
+    if (!await hasPersistedWorkspace(em, request)) throw new Error('[internal] Invalid onboarding workspace')
+    const verifiedRequestId = request.id
+    const verifiedTokenHash = request.tokenHash
+    return await runOnboardingTenant(resolvedTenantId, async (container) => {
+      const em = container.resolve('em') as EntityManager
+      const service = new OnboardingService(em)
+      const current = await service.findById(verifiedRequestId)
+      if (!current || current.tokenHash !== verifiedTokenHash || current.status !== 'processing' || current.tenantId !== resolvedTenantId || current.organizationId !== resolvedOrganizationId) {
+        throw new Error('[internal] Onboarding request changed')
+      }
+      const request = current
+      if (request.marketingConsent) {
+        const now = new Date()
+        const clientIp = resolveConsentClientIp(req)
+        const integrityHash = computeConsentIntegrityHash({
+          userId: resolvedUserId,
+          consentType: 'marketing_email',
+          isGranted: true,
+          grantedAt: now,
+          ipAddress: clientIp,
+          source: 'onboarding',
+        })
+        // Persist the marketing consent on an isolated EM fork wrapped in a
+        // transaction so it commits all-or-nothing AND a failure here can neither
+        // abort provisioning nor poison the request EM's unit of work before
+        // markCompleted runs. Recording the consent is best-effort: the workspace
+        // is already provisioned, and a lost consent record fails safe (treated as
+        // not granted) and is logged for follow-up rather than stranding the user.
+        await runBestEffortProvisioningStep('marketing-consent', () =>
+          em.fork().transactional(async (txEm) => {
+            txEm.create(UserConsent, {
+              userId: resolvedUserId,
+              tenantId: resolvedTenantId,
+              organizationId: resolvedOrganizationId,
+              consentType: 'marketing_email',
+              isGranted: true,
+              grantedAt: now,
+              source: 'onboarding',
+              ipAddress: clientIp,
+              integrityHash,
+              createdAt: now,
+            })
           }),
-        }),
-      )
-    }
-    await service.markCompleted(request, {
-      tenantId: resolvedTenantId,
-      organizationId: resolvedOrganizationId,
-      userId: resolvedUserId,
-    })
-    // TODO: Move deferred provisioning into a durable job keyed by request id so process restarts can resume
-    // seedExamples/index rebuild/email dispatch instead of leaving completed requests stuck on preparing.
-    after(async () => {
-      await runDeferredProvisioning({
-        requestId: request.id,
+        )
+      }
+
+      // Call module seedDefaults hooks. Each hook is best-effort and runs on its
+      // own isolated EM fork: a single module's throw or 15s timeout must not
+      // strand the freshly provisioned workspace — the tenant/org/user already
+      // exist and the request must still reach markCompleted so the user can sign
+      // in. A per-module fork also keeps a failed module's unflushed unit of work
+      // from leaking into (or aborting) the next module's flush. Failures are
+      // logged for follow-up (deferred seedExamples is already non-fatal in the
+      // same way).
+      const modules = getModules()
+      for (const mod of modules) {
+        if (!mod.setup?.seedDefaults) continue
+        await runBestEffortProvisioningStep(`seedDefaults:${mod.id}`, () =>
+          runOnboardingTenant(resolvedTenantId, async (seedContainer) => runModuleSetupHook({
+            moduleId: mod.id,
+            phase: 'seedDefaults',
+            timeoutMs: SEED_DEFAULTS_TIMEOUT_MS,
+            run: () => mod.setup!.seedDefaults!({
+              em: seedContainer.resolve('em') as EntityManager,
+              tenantId: resolvedTenantId,
+              organizationId: resolvedOrganizationId,
+              container: seedContainer,
+            }),
+          })),
+        )
+      }
+      await service.markCompleted(request, {
         tenantId: resolvedTenantId,
         organizationId: resolvedOrganizationId,
+        userId: resolvedUserId,
       })
+      // TODO: Move deferred provisioning into a durable job keyed by request id so process restarts can resume
+      // seedExamples/index rebuild/email dispatch instead of leaving completed requests stuck on preparing.
+      after(async () => {
+        await runDeferredProvisioning({
+          requestId: request.id,
+          tenantId: resolvedTenantId,
+          organizationId: resolvedOrganizationId,
+        })
+      })
+      return redirectToPreparing(baseUrl, resolvedTenantId)
     })
-    return redirectToPreparing(baseUrl, resolvedTenantId)
   } catch (error) {
     if (error instanceof Error && error.message === 'USER_EXISTS') {
       await service.resetProcessing(request)

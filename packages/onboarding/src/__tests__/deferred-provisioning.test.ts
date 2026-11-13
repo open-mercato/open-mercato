@@ -1,3 +1,7 @@
+jest.mock('../modules/onboarding/lib/tenant-continuation', () => ({
+  ...jest.requireActual('../modules/onboarding/lib/tenant-continuation'),
+  hasPersistedWorkspace: jest.fn(async () => true),
+}))
 const seedExamples = jest.fn(async () => {
   await new Promise((resolve) => setImmediate(resolve))
 })
@@ -37,6 +41,9 @@ const renewPreparation = jest.fn(async (_requestId: string, renewedAt: Date) => 
 
 const findById = jest.fn(async (id: string) => ({
   id,
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  organizationId: '33333333-3333-4333-8333-333333333333',
+  userId: 'user-1',
   status: claimState.status,
   preparationCompletedAt: claimState.preparationCompletedAt,
 }))
@@ -132,6 +139,12 @@ describe('runDeferredProvisioning single-flight claim', () => {
     expect(sendWorkspaceReadyEmail).not.toHaveBeenCalled()
   })
 
+  it('rejects a tenant substituted in a deferred payload before claiming', async () => {
+    await runDeferredProvisioning({ ...RUN_ARGS, tenantId: '22222222-2222-4222-8222-222222222222' })
+    expect(claimPreparation).not.toHaveBeenCalled()
+    expect(seedExamples).not.toHaveBeenCalled()
+  })
+
   it('re-claims and recovers when a previous claim went stale', async () => {
     claimState.preparationStartedAt = new Date(Date.now() - 20 * 60 * 1000)
 
@@ -163,6 +176,42 @@ describe('runDeferredProvisioning single-flight claim', () => {
     await runDeferredProvisioning(RUN_ARGS)
 
     expect(markPreparationCompleted).not.toHaveBeenCalled()
+  })
+
+  it('drains an in-flight heartbeat before email and invocation completion', async () => {
+    let finishSeed: () => void = () => {}
+    let finishRenewal: () => void = () => {}
+    const seedGate = new Promise<void>((resolve) => { finishSeed = resolve })
+    const renewalGate = new Promise<boolean>((resolve) => { finishRenewal = () => resolve(true) })
+    seedExamples.mockImplementationOnce(async () => seedGate)
+    renewPreparation.mockImplementationOnce(async () => true).mockImplementationOnce(async () => renewalGate)
+    const running = runDeferredProvisioning(RUN_ARGS)
+    await new Promise((resolve) => setImmediate(resolve))
+    await jest.advanceTimersByTimeAsync(5_000)
+    finishSeed()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(sendWorkspaceReadyEmail).not.toHaveBeenCalled()
+    finishRenewal()
+    await running
+    expect(sendWorkspaceReadyEmail).toHaveBeenCalledTimes(1)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('stops before indexing when the persisted workspace changes during seeding', async () => {
+    seedExamples.mockImplementationOnce(async () => {
+      findById.mockResolvedValueOnce({
+        id: RUN_ARGS.requestId,
+        status: 'completed',
+        tenantId: 'another-tenant',
+        organizationId: RUN_ARGS.organizationId,
+        userId: 'user-1',
+        preparationCompletedAt: null,
+      })
+    })
+    await runDeferredProvisioning(RUN_ARGS)
+    expect(emitEvent).not.toHaveBeenCalled()
+    expect(markPreparationCompleted).not.toHaveBeenCalled()
+    expect(sendWorkspaceReadyEmail).not.toHaveBeenCalled()
   })
 
   it('enqueues the query-index rebuild as durable per-entity jobs BEFORE marking ready (no inline reindex)', async () => {

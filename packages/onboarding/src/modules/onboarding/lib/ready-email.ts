@@ -1,3 +1,4 @@
+import { hasPersistedWorkspace, runOnboardingIdentity, runOnboardingTenant } from './tenant-continuation'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
@@ -17,38 +18,51 @@ export async function sendWorkspaceReadyEmail(args: {
   requestId: string
   tenantId: string
 }) {
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  const service = new OnboardingService(em)
-  const request = await service.findById(args.requestId)
-  if (!request || request.readyEmailSentAt) return false
-  const locale = resolveLocale(request.locale)
-  const dict = await loadDictionary(locale)
-  const translate = createFallbackTranslator(dict)
-  const baseUrl = getSecurityEmailBaseUrl()
-  const loginUrl = `${baseUrl}/login?tenant=${encodeURIComponent(args.tenantId)}`
-  const firstName = request.firstName?.trim() || request.organizationName?.trim() || request.email
-  const subject = translate('onboarding.readyEmail.subject', 'Your Open Mercato workspace is ready')
-  const emailCopy = {
-    preview: translate('onboarding.readyEmail.preview', 'Your workspace is ready. Use your secure login link to sign in.'),
-    heading: translate('onboarding.readyEmail.heading', 'Your workspace is ready'),
-    greeting: translate('onboarding.readyEmail.greeting', 'Hi {firstName},', { firstName }),
-    body: translate(
-      'onboarding.readyEmail.body',
-      'Your Open Mercato workspace for {organizationName} has finished preparing. Use the secure link below to sign in.',
-      { organizationName: request.organizationName },
-    ),
-    cta: translate('onboarding.readyEmail.cta', 'Open login'),
-    footer: translate('onboarding.readyEmail.footer', 'Open Mercato · Onboarding service'),
-  }
+  return runOnboardingIdentity(async () => {
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    const service = new OnboardingService(em)
+    const request = await service.findById(args.requestId)
+    if (!request || request.readyEmailSentAt || request.status !== 'completed' || !request.preparationCompletedAt
+      || request.tenantId !== args.tenantId || !await hasPersistedWorkspace(em, request)) return false
+    return runOnboardingTenant(request.tenantId, async (container) => {
+      const service = new OnboardingService(container.resolve('em') as EntityManager)
+      const current = await service.findById(request.id)
+      if (!current || current.tokenHash !== request.tokenHash || current.tenantId !== args.tenantId
+        || current.organizationId !== request.organizationId || current.status !== 'completed'
+        || !current.preparationCompletedAt || current.readyEmailSentAt) return false
+      return deliver(current, service)
+    })
+    async function deliver(request: NonNullable<Awaited<ReturnType<OnboardingService['findById']>>>, service: OnboardingService) {
+      const locale = resolveLocale(request.locale)
+      const dict = await loadDictionary(locale)
+      const translate = createFallbackTranslator(dict)
+      const baseUrl = getSecurityEmailBaseUrl()
+      const loginUrl = `${baseUrl}/login?tenant=${encodeURIComponent(args.tenantId)}`
+      const firstName = request.firstName?.trim() || request.organizationName?.trim() || request.email
+      const subject = translate('onboarding.readyEmail.subject', 'Your Open Mercato workspace is ready')
+      const emailCopy = {
+        preview: translate('onboarding.readyEmail.preview', 'Your workspace is ready. Use your secure login link to sign in.'),
+        heading: translate('onboarding.readyEmail.heading', 'Your workspace is ready'),
+        greeting: translate('onboarding.readyEmail.greeting', 'Hi {firstName},', { firstName }),
+        body: translate(
+          'onboarding.readyEmail.body',
+          'Your Open Mercato workspace for {organizationName} has finished preparing. Use the secure link below to sign in.',
+          { organizationName: request.organizationName },
+        ),
+        cta: translate('onboarding.readyEmail.cta', 'Open login'),
+        footer: translate('onboarding.readyEmail.footer', 'Open Mercato · Onboarding service'),
+      }
 
-  await sendEmail({
-    to: request.email,
-    subject,
-    react: WorkspaceReadyEmail({ loginUrl, copy: emailCopy }),
-    tenantId: args.tenantId,
-    organizationId: request.organizationId ?? null,
+      await sendEmail({
+        to: request.email,
+        subject,
+        react: WorkspaceReadyEmail({ loginUrl, copy: emailCopy }),
+        tenantId: args.tenantId,
+        organizationId: request.organizationId ?? null,
+      })
+      await service.markReadyEmailSent(request, new Date())
+      return true
+    }
   })
-  await service.markReadyEmailSent(request, new Date())
-  return true
 }

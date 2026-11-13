@@ -1,3 +1,4 @@
+import { hasPersistedWorkspace, runOnboardingIdentity, runOnboardingTenant } from '../../../lib/tenant-continuation'
 import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -47,7 +48,11 @@ function readCookie(req: Request, name: string): string | null {
   return null
 }
 
-export async function GET(req: Request) {
+export function GET(req: Request) {
+  return runOnboardingIdentity(() => handleGet(req))
+}
+
+async function handleGet(req: Request) {
   if (parseBooleanToken(process.env.SELF_SERVICE_ONBOARDING_ENABLED ?? '') !== true) {
     return NextResponse.json({ ok: false, error: 'Self-service onboarding is disabled.' }, { status: 404 })
   }
@@ -82,58 +87,72 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'Onboarding request not found.' }, { status: 404 })
   }
 
-  const provisioningIds = resolveProvisioningIds(request)
-  if (provisioningIds && request.status === 'processing') {
-    await service.markCompleted(request, provisioningIds)
+  if (request.tenantId !== parsed.data.tenantId || !await hasPersistedWorkspace(em, request)) {
+    return NextResponse.json({ ok: false, error: 'Onboarding request not found.' }, { status: 404 })
   }
-  // Schedule deferred provisioning only while no runner holds a fresh claim —
-  // otherwise every ~1s poll piles another full seed + reindex chain onto the
-  // connection pool. The atomic claim inside runDeferredProvisioning remains
-  // the authoritative gate; this check just keeps polls cheap.
-  if (
-    provisioningIds &&
-    request.status === 'completed' &&
-    !request.preparationCompletedAt &&
-    !isPreparationClaimActive(request.preparationStartedAt)
-  ) {
-    after(async () => {
-      await runDeferredProvisioning({
-        requestId: request.id,
-        tenantId: provisioningIds.tenantId,
-        organizationId: provisioningIds.organizationId,
-      })
-    })
-  }
+  return runOnboardingTenant(request.tenantId!, async (container) => {
+    const service = new OnboardingService(container.resolve('em') as EntityManager)
+    const current = await service.findById(request.id)
+    if (!current || current.deletedAt || current.tokenHash !== request.tokenHash || current.tenantId !== request.tenantId || current.organizationId !== request.organizationId) {
+      return NextResponse.json({ ok: false, error: 'Onboarding request not found.' }, { status: 404 })
+    }
+    return respond(current, service)
+  })
 
-  const emailSent = Boolean(request.readyEmailSentAt)
-  const ready = request.status === 'completed' && Boolean(request.preparationCompletedAt)
-  const loginUrl = ready && request.tenantId ? `/login?tenant=${encodeURIComponent(request.tenantId)}` : null
-
-  if (ready && request.tenantId && !request.readyEmailSentAt) {
-    const readyTenantId = request.tenantId
-    after(async () => {
-      await sendWorkspaceReadyEmail({
-        requestId: request.id,
-        tenantId: readyTenantId,
-      }).catch((error) => {
-        logger.error('Ready email retry failed', {
+  async function respond(request: NonNullable<Awaited<ReturnType<OnboardingService['findById']>>>, service: OnboardingService) {
+    const provisioningIds = resolveProvisioningIds(request)
+    if (provisioningIds && request.status === 'processing') {
+      await service.markCompleted(request, provisioningIds)
+    }
+    // Schedule deferred provisioning only while no runner holds a fresh claim —
+    // otherwise every ~1s poll piles another full seed + reindex chain onto the
+    // connection pool. The atomic claim inside runDeferredProvisioning remains
+    // the authoritative gate; this check just keeps polls cheap.
+    if (
+      provisioningIds &&
+      request.status === 'completed' &&
+      !request.preparationCompletedAt &&
+      !isPreparationClaimActive(request.preparationStartedAt)
+    ) {
+      after(async () => {
+        await runDeferredProvisioning({
           requestId: request.id,
-          tenantId: readyTenantId,
-          organizationId: request.organizationId,
-          err: error,
+          tenantId: provisioningIds.tenantId,
+          organizationId: provisioningIds.organizationId,
         })
       })
+    }
+
+    const emailSent = Boolean(request.readyEmailSentAt)
+    const ready = request.status === 'completed' && Boolean(request.preparationCompletedAt)
+    const loginUrl = ready && request.tenantId ? `/login?tenant=${encodeURIComponent(request.tenantId)}` : null
+
+    if (ready && request.tenantId && !request.readyEmailSentAt) {
+      const readyTenantId = request.tenantId
+      after(async () => {
+        await sendWorkspaceReadyEmail({
+          requestId: request.id,
+          tenantId: readyTenantId,
+        }).catch((error) => {
+          logger.error('Ready email retry failed', {
+            requestId: request.id,
+            tenantId: readyTenantId,
+            organizationId: request.organizationId,
+            err: error,
+          })
+        })
+      })
+    }
+
+    return NextResponse.json({
+      ok: true,
+      status: request.status,
+      ready,
+      emailSent,
+      tenantId: request.tenantId ?? parsed.data.tenantId,
+      loginUrl,
     })
   }
-
-  return NextResponse.json({
-    ok: true,
-    status: request.status,
-    ready,
-    emailSent,
-    tenantId: request.tenantId ?? parsed.data.tenantId,
-    loginUrl,
-  })
 }
 
 const onboardingTag = 'Onboarding'
