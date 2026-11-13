@@ -6,18 +6,19 @@ import { createConcurrencyFixtures } from './helpers/concurrencyFixtures'
 
 const peopleSchema = z.object({ items: z.array(z.object({ id: z.string() }).passthrough()) })
 type Sample = { user: number; operation: string; status: number | null; latencyMs: number; valid: boolean; isolationViolation: boolean }
-type LevelResult = { concurrency: number; distinctUsers: number; tenants: number; peakInFlight: number; elapsedMs: number; p50Ms: number; p95Ms: number; errors: number; isolationViolations: number; retainedRowsUnchanged: boolean; samples: Sample[] }
+type LevelResult = { concurrency: number; distinctUsers: number; tenants: number; peakInFlight: number; backendConnections: number; elapsedMs: number; p50Ms: number; p95Ms: number; errors: number; isolationViolations: number; retainedRowsUnchanged: boolean; samples: Sample[] }
 
 function percentile(values: number[], fraction: number) {
   const sorted = [...values].sort((first, second) => first - second)
   return sorted[Math.max(0, Math.ceil(sorted.length * fraction) - 1)] ?? 0
 }
 
-function analysis(results: LevelResult[]) {
+function analysis(results: LevelResult[], configuration: { poolMax: number; rlsEnabled: boolean; revision: string }) {
   return [
     '# Authenticated RLS concurrency — actual execution',
     `Recorded: ${new Date().toISOString()}`,
-    'Real /api/customers/people requests; 100 persisted non-superadmin staff users split evenly across two disposable tenants. Restricted runtime DB_POOL_MAX=1; simultaneous HTTP requests queue for database access. This is not an adapter off/on benchmark or proof of simultaneous SQL execution.',
+    `Revision: ${configuration.revision}; RLS: ${configuration.rlsEnabled ? 'enabled, FORCE canary' : 'disabled, pre-PR application'}; DB_POOL_MAX=${configuration.poolMax}.`,
+    'Real /api/customers/people requests; 100 persisted non-superadmin staff users split evenly across two disposable tenants. Simultaneous HTTP requests may queue for database access. HTTP concurrency does not prove simultaneous SQL execution.',
     '| Users | Peak HTTP | Requests | p50 ms | p95 ms | Errors | Isolation violations | Rows unchanged |',
     '|---:|---:|---:|---:|---:|---:|---:|---|',
     ...results.map((result) => `| ${result.concurrency} | ${result.peakInFlight} | ${result.samples.length} | ${result.p50Ms.toFixed(2)} | ${result.p95Ms.toFixed(2)} | ${result.errors} | ${result.isolationViolations} | ${result.retainedRowsUnchanged} |`),
@@ -27,10 +28,12 @@ function analysis(results: LevelResult[]) {
 
 test('TC-RLS-002: distinct authenticated users remain isolated at 20/30/50/100 concurrency', async ({ playwright }, testInfo) => {
   test.setTimeout(600_000)
-  const runtime = await startRlsLiveRuntime()
+  const poolMax = process.env.OM_RLS_CONCURRENCY_POOL_MAX ? Number(process.env.OM_RLS_CONCURRENCY_POOL_MAX) : 1
+  const runtime = await startRlsLiveRuntime({ poolMax, baselineAppRoot: process.env.OM_RLS_BENCHMARK_BASELINE_APP_ROOT })
   const results: LevelResult[] = []
   let fixtures: Awaited<ReturnType<typeof createConcurrencyFixtures>> | undefined
   try {
+    await testInfo.attach('rls-concurrency-configuration.json', { body: JSON.stringify(runtime.configuration, null, 2), contentType: 'application/json' })
     fixtures = await createConcurrencyFixtures(runtime)
     const baseline = await fixtures.retainedRows()
     expect(baseline).toHaveLength(2)
@@ -116,6 +119,7 @@ test('TC-RLS-002: distinct authenticated users remain isolated at 20/30/50/100 c
         const result: LevelResult = {
           concurrency, distinctUsers: new Set(actors.map((actor) => actor.userId)).size,
           tenants: new Set(actors.map((actor) => actor.tenantId)).size, peakInFlight,
+          backendConnections: await runtime.backendConnections(),
           elapsedMs: performance.now() - started, p50Ms: percentile(samples.map((sample) => sample.latencyMs), 0.5),
           p95Ms: percentile(samples.map((sample) => sample.latencyMs), 0.95),
           errors: samples.filter((sample) => !sample.valid).length,
@@ -128,6 +132,8 @@ test('TC-RLS-002: distinct authenticated users remain isolated at 20/30/50/100 c
         expect.soft(result.distinctUsers).toBe(concurrency)
         expect.soft(result.tenants).toBe(2)
         expect.soft(result.peakInFlight).toBe(concurrency)
+        expect.soft(result.backendConnections).toBeLessThanOrEqual(poolMax)
+        expect.soft(result.backendConnections).toBeGreaterThan(0)
         expect.soft(result.errors).toBe(0)
         expect.soft(result.isolationViolations).toBe(0)
         expect.soft(result.retainedRowsUnchanged).toBe(true)
@@ -135,7 +141,7 @@ test('TC-RLS-002: distinct authenticated users remain isolated at 20/30/50/100 c
     }
   } finally {
     try {
-      await testInfo.attach('rls-concurrency-analysis.md', { body: analysis(results), contentType: 'text/markdown' })
+      await testInfo.attach('rls-concurrency-analysis.md', { body: analysis(results, runtime.configuration), contentType: 'text/markdown' })
     } finally {
       try { await fixtures?.cleanup() } finally { await runtime.stop() }
     }

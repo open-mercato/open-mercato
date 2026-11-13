@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { mkdtemp, open, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { createRequire } from 'node:module'
@@ -17,7 +17,9 @@ import type { BoundaryClient } from '../../../../lib/rls/runtime/pool'
 
 export type RlsPrincipal = { tenantId: string; orgId: string; userId: string; sessionId: string; customerId: string; slug: string; token: string }
 export type RlsLiveRuntime = {
+  configuration: { poolMax: number; rlsEnabled: boolean; revision: string };
   baseUrl: string; evidenceFile: string; first: RlsPrincipal; second: RlsPrincipal; selectedAdmin: RlsPrincipal;
+  backendConnections(): Promise<number>;
   customerToken: string; serverLog(): Promise<string>; stop(): Promise<void>
 }
 
@@ -38,7 +40,12 @@ function principal(suffix: string): RlsPrincipal {
   return { tenantId: randomUUID(), orgId: randomUUID(), userId: randomUUID(), sessionId: randomUUID(), customerId: randomUUID(), slug: `rls-${suffix}`, token: '' }
 }
 
-export async function startRlsLiveRuntime(): Promise<RlsLiveRuntime> {
+export async function startRlsLiveRuntime(options: { poolMax?: number; baselineAppRoot?: string } = {}): Promise<RlsLiveRuntime> {
+  const poolMax = options.poolMax ?? 1
+  if (!Number.isInteger(poolMax) || poolMax < 1 || poolMax > 100) throw new Error('[internal] Invalid live fixture pool size')
+  const appRoot = options.baselineAppRoot ? path.resolve(options.baselineAppRoot) : resolveAppRoot()
+  const rlsEnabled = !options.baselineAppRoot
+  const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: appRoot, encoding: 'utf8', timeout: 5_000 }).trim()
   if (!parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false) || !process.env.DATABASE_URL || !process.env.JWT_SECRET) {
     throw new Error('[internal] RLS live fixture requires the repository native disposable integration runner')
   }
@@ -130,23 +137,25 @@ export async function startRlsLiveRuntime(): Promise<RlsLiveRuntime> {
     await admin.query(`grant usage on schema public to ${quoteBoundaryIdentifier(role)}`)
     await admin.query(`grant select,insert,update,delete on all tables in schema public to ${quoteBoundaryIdentifier(role)}`)
     await admin.query(`grant usage,select on all sequences in schema public to ${quoteBoundaryIdentifier(role)}`)
-    const client = await admin.connect()
-    try { await reconcileTenantTablePolicies(pinned(client), manifest, role); policiesInstalled = true } finally { client.release() }
+    if (rlsEnabled) {
+      const client = await admin.connect()
+      try { await reconcileTenantTablePolicies(pinned(client), manifest, role); policiesInstalled = true } finally { client.release() }
+    }
     const runtimeUrl = new URL(process.env.DATABASE_URL)
     runtimeUrl.username = role
     runtimeUrl.password = password
     const port = await freePort()
     const baseUrl = `http://127.0.0.1:${port}`
     const runtimeEnvironment = {
-      ...process.env, DATABASE_URL: runtimeUrl.toString(), OM_TENANT_RLS: 'on', OM_TENANT_RLS_POOL_MODE: 'direct',
+      ...process.env, DATABASE_URL: runtimeUrl.toString(), OM_TENANT_RLS: rlsEnabled ? 'on' : 'off', OM_TENANT_RLS_POOL_MODE: 'direct',
       OM_ENABLE_ENTERPRISE_MODULES: 'true', OM_INTEGRATION_TEST: '1', OM_RLS_PROBE_EVIDENCE_FILE: evidenceFile,
-      AUTO_SPAWN_WORKERS: 'false', CACHE_STRATEGY: 'memory', QUEUE_BASE_DIR: path.join(directory, 'queue'), DB_POOL_MAX: '1',
+      AUTO_SPAWN_WORKERS: 'false', CACHE_STRATEGY: 'memory', QUEUE_BASE_DIR: path.join(directory, 'queue'), DB_POOL_MAX: String(poolMax),
       PLATFORM_DOMAINS: 'localhost,127.0.0.1', BASE_URL: baseUrl, APP_URL: baseUrl, NEXT_PUBLIC_APP_URL: baseUrl,
     }
     delete (runtimeEnvironment as NodeJS.ProcessEnv).OM_TENANT_RLS_MAINTENANCE_DATABASE_URL
-    const nextExecutable = createRequire(path.join(resolveAppRoot(), 'package.json')).resolve('next/dist/bin/next')
+    const nextExecutable = createRequire(path.join(appRoot, 'package.json')).resolve('next/dist/bin/next')
     application = spawn(process.execPath, [nextExecutable, 'start', '--port', String(port), '--hostname', '127.0.0.1'], {
-      cwd: resolveAppRoot(), env: runtimeEnvironment, detached: true, stdio: ['ignore', log.fd, log.fd], timeout: 300_000,
+      cwd: appRoot, env: runtimeEnvironment, detached: true, stdio: ['ignore', log.fd, log.fd], timeout: 300_000,
     })
     const deadline = Date.now() + 15_000
     let ready = false
@@ -158,7 +167,10 @@ export async function startRlsLiveRuntime(): Promise<RlsLiveRuntime> {
       await delay(100)
     }
     if (!ready) throw new Error('[internal] Restricted RLS app did not become ready: ' + await serverLog())
-    return { baseUrl, evidenceFile, first, second, selectedAdmin, customerToken, serverLog, stop }
+    return { configuration: { poolMax, rlsEnabled, revision }, backendConnections: async () => {
+      const result = await admin.query('select count(*)::integer as count from pg_stat_activity where usename=$1', [role])
+      return result.rows[0].count
+    }, baseUrl, evidenceFile, first, second, selectedAdmin, customerToken, serverLog, stop }
   } catch (error) {
     try { await stop() } catch (cleanupError) { throw new AggregateError([error, cleanupError], '[internal] RLS fixture setup and cleanup failed') }
     throw error

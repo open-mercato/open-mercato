@@ -60,9 +60,10 @@ Engine: om-auto-continue-pr-loop
 | 3 | 3.5-concurrency-oracle | Match physical deletion and distinguish contract errors from isolation violations | inline | done | this commit; focused TypeScript pass; live rerun required |
 | 3 | 3.5-concurrency | Verify tenant isolation at 20, 30, 50 and 100 concurrent users and publish analysis | inline | done | this commit; actual 2000 operations, zero errors/leaks, sentinel checks pass |
 | 3 | 3.5 | Benchmark checkout overhead and pool pressure | inline | done | this commit; live PG17 24 paired cases/12000 acquisitions; pool1/3/10; actual JSON and analysis |
+| 3 | 3.6-pool40 | Compare identical HTTP workload at pool40 with genuine pre-PR base checkout | inline | in_progress | harness records revision/mode/pool and observed DB connections; baseline build child4e0 active |
 | 4 | 4.0 | Remove PoC code and retain production regression coverage | inline | done | 3b4195bffa + parent live verification |
 | 4 | 4.1 | Run full repository and integration validation gates | inline | todo | — |
-| 4 | 4.2 | Complete independent code and security review with fixes | inline | in_progress | review244: four majors; scheduler335c fixed; onboarding/customer9b and AI/paymentf53 remediation active |
+| 4 | 4.2 | Complete independent code and security review with fixes | inline | in_progress | review244: scheduler335c, public9b and AI/paymentf53 merged; af5 remaining identity/customer cleanup fixes active |
 | 4 | 4.3 | Publish full implementation results and finalize PR | inline | todo | — |
 
 ## Goal
