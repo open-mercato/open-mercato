@@ -1,3 +1,4 @@
+import { hasPersistedWorkspace, runOnboardingIdentity, runOnboardingTenant, withOnboardingTimeout } from './tenant-continuation'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SearchIndexer } from '@open-mercato/search'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -29,12 +30,6 @@ export function resolveProvisioningIds(request: OnboardingRequest) {
   }
 }
 
-function createTimeoutPromise(label: string, timeoutMs: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
-  })
-}
-
 async function runModuleSetupHook(args: {
   moduleId: string
   phase: 'seedExamples'
@@ -48,10 +43,7 @@ async function runModuleSetupHook(args: {
     timeoutMs: args.timeoutMs,
   })
   try {
-    await Promise.race([
-      args.run(),
-      createTimeoutPromise(`module ${args.moduleId} ${args.phase}`, args.timeoutMs),
-    ])
+    await withOnboardingTimeout(`module ${args.moduleId} ${args.phase}`, args.timeoutMs, args.run)
     logger.info('Module hook completed', {
       moduleId: args.moduleId,
       phase: args.phase,
@@ -86,12 +78,17 @@ async function runModuleSetupHook(args: {
 async function markWorkspaceReady(args: {
   requestId: string
   service: OnboardingService
+  tenantId: string
+  organizationId: string
+  tokenHash: string
 }) {
   const request = await args.service.findById(args.requestId)
   // The status guard protects a request that was re-submitted (and reset to
   // pending) while this chain was still running — completing it would let the
   // new flow skip its own deferred provisioning.
-  if (!request || request.preparationCompletedAt || request.status !== 'completed') return
+  if (!request || request.preparationCompletedAt || request.status !== 'completed'
+    || request.tenantId !== args.tenantId || request.organizationId !== args.organizationId
+    || request.tokenHash !== args.tokenHash) return
   await args.service.markPreparationCompleted(request, new Date())
 }
 
@@ -108,15 +105,12 @@ async function enqueueVectorReindex(args: {
   }
   if (!searchIndexer) return
 
-  await Promise.race([
-    searchIndexer.reindexAllToVector({
+  await withOnboardingTimeout('vector reindex enqueue', VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS, () => searchIndexer!.reindexAllToVector({
       tenantId: args.tenantId,
       organizationId: args.organizationId,
       purgeFirst: true,
       useQueue: true,
-    }),
-    createTimeoutPromise('vector reindex enqueue', VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS),
-  ])
+    }))
 }
 
 type PersistentEventBus = {
@@ -185,131 +179,161 @@ export async function runDeferredProvisioning(args: {
   tenantId: string
   organizationId: string
 }) {
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  const service = new OnboardingService(em)
+  const verified = await runOnboardingIdentity(async () => {
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    const request = await new OnboardingService(em).findById(args.requestId)
+    if (!request || request.status !== 'completed' || request.preparationCompletedAt
+      || request.tenantId !== args.tenantId || request.organizationId !== args.organizationId
+      || !request.userId || !await hasPersistedWorkspace(em, request)) return false
+    return { tenantId: request.tenantId, organizationId: request.organizationId, tokenHash: request.tokenHash }
+  })
+  if (!verified) return
+  return runOnboardingTenant(args.tenantId, async (container) => {
+    const em = container.resolve('em') as EntityManager
+    const service = new OnboardingService(em)
 
-  // Single-flight guard: the preparing page polls the status endpoint every
-  // second and each poll (plus the verify handler) schedules this chain. The
-  // atomic claim collapses those triggers into one run per request — without
-  // it, dozens of concurrent seed + full-reindex chains exhaust the PG
-  // connection pool (2026-06-11 demo outage). A stale claim (crashed runner)
-  // becomes reclaimable after PREPARATION_CLAIM_STALE_MS.
-  const claimedAt = new Date()
-  const claimed = await service.claimPreparation(
-    args.requestId,
-    claimedAt,
-    new Date(claimedAt.getTime() - PREPARATION_CLAIM_STALE_MS),
-  )
-  if (!claimed) {
-    logger.info('Deferred provisioning skipped (already claimed or completed)', {
-      requestId: args.requestId,
-      tenantId: args.tenantId,
-    })
-    return
-  }
-
-  // Steady heartbeat on a SEPARATE EntityManager (own connection) so renewal can
-  // never interleave with the chain's own DB work on `em`. This keeps the lease
-  // fresh on a fixed cadence independent of how long any single module's
-  // seedExamples takes, which is what lets PREPARATION_CLAIM_STALE_MS stay short:
-  // a runner that actually crashes stops renewing and is reclaimable in seconds,
-  // while a genuinely-working one is never falsely reclaimed. renewPreparation is
-  // a no-op once the request is completed, so a late tick can't resurrect a
-  // finished lease.
-  const heartbeatEm = typeof (em as { fork?: () => EntityManager }).fork === 'function'
-    ? em.fork()
-    : em
-  const heartbeatService = new OnboardingService(heartbeatEm)
-  const heartbeat = setInterval(() => {
-    void heartbeatService.renewPreparation(args.requestId, new Date()).catch(() => {})
-  }, PREPARATION_HEARTBEAT_MS)
-  if (typeof heartbeat.unref === 'function') heartbeat.unref()
-
-  try {
-    const modules = getModules()
-
-    for (const mod of modules) {
-      if (!mod.setup?.seedExamples) continue
-      // Renew immediately before each module too, so even a long-running module
-      // starts from a fresh lease in addition to the steady heartbeat above.
-      await service.renewPreparation(args.requestId, new Date()).catch(() => {})
-      try {
-        await runModuleSetupHook({
-          moduleId: mod.id,
-          phase: 'seedExamples',
-          timeoutMs: SEED_EXAMPLES_TIMEOUT_MS,
-          run: () => mod.setup!.seedExamples!({
-            em,
-            tenantId: args.tenantId,
-            organizationId: args.organizationId,
-            container,
-          }),
-        })
-      } catch (error) {
-        if (isUniqueViolation(error)) {
-          logger.info('Deferred seedExamples skipped (already applied)', {
-            moduleId: mod.id,
-            tenantId: args.tenantId,
-            organizationId: args.organizationId,
-          })
-        } else {
-          logger.error('Deferred seedExamples failed', {
-            moduleId: mod.id,
-            tenantId: args.tenantId,
-            organizationId: args.organizationId,
-            err: error,
-          })
-        }
-      }
+    // Single-flight guard: the preparing page polls the status endpoint every
+    // second and each poll (plus the verify handler) schedules this chain. The
+    // atomic claim collapses those triggers into one run per request — without
+    // it, dozens of concurrent seed + full-reindex chains exhaust the PG
+    // connection pool (2026-06-11 demo outage). A stale claim (crashed runner)
+    // becomes reclaimable after PREPARATION_CLAIM_STALE_MS.
+    const claimedAt = new Date()
+    const claimed = await service.claimPreparation(
+      args.requestId,
+      claimedAt,
+      new Date(claimedAt.getTime() - PREPARATION_CLAIM_STALE_MS),
+      verified,
+    )
+    if (!claimed) {
+      logger.info('Deferred provisioning skipped (already claimed or completed)', {
+        requestId: args.requestId,
+        tenantId: args.tenantId,
+      })
+      return
     }
 
-    // The query-index rebuild is ENQUEUED before the completion flag, not run
-    // inline: preparationCompletedAt is the terminal gate for both the
-    // status-route scheduling and claimPreparation, so a runner that dies before
-    // the jobs are queued must leave the flag unset — the stale claim then makes
-    // the chain reclaimable and re-enqueues (a repeated force reindex is
-    // harmless). Enqueuing is fast, so the workspace is marked ready in seconds
-    // while the actual reindex runs in the background workers.
-    await enqueueQueryIndexRebuild({
+    const current = await service.findById(args.requestId)
+    if (!current || current.status !== 'completed' || current.preparationCompletedAt
+      || current.tenantId !== args.tenantId || current.organizationId !== args.organizationId
+      || current.tokenHash !== verified.tokenHash) return
+
+    // Steady heartbeat on a SEPARATE EntityManager (own connection) so renewal can
+    // never interleave with the chain's own DB work on `em`. This keeps the lease
+    // fresh on a fixed cadence independent of how long any single module's
+    // seedExamples takes, which is what lets PREPARATION_CLAIM_STALE_MS stay short:
+    // a runner that actually crashes stops renewing and is reclaimable in seconds,
+    // while a genuinely-working one is never falsely reclaimed. renewPreparation is
+    // a no-op once the request is completed, so a late tick can't resurrect a
+    // finished lease.
+    const heartbeatEm = typeof (em as { fork?: () => EntityManager }).fork === 'function'
+      ? em.fork()
+      : em
+    const heartbeatService = new OnboardingService(heartbeatEm)
+    let renewal = Promise.resolve()
+    const heartbeat = setInterval(() => {
+      renewal = renewal.then(async () => { await heartbeatService.renewPreparation(args.requestId, new Date(), verified).catch(() => {}) })
+    }, PREPARATION_HEARTBEAT_MS)
+    if (typeof heartbeat.unref === 'function') heartbeat.unref()
+
+    try {
+      const modules = getModules()
+
+      for (const mod of modules) {
+        if (!mod.setup?.seedExamples) continue
+        const current = await service.findById(args.requestId)
+        if (!current || current.status !== 'completed' || current.preparationCompletedAt
+          || current.tenantId !== verified.tenantId || current.organizationId !== verified.organizationId
+          || current.tokenHash !== verified.tokenHash) return
+        // Renew immediately before each module too, so even a long-running module
+        // starts from a fresh lease in addition to the steady heartbeat above.
+        await service.renewPreparation(args.requestId, new Date(), verified).catch(() => {})
+        try {
+          await runOnboardingTenant(args.tenantId, async (seedContainer) => runModuleSetupHook({
+            moduleId: mod.id,
+            phase: 'seedExamples',
+            timeoutMs: SEED_EXAMPLES_TIMEOUT_MS,
+            run: () => mod.setup!.seedExamples!({
+              em: seedContainer.resolve('em') as EntityManager,
+              tenantId: args.tenantId,
+              organizationId: args.organizationId,
+              container: seedContainer,
+            }),
+          }))
+        } catch (error) {
+          if (isUniqueViolation(error)) {
+            logger.info('Deferred seedExamples skipped (already applied)', {
+              moduleId: mod.id,
+              tenantId: args.tenantId,
+              organizationId: args.organizationId,
+            })
+          } else {
+            logger.error('Deferred seedExamples failed', {
+              moduleId: mod.id,
+              tenantId: args.tenantId,
+              organizationId: args.organizationId,
+              err: error,
+            })
+          }
+        }
+      }
+
+      // The query-index rebuild is ENQUEUED before the completion flag, not run
+      // inline: preparationCompletedAt is the terminal gate for both the
+      // status-route scheduling and claimPreparation, so a runner that dies before
+      // the jobs are queued must leave the flag unset — the stale claim then makes
+      // the chain reclaimable and re-enqueues (a repeated force reindex is
+      // harmless). Enqueuing is fast, so the workspace is marked ready in seconds
+      // while the actual reindex runs in the background workers.
+      const latest = await service.findById(args.requestId)
+      if (!latest || latest.status !== 'completed' || latest.preparationCompletedAt
+        || latest.tenantId !== verified.tenantId || latest.organizationId !== verified.organizationId
+        || latest.tokenHash !== verified.tokenHash) return
+      await enqueueQueryIndexRebuild({
+        container,
+        tenantId: args.tenantId,
+      })
+
+      await markWorkspaceReady({
+        requestId: args.requestId,
+        service,
+        tokenHash: verified.tokenHash,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId,
+      })
+    } finally {
+      // Stop renewing as soon as the chain finishes (or throws): a crashed runner
+      // must let the lease go stale so a status poll can reclaim it.
+      clearInterval(heartbeat)
+      await renewal
+    }
+
+    // Non-fatal (#2954 contract): an email failure must not abort the chain.
+    // The status endpoint retries the ready email on later polls while
+    // readyEmailSentAt is unset.
+    await sendWorkspaceReadyEmail({
+      requestId: args.requestId,
+      tenantId: args.tenantId,
+    }).catch((error) => {
+      logger.error('Ready email failed', {
+        requestId: args.requestId,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId,
+        err: error,
+      })
+    })
+
+    await enqueueVectorReindex({
       container,
       tenantId: args.tenantId,
-    })
-
-    await markWorkspaceReady({
-      requestId: args.requestId,
-      service,
-    })
-  } finally {
-    // Stop renewing as soon as the chain finishes (or throws): a crashed runner
-    // must let the lease go stale so a status poll can reclaim it.
-    clearInterval(heartbeat)
-  }
-
-  // Non-fatal (#2954 contract): an email failure must not abort the chain.
-  // The status endpoint retries the ready email on later polls while
-  // readyEmailSentAt is unset.
-  await sendWorkspaceReadyEmail({
-    requestId: args.requestId,
-    tenantId: args.tenantId,
-  }).catch((error) => {
-    logger.error('Ready email failed', {
-      requestId: args.requestId,
-      tenantId: args.tenantId,
       organizationId: args.organizationId,
-      err: error,
-    })
-  })
-
-  await enqueueVectorReindex({
-    container,
-    tenantId: args.tenantId,
-    organizationId: args.organizationId,
-  }).catch((error) => {
-    logger.warn('Vector reindex enqueue did not complete promptly', {
-      tenantId: args.tenantId,
-      organizationId: args.organizationId,
-      reason: error instanceof Error ? error.message : String(error),
+    }).catch((error) => {
+      logger.warn('Vector reindex enqueue did not complete promptly', {
+        tenantId: args.tenantId,
+        organizationId: args.organizationId,
+        reason: error instanceof Error ? error.message : String(error),
+      })
     })
   })
 }
