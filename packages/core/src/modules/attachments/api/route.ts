@@ -3,6 +3,7 @@ import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachme
 import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
 import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { prepareAttachmentMutation } from '../lib/access-mutation'
 import { throwAttachmentAccessError } from '../lib/access-errors'
 import { createAttachmentAccessContext } from '../lib/access-runner'
@@ -387,6 +388,10 @@ async function uploadAttachment(req: Request) {
   if (uploadScope.denied) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const orgId = uploadScope.organizationId
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Owner-access checks (below) must authorize against the scope the attachment
+  // is actually created under, not the uploader's raw home org (#3765) — the
+  // delete handler builds the same scopedAuth for the identical reason.
+  const scopedAuth = { ...auth, orgId }
   if (getAttachmentStoragePolicy() === 'legacy') await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
@@ -474,6 +479,32 @@ async function uploadAttachment(req: Request) {
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
   }
   await ensureAttachmentPartitionProtection(em, partition)
+  // Authorize the normalized primary owner and every assignment before any
+  // quota reservation or storage write (#8891). Reuse the same merged
+  // assignments list below when persisting, so the authorized owner set can
+  // never drift from the stored one.
+  let assignments = assignmentsFromForm.slice()
+  if (entityId !== LIBRARY_ENTITY_ID) {
+    assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
+  }
+  const attachmentId = randomUUID()
+  await assertAttachmentOwnerAccess({
+    em,
+    context: createAttachmentAccessContext(container),
+    auth: scopedAuth,
+    attachment: {
+      id: attachmentId,
+      entityId,
+      recordId,
+      partitionCode: partition.code,
+      tenantId: auth.tenantId ?? null,
+      organizationId: orgId,
+      fileName: safeName,
+      mimeType: fileMimeType,
+      storageMetadata: { assignments },
+    },
+    action: 'create',
+  })
   const requestedPublicOverride =
     typeof partitionOverride === 'string' &&
     partitionOverride.length > 0 &&
@@ -594,12 +625,7 @@ async function uploadAttachment(req: Request) {
     }
   }
 
-  let assignments = assignmentsFromForm.slice()
-  if (entityId !== LIBRARY_ENTITY_ID) {
-    assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
-  }
   const metadata = mergeAttachmentMetadata(null, { assignments, tags })
-  const attachmentId = randomUUID()
   assertAttachmentScopeInvariant({ tenantId: auth.tenantId, organizationId: orgId })
   const att = em.create(Attachment, {
     id: attachmentId,
@@ -621,6 +647,23 @@ async function uploadAttachment(req: Request) {
   // custom-field failure cannot leave behind a committed orphan attachment.
   try {
     await em.transactional(async (tx) => {
+      // Recheck owner access at the commit boundary (#8891 review) — the early
+      // check above ran before storage/OCR; an editor's share or the owner
+      // itself can be revoked/archived while that work was in flight. Use a
+      // fresh context so this evaluation never reuses the earlier subject or
+      // resolver cache. `commitBoundary: true` tells a resolver that owns a
+      // locking protocol for its aggregate (e.g. Documents' pessimistic write
+      // lock on archive/share mutations) to take that same lock on `tx` here,
+      // so this recheck is serialized against those mutations rather than
+      // racing them with a plain read (#8975 review).
+      await assertAttachmentOwnerAccess({
+        em: tx,
+        context: createAttachmentAccessContext(container),
+        auth: scopedAuth,
+        attachment: att,
+        action: 'create',
+        commitBoundary: true,
+      })
       await tx.persist(att).flush()
       if (dataEngine) {
         await setCustomFieldsIfAny({
@@ -637,7 +680,6 @@ async function uploadAttachment(req: Request) {
       }
     })
   } catch (error) {
-    logger.error('Failed to persist attachment with custom attributes', { err: error })
     try {
       await (uploadDriver.deleteStrict?.(partition.code, storedPath)
         ?? uploadDriver.delete(partition.code, storedPath))
@@ -647,6 +689,10 @@ async function uploadAttachment(req: Request) {
     } catch (cleanupError) {
       logger.error('Failed to compensate attachment persistence', { err: cleanupError })
     }
+    // A commit-boundary owner-access denial must still surface as the usual
+    // non-disclosing access error (e.g. 404), not the generic 500 below.
+    if (isCrudHttpError(error)) throw error
+    logger.error('Failed to persist attachment with custom attributes', { err: error })
     return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
   }
 

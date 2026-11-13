@@ -1596,6 +1596,34 @@ The four advertised `detail:sales.{order|quote}:{stage-bar|closure}` IDs now mou
 
 **Action for widget authors:** check feature gates and order/quote assumptions before enabling previously dormant widgets. Existing tabs/details/shipping IDs and native document behavior remain available.
 
+### Attachment owner access covers upload (#8891)
+
+`POST /api/attachments` let a caller set the primary `entityId`/`recordId`, or a secondary
+`assignments` entry, to a `documents:document` owner without going through the owner-access check the
+#6726/#6829 framework already enforces for reads, reassignment and deletion — bypassing the
+authorization Documents' own dedicated upload route (`POST /api/documents/[id]/attachments`,
+`attachmentService.createScoped`) already applies. `AttachmentAccessAction` gains a new `'create'`
+member, evaluated against the normalized primary owner and every assignment right after the upload's
+partition is resolved — before any quota reservation or storage write. Documents' existing resolver
+(`documents.document-attachments`) now treats `create` the same as `reassign`/`delete` (requires
+`canEdit`, not just `canView`), so a viewer/commenter share, a missing document, an archived document,
+or an out-of-scope document all deny the upload with the same `404` (`document_not_found`) the read
+paths already return — non-disclosing, consistent with the rest of the framework.
+
+An authorized editor, the document's owner, and a `documents.manage` holder are unaffected. Uploads
+whose owner is not `documents:document` are unaffected — the registry's partition/entity matching
+skips them with no extra query. This closes the one write path the #6726/#6829 rollout left open; it
+does not change read access to existing attachments (tracked separately in #7989/#8760/#8763).
+
+**Action for module authors:** a resolver that declares an explicit `actions` array should add
+`'create'` if it wants to authorize generic uploads targeting its owner type; a resolver with no
+`actions` array (matching every action, like Documents') needs no change but should confirm its
+`resolve()` branches handle `create` the way it wants (most should treat it like `reassign`).
+
+**Action for API clients:** a generic upload that previously succeeded against a `documents:document`
+the caller cannot edit now answers `404`. Use Documents' own upload route for document attachments —
+it already enforces this and is unaffected.
+
 ### Planner availability replace refuses invalid windows (#9171)
 
 `POST /api/planner/availability-weekly`, and `POST /api/planner/availability-date-specific` for

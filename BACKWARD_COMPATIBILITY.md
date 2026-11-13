@@ -653,3 +653,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## Attachment upload owner access (2026-11-07, #8891)
+
+Generic upload enforces #6726/#6829 via `create`. [Migration](.ai/specs/2026-10-01-attachment-access-resolvers.md). Ack pending.

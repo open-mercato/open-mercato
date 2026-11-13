@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -104,8 +105,10 @@ export async function evaluateAttachmentAccess(input: {
   action: AttachmentAccessAction
   context?: AttachmentAccessContext | null
   requireAuthForPublic?: boolean
+  em?: EntityManager
+  commitBoundary?: boolean
 }): Promise<AttachmentAccessResult> {
-  const { auth, attachment, partition, action, context } = input
+  const { auth, attachment, partition, action, context, em, commitBoundary } = input
   const baseline = checkAttachmentAccess(auth, attachment as Attachment, partition as AttachmentPartition, { requireAuthForPublic: input.requireAuthForPublic })
   if (!baseline.ok) return { ok: false, status: baseline.status === 401 ? 401 : 403, reason: 'scope', protected: false }
   const deny = (status: 401 | 403 | 404 | 504, reason: string, resolverId?: string): AttachmentAccessResult => {
@@ -154,7 +157,7 @@ export async function evaluateAttachmentAccess(input: {
     }
     try {
       const raw = await withinBudget(() => resolver.resolve(Object.freeze({
-        action, subject,
+        action, subject, em, commitBoundary,
         attachment: Object.freeze({
           id: attachment.id, entityId: attachment.entityId, recordId: attachment.recordId,
           partitionCode: attachment.partitionCode, tenantId: attachment.tenantId,
