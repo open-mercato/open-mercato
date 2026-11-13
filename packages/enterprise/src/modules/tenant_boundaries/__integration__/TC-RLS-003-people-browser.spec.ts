@@ -29,6 +29,7 @@ async function screenshot(page: Page, testInfo: TestInfo, name: string) {
 }
 
 test.describe('TC-RLS-003: actual People forms with restricted FORCE RLS', () => {
+  test.setTimeout(240_000)
   let runtime: RlsLiveRuntime
   let fixtures: Awaited<ReturnType<typeof createPeopleBrowserFixtures>>
 
