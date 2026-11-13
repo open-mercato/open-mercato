@@ -1,0 +1,50 @@
+{
+  "runner": "local",
+  "node": "24.22.2",
+  "results": [
+    {
+      "command": "yarn build:packages",
+      "exitCode": 0,
+      "seconds": 75.659
+    },
+    {
+      "command": "yarn generate",
+      "exitCode": 0,
+      "seconds": 14.135
+    },
+    {
+      "command": "yarn build:packages",
+      "exitCode": 0,
+      "seconds": 1.058
+    },
+    {
+      "command": "yarn i18n:check-sync",
+      "exitCode": 0,
+      "seconds": 1.578
+    },
+    {
+      "command": "yarn i18n:check-usage",
+      "exitCode": 0,
+      "seconds": 3.856
+    },
+    {
+      "command": "yarn typecheck",
+      "exitCode": 0,
+      "seconds": 3.401
+    },
+    {
+      "command": "yarn test",
+      "exitCode": 0,
+      "seconds": 452.628
+    },
+    {
+      "command": "yarn build:app",
+      "exitCode": 0,
+      "seconds": 62.249
+    }
+  ],
+  "sourceHead": "b04dc0e2a7b17ea99333d819f822ae3f784ac5b0",
+  "productionAndGeneratedFilesUnchangedAfterGate": true,
+  "executedBy": "canonical validation agent; parent review combines this exact ordered execution with source review",
+  "scope": "Local configured gate; no large-data resource/performance acceptance or required-CI replacement. Only reports/plan follow the source freeze."
+}
