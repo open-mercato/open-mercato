@@ -21,6 +21,8 @@
 
 import { EntityManager, LockMode } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   WorkflowInstance,
   WorkflowBranchInstance,
@@ -40,6 +42,8 @@ import { branchToken, mergeTokenContext, type ExecutionToken } from './execution
 import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry, resolveStepFailureHandling } from './error-routing'
 import { findDefinitionForInstance } from './find-definition'
 import { isSafeMappingTargetPath, safeGetNestedValue } from './safe-mapping-path'
+
+const logger = createLogger('workflows')
 
 export interface AdvanceBranchesResult {
   outcome: 'joined' | 'waiting' | 'failed'
@@ -325,6 +329,15 @@ export async function resumeBranchAfterActivities(
             }
           } catch (error) {
             await failBranch(em, instance, branch, error instanceof Error ? error.message : String(error))
+            try {
+              getTelemetryRuntime()?.reportError(error, {
+                module: 'workflows',
+                code: 'workflows.branch_resume_error_route_failed',
+                attributes: { instanceId: instance.id, branchInstanceId: branch.id },
+              })
+            } catch (reportingError) {
+              logger.warn('Failed to report branch resume error', { err: reportingError })
+            }
           }
         }
       }

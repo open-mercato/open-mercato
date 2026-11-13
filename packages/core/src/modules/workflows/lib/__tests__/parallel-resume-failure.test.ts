@@ -1,5 +1,9 @@
+import type { EntityManager } from '@mikro-orm/core'
+import type { AwilixContainer } from 'awilix'
+import { getTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resumeBranchAfterActivities } from '../parallel-handler'
-import { WorkflowBranchInstance, WorkflowInstance } from '../../data/entities'
+import { WorkflowBranchInstance, WorkflowDefinition, WorkflowInstance } from '../../data/entities'
+import type { ErrorRoutingTransitionLike } from '../error-routing'
 import { executeStep } from '../step-handler'
 import { findDefinitionForInstance } from '../find-definition'
 import { executeTransitionForToken } from '../transition-handler'
@@ -14,31 +18,33 @@ jest.mock('../step-handler', () => ({ executeStep: jest.fn() }))
 jest.mock('../find-definition', () => ({ findDefinitionForInstance: jest.fn() }))
 jest.mock('../transition-handler', () => ({ executeTransitionForToken: jest.fn() }))
 jest.mock('../event-logger', () => ({ logWorkflowEvent: jest.fn() }))
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({ getTelemetryRuntime: jest.fn() }))
+jest.mock('@open-mercato/shared/lib/logger', () => ({ createLogger: () => ({ warn: jest.fn() }) }))
 
 describe('parallel branch destination failure after async activities', () => {
   beforeEach(() => jest.resetAllMocks())
 
-  function setup(transitions: any[] = []) {
-    const instance = { id: 'instance', context: { shared: true }, metadata: { initiatedBy: 'user' } } as any
-    const branch = {
+  function setup(transitions: ErrorRoutingTransitionLike[] = []) {
+    const instance = Object.assign(new WorkflowInstance(), { id: 'instance', context: { shared: true }, metadata: { initiatedBy: 'user' } })
+    const branch = Object.assign(new WorkflowBranchInstance(), {
       id: 'branch', workflowInstanceId: instance.id, branchKey: 'fork-a',
       status: 'WAITING_FOR_ACTIVITIES', currentStepId: 'before', joinStepId: 'join',
       pendingTransition: { toStepId: 'destination' }, contextNamespace: { local: true, _pendingAsyncActivities: [{ jobId: 'job', activityId: 'notify' }] },
-    } as any
+    })
     const em = {
-      findOne: jest.fn(async (entity: any) => entity === WorkflowBranchInstance ? branch : entity === WorkflowInstance ? instance : null),
+      findOne: jest.fn(async (entity: unknown) => entity === WorkflowBranchInstance ? branch : entity === WorkflowInstance ? instance : null),
       find: jest.fn(async () => [{ eventType: 'ACTIVITY_COMPLETED', eventData: { async: true, jobId: 'job', activityId: 'notify', output: { sent: true } } }]),
       flush: jest.fn(async () => {}),
-    } as any
+    } as unknown as EntityManager
     jest.mocked(executeStep).mockResolvedValue({ status: 'FAILED', error: 'destination failed' })
-    jest.mocked(findDefinitionForInstance).mockResolvedValue({ definition: { transitions } } as any)
-    return { instance, branch, em, container: {} as any }
+    jest.mocked(findDefinitionForInstance).mockResolvedValue(Object.assign(new WorkflowDefinition(), { definition: { steps: [], transitions } }))
+    return { instance, branch, em, container: {} as AwilixContainer }
   }
 
   test('fails and logs an unhandled destination failure before the branch can advance', async () => {
     const { instance, branch, em, container } = setup()
     const result = await resumeBranchAfterActivities(em, container, instance.id, branch.id)
-    expect(result.continueExecution).toBe(true) // wake loop to cancel siblings
+    expect(result.continueExecution).toBe(true)
     expect(branch.status).toBe('FAILED')
     expect(branch.errorMessage).toBe('destination failed')
     expect(logWorkflowEvent).toHaveBeenCalledWith(em, expect.objectContaining({
@@ -53,7 +59,7 @@ describe('parallel branch destination failure after async activities', () => {
     ])
     jest.mocked(executeTransitionForToken).mockImplementation(async () => {
       if (success) branch.currentStepId = 'join'
-      return { success } as any
+      return { success }
     })
     await resumeBranchAfterActivities(em, container, instance.id, branch.id)
     expect(executeTransitionForToken).toHaveBeenCalledWith(
@@ -68,9 +74,10 @@ describe('parallel branch destination failure after async activities', () => {
 
   test('honors a fallback directive in the branch namespace', async () => {
     const { instance, branch, em, container } = setup()
-    jest.mocked(findDefinitionForInstance).mockResolvedValue({ definition: {
+    jest.mocked(findDefinitionForInstance).mockResolvedValue(Object.assign(new WorkflowDefinition(), { definition: {
       steps: [{ stepId: 'destination', errorDirective: { mode: 'continueWithFallback', fallbackValue: 0 } }],
-    } } as any)
+      transitions: [],
+    } }))
     await resumeBranchAfterActivities(em, container, instance.id, branch.id)
     expect(branch.status).toBe('ACTIVE')
     expect(branch.contextNamespace.destination).toBe(0)
@@ -87,6 +94,28 @@ describe('parallel branch destination failure after async activities', () => {
     await resumeBranchAfterActivities(em, container, instance.id, branch.id)
     expect(branch.status).toBe('FAILED')
     expect(branch.errorMessage).toBe('route failed')
+  })
+
+  test.each([false, true])('reports a route exception without letting telemetry replace its failure (sink throws: %s)', async (sinkThrows) => {
+    const { instance, branch, em, container } = setup([
+      { fromStepId: 'destination', toStepId: 'recovery', kind: 'error' },
+    ])
+    const routeError = new Error('route failed')
+    const reportError = jest.fn(() => {
+      if (sinkThrows) throw new Error('telemetry unavailable')
+    })
+    jest.mocked(getTelemetryRuntime).mockReturnValue({ reportError } as unknown as TelemetryRuntime)
+    jest.mocked(executeTransitionForToken).mockRejectedValue(routeError)
+
+    await expect(resumeBranchAfterActivities(em, container, instance.id, branch.id)).resolves.toEqual({ continueExecution: true })
+
+    expect(branch.status).toBe('FAILED')
+    expect(branch.errorMessage).toBe('route failed')
+    expect(reportError).toHaveBeenCalledWith(routeError, {
+      module: 'workflows',
+      code: 'workflows.branch_resume_error_route_failed',
+      attributes: { instanceId: instance.id, branchInstanceId: branch.id },
+    })
   })
 
   test.each(['COMPLETED', 'WAITING'] as const)('preserves a successful or waiting destination (%s)', async (status) => {
