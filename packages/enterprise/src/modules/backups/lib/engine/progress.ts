@@ -1,7 +1,8 @@
 import type { ProgressEvent, ProgressSink } from './types'
 import { backupTranslation } from './locale'
+import { humanTerminalEnabled } from './cli-presentation'
 
-type Output = Pick<NodeJS.WriteStream, 'write'> & Partial<Pick<NodeJS.WriteStream, 'rows' | 'columns'>>
+type Output = Pick<NodeJS.WriteStream, 'write'> & Partial<Pick<NodeJS.WriteStream, 'rows' | 'columns' | 'isTTY'>>
 type EntityState = { startedAt: number; lastProgressAt?: number; status: 'running' | 'queued' | 'done' | 'failed' }
 type View = { key: string; event: ProgressEvent; state: EntityState; finishedAt?: number }
 const maximumEntities = 10000
@@ -23,7 +24,17 @@ const numeric = (value: string) => { const number = Number(value); return Number
 const ratio = (done: string, total: string, finished: boolean) => numeric(total) > 0 ? Math.max(0, Math.min(1, numeric(done) / numeric(total))) : finished ? 1 : 0
 const bar = (fraction: number) => '█'.repeat(Math.floor(fraction * 16)) + '░'.repeat(16 - Math.floor(fraction * 16))
 
-export function progressRenderer(mode: 'tty' | 'plain' | 'json' | 'verbose' | 'none', output: Output = process.stderr): ProgressSink {
+export type RenderedProgressSink = ProgressSink & { suspend(): void }
+
+export function progressRenderer(mode: 'tty' | 'plain' | 'json' | 'verbose' | 'none', output: Output = process.stderr): RenderedProgressSink {
+  const rich = humanTerminalEnabled(output, mode)
+  if (mode === 'tty' && !rich) mode = 'plain'
+  let paintedRows = 0
+  const suspend = () => {
+    if (paintedRows) output.write((paintedRows > 1 ? `\u001b[${paintedRows - 1}B` : '') + '\r\n')
+    paintedRows = 0
+  }
+  const paint = (code: number, text: string) => rich ? `\u001b[${code}m${text}\u001b[0m` : text
   const last = new Map<string, number>()
   const states = new Map<string, EntityState>()
   const active = new Map<string, View>()
@@ -38,7 +49,7 @@ export function progressRenderer(mode: 'tty' | 'plain' | 'json' | 'verbose' | 'n
     states.clear(); active.clear(); failures.clear(); recent = []; completed = 0; failed = 0
     aggregate = {}; entitiesTotal = undefined; entitiesDone = undefined; startedAt = now; phase = event.phase; runId = event.runId
   }
-  return (event: ProgressEvent) => {
+  const render = (event: ProgressEvent) => {
     if (mode === 'none') return
     const now = Date.now(), token = (event.entityKey ?? event.entity)?.slice(0, 1024)
     if (mode !== 'tty') {
@@ -117,7 +128,7 @@ export function progressRenderer(mode: 'tty' | 'plain' | 'json' | 'verbose' | 'n
     const lines: string[] = []
     if (aggregate.overallRowsDone !== undefined && aggregate.overallRowsTotal !== undefined) {
       const fraction = ratio(aggregate.overallRowsDone, aggregate.overallRowsTotal, finished)
-      lines.push(`${backupTranslation('backups.progress.overall')} ${bar(fraction)} ${Math.floor(fraction * 100)}% ${aggregate.overallRowsDone}/${aggregate.overallRowsTotalExact ? '' : '~'}${aggregate.overallRowsTotal}`)
+      lines.push(aggregate.overallRowsTotalExact && !failed ? `${backupTranslation('backups.progress.overall')} ${bar(fraction)} ${Math.floor(fraction * 100)}% ${aggregate.overallRowsDone}/${aggregate.overallRowsTotal}` : `${backupTranslation('backups.progress.overall')} ${aggregate.overallRowsDone}/~${aggregate.overallRowsTotal}`)
     }
     const done = Math.max(0, entitiesDone ?? completed)
     const queued = finished ? '0' : entitiesTotal === undefined ? '?' : String(Math.max(0, entitiesTotal - done - active.size - failed))
@@ -128,14 +139,20 @@ export function progressRenderer(mode: 'tty' | 'plain' | 'json' | 'verbose' | 'n
       const elapsed = Math.max(0.1, ((view.finishedAt ?? now) - view.state.startedAt) / 1000)
       const rate = Math.round(numeric(item.bytesDone) / elapsed / 1048576)
       const eta = fraction > 0 && fraction < 1 ? Math.ceil(elapsed * (1 - fraction) / fraction) : 0
-      const suffix = `${bar(fraction)} ${Math.floor(fraction * 100)}% ${item.rowsDone}/${item.rowsTotalExact ? '' : '~'}${item.rowsTotal} ${backupTranslation('backups.progress.rows')} ${rate}MiB/s ETA ${eta}s`
+      const suffix = item.rowsTotalExact && view.state.status !== 'failed' ? `${bar(fraction)} ${Math.floor(fraction * 100)}% ${item.rowsDone}/${item.rowsTotal} ${backupTranslation('backups.progress.rows')} ${rate}MiB/s ETA ${eta}s` : `${item.rowsDone}/~${item.rowsTotal} ${backupTranslation('backups.progress.rows')} ${rate}MiB/s ${Math.floor(elapsed)}s`
       const label = clip(item.entity ?? view.key, Math.max(4, width - Array.from(suffix).reduce((size, character) => size + cells(character), 0) - 3))
-      return `${view.state.status === 'done' ? '✓' : view.state.status === 'failed' ? '✗' : '→'} ${label} ${suffix}`
+      return `${view.state.status === 'done' ? '✅' : view.state.status === 'failed' ? '❌' : '🔧'} ${label} ${suffix}`
     }
-    if (failures.size) lines.unshift(`✗ ${failed} ${backupTranslation('backups.progress.failed')}`, ...[...failures.values()].map(entityLine))
+    if (failures.size) lines.unshift(`❌ ${failed} ${backupTranslation('backups.progress.failed')}`, ...[...failures.values()].map(entityLine))
     for (const view of active.values()) lines.push(entityLine(view))
     for (const view of recent) lines.push(entityLine(view))
-    const panel = lines.slice(0, height).map(line => clip(line, width))
-    output.write('\r\u001b[J' + panel.join('\r\n') + (finished ? '\r\n' : panel.length > 1 ? `\u001b[${panel.length - 1}A\r` : '\r'))
+    const panel = lines.slice(0, height).map(line => {
+      const visible = clip(line, width)
+      return paint(line.startsWith('❌') ? 31 : line.startsWith('✅') ? 32 : line.startsWith('🔧') || line.startsWith(backupTranslation('backups.progress.overall')) ? 36 : 34, visible)
+    })
+    const clear = paintedRows ? '\r\u001b[2K' + ('\u001b[1B\r\u001b[2K').repeat(paintedRows - 1) + (paintedRows > 1 ? `\u001b[${paintedRows - 1}A\r` : '') : '\r'
+    output.write(clear + panel.join('\r\n') + (finished ? '\r\n' : panel.length > 1 ? `\u001b[${panel.length - 1}A\r` : '\r'))
+    paintedRows = finished ? 0 : panel.length
   }
+  return Object.assign(render, { suspend })
 }
