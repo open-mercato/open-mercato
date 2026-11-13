@@ -1,3 +1,5 @@
+import { isDatabaseRuntimeEnabled, runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+import { resolveDeclaredDatabaseJobContext } from '@open-mercato/shared/lib/db/declarations'
 import type { JobContext, JobHandler } from '@open-mercato/queue'
 import type { ModuleWorker } from '@open-mercato/shared/modules/registry'
 import {
@@ -31,27 +33,32 @@ export function createPerJobWorkerHandler(
   createContainer: WorkerJobContainerFactory,
 ): JobHandler {
   return async (job, ctx: JobContext) => {
-    const container = await createContainer()
-    try {
-      for (const worker of workers) {
-        await withModuleResourceUsage(
-          {
-            moduleId: worker.moduleId ?? inferModuleIdFromResourceId(worker.id),
-            surface: 'worker',
-            operation: worker.id,
-            resourceId: worker.id,
-          },
-          () => worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) }),
-        )
-      }
-    } finally {
+    const execute = async () => {
+      const container = await createContainer()
       try {
-        const em = container.resolve('em') as ClearableEntityManager | null
-        em?.clear?.()
-      } catch {
-        // Best-effort: clearing the identity map is a memory optimization and
-        // must never mask a job's own outcome.
+        for (const worker of workers) {
+          await withModuleResourceUsage(
+            {
+              moduleId: worker.moduleId ?? inferModuleIdFromResourceId(worker.id),
+              surface: 'worker',
+              operation: worker.id,
+              resourceId: worker.id,
+            },
+            () => worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) }),
+          )
+        }
+      } finally {
+        try {
+          const em = container.resolve('em') as ClearableEntityManager | null
+          em?.clear?.()
+        } catch {
+          // Best-effort: clearing the identity map is a memory optimization and
+          // must never mask a job's own outcome.
+        }
       }
     }
+    if (!isDatabaseRuntimeEnabled()) return execute()
+    const context = await resolveDeclaredDatabaseJobContext({ queue: ctx.queueName, workerIds: workers.map((worker) => worker.id), payload: job.payload, metadata: job.metadata })
+    return runWithDatabaseExecutionContext(context, execute)
   }
 }

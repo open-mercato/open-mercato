@@ -9,7 +9,7 @@ import { assertTenantOrmInventory, loadTenantTableManifest } from './manifest'
 import { installTenantPoolBoundary, type BoundaryPool } from './pool'
 import { verifyTenantTablePolicies } from './policies'
 import { verifyRuntimeDatabaseRole } from './roles'
-import { runWithTenantBoundary } from './scope'
+import { currentTenantBoundaryScope, runWithTenantBoundary } from './scope'
 import { registerTenantBoundaryRequestResolver } from './requests'
 
 const registrationKey = Symbol.for('@open-mercato/enterprise.tenantBoundaryRegistration.v1')
@@ -32,6 +32,7 @@ export function createTenantBoundaryAdapter(
   return Object.freeze({
     id: 'enterprise.tenant-boundaries', version: '1', configurationKey,
     run: runWithTenantBoundary,
+    currentContext: () => currentTenantBoundaryScope()?.context,
     connectionUrl: (purpose, defaultUrl) => purpose === 'maintenance'
       ? resolveTenantMaintenanceUrl(env, defaultUrl) : defaultUrl,
     configurePool: (value: object, descriptor: DatabasePoolDescriptor) => {

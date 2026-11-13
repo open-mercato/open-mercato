@@ -1,3 +1,4 @@
+import { currentDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
@@ -596,6 +597,13 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     payload: EventPayload,
     options?: EmitOptions
   ): Promise<void> {
+    const execution = currentDatabaseExecutionContext()
+    if (execution?.kind === 'tenant') {
+      if (options?.tenantId != null && options.tenantId.toLowerCase() !== execution.tenantId) {
+        throw new Error('[internal] Event tenant conflicts with its database invocation')
+      }
+      options = { ...options, tenantId: execution.tenantId }
+    }
     const runGlobalTaps = async (): Promise<void> => {
       const taps = getGlobalEventTaps()
       for (const tap of taps) {

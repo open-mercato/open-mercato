@@ -34,3 +34,21 @@ it('propagates resolver and binding outages rather than returning an anonymous s
   } }])
   await expect(resolveDeclaredDatabaseRequestContext(input)).rejects.toThrow('unavailable')
 })
+
+it('resolves persisted job scope and rejects missing, malformed or conflicting tenants', async () => {
+  const { resolveDeclaredDatabaseJobContext } = await import('../declarations')
+  const job = { queue: 'custom', workerIds: ['extension:work'], payload: { tenantId } }
+  await expect(resolveDeclaredDatabaseJobContext(job)).resolves.toMatchObject({ kind: 'tenant', tenantId, source: 'worker' })
+  await expect(resolveDeclaredDatabaseJobContext({ ...job, payload: {} })).rejects.toThrow('verified tenant UUID')
+  await expect(resolveDeclaredDatabaseJobContext({ ...job, payload: { tenantId: 'raw-header' } })).rejects.toThrow('verified tenant UUID')
+  await expect(resolveDeclaredDatabaseJobContext({ ...job, metadata: { tenantId: '11111111-1111-4111-8111-111111111111' } })).rejects.toThrow('Conflicting')
+})
+
+it('lets an owner resolve its persisted envelope without central module knowledge', async () => {
+  const { resolveDeclaredDatabaseJobContext } = await import('../declarations')
+  const provider = { matches: (job: { queue: string }) => job.queue === 'custom', resolve: async () => ({ kind: 'tenant' as const, tenantId, source: 'worker' as const }) }
+  registerDatabaseModuleDeclarations([{ moduleId: 'extension', declarations: { jobProviders: [provider] } }])
+  await expect(resolveDeclaredDatabaseJobContext({ queue: 'custom', workerIds: [], payload: { envelope: {} } })).resolves.toMatchObject({ kind: 'tenant', tenantId })
+  registerDatabaseModuleDeclarations([{ moduleId: 'another', declarations: { jobProviders: [provider] } }])
+  await expect(resolveDeclaredDatabaseJobContext({ queue: 'custom', workerIds: [], payload: {} })).rejects.toThrow('Ambiguous')
+})

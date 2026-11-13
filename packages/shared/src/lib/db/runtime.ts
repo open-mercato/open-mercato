@@ -59,6 +59,7 @@ export type DatabaseRuntimeAdapter = Readonly<{
   configurationKey: string
   configurePool(pool: object, descriptor: DatabasePoolDescriptor): DatabasePoolLifecycle
   run<Result>(context: DatabaseExecutionContext, callback: () => Result): Result
+  currentContext?(): DatabaseExecutionContext | undefined
   connectionUrl?(purpose: 'runtime' | 'maintenance', defaultUrl: string): string
   beforeMigrate?(): Promise<void>
   afterMigrate?(): Promise<void>
@@ -132,6 +133,14 @@ export async function resolveDatabaseExecutionContext(): Promise<Exclude<Databas
     }
   }
   return Object.freeze({ status: 'absent' })
+}
+
+export function currentDatabaseExecutionContext(): DatabaseExecutionContext | undefined {
+  return state().adapter?.currentContext?.()
+}
+
+export function isDatabaseRuntimeEnabled(): boolean {
+  return Boolean(state().adapter)
 }
 
 export function runWithDatabaseExecutionContext<Result>(

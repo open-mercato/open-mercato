@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { DatabaseExecutionContext, DatabaseTableMetadata } from './runtime'
 
 export type DatabaseRequestInput = Readonly<{
@@ -16,7 +17,18 @@ export type DatabaseRequestProvider = Readonly<{
   resolve(input: DatabaseRequestInput): Promise<DatabaseRequestIdentity | null>
 }>
 export type DatabaseBindingValidator = (identity: DatabaseRequestIdentity) => Promise<boolean>
+export type DatabaseJobInput = Readonly<{
+  queue: string
+  workerIds: readonly string[]
+  payload: unknown
+  metadata?: Readonly<Record<string, unknown>>
+}>
+export type DatabaseJobProvider = Readonly<{
+  matches(input: DatabaseJobInput): boolean
+  resolve(input: DatabaseJobInput): Promise<DatabaseExecutionContext>
+}>
 export type DatabaseModuleDeclarations = Readonly<{
+  jobProviders?: readonly DatabaseJobProvider[]
   requestProviders?: readonly DatabaseRequestProvider[]
   bindingValidators?: readonly DatabaseBindingValidator[]
   tableClassification?: 'identity'
@@ -55,4 +67,22 @@ export async function resolveDeclaredDatabaseRequestContext(input: DatabaseReque
     if (!await validator(identity)) return { kind: 'identity', tenantId: null, source: 'identity', operation: 'invalid-request-binding' }
   }
   return identity.context
+}
+
+export function databaseJobTenantContext(tenantId: unknown, operation: string): DatabaseExecutionContext {
+  const parsed = z.string().uuid().safeParse(tenantId)
+  if (!parsed.success) throw new Error('[internal] Database job requires a verified tenant UUID')
+  return { kind: 'tenant', tenantId: parsed.data.toLowerCase(), source: 'worker', operation }
+}
+
+export async function resolveDeclaredDatabaseJobContext(input: DatabaseJobInput): Promise<DatabaseExecutionContext> {
+  const providers = [...declarations().values()].flatMap((entry) => entry.jobProviders ?? []).filter((provider) => provider.matches(input))
+  if (providers.length > 1) throw new Error('[internal] Ambiguous database job context providers')
+  if (providers[0]) return providers[0].resolve(input)
+  const payloadTenant = input.payload && typeof input.payload === 'object' && 'tenantId' in input.payload ? input.payload.tenantId : undefined
+  const metadataTenant = input.metadata?.tenantId
+  if (payloadTenant != null && metadataTenant != null && payloadTenant !== metadataTenant) {
+    throw new Error('[internal] Conflicting database job tenant identities')
+  }
+  return databaseJobTenantContext(metadataTenant ?? payloadTenant, input.queue)
 }
