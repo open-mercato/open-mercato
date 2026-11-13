@@ -35,6 +35,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.3 | Propagate worker, subscriber and scheduler tenant contexts | inline | todo | — |
 | 2 | 2.4 | Separate tenant CLI operations from privileged maintenance | inline | todo | — |
 | 2 | 2.5 | Classify and integrate independent search, vector and event pools | inline | todo | — |
+| 3 | 3.1-cli-lifecycle | Wire neutral migration preflight, completion and committed-history recovery | inline | done | this commit; CLI57 tests + typecheck |
 | 3 | 3.1 | Reconcile explicit canary policies through migrations with rollback | inline | todo | — |
 | 3 | 3.2 | Add self-contained canary CRUD and cross-tenant HTTP integration tests | inline | todo | — |
 | 3 | 3.3 | Add dispatcher, job retry and maintenance integration coverage | inline | todo | — |
