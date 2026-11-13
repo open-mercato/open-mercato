@@ -214,17 +214,20 @@ function storedReviewResults(root: string): StoredReviewResult[] {
 test('fake runner starts in its admitted directory while controller reads and writes stay denied', { skip: !targetSandboxAvailable }, async () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
+  const admittedRunnerRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-admitted-runner-'))
   const secretPath = path.join(controller, 'controller-secret.txt')
   const deniedWritePath = path.join(controller, 'controller-write.txt')
   try {
     fs.writeFileSync(secretPath, 'controller secret')
-    const bin = installFakeRunner(controller, 'codex', `
+    const bin = installFakeRunner(admittedRunnerRoot, 'codex', `
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 for (const readPath of ${JSON.stringify([path.join(controller, 'package.json'), secretPath])}) {
   assert.throws(() => fs.readFileSync(readPath), { code: /^(EPERM|EACCES|ENOENT)$/ })
 }
-assert.throws(() => fs.writeFileSync(${JSON.stringify(deniedWritePath)}, 'escaped'), { code: /^(EPERM|EACCES|ENOENT|EROFS)$/ })
+for (const writePath of ${JSON.stringify([deniedWritePath, path.join(os.tmpdir(), 'om-harness-unadmitted-write'), '/om-harness-unadmitted-write'])}) {
+  assert.throws(() => fs.writeFileSync(writePath, 'escaped'), { code: /^(EPERM|EACCES|ENOENT|EROFS)$/ })
+}
 fs.writeFileSync('target-edit.txt', 'contained')
 console.log('fixture boundary verified')
 `)
@@ -246,6 +249,7 @@ console.log('fixture boundary verified')
     assert.equal(fs.readFileSync(path.join(target, 'target-edit.txt'), 'utf8'), 'contained')
     assert.equal(fs.existsSync(deniedWritePath), false)
   } finally {
+    fs.rmSync(admittedRunnerRoot, { recursive: true, force: true })
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
   }

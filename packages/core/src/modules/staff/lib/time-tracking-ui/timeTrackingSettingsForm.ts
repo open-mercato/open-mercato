@@ -17,7 +17,7 @@
 import { formatDuration } from '../time-tracking/duration'
 import { roundMinutes, type RoundingSettings, type RoundingUnitMinutes } from '../time-tracking/rounding'
 import { DEFAULT_SUPPORT_REFERENCE_PREFIX, contributedTimeTrackingSettingKeys } from '../time-tracking/settingKeys'
-import { readTimeTrackingSettingValue, type TimeTrackingSettings } from '../time-tracking/settings'
+import { readTimeTrackingSettingValue, type TimeEntryMode, type TimeTrackingSettings } from '../time-tracking/settings'
 
 export const ROUNDING_UNIT_OPTIONS: readonly RoundingUnitMinutes[] = [0, 5, 10, 15]
 
@@ -60,6 +60,7 @@ export type TimeTrackingSettingsDraft = {
   roundingDirection: RoundingSettings['direction']
   defaultsBillable: boolean
   defaultsChainStartFromPreviousEnd: boolean
+  defaultsEntryMode?: TimeEntryMode
   /** Free text: empty means "no daily target", which is a real, storable value. */
   dailyHoursText: string
   warningsOverlap: boolean
@@ -70,7 +71,7 @@ export type TimeTrackingSettingsDraft = {
   /**
    * EP-42 — every contributed setting key, by its `<group>.<key>` id, carried through
    * the draft untouched so the page's own Save round-trips a contribution it knows
-   * nothing about. The eight built-ins are NOT in here: the page renders those itself.
+   * nothing about. The built-ins are NOT in here: the page renders those itself.
    */
   contributed: Record<string, unknown>
 }
@@ -84,6 +85,7 @@ export function toSettingsDraft(settings: TimeTrackingSettings): TimeTrackingSet
     roundingDirection: settings.rounding.direction,
     defaultsBillable: settings.defaults.billable,
     defaultsChainStartFromPreviousEnd: settings.defaults.chainStartFromPreviousEnd,
+    defaultsEntryMode: settings.defaults.entryMode ?? 'task',
     dailyHoursText: settings.targets.dailyHours === null ? '' : String(settings.targets.dailyHours),
     warningsOverlap: settings.warnings.overlap,
     warningsRunningTimer: settings.warnings.runningTimer,
@@ -138,6 +140,7 @@ export function toSettingsPayload(draft: TimeTrackingSettingsDraft): TimeTrackin
     defaults: {
       billable: draft.defaultsBillable,
       chainStartFromPreviousEnd: draft.defaultsChainStartFromPreviousEnd,
+      entryMode: draft.defaultsEntryMode ?? 'task',
     },
     targets: { dailyHours },
     warnings: { overlap: draft.warningsOverlap, runningTimer: draft.warningsRunningTimer },
@@ -178,6 +181,7 @@ export function rebaseSettingsDraft(
       previousBaseline.defaultsChainStartFromPreviousEnd,
       nextBaseline.defaultsChainStartFromPreviousEnd,
     ),
+    defaultsEntryMode: pick(draft.defaultsEntryMode, previousBaseline.defaultsEntryMode, nextBaseline.defaultsEntryMode),
     dailyHoursText: pick(draft.dailyHoursText, previousBaseline.dailyHoursText, nextBaseline.dailyHoursText),
     warningsOverlap: pick(draft.warningsOverlap, previousBaseline.warningsOverlap, nextBaseline.warningsOverlap),
     warningsRunningTimer: pick(draft.warningsRunningTimer, previousBaseline.warningsRunningTimer, nextBaseline.warningsRunningTimer),
@@ -204,6 +208,7 @@ export function isSettingsDraftDirty(
     draft.roundingDirection !== baseline.roundingDirection ||
     draft.defaultsBillable !== baseline.defaultsBillable ||
     draft.defaultsChainStartFromPreviousEnd !== baseline.defaultsChainStartFromPreviousEnd ||
+    (draft.defaultsEntryMode ?? 'task') !== (baseline.defaultsEntryMode ?? 'task') ||
     draft.dailyHoursText.trim() !== baseline.dailyHoursText.trim() ||
     draft.warningsOverlap !== baseline.warningsOverlap ||
     draft.warningsRunningTimer !== baseline.warningsRunningTimer ||

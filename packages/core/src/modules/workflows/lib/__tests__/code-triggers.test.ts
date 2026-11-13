@@ -121,7 +121,7 @@ describe('loadCodeTriggers (#4425)', () => {
         organizationId: ORG,
         deletedAt: null,
       },
-      {},
+      { refresh: true },
       { tenantId: TENANT, organizationId: ORG },
     )
   })

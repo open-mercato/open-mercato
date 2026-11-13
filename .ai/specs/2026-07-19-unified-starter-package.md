@@ -112,6 +112,10 @@ A first run needed several manual commands. The monorepo had `yarn infra:up` but
 
 ### Optional AI and existing-service consent (2026-11-03)
 
+The automatic service selection below supersedes this section’s default consent
+policy (confirmed 2026-11-06). Optional AI, direct infrastructure consent,
+connection verification and initialization defaults remain unchanged.
+
 - The provider menu offers `0`/Enter to skip. Empty required keys, no TTY and non-interactive setup return `skipped`; configured-provider synchronization is unchanged.
 - Port-owner discovery reads Docker container state and published port bindings, including restarting containers whose TCP port is temporarily closed. It never infers health from an open port.
 - On occupied ports or unhealthy existing services, setup asks whether to use the URLs already configured in `.env`. Only explicit yes continues; default/no or non-interactive mode stops with `yarn om stop` guidance. Accepted services are not stopped/restarted/recreated by the remaining setup/dev path, which receives `--no-infra`. Database connection failures are not hidden.
@@ -126,16 +130,120 @@ A first run needed several manual commands. The monorepo had `yarn infra:up` but
 - 2026-10-22 — #7791: `yarn setup` starts and health-checks the infra in generated apps and the monorepo, shared Docker preflight, `--no-infra` with zero Docker calls, `infra:up`/`infra:down` in the template, login box visible in compact setup.
 - 2026-10-23 — #7791 review follow-ups: monorepo `initialize --skip-if-initialized`, health-aware `infra-up` check, WSL and port hints, symlink-safe `infra.mjs` entry, database name in the skip message.
 
-## 2026-11-03 — Verify configured service credentials
 
-Both setup entrypoints verify real connections after dependency installation and
-infrastructure readiness, before migrations, initialization, or launching dev.
-Use PostgreSQL `SELECT 1`, authenticated Redis `PING` for every configured URL,
-and the protected Meilisearch indexes API with the application API key. Reject
-invalid credentials, insufficient permissions and unreachable targets with
-bounded, redacted, setting-specific errors. Do not fall back to replacement
-services or suppress a failure after existing-service consent. Pre-existing
-unhealthy services are offered for reuse before any image preparation or
-container startup; direct infrastructure startup retains explicit retry behavior.
-The shared stdlib-bootstrap helper loads already-installed pg/ioredis lazily; no
-production dependency or database schema changes are introduced.
+## 2026-11-03 — Service choices for setup
+
+A TTY prompt offers reuse, ephemeral Testcontainers services, isolated Compose
+services on random free ports, and Compose on configured ports. Explicit flags
+are `--reuse-services` (legacy `--no-infra`), `--ephemeral`, `--random-ports`,
+and `--infra`.
+
+Without a service flag both entrypoints pick the mode in this order (shared
+`selectDefaultServiceMode` in `infra-preflight.mjs`, which never writes):
+(a) configured services answer, their credentials verify and they are not
+containers of a different Compose project -> reuse (as `--no-infra`); (b) nothing
+answers on the configured ports and Docker is usable -> this app's Compose stack
+on the configured ports (as `--infra`); (c) the configured ports are held by
+something unusable (rejected credentials, another project's containers, a
+non-PostgreSQL listener) and Docker is usable -> an isolated stack on free ports
+(as `--random-ports`), with one line saying why; another project's database is
+never contacted; (d) Docker is unusable and nothing usable answers -> exit 2 with
+the formatted Docker problem, the `#without-docker` guide and the `--no-infra`
+hint; (e) Docker is unusable but the configured services verify -> reuse. A
+non-loopback `DATABASE_URL` is an explicit choice and is reused (verification and
+the remote-write acknowledgement decide). A TTY shows the menu with that pick as
+the default; noninteractive runs never prompt. Explicit flags keep their exact
+semantics. Explicit full-Docker mode keeps its existing Compose behavior.
+
+The shared helper owns port allocation and URL/credential configuration for
+PostgreSQL, all configured Redis consumers, and Meilisearch. Random Compose
+services get a checkout-specific stack/project identity and persist their
+settings. Ephemeral services use Testcontainers mapped hosts/ports, health waits,
+and session-owned cleanup; previous endpoint configuration is restored without
+overwriting subsequent user edits. Failed multi-file configuration rolls back.
+Setup errors include the manual install/generate/migrate/initialize/dev sequence.
+
+### Migration & Backward Compatibility
+
+A plain `yarn setup` on a fresh machine still starts Compose on the configured
+ports (b); it reuses working configured services instead (a/e) and isolates
+itself from occupied ports (c). Pass `--infra` to force configured-port Compose. Existing `--no-infra`
+continues to work, and direct `infra:up` / `infra:down` retain their behavior.
+No existing command or env key is removed; isolated modes explicitly replace
+service endpoints. Explicit isolated modes generate independent random local-only credentials
+and synchronize the corresponding URLs.
+Remote database connection override/TLS query parameters are removed so they
+cannot redirect local setup to a remote database.
+No production dependency is added: Testcontainers is already
+a CLI dependency. Existing generated apps retain their scripts until refreshed.
+
+
+### Credential verification before database setup
+
+Both setup entrypoints verify the actual configured services before running
+migrations or initialization: PostgreSQL executes `SELECT 1`, every configured
+Redis URL authenticates and returns `PONG`, and Meilisearch's protected indexes
+API verifies the application API key. This includes secondary cache/queue/event
+Redis consumers. Timeouts and authentication/authorization failures stop setup
+with the service name, configuration key and sanitized endpoint. They preserve
+existing data and do not print passwords, API keys or URL query values. The
+Meilisearch check uses the application's API-key setting, not the Compose
+master-key setting as a substitute. Public health checks do not establish
+credential validity.
+
+
+### 2026-11-03 security review remediation
+
+Superseded on 2026-11-04 by the default selection above: setup never starts
+services on ports that answer, never writes into another project's database, and
+only falls back to an isolated stack on free ports or stops with guidance.
+
+Remote PostgreSQL writes now require `--allow-remote-database=host:port/database`
+matching the actual pg client parameters. A bare flag can request exact target
+confirmation only in a terminal. The guard snapshots the accepted connection
+into each mutation child; changing `.env` during a prompt cannot redirect it.
+This applies to startup migrations, initialization and recovery launchers.
+Local loopback targets retain default reuse without an acknowledgement.
+
+The isolated modes generate independent random credentials for PostgreSQL,
+Redis and Meilisearch. Owned random-stack credentials live only in ignored `.env`
+files and survive reruns despite ambient remote connection settings. The
+`mercato-local-v2-*` identity avoids applying fresh credentials to an older
+volume; earlier random stacks and data are retained, never deleted or migrated.
+Setup service images, OpenCode base defaults and the Testcontainers reaper are
+pinned to verified multiarch digests. Development port bindings default to
+loopback; nonlocal Redis bindings without a password fail before Docker calls.
+Full-Docker application deployment configurations keep their existing behavior.
+
+#### Migration & Backward Compatibility
+
+A configured non-loopback target that previously accepted implicit setup writes
+now requires the exact-target acknowledgement. Existing local reuse and explicit
+`--no-infra` flags remain supported. Operators intentionally writing remotely
+must add the acknowledgement shown by the guard. Isolated v1 data is preserved
+under its former namespace; v2 starts a separate local stack with independent
+credentials. Optional non-setup profiles retain their existing image policy.
+
+
+### 2026-11-04 — Smooth default selection and setup session ownership
+
+- Default service selection (a)–(e) described in "Service choices for setup";
+  replaces "reuse by default", which on a fresh machine stopped with
+  `PostgreSQL connection failed (localhost:5432)`.
+- The selection runs before `yarn install` and package builds, using only
+  dependency-free probes (TCP, docker CLI); case (d) fails within seconds.
+  Credential verification needs the PostgreSQL driver: when it is missing and
+  a service answers, the template installs dependencies and re-runs the
+  selection, while the monorepo starter reuses and verifies after its install
+  step. Fresh-clone hints use `node packages/starter/bin/om-start.mjs up
+  --no-infra`, which works before the first install.
+- Docker-runtime problems link the README `#without-docker` section;
+  `create-mercato-app` prints the same guide when the docker CLI is missing.
+- Both setup parents (template `scripts/setup.mjs`, monorepo starter `up` in
+  hybrid mode) acquire the canonical workspace dev-session guard
+  (`scripts/dev-session-guard.mjs`, see
+  `2026-07-17-hybrid-dev-runtime-and-starters.md`) before any `.env` write,
+  service configuration, Compose or Testcontainers call, pass its token to the
+  dev runner (`OM_DEV_SESSION_TOKEN`, `OM_DEV_SESSION_WORKSPACE_ROOT`) and
+  release it on failure/exit (detached runs transfer ownership to the runner).
+  A second setup in an active checkout exits 2 without changing anything.

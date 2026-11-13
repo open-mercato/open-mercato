@@ -434,7 +434,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
 
-**Classification.** The removed shape was a *publicly supported* surface, not an undocumented accident: it was part of the exported `MfaProviderInterface.verifySchema` union that a third-party client could validate against, and the enterprise test suite pinned it in a case named *"supports legacy verification payload for backward compatibility"*. It is therefore a genuine STABLE-surface break, and the exception — not a claim that no contract existed — is what authorizes it.
+**Classification.** This public `MfaProviderInterface.verifySchema` union shape was client-validatable and covered by an enterprise legacy-compatibility test. Its removal is a STABLE break authorized by the security exception.
 
 **Exception requirements, as met by this change:**
 
@@ -635,8 +635,25 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
 
+## Compose encryption (2026-11-01, #7231)
+
+STABLE: unsafe keys/HTTP Vault rejected; bridges retain exposure. [Migration](UPGRADE_NOTES.md).
+Named human waiver of steps 1–3 required.
+
+## Encryption maintenance safety gates (2026-11-02, #6767)
+
+CLI safety confirmations changed; stop writers and restart replicas. [Flags, migration and stable formats](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767).
+
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
 `POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
 
 **Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
+
+## #7809 2026-11-06
+
+STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## Comment authors (2026-11-12, #8759)
+
+STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).

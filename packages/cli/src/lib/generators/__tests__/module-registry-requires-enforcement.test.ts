@@ -11,9 +11,9 @@
  * runs the generator under CommonJS, where `require()` is defined and the bug cannot
  * reproduce.
  *
- * The fix reads `metadata.requires` through `loadModuleExportsFromSource` (a real
- * `import()`) with an AST-based static fallback — the same mechanism this file already
- * uses for route metadata — so there is no `require()` left to break under ESM. This test
+ * The generator now reads `metadata.requires` syntactically through
+ * `extractModuleRequiresFromSource` — the index file is parsed, never executed — so there is
+ * no `require()` left to break under ESM. This test
  * drives the real generator against real fixture files on disk rather than asserting on
  * the implementation, so it fails again if a future change reintroduces `require()`.
  */

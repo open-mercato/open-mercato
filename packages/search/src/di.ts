@@ -1,3 +1,4 @@
+import { resolveEntityIndexStrategies } from './lib/entity-strategy-policy'
 import { asValue } from 'awilix'
 import type { Kysely } from 'kysely'
 import type { FullTextSearchDriver } from './fulltext/types'
@@ -228,7 +229,7 @@ export function registerSearchModule(
   // Create search service
   const searchService = new SearchService({
     strategies,
-    resolveEntityStrategies: (entityId) => entityConfigMap.get(entityId)?.strategies,
+    resolveEntityStrategies: (entityId) => resolveEntityIndexStrategies(entityId, moduleConfigs),
     defaultStrategies,
     fallbackStrategy: 'tokens',
     mergeConfig: options?.mergeConfig ?? {
