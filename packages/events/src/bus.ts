@@ -1,4 +1,4 @@
-import { currentDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+import { resolveCurrentDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
@@ -419,6 +419,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     payload: EventPayload,
     options?: EmitOptions,
     skipPersistent = false,
+    validateInvocation?: () => Promise<void>,
   ): Promise<{ persistentFailures: number }> {
     let persistentFailures = 0
     // Check all registered patterns (including wildcards)
@@ -430,6 +431,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
         // Single-delivery: persistent subscribers are dispatched by the worker,
         // so skip them inline to avoid double execution.
         if (skipPersistent && persistentSubscribers.has(subscriber)) continue
+        await validateInvocation?.()
         try {
           // Pass eventName in context for wildcard handlers
           const moduleId = subscriber.moduleId ?? inferModuleIdFromResourceId(subscriber.id)
@@ -597,16 +599,24 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     payload: EventPayload,
     options?: EmitOptions
   ): Promise<void> {
-    const execution = currentDatabaseExecutionContext()
+    const execution = await resolveCurrentDatabaseExecutionContext()
     if (execution?.kind === 'tenant') {
       if (options?.tenantId != null && options.tenantId.toLowerCase() !== execution.tenantId) {
         throw new Error('[internal] Event tenant conflicts with its database invocation')
       }
       options = { ...options, tenantId: execution.tenantId }
     }
+    const validateInvocation = async (): Promise<void> => {
+      if (!execution) return
+      const current = await resolveCurrentDatabaseExecutionContext()
+      if (!current || current.kind !== execution.kind || current.tenantId !== execution.tenantId) {
+        throw new Error('[internal] Event database invocation changed during delivery')
+      }
+    }
     const runGlobalTaps = async (): Promise<void> => {
       const taps = getGlobalEventTaps()
       for (const tap of taps) {
+        await validateInvocation()
         try {
           await Promise.resolve(tap(event, payload, options))
         } catch (error) {
@@ -623,6 +633,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     // scope at exactly the point it always did — after inline delivery — so an
     // event that did not opt in cannot observe this change at all.
     const publishToOtherProcesses = async (): Promise<void> => {
+      await validateInvocation()
       const crossProcessOptions = resolveCrossProcessEmitOptions(event, payload, options)
       if (
         !shouldPublishCrossProcess(event)
@@ -675,7 +686,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       || (Boolean(options?.persistent) && singleDelivery)
     let inlinePersistentFailed = false
     if (!enqueueOnly) {
-      const delivered = await deliver(event, payload, options, skipPersistentInline)
+      const delivered = await deliver(event, payload, options, skipPersistentInline, validateInvocation)
       inlinePersistentFailed = delivered.persistentFailures > 0
     }
 
@@ -687,6 +698,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
 
     // If persistent, also enqueue for async processing
     if (options?.persistent) {
+      await validateInvocation()
       const q = getQueue()
       await q.enqueue({
         event,

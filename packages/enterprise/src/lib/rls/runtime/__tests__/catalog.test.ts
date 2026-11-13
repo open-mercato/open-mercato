@@ -1,5 +1,5 @@
 import { readTenantBoundaryConfiguration, resolveTenantMaintenanceUrl, quoteBoundaryIdentifier } from '../config'
-import { assertRuntimeRoleIdentity } from '../roles'
+import { assertRuntimeRoleIdentity, verifyMaintenanceDatabaseRole } from '../roles'
 import { assertTenantOrmInventory, assertTenantTableInventory, loadTenantTableManifest, parseTenantTableManifest, type TenantCatalogTable } from '../manifest'
 import { assertEffectiveTenantPolicies, canonicalTenantPolicyExpression, tenantPolicyName, type TenantPolicy } from '../policies'
 import type { RuntimeRoleIdentity } from '../catalog'
@@ -133,5 +133,22 @@ describe('effective policy tuple', () => {
     { using_expression: 'true' }, { check_expression: 'true' }, { check_expression: null },
   ])('rejects policy drift %j', (change) => {
     expect(() => assertEffectiveTenantPolicies(manifest, [table], [{ ...policy, ...change }])).toThrow('canonical')
+  })
+})
+
+describe('explicit maintenance role', () => {
+  const maintenance = { ...role, current_role: 'maintenance', session_role: 'maintenance', bypass: true, owns_database: true, database_create: true, database_temp: true }
+  it('allows only the configured separate login and bypass on a supported server', async () => {
+    const query = jest.fn(async () => ({ rows: [maintenance] }))
+    await expect(verifyMaintenanceDatabaseRole({ query }, 'maintenance')).resolves.toEqual(maintenance)
+    await expect(verifyMaintenanceDatabaseRole({ query }, 'other')).rejects.toThrow('distinct reviewed')
+  })
+  it.each(['superuser', 'create_role', 'create_database', 'replication', 'memberships'] as const)('rejects maintenance privilege %s', async (privilege) => {
+    const query = jest.fn(async () => ({ rows: [{ ...maintenance, [privilege]: true }] }))
+    await expect(verifyMaintenanceDatabaseRole({ query }, 'maintenance')).rejects.toThrow('distinct reviewed')
+  })
+  it.each([{ bypass: false }, { login: false }, { server_version: 150000 }, { session_role: 'another' }])('rejects an unsafe maintenance identity %j', async (unsafe) => {
+    const query = jest.fn(async () => ({ rows: [{ ...maintenance, ...unsafe }] }))
+    await expect(verifyMaintenanceDatabaseRole({ query }, 'maintenance')).rejects.toThrow('distinct reviewed')
   })
 })

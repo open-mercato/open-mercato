@@ -1,5 +1,5 @@
 import { registerDatabaseExecutionContextResolver } from '@open-mercato/shared/lib/db/runtime'
-import { currentTenantBoundaryScope, resolveTenantBoundaryScope, runWithTenantBoundary } from '../scope'
+import { currentTenantBoundaryScope, resolveTenantBoundaryScope, runWithFreshTenantBoundary, runWithTenantBoundary } from '../scope'
 
 const tenantA = '11111111-1111-4111-8111-111111111111'
 const tenantB = '22222222-2222-4222-8222-222222222222'
@@ -78,4 +78,26 @@ it('uses the same request-cached token for deferred resolution and rejects a com
   expect((await resolveTenantBoundaryScope())?.invocation).toBe(invocation)
   active = false
   await expect(resolveTenantBoundaryScope()).rejects.toThrow('completed')
+})
+
+it('starts a verified job from an expired inherited invocation without reviving its owner', async () => {
+  let continueJob: () => void = () => undefined
+  const gate = new Promise<void>((resolve) => { continueJob = resolve })
+  let continuation: Promise<void> | undefined
+  const parent = await runWithTenantBoundary(contextA, async () => {
+    const owner = currentTenantBoundaryScope()!
+    continuation = gate.then(async () => {
+      expect(() => currentTenantBoundaryScope()).toThrow('completed')
+      await runWithFreshTenantBoundary({ ...contextA, tenantId: tenantB }, async () => {
+        expect(currentTenantBoundaryScope()?.context.tenantId).toBe(tenantB)
+        expect(currentTenantBoundaryScope()?.invocation.token).not.toBe(owner.invocation.token)
+        expect(owner.invocation.isActive()).toBe(false)
+      })
+      expect(() => currentTenantBoundaryScope()).toThrow('completed')
+    })
+    return owner
+  })
+  continueJob()
+  await continuation
+  expect(parent.invocation.isActive()).toBe(false)
 })

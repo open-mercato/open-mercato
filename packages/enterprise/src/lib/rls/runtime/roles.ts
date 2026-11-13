@@ -12,6 +12,17 @@ export function assertRuntimeRoleIdentity(role: RuntimeRoleIdentity): void {
   ) throw new Error('[internal] Tenant boundary runtime role has unsafe ownership, membership, DDL, temporary-table or bypass privileges')
 }
 
+export async function verifyMaintenanceDatabaseRole(client: Pick<BoundaryClient, 'query'>, expectedRole: string): Promise<RuntimeRoleIdentity> {
+  const role = await readRuntimeRoleIdentity(client)
+  const major = Math.floor(role.server_version / 10_000)
+  if (![16, 17, 18].includes(major) || !role.login || role.current_role !== role.session_role
+    || role.current_role !== expectedRole || !role.bypass || role.superuser || role.create_role
+    || role.create_database || role.replication || role.memberships) {
+    throw new Error('[internal] Tenant boundary maintenance requires its distinct reviewed BYPASSRLS login without role administration privileges')
+  }
+  return role
+}
+
 export async function verifyRuntimeDatabaseRole(client: Pick<BoundaryClient, 'query'>, schemas: readonly string[]): Promise<RuntimeRoleIdentity> {
   const role = await readRuntimeRoleIdentity(client)
   assertRuntimeRoleIdentity(role)

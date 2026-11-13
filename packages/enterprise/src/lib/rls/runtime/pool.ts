@@ -29,6 +29,7 @@ export type BoundaryPoolOptions = Readonly<{
   configurationKey: string
   initializeClient?: (client: BoundaryClient) => Promise<void>
   verifyPool?: (pool: BoundaryPool) => Promise<void>
+  validateScope?: (scope: TenantBoundaryScope | undefined) => void
 }>
 
 type PoolRegistration = { configurationKey: string; lifecycle: DatabasePoolLifecycle }
@@ -121,6 +122,7 @@ export function installTenantPoolBoundary(pool: BoundaryPool, options: BoundaryP
         if (released) throw new Error('[internal] Tenant boundary lease has already been released')
         assertBoundaryInvocation(owner)
         const current = ready ? await resolveTenantBoundaryScope() : currentTenantBoundaryScope()
+        if (ready) options.validateScope?.(current)
         if (current?.invocation.token !== owner?.invocation.token) {
           throw new Error('[internal] PostgreSQL lease belongs to another tenant boundary invocation')
         }
@@ -205,7 +207,11 @@ export function installTenantPoolBoundary(pool: BoundaryPool, options: BoundaryP
     const existing = currentTenantBoundaryScope()
     const captured = validation.getStore() === true
       ? Promise.resolve(existing)
-      : ensureReady().then(() => existing ?? resolveTenantBoundaryScope())
+      : ensureReady().then(async () => {
+        const scope = existing ?? await resolveTenantBoundaryScope()
+        options.validateScope?.(scope)
+        return scope
+      })
     const acquired = acquire(this, captured)
     if (!callback) return acquired
     void acquired.then(

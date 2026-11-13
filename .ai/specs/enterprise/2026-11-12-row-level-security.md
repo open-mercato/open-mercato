@@ -332,3 +332,9 @@ After implementation and gates pass, a separate subagent resolves base-branch co
 ### Production regression migration — 2026-11-13
 
 Removed the obsolete pool-scope prototype and its tests. Production-only regressions now live in `packages/enterprise/tests/rls`; the parent independently reran 74 runtime unit tests, harness typechecking and both live PostgreSQL 17 regressions: 16 runtime and 23 catalog assertions, zero skips. Fixture schemas and roles were removed. These results do not establish completion of application propagation or concurrent-user acceptance.
+
+### Runtime implementation checkpoint — maintenance and asynchronous ownership
+
+The neutral adapter now supports a fresh invocation entry point for trusted, persisted queue deliveries. Ordinary nesting still rejects tenant changes, and a fresh delivery never revives its expired parent. The event producer resolves deferred request identity before side effects, inherits its canonical tenant, rejects conflicting envelopes, and rechecks liveness before later taps, subscribers, transport publication and enqueue. Module-owned declarations remain authoritative; the runtime has no business-module map.
+
+Primary ORM instances are cached independently by runtime or maintenance purpose. Maintenance connections require a distinct same-endpoint BYPASSRLS login verified on the physical connection, with no superuser, role/database administration, replication or membership privileges. An active explicit maintenance invocation is required on checkout and query; tenant continuations cannot borrow retained maintenance clients. Runtime pools reject maintenance invocations. PostgreSQL 17 regression coverage includes 16 runtime and 24 catalog checks. CLI, scheduler, independent pool and migration lifecycle integration remain separate unfinished acceptance gates.

@@ -91,3 +91,7 @@ export async function resolveTenantBoundaryScope(): Promise<TenantBoundaryScope 
   assertBoundaryInvocation(scope)
   return scope
 }
+
+export function runWithFreshTenantBoundary<Result>(context: DatabaseExecutionContext, callback: () => Result): Result {
+  return storage().exit(() => runWithTenantBoundary(context, callback))
+}

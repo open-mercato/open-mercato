@@ -17,6 +17,7 @@ assert.ok(databaseUrl, 'Set OM_RLS_TEST_DATABASE_URL to an explicitly disposable
 const suffix = randomUUID().replaceAll('-', '')
 const schema = `rls_catalog_test_${suffix}`
 const role = `rls_catalog_test_${suffix}`
+const maintenanceRole = `rls_maint_test_${suffix}`
 const password = randomUUID()
 const directory = await mkdtemp(path.join(tmpdir(), 'om-rls-catalog-test-'))
 const manifestPath = path.join(directory, 'manifest.json')
@@ -25,6 +26,9 @@ const runtimeUrl = new URL(databaseUrl)
 runtimeUrl.username = role
 runtimeUrl.password = password
 const runtime = new Pool({ connectionString: runtimeUrl.toString(), max: 2, connectionTimeoutMillis: 5_000, query_timeout: 15_000 })
+const maintenanceUrl = new URL(runtimeUrl)
+maintenanceUrl.username = maintenanceRole
+const maintenance = new Pool({ connectionString: maintenanceUrl.toString(), max: 1, connectionTimeoutMillis: 5_000, query_timeout: 15_000 })
 const relation = `${quoteBoundaryIdentifier(schema)}."records"`
 const quoteRole = quoteBoundaryIdentifier(role)
 const tenantA = randomUUID()
@@ -64,6 +68,7 @@ try {
   const database = (await admin.query<{ name: string }>('select current_database() as name')).rows[0].name
   await admin.query(`revoke temporary on database ${quoteBoundaryIdentifier(database)} from public`)
   await admin.query(`create role ${quoteRole} login password '${password}' nosuperuser nobypassrls nocreaterole nocreatedb noreplication noinherit`)
+  await admin.query(`create role ${quoteBoundaryIdentifier(maintenanceRole)} login password '${password}' nosuperuser bypassrls nocreaterole nocreatedb noreplication noinherit`)
   await admin.query(`create schema ${quoteBoundaryIdentifier(schema)}`)
   await admin.query(`create table ${relation} (id uuid primary key, tenant_id uuid not null, label text not null)`)
   await admin.query(`grant usage on schema ${quoteBoundaryIdentifier(schema)} to ${quoteRole}`)
@@ -256,6 +261,34 @@ try {
     try { await assert.rejects(verifyPolicy(), /dependent view/) } finally { await admin.query(`drop view ${first} cascade`) }
   })
 
+  await check('maintenance role is verified separately and never lends its bypass pool to tenant work', async () => {
+    const adapter = createTenantBoundaryAdapter({ enabled: true, poolMode: 'direct', schema, manifestPath }, {
+      DATABASE_URL: runtimeUrl.toString(), OM_TENANT_RLS_MAINTENANCE_DATABASE_URL: maintenanceUrl.toString(),
+    }, `${suffix}-maintenance`)
+    await admin.query(`grant usage on schema ${quoteBoundaryIdentifier(schema)} to ${quoteBoundaryIdentifier(maintenanceRole)}`)
+    await admin.query(`grant select on ${relation} to ${quoteBoundaryIdentifier(maintenanceRole)}`)
+    const guarded = maintenance as unknown as import('../../src/lib/rls/runtime/pool').BoundaryPool
+    const lifecycle = adapter.configurePool(guarded, { id: 'maintenance-regression', purpose: 'maintenance', tables: 'primary' })
+    try {
+      await lifecycle.ready()
+      await assert.rejects(guarded.connect(), /explicit maintenance/)
+      await runWithTenantBoundary({ kind: 'maintenance', source: 'cli', tenantId: null, operation: 'regression' }, async () => {
+        const client = await guarded.connect()
+        try {
+          const result = await client.query(`select id from ${relation}`) as { rows: { id: string }[] }
+          assert.deepEqual(result.rows.map((row) => row.id).sort(), [rowA, rowB].sort())
+          await runWithTenantBoundary({ kind: 'tenant', source: 'worker', tenantId: tenantA }, async () => {
+            await assert.rejects(guarded.connect(), /explicit maintenance/)
+            await assert.rejects(Promise.resolve(client.query(`select id from ${relation}`)), /explicit maintenance/)
+          })
+        } finally { client.release() }
+      })
+    } finally {
+      await maintenance.end()
+      lifecycle.dispose()
+    }
+  })
+
   await check('concurrent reconcilers serialize through a bounded advisory transaction lock', async () => {
     const results = await Promise.allSettled([reconcile(), reconcile()])
     for (const result of results) if (result.status === 'rejected') throw result.reason
@@ -273,11 +306,13 @@ try {
   })
 } finally {
   await runtime.end()
+  if (!maintenance.ended) await maintenance.end()
   try {
     await admin.query(`drop schema if exists ${quoteBoundaryIdentifier(schema)} cascade`)
     await admin.query(`drop role if exists ${quoteRole}`)
-    const remaining = await admin.query('select exists(select 1 from pg_namespace where nspname=$1) as schema_exists, exists(select 1 from pg_roles where rolname=$2) as role_exists', [schema, role])
-    assert.deepEqual(remaining.rows, [{ schema_exists: false, role_exists: false }])
+    await admin.query(`drop role if exists ${quoteBoundaryIdentifier(maintenanceRole)}`)
+    const remaining = await admin.query('select exists(select 1 from pg_namespace where nspname=$1) as schema_exists, exists(select 1 from pg_roles where rolname=$2) as role_exists, exists(select 1 from pg_roles where rolname=$3) as maintenance_role_exists', [schema, role, maintenanceRole])
+    assert.deepEqual(remaining.rows, [{ schema_exists: false, role_exists: false, maintenance_role_exists: false }])
   } finally { await admin.end(); await rm(directory, { recursive: true, force: true }) }
 }
 process.stdout.write(`Enterprise RLS catalog regression: ${checks} checks passed; disposable fixtures removed.\n`)

@@ -8,8 +8,8 @@ import { readTenantBoundaryConfiguration, resolveTenantMaintenanceUrl, type Tena
 import { assertTenantOrmInventory, loadTenantTableManifest } from './manifest'
 import { installTenantPoolBoundary, type BoundaryPool } from './pool'
 import { verifyTenantTablePolicies } from './policies'
-import { verifyRuntimeDatabaseRole } from './roles'
-import { currentTenantBoundaryScope, runWithTenantBoundary } from './scope'
+import { verifyMaintenanceDatabaseRole, verifyRuntimeDatabaseRole } from './roles'
+import { currentTenantBoundaryScope, runWithTenantBoundary, runWithFreshTenantBoundary } from './scope'
 import { registerTenantBoundaryRequestResolver } from './requests'
 
 const registrationKey = Symbol.for('@open-mercato/enterprise.tenantBoundaryRegistration.v1')
@@ -32,17 +32,36 @@ export function createTenantBoundaryAdapter(
   return Object.freeze({
     id: 'enterprise.tenant-boundaries', version: '1', configurationKey,
     run: runWithTenantBoundary,
+    runFresh: runWithFreshTenantBoundary,
     currentContext: () => currentTenantBoundaryScope()?.context,
     connectionUrl: (purpose, defaultUrl) => purpose === 'maintenance'
       ? resolveTenantMaintenanceUrl(env, defaultUrl) : defaultUrl,
     configurePool: (value: object, descriptor: DatabasePoolDescriptor) => {
-      if (descriptor.purpose !== 'runtime') {
+      if (descriptor.purpose === 'transport') {
         throw new Error('[internal] Tenant boundary pool purpose requires its explicit execution integration')
       }
       const pool = supportedPool(value)
+      if (descriptor.purpose === 'maintenance') {
+        const url = resolveTenantMaintenanceUrl(env)
+        const expectedRole = decodeURIComponent(new URL(url).username)
+        return installTenantPoolBoundary(pool, {
+          configurationKey: `${configurationKey}:${descriptor.id}:maintenance`,
+          initializeClient: async (client) => { await verifyMaintenanceDatabaseRole(client, expectedRole) },
+          validateScope: (scope) => {
+            if (scope?.context.kind !== 'maintenance') throw new Error('[internal] Maintenance pool requires an active explicit maintenance invocation')
+          },
+          verifyPool: async (guarded) => {
+            const client = await guarded.connect()
+            client.release()
+          },
+        })
+      }
       return installTenantPoolBoundary(pool, {
         configurationKey: `${configurationKey}:${descriptor.id}`,
         initializeClient: async (client) => { await verifyRuntimeDatabaseRole(client, [configuration.schema]) },
+        validateScope: (scope) => {
+          if (scope?.context.kind === 'maintenance') throw new Error('[internal] Maintenance invocation cannot borrow a runtime pool')
+        },
         verifyPool: async (guarded) => {
           const reviewed = await manifest()
           if (descriptor.tables === 'primary') {

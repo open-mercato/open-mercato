@@ -1,4 +1,4 @@
-import { isDatabaseRuntimeEnabled, runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+import { isDatabaseRuntimeEnabled, runWithFreshDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { resolveDeclaredDatabaseJobContext } from '@open-mercato/shared/lib/db/declarations'
 import type { JobContext, JobHandler } from '@open-mercato/queue'
 import type { ModuleWorker } from '@open-mercato/shared/modules/registry'
@@ -59,6 +59,6 @@ export function createPerJobWorkerHandler(
     }
     if (!isDatabaseRuntimeEnabled()) return execute()
     const context = await resolveDeclaredDatabaseJobContext({ queue: ctx.queueName, workerIds: workers.map((worker) => worker.id), payload: job.payload, metadata: job.metadata })
-    return runWithDatabaseExecutionContext(context, execute)
+    return runWithFreshDatabaseExecutionContext(context, execute)
   }
 }

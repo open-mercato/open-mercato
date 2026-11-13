@@ -5,7 +5,7 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { performance } from 'node:perf_hooks'
 import { getSslConfig } from './ssl'
-import { beginDatabaseInitialization, configureDatabasePool, resolveDatabaseConnectionUrl, type DatabasePoolLifecycle, type DatabaseTableMetadata } from './runtime'
+import { beginDatabaseInitialization, configureDatabasePool, currentDatabaseExecutionContext, resolveDatabaseConnectionUrl, type DatabasePoolLifecycle, type DatabaseTableMetadata } from './runtime'
 import { createLogger } from '../logger'
 import {
   getTelemetryRuntime,
@@ -22,10 +22,14 @@ const logger = createLogger('shared').child({ component: 'orm' })
 
 export type AppMikroORM = MikroORM<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>
 
-let ormInstance: AppMikroORM | null = null
-let ormInitialization: Promise<AppMikroORM> | null = null
-let disposePoolInstrumentation: (() => void) | undefined
-let databasePoolLifecycle: DatabasePoolLifecycle | undefined
+type OrmPurpose = 'runtime' | 'maintenance'
+type OrmState = {
+  instance?: AppMikroORM
+  initialization?: Promise<AppMikroORM>
+  disposeInstrumentation?: () => void
+  lifecycle?: DatabasePoolLifecycle
+}
+const ormStates: Record<OrmPurpose, OrmState> = { runtime: {}, maintenance: {} }
 
 // Use globalThis so standalone apps survive duplicated shared package module instances.
 const GLOBAL_ENTITIES_KEY = '__openMercatoOrmEntities__'
@@ -355,21 +359,23 @@ export function instrumentPrimaryPool(
 }
 
 export async function getOrm() {
-  if (ormInstance) {
-    return ormInstance
-  }
-  if (ormInitialization) return ormInitialization
-  ormInitialization = initializeOrm().finally(() => { ormInitialization = null })
-  return ormInitialization
+  const purpose = currentDatabaseExecutionContext()?.kind === 'maintenance' ? 'maintenance' : 'runtime'
+  const state = ormStates[purpose]
+  if (state.instance) return state.instance
+  if (state.initialization) return state.initialization
+  state.initialization = initializeOrm(purpose, state).finally(() => { state.initialization = undefined })
+  return state.initialization
 }
 
-async function initializeOrm(): Promise<AppMikroORM> {
+async function initializeOrm(purpose: OrmPurpose, state: OrmState): Promise<AppMikroORM> {
+  let disposePoolInstrumentation: (() => void) | undefined
+  let databasePoolLifecycle: DatabasePoolLifecycle | undefined
   const entities = getOrmEntities()
   const defaultClientUrl = process.env.DATABASE_URL
   if (!defaultClientUrl) {
     throw new Error('DATABASE_URL is not set')
   }
-  const clientUrl = resolveDatabaseConnectionUrl('runtime', defaultClientUrl)
+  const clientUrl = resolveDatabaseConnectionUrl(purpose, defaultClientUrl)
   const requiresRuntimeValidation = beginDatabaseInitialization()
   let createdPool: (ObservablePool & { ended?: boolean; end(): Promise<void> }) | undefined
   let runtimeTables: readonly DatabaseTableMetadata[] | undefined
@@ -439,9 +445,9 @@ async function initializeOrm(): Promise<AppMikroORM> {
         createdPool = pool as typeof createdPool
         disposePoolInstrumentation?.()
         attachPoolErrorHandlers(pool)
-        disposePoolInstrumentation = instrumentPrimaryPool(pool)
+        disposePoolInstrumentation = purpose === 'runtime' ? instrumentPrimaryPool(pool) : undefined
         databasePoolLifecycle = configureDatabasePool(pool, {
-          id: 'primary', purpose: 'runtime', tables: 'primary',
+          id: purpose === 'runtime' ? 'primary' : 'primary-maintenance', purpose, tables: 'primary',
           metadata: () => runtimeTables,
         })
         if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
@@ -486,19 +492,22 @@ async function initializeOrm(): Promise<AppMikroORM> {
     }
     throw error
   }
-  ormInstance = initialized
+  state.instance = initialized
+  state.lifecycle = databasePoolLifecycle
+  state.disposeInstrumentation = disposePoolInstrumentation
   return initialized
 }
 
 
 async function closeOrmIfLoaded(): Promise<void> {
-  if (ormInstance) {
-    await ormInstance.close(true)
-    databasePoolLifecycle?.dispose()
-    databasePoolLifecycle = undefined
-    disposePoolInstrumentation?.()
-    disposePoolInstrumentation = undefined
-    ormInstance = null
+  for (const state of Object.values(ormStates)) {
+    if (!state.instance) continue
+    await state.instance.close(true)
+    state.lifecycle?.dispose()
+    state.disposeInstrumentation?.()
+    state.instance = undefined
+    state.lifecycle = undefined
+    state.disposeInstrumentation = undefined
   }
 }
 

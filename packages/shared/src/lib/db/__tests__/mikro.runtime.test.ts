@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import type { AppMikroORM, ObservablePool } from '../mikro'
-import type { DatabasePoolDescriptor } from '../runtime'
+import type { DatabaseExecutionContext, DatabasePoolDescriptor } from '../runtime'
 
 const runtimeKey = Symbol.for('@open-mercato/shared.databaseRuntime.v1')
 const globals = globalThis as Record<symbol, unknown>
@@ -19,7 +19,7 @@ afterEach(() => {
   else process.env.DATABASE_URL = previousDatabaseUrl
 })
 
-async function prepare(ready: () => Promise<void>, calls: string[]) {
+async function prepare(ready: () => Promise<void>, calls: string[], currentContext?: () => DatabaseExecutionContext | undefined) {
   const { MikroORM } = await import('@mikro-orm/core')
   const runtime = await import('../runtime')
   const pool = Object.assign(new EventEmitter(), {
@@ -43,6 +43,8 @@ async function prepare(ready: () => Promise<void>, calls: string[]) {
       return { ready, dispose: () => { calls.push('dispose') } }
     },
     run: (_context, callback) => callback(),
+    currentContext,
+    connectionUrl: (purpose, original) => purpose === 'maintenance' ? 'postgresql://maintenance@127.0.0.1:1/disposable' : original,
   })
   const initialize = jest.spyOn(MikroORM, 'init').mockImplementation(async (options) => {
     const driverOptions = options.driverOptions as { onPoolCreated(pool: ObservablePool): void }
@@ -105,4 +107,28 @@ it('closes a rejected ORM before disposing its pool guard and permits a fresh ve
   expect(setup.initialize).toHaveBeenCalledTimes(2)
   await setup.initialized.close(true)
   setup.runtime.configureDatabasePool(setup.pool, { id: 'primary', purpose: 'runtime', tables: 'primary' }).dispose()
+})
+
+it('keeps runtime and maintenance initializations and caches separate across tenant continuations', async () => {
+  let context: DatabaseExecutionContext | undefined
+  const setup = await prepare(async () => undefined, [], () => context)
+  setup.initialize.mockImplementation(async (options) => {
+    const pool = Object.assign(new EventEmitter(), { connect: jest.fn(), totalCount: 0, idleCount: 0, waitingCount: 0 })
+    const driver = options.driverOptions as { onPoolCreated(pool: ObservablePool): void }
+    return { ...setup.initialized, em: { getKysely: () => driver.onPoolCreated(pool) } } as unknown as AppMikroORM
+  })
+  const runtime = await setup.getOrm()
+  expect(setup.descriptor()?.purpose).toBe('runtime')
+  context = { kind: 'maintenance', source: 'cli', tenantId: null, operation: 'reconcile' }
+  const maintenance = await setup.getOrm()
+  expect(setup.descriptor()?.purpose).toBe('maintenance')
+  expect(maintenance).not.toBe(runtime)
+  expect(setup.initialize.mock.calls.map(([options]) => options.clientUrl)).toEqual([
+    'postgresql://test@127.0.0.1:1/disposable', 'postgresql://maintenance@127.0.0.1:1/disposable',
+  ])
+  context = { kind: 'tenant', source: 'worker', tenantId: '22222222-2222-4222-8222-222222222222' }
+  expect(await setup.getOrm()).toBe(runtime)
+  context = { kind: 'maintenance', source: 'cli', tenantId: null, operation: 'reconcile' }
+  expect(await setup.getOrm()).toBe(maintenance)
+  expect(setup.initialize).toHaveBeenCalledTimes(2)
 })

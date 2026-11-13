@@ -59,6 +59,7 @@ export type DatabaseRuntimeAdapter = Readonly<{
   configurationKey: string
   configurePool(pool: object, descriptor: DatabasePoolDescriptor): DatabasePoolLifecycle
   run<Result>(context: DatabaseExecutionContext, callback: () => Result): Result
+  runFresh?<Result>(context: DatabaseExecutionContext, callback: () => Result): Result
   currentContext?(): DatabaseExecutionContext | undefined
   connectionUrl?(purpose: 'runtime' | 'maintenance', defaultUrl: string): string
   beforeMigrate?(): Promise<void>
@@ -139,6 +140,16 @@ export function currentDatabaseExecutionContext(): DatabaseExecutionContext | un
   return state().adapter?.currentContext?.()
 }
 
+export async function resolveCurrentDatabaseExecutionContext(): Promise<DatabaseExecutionContext | undefined> {
+  const current = currentDatabaseExecutionContext()
+  if (current) return current
+  if (!state().adapter) return undefined
+  const resolution = await resolveDatabaseExecutionContext()
+  if (resolution.status === 'absent') return undefined
+  if (!resolution.invocation.isActive()) throw new Error('[internal] Database invocation has completed')
+  return resolution.context
+}
+
 export function isDatabaseRuntimeEnabled(): boolean {
   return Boolean(state().adapter)
 }
@@ -149,6 +160,15 @@ export function runWithDatabaseExecutionContext<Result>(
 ): Result {
   const adapter = state().adapter
   return adapter ? adapter.run(Object.freeze({ ...context }), callback) : callback()
+}
+
+export function runWithFreshDatabaseExecutionContext<Result>(
+  context: DatabaseExecutionContext,
+  callback: () => Result,
+): Result {
+  const adapter = state().adapter
+  const captured = Object.freeze({ ...context })
+  return adapter ? (adapter.runFresh ?? adapter.run)(captured, callback) : callback()
 }
 
 export function resolveDatabaseConnectionUrl(

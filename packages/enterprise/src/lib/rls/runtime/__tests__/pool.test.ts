@@ -225,3 +225,26 @@ it('refuses streaming escapes and disposal before the pool closes', async () => 
   lifecycle.dispose()
   lifecycle.dispose()
 })
+
+it('checks maintenance pool purpose before checkout and rejects retained handles inside tenant children', async () => {
+  const { pool, physical, connect } = fixture()
+  installTenantPoolBoundary(pool, {
+    configurationKey: 'maintenance',
+    validateScope: (scope) => {
+      if (scope?.context.kind !== 'maintenance') throw new Error('[internal] explicit maintenance required')
+    },
+  })
+  await expect(pool.connect()).rejects.toThrow('explicit maintenance')
+  await expect(runWithTenantBoundary(contextA, () => pool.connect())).rejects.toThrow('explicit maintenance')
+  expect(connect).not.toHaveBeenCalled()
+  await runWithTenantBoundary({ kind: 'maintenance', tenantId: null, source: 'cli', operation: 'reconcile' }, async () => {
+    const client = await pool.connect()
+    await client.query('select maintenance')
+    await runWithTenantBoundary(contextA, async () => {
+      await expect(client.query('select escaped')).rejects.toThrow('explicit maintenance')
+      await expect(pool.connect()).rejects.toThrow('explicit maintenance')
+    })
+    client.release()
+  })
+  expect(physical.query.mock.calls.some((call) => call[0] === 'select escaped')).toBe(false)
+})
