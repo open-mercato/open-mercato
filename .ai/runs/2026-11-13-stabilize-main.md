@@ -41,6 +41,14 @@ At most two subtasks: a read-only CI-history audit, then one final review task a
 
 For a documentation-only result, manually review the diff and run the existing CI scope/concurrency regression tests when dependencies are available. The requested full-suite evidence comes from this PR's GitHub Actions run. If code changes are needed, execute the configured ordered validation gate and relevant regression tests. Missing tools or local dependencies must be reported, never represented as passes.
 
+## Evidence so far
+
+- Local runner: Node.js 24.22.2 on the host; no running compose app was found at the default dev compose path.
+- `node --test scripts/__tests__/ci-full-label.test.mjs scripts/__tests__/ci-concurrency.test.mjs scripts/__tests__/ci-merge-coverage.test.mjs`: 40 passed, zero failed or skipped.
+- Main baseline CI: all 15 integration shards, prepare/build, test, lint, DS lint, Docker build, documents multi-instance, core-timezone, and merge-coverage passed. Dependency audit was intentionally skipped by its scope job.
+- Branch-protection required-check lookup returned HTTP 404 (required status checks not enabled); use every reported PR check as a gate, accepting only documented non-applicable skips.
+- CI history audit: dispatched task `d930c118-fd33-4b10-abdd-1cbc33aa5459` (read-only).
+
 ## Risks
 
 - Historical failures can be obsolete; do not change passing code based only on old logs.
@@ -49,6 +57,8 @@ For a documentation-only result, manually review the diff and run the existing C
 - Do not add `automerge` while any required check or final independent review remains pending.
 
 ## Progress
+
+PR: #9425
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
