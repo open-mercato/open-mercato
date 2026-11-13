@@ -94,6 +94,19 @@ test('falls back to a per-source classification code', () => {
   assert.equal(classifyRuntimeMessage('boom', 'probe').code, 'probe_failed')
 })
 
+test('classifies a streamed-response cancellation as a benign warning (#8409)', () => {
+  const classified = classifyRuntimeMessage('Error: The destination stream errored while writing data.', 'log')
+  assert.equal(classified.code, 'stream_write_cancelled')
+  assert.equal(classified.severity, 'warning')
+  assert.equal(classified.recovery, undefined)
+})
+
+test('a differently worded stream/write error keeps the generic error severity (#8409)', () => {
+  const classified = classifyRuntimeMessage('Error: write EPIPE', 'log')
+  assert.equal(classified.code, 'runtime_error')
+  assert.equal(classified.severity, undefined)
+})
+
 test('fingerprint is stable across volatile stack positions', () => {
   const first = fingerprintRuntimeIssue({ source: 'log', code: 'runtime_error', message: 'boom at app.js:12:44' })
   const second = fingerprintRuntimeIssue({ source: 'log', code: 'runtime_error', message: 'boom at app.js:98:11' })
@@ -164,6 +177,42 @@ test('keeps a post-ready runtime error visible as degraded instead of ready', ()
   assert.equal(status.issueSummary.recovery, 'migrate')
   assert.equal(status.issueSummary.source, 'log')
   assert.equal(status.issueSummary.occurrences, 1)
+})
+
+test('a benign streamed-response cancellation does not leave a healthy runtime degraded (#8409)', () => {
+  const { store } = createStore()
+  store.markReady()
+
+  const status = store.recordSignal({
+    source: 'log',
+    message: 'Error: The destination stream errored while writing data.',
+  })
+  assert.equal(status.health, 'ready')
+  assert.equal(status.incidents.length, 1)
+  assert.equal(status.incidents[0].severity, 'warning')
+  assert.equal(status.incidents[0].code, 'stream_write_cancelled')
+})
+
+test('a genuine write failure still degrades a healthy runtime (#8409)', () => {
+  const { store } = createStore()
+  store.markReady()
+
+  const status = store.recordSignal({ source: 'log', message: 'Error: write EPIPE' })
+  assert.equal(status.health, 'degraded')
+  assert.equal(status.incidents[0].severity, 'error')
+})
+
+test('an explicit severity overrides the benign stream-cancellation classification (#8409)', () => {
+  const { store } = createStore()
+  store.markReady()
+
+  const status = store.recordSignal({
+    source: 'log',
+    severity: 'error',
+    message: 'Error: The destination stream errored while writing data.',
+  })
+  assert.equal(status.health, 'degraded')
+  assert.equal(status.incidents[0].severity, 'error')
 })
 
 test('never marks the runtime unavailable from a browser report alone', () => {
