@@ -411,6 +411,97 @@ describe('startInProcessGenerateWatcher', () => {
     await handle.done
   })
 
+  it.each([false, true])('drains an active generation on close (skipInitial=%s)', async (skipInitial) => {
+    let release!: () => void
+    let checksum = 'before'
+    const runGenerators = jest.fn(() => new Promise<void>((resolve) => { release = resolve }))
+    const { signal, markChanged } = createFakeChangeSignal()
+    const handle = startInProcessGenerateWatcher({
+      skipInitial,
+      quiet: true,
+      logger: silentLogger,
+      changeSignal: signal,
+      computeStructureChecksum: async () => checksum,
+      runGenerators,
+    })
+    await flushAsync(8)
+    if (skipInitial) {
+      checksum = 'after'
+      markChanged()
+      jest.advanceTimersByTime(1000)
+      await flushAsync(8)
+    }
+    expect(runGenerators).toHaveBeenCalledTimes(1)
+
+    const closed = jest.fn()
+    const closing = handle.close().then(closed)
+    const secondClose = handle.close()
+    void handle.done.then(closed)
+    await flushAsync(8)
+    expect(closed).not.toHaveBeenCalled()
+    expect(signal.close).not.toHaveBeenCalled()
+
+    markChanged()
+    release()
+    await closing
+    await secondClose
+    await handle.done
+    jest.advanceTimersByTime(5000)
+    await flushAsync(8)
+    expect(runGenerators).toHaveBeenCalledTimes(1)
+    expect(signal.close).toHaveBeenCalledTimes(1)
+    expect(closed).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not launch generation when shutdown overtakes a checksum capture', async () => {
+    let release!: (checksum: string) => void
+    const computeStructureChecksum = jest.fn()
+      .mockResolvedValueOnce('before')
+      .mockImplementationOnce(() => new Promise<string>((resolve) => { release = resolve }))
+    const runGenerators = jest.fn(async () => undefined)
+    const handle = startInProcessGenerateWatcher({
+      skipInitial: true,
+      quiet: true,
+      computeStructureChecksum,
+      runGenerators,
+    })
+    await flushAsync(8)
+    jest.advanceTimersByTime(1000)
+    await flushAsync(8)
+    const closing = handle.close()
+    release('after')
+    await closing
+    expect(runGenerators).not.toHaveBeenCalled()
+  })
+
+  it('recovers on a later edit after the generator child fails', async () => {
+    let checksum = 'before'
+    const { signal, markChanged } = createFakeChangeSignal()
+    const runGenerators = jest.fn()
+      .mockRejectedValueOnce(new Error('Generator process exited with code 1'))
+      .mockResolvedValue(undefined)
+    const handle = startInProcessGenerateWatcher({
+      skipInitial: true,
+      quiet: true,
+      logger: silentLogger,
+      changeSignal: signal,
+      computeStructureChecksum: async () => checksum,
+      runGenerators,
+    })
+    await flushAsync(8)
+    for (const value of ['broken', 'fixed']) {
+      checksum = value
+      markChanged()
+      jest.advanceTimersByTime(1000)
+      await flushAsync(12)
+    }
+    expect(runGenerators).toHaveBeenCalledTimes(2)
+    expect(silentLogger.error).toHaveBeenCalledWith(
+      '[generate:watch] Generation failed: Generator process exited with code 1',
+    )
+    await handle.close()
+  })
+
   it('close() is idempotent and resolves done exactly once', async () => {
     const runGenerators = jest.fn(async () => undefined)
     const computeStructureChecksum = jest.fn(async () => 'k')

@@ -60,7 +60,7 @@ export type GenerateWatcherOptions = {
 export type GenerateWatcherHandle = {
   /** Resolves when the watcher loop has stopped (after `close()`). */
   readonly done: Promise<void>
-  /** Stop the polling loop and resolve `done`. Idempotent. */
+  /** Stop polling, drain the active cycle, and resolve `done`. Idempotent. */
   close(): Promise<void>
 }
 
@@ -89,6 +89,7 @@ export function startInProcessGenerateWatcher(
 
   let stopping = false
   let pollTimer: ReturnType<typeof setTimeout> | null = null
+  let activeCycle: Promise<void> | null = null
   let running = false
   let pendingReason: string | null = null
   let previousChecksum = ''
@@ -99,6 +100,7 @@ export function startInProcessGenerateWatcher(
   })
 
   async function runOnce(reason: string): Promise<void> {
+    if (stopping) return
     if (running) {
       pendingReason = reason
       return
@@ -128,7 +130,7 @@ export function startInProcessGenerateWatcher(
   function scheduleNext(): void {
     if (stopping) return
     pollTimer = setTimeout(() => {
-      void (async () => {
+      activeCycle = (async () => {
         if (stopping) return
         try {
           const changeVersion = changeSignal?.currentVersion() ?? 0
@@ -164,13 +166,15 @@ export function startInProcessGenerateWatcher(
     pollTimer.unref?.()
   }
 
-  void (async () => {
+  activeCycle = (async () => {
     try {
       await changeSignal?.refresh()
+      if (stopping) return
       const initialChangeVersion = changeSignal?.currentVersion() ?? 0
       if (!skipInitial) {
         await runOnce('initial')
       }
+      if (stopping) return
       previousChecksum = await computeStructureChecksum()
       observedChangeVersion = initialChangeVersion
       if (!quiet) {
@@ -199,9 +203,13 @@ export function startInProcessGenerateWatcher(
       clearTimeout(pollTimer)
       pollTimer = null
     }
-    await changeSignal?.close()
-    if (doneResolve) {
-      doneResolve()
+    // Drain before closing subscriptions: an in-flight capture can refresh
+    // them, and a generator child must exit before dev restarts its group.
+    try {
+      await activeCycle
+      await changeSignal?.close()
+    } finally {
+      doneResolve?.()
       doneResolve = null
     }
   }
