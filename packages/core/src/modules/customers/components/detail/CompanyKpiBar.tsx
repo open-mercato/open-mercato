@@ -74,7 +74,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
     () => data.kpis?.activeDealsValue ?? sumActiveDeals(data.deals),
     [data.deals, data.kpis?.activeDealsValue],
   )
-  const dealCurrency = data.kpis?.dealCurrency ?? activeDeals[0]?.valueCurrency ?? data.deals[0]?.valueCurrency ?? 'PLN'
+  const dealCurrency = data.kpis?.dealCurrency ?? activeDeals[0]?.valueCurrency ?? data.deals[0]?.valueCurrency ?? null
   const activityTrend = React.useMemo(
     () => data.kpis?.activityTrend ?? computeActivityTrend(data.interactions),
     [data.interactions, data.kpis?.activityTrend],
