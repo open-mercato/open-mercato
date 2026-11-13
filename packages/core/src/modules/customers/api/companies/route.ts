@@ -522,6 +522,7 @@ const companyListItemSchema = z.object({
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),
+  tax_id: z.string().nullable().optional(),
 })
 
 const companyCreateResponseSchema = z.object({

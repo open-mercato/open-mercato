@@ -89,7 +89,7 @@ export type CustomerFormFieldOptions = {
    * localizes its built-in list for the active locale.
    */
   phoneCountries?: PhoneCountry[]
-  /** The VAT ID is mandatory for a new company; edit forms keep legacy records without one saveable. */
+  /** Marks the VAT ID as required; off by default, since a company MAY have no tax ID (not VAT-registered, foreign, early-stage lead). */
   requireTaxId?: boolean
 }
 
@@ -1399,7 +1399,7 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
       label: t('customers.companies.detail.fields.taxId', 'VAT ID'),
       type: 'text',
       layout: 'half',
-      required: options?.requireTaxId ?? true,
+      required: options?.requireTaxId ?? false,
       placeholder: t('customers.companies.detail.fields.taxIdPlaceholder', 'e.g. PL1234567890'),
     },
     {
@@ -1780,7 +1780,7 @@ const buildIndustryLabels = (t: Translator): DictionarySelectLabels => ({
 })
 
 export const createCompanyEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
-  const baseFields = createCompanyFormFields(t, { ...options, requireTaxId: options?.requireTaxId ?? false })
+  const baseFields = createCompanyFormFields(t, options)
   const industryLabels = buildIndustryLabels(t)
 
   return baseFields.map((field) => {
