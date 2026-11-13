@@ -70,6 +70,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "deployment/production-readiness",
         "deployment/readiness-scanner",
+        "deployment/enterprise-backup-recovery",
         "deployment/railway",
         "deployment/github-ci",
         "deployment/agent-orchestration-scaling",

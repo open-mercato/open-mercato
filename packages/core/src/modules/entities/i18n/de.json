@@ -200,6 +200,8 @@
   "entities.rotation.acknowledgmentRequired": "Schlüsselrotation abgelehnt. Wiederholen Sie den Befehl mit --acknowledge-unprotected-key-rotation, um die ungeschützte Rotation ausdrücklich zu akzeptieren. Allgemeine Bestätigungen oder force ersetzen diese Zustimmung nicht.",
   "entities.rotation.previewProtected": "Dry run: a rotation protection service is registered; its recovery prerequisites will be verified before a mutating run.",
   "entities.rotation.previewUnprotected": "Dry run: Enterprise rotation protection is unavailable. No risk acknowledgment is required for this read-only preview.",
+  "entities.rotation.unprotectedAcknowledged": "Ungeschützte Schlüsselrotation: Risiko bestätigt",
+  "entities.rotation.unprotectedRefused": "Schlüsselrotation vor Datenänderungen abgelehnt",
   "entities.rotation.unprotectedWarning": "Die fortsetzbare verschlüsselte Enterprise-Sicherung und Prüfung nach der Schlüsselrotation sind nicht verfügbar. Eine unterbrochene oder fehlerhafte Rotation kann Daten unwiederbringlich machen. Bewahren Sie eine getestete unabhängige Sicherung und alle bisherigen Schlüssel auf. Um das Risiko zu akzeptieren, wiederholen Sie den Befehl mit --acknowledge-unprotected-key-rotation.",
   "entities.settings.description": "Globale Konfigurationen für benutzerdefinierte Entitäten verwalten.",
   "entities.settings.errors.conflict": "Die Einstellungen wurden von einem anderen Benutzer geändert. Bitte neu laden.",

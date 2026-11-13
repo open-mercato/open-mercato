@@ -10,11 +10,12 @@ Open Mercato Enterprise Edition adds capabilities designed for teams running hig
 - **Advanced collaboration controls** such as record locks and conflict handling for concurrent editors.
 - **Security controls** such as hardened password change, multi-factor authentication (MFA), and sudo re-authentication.
 - **Enterprise-grade controls** for operating larger organizations with stronger safety rails.
+- **[Encrypted backup and recovery](../deployment/enterprise-backup-recovery)** with resumable PostgreSQL backups, authenticated archive verification, and quarantined restore/exercise workflows. Archive decryption and application data-key recovery require separate custody.
 - **[Protected key rotation and data verification](../user-guide/key-rotation-protection)** adds a verified encrypted recovery backup and an independent, complete persisted-data comparison to Core tenant key rotation. Both protections are commercial features; Core requires an explicit per-invocation risk acknowledgment when they are unavailable.
 - **Additional enterprise modules** that can be enabled on top of the OSS core.
 
 ## Feature availability
 
-Enterprise features are commercial capabilities supplied by `@open-mercato/enterprise` under the Enterprise License Agreement; they require commercial rights and the related module to be enabled. Protected key rotation requires the `backups` module and `OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED=true`. This operator attestation does not grant rights or replace a commercial license.
+Enterprise features are commercial capabilities supplied by `@open-mercato/enterprise` under the Enterprise License Agreement; they require commercial rights and the related module to be enabled. Backup commands and protected key rotation require the `backups` module and `OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED=true`. This operator attestation does not grant rights or replace a commercial license.
 
 Start with [Record locks](./record-locks) to configure concurrent editing safeguards, [Security](./security/) for password hardening, MFA, and sudo, or explore the [Single Sign-On (SSO)](./sso/) module for centralized identity management with OIDC and SCIM 2.0.
