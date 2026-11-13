@@ -68,6 +68,28 @@ describe('LocaleNumberInput', () => {
     expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('0')
   })
 
+  it.each([
+    ['ArrowUp', '8,2', '9,2', '9.2'],
+    ['ArrowDown', '8,2', '7,2', '7.2'],
+  ])('%s steps the value by one with the locale separator', (key, typed, shown, stored) => {
+    render(<Harness locale="pl" initial={0} />)
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: typed } })
+    fireEvent.keyDown(input, { key })
+    expect(input.value).toBe(shown)
+    expect(screen.getByTestId('stored').textContent).toBe(stored)
+  })
+
+  it('steps the stored value without any typing', () => {
+    render(<Harness locale="en" initial={3} />)
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    fireEvent.focus(input)
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(input.value).toBe('4')
+    expect(screen.getByTestId('stored').textContent).toBe('4')
+  })
+
   it('shows 0 when no number is set yet', () => {
     render(<Harness locale="pl" initial={null} />)
     expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('0')

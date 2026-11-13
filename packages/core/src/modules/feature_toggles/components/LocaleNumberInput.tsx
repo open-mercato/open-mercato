@@ -49,6 +49,16 @@ export function LocaleNumberInput({ value, onValueChange, disabled, autoFocus }:
         setText(next)
         onValueChange(parseLocaleNumber(next, locale) ?? 0)
       }}
+      onKeyDown={(event) => {
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+        event.preventDefault()
+        // A text input has no native spinner, so keep the step the previous number field offered.
+        // toFixed(10) keeps 8.2 - 1 at 7.2 instead of 7.199999999999999.
+        const base = parseLocaleNumber(text, locale) ?? numericValue
+        const stepped = Number((base + (event.key === 'ArrowUp' ? 1 : -1)).toFixed(10))
+        setText(formatLocaleNumberInput(stepped, locale))
+        onValueChange(stepped)
+      }}
       disabled={disabled}
       autoFocus={autoFocus}
     />
