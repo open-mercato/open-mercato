@@ -1,5 +1,5 @@
 import { selectTransport } from './transport'
-import { getLoggerExtension } from './extension'
+import { getLoggerExtension, type LoggerExtensionRecord } from './extension'
 import { isLevelEnabled, type LogLevel } from './level'
 
 export type { LogLevel } from './level'
@@ -24,12 +24,15 @@ export interface Logger {
   child(bindings: LogBindings): Logger
 }
 
+export type LoggerOptions = { write?: (record: LoggerExtensionRecord) => void }
+
 const loggerRegistry = new Map<string, Logger>()
 
 function createExtendedLogger(
   namespace: string,
   transport: Logger,
   bindings: LogBindings = {},
+  write?: LoggerOptions['write'],
 ): Logger {
   const emit = (
     level: LogLevel,
@@ -47,7 +50,13 @@ function createExtendedLogger(
     }
 
     const mergedFields = { ...fields, ...context }
-    transport[level](msg, mergedFields)
+    if (write) {
+      try {
+        write({ level, namespace, message: msg, fields: { ...bindings, ...mergedFields }, time: Date.now() })
+      } catch {
+        transport[level](msg, mergedFields)
+      }
+    } else transport[level](msg, mergedFields)
 
     try {
       extension?.emit?.({
@@ -72,12 +81,14 @@ function createExtendedLogger(
         namespace,
         transport.child(childBindings),
         { ...bindings, ...childBindings },
+        write,
       ),
   }
 }
 
 /** Create (or reuse) a namespaced logger. `namespace` is attached as `name`. */
-export function createLogger(namespace: string): Logger {
+export function createLogger(namespace: string, options?: LoggerOptions): Logger {
+  if (options?.write) return createExtendedLogger(namespace, selectTransport(namespace), {}, options.write)
   const existing = loggerRegistry.get(namespace)
   if (existing) return existing
   const created = createExtendedLogger(namespace, selectTransport(namespace))
