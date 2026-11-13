@@ -74,7 +74,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { GET, PUT, metadata } from '../route'
-import { DEFAULT_TIME_TRACKING_SETTINGS, STAFF_TIME_TRACKING_MODULE_ID } from '../../../../lib/time-tracking/settings'
+import { DEFAULT_TIME_TRACKING_SETTINGS, STAFF_TIME_TRACKING_MODULE_ID, TIME_TRACKING_SETTING_KEYS } from '../../../../lib/time-tracking/settings'
 
 const getRequest = () => new Request('http://localhost/api/staff/timesheets/settings')
 
@@ -87,10 +87,11 @@ const putRequest = (body: unknown) =>
 
 const fullSettings = {
   rounding: { unitMinutes: 15, direction: 'nearest' },
-  defaults: { billable: false, chainStartFromPreviousEnd: false },
+  defaults: { billable: false, chainStartFromPreviousEnd: false, entryMode: 'project' },
   targets: { dailyHours: 6 },
   warnings: { overlap: false, runningTimer: false },
   access: { assignmentGraceDays: 30 },
+  support: { referencePrefix: 'SUP' },
 }
 
 describe('staff time tracking settings route', () => {
@@ -119,10 +120,11 @@ describe('staff time tracking settings route', () => {
     expect(body).toEqual(DEFAULT_TIME_TRACKING_SETTINGS)
     expect(body).toEqual({
       rounding: { unitMinutes: 0, direction: 'up' },
-      defaults: { billable: true, chainStartFromPreviousEnd: true },
+      defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
       targets: { dailyHours: 8 },
       warnings: { overlap: true, runningTimer: true },
       access: { assignmentGraceDays: 14 },
+      support: { referencePrefix: 'SUP' },
     })
   })
 
@@ -156,7 +158,7 @@ describe('staff time tracking settings route', () => {
       15,
       { tenantId: tenantA },
     )
-    expect(setValueSpy).toHaveBeenCalledTimes(8)
+    expect(setValueSpy).toHaveBeenCalledTimes(TIME_TRACKING_SETTING_KEYS.length)
   })
 
   it('applies schema defaults to a partial payload', async () => {
@@ -165,6 +167,48 @@ describe('staff time tracking settings route', () => {
       ...DEFAULT_TIME_TRACKING_SETTINGS,
       targets: { dailyHours: null },
     })
+  })
+
+  it('keeps the stored support reference prefix when an older client omits the support group', async () => {
+    configStore.set(storeKey(tenantA, 'support.referencePrefix'), 'HELP')
+    const { support: _omittedSupport, ...legacySettings } = fullSettings
+
+    const response = await PUT(putRequest(legacySettings))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ...fullSettings, support: { referencePrefix: 'HELP' } })
+    expect(setValueSpy).toHaveBeenCalledWith(
+      STAFF_TIME_TRACKING_MODULE_ID,
+      'support.referencePrefix',
+      'HELP',
+      { tenantId: tenantA },
+    )
+    expect(setValueSpy).toHaveBeenCalledTimes(TIME_TRACKING_SETTING_KEYS.length)
+  })
+
+  it('keeps the stored support reference prefix when the support group omits it', async () => {
+    configStore.set(storeKey(tenantA, 'support.referencePrefix'), 'HELP')
+
+    const response = await PUT(putRequest({ ...fullSettings, support: {} }))
+
+    await expect(response.json()).resolves.toEqual({ ...fullSettings, support: { referencePrefix: 'HELP' } })
+  })
+
+  it('overwrites the stored support reference prefix when the payload carries one', async () => {
+    configStore.set(storeKey(tenantA, 'support.referencePrefix'), 'HELP')
+
+    const response = await PUT(putRequest({ ...fullSettings, support: { referencePrefix: 'TCK' } }))
+
+    await expect(response.json()).resolves.toEqual({ ...fullSettings, support: { referencePrefix: 'TCK' } })
+    expect(configStore.get(storeKey(tenantA, 'support.referencePrefix'))).toBe('TCK')
+  })
+
+  it('falls back to the default prefix when nothing is stored and the payload omits it', async () => {
+    const { support: _omittedSupport, ...legacySettings } = fullSettings
+
+    const response = await PUT(putRequest(legacySettings))
+
+    await expect(response.json()).resolves.toEqual({ ...fullSettings, support: { referencePrefix: 'SUP' } })
   })
 
   it('rejects an invalid payload with 400', async () => {
@@ -276,7 +320,7 @@ describe('staff time tracking settings route', () => {
     const response = await PUT(putRequest(fullSettings))
 
     expect(response.status).toBe(200)
-    expect(setValueSpy).toHaveBeenCalledTimes(8)
+    expect(setValueSpy).toHaveBeenCalledTimes(TIME_TRACKING_SETTING_KEYS.length)
     expect(afterSuccess).toHaveBeenCalledWith(
       expect.objectContaining({
         resourceKind: 'staff.timesheets.settings',

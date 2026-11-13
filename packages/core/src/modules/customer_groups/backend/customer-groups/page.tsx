@@ -11,7 +11,8 @@ import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-
 import { Tag, type TagMap } from '@open-mercato/ui/primitives/tag'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Plus, GripVertical } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -117,6 +118,7 @@ function DragHandle({ id }: { id: string }) {
 
 export default function CustomerGroupsPage() {
   const t = useT()
+  const dateLocale = useLocale()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
   const canManage = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, MANAGE_FEATURE)
@@ -375,10 +377,10 @@ export default function CustomerGroupsPage() {
       {
         accessorKey: 'updated_at',
         header: t('customer_groups.groups.list.columns.updatedAt', 'Updated'),
-        cell: ({ row }) => (row.original.updated_at ? new Date(row.original.updated_at).toLocaleString() : '—'),
+        cell: ({ row }) => formatDisplayDateTime(row.original.updated_at, dateLocale) ?? '—',
       },
     ],
-    [t, dragReorderEnabled],
+    [t, dateLocale, dragReorderEnabled],
   )
 
   const filterDefs = React.useMemo<FilterDef[]>(

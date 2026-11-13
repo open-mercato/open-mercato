@@ -10,7 +10,11 @@ import PersonDetailV2Page from '../page'
 const readApiResultOrThrowMock = jest.fn()
 const scopedDeleteHeaderCalls: Array<Record<string, string>> = []
 const crudFormPropsCapture: { current: Record<string, unknown> | null } = { current: null }
+const personDetailTabsPropsCapture: {
+  current: { injectedTabs?: Array<{ id: string; label: string; priority?: number }> } | null
+} = { current: null }
 let activeTabParam: string | null = 'changelog'
+let injectedTabWidgets: Array<Record<string, unknown>> = []
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -75,7 +79,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
   InjectionSpot: () => null,
-  useInjectionWidgets: () => ({ widgets: [] }),
+  useInjectionWidgets: () => ({ widgets: injectedTabWidgets }),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -110,13 +114,23 @@ jest.mock('../../../../../components/detail/PersonDetailHeader', () => ({
 }))
 
 jest.mock('../../../../../components/detail/PersonDetailTabs', () => ({
+  PERSON_DETAIL_TAB_IDS: jest.requireActual<typeof import('../../../../../components/detail/PersonDetailTabs')>('../../../../../components/detail/PersonDetailTabs').PERSON_DETAIL_TAB_IDS,
   resolveLegacyTab: (tab?: string | null) => {
     if (tab === 'activities' || tab === 'companies' || tab === 'tasks' || tab === 'deals' || tab === 'files' || tab === 'changelog' || tab === 'addresses') {
       return tab
     }
     return 'activities'
   },
-  PersonDetailTabs: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  PersonDetailTabs: ({
+    children,
+    injectedTabs,
+  }: {
+    children: React.ReactNode
+    injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  }) => {
+    personDetailTabsPropsCapture.current = { injectedTabs }
+    return <div>{children}</div>
+  },
 }))
 
 jest.mock('../../../../../components/detail/AddressesSection', () => ({
@@ -158,6 +172,8 @@ jest.mock('../../../../../components/detail/ChangelogTab', () => ({
 describe('PersonDetailV2Page', () => {
   beforeEach(() => {
     activeTabParam = 'changelog'
+    injectedTabWidgets = []
+    personDetailTabsPropsCapture.current = null
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockResolvedValue({
       person: {
@@ -181,6 +197,22 @@ describe('PersonDetailV2Page', () => {
 
     await waitFor(() => {
       expect(screen.getByText('changelog')).toBeInTheDocument()
+    })
+  })
+
+  it('passes injected tab priority through to PersonDetailTabs', async () => {
+    injectedTabWidgets = [{
+      widgetId: 'crm.overview',
+      placement: { kind: 'tab', groupId: 'crm.overview', priority: 1000 },
+      module: { metadata: { title: 'Overview' }, Widget: () => <div>overview</div> },
+    }]
+
+    renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
+
+    await waitFor(() => {
+      expect(personDetailTabsPropsCapture.current?.injectedTabs).toEqual([
+        { id: 'crm.overview', label: 'Overview', priority: 1000 },
+      ])
     })
   })
 

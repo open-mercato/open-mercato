@@ -8,6 +8,7 @@ import type {
   IndexableRecord,
   PresenterEnricherFn,
 } from './types'
+import { resolveEntityIndexStrategies } from './lib/entity-strategy-policy'
 import { mergeAndRankResults } from './lib/merger'
 import { searchError } from './lib/debug'
 
@@ -70,7 +71,17 @@ function normalizeOrganizationFilter(options: SearchOptions): string[] | null {
   return values
 }
 
-function filterResultsByOrganizationScope(results: SearchResult[], options: SearchOptions): SearchResult[] {
+/**
+ * A result with no organization passes only for an entity type declared through
+ * `registerTenantGlobalEntityTypes()`: a platform-wide catalogue is indexed once with no
+ * organization, so an organization-scoped search would otherwise never return it. Every
+ * other organization-less result is still dropped.
+ */
+function filterResultsByOrganizationScope(
+  results: SearchResult[],
+  options: SearchOptions,
+  isTenantGlobalEntityType: (entityType: string) => boolean,
+): SearchResult[] {
   const organizationIds = normalizeOrganizationFilter(options)
   if (!organizationIds) return results
   if (organizationIds.length === 0) return []
@@ -78,7 +89,8 @@ function filterResultsByOrganizationScope(results: SearchResult[], options: Sear
   const allowed = new Set(organizationIds)
   return results.filter((result) => {
     const organizationId = typeof result.organizationId === 'string' ? result.organizationId.trim() : ''
-    return organizationId.length > 0 && allowed.has(organizationId)
+    if (organizationId.length > 0) return allowed.has(organizationId)
+    return isTenantGlobalEntityType(result.entityId)
   })
 }
 
@@ -112,6 +124,7 @@ export class SearchService {
   private readonly fallbackStrategy: SearchStrategyId | undefined
   private readonly mergeConfig: ResultMergeConfig
   private readonly presenterEnricher?: PresenterEnricherFn
+  private readonly resolveEntityStrategies?: SearchServiceOptions['resolveEntityStrategies']
   private readonly availabilityCache = new Map<SearchStrategyId, { value: boolean; expiresAt: number }>()
   private readonly availabilityInflight = new Map<SearchStrategyId, Promise<boolean>>()
   private readonly availabilityCacheTtlMs: number
@@ -125,6 +138,7 @@ export class SearchService {
     this.fallbackStrategy = options.fallbackStrategy
     this.mergeConfig = options.mergeConfig ?? DEFAULT_MERGE_CONFIG
     this.presenterEnricher = options.presenterEnricher
+    this.resolveEntityStrategies = options.resolveEntityStrategies
     this.availabilityCacheTtlMs = options.availabilityCacheTtlMs ?? STRATEGY_AVAILABILITY_CACHE_TTL_MS
   }
 
@@ -167,6 +181,14 @@ export class SearchService {
       return []
     }
 
+    const { resolveQueryIndexSearchScope, filterQueryIndexSearchRecords } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+    const scope = await resolveQueryIndexSearchScope()
+    if (options.entityTypes?.length) {
+      const entityTypes = options.entityTypes.filter((entityType) => !scope.blockedEntityTypes.includes(entityType))
+      if (!entityTypes.length) return []
+      options = { ...options, entityTypes }
+    }
+
     // Execute searches in parallel with graceful degradation
     const results = await Promise.allSettled(
       activeStrategies.map((strategy) => this.executeStrategySearch(strategy, query, options)),
@@ -188,11 +210,27 @@ export class SearchService {
     }
 
     // Merge and rank results
-    const merged = mergeAndRankResults(allResults, this.mergeConfig)
-    const scoped = filterResultsByOrganizationScope(merged, options)
+    const globalTypes = new Set(scope.tenantGlobalEntityTypes)
+    const isTenantGlobalEntityType = (entityType: string) => globalTypes.has(entityType)
+    const persistedSources = new Set(['tokens', 'vector', 'fulltext'])
+    const candidates = allResults.filter((result) => persistedSources.has(result.source))
+      .map((result) => ({ entityId: result.entityId, recordId: result.recordId, tenantId: options.tenantId, organizationId: result.organizationId ?? null, result }))
+    const allowed = await filterQueryIndexSearchRecords(undefined, scope, candidates)
+    const allowedResults = new Set(allowed.map((candidate) => candidate.result))
+    const safeResults = allResults.filter((result) => !scope.blockedEntityTypes.includes(result.entityId) && (!persistedSources.has(result.source) || allowedResults.has(result)))
+    const seenCatalogueHits = new Set<string>()
+    const scoped = filterResultsByOrganizationScope(safeResults, options, isTenantGlobalEntityType)
+      .flatMap((result) => {
+        if (!isTenantGlobalEntityType(result.entityId)) return [result]
+        const key = JSON.stringify([result.source, result.entityId, result.recordId])
+        if (seenCatalogueHits.has(key)) return []
+        seenCatalogueHits.add(key)
+        return [{ ...result, organizationId: null }]
+      })
+    const merged = mergeAndRankResults(scoped, this.mergeConfig)
 
     // Enrich results missing presenter or navigation metadata
-    return this.enrichResultsWithPresenter(scoped, options.tenantId, options.organizationId)
+    return this.enrichResultsWithPresenter(merged, options.tenantId, options.organizationId)
   }
 
   /**
@@ -221,7 +259,9 @@ export class SearchService {
    * @param record - Record to index
    */
   async index(record: IndexableRecord): Promise<void> {
-    const strategies = await this.getAvailableStrategies()
+    const strategies = (await this.getAvailableStrategies()).filter((strategy) =>
+      this.isIndexStrategyAllowed(record.entityId, strategy.id),
+    )
 
     if (strategies.length === 0) {
       return
@@ -266,12 +306,14 @@ export class SearchService {
 
     const results = await Promise.allSettled(
       strategies.map((strategy) => {
+        const allowedRecords = records.filter((record) => this.isIndexStrategyAllowed(record.entityId, strategy.id))
+        if (allowedRecords.length === 0) return Promise.resolve()
         if (strategy.bulkIndex) {
-          return strategy.bulkIndex(records)
+          return strategy.bulkIndex(allowedRecords)
         }
         // Fallback to individual indexing, bounded so a strategy without a batch
         // implementation cannot turn one batch job into hundreds of concurrent writes.
-        return mapWithConcurrency(records, BULK_INDEX_FALLBACK_CONCURRENCY, (record) =>
+        return mapWithConcurrency(allowedRecords, BULK_INDEX_FALLBACK_CONCURRENCY, (record) =>
           this.executeStrategyIndex(strategy, record),
         )
       }),
@@ -478,6 +520,15 @@ export class SearchService {
     })()
     this.availabilityInflight.set(strategy.id, probe)
     return probe
+  }
+
+  private isIndexStrategyAllowed(entityId: string, strategyId: SearchStrategyId): boolean {
+    if (this.resolveEntityStrategies) {
+      const allowedStrategies = this.resolveEntityStrategies(entityId)
+      return allowedStrategies === undefined || allowedStrategies.includes(strategyId)
+    }
+    const allowedStrategies = resolveEntityIndexStrategies(entityId)
+    return allowedStrategies === undefined || allowedStrategies.includes(strategyId)
   }
 
   /**

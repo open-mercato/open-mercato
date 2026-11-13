@@ -278,7 +278,7 @@ describe('auth ACL audit commands', () => {
         organizationsJson: null,
         tenantId,
       })
-      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1' })
+      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1', updatedAt: null })
     })
 
     it('scopes every ACL lookup by role and tenant', async () => {
@@ -288,10 +288,12 @@ describe('auth ACL audit commands', () => {
       await roleHandler().captureAfter!(roleInput, result, harness.ctx)
 
       // prepare + execute + captureAfter each look the row up; a handler that
-      // dropped the tenant predicate could cross tenants unnoticed.
+      // dropped the tenant predicate could cross tenants unnoticed. `deletedAt`
+      // is part of the same assertion: the editor must load the row
+      // `RbacService` reads, and that read is live-rows-only.
       expect(harness.findOneFilters).toHaveLength(3)
       for (const filter of harness.findOneFilters) {
-        expect(filter).toEqual({ role: roleId, tenantId })
+        expect(filter).toEqual({ role: roleId, tenantId, deletedAt: null })
       }
     })
 
@@ -344,7 +346,7 @@ describe('auth ACL audit commands', () => {
 
       const result = await roleHandler().execute(roleInput, harness.ctx)
 
-      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1' })
+      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1', updatedAt: null })
       expect(harness.calls.commit).toBe(1)
       expect(harness.invalidatedTenants).toEqual([])
     })
@@ -360,7 +362,7 @@ describe('auth ACL audit commands', () => {
 
       const result = await roleHandler().execute(roleInput, harness.ctx)
 
-      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1' })
+      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1', updatedAt: null })
       expect(harness.calls.commit).toBe(1)
       expect(harness.deletedTags).toEqual([])
       // At `error`, not `debug`: a nav cache still serving revoked grants has to
@@ -489,7 +491,7 @@ describe('auth ACL audit commands', () => {
         featuresJson: ['audit_logs.view_self'],
         organizationsJson: ['org-1'],
       })
-      expect(result).toEqual({ resourceId: userId, tenantId, organizationId: 'org-1' })
+      expect(result).toEqual({ resourceId: userId, tenantId, organizationId: 'org-1', updatedAt: null })
     })
 
     it('scopes every ACL lookup by user and tenant', async () => {
@@ -500,7 +502,7 @@ describe('auth ACL audit commands', () => {
 
       expect(harness.findOneFilters).toHaveLength(3)
       for (const filter of harness.findOneFilters) {
-        expect(filter).toEqual({ user: userId, tenantId })
+        expect(filter).toEqual({ user: userId, tenantId, deletedAt: null })
       }
     })
 
@@ -667,6 +669,21 @@ describe('auth ACL audit commands', () => {
       expect(handler.redo).toBeUndefined()
       // Still fully audited — the entry carries before/after, just no undo verb.
       expect(handler.buildLog).toBeDefined()
+    })
+  })
+
+  describe('AclUpdateResult backward compatibility', () => {
+    it('accepts a producer written against the pre-#8683 result shape', () => {
+      // `updatedAt` is optional, not required: a value omitting it entirely
+      // must still satisfy `AclUpdateResult`. If it were required, this
+      // object literal would fail to typecheck and the gate would catch it.
+      const legacyShapedResult: AclUpdateResult = {
+        resourceId: roleId,
+        tenantId,
+        organizationId: 'org-1',
+      }
+
+      expect(legacyShapedResult.updatedAt).toBeUndefined()
     })
   })
 })
