@@ -129,12 +129,14 @@ function makeEm(task: Row, instance: Row | null) {
     return row
   })
   const persist = jest.fn(() => ({ flush }))
+  const nativeUpdate = jest.fn(async () => 1)
 
   return {
-    em: { findOne, flush, create, persist } as unknown as EntityManager,
+    em: { findOne, flush, create, persist, nativeUpdate } as unknown as EntityManager,
     flush,
     create,
     persist,
+    nativeUpdate,
     stepInstance,
     events,
   }
@@ -160,6 +162,7 @@ function expectNothingWritten(
   instanceStatus?: string,
 ) {
   expect(harness.flush).not.toHaveBeenCalled()
+  expect(harness.nativeUpdate).not.toHaveBeenCalled()
   expect(harness.create).not.toHaveBeenCalled()
   expect(harness.persist).not.toHaveBeenCalled()
   expect(harness.events).toEqual([])

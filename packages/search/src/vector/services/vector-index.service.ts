@@ -1,3 +1,4 @@
+import { isEntityIndexStrategyAllowed } from '../../lib/entity-strategy-policy'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -399,6 +400,15 @@ export class VectorIndexService {
     raw: Record<string, any>,
     opts: { skipDelete?: boolean } = {},
   ): Promise<VectorIndexOperationResult> {
+    if (!isEntityIndexStrategyAllowed(args.entityId, 'vector')) {
+      return {
+        action: 'skipped',
+        existed: false,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId ?? null,
+        reason: 'unsupported',
+      }
+    }
     const scopeOrg = args.organizationId ?? null
     const { record, customFields } = this.extractRecordPayload(args.entityId, raw)
     const resolvedOrgId = scopeOrg ?? (record.organization_id ?? record.organizationId ?? null)

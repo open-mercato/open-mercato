@@ -1185,6 +1185,7 @@
   "wms.errors.salesOrder.reRunReservationCancelled": "A cancelled order cannot hold a stock reservation.",
   "wms.errors.trackingRequired": "Lot or serial tracking data is required for this product.",
   "wms.errors.unauthorized": "Unauthorized",
+  "wms.errors.validationFailed": "Validation failed",
   "wms.nav.group": "WMS",
   "wms.notifications.lowStock.body": "Low stock alert — available: {availableQuantity}, reorder point: {reorderPoint}, safety stock: {safetyStock}",
   "wms.notifications.lowStock.renderer.available": "Available",

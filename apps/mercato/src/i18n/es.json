@@ -1027,6 +1027,7 @@
   "ui.inputs.tagsInput.placeholder": "Agregar etiqueta y presionar Enter",
   "ui.inputs.tagsInput.removeTag": "Eliminar {label}",
   "ui.inputs.websiteInput.placeholder": "www.ejemplo.es",
+  "ui.lookupSelect.change": "Cambiar",
   "ui.lookupSelect.clearSelection": "Borrar selección",
   "ui.lookupSelect.minQueryHint": "Escribe al menos {minQuery} caracteres o pega un id para buscar.",
   "ui.lookupSelect.noResults": "Sin resultados",

@@ -8,7 +8,7 @@ import type {
   IndexableRecord,
   PresenterEnricherFn,
 } from './types'
-import { getSearchModuleConfigs } from '@open-mercato/shared/modules/search'
+import { resolveEntityIndexStrategies } from './lib/entity-strategy-policy'
 import { mergeAndRankResults } from './lib/merger'
 import { searchError } from './lib/debug'
 
@@ -527,12 +527,7 @@ export class SearchService {
       const allowedStrategies = this.resolveEntityStrategies(entityId)
       return allowedStrategies === undefined || allowedStrategies.includes(strategyId)
     }
-    let allowedStrategies: SearchStrategyId[] | undefined
-    for (const moduleConfig of getSearchModuleConfigs()) {
-      for (const entityConfig of moduleConfig.entities) {
-        if (entityConfig.entityId === entityId) allowedStrategies = entityConfig.strategies
-      }
-    }
+    const allowedStrategies = resolveEntityIndexStrategies(entityId)
     return allowedStrategies === undefined || allowedStrategies.includes(strategyId)
   }
 

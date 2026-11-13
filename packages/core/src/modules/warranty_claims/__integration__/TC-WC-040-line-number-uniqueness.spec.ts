@@ -136,6 +136,56 @@ test.describe('TC-WC-040: live claim line number uniqueness', () => {
     }
   })
 
+  test('allows keeping an unchanged number on a legacy duplicate row, but rejects moving a sibling into it', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const { tenantId, organizationId } = getTokenScope(token)
+    let claimId: string | null = null
+
+    try {
+      const claim = await createClaimFixture(request, token, {
+        claimType: 'warranty',
+        customerName: uniqueLabel('tc-wc-040-legacy-duplicate'),
+        currencyCode: 'USD',
+        lines: [
+          { lineNo: 1, productName: 'First part', qtyClaimed: 1, creditAmount: 10 },
+          { lineNo: 2, productName: 'Second part', qtyClaimed: 1, creditAmount: 20 },
+        ],
+      })
+      claimId = expectId(claim.id, 'claim fixture should have an id')
+      const initialState = await readClaimState(request, token, claimId)
+      const firstLineId = expectId(initialState.lines.find((line) => line.lineNo === 1)?.id, 'line 1 should exist')
+      const secondLineId = expectId(initialState.lines.find((line) => line.lineNo === 2)?.id, 'line 2 should exist')
+
+      // Simulate pre-existing legacy data: a second live line sharing line_no 1,
+      // inserted directly since the API itself refuses to create this duplicate.
+      const legacyDuplicateId = await withClient((client) => client.query<{ id: string }>(
+        `insert into warranty_claim_lines
+           (claim_id, organization_id, tenant_id, line_no, product_name, qty_claimed, credit_amount, created_at, updated_at)
+         values ($1, $2, $3, 1, 'Legacy duplicate part', 1, 15, now(), now())
+         returning id`,
+        [claimId, organizationId, tenantId],
+      )).then((result) => result.rows[0]?.id)
+      expect(legacyDuplicateId).toEqual(expect.any(String))
+
+      const unchangedUpdate = await apiRequest(request, 'PUT', '/api/warranty_claims/lines', {
+        token,
+        data: { id: firstLineId, lineNo: 1, productName: 'Updated first part' },
+      })
+      expect(unchangedUpdate.status(), await unchangedUpdate.text()).toBe(200)
+      const afterUnchangedUpdate = await readClaimState(request, token, claimId)
+      expect(afterUnchangedUpdate.lines.find((line) => line.id === firstLineId)?.productName).toBe('Updated first part')
+
+      const movedIntoDuplicate = await apiRequest(request, 'PUT', '/api/warranty_claims/lines', {
+        token,
+        data: { id: secondLineId, lineNo: 1 },
+      })
+      await expectDuplicateLineNumber(movedIntoDuplicate)
+      expect(await readClaimState(request, token, claimId)).toEqual(afterUnchangedUpdate)
+    } finally {
+      await cleanupDraftClaimWithLines(request, token, claimId)
+    }
+  })
+
   for (const scenario of [
     { name: 'explicit duplicates', lines: [{ lineNo: 1 }, { lineNo: 1 }] },
     { name: 'explicit number followed by a colliding default', lines: [{ lineNo: 2 }, {}] },
