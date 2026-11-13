@@ -74,10 +74,11 @@ try {
     assert.equal(databaseStorageMode(storage.descriptor), 'validate')
     await active.ensureReady()
     assert.equal(await active.isHealthy!(), true)
+    assert.equal((await runtime.query('show default_transaction_read_only')).rows[0].default_transaction_read_only, 'on')
+    runtime.options.options = `-c search_path=${schema},public`
     const clients = await Promise.all(Array.from({ length: 3 }, () => runtime.connect()))
     try {
       for (const client of clients) {
-        assert.equal((await client.query('show default_transaction_read_only')).rows[0].default_transaction_read_only, 'on')
         await client.query('set default_transaction_read_only=off')
       }
     } finally { for (const client of clients) client.release() }

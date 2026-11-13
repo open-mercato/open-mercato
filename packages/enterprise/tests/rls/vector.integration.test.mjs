@@ -19,7 +19,7 @@ test('production enterprise adapter supports restricted pgvector runtime and enf
   let output
   try {
     const result = await execute(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('./vector.run.ts', import.meta.url))], {
-      cwd: fileURLToPath(new URL('../../../../', import.meta.url)), env: { ...process.env, TSX_TSCONFIG_PATH: config }, timeout: 90_000, maxBuffer: 1024 * 1024,
+      cwd: fileURLToPath(new URL('../../../../', import.meta.url)), env: { ...process.env, TSX_TSCONFIG_PATH: process.env.TSX_TSCONFIG_PATH ?? config }, timeout: 90_000, maxBuffer: 1024 * 1024,
     })
     output = result.stdout
   } catch {
