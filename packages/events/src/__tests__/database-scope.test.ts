@@ -85,3 +85,54 @@ for (const phase of ['tap', 'subscriber']) {
     } finally { removeTap() }
   })
 }
+
+
+test('delivers an accepted coalesced tail in a fresh bounded invocation after its request expires', async () => {
+  delete (globalThis as Record<symbol, unknown>)[key]
+  const frames = new AsyncLocalStorage<{ context: DatabaseExecutionContext; active: boolean }>()
+  const run = async (context: DatabaseExecutionContext, callback: () => unknown) => {
+    const frame = { context, active: true }
+    return frames.run(frame, async () => {
+      try { return await callback() } finally { frame.active = false }
+    })
+  }
+  const currentContext = () => {
+    const frame = frames.getStore()
+    if (frame && !frame.active) throw new Error('[internal] Database invocation has completed')
+    return frame?.context
+  }
+  registerDatabaseRuntimeAdapter({ id: 'test', version: '1', configurationKey: 'coalesced',
+    configurePool: () => ({ ready: async () => undefined, dispose: () => undefined }),
+    currentContext,
+    run: run as never,
+    runFresh: run as never,
+  })
+  const { createModuleEvents } = await import('@open-mercato/shared/modules/events')
+  const { flushPendingBroadcasts, resetBroadcastCoalescerForTests } = await import('../broadcast-coalescer')
+  const { registerGlobalEventTap } = await import('../bus')
+  createModuleEvents({ moduleId: 'scope_test', events: [{ id: 'scope_test.record.changed', label: 'Changed', clientBroadcast: true, broadcastCoalescing: true }] })
+  const interval = process.env.OM_BROADCAST_COALESCE_INTERVAL_MS
+  process.env.OM_BROADCAST_COALESCE_INTERVAL_MS = '60000'
+  let requestActive = true
+  registerDatabaseExecutionContextResolver('request', async () => ({ status: 'resolved', context: { kind: 'tenant', source: 'page', tenantId }, invocation: { token: Symbol.for('coalesced-request'), isActive: () => requestActive } }))
+  const delivered: Array<{ sequence: unknown; tenantId: string | null | undefined }> = []
+  const removeTap = registerGlobalEventTap((_event, payload) => {
+    delivered.push({ sequence: (payload as { sequence: number }).sequence, tenantId: currentContext()?.tenantId })
+  })
+  try {
+    const bus = createEventBus({ resolve: (() => undefined) as never, queueStrategy: 'local' })
+    await bus.emit('scope_test.record.changed', { sequence: 1 })
+    await bus.emit('scope_test.record.changed', { sequence: 2 })
+    expect(delivered).toEqual([{ sequence: 1, tenantId }])
+    requestActive = false
+    await flushPendingBroadcasts()
+    expect(delivered).toEqual([{ sequence: 1, tenantId }, { sequence: 2, tenantId }])
+    expect(currentContext()).toBeUndefined()
+    await expect(bus.emit('scope_test.record.changed', { sequence: 3 })).rejects.toThrow('completed')
+  } finally {
+    removeTap()
+    resetBroadcastCoalescerForTests()
+    if (interval === undefined) delete process.env.OM_BROADCAST_COALESCE_INTERVAL_MS
+    else process.env.OM_BROADCAST_COALESCE_INTERVAL_MS = interval
+  }
+})

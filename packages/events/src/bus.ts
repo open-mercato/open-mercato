@@ -1,4 +1,4 @@
-import { resolveCurrentDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+import { resolveCurrentDatabaseExecutionContext, runWithFreshDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
@@ -662,8 +662,12 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       await submitBroadcast(
         buildBroadcastCoalesceKey(event, payload, options),
         async () => {
-          await runGlobalTaps()
-          await publishToOtherProcesses()
+          const broadcast = async () => {
+            await runGlobalTaps()
+            await publishToOtherProcesses()
+          }
+          if (execution) await runWithFreshDatabaseExecutionContext(execution, broadcast)
+          else await broadcast()
         },
       )
     } else {
