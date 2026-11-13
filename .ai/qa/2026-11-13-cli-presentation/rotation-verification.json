@@ -155,5 +155,5 @@
     "private workspaces",
     "raw logs"
   ],
-  "releaseStatus": "Presentation amendment complete; overall PR stays draft pending fresh final-source performance/resource matrix and concluding release review. No benchmark waiver or CI automation approval implied."
+  "releaseStatus": "Presentation amendment complete; existing owner-selected ready-for-review state preserved. Fresh final-source performance/resource matrix and concluding release review remain pending. No benchmark waiver or CI automation approval implied."
 }
