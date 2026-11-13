@@ -117,3 +117,18 @@ The backup facade is consumed by companion #9334. Parent executed actual Core CL
 Authoritative final review: https://github.com/open-mercato/open-mercato/pull/9333#pullrequestreview-5878610354 — APPROVED recommendation, no unresolved blocker/major, recorded as COMMENT because the authenticated account is the PR author. Independent review scopes and older native-adapter authorship limitations are disclosed. Required CI and manual QA remain external merge gates; no self-QA approval or merge is claimed. The documented giant-row/performance/custody limitations remain applicable.
 
 Final publication uses the existing verification and source-backlink comments above, completes this plan, publishes the PR ready for manual QA and releases only this run's atomic claim. No production source changed after d6c6e3e0bb; this final commit records verification only.
+
+
+## Approved operator presentation and documentation amendment — 2026-11-13
+
+The owner reviewed the setup-style terminal mockups and explicitly approved implementation. Scope: colored titles, phase headings, status icons, divider/result/error cards, truthful progress, strict plain/NO_COLOR/dumb fallback and machine-progress purity, preserving existing stdout, commands and exit codes. Official operator documentation and Enterprise licensing/feature lists are also requested. This does not approve the separately proposed isolated CI automation. No backup archives, dumps, keys or large fixtures are uploaded.
+
+- [x] A.1 Implement the approved terminal presentation and output-contract regressions.
+- [x] A.2 Publish official feature documentation and Enterprise feature listings.
+- [x] A.3 Run configured validation, independent review and actual CLI screenshot checks.
+- [x] A.4 Publish verification and executable manual-test instructions in the PR comment.
+
+
+### Presentation amendment verification — source 901e4a8826
+
+All eight configured commands passed in order with local Node 24.22.2, including the 51-task workspace test and production application build. Separate-agent source review found no unresolved blocker or major. Official operator guides/navigation and Enterprise overview, README and subscription feature lists pass documentation checks. Current-source actual terminal/JSON proof and immutable screenshots are recorded in `.ai/qa/2026-11-13-cli-presentation/`. Manual test instructions and the actual-output screenshots are published at https://github.com/open-mercato/open-mercato/pull/9333#issuecomment-6852294617. No archives, dumps, keys or raw private logs were uploaded. Required CI and manual QA remain separate; no merge was performed.
