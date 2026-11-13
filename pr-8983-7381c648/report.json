@@ -1,0 +1,755 @@
+{
+  "runId": "7381c648-8237-42d0-8dfb-d49224b451b2",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8983,
+    "title": "fix(ui): contain Forms locale controls and warranty stage markers",
+    "headSha": "ab0e4936b9653bdaad6c70bd4e4c2a7c576f331c"
+  },
+  "verdict": "FAIL",
+  "environment": {
+    "runner": "local",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "role": "admin plus owned tenant-bound actors",
+    "baseUrl": "http://127.0.0.1:37735",
+    "headSha": "ab0e4936b9653bdaad6c70bd4e4c2a7c576f331c",
+    "production": true,
+    "browserVersion": "Playwright1.62.1 Chromium",
+    "worktreeLocalInstall": true,
+    "rayonThreads": 2,
+    "rssGuardGiB": 21,
+    "coldAndWarmReadiness": "Authenticated production probe passed; warm reuse verified twice; initial cold wrapper tail parse after in-flight wrapper edit was resolved by full rerun.",
+    "build": "Worktree immutable install; TURBO_FORCE=true build:packages -> generate -> build:packages, then authoritative CLI force-rebuild/no-reuse production pipeline; fresh isolated Postgres."
+  },
+  "hasUiTest": true,
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Open real Form Studio with long metadata and empty/default canvas",
+      "expected": "Editor and all actions render",
+      "observed": "Production page rendered; empty canvas shows Drop a field here and properties prompt",
+      "result": "PASS",
+      "screenshot": "forms-en-desktop-default.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "Locale empty/duplicate refusal and Enter add Polish; reload and whole-record comparison",
+      "expected": "Reject empty/duplicate; persist en/pl without unrelated changes",
+      "observed": "Disabled empty/duplicate; Enter persisted en/pl; whole response unchanged except locales/updatedAt",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "Forms en 375px long-title/multi-locale layout",
+      "expected": "Publish/History and full localized Add locale/input fit viewport and row",
+      "observed": "All bounds asserted; document width <= viewport; input/button fit their row",
+      "result": "PASS",
+      "screenshot": "forms-en-375.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "Forms en 1280px long-title/multi-locale layout",
+      "expected": "Publish/History and full localized Add locale/input fit viewport and row",
+      "observed": "All bounds asserted; document width <= viewport; input/button fit their row",
+      "result": "PASS",
+      "screenshot": "forms-en-1280.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "Forms pl 375px long-title/multi-locale layout",
+      "expected": "Publish/History and full localized Add locale/input fit viewport and row",
+      "observed": "All bounds asserted; document width <= viewport; input/button fit their row",
+      "result": "PASS",
+      "screenshot": "forms-pl-375.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Forms pl 1280px long-title/multi-locale layout",
+      "expected": "Publish/History and full localized Add locale/input fit viewport and row",
+      "observed": "All bounds asserted; document width <= viewport; input/button fit their row",
+      "result": "PASS",
+      "screenshot": "forms-pl-1280.png"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "Forms de 375px long-title/multi-locale layout",
+      "expected": "Publish/History and full localized Add locale/input fit viewport and row",
+      "observed": "All bounds asserted; document width <= viewport; input/button fit their row",
+      "result": "PASS",
+      "screenshot": "forms-de-375.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "Forms de 1280px long-title/multi-locale layout",
+      "expected": "Publish/History and full localized Add locale/input fit viewport and row",
+      "observed": "All bounds asserted; document width <= viewport; input/button fit their row",
+      "result": "PASS",
+      "screenshot": "forms-de-1280.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Forms es 375px long-title/multi-locale layout",
+      "expected": "Publish/History and full localized Add locale/input fit viewport and row",
+      "observed": "All bounds asserted; document width <= viewport; input/button fit their row",
+      "result": "PASS",
+      "screenshot": "forms-es-375.png"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "Forms es 1280px long-title/multi-locale layout",
+      "expected": "Publish/History and full localized Add locale/input fit viewport and row",
+      "observed": "All bounds asserted; document width <= viewport; input/button fit their row",
+      "result": "PASS",
+      "screenshot": "forms-es-1280.png"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "Forms ko 375px long-title/multi-locale layout",
+      "expected": "Publish/History and full localized Add locale/input fit viewport and row",
+      "observed": "All bounds asserted; document width <= viewport; input/button fit their row",
+      "result": "PASS",
+      "screenshot": "forms-ko-375.png"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "Forms ko 1280px long-title/multi-locale layout",
+      "expected": "Publish/History and full localized Add locale/input fit viewport and row",
+      "observed": "All bounds asserted; document width <= viewport; input/button fit their row",
+      "result": "PASS",
+      "screenshot": "forms-ko-1280.png"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "action": "Ten repeated narrow editor loads",
+      "expected": "Stable layout and reachable actions on all ten attempts",
+      "observed": "10/10 bounds and full-document width assertions passed",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 14,
+      "priority": "P1",
+      "action": "History action from 375px toolbar",
+      "expected": "Navigate and render version history",
+      "observed": "History URL reached; observed loading shell then version history rendered",
+      "result": "PASS",
+      "screenshot": "forms-history-loaded-375.png"
+    },
+    {
+      "step": 15,
+      "priority": "P1",
+      "action": "Narrow publish dialog Escape",
+      "expected": "Escape cancels without publishing",
+      "observed": "Dialog closed; published version remains unset",
+      "result": "PASS",
+      "screenshot": "forms-publish-dialog-375.png"
+    },
+    {
+      "step": 16,
+      "priority": "P1",
+      "action": "Publish error via controlled 503 and Ctrl+Enter",
+      "expected": "Clear error, dialog remains usable, no server publication",
+      "observed": "Fault injection rendered localized error; confirm re-enabled; published id remains null",
+      "result": "PASS",
+      "screenshot": "forms-publish-error-375.png",
+      "method": "browser fault injection"
+    },
+    {
+      "step": 17,
+      "priority": "P1",
+      "action": "Publish retry double-click + keyboard while busy; whole-record readback",
+      "expected": "Single publication, unchanged unrelated fields, error cleared after 10s",
+      "observed": "One POST; published id set; unrelated fields preserved; no lingering error",
+      "result": "PASS",
+      "screenshot": "forms-publish-retry-success-375.png"
+    },
+    {
+      "step": 18,
+      "priority": "P1",
+      "action": "Two actors edit different metadata fields; stale writer saves twice",
+      "expected": "409 preserves the other user and must not claim changes were saved",
+      "observed": "Both writes returned409 and preserved whole record, but header still says All changes saved while edited name is unsaved",
+      "result": "FAIL",
+      "screenshot": "forms-conflict-false-saved.png",
+      "finding": "FormStudio.tsx persistFormPatch does not update autosaveState; toolbar reports schema autosave state for refused metadata writes. Pre-existing in d729ae1."
+    },
+    {
+      "step": 19,
+      "priority": "P1",
+      "action": "Refresh after conflict and retry; whole-record comparison",
+      "expected": "Recover and save name without losing second actor description; conflict clears",
+      "observed": "Refresh recovered server values; name saved; every unrelated field preserved; bar absent after10s",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 20,
+      "priority": "P1",
+      "action": "Own forms.view-only actor opens editor and directly patches form",
+      "expected": "Explicit access denial; author actions absent; direct write403",
+      "observed": "Access Denied page; no Publish; direct PATCH403; positive editor account works",
+      "result": "PASS",
+      "screenshot": "forms-no-design-permission-375.png",
+      "apiOnly": "Direct hidden-action submission"
+    },
+    {
+      "step": 21,
+      "priority": "P1",
+      "action": "Remove added locale",
+      "expected": "Persist only en and hide unnecessary authoring switcher",
+      "observed": "Locale removed through UI; API en; authoring combobox gone",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 22,
+      "priority": "P1",
+      "action": "Slow form GET loading state",
+      "expected": "Useful loading indicator then usable editor",
+      "observed": "Delayed own GET showed Loading status; editor became usable",
+      "result": "PASS",
+      "screenshot": "forms-loading.png",
+      "method": "browser delay injection"
+    },
+    {
+      "step": 23,
+      "priority": "P1",
+      "action": "Warranty draft number markers under real sticky breadcrumb",
+      "expected": "All five numbered markers paint under header when scrolled through it",
+      "observed": "Wheel scroll placed each marker within header; hit test selected banner above every marker",
+      "result": "PASS",
+      "screenshot": "warranty-draft-sticky-occlusion.png"
+    },
+    {
+      "step": 24,
+      "priority": "P1",
+      "action": "Warranty Submit confirmation Escape then Ctrl+Enter",
+      "expected": "Cancel preserves draft; keyboard confirm submits once",
+      "observed": "Escape preserved draft; Ctrl+Enter submitted and closed confirmation",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 25,
+      "priority": "P1",
+      "action": "warranty-en-approved-sticky",
+      "expected": "Each stage number/checkmark stays beneath sticky header",
+      "observed": "All five real marker center hit-tests selected header; every marker position static",
+      "result": "PASS",
+      "screenshot": "warranty-en-approved-sticky.png"
+    },
+    {
+      "step": 26,
+      "priority": "P1",
+      "action": "warranty-pl-approved-375-sticky",
+      "expected": "Each stage number/checkmark stays beneath sticky header",
+      "observed": "All five real marker center hit-tests selected header; every marker position static",
+      "result": "PASS",
+      "screenshot": "warranty-pl-approved-375-sticky.png"
+    },
+    {
+      "step": 27,
+      "priority": "P1",
+      "action": "API fixture preparation:10 approved/received/inspected/resolved lines",
+      "expected": "Legal line lifecycle and header sum12.34",
+      "observed": "40 versioned API updates passed; fixture sets resolved marker preconditions",
+      "result": "PASS",
+      "screenshot": null,
+      "apiOnly": "Line lifecycle preparation; monetary reverse paths separately covered by native tests"
+    },
+    {
+      "step": 28,
+      "priority": "P1",
+      "action": "Header lifecycle through goods-in to resolved; whole-record amounts",
+      "expected": "Legal UI transitions; preserve unrelated fields; claimed/approved12.34",
+      "observed": "Awaiting return/received/inspecting/resolved through real confirmations; whole record stable apart from status/timestamps",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 29,
+      "priority": "P1",
+      "action": "warranty-en-resolved-sticky",
+      "expected": "Each stage number/checkmark stays beneath sticky header",
+      "observed": "All five real marker center hit-tests selected header; every marker position static",
+      "result": "PASS",
+      "screenshot": "warranty-en-resolved-sticky.png"
+    },
+    {
+      "step": 30,
+      "priority": "P1",
+      "action": "warranty-pl-resolved-375-sticky",
+      "expected": "Each stage number/checkmark stays beneath sticky header",
+      "observed": "All five real marker center hit-tests selected header; every marker position static",
+      "result": "PASS",
+      "screenshot": "warranty-pl-resolved-375-sticky.png"
+    },
+    {
+      "step": 31,
+      "priority": "P1",
+      "action": "Vendor recovery UI required-field refusal and retry",
+      "expected": "Refuse empty vendor; valid retry creates linked vendor claim",
+      "observed": "Dialog stayed open with missing vendor; double-click valid retry created child through canonical action",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 32,
+      "priority": "P1",
+      "action": "warranty-return-en-1280-sticky",
+      "expected": "Each stage number/checkmark stays beneath sticky header",
+      "observed": "All five real marker center hit-tests selected header; every marker position static",
+      "result": "PASS",
+      "screenshot": "warranty-return-en-1280-sticky.png"
+    },
+    {
+      "step": 33,
+      "priority": "P1",
+      "action": "warranty-return-pl-375-sticky",
+      "expected": "Each stage number/checkmark stays beneath sticky header",
+      "observed": "All five real marker center hit-tests selected header; every marker position static",
+      "result": "PASS",
+      "screenshot": "warranty-return-pl-375-sticky.png"
+    },
+    {
+      "step": 34,
+      "priority": "P1",
+      "action": "warranty-core_return-en-1280-sticky",
+      "expected": "Each stage number/checkmark stays beneath sticky header",
+      "observed": "All five real marker center hit-tests selected header; every marker position static",
+      "result": "PASS",
+      "screenshot": "warranty-core_return-en-1280-sticky.png"
+    },
+    {
+      "step": 35,
+      "priority": "P1",
+      "action": "warranty-core_return-pl-375-sticky",
+      "expected": "Each stage number/checkmark stays beneath sticky header",
+      "observed": "All five real marker center hit-tests selected header; every marker position static",
+      "result": "PASS",
+      "screenshot": "warranty-core_return-pl-375-sticky.png"
+    },
+    {
+      "step": 36,
+      "priority": "P1",
+      "action": "warranty-vendor_recovery-en-1280-sticky",
+      "expected": "Each stage number/checkmark stays beneath sticky header",
+      "observed": "All five real marker center hit-tests selected header; every marker position static",
+      "result": "PASS",
+      "screenshot": "warranty-vendor_recovery-en-1280-sticky.png"
+    },
+    {
+      "step": 37,
+      "priority": "P1",
+      "action": "warranty-vendor_recovery-pl-375-sticky",
+      "expected": "Each stage number/checkmark stays beneath sticky header",
+      "observed": "All five real marker center hit-tests selected header; every marker position static",
+      "result": "PASS",
+      "screenshot": "warranty-vendor_recovery-pl-375-sticky.png"
+    },
+    {
+      "step": 38,
+      "priority": "P1",
+      "action": "Warranty two-user different-field stale save with whole-record comparison",
+      "expected": "Second actor customer change preserved; stale notes409; all unrelated fields stable",
+      "observed": "B updated only customerName+updatedAt; A notes save409; whole API record equal to B state",
+      "result": "PASS",
+      "screenshot": "warranty-two-user-conflict.png"
+    },
+    {
+      "step": 39,
+      "priority": "P1",
+      "action": "Warranty stale Save retry, refresh, double-click save and recovery",
+      "expected": "Retry still refused; refresh permits safe save; all unrelated fields preserved",
+      "observed": "Save409; refreshed save persisted notes only; second actor customer retained; bar absent after10s",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 40,
+      "priority": "P1",
+      "action": "Own no-claim-permission actor UI and direct hidden action",
+      "expected": "No claim data; access denied; API read/write403",
+      "observed": "Access Denied; GET and PUT403; authorized second actor is positive control",
+      "result": "PASS",
+      "screenshot": "warranty-no-permission-375.png",
+      "apiOnly": "Direct API hidden-action refusal"
+    },
+    {
+      "step": 41,
+      "priority": "P1",
+      "action": "Polish four amount fields comma input/reload and whole-line preservation",
+      "expected": "Store12.35/1.25/2.50/0.75 and redisplay commas; preserve all other fields",
+      "observed": "All four values persisted and credit redisplayed12,3500; every unrelated line field preserved",
+      "result": "PASS",
+      "screenshot": "warranty-pl-comma-amounts.png"
+    },
+    {
+      "step": 42,
+      "priority": "P1",
+      "action": "Warranty line dialog Ctrl+Enter",
+      "expected": "Submit the line dialog via keyboard",
+      "observed": "PUT observed and succeeded",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 43,
+      "priority": "P1",
+      "action": "Forms failed GET and browser refresh recovery",
+      "expected": "Clear localized error; restore editor after service recovers",
+      "observed": "Injected503 rendered clear error; refresh after removing fault restored editor",
+      "result": "PASS",
+      "screenshot": "forms-load-error.png",
+      "method": "browser fault injection"
+    },
+    {
+      "step": 44,
+      "priority": "P1",
+      "action": "Form Studio toolbar Undo/Redo and Ctrl+Z on structural edit",
+      "expected": "Undo restores entire original schema; redo reapplies field addition",
+      "observed": "Pointer-dragged Text into observed empty drop target; Ctrl+Z restored schema and Redo button re-added exactly one field",
+      "result": "PASS",
+      "screenshot": "forms-toolbar-undo-redo.png"
+    },
+    {
+      "step": 45,
+      "priority": "P1",
+      "action": "Warranty empty claim and zero amounts",
+      "expected": "Stage progress with explicit empty lines and zero rollups",
+      "observed": "Own empty claim rendered stage row and empty table; zero claimed/approved/recovered amounts",
+      "result": "PASS",
+      "screenshot": "warranty-empty.png"
+    },
+    {
+      "step": 46,
+      "priority": "P1",
+      "action": "Warranty failed GET and refresh recovery",
+      "expected": "Clear error; restore stage row after service recovery",
+      "observed": "Injected503 empty body showed localized fallback; browser refresh restored claim/stages",
+      "result": "PASS",
+      "screenshot": "warranty-load-error.png",
+      "method": "browser fault injection"
+    }
+  ],
+  "tests": [
+    {
+      "command": "timeout 300 yarn jest --config packages/core/jest.config.cjs input-parameters-locales claim-stage-progress --runInBand",
+      "result": "PASS",
+      "suites": 2,
+      "passed": 6,
+      "log": "focused-units.log"
+    },
+    {
+      "command": "timeout 300 yarn jest --config packages/core/jest.config.cjs src/modules/warranty_claims/__tests__ --runInBand",
+      "result": "PASS",
+      "suites": 73,
+      "passed": 916,
+      "log": "warranty-units.log"
+    },
+    {
+      "command": "timeout 300 yarn jest --config packages/core/jest.config.cjs src/modules/forms/__tests__ --runInBand",
+      "result": "PASS",
+      "suites": 81,
+      "passed": 932,
+      "skipped": 3,
+      "log": "forms-units.log"
+    },
+    {
+      "command": "TMPDIR=/tmp/om-qa-7381c648 yarn i18n:check-sync",
+      "result": "PASS",
+      "log": "i18n-sync-retry.log"
+    },
+    {
+      "command": "TMPDIR=/tmp/om-qa-7381c648 yarn i18n:check-usage",
+      "result": "PASS with advisory unused keys",
+      "log": "i18n-usage.log"
+    },
+    {
+      "command": "git diff --check; git status --porcelain",
+      "result": "PASS; no source changes"
+    },
+    {
+      "command": "timeout 900 env TMPDIR=/tmp/om-qa-7381c648 OM_INTEGRATION_MODULES=forms,warranty_claims OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=86400 OM_OPTIMISTIC_LOCK=all yarn mercato test:integration 'TC-(FORMS-(UI-009|LOCK-001|ACL-005|TEN-008)|WC-(003-lifecycle|002-lines-partials|007-tenant-isolation|036-line-undo-stale-state|039-receiving-redo|040-replacement-order-undo|030-sales-return-bridge|034-credit-memo-bridge))'",
+      "result": "PASS",
+      "passed": 24,
+      "duration": "1.7m",
+      "log": "native-tests.log",
+      "results": "native-results.json"
+    }
+  ],
+  "notes": [
+    "No source edits; isolated linked worktree deliberately detached at exact requested head.",
+    "Prior evidence d729ae1fce2544a5d8213460ae7d1f4d6143524c reported toolbar overflow at375px; fresh evidence required for ab0e4936.",
+    "No new locale keys; existing labels checked in en/pl/es/de/ko. Existing Korean forms labels remain English.",
+    "Initial unscoped native discovery was CPU-bound and stopped without a test result; supported OM_INTEGRATION_MODULES scope completed 24 tests through the authoritative CLI.",
+    "First i18n sync invocation hit the host Unix socket path limit; short TMPDIR retry passed.",
+    "A local browser harness route-removal race required restarting the browser and resetting passwords only for this run's two synthetic users. No product failure was inferred from harness errors.",
+    "A property-only Forms toggle intentionally does not enter structural Undo history. Final Undo/Redo verification used a real pointer-drag structural edit.",
+    "Ctrl+Enter on the full-page warranty edit did not issue a retry; dialog keyboard submission was verified separately. Refused full-page edits were retried with Save and verified after Refresh."
+  ],
+  "claim": {
+    "runId": "7381c648-8237-42d0-8dfb-d49224b451b2",
+    "lockSha": "18e9da18a440931d352f70b95c2cc9677e3b0c85",
+    "commentId": 6848450233,
+    "commentUrl": "https://github.com/open-mercato/open-mercato/pull/8983#issuecomment-6848450233",
+    "assignment": "Confirmed unassignable App (assignability 404); no human assignments changed."
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "P2",
+      "introducedByPr": false,
+      "file": "packages/core/src/modules/forms/backend/forms/[id]/FormStudio.tsx",
+      "line": 1332,
+      "relatedLine": 1628,
+      "title": "Metadata save refused with409 still says All changes saved",
+      "reproduction": "Open same form with own second tenant-bound editor; B changes description and saves. A changes name and autosaves twice using stale updatedAt. Both PATCH requests return409; API retains original name and B description, while header displays All changes saved. Refresh then retry succeeds without losing B changes.",
+      "expected": "Toolbar must reflect refused or unsaved metadata instead of reporting success.",
+      "evidence": "forms-conflict-false-saved.png",
+      "baseline": "persistFormPatch and autosave status rendering are unchanged from d729ae1fce2544a5d8213460ae7d1f4d6143524c; this is not introduced by the toolbar-wrap delta."
+    }
+  ],
+  "coverageLimits": [
+    "Fault-injected503 and delayed GET checks exercise browser error/loading/recovery; they are not an actual production outage.",
+    "Initial fixture creation, bulk line lifecycle setup, whole-record comparisons and direct hidden-action checks used APIs, recorded per step. Header transitions, locale edits, permissions pages, amounts, dialogs, toolbar actions and stale edits used real browser UI.",
+    "Stock/money sales bridges, undo/redo/replay, cross-org and tenant isolation were exercised by the shipped native integration tests; sales document/export UI reconciliation and external payment/shipping/email providers were not repeated (no changed runtime integration path).",
+    "No workers, webhooks, scheduled jobs or external-provider logic changed in this CSS-only PR. No external credentials or services were used.",
+    "No new locale keys were added. Existing keys exist in all en/pl/es/de/ko files; default English and Polish plus German/Spanish screens checked. Korean layout was checked with its existing English Forms fallback; this does not claim completed Korean translation.",
+    "No source edits, source-branch pushes/merges, shared QA metadata, QA approval/failure/pipeline labels or human-assignment changes."
+  ],
+  "images": [
+    {
+      "file": "forms-conflict-false-saved.png",
+      "bytes": 249389,
+      "sha256": "61000df0e3104cfa8b741852b6949df73553c3c0f74bf7ff1948ab29b0c1167b"
+    },
+    {
+      "file": "forms-de-1280.png",
+      "bytes": 275551,
+      "sha256": "be8c45f4fc84a7fabbfcd46ed2626c545fa581a7f5e54c9e646e8e58eea572a9"
+    },
+    {
+      "file": "forms-de-375.png",
+      "bytes": 216013,
+      "sha256": "ebf2bfcb7d08de3767cf6a7fbba0a9e5e85d952b00bcc3ca96092bf7db3c2956"
+    },
+    {
+      "file": "forms-en-1280.png",
+      "bytes": 240640,
+      "sha256": "bfa786e1d9b0a6c10937d11b43cc3d5ad15b0811f63071fdce2ff2340fbea1af"
+    },
+    {
+      "file": "forms-en-375-multilocale.png",
+      "bytes": 196403,
+      "sha256": "9ca2b63b8fffdecd99eb73a8f61143ad919a73f45c96a594432d27f1256b66cd"
+    },
+    {
+      "file": "forms-en-375.png",
+      "bytes": 193309,
+      "sha256": "3c5a29a22f09a59f7519e337545afd4a35a583330ff1ff27827f767f941b4048"
+    },
+    {
+      "file": "forms-en-desktop-default.png",
+      "bytes": 247800,
+      "sha256": "0d48fec7996d76d85e45c57886416df54401bc06672ee6e193d26bf3ea04cb9f"
+    },
+    {
+      "file": "forms-es-1280.png",
+      "bytes": 279167,
+      "sha256": "c22b7845af157452cdec1cf538c8d13191f4024c81c706c5aaaef5352cb7c102"
+    },
+    {
+      "file": "forms-es-375.png",
+      "bytes": 219631,
+      "sha256": "9ea354378d37ca752a948230d5ef51f278d82a520651961472bd3257305754a7"
+    },
+    {
+      "file": "forms-history-375.png",
+      "bytes": 12197,
+      "sha256": "0fc47ee482c553b473b5c6315de7ac344d8805eaacb43cccb1eec98b8f11a205"
+    },
+    {
+      "file": "forms-history-loaded-375.png",
+      "bytes": 32946,
+      "sha256": "e2f2dcd506e37550300df9678a3a932530e3beeb6caa3a0f59dd6d9594247550"
+    },
+    {
+      "file": "forms-ko-1280.png",
+      "bytes": 227359,
+      "sha256": "323d7d0cdb77ea8d1b6a0476626e73134ca949f512fadc47d1bfc060bb1dcb93"
+    },
+    {
+      "file": "forms-ko-375.png",
+      "bytes": 192337,
+      "sha256": "6c894c88b2293fa93de24c6ee883c6ed8f2805161112f8bb5f0658438e9648ac"
+    },
+    {
+      "file": "forms-load-error.png",
+      "bytes": 59690,
+      "sha256": "b3f3c72461e0bf933070e6ea5306ca03fb95072060c87db96e10700a6415f1d1"
+    },
+    {
+      "file": "forms-loading.png",
+      "bytes": 19204,
+      "sha256": "5f167376a970818df4b8d5652d720118e5db22328b1b3c103a7edf6643c977f2"
+    },
+    {
+      "file": "forms-no-design-permission-375.png",
+      "bytes": 19646,
+      "sha256": "355a47774703cae2829f792d9d221fadaa45c98dd93ca3ac84cdc8cc29156fb2"
+    },
+    {
+      "file": "forms-pl-1280.png",
+      "bytes": 274876,
+      "sha256": "999c84be25f89e43f6ad219ccf537c96ad3b32826c65f1d628837634e9679a57"
+    },
+    {
+      "file": "forms-pl-375.png",
+      "bytes": 214208,
+      "sha256": "f256d3f7c2c1286aab0a2c82c9795eca7d1c5bdb7efbd253e5c83906514bd230"
+    },
+    {
+      "file": "forms-publish-dialog-375.png",
+      "bytes": 148683,
+      "sha256": "1bc221d6eddc904499051db622e8ae6d484c7388ac1903e0ed1d365f930c6e97"
+    },
+    {
+      "file": "forms-publish-error-375.png",
+      "bytes": 166854,
+      "sha256": "c01f30041c2cd66eebd77e7839f48f888b2ab799c396294b9e992d9cb83dda37"
+    },
+    {
+      "file": "forms-publish-retry-success-375.png",
+      "bytes": 38460,
+      "sha256": "1a4afbb5b6d62bd43394455c400fec3e1e51554477d74b82ed4a2c9d7727fd86"
+    },
+    {
+      "file": "forms-toolbar-undo-redo.png",
+      "bytes": 183593,
+      "sha256": "e5b0d538efdb99a8b4099eae5656ea11f48fc43b49145163b0ea01a34823e0d8"
+    },
+    {
+      "file": "forms-two-user-conflict.png",
+      "bytes": 254174,
+      "sha256": "ddcd9532c5fbce6dcb21105f152afc731ddc23c4a062efb5fe85a655b20b9cdd"
+    },
+    {
+      "file": "warranty-core_return-en-1280-sticky.png",
+      "bytes": 177074,
+      "sha256": "820d5f9b64babc6dfe27e04e87fae24827e1cd1cd160f8918b8ba8953322f275"
+    },
+    {
+      "file": "warranty-core_return-pl-375-sticky.png",
+      "bytes": 133205,
+      "sha256": "7a7d5e8815aaa6c6b2d3aef7d987834026fed44373d02403a398bb61f21cbf0b"
+    },
+    {
+      "file": "warranty-draft-sticky-occlusion.png",
+      "bytes": 170549,
+      "sha256": "6e6a94f50c60c2a51a415ffad1f44963f14fe5f500cfee7cac8e74bdc1b913f6"
+    },
+    {
+      "file": "warranty-empty.png",
+      "bytes": 110158,
+      "sha256": "42e4e89c3c6252359481149dfc4da2748a9aa96830be81c0d566d4afc8670a56"
+    },
+    {
+      "file": "warranty-en-approved-sticky.png",
+      "bytes": 185468,
+      "sha256": "eb6a63c119b311e7f6562b8e474e9ac172eed25aedb7c2792fbf5505efdd8fc3"
+    },
+    {
+      "file": "warranty-en-draft-scroll.png",
+      "bytes": 170207,
+      "sha256": "83199383e3a86eb3b16ac5bcae6862f9ccf4735cf8eabb1d932ef148ee3bab8a"
+    },
+    {
+      "file": "warranty-en-draft.png",
+      "bytes": 114383,
+      "sha256": "f300ff00893ef99e086390769de7f04aaf8259aa2582e05f330f0c49fd2ec4ae"
+    },
+    {
+      "file": "warranty-en-resolved-sticky.png",
+      "bytes": 172686,
+      "sha256": "2e9f131b9ff6871c2eded767bdea604dffbac811de4699074e6f02d349e797ca"
+    },
+    {
+      "file": "warranty-en-submitted.png",
+      "bytes": 173272,
+      "sha256": "e4761c1f0d6b678db1e6ee41ecb776871d0e61ec1e84b5f22437c29f5d1d3cd8"
+    },
+    {
+      "file": "warranty-load-error.png",
+      "bytes": 21954,
+      "sha256": "89638d4c387753e4d54eb09a55189079c7f1dde2f2e97c720951748c3810d146"
+    },
+    {
+      "file": "warranty-no-permission-375.png",
+      "bytes": 19753,
+      "sha256": "610e1840db7f21725fcfd6723cc7671d27430dd09310138ea3b6143af274dbb6"
+    },
+    {
+      "file": "warranty-pl-approved-375-sticky.png",
+      "bytes": 147814,
+      "sha256": "61957320ce070aa30cdd61fe319163dbd8b5b9092920f26c857998c220684876"
+    },
+    {
+      "file": "warranty-pl-comma-amounts.png",
+      "bytes": 157213,
+      "sha256": "4d29f4aab26534fcb58d4e3271e4b632a75f916af4a438a48bf555fbe4a72be0"
+    },
+    {
+      "file": "warranty-pl-resolved-375-sticky.png",
+      "bytes": 132343,
+      "sha256": "9801c7191ab05f931c18fe7636613b8ac767e602fde69262a6b19b945bbdabdc"
+    },
+    {
+      "file": "warranty-return-en-1280-sticky.png",
+      "bytes": 173216,
+      "sha256": "b6c39785fb5a2479494f8435fa83b50acead348851e9a7a11f26c82f50559e7f"
+    },
+    {
+      "file": "warranty-return-pl-375-sticky.png",
+      "bytes": 131184,
+      "sha256": "0da129d94aa8b0beae6e611c5cde71d831ad5c1f4b137c525b240b2d5fad4e60"
+    },
+    {
+      "file": "warranty-two-user-conflict.png",
+      "bytes": 97560,
+      "sha256": "5a19ca552b4b1c5c1425b0067305b291e7dcf07d9a7d7d7e03c2842da7467424"
+    },
+    {
+      "file": "warranty-vendor_recovery-en-1280-sticky.png",
+      "bytes": 166916,
+      "sha256": "88bf12b413f0de7ab57a0f1e9c0ee05a3d08e125910ea85c90861f4a02c6682f"
+    },
+    {
+      "file": "warranty-vendor_recovery-pl-375-sticky.png",
+      "bytes": 128274,
+      "sha256": "ce3a0a4edf8fb5efd1f821cba2ae4476f7ddbb5927b72859ce7524223725fc3d"
+    }
+  ],
+  "cleanup": {
+    "fixtures": "5 claims deleted and absence verified; form archived;2 users and2 roles deleted200. Isolated database removed with owned CLI environment teardown.",
+    "environment": "Owned CLI/app/workers/Chromium stopped through generated teardown; app :37735 closed.",
+    "source": "git status --porcelain empty; runtime-only tracked email-capture output restored to exact HEAD.",
+    "claim": "Still held for final evidence publication; secondary label/comment cleanup and exact-SHA lease deletion run last."
+  },
+  "evidenceBranch": "qa-evidence-pr-8983-7381c648"
+}
