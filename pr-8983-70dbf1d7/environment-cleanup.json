@@ -1,0 +1,10 @@
+{
+  "signalledCliPids": [
+    379638
+  ],
+  "ownerPid": 379360,
+  "appPort": 46747,
+  "appPortClosed": true,
+  "databaseContainer": "d6117b7c4a5a",
+  "databaseStopped": true
+}
