@@ -40,6 +40,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.4-bootstrap | Preserve generic bootstrap registrations before lightweight supervisor probes | inline | done | this commit; CLI79 tests and CLI tsc |
 | 2 | 2.4 | Separate tenant CLI operations from privileged maintenance | inline | todo | — |
 | 2 | 2.5-transport | Restrict event PG transports and create fresh callback scopes | inline | done | events189/runtime99/shared23; live PG17 16+26 zero skips |
+| 2 | 2.5-search-cli | Declare search CLI access and isolate each direct worker job container | inline | done | this commit; four lifecycle tests and search tsc |
 | 2 | 2.5-search | Integrate search-owned storage provisioning and restricted runtime pools | inline | done | bd37d270a4 merged; parent73 tests/search tsc |
 | 2 | 2.3-scheduler | Resolve persisted scheduler jobs before fresh tenant execution | inline | done | deaa13f99a merged; parent572+9 tests |
 | 2 | 2.5 | Classify and integrate independent search, vector and event pools | inline | todo | — |
