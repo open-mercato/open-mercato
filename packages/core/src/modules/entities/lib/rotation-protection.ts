@@ -6,7 +6,7 @@ export const UNPROTECTED_ROTATION_ACKNOWLEDGMENT = 'acknowledge-unprotected-key-
 /** Existing progress-event schema, also used for Core-only rotation notices. */
 export function rotationNotice(message: string, phase = 'warning', write: (message: string) => void = message => console.warn(message)): void {
   write(process.env.OM_ROTATION_PROGRESS === 'json'
-    ? JSON.stringify({ schemaVersion: 1, type: 'phase.changed', runId: 'rotation', phase: `rotation.${phase}`, entity: message, rowsDone: '0', rowsTotal: '0', rowsTotalExact: false, bytesDone: '0', chunksDone: 0, at: new Date().toISOString() })
+    ? JSON.stringify({ schemaVersion: 1, type: 'phase.changed', runId: 'rotation', phase: `rotation.${phase}`, entity: message.replace(/^\s*⚠\uFE0F?\s*/u, ''), rowsDone: '0', rowsTotal: '0', rowsTotalExact: false, bytesDone: '0', chunksDone: 0, at: new Date().toISOString() })
     : message)
 }
 

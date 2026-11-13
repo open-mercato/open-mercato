@@ -135,6 +135,7 @@ describe('entities rotate-encryption-key CLI', () => {
       expect(events.some(event => event.phase === 'rotation.unprotected')).toBe(true)
       expect(warnings.join('')).not.toContain('synthetic-never-display')
       expect(warnings.join('')).not.toContain('\u001b')
+      expect(warnings.join('')).not.toContain('⚠')
       expect(execute).not.toHaveBeenCalled()
     } finally {
       warn.mockRestore(); error.mockRestore()
