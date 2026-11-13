@@ -9,11 +9,13 @@ import {
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES } from '../lib/queue'
 import { preservePushState } from '../lib/push-state'
+import { sameSyncState, syncState, withLockedChannel } from '../lib/channel-state-write'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { classifyOutboundError } from '../lib/error-classification'
 import { writeIngestDeadLetter } from '../lib/dead-letter'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('communication_channels').child({ component: 'gmail-history-sync' })
 
@@ -122,6 +124,7 @@ export default async function handle(
   )
   credentials = refreshed.credentials
 
+  const startingCursor = structuredClone(syncState(channel.channelState))
   let page
   try {
     page = await adapter.applyPushNotification({
@@ -184,11 +187,18 @@ export default async function handle(
       // the decoded cursor wholesale: a blind spread would retain a stale
       // `pendingHistoryPageToken` after a completed drain and mis-route the next
       // push notification.
-      channel.channelState = preservePushState(channel.channelState, decoded)
-      channel.lastPolledAt = new Date()
-      await em.flush()
+      const committed = await withLockedChannel(em, { ...channel, ...scope }, async (current, transaction) => {
+        if (!current.isActive || current.status !== 'connected' || !sameSyncState(startingCursor, current.channelState)) return false
+        current.channelState = preservePushState(current.channelState, decoded)
+        current.lastPolledAt = new Date()
+        await transaction.flush()
+        return true
+      })
+      if (!committed) return
     } catch (err) {
       logger.warn('failed to persist next cursor for channel', { channelId: channel.id, err })
+      getTelemetryRuntime()?.reportError(err, { module: 'communication_channels', code: 'communication_channels.push_cursor_commit_failed', attributes: { channelId: channel.id } })
+      return
     }
   }
 

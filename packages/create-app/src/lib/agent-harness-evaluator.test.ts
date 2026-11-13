@@ -129,9 +129,17 @@ function stageApp(): string {
     path.join(root, 'src', 'app', 'globals.css'),
   )
   for (const [packageName, relativePaths] of Object.entries({
+    cli: [
+      'src/lib/module-install.ts',
+      'src/lib/module-identity.ts',
+      'src/lib/eject.ts',
+    ],
     core: [
       'src/modules/design_system/gallery/entries/buttons.tsx',
       'src/modules/customers/backend/customers/people-v2/[id]/page.tsx',
+      'src/modules/customers/calendar-event-types.ts',
+      'src/modules/customers/components/calendar/CalendarEventEditor.tsx',
+      'src/modules/customers/lib/calendar/eventTypeResolver.ts',
     ],
     ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
     shared: [
@@ -181,6 +189,7 @@ function runEvaluator(root: string, args: string[] = [], env: NodeJS.ProcessEnv 
 function installFakeRunner(root: string, name: 'codex' | 'claude', source: string): string {
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin, { recursive: true })
+  fs.writeFileSync(path.join(bin, 'package.json'), '{"type":"commonjs"}\n')
   const fake = path.join(bin, name)
   fs.writeFileSync(fake, `#!/usr/bin/env node\n${source}`)
   fs.chmodSync(fake, 0o755)
@@ -201,6 +210,50 @@ function storedReviewResults(root: string): StoredReviewResult[] {
     .sort()
     .map((file) => JSON.parse(fs.readFileSync(path.join(directory, file), 'utf8')))
 }
+
+test('fake runner starts in its admitted directory while controller reads and writes stay denied', { skip: !targetSandboxAvailable }, async () => {
+  const controller = stageApp()
+  const target = stageWritableTarget(controller)
+  const admittedRunnerRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-admitted-runner-'))
+  const secretPath = path.join(controller, 'controller-secret.txt')
+  const deniedWritePath = path.join(controller, 'controller-write.txt')
+  try {
+    fs.writeFileSync(secretPath, 'controller secret')
+    const bin = installFakeRunner(admittedRunnerRoot, 'codex', `
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+for (const readPath of ${JSON.stringify([path.join(controller, 'package.json'), secretPath])}) {
+  assert.throws(() => fs.readFileSync(readPath), { code: /^(EPERM|EACCES|ENOENT)$/ })
+}
+for (const writePath of ${JSON.stringify([deniedWritePath, path.join(os.tmpdir(), 'om-harness-unadmitted-write'), '/om-harness-unadmitted-write'])}) {
+  assert.throws(() => fs.writeFileSync(writePath, 'escaped'), { code: /^(EPERM|EACCES|ENOENT|EROFS)$/ })
+}
+fs.writeFileSync('target-edit.txt', 'contained')
+console.log('fixture boundary verified')
+`)
+    const executionSandbox = await import(pathToFileURL(sourceExecutionSandbox).href) as {
+      sandboxedInvocation: (input: Record<string, unknown>) => { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }
+    }
+    const invocation = executionSandbox.sandboxedInvocation({
+      command: path.join(bin, 'codex'),
+      cwd: target,
+      writableRoots: [target],
+      readOnlyRoots: [],
+      env: { PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ''}` },
+    })
+    const result = spawnSync(invocation.command, invocation.args, {
+      cwd: invocation.cwd, env: invocation.env, encoding: 'utf8', timeout: 10_000,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.stdout.trim(), 'fixture boundary verified')
+    assert.equal(fs.readFileSync(path.join(target, 'target-edit.txt'), 'utf8'), 'contained')
+    assert.equal(fs.existsSync(deniedWritePath), false)
+  } finally {
+    fs.rmSync(admittedRunnerRoot, { recursive: true, force: true })
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
 
 function installFakeCodeReviewSkill(root: string): void {
   const skillRoot = path.join(root, '.agents', 'skills', 'om-code-review')
@@ -673,12 +726,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-237', () => {
+test('deterministic evaluation enforces the case schema through OMH-241', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-237')
+    assert.equal(cases.at(-1)?.id, 'OMH-241')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -1032,7 +1085,11 @@ if (!prompt.includes('Read every required routed guide and skill before this evi
   || !prompt.includes('query="detail:customers."')
   || !args.some((entry) => entry.includes(${JSON.stringify(`${materializedRoot}/**`)}))) process.exit(10)
 for (const entry of ${JSON.stringify(frameworkEvidence)}) {
-  if (!fs.readFileSync(entry, 'utf8').includes(entry.endsWith('manifest.json') ? 'materializedSource' : entry.endsWith('search.txt') ? 'detail:customers.' : 'detail:customers.')) process.exit(11)
+  const content = fs.readFileSync(entry, 'utf8')
+  const expectedContent = entry.endsWith('manifest.json') ? 'materializedSource' : 'detail:customers.'
+  const hasDeclaredTabHost = entry === ${JSON.stringify(fallbackSource)}
+    && content.includes('extensionPoints.hosts.personTabs.spotId')
+  if (!content.includes(expectedContent) && !hasDeclaredTabHost) process.exit(11)
 }
 const selectedContext = ${JSON.stringify([...guidance, ...frameworkEvidence])}
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
@@ -3632,6 +3689,7 @@ type SpecRoutingEvaluator = {
     baseline: Map<string, string> | undefined,
     root: string,
   ) => string[]
+  routingResponseSchemaForCase: (schema: Record<string, unknown>, record: unknown) => Record<string, unknown>
 }
 
 async function loadSpecRoutingEvaluator(): Promise<SpecRoutingEvaluator> {
@@ -3643,6 +3701,19 @@ const specFirstDeclaration: SpecRoutingDeclaration = {
   requiredReasonCodes: ['NEW_CAPABILITY'],
   reasonCodeVocabulary: ['NEW_CAPABILITY', 'BOUNDED_FIX', 'EXPLICIT_SKIP_REQUESTED'],
 }
+
+test('routing response schemas expose specRouting only to cases that declare its contract', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const schema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'routing-response.schema.json'), 'utf8')) as {
+    required: string[]
+    properties: Record<string, unknown>
+  }
+  const inert = evaluator.routingResponseSchemaForCase(schema, { validators: [] }) as typeof schema
+  assert.equal(Object.hasOwn(inert.properties, 'specRouting'), false)
+  assert.equal(inert.required.includes('specRouting'), false)
+  assert.equal(Object.hasOwn(schema.properties, 'specRouting'), true)
+  assert.equal(evaluator.routingResponseSchemaForCase(schema, specRoutingCase()), schema)
+})
 
 function specRoutingCase(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -3682,11 +3753,18 @@ const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
+const outputSchema = JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8'))
 for (const needle of ${JSON.stringify(prompt.mustInclude ?? [])}) {
   if (!prompt.includes(needle)) { console.error('prompt is missing: ' + needle); process.exit(9) }
 }
 for (const needle of ${JSON.stringify(prompt.mustExclude ?? [])}) {
   if (prompt.includes(needle)) { console.error('prompt unexpectedly contains: ' + needle); process.exit(9) }
+}
+if (${JSON.stringify(prompt.mustExclude ?? [])}.includes('specRouting') && outputSchema.properties.specRouting) {
+  console.error('output schema unexpectedly contains specRouting'); process.exit(9)
+}
+if (${JSON.stringify(prompt.mustInclude ?? [])}.some((needle) => needle.includes('specRouting')) && !outputSchema.properties.specRouting) {
+  console.error('output schema is missing specRouting'); process.exit(9)
 }
 fs.writeFileSync(args[args.indexOf('-o') + 1], ${JSON.stringify(JSON.stringify(structuredResponse))})
 for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {
@@ -3902,7 +3980,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 237)
+  assert.equal(cases.length, 241)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)

@@ -2,6 +2,7 @@
  * @jest-environment jsdom
  */
 import { act, renderHook, waitFor } from '@testing-library/react'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePersonTasks } from '../usePersonTasks'
 import type { TodoLinkSummary } from '../../types'
 
@@ -10,7 +11,7 @@ const readApiResultOrThrowMock = jest.fn()
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
-  withScopedApiRequestHeaders: jest.fn(),
+  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, operation: () => Promise<unknown>) => operation()),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
@@ -220,5 +221,103 @@ describe('usePersonTasks load-more termination', () => {
     })
 
     expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('usePersonTasks metadata updates', () => {
+  const metadata = {
+    priority: 3,
+    description: 'Discuss the renewal',
+    due_at: '2026-10-30T14:00:00.000Z',
+    external_reference: 'renewal-42',
+  }
+
+  beforeEach(() => {
+    jest.mocked(apiCallOrThrow).mockClear()
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{
+        ...makeRows(1)[0],
+        todoPriority: metadata.priority,
+        todoDescription: metadata.description,
+        todoDueAt: metadata.due_at,
+        todoCustomValues: metadata,
+      }],
+      total: 1,
+      page: 1,
+      pageSize: PAGE_SIZE,
+    })
+  })
+
+  it('completes and reopens a task without sending or clearing its metadata', async () => {
+    const { result } = await renderTasks()
+
+    for (const isDone of [true, false]) {
+      await act(async () => {
+        await result.current.toggleTask(result.current.tasks[0], isDone)
+      })
+
+      const request = jest.mocked(apiCallOrThrow).mock.calls.at(-1)?.[1]
+      expect(JSON.parse(String(request?.body))).toEqual({
+        id: 'todo-1',
+        linkId: 'link-1',
+        title: 'Task 1',
+        is_done: isDone,
+      })
+      expect(result.current.tasks[0]).toMatchObject({
+        title: 'Task 1',
+        isDone,
+        priority: metadata.priority,
+        description: metadata.description,
+        dueAt: metadata.due_at,
+        customValues: metadata,
+      })
+    }
+  })
+
+  it('sends only an edited metadata field and preserves the others', async () => {
+    const { result } = await renderTasks()
+
+    await act(async () => {
+      await result.current.updateTask(result.current.tasks[0], {
+        base: { title: 'Task 1', priority: 1 },
+        custom: {},
+      })
+    })
+
+    const request = jest.mocked(apiCallOrThrow).mock.calls[0][1]
+    expect(JSON.parse(String(request?.body))).toEqual({
+      id: 'todo-1',
+      linkId: 'link-1',
+      title: 'Task 1',
+      customFields: { priority: 1 },
+    })
+    expect(result.current.tasks[0]).toMatchObject({
+      priority: 1,
+      description: metadata.description,
+      dueAt: metadata.due_at,
+      customValues: { ...metadata, priority: 1 },
+    })
+  })
+
+  it('keeps explicit null metadata fields as intentional clears', async () => {
+    const { result } = await renderTasks()
+
+    await act(async () => {
+      await result.current.updateTask(result.current.tasks[0], {
+        base: { title: 'Task 1', priority: null, description: null, scheduledAt: null },
+        custom: {},
+      })
+    })
+
+    const request = jest.mocked(apiCallOrThrow).mock.calls[0][1]
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      customFields: { priority: null, description: null, due_at: null },
+    })
+    expect(result.current.tasks[0]).toMatchObject({
+      priority: null,
+      description: null,
+      dueAt: null,
+      customValues: { ...metadata, priority: null, description: null, due_at: null },
+    })
   })
 })

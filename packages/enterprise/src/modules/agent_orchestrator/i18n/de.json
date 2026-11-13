@@ -1491,5 +1491,6 @@
   "agent_orchestrator.webSearch.activity.stage.merging": "Ergebnisse werden zusammengeführt",
   "agent_orchestrator.webSearch.activity.stage.reading": "Seiten werden gelesen",
   "agent_orchestrator.webSearch.activity.title": "Websuche",
-  "agent_orchestrator.workInbox.disposition.title": "Zu prüfender Agentenvorschlag: {agent}"
+  "agent_orchestrator.workInbox.disposition.title": "Zu prüfender Agentenvorschlag: {agent}",
+  "notifications.categories.agent_orchestrator": "KI-Agenten"
 }

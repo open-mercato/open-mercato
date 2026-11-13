@@ -10,6 +10,8 @@ export type QueryIndexScope = {
 
 export type QueryIndexSourceMetadata = {
   table: string
+  schema?: string
+  tableName?: string
   organizationColumn: string | null
   tenantColumn: string | null
 }
@@ -21,6 +23,9 @@ export type QueryIndexSourceScope =
 
 type QueryIndexEntityMetadata = {
   tableName?: unknown
+  className?: unknown
+  name?: unknown
+  schema?: unknown
   properties?: Record<string, { fieldNames?: unknown }>
 }
 
@@ -54,19 +59,44 @@ export function resolveQueryIndexSourceMetadata(
     throw new QueryIndexScopeError(`Query index entity type is not registered: ${entityType}`)
   }
 
-  const table = resolveRegisteredEntityTableName(em, entityType as never)
-  if (!table) {
-    throw new QueryIndexScopeError(`Query index entity type has no registered ORM table: ${entityType}`)
-  }
+  const source = resolveQueryIndexSourceTableMetadata(em, entityType)
+  if (!source) throw new QueryIndexScopeError(`Query index entity type has no registered ORM table: ${entityType}`)
+  const listed = listEntityMetadata(em).some((metadata) => metadata.tableName === (source.tableName ?? source.table) && (metadata.schema && metadata.schema !== '*' ? metadata.schema : undefined) === source.schema)
+  if (!listed) throw new QueryIndexScopeError(`[internal] Query index entity metadata was not found for table: ${source.table}`)
+  return source
+}
 
+export function resolveQueryIndexSourceTableMetadata(
+  em: EntityManager,
+  entityType: string,
+): QueryIndexSourceMetadata | null {
+  const rawName = entityType.split(':').pop() ?? ''
+  const className = rawName.split(/[_\s]+/).filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1)).join('')
   const allMetadata = listEntityMetadata(em) as unknown as QueryIndexEntityMetadata[]
-  const metadata = allMetadata.find((candidate) => String(candidate.tableName ?? '') === table)
-  if (!metadata) {
-    throw new QueryIndexScopeError(`Query index entity metadata was not found for table: ${table}`)
+  let metadata: QueryIndexEntityMetadata | undefined
+  for (const candidate of [className, `${className}Entity`]) {
+    const matches = allMetadata.filter((entry) => entry.className === candidate || entry.name === candidate)
+    if (matches.length > 1) throw new QueryIndexScopeError(`[internal] Ambiguous query-index entity metadata: ${entityType}`)
+    if (matches.length === 1) {
+      metadata = matches[0]
+      break
+    }
   }
-
+  if (!metadata) {
+    const table = resolveRegisteredEntityTableName(em, entityType)
+    if (!table) return null
+    const matches = allMetadata.filter((entry) => entry.tableName === table)
+    if (matches.length !== 1) throw new QueryIndexScopeError(`[internal] Ambiguous query-index table metadata: ${entityType}`)
+    metadata = matches[0]
+  }
+  const tableName = String(metadata.tableName ?? '')
+  if (!tableName) return null
+  const schema = typeof metadata.schema === 'string' && metadata.schema !== '*' ? metadata.schema : undefined
+  const table = schema ? `${schema}.${tableName}` : tableName
   return {
     table,
+    ...(schema ? { schema, tableName } : {}),
     organizationColumn: resolveScopeColumn(metadata, 'organizationId', table),
     tenantColumn: resolveScopeColumn(metadata, 'tenantId', table),
   }

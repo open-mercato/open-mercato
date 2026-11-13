@@ -1,0 +1,100 @@
+{
+  "changeClass": "knowledge-contract",
+  "baseRef": "f0ef20936",
+  "affectedCaseIds": [
+    "OMH-007",
+    "OMH-022",
+    "OMH-030",
+    "OMH-057",
+    "OMH-064",
+    "OMH-216",
+    "OMH-238"
+  ],
+  "affectedRanges": [],
+  "changedContracts": [
+    "routing",
+    "skill-link",
+    "source-link",
+    "context-read",
+    "evaluator",
+    "oracle"
+  ],
+  "focusedTestFiles": [
+    "packages/create-app/src/lib/module-tool-guidance.test.ts",
+    "packages/create-app/src/lib/sandbox-merged-usr.test.ts",
+    "packages/create-app/src/lib/codex-output-schema.test.ts",
+    "packages/create-app/src/lib/compatibility-context-budget.test.ts"
+  ],
+  "authoritativeFiles": [
+    {
+      "path": "packages/create-app/agentic/guides/architecture.md",
+      "sha256": "4576cf550b37daa7cb58ed344616cbe0ad6d1908e2c7ddc5210ef8426e721a5a"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/AGENTS.md.template",
+      "sha256": "f0c94a34cc2531f0bc8c0ce238a721adbb2237731cad43b34aa778764f035212"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/cases.json",
+      "sha256": "e965ec32a92e2126df070976a6b7205ddf256fe0a53d298c7ad44bc4e679fc0d"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/cases.schema.json",
+      "sha256": "e942fda9eabef766d8ae9a88b145698c53fa34e3294dfa2e9c7191358c9bf66d"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/validators.json",
+      "sha256": "e6764c9938e11cd92ed55d77d27ea43b6a72d04f41663d53a6bb85d6bf20127d"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "sha256": "81d43ea6cba2463fd2360f45f16f7a8069b6d6c4eeb0fd3b05212e0e6aed40e2"
+    },
+    {
+      "path": "packages/create-app/scripts/source-links/source-link-inventory.json",
+      "sha256": "7e332a130687a5c3a8ee518a1cb1fa514f7b65ed18a5d295e860b013ef347e9b"
+    },
+    {
+      "path": "packages/create-app/agentic/guides/module-tool.md",
+      "sha256": "22e9f6f40737689d7fb39da92cdc8390a1a72239d5c1e8fb621f85e32af8960e"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/scripts/evaluate-agent-harness.mjs",
+      "sha256": "33cbee44badcb37d61e48f62ac8229df651bee7ade774629e218d504a1ec6a6e"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/scripts/execution-sandbox.mjs",
+      "sha256": "26dd7a3964b536193a7fdb05243e0e89622b010e25a44461afb4dc0392e1c63e"
+    }
+  ],
+  "generatedFiles": [
+    {
+      "path": "packages/create-app/template/AGENTS.md",
+      "sha256": "8418e9c3d56671eeedafafbb081c5a75402e515fb3ed59967a20f0d32587beb8",
+      "sourcePath": "packages/create-app/agentic/shared/AGENTS.md.template"
+    }
+  ],
+  "expectedCatalogCount": 238,
+  "requiredReleaseLanes": [
+    "deterministic",
+    "routing"
+  ],
+  "documentationFiles": [
+    "packages/create-app/README.md",
+    "packages/create-app/agentic/shared/ai/harness/README.md",
+    "packages/create-app/agentic/shared/ai/harness/RELEASE.md",
+    ".ai/specs/2026-07-24-standalone-ai-development-harness.md",
+    ".ai/runs/2026-10-09-standalone-module-tool-evidence.md"
+  ],
+  "sourceLinkInventory": {
+    "path": "packages/create-app/scripts/source-links/source-link-inventory.json",
+    "baselineRef": "f7c941570003f3abe920b1765995cbef98dcad0b",
+    "expectedOwnerCount": 30,
+    "expectedTopicCount": 138,
+    "resolvedLinkCount": 115,
+    "baselineAssetCount": 8,
+    "baselineDispositionCount": 136,
+    "baselinePath": "packages/create-app/scripts/source-links/source-link-baseline.json",
+    "baselineSchemaPath": "packages/create-app/scripts/source-links/source-link-baseline.schema.json"
+  }
+}

@@ -50,12 +50,23 @@ const mockedLogger = createLogger('shared') as unknown as {
 }
 
 const APP_DI_CALL_COUNTER_KEY = '__omTestAppDiRegisterCalls__'
+const BOOTSTRAP_REGISTRATION_CALL_COUNTER_KEY = '__omTestBootstrapRegistrationCalls__'
 
 const GENERATED_MODULES: Record<string, { ts: string; compiled: string }> = {
   'entities.ids.generated': { ts: 'export const E = {}', compiled: 'module.exports = { E: {} }' },
   'modules.cli.generated': { ts: 'export const modules = []', compiled: 'module.exports = { modules: [] }' },
   'entities.generated': { ts: 'export const entities = []', compiled: 'module.exports = { entities: [] }' },
   'di.generated': { ts: 'export const diRegistrars = []', compiled: 'module.exports = { diRegistrars: [] }' },
+  'bootstrap-registrations.generated': {
+    ts: 'export function runBootstrapRegistrations() {}',
+    compiled: [
+      'module.exports = {',
+      '  runBootstrapRegistrations: () => {',
+      `    globalThis['${BOOTSTRAP_REGISTRATION_CALL_COUNTER_KEY}'] = (globalThis['${BOOTSTRAP_REGISTRATION_CALL_COUNTER_KEY}'] ?? 0) + 1`,
+      '  },',
+      '}',
+    ].join('\n'),
+  },
 }
 
 const APP_TSCONFIG = JSON.stringify({
@@ -91,9 +102,9 @@ function writeCompiledPair(
   fs.writeFileSync(compiledPath, source.compiled)
   const sourceRelativePath = path.relative(appRoot, sourcePath).split(path.sep).join('/')
   fs.writeFileSync(`${compiledPath}.cache.json`, JSON.stringify({
-    version: 4,
+    version: 5,
     inputHash: hash(JSON.stringify({
-      version: 4,
+      version: 5,
       sourceHash: hash(source.ts),
       tsconfigHashes: {
         'tsconfig.json': hash(APP_TSCONFIG),
@@ -154,6 +165,16 @@ describe('bootstrapFromAppRoot — app-level DI reaches worker/CLI processes', (
     mockedLogger.debug.mockClear()
     mockedLogger.error.mockClear()
     delete (globalThis as Record<string, unknown>)[APP_DI_CALL_COUNTER_KEY]
+    delete (globalThis as Record<string, unknown>)[BOOTSTRAP_REGISTRATION_CALL_COUNTER_KEY]
+  })
+
+  it('runs generated registrations for worker and CLI processes (#7980)', async () => {
+    const appRoot = createAppRoot(null)
+
+    await bootstrapFromAppRoot(appRoot)
+
+    expect((globalThis as Record<string, unknown>)[BOOTSTRAP_REGISTRATION_CALL_COUNTER_KEY]).toBe(1)
+    expect(mockedLogger.error).not.toHaveBeenCalled()
   })
 
   it('passes the app DI register() from src/di.ts to createBootstrap', async () => {

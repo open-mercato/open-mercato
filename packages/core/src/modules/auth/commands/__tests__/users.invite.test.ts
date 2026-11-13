@@ -57,6 +57,9 @@ function buildTestContext() {
     find: jest.fn(async () => []),
     create: jest.fn((_entity: unknown, data: unknown) => data),
     flush: jest.fn(async () => undefined),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
     remove: jest.fn(function remove(this: any) { return this }),
     persist: jest.fn(function persist(this: any) { return this }),
     nativeDelete: jest.fn(async () => 0),
@@ -76,7 +79,10 @@ function buildTestContext() {
       switch (token) {
         case 'dataEngine': return dataEngine
         case 'em': return em
-        case 'rbacService': return { invalidateUserCache: jest.fn(async () => {}) }
+        case 'rbacService': return {
+          invalidateUserCache: jest.fn(async () => {}),
+          loadAcl: jest.fn(async () => ({ isSuperAdmin: false, features: [], organizations: null })),
+        }
         case 'cache': return { deleteByTags: jest.fn(async () => {}) }
         case 'notificationService': return { create: jest.fn(async () => ({})) }
         default: throw new Error(`Unexpected dependency: ${token}`)

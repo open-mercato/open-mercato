@@ -9,6 +9,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import { packOverlaps } from '../../lib/calendar/layout'
 import { getVisibleRange } from '../../lib/calendar/range'
 import {
@@ -168,6 +169,8 @@ export function TimeGrid({
 }: TimeGridProps) {
   const t = useT()
   const locale = useLocale()
+  const isMobile = useIsMobile()
+  const peekSide = isMobile ? 'bottom' : 'right'
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const nowMs = Date.now()
   const today = startOfDay(new Date())
@@ -175,6 +178,11 @@ export function TimeGrid({
   const anchorMs = anchor.getTime()
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [drag, setDrag] = React.useState<DragState | null>(null)
+  const dragRef = React.useRef<DragState | null>(null)
+  const updateDrag = (next: DragState | null) => {
+    dragRef.current = next
+    setDrag(next)
+  }
 
   const dayStarts = React.useMemo(() => {
     const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new Date(anchorMs), 0).from
@@ -257,32 +265,29 @@ export function TimeGrid({
       // Pointer capture is best-effort; ignore environments that reject it.
     }
     setSelectedId(null)
-    setDrag({ dayMs: dayStart.getTime(), startMin: minute, endMin: minute, moved: false })
+    updateDrag({ dayMs: dayStart.getTime(), startMin: minute, endMin: minute, moved: false })
   }
 
   const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    // Read the layer rect synchronously: `event.currentTarget` is only valid during
-    // event dispatch, but the setDrag updater below runs later during re-render.
+    const previous = dragRef.current
+    if (!previous) return
     const rect = event.currentTarget.getBoundingClientRect()
     const minute = offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX)
-    setDrag((previous) => {
-      if (!previous) return previous
-      return {
-        ...previous,
-        endMin: minute,
-        moved: previous.moved || Math.abs(minute - previous.startMin) >= DRAG_SNAP_MINUTES,
-      }
+    if (minute === previous.endMin) return
+    updateDrag({
+      ...previous,
+      endMin: minute,
+      moved: previous.moved || Math.abs(minute - previous.startMin) >= DRAG_SNAP_MINUTES,
     })
   }
 
   const endDrag = (dayStart: Date) => {
-    setDrag((previous) => {
-      if (previous && previous.moved && onCreateRange) {
-        const range = buildDragRange(dayStart, previous.startMin, previous.endMin)
-        onCreateRange(range.start, range.end)
-      }
-      return null
-    })
+    const previous = dragRef.current
+    updateDrag(null)
+    if (previous && previous.moved && onCreateRange) {
+      const range = buildDragRange(dayStart, previous.startMin, previous.endMin)
+      onCreateRange(range.start, range.end)
+    }
   }
 
   return (
@@ -346,6 +351,7 @@ export function TimeGrid({
                   {allDayItems.map((item) => (
                     <EventPeekPopover
                       key={item.id}
+                      side={peekSide}
                       item={item}
                       open={selectedId === item.id}
                       joinUrl={resolveJoinUrl(item.location)}
@@ -428,7 +434,7 @@ export function TimeGrid({
                     onPointerDown={(event) => beginDrag(event, dayStart)}
                     onPointerMove={moveDrag}
                     onPointerUp={() => endDrag(dayStart)}
-                    onPointerCancel={() => setDrag(null)}
+                    onPointerCancel={() => updateDrag(null)}
                     aria-hidden
                   />
                 ) : null}
@@ -458,6 +464,7 @@ export function TimeGrid({
                   {blocks.map((block) => (
                     <EventPeekPopover
                       key={`${block.item.id}-${block.top}`}
+                      side={peekSide}
                       item={block.item}
                       open={selectedId === block.item.id}
                       joinUrl={resolveJoinUrl(block.item.location)}

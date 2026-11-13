@@ -27,6 +27,7 @@ import {
 } from './task-decisions'
 import { loadTaskDecisionContext } from './task-decision-context'
 import { readRequiredFormFields } from './task-form-schema'
+import { isRunClosedToUserTasks } from './instance-status'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -103,6 +104,14 @@ export class UserTaskError extends Error {
  * 4. Logs completion event
  * 5. Resumes workflow execution
  *
+ * Closing the task is a COMPARE-AND-SET, like `claimUserTask`: the lookup only
+ * decides which error to report, while the row is closed with a conditional
+ * `UPDATE … WHERE status IN ('PENDING', 'IN_PROGRESS')`. Two submissions of the
+ * same task (the task page and a notification quick action, two tabs, a client
+ * retrying after a timeout) can both pass the lookup; only one closes the row,
+ * and the other gets the same `TASK_NOT_FOUND` a later submission would, before
+ * any event is logged or the run is advanced.
+ *
  * @param em - Entity manager
  * @param container - DI container for workflow execution
  * @param options - Task completion options
@@ -174,23 +183,6 @@ export async function completeUserTask(
     )
   }
 
-  // The chosen decision rides along inside the completion payload the task
-  // already persists — no new column, and downstream route conditions can read
-  // it once the payload is merged into the run context.
-  const completionData = withRecordedDecision(formData, chosenDecision?.id)
-
-  // Update task
-  const now = new Date()
-  task.status = 'COMPLETED'
-  task.formData = completionData
-  task.completedBy = userId
-  task.completedAt = now
-  task.comments = comments || null
-  task.updatedAt = now
-
-  await em.flush()
-
-  // Fetch workflow instance
   const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
   if (!instance) {
     throw new UserTaskError(
@@ -199,6 +191,57 @@ export async function completeUserTask(
       { workflowInstanceId: task.workflowInstanceId }
     )
   }
+
+  if (isRunClosedToUserTasks(instance.status)) {
+    throw new UserTaskError(
+      'Workflow is no longer active',
+      'WORKFLOW_NOT_ACTIVE',
+      { taskId, workflowInstanceId: instance.id, status: instance.status }
+    )
+  }
+
+  // The chosen decision rides along inside the completion payload the task
+  // already persists — no new column, and downstream route conditions can read
+  // it once the payload is merged into the run context.
+  const completionData = withRecordedDecision(formData, chosenDecision?.id)
+
+  const now = new Date()
+  const closed = await em.nativeUpdate(
+    UserTask,
+    {
+      id: taskId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      status: { $in: ['PENDING', 'IN_PROGRESS'] },
+      assignedTo: task.assignedTo ?? null,
+      claimedBy: task.claimedBy ?? null,
+    },
+    {
+      status: 'COMPLETED',
+      formData: completionData,
+      completedBy: userId,
+      completedAt: now,
+      comments: comments || null,
+      updatedAt: now,
+    },
+  )
+
+  if (closed === 0) {
+    throw new UserTaskError(
+      'Task not found or already completed',
+      'TASK_NOT_FOUND',
+      { taskId }
+    )
+  }
+
+  task.status = 'COMPLETED'
+  task.formData = completionData
+  task.completedBy = userId
+  task.completedAt = now
+  task.comments = comments || null
+  task.updatedAt = now
+
+  await em.flush()
 
   // Branch-scoped completion: when the task belongs to a parallel branch,
   // merge form data into the branch namespace and resume just that branch.

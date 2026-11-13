@@ -109,5 +109,11 @@ export interface ShippingAdapter {
     credentials: Record<string, unknown>
   }): Promise<ShippingWebhookEvent>
   mapStatus(carrierStatus: string): UnifiedShipmentStatus
+  /**
+   * Optional: returns the carrier shipment id from a parsed (still unverified) webhook body
+   * when the carrier does not send it as `shipmentId` / `data.shipmentId`. The webhook route
+   * uses it only to locate candidate shipments whose credentials then verify the signature.
+   */
+  extractWebhookShipmentId?(payload: Record<string, unknown>): string | null
   searchDropOffPoints?(input: SearchDropOffPointsInput): Promise<DropOffPoint[]>
 }

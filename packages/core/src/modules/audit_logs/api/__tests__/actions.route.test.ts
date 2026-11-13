@@ -112,6 +112,12 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
     expect(data.items[0].tenantName).toBe('Tenant')
     expect(data.items[0].organizationName).toBe('Org')
     expect(data.canViewTenant).toBe(false)
+
+    const listQuery = mockActionLogs.list.mock.calls[0][0]
+    expect(listQuery.page).toBeUndefined()
+    expect(listQuery.pageSize).toBeUndefined()
+    expect(listQuery.limit).toBeUndefined()
+    expect(listQuery.offset).toBeUndefined()
   })
 
   it('passes page and pageSize to service', async () => {
@@ -143,6 +149,27 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
       page: 3,
       pageSize: 25,
     }))
+    const listQuery = mockActionLogs.list.mock.calls[0][0]
+    expect(listQuery.limit).toBeUndefined()
+    expect(listQuery.offset).toBeUndefined()
+  })
+
+  it('passes legacy limit and offset to service without inventing a page', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions?limit=20&offset=40'))
+    expect(res.status).toBe(200)
+
+    const listQuery = mockActionLogs.list.mock.calls[0][0]
+    expect(listQuery.limit).toBe(20)
+    expect(listQuery.offset).toBe(40)
+    expect(listQuery.page).toBeUndefined()
+    expect(listQuery.pageSize).toBeUndefined()
   })
 
   it('clamps pageSize to max 200', async () => {
