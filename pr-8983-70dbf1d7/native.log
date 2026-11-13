@@ -1,0 +1,35 @@
+◇ injected env (122) from apps/mercato/.env // tip: ⌘ suppress logs { quiet: true }
+╔═══════════════════════╗
+║  🧩 Open Mercato CLI  ║
+╚═══════════════════════╝
+
+🚀 Running test:integration TC-FORMS-UI|TC-FORMS-ACL|TC-FORMS-TEN|TC-FORMS-LOCK|TC-WC-001|TC-WC-002
+[integration] Running Playwright suite...
+[integration] Checking whether an existing ephemeral environment can be reused...
+[integration] Reusing existing ephemeral environment at http://127.0.0.1:46747.
+[integration] Ignoring the inherited JWT_SECRET: it is a placeholder or too short and the ephemeral app runs with NODE_ENV=production. Using the ephemeral default instead.
+[integration] Ensuring Playwright Chromium is installed...
+
+Running 16 tests using 1 worker
+
+  ✓   1 packages/core/src/modules/forms/__integration__/TC-FORMS-ACL-005.spec.ts:25:3 › TC-FORMS-ACL-005: forms.view cannot create or edit › grants the list read and denies create and patch (1.6s)
+  ✓   2 packages/core/src/modules/forms/__integration__/TC-FORMS-ACL-006.spec.ts:25:3 › TC-FORMS-ACL-006: no forms feature denies every admin route › denies list, detail, submissions, analytics, distributions and versions (1.1s)
+  ✓   3 packages/core/src/modules/forms/__integration__/TC-FORMS-LOCK-001.spec.ts:14:3 › TC-FORMS-LOCK-001: form metadata optimistic locking › rejects a stale form edit with the unified 409 payload (213ms)
+  ✓   4 packages/core/src/modules/forms/__integration__/TC-FORMS-TEN-008.spec.ts:30:3 › TC-FORMS-TEN-008: cross-organization form read › answers 404 for a foreign form id and stays indistinguishable from a missing one (219ms)
+  ✓   5 packages/core/src/modules/forms/__integration__/TC-FORMS-TEN-009.spec.ts:24:3 › TC-FORMS-TEN-009: cross-organization form mutation › refuses a foreign patch and delete, leaving the row unchanged (289ms)
+  ✓   6 packages/core/src/modules/forms/__integration__/TC-FORMS-UI-001.spec.ts:29:3 › TC-FORMS-UI-001: backend forms list page › lists an API-created form for an admin and shows nothing to an employee (4.2s)
+  ✓   7 packages/core/src/modules/forms/__integration__/TC-FORMS-UI-002.spec.ts:43:3 › TC-FORMS-UI-002: create a form through the UI › submits the create form and persists the reshaped payload (3.2s)
+  ✓   8 packages/core/src/modules/forms/__integration__/TC-FORMS-UI-009-header-wrap.spec.ts:9:3 › TC-FORMS-UI-009: narrow studio header › keeps translated actions and long metadata inside the viewport (5.4s)
+  ✓   9 packages/core/src/modules/forms/__integration__/TC-FORMS-UI-010-metadata-autosave.spec.ts:9:3 › TC-FORMS-UI-010: en metadata refusals never report saved (6.7s)
+  ✓  10 packages/core/src/modules/forms/__integration__/TC-FORMS-UI-010-metadata-autosave.spec.ts:9:3 › TC-FORMS-UI-010: pl metadata refusals never report saved (6.9s)
+  ✓  11 packages/core/src/modules/warranty_claims/__integration__/TC-WC-001-claims-crud.spec.ts:26:3 › TC-WC-001: warranty claims CRUD API › enforces auth, feature gates, filters, locking, immutable status, and draft-only delete (2.9s)
+  ✓  12 packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts:23:5 › TC-WC-002: warranty claim line partial approvals › admin can cancel then confirm removing a line from the desk (#8012) (3.2s)
+  ✓  13 packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts:23:5 › TC-WC-002: warranty claim line partial approvals › employee can cancel then confirm removing a line from the desk (#8012) (3.2s)
+  ✓  14 packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts:76:3 › TC-WC-002: warranty claim line partial approvals › validates partial quantities, recomputes header totals, and locks closed claims (5.0s)
+  ✓  15 packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts:211:3 › TC-WC-002: warranty claim line partial approvals › refuses a stale per-line optimistic-lock update with HTTP 409 (444ms)
+  ✓  16 packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts:279:3 › TC-WC-002: warranty claim line partial approvals › auto-assigns the next line number when creating an additional line without lineNo (451ms)
+
+  16 passed (1.0m)
+[integration] Attached to an already running ephemeral environment from .ai/qa/ephemeral-env.json.
+[integration] Screenshot capture is enabled (override with --screenshots / --no-screenshots)
+⏱️ Done in 64841ms
