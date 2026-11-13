@@ -121,6 +121,38 @@ async function sendCcCopies(
   }
 }
 
+/**
+ * The quotes list is served from the CRUD GET cache, so a custom route flushes it itself
+ * or the list keeps reporting the quote as unsent until the entry expires. The send state
+ * is already committed when this runs: a cache backend that rejects must not stop the
+ * quote from being mailed, so the failure is reported and the stale entry is left to expire.
+ */
+async function flushQuoteListCache(
+  container: Parameters<typeof invalidateCrudCache>[0],
+  quote: SalesQuote,
+): Promise<void> {
+  try {
+    await invalidateCrudCache(
+      container,
+      'sales.quote',
+      { id: quote.id, tenantId: quote.tenantId, organizationId: quote.organizationId },
+      quote.tenantId ?? null,
+      'updated',
+    )
+  } catch (err) {
+    logger.error('sales.quotes.send cache invalidation failed', { err, quoteId: quote.id })
+    try {
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'sales',
+        code: 'sales.quote_send_cache_invalidation_failed',
+        attributes: { quoteId: quote.id },
+      })
+    } catch (reportingErr) {
+      logger.warn('sales.quotes.send cache invalidation failure could not be reported', { err: reportingErr, quoteId: quote.id })
+    }
+  }
+}
+
 function resolveQuoteEmail(quote: SalesQuote): string | null {
   const snapshot = normalizeRecord(quote.customerSnapshot)
   const metadata = normalizeRecord(quote.metadata)
@@ -214,15 +246,7 @@ export async function POST(req: Request) {
       tx.persist(quote)
     })
 
-    // The quotes list is served from the CRUD GET cache; a custom route has to flush it
-    // itself, or the list keeps reporting the quote as unsent until the entry expires.
-    await invalidateCrudCache(
-      ctx.container,
-      'sales.quote',
-      { id: quote.id, tenantId: quote.tenantId, organizationId: quote.organizationId },
-      quote.tenantId ?? null,
-      'updated',
-    )
+    await flushQuoteListCache(ctx.container, quote)
 
     const appUrl = process.env.APP_URL || ''
     const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${rawAcceptanceToken}` : `/quote/${rawAcceptanceToken}`
