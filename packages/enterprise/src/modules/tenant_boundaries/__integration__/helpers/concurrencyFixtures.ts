@@ -16,12 +16,15 @@ export async function createConcurrencyFixtures(runtime: RlsLiveRuntime) {
       ['delete from sessions where user_id=any($1::uuid[])', userIds],
       ['delete from user_acls where user_id=any($1::uuid[])', userIds],
       ['delete from users where id=any($1::uuid[])', userIds],
-      ['delete from customer_people where id=any($1::uuid[])', profileIds],
+      ['delete from customer_people where tenant_id=any($1::uuid[])', [runtime.first.tenantId, runtime.second.tenantId]],
     ]
     try {
       for (const [query, identifiers] of removals) {
         try { await admin.query(query, [identifiers]) } catch (error) { failures.push(error) }
       }
+      try {
+        await admin.query('delete from customer_entities where tenant_id=any($1::uuid[]) and not (id=any($2::uuid[]))', [[runtime.first.tenantId, runtime.second.tenantId], [runtime.first.customerId, runtime.second.customerId]])
+      } catch (error) { failures.push(error) }
     } finally { await admin.end() }
     if (failures.length) throw new AggregateError(failures, '[internal] Concurrency fixture cleanup failed')
   }
@@ -41,7 +44,13 @@ export async function createConcurrencyFixtures(runtime: RlsLiveRuntime) {
       actor.token = signJwt({ sub: actor.userId, sid: actor.sessionId, tenantId: actor.tenantId, orgId: actor.orgId, email, roles: [] })
     }
     const retainedRows = async () => (await admin.query('select id,tenant_id,organization_id,display_name,updated_at,deleted_at from customer_entities where id=any($1::uuid[]) order by id', [[runtime.first.customerId, runtime.second.customerId]])).rows as Record<string, unknown>[]
-    return { actors, cleanup, retainedRows }
+    const ownRowMatches = async (id: string, actor: ConcurrencyActor, displayName: string, deleted: boolean) => {
+      const result = await admin.query('select tenant_id,organization_id,display_name,deleted_at from customer_entities where id=$1', [id])
+      const row = result.rows[0]
+      return result.rows.length === 1 && row.tenant_id === actor.tenantId && row.organization_id === actor.orgId
+        && row.display_name === displayName && (deleted ? row.deleted_at !== null : row.deleted_at === null)
+    }
+    return { actors, cleanup, retainedRows, ownRowMatches }
   } catch (error) {
     try { await cleanup() } catch (cleanupError) { throw new AggregateError([error, cleanupError], '[internal] Concurrency fixture setup and cleanup failed') }
     throw error
